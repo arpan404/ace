@@ -245,6 +245,11 @@ fn transport_config_metadata(config: &CodexTransportConfig) -> Value {
                 "path": path,
             })
         }
+        CodexTransportConfig::WebSocket { url } => {
+            json!({
+                "url": url,
+            })
+        }
     }
 }
 
@@ -1721,6 +1726,23 @@ pub mod tests {
             status.metadata["transport_config"]["path"],
             socket_path.to_string_lossy().as_ref()
         );
+        assert_eq!(status.metadata["spawns_on_first_request"], true);
+    }
+
+    #[tokio::test]
+    async fn live_backend_status_reports_configured_websocket_transport() {
+        let url = "ws://127.0.0.1:54321/codex".to_string();
+        let backend = LiveCodexBackend::with_config(CodexConfig {
+            transport: CodexTransportConfig::websocket(url.clone()),
+            client_info: ace_codex::CodexClientInfo::default(),
+            request_timeout: Duration::from_millis(50),
+        });
+
+        let status = backend.status().await;
+        assert_eq!(status.health, ProviderRuntimeHealth::Stopped);
+        assert_eq!(status.transport.as_deref(), Some("websocket"));
+        assert_eq!(status.metadata["transport"], "websocket");
+        assert_eq!(status.metadata["transport_config"]["url"], url);
         assert_eq!(status.metadata["spawns_on_first_request"], true);
     }
 

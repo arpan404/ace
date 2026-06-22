@@ -1,5 +1,6 @@
 use crate::{CodexError, Result};
 use async_trait::async_trait;
+use futures_util::{SinkExt, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -21,6 +22,7 @@ use tokio::{
     sync::{Mutex, mpsc, oneshot},
     time,
 };
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 const OUTBOUND_QUEUE_SIZE: usize = 256;
 const EVENT_QUEUE_SIZE: usize = 1024;
@@ -104,6 +106,15 @@ pub type JsonlAppServerTransport = CodexStdioTransport;
 #[derive(Clone)]
 pub struct CodexUnixSocketTransport {
     outbound: mpsc::Sender<Vec<u8>>,
+    events: Arc<Mutex<mpsc::Receiver<CodexInboundEvent>>>,
+    pending: PendingRequests,
+    next_id: Arc<AtomicI64>,
+    closed: Arc<AtomicBool>,
+}
+
+#[derive(Clone)]
+pub struct CodexWebSocketTransport {
+    outbound: mpsc::Sender<Message>,
     events: Arc<Mutex<mpsc::Receiver<CodexInboundEvent>>>,
     pending: PendingRequests,
     next_id: Arc<AtomicI64>,
@@ -421,6 +432,139 @@ impl AppServerTransport for CodexUnixSocketTransport {
     }
 }
 
+impl CodexWebSocketTransport {
+    pub async fn connect(url: impl AsRef<str>) -> Result<Self> {
+        let (stream, _) = connect_async(url.as_ref()).await.map_err(|error| {
+            CodexError::InvalidMessage(format!("websocket connect failed: {error}"))
+        })?;
+        let (mut writer, reader) = stream.split();
+        let (outbound, mut outbound_rx) = mpsc::channel::<Message>(OUTBOUND_QUEUE_SIZE);
+        let (events_tx, events_rx) = mpsc::channel::<CodexInboundEvent>(EVENT_QUEUE_SIZE);
+        let pending: PendingRequests = Arc::new(Mutex::new(HashMap::new()));
+        let closed = Arc::new(AtomicBool::new(false));
+
+        let writer_closed = Arc::clone(&closed);
+        let writer_pending = Arc::clone(&pending);
+        tokio::spawn(async move {
+            while let Some(message) = outbound_rx.recv().await {
+                if writer.send(message).await.is_err() {
+                    break;
+                }
+            }
+            writer_closed.store(true, Ordering::Relaxed);
+            close_pending_requests(&writer_pending).await;
+        });
+
+        tokio::spawn(read_websocket_loop(
+            reader,
+            Arc::clone(&pending),
+            events_tx,
+            Arc::clone(&closed),
+        ));
+
+        Ok(Self {
+            outbound,
+            events: Arc::new(Mutex::new(events_rx)),
+            pending,
+            next_id: Arc::new(AtomicI64::new(1)),
+            closed,
+        })
+    }
+
+    async fn send_value(&self, value: Value) -> Result<()> {
+        let frame = serde_json::to_string(&value)?;
+        if frame.len() > MAX_LINE_BYTES {
+            return Err(CodexError::FrameTooLarge {
+                limit: MAX_LINE_BYTES,
+            });
+        }
+        self.outbound
+            .send(Message::Text(frame.into()))
+            .await
+            .map_err(|_| CodexError::OutboundQueueFull)
+    }
+}
+
+#[async_trait]
+impl AppServerTransport for CodexWebSocketTransport {
+    async fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut pending = self.pending.lock().await;
+            if pending.len() >= MAX_PENDING_REQUESTS {
+                return Err(CodexError::PendingRequestsFull);
+            }
+            pending.insert(id, tx);
+        }
+
+        let payload = json!({
+            "id": id,
+            "method": method,
+            "params": params,
+        });
+        if let Err(error) = self.send_value(payload).await {
+            self.pending.lock().await.remove(&id);
+            return Err(error);
+        }
+
+        time::timeout(timeout, rx)
+            .await
+            .map_err(|_| {
+                let pending = Arc::clone(&self.pending);
+                tokio::spawn(async move {
+                    pending.lock().await.remove(&id);
+                });
+                CodexError::RequestTimeout {
+                    method: method.to_string(),
+                    timeout,
+                }
+            })?
+            .map_err(|_| CodexError::TransportClosed)?
+    }
+
+    async fn notify(&self, method: &str, params: Value) -> Result<()> {
+        self.send_value(json!({
+            "method": method,
+            "params": params,
+        }))
+        .await
+    }
+
+    async fn respond_result(&self, id: i64, result: Value) -> Result<()> {
+        self.send_value(json!({ "id": id, "result": result })).await
+    }
+
+    async fn respond_error(&self, id: i64, code: i64, message: &str) -> Result<()> {
+        self.send_value(json!({
+            "id": id,
+            "error": {
+                "code": code,
+                "message": message,
+            },
+        }))
+        .await
+    }
+
+    async fn recv(&self) -> Option<CodexInboundEvent> {
+        self.events.lock().await.recv().await
+    }
+
+    async fn stderr_tail(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    async fn shutdown(&self, _timeout: Duration) -> Result<()> {
+        let _ = self.notify("shutdown", Value::Null).await;
+        let _ = self.outbound.send(Message::Close(None)).await;
+        Ok(())
+    }
+
+    fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Relaxed)
+    }
+}
+
 async fn read_stdout_loop(
     stdout: impl tokio::io::AsyncRead + Unpin,
     pending: PendingRequests,
@@ -451,6 +595,46 @@ async fn read_socket_loop(
             continue;
         }
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        route_message(value, &pending, &events).await;
+    }
+    closed.store(true, Ordering::Relaxed);
+    close_pending_requests(&pending).await;
+    let _ = events
+        .send(CodexInboundEvent::ServerExited { code: None })
+        .await;
+}
+
+async fn read_websocket_loop<S>(
+    mut reader: S,
+    pending: PendingRequests,
+    events: mpsc::Sender<CodexInboundEvent>,
+    closed: Arc<AtomicBool>,
+) where
+    S: Stream<Item = std::result::Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+{
+    while let Some(message) = reader.next().await {
+        let Ok(message) = message else {
+            break;
+        };
+        let value = match message {
+            Message::Text(text) => {
+                if text.len() > MAX_LINE_BYTES {
+                    continue;
+                }
+                serde_json::from_str::<Value>(&text)
+            }
+            Message::Binary(bytes) => {
+                if bytes.len() > MAX_LINE_BYTES {
+                    continue;
+                }
+                serde_json::from_slice::<Value>(&bytes)
+            }
+            Message::Close(_) => break,
+            Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => continue,
+        };
+        let Ok(value) = value else {
             continue;
         };
         route_message(value, &pending, &events).await;
@@ -591,8 +775,10 @@ pub(crate) mod tests {
     use super::*;
     use std::{collections::VecDeque, sync::Mutex as StdMutex};
     use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
     #[cfg(unix)]
     use tokio::net::UnixListener;
+    use tokio_tungstenite::accept_async;
 
     #[derive(Default)]
     pub struct FakeTransport {
@@ -845,6 +1031,89 @@ pub(crate) mod tests {
             transport.recv().await,
             Some(CodexInboundEvent::Notification { method, params })
                 if method == "turn/started" && params["turnId"] == "turn-1"
+        ));
+
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn websocket_transport_routes_json_rpc_frames() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind tcp");
+        let address = listener.local_addr().expect("local addr");
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept tcp");
+            let mut socket = accept_async(stream).await.expect("accept websocket");
+
+            let request = socket
+                .next()
+                .await
+                .expect("request message")
+                .expect("request ok");
+            let request = match request {
+                Message::Text(text) => serde_json::from_str::<Value>(&text).expect("request json"),
+                other => panic!("expected text request, got {other:?}"),
+            };
+            assert_eq!(request["method"], "thread/read");
+            assert_eq!(request["params"]["threadId"], "thread-1");
+
+            socket
+                .send(Message::Text(
+                    json!({
+                        "id": request["id"],
+                        "result": { "threadId": "thread-1" }
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .expect("write response");
+            socket
+                .send(Message::Text(
+                    json!({
+                        "method": "turn/started",
+                        "params": { "threadId": "thread-1", "turnId": "turn-1" }
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .expect("write notification");
+            socket
+                .send(Message::Text(
+                    json!({
+                        "id": 42,
+                        "method": "item/tool/call",
+                        "params": { "toolName": "ace_browser" }
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .expect("write server request");
+        });
+
+        let transport = CodexWebSocketTransport::connect(format!("ws://{address}"))
+            .await
+            .expect("connect websocket");
+        let result = transport
+            .request(
+                "thread/read",
+                json!({ "threadId": "thread-1" }),
+                Duration::from_secs(1),
+            )
+            .await
+            .expect("request result");
+        assert_eq!(result["threadId"], "thread-1");
+        assert!(matches!(
+            transport.recv().await,
+            Some(CodexInboundEvent::Notification { method, params })
+                if method == "turn/started" && params["turnId"] == "turn-1"
+        ));
+        assert!(matches!(
+            transport.recv().await,
+            Some(CodexInboundEvent::ServerRequest { id: 42, method, params })
+                if method == "item/tool/call" && params["toolName"] == "ace_browser"
         ));
 
         server.await.expect("server task");

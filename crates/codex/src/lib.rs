@@ -29,5 +29,5 @@ pub use schema::{
 };
 pub use transport::{
     AppServerTransport, CodexJsonRpcError, CodexResponse, CodexStdioTransport,
-    CodexUnixSocketTransport, JsonlAppServerTransport,
+    CodexUnixSocketTransport, CodexWebSocketTransport, JsonlAppServerTransport,
 };

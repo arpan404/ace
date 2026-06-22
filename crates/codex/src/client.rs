@@ -1,6 +1,6 @@
 use crate::{
-    AppServerTransport, CodexError, CodexStdioTransport, CodexUnixSocketTransport, Result,
-    normalize_codex_inbound_event,
+    AppServerTransport, CodexError, CodexStdioTransport, CodexUnixSocketTransport,
+    CodexWebSocketTransport, Result, normalize_codex_inbound_event,
 };
 use crate::{
     CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent, CodexPermissionCatalog,
@@ -43,6 +43,7 @@ impl Default for CodexClientInfo {
 pub enum CodexTransportConfig {
     Stdio { command: String, args: Vec<String> },
     UnixSocket { path: PathBuf },
+    WebSocket { url: String },
 }
 
 impl CodexTransportConfig {
@@ -51,6 +52,7 @@ impl CodexTransportConfig {
         match self {
             Self::Stdio { .. } => "stdio",
             Self::UnixSocket { .. } => "unix_socket",
+            Self::WebSocket { .. } => "websocket",
         }
     }
 
@@ -65,6 +67,11 @@ impl CodexTransportConfig {
     #[must_use]
     pub fn unix_socket(path: impl Into<PathBuf>) -> Self {
         Self::UnixSocket { path: path.into() }
+    }
+
+    #[must_use]
+    pub fn websocket(url: impl Into<String>) -> Self {
+        Self::WebSocket { url: url.into() }
     }
 }
 
@@ -265,10 +272,25 @@ impl CodexClient<CodexUnixSocketTransport> {
     }
 }
 
+impl CodexClient<CodexWebSocketTransport> {
+    pub async fn connect_websocket(config: CodexConfig) -> Result<Self> {
+        let CodexTransportConfig::WebSocket { url } = &config.transport else {
+            return Err(CodexError::InvalidMessage(
+                "CodexClient::connect_websocket requires websocket transport config".to_string(),
+            ));
+        };
+        let transport = CodexWebSocketTransport::connect(url).await?;
+        let client = Self::new(transport, config.request_timeout);
+        client.initialize(config.client_info).await?;
+        Ok(client)
+    }
+}
+
 #[derive(Clone)]
 pub enum CodexLiveClient {
     Stdio(CodexClient<CodexStdioTransport>),
     UnixSocket(CodexClient<CodexUnixSocketTransport>),
+    WebSocket(CodexClient<CodexWebSocketTransport>),
 }
 
 impl CodexLiveClient {
@@ -278,6 +300,9 @@ impl CodexLiveClient {
             CodexTransportConfig::UnixSocket { .. } => CodexClient::connect_unix(config)
                 .await
                 .map(Self::UnixSocket),
+            CodexTransportConfig::WebSocket { .. } => CodexClient::connect_websocket(config)
+                .await
+                .map(Self::WebSocket),
         }
     }
 
@@ -286,6 +311,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(_) => "stdio",
             Self::UnixSocket(_) => "unix_socket",
+            Self::WebSocket(_) => "websocket",
         }
     }
 
@@ -293,6 +319,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.raw_request(method, params).await,
             Self::UnixSocket(client) => client.raw_request(method, params).await,
+            Self::WebSocket(client) => client.raw_request(method, params).await,
         }
     }
 
@@ -300,6 +327,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.next_provider_events().await,
             Self::UnixSocket(client) => client.next_provider_events().await,
+            Self::WebSocket(client) => client.next_provider_events().await,
         }
     }
 
@@ -307,6 +335,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.stderr_tail().await,
             Self::UnixSocket(client) => client.stderr_tail().await,
+            Self::WebSocket(client) => client.stderr_tail().await,
         }
     }
 
@@ -314,6 +343,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.shutdown(timeout).await,
             Self::UnixSocket(client) => client.shutdown(timeout).await,
+            Self::WebSocket(client) => client.shutdown(timeout).await,
         }
     }
 
@@ -322,6 +352,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.is_closed(),
             Self::UnixSocket(client) => client.is_closed(),
+            Self::WebSocket(client) => client.is_closed(),
         }
     }
 
@@ -330,6 +361,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.is_initialized(),
             Self::UnixSocket(client) => client.is_initialized(),
+            Self::WebSocket(client) => client.is_initialized(),
         }
     }
 
@@ -338,6 +370,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.initialize_result(),
             Self::UnixSocket(client) => client.initialize_result(),
+            Self::WebSocket(client) => client.initialize_result(),
         }
     }
 
@@ -345,6 +378,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.respond_tool_result(request_id, result).await,
             Self::UnixSocket(client) => client.respond_tool_result(request_id, result).await,
+            Self::WebSocket(client) => client.respond_tool_result(request_id, result).await,
         }
     }
 
@@ -357,6 +391,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.respond_tool_error(request_id, code, message).await,
             Self::UnixSocket(client) => client.respond_tool_error(request_id, code, message).await,
+            Self::WebSocket(client) => client.respond_tool_error(request_id, code, message).await,
         }
     }
 
@@ -364,6 +399,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.start_thread(request).await,
             Self::UnixSocket(client) => client.start_thread(request).await,
+            Self::WebSocket(client) => client.start_thread(request).await,
         }
     }
 
@@ -371,6 +407,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.resume_thread(thread_id).await,
             Self::UnixSocket(client) => client.resume_thread(thread_id).await,
+            Self::WebSocket(client) => client.resume_thread(thread_id).await,
         }
     }
 
@@ -378,6 +415,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.fork_thread(thread_id, ephemeral).await,
             Self::UnixSocket(client) => client.fork_thread(thread_id, ephemeral).await,
+            Self::WebSocket(client) => client.fork_thread(thread_id, ephemeral).await,
         }
     }
 
@@ -385,6 +423,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.read_thread(thread_id).await,
             Self::UnixSocket(client) => client.read_thread(thread_id).await,
+            Self::WebSocket(client) => client.read_thread(thread_id).await,
         }
     }
 
@@ -392,6 +431,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.list_threads(params).await,
             Self::UnixSocket(client) => client.list_threads(params).await,
+            Self::WebSocket(client) => client.list_threads(params).await,
         }
     }
 
@@ -399,6 +439,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.list_loaded_threads().await,
             Self::UnixSocket(client) => client.list_loaded_threads().await,
+            Self::WebSocket(client) => client.list_loaded_threads().await,
         }
     }
 
@@ -406,6 +447,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.archive_thread(thread_id).await,
             Self::UnixSocket(client) => client.archive_thread(thread_id).await,
+            Self::WebSocket(client) => client.archive_thread(thread_id).await,
         }
     }
 
@@ -413,6 +455,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.unarchive_thread(thread_id).await,
             Self::UnixSocket(client) => client.unarchive_thread(thread_id).await,
+            Self::WebSocket(client) => client.unarchive_thread(thread_id).await,
         }
     }
 
@@ -420,6 +463,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.delete_thread(thread_id).await,
             Self::UnixSocket(client) => client.delete_thread(thread_id).await,
+            Self::WebSocket(client) => client.delete_thread(thread_id).await,
         }
     }
 
@@ -427,6 +471,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.unsubscribe_thread(thread_id).await,
             Self::UnixSocket(client) => client.unsubscribe_thread(thread_id).await,
+            Self::WebSocket(client) => client.unsubscribe_thread(thread_id).await,
         }
     }
 
@@ -434,6 +479,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.set_thread_name(thread_id, name).await,
             Self::UnixSocket(client) => client.set_thread_name(thread_id, name).await,
+            Self::WebSocket(client) => client.set_thread_name(thread_id, name).await,
         }
     }
 
@@ -441,6 +487,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.update_thread_metadata(thread_id, metadata).await,
             Self::UnixSocket(client) => client.update_thread_metadata(thread_id, metadata).await,
+            Self::WebSocket(client) => client.update_thread_metadata(thread_id, metadata).await,
         }
     }
 
@@ -448,6 +495,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.compact_thread(thread_id).await,
             Self::UnixSocket(client) => client.compact_thread(thread_id).await,
+            Self::WebSocket(client) => client.compact_thread(thread_id).await,
         }
     }
 
@@ -455,6 +503,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.rollback_thread(thread_id, turn_id).await,
             Self::UnixSocket(client) => client.rollback_thread(thread_id, turn_id).await,
+            Self::WebSocket(client) => client.rollback_thread(thread_id, turn_id).await,
         }
     }
 
@@ -462,6 +511,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.inject_thread_items(thread_id, items).await,
             Self::UnixSocket(client) => client.inject_thread_items(thread_id, items).await,
+            Self::WebSocket(client) => client.inject_thread_items(thread_id, items).await,
         }
     }
 
@@ -469,6 +519,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.start_turn(request).await,
             Self::UnixSocket(client) => client.start_turn(request).await,
+            Self::WebSocket(client) => client.start_turn(request).await,
         }
     }
 
@@ -476,6 +527,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.steer_turn(request).await,
             Self::UnixSocket(client) => client.steer_turn(request).await,
+            Self::WebSocket(client) => client.steer_turn(request).await,
         }
     }
 
@@ -483,6 +535,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.continue_plan_in_thread(request).await,
             Self::UnixSocket(client) => client.continue_plan_in_thread(request).await,
+            Self::WebSocket(client) => client.continue_plan_in_thread(request).await,
         }
     }
 
@@ -493,6 +546,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.fork_plan_for_implementation(request).await,
             Self::UnixSocket(client) => client.fork_plan_for_implementation(request).await,
+            Self::WebSocket(client) => client.fork_plan_for_implementation(request).await,
         }
     }
 
@@ -500,6 +554,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.side_implementation(request).await,
             Self::UnixSocket(client) => client.side_implementation(request).await,
+            Self::WebSocket(client) => client.side_implementation(request).await,
         }
     }
 
@@ -507,6 +562,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.interrupt_turn(thread_id).await,
             Self::UnixSocket(client) => client.interrupt_turn(thread_id).await,
+            Self::WebSocket(client) => client.interrupt_turn(thread_id).await,
         }
     }
 
@@ -514,6 +570,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.config_requirements_read().await,
             Self::UnixSocket(client) => client.config_requirements_read().await,
+            Self::WebSocket(client) => client.config_requirements_read().await,
         }
     }
 
@@ -521,6 +578,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.permission_profile_list().await,
             Self::UnixSocket(client) => client.permission_profile_list().await,
+            Self::WebSocket(client) => client.permission_profile_list().await,
         }
     }
 
@@ -528,6 +586,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.permission_catalog().await,
             Self::UnixSocket(client) => client.permission_catalog().await,
+            Self::WebSocket(client) => client.permission_catalog().await,
         }
     }
 
@@ -538,6 +597,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.approve_guardian_denied_action(request).await,
             Self::UnixSocket(client) => client.approve_guardian_denied_action(request).await,
+            Self::WebSocket(client) => client.approve_guardian_denied_action(request).await,
         }
     }
 
@@ -545,6 +605,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.goal_set(request).await,
             Self::UnixSocket(client) => client.goal_set(request).await,
+            Self::WebSocket(client) => client.goal_set(request).await,
         }
     }
 
@@ -552,6 +613,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.goal_get(thread_id).await,
             Self::UnixSocket(client) => client.goal_get(thread_id).await,
+            Self::WebSocket(client) => client.goal_get(thread_id).await,
         }
     }
 
@@ -559,6 +621,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.goal_clear(thread_id).await,
             Self::UnixSocket(client) => client.goal_clear(thread_id).await,
+            Self::WebSocket(client) => client.goal_clear(thread_id).await,
         }
     }
 
@@ -566,6 +629,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.goal_pause(thread_id).await,
             Self::UnixSocket(client) => client.goal_pause(thread_id).await,
+            Self::WebSocket(client) => client.goal_pause(thread_id).await,
         }
     }
 
@@ -573,6 +637,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.goal_resume(thread_id).await,
             Self::UnixSocket(client) => client.goal_resume(thread_id).await,
+            Self::WebSocket(client) => client.goal_resume(thread_id).await,
         }
     }
 
@@ -580,6 +645,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.subagent_list(thread_id).await,
             Self::UnixSocket(client) => client.subagent_list(thread_id).await,
+            Self::WebSocket(client) => client.subagent_list(thread_id).await,
         }
     }
 
@@ -587,6 +653,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.subagent_read(thread_id, subagent_thread_id).await,
             Self::UnixSocket(client) => client.subagent_read(thread_id, subagent_thread_id).await,
+            Self::WebSocket(client) => client.subagent_read(thread_id, subagent_thread_id).await,
         }
     }
 
@@ -594,6 +661,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.subagent_steer(request).await,
             Self::UnixSocket(client) => client.subagent_steer(request).await,
+            Self::WebSocket(client) => client.subagent_steer(request).await,
         }
     }
 
@@ -601,6 +669,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.subagent_stop(thread_id, subagent_thread_id).await,
             Self::UnixSocket(client) => client.subagent_stop(thread_id, subagent_thread_id).await,
+            Self::WebSocket(client) => client.subagent_stop(thread_id, subagent_thread_id).await,
         }
     }
 
@@ -608,6 +677,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.subagent_close(thread_id, subagent_thread_id).await,
             Self::UnixSocket(client) => client.subagent_close(thread_id, subagent_thread_id).await,
+            Self::WebSocket(client) => client.subagent_close(thread_id, subagent_thread_id).await,
         }
     }
 
@@ -615,6 +685,7 @@ impl CodexLiveClient {
         match self {
             Self::Stdio(client) => client.handoff_to_agent(request).await,
             Self::UnixSocket(client) => client.handoff_to_agent(request).await,
+            Self::WebSocket(client) => client.handoff_to_agent(request).await,
         }
     }
 }
@@ -1168,6 +1239,10 @@ impl<T: AppServerTransport + 'static> ProviderDriver for CodexAdapter<T> {
                 },
                 ProviderCapability {
                     key: "codex.app_server_transport.unix_socket".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
+                    key: "codex.app_server_transport.websocket".to_string(),
                     version: 1,
                 },
                 ProviderCapability {
@@ -1859,7 +1934,7 @@ mod tests {
             descriptor
                 .capabilities
                 .iter()
-                .all(|capability| capability.key != "codex.app_server_transport.websocket")
+                .any(|capability| capability.key == "codex.app_server_transport.websocket")
         );
         assert!(
             descriptor

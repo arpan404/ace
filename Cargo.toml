@@ -49,6 +49,7 @@ bytes = "1.12.0"
 clap = { version = "4.6.1", features = ["derive", "env"] }
 criterion = "0.8.2"
 directories = "6.0.0"
+futures-util = "0.3.32"
 gpui = "=0.2.2"
 insta = { version = "1.48.0", features = ["json"] }
 portable-pty = "0.9.0"
@@ -63,6 +64,7 @@ sha2 = "0.10.9"
 tempfile = "3.24.0"
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 tower-http = { version = "0.7.0", features = ["trace"] }
 tower = "0.5.3"
 tracing = "0.1.44"

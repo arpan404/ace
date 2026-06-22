@@ -10,10 +10,12 @@ rust-version.workspace = true
 ace-core.workspace = true
 ace-runtime.workspace = true
 async-trait.workspace = true
+futures-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-tungstenite.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
