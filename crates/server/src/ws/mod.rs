@@ -84,10 +84,13 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
     #[must_use]
     pub fn production() -> Self {
         let codex = Arc::new(CodexService::production());
+        let ace = Arc::new(AceNativeProvider::new());
         let providers = ProviderRegistry::new()
-            .with_driver(Arc::new(AceNativeProvider::new()))
+            .with_driver(ace.clone())
             .with_driver(codex.clone())
+            .with_event_source(ace_core::ProviderKind::Ace, ace.clone())
             .with_event_source(ace_core::ProviderKind::Codex, codex.clone())
+            .with_server_request_responder(ace_core::ProviderKind::Ace, ace)
             .with_server_request_responder(ace_core::ProviderKind::Codex, codex.clone());
         let paths = AppPaths::resolve().expect("resolve app paths");
         std::fs::create_dir_all(&paths.state_dir).expect("create app state directory");
@@ -116,10 +119,13 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
     #[must_use]
     pub fn new_services(git: GitService<R>, github: GithubService<R>) -> Self {
         let codex = Arc::new(CodexService::production());
+        let ace = Arc::new(AceNativeProvider::new());
         let providers = ProviderRegistry::new()
-            .with_driver(Arc::new(AceNativeProvider::new()))
+            .with_driver(ace.clone())
             .with_driver(codex.clone())
+            .with_event_source(ace_core::ProviderKind::Ace, ace.clone())
             .with_event_source(ace_core::ProviderKind::Codex, codex.clone())
+            .with_server_request_responder(ace_core::ProviderKind::Ace, ace)
             .with_server_request_responder(ace_core::ProviderKind::Codex, codex.clone());
         Self {
             checkpoint: Arc::new(CheckpointService::production()),

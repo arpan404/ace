@@ -2592,7 +2592,7 @@ mod tests {
         );
 
         let (ace_outbound_tx, _ace_outbound_rx) = tokio::sync::mpsc::channel::<String>(1);
-        let unsupported = state
+        let ace_subscription = state
             .dispatch_text_with_events(
                 &json!({
                     "version": PROTOCOL_VERSION,
@@ -2604,12 +2604,12 @@ mod tests {
                 Some(ace_outbound_tx),
             )
             .await;
-        let unsupported: WsServerResponse =
-            serde_json::from_str(&unsupported).expect("unsupported response");
-        let WsServerPayload::Result { body } = unsupported.payload else {
-            panic!("expected unsupported provider event result");
+        let ace_subscription: WsServerResponse =
+            serde_json::from_str(&ace_subscription).expect("ace subscription response");
+        let WsServerPayload::Result { body } = ace_subscription.payload else {
+            panic!("expected ace provider event result");
         };
-        assert_eq!(body["subscribed"], false);
+        assert_eq!(body["subscribed"], true);
         assert_eq!(body["provider"], "ace");
     }
 
@@ -2724,8 +2724,8 @@ mod tests {
         assert_eq!(ace_runtime["provider"], "Ace");
         assert_eq!(ace_runtime["display_name"], "Ace");
         assert_eq!(ace_runtime["descriptor"]["kind"], "Ace");
-        assert_eq!(ace_runtime["supports_events"], false);
-        assert_eq!(ace_runtime["supports_server_request_responses"], false);
+        assert_eq!(ace_runtime["supports_events"], true);
+        assert_eq!(ace_runtime["supports_server_request_responses"], true);
         assert_eq!(ace_runtime["contract"]["satisfies_required"], true);
         assert_eq!(ace_runtime["adapter_profile"]["provider"], "Ace");
         assert_eq!(
@@ -2734,13 +2734,13 @@ mod tests {
         );
         assert_eq!(
             ace_runtime["adapter_runtime"]["satisfies_required_hooks"],
-            false
+            true
         );
         assert!(
             ace_runtime["adapter_runtime"]["missing_required_hooks"]
                 .as_array()
                 .expect("ace missing hooks")
-                .contains(&json!("event_source"))
+                .is_empty()
         );
 
         let routed = state
@@ -3340,14 +3340,14 @@ mod tests {
         assert_eq!(ace["status"]["health"], "ready");
         assert_eq!(ace["status"]["transport"], "in_process");
         assert_eq!(ace["status"]["initialized"], true);
-        assert_eq!(ace["supports_events"], false);
-        assert_eq!(ace["supports_server_request_responses"], false);
+        assert_eq!(ace["supports_events"], true);
+        assert_eq!(ace["supports_server_request_responses"], true);
         assert_eq!(ace["adapter_profile"]["provider"], "Ace");
         assert_eq!(
             ace["adapter_profile"]["contract_report"]["satisfies_required"],
             true
         );
-        assert_eq!(ace["adapter_runtime"]["satisfies_required_hooks"], false);
+        assert_eq!(ace["adapter_runtime"]["satisfies_required_hooks"], true);
 
         let ace_only = state
             .dispatch_text(

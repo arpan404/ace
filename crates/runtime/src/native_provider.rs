@@ -1,8 +1,9 @@
 use crate::provider::{
-    ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderFeature,
-    ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport,
+    ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent, ProviderEventSource,
+    ProviderFeature, ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport,
     ProviderLifecycleAction, ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
-    ace_provider_adapter_contract, ace_provider_contract_requirements,
+    ProviderServerRequestResponder, ace_provider_adapter_contract,
+    ace_provider_contract_requirements,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
@@ -208,6 +209,43 @@ impl ProviderDriver for AceNativeProvider {
     }
 }
 
+#[async_trait]
+impl ProviderEventSource for AceNativeProvider {
+    async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>, ProviderDriverError> {
+        Ok(None)
+    }
+}
+
+#[async_trait]
+impl ProviderServerRequestResponder for AceNativeProvider {
+    async fn respond_server_request_result(
+        &self,
+        request_id: String,
+        _result: Value,
+    ) -> Result<(), ProviderDriverError> {
+        Err(ProviderDriverError::RequestFailed {
+            provider: "ace".to_string(),
+            method: "provider.server_request.result".to_string(),
+            message: format!("Ace native provider has no pending server request `{request_id}`"),
+        })
+    }
+
+    async fn respond_server_request_error(
+        &self,
+        request_id: String,
+        code: i64,
+        message: String,
+    ) -> Result<(), ProviderDriverError> {
+        Err(ProviderDriverError::RequestFailed {
+            provider: "ace".to_string(),
+            method: "provider.server_request.error".to_string(),
+            message: format!(
+                "Ace native provider has no pending server request `{request_id}` for error {code}: {message}"
+            ),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,5 +359,33 @@ mod tests {
         assert_eq!(result.action, ProviderLifecycleAction::Shutdown);
         assert_eq!(result.status.health, ProviderRuntimeHealth::Ready);
         assert_eq!(result.metadata["reason"], "ace provider is in-process");
+    }
+
+    #[tokio::test]
+    async fn native_provider_exposes_empty_event_stream() {
+        let provider = AceNativeProvider::new();
+        let events = provider.next_events().await.expect("event poll");
+
+        assert_eq!(events, None);
+    }
+
+    #[tokio::test]
+    async fn native_provider_rejects_unknown_server_request_responses() {
+        let provider = AceNativeProvider::new();
+        let error = provider
+            .respond_server_request_result("missing".to_string(), json!({ "ok": true }))
+            .await
+            .expect_err("missing server request");
+
+        assert!(matches!(
+            error,
+            ProviderDriverError::RequestFailed {
+                provider,
+                method,
+                message
+            } if provider == "ace"
+                && method == "provider.server_request.result"
+                && message.contains("missing")
+        ));
     }
 }
