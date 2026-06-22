@@ -3677,8 +3677,8 @@ mod tests {
             HostToolRegistry, HostToolResult,
         },
         provider::{
-            NormalizedServerRequest, NormalizedThreadItem, ProviderEvent, ProviderMetadata,
-            ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+            NormalizedServerRequest, NormalizedServerRequestDecision, NormalizedThreadItem,
+            ProviderEvent, ProviderMetadata, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
         },
         tools::{
             ProviderToolMetadata, ToolActionKind, ToolNormalizationInput, ToolRunStatus,
@@ -3702,6 +3702,28 @@ mod tests {
                 context: "codex ws fake runner",
                 message: "no git process expected".to_string(),
             })
+        }
+    }
+
+    fn normalized_approval_request(request_id: &str) -> NormalizedServerRequest {
+        NormalizedServerRequest {
+            kind: ServerRequestKind::CommandApproval,
+            request_id: request_id.to_string(),
+            method: "command/approvalRequest".to_string(),
+            thread_id: Some("thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some("cmd-1".to_string()),
+            scope: Some("command".to_string()),
+            title: Some("Approve command".to_string()),
+            prompt: Some("Run cargo test?".to_string()),
+            selected_policy: Some("on-request".to_string()),
+            metadata: json!({ "command": "cargo test" }),
+            provider: ProviderMetadata {
+                provider: "codex".to_string(),
+                method: Some("command/approvalRequest".to_string()),
+                schema_version: Some("test-v1".to_string()),
+                raw_payload: json!({ "command": "cargo test" }),
+            },
         }
     }
 
@@ -7875,6 +7897,21 @@ mod tests {
                             },
                         }),
                     },
+                    ProviderEvent::ServerRequest {
+                        request: Box::new(normalized_approval_request("approval-1")),
+                    },
+                    ProviderEvent::ServerRequestResolved {
+                        request_id: "approval-1".to_string(),
+                        decision: NormalizedServerRequestDecision {
+                            outcome: "result".to_string(),
+                            payload: json!({ "approved": true }),
+                            audit: json!({
+                                "source_thread_id": "thread-1",
+                                "selected_policy": "on-request"
+                            }),
+                        },
+                        request: Some(Box::new(normalized_approval_request("approval-1"))),
+                    },
                 ],
             )
             .expect("append events");
@@ -7917,6 +7954,16 @@ mod tests {
         assert_eq!(
             snapshot_state["plan_sessions"][0]["questions"][0]["id"],
             "repo"
+        );
+        assert_eq!(snapshot_state["approvals"][0]["request_id"], "approval-1");
+        assert_eq!(snapshot_state["approvals"][0]["status"], "resolved");
+        assert_eq!(
+            snapshot_state["approvals"][0]["decision"]["payload"]["approved"],
+            true
+        );
+        assert_eq!(
+            snapshot_state["approvals"][0]["decision"]["audit"]["selected_policy"],
+            "on-request"
         );
     }
 

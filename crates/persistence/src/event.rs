@@ -382,8 +382,8 @@ fn decode_server_request_record(
 mod tests {
     use super::*;
     use ace_runtime::provider::{
-        NormalizedServerRequest, NormalizedThreadItem, ProviderEvent, ProviderMetadata,
-        ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+        NormalizedServerRequest, NormalizedServerRequestDecision, NormalizedThreadItem,
+        ProviderEvent, ProviderMetadata, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     };
 
     #[test]
@@ -473,6 +473,21 @@ mod tests {
                         },
                     }),
                 },
+                ProviderEvent::ServerRequest {
+                    request: Box::new(server_request("approval-1")),
+                },
+                ProviderEvent::ServerRequestResolved {
+                    request_id: "approval-1".to_string(),
+                    decision: NormalizedServerRequestDecision {
+                        outcome: "result".to_string(),
+                        payload: serde_json::json!({ "approved": true }),
+                        audit: serde_json::json!({
+                            "source_thread_id": "thread-1",
+                            "selected_policy": "on-request"
+                        }),
+                    },
+                    request: Some(Box::new(server_request("approval-1"))),
+                },
             ],
         )
         .expect("append codex");
@@ -507,6 +522,16 @@ mod tests {
                 .as_ref()
                 .expect("questions")[0]["id"],
             "choice"
+        );
+        assert_eq!(codex.approvals.len(), 1);
+        assert_eq!(codex.approvals[0].request_id, "approval-1");
+        assert_eq!(
+            codex.approvals[0]
+                .decision
+                .as_ref()
+                .expect("decision")
+                .audit["selected_policy"],
+            "on-request"
         );
 
         let all = repo.runtime_state_snapshot(None).expect("all snapshot");
@@ -654,6 +679,28 @@ mod tests {
                     "itemId": item_id,
                     "text": text
                 }),
+            },
+        }
+    }
+
+    fn server_request(request_id: &str) -> NormalizedServerRequest {
+        NormalizedServerRequest {
+            kind: ServerRequestKind::CommandApproval,
+            request_id: request_id.to_string(),
+            method: "command/approvalRequest".to_string(),
+            thread_id: Some("thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some("cmd-1".to_string()),
+            scope: Some("command".to_string()),
+            title: Some("Approve command".to_string()),
+            prompt: Some("Run cargo test?".to_string()),
+            selected_policy: Some("on-request".to_string()),
+            metadata: serde_json::json!({ "command": "cargo test" }),
+            provider: ProviderMetadata {
+                provider: "codex".to_string(),
+                method: Some("command/approvalRequest".to_string()),
+                schema_version: Some("test-v1".to_string()),
+                raw_payload: serde_json::json!({ "command": "cargo test" }),
             },
         }
     }

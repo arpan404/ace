@@ -1,5 +1,6 @@
 use crate::provider::{
-    NormalizedRuntimeSignal, NormalizedThreadItem, ProviderEvent, RuntimeSignalKind,
+    NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
+    NormalizedThreadItem, ProviderEvent, RuntimeSignalKind,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -359,8 +360,26 @@ pub struct AutoApprovalReviewRecord {
     pub metadata: Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApprovalRecord {
+    pub provider: String,
+    pub request_id: String,
+    pub request: NormalizedServerRequest,
+    pub status: ApprovalStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<NormalizedServerRequestDecision>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalStatus {
+    Pending,
+    Resolved,
+}
+
 type RuntimeThreadTurnKey = (Option<String>, Option<String>);
 type AutoApprovalReviewKey = (Option<String>, Option<String>, Option<String>);
+type ApprovalKey = (String, String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ThreadItemKey {
@@ -415,6 +434,7 @@ pub struct AgentRuntimeState {
     realtime_sessions: HashMap<RuntimeThreadTurnKey, RealtimeSessionRecord>,
     turn_moderation: HashMap<RuntimeThreadTurnKey, TurnModerationRecord>,
     auto_approval_reviews: HashMap<AutoApprovalReviewKey, AutoApprovalReviewRecord>,
+    approvals: HashMap<ApprovalKey, ApprovalRecord>,
     review_threads: HashSet<String>,
     #[serde(skip)]
     thread_items: HashMap<ThreadItemKey, NormalizedThreadItem>,
@@ -446,6 +466,7 @@ pub struct AgentRuntimeSnapshot {
     pub realtime_sessions: Vec<RealtimeSessionRecord>,
     pub turn_moderation: Vec<TurnModerationRecord>,
     pub auto_approval_reviews: Vec<AutoApprovalReviewRecord>,
+    pub approvals: Vec<ApprovalRecord>,
     pub review_threads: Vec<String>,
     #[serde(default)]
     pub thread_items: Vec<NormalizedThreadItem>,
@@ -515,6 +536,13 @@ impl AgentRuntimeState {
                 .then_with(|| left.item_id.cmp(&right.item_id))
         });
 
+        let mut approvals = self.approvals.values().cloned().collect::<Vec<_>>();
+        approvals.sort_by(|left, right| {
+            left.provider
+                .cmp(&right.provider)
+                .then_with(|| left.request_id.cmp(&right.request_id))
+        });
+
         let mut review_threads = self.review_threads.iter().cloned().collect::<Vec<_>>();
         review_threads.sort();
 
@@ -541,6 +569,7 @@ impl AgentRuntimeState {
             realtime_sessions,
             turn_moderation,
             auto_approval_reviews,
+            approvals,
             review_threads,
             thread_items,
         }
@@ -781,6 +810,70 @@ impl AgentRuntimeState {
             ),
             review,
         );
+    }
+
+    pub fn upsert_approval_request(&mut self, request: NormalizedServerRequest) {
+        let provider = request.provider.provider.clone();
+        self.approvals.insert(
+            (provider.clone(), request.request_id.clone()),
+            ApprovalRecord {
+                provider,
+                request_id: request.request_id.clone(),
+                request,
+                status: ApprovalStatus::Pending,
+                decision: None,
+            },
+        );
+    }
+
+    pub fn resolve_approval_request(
+        &mut self,
+        request_id: &str,
+        decision: NormalizedServerRequestDecision,
+        request: Option<NormalizedServerRequest>,
+    ) {
+        let key = request
+            .as_ref()
+            .map(|request| (request.provider.provider.clone(), request_id.to_string()))
+            .or_else(|| {
+                self.approvals
+                    .keys()
+                    .find(|(_, existing_request_id)| existing_request_id == request_id)
+                    .cloned()
+            });
+        let Some(key) = key else {
+            return;
+        };
+        if let Some(existing) = self.approvals.get_mut(&key) {
+            existing.status = ApprovalStatus::Resolved;
+            existing.decision = Some(decision);
+            if let Some(request) = request {
+                existing.request = request;
+            }
+        } else if let Some(request) = request {
+            let provider = request.provider.provider.clone();
+            self.approvals.insert(
+                key,
+                ApprovalRecord {
+                    provider,
+                    request_id: request_id.to_string(),
+                    request,
+                    status: ApprovalStatus::Resolved,
+                    decision: Some(decision),
+                },
+            );
+        }
+    }
+
+    #[must_use]
+    pub fn approvals(&self) -> Vec<ApprovalRecord> {
+        let mut approvals = self.approvals.values().cloned().collect::<Vec<_>>();
+        approvals.sort_by(|left, right| {
+            left.provider
+                .cmp(&right.provider)
+                .then_with(|| left.request_id.cmp(&right.request_id))
+        });
+        approvals
     }
 
     #[must_use]
@@ -1156,9 +1249,21 @@ impl AgentRuntimeState {
                 self.apply_turn_lifecycle_signal(signal);
                 self.apply_review_mode_signal(signal);
             }
+            ProviderEvent::ServerRequest { request } => {
+                self.upsert_approval_request((**request).clone());
+            }
+            ProviderEvent::ServerRequestResolved {
+                request_id,
+                decision,
+                request,
+            } => {
+                self.resolve_approval_request(
+                    request_id,
+                    decision.clone(),
+                    request.as_deref().cloned(),
+                );
+            }
             ProviderEvent::RawServerRequest { .. }
-            | ProviderEvent::ServerRequest { .. }
-            | ProviderEvent::ServerRequestResolved { .. }
             | ProviderEvent::SemanticTool { .. }
             | ProviderEvent::StderrLine { .. } => {}
         }
@@ -1625,7 +1730,8 @@ fn review_active_from_status(status: &str) -> Option<bool> {
 mod tests {
     use super::*;
     use crate::provider::{
-        NormalizedRuntimeSignal, NormalizedThreadItem, ProviderMetadata, ThreadItemKind,
+        NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
+        NormalizedThreadItem, ProviderMetadata, ServerRequestKind, ThreadItemKind,
         ThreadItemStatus,
     };
     use serde_json::json;
@@ -1700,6 +1806,28 @@ mod tests {
                     "itemId": item_id,
                     "text": text
                 }),
+            },
+        }
+    }
+
+    fn server_request(request_id: &str) -> NormalizedServerRequest {
+        NormalizedServerRequest {
+            kind: ServerRequestKind::CommandApproval,
+            request_id: request_id.to_string(),
+            method: "command/approvalRequest".to_string(),
+            thread_id: Some("thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some("cmd-1".to_string()),
+            scope: Some("command".to_string()),
+            title: Some("Approve command".to_string()),
+            prompt: Some("Run cargo test?".to_string()),
+            selected_policy: Some("on-request".to_string()),
+            metadata: json!({ "command": "cargo test" }),
+            provider: ProviderMetadata {
+                provider: "codex".to_string(),
+                method: Some("command/approvalRequest".to_string()),
+                schema_version: Some("test-v1".to_string()),
+                raw_payload: json!({ "command": "cargo test" }),
             },
         }
     }
@@ -1897,6 +2025,48 @@ mod tests {
                 .iter()
                 .any(|item| item.text.as_deref() == Some(newest_generated.as_str()))
         );
+    }
+
+    #[test]
+    fn records_pending_and_resolved_approval_requests() {
+        let mut state = AgentRuntimeState::default();
+        let request = server_request("approval-1");
+        state.apply_provider_events(&[ProviderEvent::ServerRequest {
+            request: Box::new(request.clone()),
+        }]);
+
+        let approvals = state.approvals();
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals[0].provider, "codex");
+        assert_eq!(approvals[0].request_id, "approval-1");
+        assert_eq!(
+            approvals[0].request.prompt.as_deref(),
+            Some("Run cargo test?")
+        );
+        assert_eq!(approvals[0].status, ApprovalStatus::Pending);
+        assert!(approvals[0].decision.is_none());
+
+        state.apply_provider_events(&[ProviderEvent::ServerRequestResolved {
+            request_id: "approval-1".to_string(),
+            decision: NormalizedServerRequestDecision {
+                outcome: "result".to_string(),
+                payload: json!({ "approved": true }),
+                audit: json!({
+                    "source_thread_id": "thread-1",
+                    "selected_policy": "on-request"
+                }),
+            },
+            request: None,
+        }]);
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.approvals.len(), 1);
+        assert_eq!(snapshot.approvals[0].status, ApprovalStatus::Resolved);
+        let decision = snapshot.approvals[0].decision.as_ref().expect("decision");
+        assert_eq!(decision.outcome, "result");
+        assert_eq!(decision.payload["approved"], true);
+        assert_eq!(decision.audit["source_thread_id"], "thread-1");
+        assert_eq!(decision.audit["selected_policy"], "on-request");
     }
 
     #[test]
