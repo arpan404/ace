@@ -152,12 +152,16 @@ fn normalize_codex_server_request(
         method: method.to_string(),
         thread_id: string_at(params, "threadId")
             .or_else(|| string_at(params, "thread_id"))
-            .or_else(|| string_at(params, "conversationId")),
+            .or_else(|| string_at(params, "conversationId"))
+            .or_else(|| string_at(params, "conversation_id"))
+            .or_else(|| nested_string_at(params, "/thread", &["id", "threadId", "thread_id"])),
         turn_id: string_at(params, "turnId").or_else(|| string_at(params, "turn_id")),
         item_id: string_at(params, "itemId")
             .or_else(|| string_at(params, "item_id"))
             .or_else(|| string_at(params, "sourceItemId"))
-            .or_else(|| string_at(params, "source_item_id")),
+            .or_else(|| string_at(params, "source_item_id"))
+            .or_else(|| string_at(params, "toolCallId"))
+            .or_else(|| string_at(params, "tool_call_id")),
         scope: server_request_scope(kind, params),
         title: Some(server_request_title(kind).to_string()),
         prompt: server_request_prompt(params),
@@ -231,29 +235,82 @@ fn server_request_prompt(params: &Value) -> Option<String> {
     string_at(params, "prompt")
         .or_else(|| string_at(params, "message"))
         .or_else(|| string_at(params, "question"))
+        .or_else(|| string_at(params, "userPrompt"))
+        .or_else(|| string_at(params, "user_prompt"))
         .or_else(|| string_at(params, "reason"))
         .or_else(|| string_at(params, "description"))
+        .or_else(|| string_at(params, "instructions"))
         .or_else(|| string_at(params, "command").map(|command| format!("Run `{command}`?")))
+        .or_else(|| {
+            first_string([
+                string_at(params, "toolName").as_deref(),
+                string_at(params, "tool_name").as_deref(),
+                string_at(params, "name").as_deref(),
+            ])
+            .map(|tool| format!("Run `{tool}`?"))
+        })
 }
 
 fn metadata_for_server_request(params: &Value) -> Value {
     let mut metadata = serde_json::Map::new();
     for key in [
+        "requestId",
+        "request_id",
+        "threadId",
+        "thread_id",
+        "turnId",
+        "turn_id",
+        "itemId",
+        "item_id",
+        "sourceItemId",
+        "source_item_id",
+        "toolCallId",
+        "tool_call_id",
         "command",
+        "argv",
+        "args",
+        "arguments",
+        "input",
+        "result",
         "cwd",
+        "env",
         "path",
         "paths",
+        "uri",
         "files",
         "diff",
+        "patch",
         "toolName",
         "tool_name",
+        "tool",
+        "name",
         "serverName",
         "server_name",
+        "server",
         "operation",
+        "action",
         "sandbox",
         "sandboxPolicy",
-        "approvalPolicy",
+        "sandbox_policy",
+        "permission",
+        "permissions",
         "permissionPolicy",
+        "permission_policy",
+        "approvalPolicy",
+        "approval_policy",
+        "approvalsReviewer",
+        "approvals_reviewer",
+        "account",
+        "accountId",
+        "account_id",
+        "attestation",
+        "challenge",
+        "resource",
+        "schema",
+        "choices",
+        "options",
+        "timeoutMs",
+        "timeout_ms",
     ] {
         if let Some(value) = params.get(key) {
             metadata.insert(key.to_string(), value.clone());
@@ -1013,6 +1070,148 @@ mod tests {
         );
         assert_eq!(request.metadata["serverName"], "github");
         assert_eq!(request.metadata["toolName"], "create_issue");
+    }
+
+    #[test]
+    fn normalizes_all_codex_server_request_kinds_with_audit_metadata() {
+        let cases = [
+            (
+                "fileChange/approvalRequest",
+                ServerRequestKind::FileChangeApproval,
+                "filesystem",
+                "Approve file changes",
+                json!({
+                    "thread": { "id": "thread-1" },
+                    "turnId": "turn-1",
+                    "sourceItemId": "file-1",
+                    "path": "src/lib.rs",
+                    "patch": "@@ -1 +1 @@",
+                    "description": "Apply patch?"
+                }),
+                "patch",
+            ),
+            (
+                "tool/userInputRequest",
+                ServerRequestKind::ToolUserInput,
+                "tool",
+                "Tool needs input",
+                json!({
+                    "threadId": "thread-1",
+                    "toolCallId": "tool-1",
+                    "toolName": "browser",
+                    "question": "Which tab?",
+                    "choices": ["current", "new"]
+                }),
+                "choices",
+            ),
+            (
+                "permission/approvalRequest",
+                ServerRequestKind::PermissionApproval,
+                "permission",
+                "Approve permission change",
+                json!({
+                    "threadId": "thread-1",
+                    "permissionPolicy": "workspace-write",
+                    "sandboxPolicy": { "mode": "workspace-write" },
+                    "approvalPolicy": "on-request",
+                    "message": "Allow writes?"
+                }),
+                "sandboxPolicy",
+            ),
+            (
+                "dynamicTool/call",
+                ServerRequestKind::DynamicToolCall,
+                "tool",
+                "Run dynamic tool",
+                json!({
+                    "threadId": "thread-1",
+                    "toolName": "browser.click",
+                    "arguments": { "selector": "#submit" },
+                    "operation": "click"
+                }),
+                "arguments",
+            ),
+            (
+                "account/tokenRefresh",
+                ServerRequestKind::AccountTokenRefresh,
+                "account",
+                "Refresh account token",
+                json!({
+                    "threadId": "thread-1",
+                    "accountId": "acct-1",
+                    "resource": "openai",
+                    "reason": "expired"
+                }),
+                "accountId",
+            ),
+            (
+                "attestation/request",
+                ServerRequestKind::Attestation,
+                "attestation",
+                "Provide attestation",
+                json!({
+                    "threadId": "thread-1",
+                    "challenge": "nonce",
+                    "attestation": { "kind": "device" },
+                    "description": "Verify device"
+                }),
+                "challenge",
+            ),
+            (
+                "applyPatch/approvalRequest",
+                ServerRequestKind::ApplyPatchApproval,
+                "filesystem",
+                "Approve patch application",
+                json!({
+                    "threadId": "thread-1",
+                    "itemId": "patch-1",
+                    "patch": "@@ -1 +1 @@",
+                    "files": ["src/lib.rs"],
+                    "prompt": "Apply this patch?"
+                }),
+                "files",
+            ),
+            (
+                "exec/approvalRequest",
+                ServerRequestKind::ExecApproval,
+                "command",
+                "Approve command execution",
+                json!({
+                    "threadId": "thread-1",
+                    "itemId": "exec-1",
+                    "command": "cargo test",
+                    "cwd": "/repo",
+                    "approval_policy": "on-request"
+                }),
+                "cwd",
+            ),
+        ];
+
+        for (index, (method, kind, scope, title, params, metadata_key)) in
+            cases.into_iter().enumerate()
+        {
+            let events = normalize_codex_inbound_event(&CodexInboundEvent::ServerRequest {
+                id: index as i64 + 100,
+                method: method.to_string(),
+                params,
+            });
+
+            let ProviderEvent::ServerRequest { request } = &events[0] else {
+                panic!("expected normalized server request for {method}");
+            };
+            assert_eq!(request.kind, kind, "{method}");
+            assert_eq!(request.scope.as_deref(), Some(scope), "{method}");
+            assert_eq!(request.title.as_deref(), Some(title), "{method}");
+            assert!(request.prompt.is_some(), "{method}");
+            assert!(
+                request.metadata.get(metadata_key).is_some(),
+                "{method} missing metadata key {metadata_key}"
+            );
+            let ProviderEvent::RawServerRequest { params, .. } = &events[1] else {
+                panic!("expected raw server request for {method}");
+            };
+            assert_eq!(&request.provider.raw_payload, params);
+        }
     }
 
     #[test]
