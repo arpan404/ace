@@ -6,6 +6,7 @@ use serde_json::Value;
 pub enum ToolTransport {
     CodexBuiltin,
     CodexDynamic,
+    DynamicTool,
     Mcp,
     AppConnector,
     BrowserBridge,
@@ -44,6 +45,8 @@ pub enum ToolActionKind {
     BrowserScreenshot,
     #[serde(rename = "browser.inspect")]
     BrowserInspect,
+    #[serde(rename = "browser.logs")]
+    BrowserLogs,
     #[serde(rename = "browser.tab")]
     BrowserTab,
     #[serde(rename = "browser.console")]
@@ -88,6 +91,10 @@ pub enum ToolActionKind {
     GithubIssue,
     #[serde(rename = "github.pr")]
     GithubPullRequest,
+    #[serde(rename = "github.check")]
+    GithubCheck,
+    #[serde(rename = "github.commit")]
+    GithubCommit,
     #[serde(rename = "github.search")]
     GithubSearch,
     #[serde(rename = "web.search")]
@@ -149,6 +156,8 @@ pub struct ToolDisplay {
     pub target: Option<ToolTarget>,
     pub status: ToolRunStatus,
     pub icon_key: String,
+    #[serde(default)]
+    pub technical_metadata: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -249,13 +258,25 @@ impl ToolFacts {
             string_at_deep(&input.provider.raw_args, "name").as_deref(),
         ])
         .unwrap_or_default();
-        let server = input.provider.server_name.clone().unwrap_or_default();
+        let server = first_string([
+            input.provider.server_name.as_deref(),
+            string_at_deep(&input.provider.raw_args, "serverName").as_deref(),
+            string_at_deep(&input.provider.raw_args, "server_name").as_deref(),
+            string_at_deep(&input.provider.raw_args, "server").as_deref(),
+            string_at_deep(&input.provider.raw_payload, "serverName").as_deref(),
+            string_at_deep(&input.provider.raw_payload, "server_name").as_deref(),
+            string_at_deep(&input.provider.raw_payload, "server").as_deref(),
+        ])
+        .unwrap_or_default();
         let haystack = [
             input.item_type.as_deref().unwrap_or_default(),
             input.provider.method.as_deref().unwrap_or_default(),
             &server,
             &tool,
             &op,
+            string_at_deep(&input.provider.raw_payload, "type")
+                .as_deref()
+                .unwrap_or_default(),
         ]
         .join(" ");
         let haystack = format!("{haystack} {}", spaced_words(&haystack))
@@ -343,70 +364,77 @@ fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAct
     let op = first_string([Some(facts.op.as_str()), Some(facts.tool.as_str())])
         .unwrap_or_default()
         .to_lowercase();
-    let action = match op.as_str() {
-        "click"
-        | "cua_click"
-        | "dom_cua_click"
-        | "playwright_locator_click"
-        | "playwright_locator_dblclick"
-        | "cua_double_click"
-        | "dom_cua_double_click" => ToolActionKind::BrowserClick,
-        "fill"
-        | "type"
-        | "cua_type"
-        | "dom_cua_type"
-        | "dom_cua_fill"
-        | "playwright_locator_fill"
-        | "playwright_locator_type"
-        | "playwright_locator_press"
-        | "select_option" => ToolActionKind::BrowserType,
-        "open_url"
-        | "goto"
-        | "navigate"
-        | "navigate_tab_url"
-        | "back"
-        | "forward"
-        | "reload"
-        | "navigate_tab_back"
-        | "navigate_tab_forward"
-        | "navigate_tab_reload" => ToolActionKind::BrowserNavigate,
-        "screenshot" | "playwright_screenshot" | "cua_get_visible_screenshot" => {
-            ToolActionKind::BrowserScreenshot
-        }
-        "dom_snapshot"
-        | "playwright_dom_snapshot"
-        | "dom_cua_get_visible_dom"
-        | "playwright_locator_inner_text"
-        | "playwright_locator_text_content"
-        | "playwright_locator_get_attribute"
-        | "playwright_locator_is_visible"
-        | "playwright_locator_is_enabled"
-        | "playwright_locator_count" => ToolActionKind::BrowserInspect,
-        "tab_dev_logs" | "console_logs" | "browser_console" => ToolActionKind::BrowserConsole,
-        "list_tabs" | "selected_tab" | "get_tab" | "select_tab" | "switch_tab" | "activate_tab"
-        | "next_tab" | "previous_tab" | "create_tab" | "new_tab" | "close_tab" => {
-            ToolActionKind::BrowserTab
-        }
-        "set_viewport_size" | "resize_browser" | "get_viewport_size" => {
-            ToolActionKind::BrowserViewport
-        }
-        "get_browser_zoom" | "set_browser_zoom" | "reset_browser_zoom" | "zoom_browser" => {
-            ToolActionKind::BrowserZoom
-        }
-        _ if facts.haystack.contains("click") => ToolActionKind::BrowserClick,
-        _ if facts.haystack.contains("type") || facts.haystack.contains("fill") => {
-            ToolActionKind::BrowserType
-        }
-        _ if facts.haystack.contains("screenshot") => ToolActionKind::BrowserScreenshot,
-        _ if facts.haystack.contains("zoom") => ToolActionKind::BrowserZoom,
-        _ if facts.haystack.contains("viewport") || facts.haystack.contains("resize") => {
-            ToolActionKind::BrowserViewport
-        }
-        _ if facts.haystack.contains("navigate") || facts.haystack.contains("url") => {
-            ToolActionKind::BrowserNavigate
-        }
-        _ => ToolActionKind::BrowserInspect,
-    };
+    let action =
+        match op.as_str() {
+            "click"
+            | "cua_click"
+            | "dom_cua_click"
+            | "playwright_locator_click"
+            | "playwright_locator_dblclick"
+            | "cua_double_click"
+            | "dom_cua_double_click" => ToolActionKind::BrowserClick,
+            "fill"
+            | "type"
+            | "cua_type"
+            | "dom_cua_type"
+            | "dom_cua_fill"
+            | "playwright_locator_fill"
+            | "playwright_locator_type"
+            | "playwright_locator_press"
+            | "select_option" => ToolActionKind::BrowserType,
+            "open_url"
+            | "goto"
+            | "navigate"
+            | "navigate_tab_url"
+            | "back"
+            | "forward"
+            | "reload"
+            | "navigate_tab_back"
+            | "navigate_tab_forward"
+            | "navigate_tab_reload" => ToolActionKind::BrowserNavigate,
+            "screenshot" | "playwright_screenshot" | "cua_get_visible_screenshot" => {
+                ToolActionKind::BrowserScreenshot
+            }
+            "dom_snapshot"
+            | "playwright_dom_snapshot"
+            | "dom_cua_get_visible_dom"
+            | "playwright_locator_inner_text"
+            | "playwright_locator_text_content"
+            | "playwright_locator_get_attribute"
+            | "playwright_locator_is_visible"
+            | "playwright_locator_is_enabled"
+            | "playwright_locator_count" => ToolActionKind::BrowserInspect,
+            "tab_dev_logs" | "console_logs" | "browser_console" | "dev_logs"
+            | "read_console_logs" => ToolActionKind::BrowserLogs,
+            "list_tabs" | "selected_tab" | "get_tab" | "select_tab" | "switch_tab"
+            | "activate_tab" | "next_tab" | "previous_tab" | "create_tab" | "new_tab"
+            | "close_tab" => ToolActionKind::BrowserTab,
+            "set_viewport_size" | "resize_browser" | "get_viewport_size" => {
+                ToolActionKind::BrowserViewport
+            }
+            "get_browser_zoom" | "set_browser_zoom" | "reset_browser_zoom" | "zoom_browser" => {
+                ToolActionKind::BrowserZoom
+            }
+            _ if facts.haystack.contains("click") => ToolActionKind::BrowserClick,
+            _ if facts.haystack.contains("type") || facts.haystack.contains("fill") => {
+                ToolActionKind::BrowserType
+            }
+            _ if facts.haystack.contains("screenshot") => ToolActionKind::BrowserScreenshot,
+            _ if facts.haystack.contains("dev logs")
+                || facts.haystack.contains("console")
+                || facts.haystack.contains("log") =>
+            {
+                ToolActionKind::BrowserLogs
+            }
+            _ if facts.haystack.contains("zoom") => ToolActionKind::BrowserZoom,
+            _ if facts.haystack.contains("viewport") || facts.haystack.contains("resize") => {
+                ToolActionKind::BrowserViewport
+            }
+            _ if facts.haystack.contains("navigate") || facts.haystack.contains("url") => {
+                ToolActionKind::BrowserNavigate
+            }
+            _ => ToolActionKind::BrowserInspect,
+        };
     Some(action)
 }
 
@@ -540,10 +568,22 @@ fn file_action(haystack: &str) -> Option<ToolActionKind> {
 }
 
 fn github_action(facts: &ToolFacts) -> Option<ToolActionKind> {
-    if !facts.haystack.contains("github") && facts.server != "github" && facts.tool != "gh" {
+    if !facts.haystack.contains("github")
+        && facts.server != "github"
+        && facts.tool != "gh"
+        && !facts.tool.starts_with("gh_")
+    {
         return None;
     }
-    if facts.haystack.contains("issue") {
+    if facts.haystack.contains("check")
+        || facts.haystack.contains("workflow")
+        || facts.haystack.contains("action")
+        || facts.haystack.contains("status")
+    {
+        Some(ToolActionKind::GithubCheck)
+    } else if facts.haystack.contains("commit") {
+        Some(ToolActionKind::GithubCommit)
+    } else if facts.haystack.contains("issue") {
         Some(ToolActionKind::GithubIssue)
     } else if facts.haystack.contains("pull request")
         || facts.haystack.contains(" pr ")
@@ -704,13 +744,14 @@ fn github_target(action: ToolActionKind, args: &Value) -> Option<ToolTarget> {
         string_at_deep(args, "issue").as_deref(),
         string_at_deep(args, "pr").as_deref(),
         string_at_deep(args, "pullRequest").as_deref(),
+        string_at_deep(args, "pull_request").as_deref(),
     ]);
     number
         .map(|label| ToolTarget {
-            kind: if action == ToolActionKind::GithubPullRequest {
-                ToolTargetKind::PullRequest
-            } else {
-                ToolTargetKind::Issue
+            kind: match action {
+                ToolActionKind::GithubPullRequest => ToolTargetKind::PullRequest,
+                ToolActionKind::GithubIssue => ToolTargetKind::Issue,
+                _ => ToolTargetKind::Repository,
             },
             label,
         })
@@ -797,6 +838,7 @@ fn display_for(
         target,
         status,
         icon_key: icon_for(surface, action).to_string(),
+        technical_metadata: technical_metadata(input, facts),
     }
 }
 
@@ -815,7 +857,7 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 ToolActionKind::BrowserTab => "Switching",
                 ToolActionKind::BrowserViewport => "Resizing",
                 ToolActionKind::BrowserZoom => "Changing zoom for",
-                ToolActionKind::BrowserConsole => "Reading",
+                ToolActionKind::BrowserConsole | ToolActionKind::BrowserLogs => "Reading",
                 ToolActionKind::TerminalRun => "Running",
                 ToolActionKind::TerminalWrite => "Writing to",
                 ToolActionKind::TerminalResize => "Resizing",
@@ -823,7 +865,10 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 ToolActionKind::TerminalOutput => "Reading",
                 ToolActionKind::FilePatch | ToolActionKind::FileEdit => "Editing",
                 ToolActionKind::FileRead => "Reading",
-                ToolActionKind::GithubIssue | ToolActionKind::GithubPullRequest => "Reading",
+                ToolActionKind::GithubIssue
+                | ToolActionKind::GithubPullRequest
+                | ToolActionKind::GithubCheck
+                | ToolActionKind::GithubCommit => "Reading",
                 ToolActionKind::GithubSearch | ToolActionKind::WebSearch => "Searching",
                 ToolActionKind::ImageView => "Viewing",
                 ToolActionKind::ImageGenerate => "Generating",
@@ -843,7 +888,7 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             ToolActionKind::BrowserTab => "Switched",
             ToolActionKind::BrowserViewport => "Resized",
             ToolActionKind::BrowserZoom => "Changed zoom for",
-            ToolActionKind::BrowserConsole => "Read",
+            ToolActionKind::BrowserConsole | ToolActionKind::BrowserLogs => "Read",
             ToolActionKind::TerminalRun => "Ran",
             ToolActionKind::TerminalWrite => "Wrote to",
             ToolActionKind::TerminalResize => "Resized",
@@ -851,7 +896,10 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             ToolActionKind::TerminalOutput => "Read",
             ToolActionKind::FilePatch | ToolActionKind::FileEdit => "Edited",
             ToolActionKind::FileRead => "Read",
-            ToolActionKind::GithubIssue | ToolActionKind::GithubPullRequest => "Read",
+            ToolActionKind::GithubIssue
+            | ToolActionKind::GithubPullRequest
+            | ToolActionKind::GithubCheck
+            | ToolActionKind::GithubCommit => "Read",
             ToolActionKind::GithubSearch | ToolActionKind::WebSearch => "Searched",
             ToolActionKind::ImageView => "Viewed",
             ToolActionKind::ImageGenerate => "Generated",
@@ -871,15 +919,53 @@ fn noun_for(action: ToolActionKind) -> &'static str {
         ToolActionKind::BrowserNavigate => "page",
         ToolActionKind::BrowserScreenshot | ToolActionKind::ComputerScreenshot => "screenshot",
         ToolActionKind::BrowserInspect => "page",
+        ToolActionKind::BrowserLogs => "console logs",
         ToolActionKind::BrowserConsole => "console logs",
         ToolActionKind::BrowserTab => "tab",
         ToolActionKind::BrowserViewport => "viewport",
         ToolActionKind::BrowserZoom => "zoom",
         ToolActionKind::GithubIssue => "issue",
         ToolActionKind::GithubPullRequest => "pull request",
+        ToolActionKind::GithubCheck => "checks",
+        ToolActionKind::GithubCommit => "commit",
         ToolActionKind::GithubSearch => "search",
         _ => "tool",
     }
+}
+
+fn technical_metadata(input: &ToolNormalizationInput, facts: &ToolFacts) -> Value {
+    let mut metadata = serde_json::Map::new();
+    metadata.insert(
+        "transport".to_string(),
+        serde_json::to_value(input.transport).unwrap_or(Value::Null),
+    );
+    if let Some(item_type) = input.item_type.as_deref().filter(|value| !value.is_empty()) {
+        metadata.insert(
+            "item_type".to_string(),
+            Value::String(item_type.to_string()),
+        );
+    }
+    if let Some(method) = input
+        .provider
+        .method
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        metadata.insert("method".to_string(), Value::String(method.to_string()));
+    }
+    if !facts.server.is_empty() {
+        metadata.insert(
+            "server_name".to_string(),
+            Value::String(facts.server.clone()),
+        );
+    }
+    if !facts.tool.is_empty() {
+        metadata.insert("tool_name".to_string(), Value::String(facts.tool.clone()));
+    }
+    if !facts.op.is_empty() {
+        metadata.insert("operation".to_string(), Value::String(facts.op.clone()));
+    }
+    Value::Object(metadata)
 }
 
 fn icon_for(surface: ToolSurface, action: ToolActionKind) -> &'static str {
@@ -1131,7 +1217,7 @@ mod tests {
             ),
             (
                 "tab_dev_logs",
-                ToolActionKind::BrowserConsole,
+                ToolActionKind::BrowserLogs,
                 "Read Browser console logs",
             ),
             (
@@ -1325,5 +1411,97 @@ mod tests {
             call.display.summary.as_deref(),
             Some("server: linear, tool: create_comment")
         );
+    }
+
+    #[test]
+    fn preserves_raw_payload_and_exposes_inspector_metadata() {
+        let raw = json!({
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "item": {
+                "id": "item-1",
+                "type": "dynamicToolCall",
+                "toolName": "ace_browser",
+                "input": {
+                    "operation": "navigate_tab_url",
+                    "url": "https://example.com"
+                }
+            }
+        });
+        let mut provider = ProviderToolMetadata::new();
+        provider.provider = Some("codex".to_string());
+        provider.method = Some("item/completed".to_string());
+        provider.tool_name = Some("ace_browser".to_string());
+        provider.operation = Some("navigate_tab_url".to_string());
+        provider.raw_args = raw["item"]["input"].clone();
+        provider.raw_payload = raw.clone();
+
+        let call = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::DynamicTool,
+            status: ToolRunStatus::Completed,
+            provider,
+            item_type: Some("dynamicToolCall".to_string()),
+        });
+
+        assert_eq!(call.transport, ToolTransport::DynamicTool);
+        assert_eq!(call.provider.raw_payload, raw);
+        assert_eq!(call.display.technical_metadata["transport"], "dynamic_tool");
+        assert_eq!(call.display.technical_metadata["method"], "item/completed");
+        assert_eq!(
+            call.display.technical_metadata["item_type"],
+            "dynamicToolCall"
+        );
+        assert_eq!(
+            call.display.technical_metadata["operation"],
+            "navigate_tab_url"
+        );
+    }
+
+    #[test]
+    fn github_pr_check_commit_and_search_actions_are_distinct() {
+        let cases = [
+            (
+                "pr list",
+                json!({ "repo": "openai/codex", "pr": 12 }),
+                ToolActionKind::GithubPullRequest,
+                "Read GitHub pull request 12",
+            ),
+            (
+                "checks status",
+                json!({ "repo": "openai/codex" }),
+                ToolActionKind::GithubCheck,
+                "Read GitHub checks openai/codex",
+            ),
+            (
+                "commit details",
+                json!({ "repo": "openai/codex" }),
+                ToolActionKind::GithubCommit,
+                "Read GitHub commit openai/codex",
+            ),
+            (
+                "search repositories",
+                json!({ "repo": "openai/codex" }),
+                ToolActionKind::GithubSearch,
+                "Searched GitHub search openai/codex",
+            ),
+        ];
+
+        for (operation, args, action, title) in cases {
+            let mut provider = ProviderToolMetadata::new();
+            provider.server_name = Some("github".to_string());
+            provider.tool_name = Some("gh".to_string());
+            provider.operation = Some(operation.to_string());
+            provider.raw_args = args;
+            let call = normalize_tool_call(ToolNormalizationInput {
+                transport: ToolTransport::Mcp,
+                status: ToolRunStatus::Completed,
+                provider,
+                item_type: Some("mcpToolCall".to_string()),
+            });
+
+            assert_eq!(call.surface, ToolSurface::Github);
+            assert_eq!(call.action, action);
+            assert_eq!(call.display.title, title);
+        }
     }
 }

@@ -940,7 +940,7 @@ fn transport_for_server_request(
             ServerRequestKind::McpElicitation | ServerRequestKind::ToolUserInput => {
                 ToolTransport::Mcp
             }
-            ServerRequestKind::DynamicToolCall => ToolTransport::CodexDynamic,
+            ServerRequestKind::DynamicToolCall => ToolTransport::DynamicTool,
             _ => ToolTransport::CodexBuiltin,
         }
     }
@@ -979,7 +979,7 @@ fn transport_for_item(item_type: &str, provider: &ProviderToolMetadata) -> ToolT
             "commandExecution" => ToolTransport::Shell,
             "fileChange" => ToolTransport::Filesystem,
             "mcpToolCall" => ToolTransport::Mcp,
-            "dynamicToolCall" => ToolTransport::CodexDynamic,
+            "dynamicToolCall" => ToolTransport::DynamicTool,
             _ => ToolTransport::CodexBuiltin,
         }
     }
@@ -1370,7 +1370,7 @@ mod tests {
             panic!("expected semantic update");
         };
         assert_eq!(tool.surface, ToolSurface::Browser);
-        assert_eq!(tool.action, ToolActionKind::BrowserConsole);
+        assert_eq!(tool.action, ToolActionKind::BrowserLogs);
         assert_eq!(
             tool.display.status,
             ace_runtime::tools::ToolRunStatus::Updated
