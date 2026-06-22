@@ -2723,6 +2723,7 @@ mod tests {
                     kind: ace_runtime::provider::RuntimeSignalKind::Warning,
                     thread_id: Some("thread-1".to_string()),
                     turn_id: Some("turn-1".to_string()),
+                    item_id: None,
                     message: Some("Context is almost full".to_string()),
                     from_model: None,
                     to_model: None,

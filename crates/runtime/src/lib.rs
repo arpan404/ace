@@ -580,6 +580,9 @@ pub mod provider {
         ProcessExited,
         ServerRequestResolved,
         ProviderStateUpdated,
+        RealtimeSessionUpdated,
+        TurnModerationUpdated,
+        AutoApprovalReviewUpdated,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -589,6 +592,8 @@ pub mod provider {
         pub thread_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub item_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub message: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1295,6 +1300,9 @@ pub mod provider {
                 RuntimeSignalKind::ProcessExited,
                 RuntimeSignalKind::ServerRequestResolved,
                 RuntimeSignalKind::ProviderStateUpdated,
+                RuntimeSignalKind::RealtimeSessionUpdated,
+                RuntimeSignalKind::TurnModerationUpdated,
+                RuntimeSignalKind::AutoApprovalReviewUpdated,
             ],
             provider_event_types: vec![
                 "raw_notification".to_string(),

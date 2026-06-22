@@ -695,6 +695,42 @@ pub enum ProviderRuntimeProjectionDelta {
         #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
         metadata: serde_json::Value,
     },
+    RealtimeSessionUpdated {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        status: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        metadata: serde_json::Value,
+    },
+    TurnModerationUpdated {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        status: String,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        metadata: serde_json::Value,
+    },
+    AutoApprovalReviewUpdated {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item_id: Option<String>,
+        status: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        metadata: serde_json::Value,
+    },
     ActiveTurnChanged {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1182,6 +1218,45 @@ fn projection_deltas_for_runtime_signal(
                     .unwrap_or_else(|| "provider_state_updated".to_string()),
                 message: signal.message.clone(),
                 name: signal.name.clone(),
+                metadata: signal.metadata.clone(),
+            }]
+        }
+        RuntimeSignalKind::RealtimeSessionUpdated => {
+            vec![ProviderRuntimeProjectionDelta::RealtimeSessionUpdated {
+                provider: signal.provider.provider.clone(),
+                thread_id: signal.thread_id.clone(),
+                turn_id: signal.turn_id.clone(),
+                status: signal
+                    .status
+                    .clone()
+                    .unwrap_or_else(|| "realtime_session_updated".to_string()),
+                message: signal.message.clone(),
+                metadata: signal.metadata.clone(),
+            }]
+        }
+        RuntimeSignalKind::TurnModerationUpdated => {
+            vec![ProviderRuntimeProjectionDelta::TurnModerationUpdated {
+                provider: signal.provider.provider.clone(),
+                thread_id: signal.thread_id.clone(),
+                turn_id: signal.turn_id.clone(),
+                status: signal
+                    .status
+                    .clone()
+                    .unwrap_or_else(|| "moderation_metadata_updated".to_string()),
+                metadata: signal.metadata.clone(),
+            }]
+        }
+        RuntimeSignalKind::AutoApprovalReviewUpdated => {
+            vec![ProviderRuntimeProjectionDelta::AutoApprovalReviewUpdated {
+                provider: signal.provider.provider.clone(),
+                thread_id: signal.thread_id.clone(),
+                turn_id: signal.turn_id.clone(),
+                item_id: signal.item_id.clone(),
+                status: signal
+                    .status
+                    .clone()
+                    .unwrap_or_else(|| "auto_approval_review_updated".to_string()),
+                message: signal.message.clone(),
                 metadata: signal.metadata.clone(),
             }]
         }
@@ -1768,6 +1843,7 @@ mod tests {
                     kind: RuntimeSignalKind::Warning,
                     thread_id: Some("thread-1".to_string()),
                     turn_id: Some("turn-1".to_string()),
+                    item_id: None,
                     message: Some("Context is almost full".to_string()),
                     from_model: None,
                     to_model: None,
@@ -1792,6 +1868,7 @@ mod tests {
                     kind: RuntimeSignalKind::ModelRerouted,
                     thread_id: Some("thread-1".to_string()),
                     turn_id: Some("turn-1".to_string()),
+                    item_id: None,
                     message: None,
                     from_model: Some("gpt-5".to_string()),
                     to_model: Some("gpt-5-mini".to_string()),
@@ -1816,6 +1893,7 @@ mod tests {
                     kind: RuntimeSignalKind::RealtimeTranscriptDelta,
                     thread_id: Some("thread-1".to_string()),
                     turn_id: Some("turn-1".to_string()),
+                    item_id: None,
                     message: None,
                     from_model: None,
                     to_model: None,
@@ -1840,6 +1918,7 @@ mod tests {
                     kind: RuntimeSignalKind::RealtimeAudioDelta,
                     thread_id: Some("thread-1".to_string()),
                     turn_id: Some("turn-1".to_string()),
+                    item_id: None,
                     message: None,
                     from_model: None,
                     to_model: None,
@@ -1857,6 +1936,81 @@ mod tests {
                     request_id: None,
                     metadata: json!({}),
                     provider: provider_metadata("realtime/audioDelta"),
+                }),
+            },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::RealtimeSessionUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: None,
+                    message: Some("Realtime session failed".to_string()),
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("error".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "error": "Realtime session failed" }),
+                    provider: provider_metadata("thread/realtime/error"),
+                }),
+            },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::TurnModerationUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("moderation_metadata_updated".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "flagged": false }),
+                    provider: provider_metadata("turn/moderationMetadata"),
+                }),
+            },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::AutoApprovalReviewUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("review-1".to_string()),
+                    message: Some("Command approved".to_string()),
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("approved".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "decision": "approved" }),
+                    provider: provider_metadata("item/autoApprovalReview/completed"),
                 }),
             },
         ];
@@ -1912,6 +2066,51 @@ mod tests {
                 && turn_id.as_deref() == Some("turn-1")
                 && audio == "AAAA"
         )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::RealtimeSessionUpdated {
+                thread_id,
+                turn_id,
+                status,
+                message,
+                metadata,
+                ..
+            } if thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+                && status == "error"
+                && message.as_deref() == Some("Realtime session failed")
+                && metadata["error"] == "Realtime session failed"
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::TurnModerationUpdated {
+                thread_id,
+                turn_id,
+                status,
+                metadata,
+                ..
+            } if thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+                && status == "moderation_metadata_updated"
+                && metadata["flagged"] == false
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::AutoApprovalReviewUpdated {
+                thread_id,
+                turn_id,
+                item_id,
+                status,
+                message,
+                metadata,
+                ..
+            } if thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+                && item_id.as_deref() == Some("review-1")
+                && status == "approved"
+                && message.as_deref() == Some("Command approved")
+                && metadata["decision"] == "approved"
+        )));
         assert!(deltas.iter().all(|delta| !matches!(
             delta,
             ProviderRuntimeProjectionDelta::RawNotificationObserved { .. }
@@ -1926,6 +2125,7 @@ mod tests {
                     kind: RuntimeSignalKind::ThreadLifecycleChanged,
                     thread_id: Some("thread-1".to_string()),
                     turn_id: None,
+                    item_id: None,
                     message: None,
                     from_model: None,
                     to_model: None,
@@ -1950,6 +2150,7 @@ mod tests {
                     kind: RuntimeSignalKind::ThreadTokenUsageUpdated,
                     thread_id: Some("thread-1".to_string()),
                     turn_id: None,
+                    item_id: None,
                     message: None,
                     from_model: None,
                     to_model: None,
@@ -1974,6 +2175,7 @@ mod tests {
                     kind: RuntimeSignalKind::TurnDiffUpdated,
                     thread_id: Some("thread-1".to_string()),
                     turn_id: Some("turn-1".to_string()),
+                    item_id: None,
                     message: None,
                     from_model: None,
                     to_model: None,
@@ -1998,6 +2200,7 @@ mod tests {
                     kind: RuntimeSignalKind::ProcessExited,
                     thread_id: Some("thread-1".to_string()),
                     turn_id: Some("turn-1".to_string()),
+                    item_id: None,
                     message: None,
                     from_model: None,
                     to_model: None,
@@ -2022,6 +2225,7 @@ mod tests {
                     kind: RuntimeSignalKind::ServerRequestResolved,
                     thread_id: Some("thread-1".to_string()),
                     turn_id: Some("turn-1".to_string()),
+                    item_id: None,
                     message: None,
                     from_model: None,
                     to_model: None,
@@ -2046,6 +2250,7 @@ mod tests {
                     kind: RuntimeSignalKind::ProviderStateUpdated,
                     thread_id: None,
                     turn_id: None,
+                    item_id: None,
                     message: Some("Signed in".to_string()),
                     from_model: None,
                     to_model: None,

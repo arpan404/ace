@@ -72,6 +72,9 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
         turn_id: string_at(params, "turnId")
             .or_else(|| string_at(params, "turn_id"))
             .or_else(|| nested_string_at(params, "/turn", &["id", "turnId", "turn_id"])),
+        item_id: string_at(params, "itemId")
+            .or_else(|| string_at(params, "item_id"))
+            .or_else(|| nested_string_at(params, "/item", &["id", "itemId", "item_id"])),
         message: None,
         from_model: None,
         to_model: None,
@@ -217,6 +220,48 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
                 string_at(params, "query").as_deref(),
             ]);
         }
+        RuntimeSignalKind::RealtimeSessionUpdated => {
+            signal.status = first_string([
+                string_at(params, "status").as_deref(),
+                string_at(params, "state").as_deref(),
+                string_at(params, "event").as_deref(),
+                string_at(params, "type").as_deref(),
+            ])
+            .or_else(|| realtime_session_status_from_method(method));
+            signal.message = first_string([
+                string_at(params, "message").as_deref(),
+                string_at(params, "text").as_deref(),
+                string_at(params, "description").as_deref(),
+                string_at(params, "error").as_deref(),
+            ]);
+            signal.text = first_string([
+                string_at(params, "sdp").as_deref(),
+                string_at(params, "transcript").as_deref(),
+                string_at(params, "content").as_deref(),
+            ]);
+        }
+        RuntimeSignalKind::TurnModerationUpdated => {
+            signal.status = first_string([
+                string_at(params, "status").as_deref(),
+                string_at(params, "state").as_deref(),
+            ])
+            .or_else(|| Some("moderation_metadata_updated".to_string()));
+        }
+        RuntimeSignalKind::AutoApprovalReviewUpdated => {
+            signal.status = first_string([
+                string_at(params, "status").as_deref(),
+                string_at(params, "state").as_deref(),
+                string_at(params, "outcome").as_deref(),
+                string_at(params, "result").as_deref(),
+            ])
+            .or_else(|| auto_approval_review_status_from_method(method));
+            signal.message = first_string([
+                string_at(params, "message").as_deref(),
+                string_at(params, "text").as_deref(),
+                string_at(params, "description").as_deref(),
+                string_at(params, "reason").as_deref(),
+            ]);
+        }
     }
     Some(signal)
 }
@@ -247,8 +292,18 @@ fn runtime_signal_kind(method: &str) -> Option<RuntimeSignalKind> {
         "thread/settings/updated" => Some(RuntimeSignalKind::ThreadSettingsUpdated),
         "thread/tokenUsage/updated" => Some(RuntimeSignalKind::ThreadTokenUsageUpdated),
         "turn/diff/updated" => Some(RuntimeSignalKind::TurnDiffUpdated),
+        "turn/moderationMetadata" => Some(RuntimeSignalKind::TurnModerationUpdated),
         "process/exited" => Some(RuntimeSignalKind::ProcessExited),
         "serverRequest/resolved" => Some(RuntimeSignalKind::ServerRequestResolved),
+        "thread/realtime/closed"
+        | "thread/realtime/error"
+        | "thread/realtime/itemAdded"
+        | "thread/realtime/sdp"
+        | "thread/realtime/started"
+        | "thread/realtime/transcript/done" => Some(RuntimeSignalKind::RealtimeSessionUpdated),
+        "item/autoApprovalReview/completed" | "item/autoApprovalReview/started" => {
+            Some(RuntimeSignalKind::AutoApprovalReviewUpdated)
+        }
         "account/login/completed"
         | "account/rateLimits/updated"
         | "account/updated"
@@ -305,6 +360,32 @@ fn provider_state_status_from_method(method: &str) -> Option<String> {
         "windowsSandbox/setupCompleted" => Some("windows_sandbox_setup_completed".to_string()),
         _ => None,
     }
+}
+
+fn realtime_session_status_from_method(method: &str) -> Option<String> {
+    Some(
+        match method {
+            "thread/realtime/closed" => "closed",
+            "thread/realtime/error" => "error",
+            "thread/realtime/itemAdded" => "item_added",
+            "thread/realtime/sdp" => "sdp_updated",
+            "thread/realtime/started" => "started",
+            "thread/realtime/transcript/done" => "transcript_done",
+            _ => return None,
+        }
+        .to_string(),
+    )
+}
+
+fn auto_approval_review_status_from_method(method: &str) -> Option<String> {
+    Some(
+        match method {
+            "item/autoApprovalReview/completed" => "completed",
+            "item/autoApprovalReview/started" => "started",
+            _ => return None,
+        }
+        .to_string(),
+    )
 }
 
 fn normalize_codex_server_request(
@@ -1635,6 +1716,147 @@ mod tests {
             assert_eq!(signal.provider.method.as_deref(), Some(method));
             assert!(matches!(events[1], ProviderEvent::RawNotification { .. }));
         }
+    }
+
+    #[test]
+    fn normalizes_realtime_moderation_and_auto_review_notifications() {
+        let realtime_cases = [
+            (
+                "thread/realtime/started",
+                json!({ "threadId": "thread-1", "turnId": "turn-1" }),
+                "started",
+                None,
+            ),
+            (
+                "thread/realtime/error",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "error": "microphone unavailable"
+                }),
+                "error",
+                Some("microphone unavailable"),
+            ),
+            (
+                "thread/realtime/closed",
+                json!({ "threadId": "thread-1", "turnId": "turn-1" }),
+                "closed",
+                None,
+            ),
+            (
+                "thread/realtime/sdp",
+                json!({ "threadId": "thread-1", "turnId": "turn-1", "sdp": "v=0" }),
+                "sdp_updated",
+                None,
+            ),
+            (
+                "thread/realtime/itemAdded",
+                json!({ "threadId": "thread-1", "turnId": "turn-1", "item": { "id": "rt-1" } }),
+                "item_added",
+                None,
+            ),
+            (
+                "thread/realtime/transcript/done",
+                json!({ "threadId": "thread-1", "turnId": "turn-1", "transcript": "done" }),
+                "transcript_done",
+                None,
+            ),
+        ];
+
+        for (method, params, status, message) in realtime_cases {
+            let events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+                method: method.to_string(),
+                params,
+            });
+            let ProviderEvent::RuntimeSignal { signal } = &events[0] else {
+                panic!("expected realtime signal for {method}");
+            };
+            assert_eq!(
+                signal.kind,
+                ace_runtime::provider::RuntimeSignalKind::RealtimeSessionUpdated,
+                "{method}"
+            );
+            assert_eq!(signal.status.as_deref(), Some(status), "{method}");
+            assert_eq!(signal.message.as_deref(), message, "{method}");
+            assert_eq!(signal.thread_id.as_deref(), Some("thread-1"));
+            assert_eq!(signal.turn_id.as_deref(), Some("turn-1"));
+            assert!(matches!(events[1], ProviderEvent::RawNotification { .. }));
+        }
+
+        let moderation = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "turn/moderationMetadata".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "flagged": false
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &moderation[0] else {
+            panic!("expected moderation signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::TurnModerationUpdated
+        );
+        assert_eq!(
+            signal.status.as_deref(),
+            Some("moderation_metadata_updated")
+        );
+        assert_eq!(signal.provider.raw_payload["flagged"], false);
+        assert!(matches!(
+            moderation[1],
+            ProviderEvent::RawNotification { .. }
+        ));
+
+        let review_started = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/autoApprovalReview/started".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "review-1"
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &review_started[0] else {
+            panic!("expected auto-review signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::AutoApprovalReviewUpdated
+        );
+        assert_eq!(signal.status.as_deref(), Some("started"));
+        assert_eq!(signal.item_id.as_deref(), Some("review-1"));
+        assert!(matches!(
+            review_started[1],
+            ProviderEvent::RawNotification { .. }
+        ));
+
+        let review_completed = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/autoApprovalReview/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": { "id": "review-1" },
+                "status": "approved",
+                "reason": "command is within workspace"
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &review_completed[0] else {
+            panic!("expected auto-review completion signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::AutoApprovalReviewUpdated
+        );
+        assert_eq!(signal.status.as_deref(), Some("approved"));
+        assert_eq!(
+            signal.message.as_deref(),
+            Some("command is within workspace")
+        );
+        assert_eq!(signal.item_id.as_deref(), Some("review-1"));
+        assert!(matches!(
+            review_completed[1],
+            ProviderEvent::RawNotification { .. }
+        ));
     }
 
     #[test]
