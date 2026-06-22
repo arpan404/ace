@@ -263,6 +263,7 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
             ]);
         }
         RuntimeSignalKind::SubagentAction => {}
+        RuntimeSignalKind::HandoffUpdated => {}
     }
     Some(signal)
 }

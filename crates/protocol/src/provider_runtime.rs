@@ -10,7 +10,7 @@ use ace_runtime::{
         ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
         RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
     },
-    threads::{AgentRuntimeSnapshot, GoalState, GoalStatus},
+    threads::{AgentRuntimeSnapshot, GoalState, GoalStatus, HandoffPlan},
     tools::{SemanticToolCall, ToolRunStatus},
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -741,6 +741,10 @@ pub enum ProviderRuntimeProjectionDelta {
         #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
         metadata: serde_json::Value,
     },
+    HandoffUpdated {
+        provider: String,
+        handoff: HandoffPlan,
+    },
     ActiveTurnChanged {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1293,6 +1297,20 @@ fn projection_deltas_for_runtime_signal(
                     .unwrap_or_else(|| "subagent_action".to_string()),
                 prompt: signal.text.clone(),
                 metadata: signal.metadata.clone(),
+            }]
+        }
+        RuntimeSignalKind::HandoffUpdated => {
+            let value = signal
+                .metadata
+                .get("handoff")
+                .cloned()
+                .unwrap_or_else(|| signal.metadata.clone());
+            let Ok(handoff) = serde_json::from_value::<HandoffPlan>(value) else {
+                return Vec::new();
+            };
+            vec![ProviderRuntimeProjectionDelta::HandoffUpdated {
+                provider: signal.provider.provider.clone(),
+                handoff,
             }]
         }
     }
@@ -2076,6 +2094,45 @@ mod tests {
                     provider: provider_metadata("subagent/steer"),
                 }),
             },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::HandoffUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("completed".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "handoff": {
+                            "source_thread_id": "thread-1",
+                            "target_location": "worktree",
+                            "status": "completed",
+                            "target_thread_id": "thread-1",
+                            "repo_root": "/repo",
+                            "worktree_path": "/worktrees/repo-feature",
+                            "branch": "feature/task",
+                            "start_point": "main",
+                            "transfer_status": "metadata_updated",
+                            "interrupted_active_turn": true,
+                            "metadata": { "handoff": { "worktree_branch": "feature/task" } }
+                        }
+                    }),
+                    provider: provider_metadata("handoff/worktree"),
+                }),
+            },
         ];
         let deltas = projection_deltas_for_events(&events);
 
@@ -2188,6 +2245,15 @@ mod tests {
                 && action == "steer"
                 && prompt.as_deref() == Some("focus on tests")
                 && metadata["provider_response"]["steered"] == true
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::HandoffUpdated { handoff, .. }
+                if handoff.source_thread_id == "thread-1"
+                    && handoff.target_location == ace_runtime::threads::ExecutionLocation::Worktree
+                    && handoff.status == ace_runtime::threads::HandoffStatus::Completed
+                    && handoff.branch.as_deref() == Some("feature/task")
+                    && handoff.interrupted_active_turn == Some(true)
         )));
         assert!(deltas.iter().all(|delta| !matches!(
             delta,

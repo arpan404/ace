@@ -646,6 +646,9 @@ impl AgentRuntimeState {
                 if let Some(record) = thread_lifecycle_from_signal(signal) {
                     self.record_thread_lifecycle(record);
                 }
+                if let Some(handoff) = handoff_from_signal(signal) {
+                    self.record_handoff(handoff);
+                }
             }
             ProviderEvent::RawServerRequest { .. }
             | ProviderEvent::ServerRequest { .. }
@@ -811,6 +814,18 @@ fn subagent_action_kind(action: &str) -> Option<SubagentActionKind> {
         "close" => Some(SubagentActionKind::Close),
         _ => None,
     }
+}
+
+fn handoff_from_signal(signal: &NormalizedRuntimeSignal) -> Option<HandoffPlan> {
+    if signal.kind != RuntimeSignalKind::HandoffUpdated {
+        return None;
+    }
+    let value = signal
+        .metadata
+        .get("handoff")
+        .cloned()
+        .unwrap_or_else(|| signal.metadata.clone());
+    serde_json::from_value(value).ok()
 }
 
 #[cfg(test)]
@@ -1226,6 +1241,63 @@ mod tests {
         assert_eq!(lifecycle[2].item_count, Some(2));
         assert_eq!(lifecycle[2].request["items"][1]["type"], "agentMessage");
         assert_eq!(lifecycle[2].provider_response["injected"], true);
+    }
+
+    #[test]
+    fn applies_handoff_runtime_signals() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[ProviderEvent::RuntimeSignal {
+            signal: Box::new(NormalizedRuntimeSignal {
+                kind: RuntimeSignalKind::HandoffUpdated,
+                thread_id: Some("thread-1".to_string()),
+                turn_id: None,
+                item_id: None,
+                message: None,
+                from_model: None,
+                to_model: None,
+                reason: None,
+                text: None,
+                audio: None,
+                status: Some("completed".to_string()),
+                name: None,
+                active: None,
+                archived: None,
+                diff: None,
+                files: None,
+                process_id: None,
+                exit_code: None,
+                request_id: None,
+                metadata: json!({
+                    "handoff": {
+                        "source_thread_id": "thread-1",
+                        "target_location": "worktree",
+                        "status": "completed",
+                        "target_thread_id": "thread-1",
+                        "repo_root": "/repo",
+                        "worktree_path": "/worktrees/repo-feature",
+                        "branch": "feature/task",
+                        "start_point": "main",
+                        "transfer_status": "metadata_updated",
+                        "interrupted_active_turn": true,
+                        "metadata": { "handoff": { "worktree_branch": "feature/task" } }
+                    }
+                }),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("ace/handoff".to_string()),
+                    schema_version: None,
+                    raw_payload: json!({}),
+                },
+            }),
+        }]);
+
+        let handoffs = state.handoffs();
+        assert_eq!(handoffs.len(), 1);
+        assert_eq!(handoffs[0].source_thread_id, "thread-1");
+        assert_eq!(handoffs[0].target_location, ExecutionLocation::Worktree);
+        assert_eq!(handoffs[0].status, HandoffStatus::Completed);
+        assert_eq!(handoffs[0].branch.as_deref(), Some("feature/task"));
+        assert_eq!(handoffs[0].interrupted_active_turn, Some(true));
     }
 
     #[test]

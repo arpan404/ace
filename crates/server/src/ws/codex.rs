@@ -510,11 +510,30 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 Ok(response)
             }
             methods::CODEX_HANDOFF_TO_AGENT => {
-                self.codex_json::<CodexHandoffToAgentRequest, _, _, _>(
-                    payload,
-                    |service, request| async move { service.handoff_to_agent(request.params).await },
-                )
-                .await
+                let request = serde_json::from_value::<CodexHandoffToAgentRequest>(payload)?;
+                let source_thread_id = request.params.thread_id.clone();
+                let response = self.codex.handoff_to_agent(request.params).await?;
+                let handoff = HandoffPlan {
+                    source_thread_id,
+                    target_location: ExecutionLocation::Local,
+                    status: HandoffStatus::Completed,
+                    target_thread_id: extract_thread_id_from_value(&response),
+                    repo_root: None,
+                    worktree_path: None,
+                    branch: None,
+                    start_point: None,
+                    checkpoint_ref: None,
+                    remote_host: None,
+                    transfer_status: Some("completed".to_string()),
+                    interrupted_active_turn: None,
+                    metadata: response.clone(),
+                };
+                self.publish_codex_handoff_signal(CodexHandoffSignal {
+                    handoff,
+                    method: "ace/handoff/agent",
+                    provider_response: response.clone(),
+                })?;
+                Ok(response)
             }
             methods::CODEX_HANDOFF_TO_LOCATION => {
                 let request = serde_json::from_value::<CodexHandoffToLocationRequest>(payload)?;
@@ -596,23 +615,27 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         self.codex
             .update_thread_metadata(request.thread_id.clone(), metadata.clone())
             .await?;
-        self.codex
-            .record_handoff_to_location(HandoffPlan {
-                source_thread_id: request.thread_id.clone(),
-                target_location: ExecutionLocation::Worktree,
-                status: HandoffStatus::Completed,
-                target_thread_id: Some(request.thread_id.clone()),
-                repo_root: Some(repo_root.clone()),
-                worktree_path: Some(worktree_path.clone()),
-                branch: Some(worktree.branch.clone()),
-                start_point: request.start_point.clone(),
-                checkpoint_ref: None,
-                remote_host: None,
-                transfer_status: Some("metadata_updated".to_string()),
-                interrupted_active_turn: Some(interrupted_active_turn),
-                metadata: metadata.clone(),
-            })
-            .await;
+        let handoff = HandoffPlan {
+            source_thread_id: request.thread_id.clone(),
+            target_location: ExecutionLocation::Worktree,
+            status: HandoffStatus::Completed,
+            target_thread_id: Some(request.thread_id.clone()),
+            repo_root: Some(repo_root.clone()),
+            worktree_path: Some(worktree_path.clone()),
+            branch: Some(worktree.branch.clone()),
+            start_point: request.start_point.clone(),
+            checkpoint_ref: None,
+            remote_host: None,
+            transfer_status: Some("metadata_updated".to_string()),
+            interrupted_active_turn: Some(interrupted_active_turn),
+            metadata: metadata.clone(),
+        };
+        self.codex.record_handoff_to_location(handoff.clone()).await;
+        self.publish_codex_handoff_signal(CodexHandoffSignal {
+            handoff,
+            method: "ace/handoff/location",
+            provider_response: metadata.clone(),
+        })?;
 
         Ok(serde_json::to_value(CodexHandoffToLocationResponse {
             source_thread_id: request.thread_id.clone(),
@@ -1170,6 +1193,51 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         )
     }
 
+    fn publish_codex_handoff_signal(
+        &self,
+        signal: CodexHandoffSignal,
+    ) -> Result<(), WsDispatchError> {
+        let handoff = serde_json::to_value(&signal.handoff)?;
+        let metadata = json!({
+            "handoff": handoff,
+            "provider_response": signal.provider_response,
+        });
+        let raw_payload = metadata.clone();
+        self.append_and_publish_provider_events(
+            ProviderKind::Codex,
+            vec![ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::HandoffUpdated,
+                    thread_id: Some(signal.handoff.source_thread_id),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("completed".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(signal.method.to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            }],
+        )
+    }
+
     pub(super) async fn subscribe_provider_runtime_events(
         &self,
         payload: Value,
@@ -1382,6 +1450,22 @@ struct CodexSubagentActionSignal {
     action: &'static str,
     prompt: Option<String>,
     metadata: Value,
+}
+
+struct CodexHandoffSignal {
+    handoff: HandoffPlan,
+    method: &'static str,
+    provider_response: Value,
+}
+
+fn extract_thread_id_from_value(value: &Value) -> Option<String> {
+    value
+        .pointer("/thread/id")
+        .or_else(|| value.pointer("/thread/threadId"))
+        .or_else(|| value.get("threadId"))
+        .or_else(|| value.get("id"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
 }
 
 fn validate_provider_runtime_operation(
@@ -2782,8 +2866,8 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 3);
-        assert!(records.iter().all(|record| {
+        assert_eq!(records.len(), 4);
+        assert!(records[..3].iter().all(|record| {
             record["event"]["type"] == "runtime_signal"
                 && record["event"]["signal"]["kind"] == "subagent_action"
                 && record["projection_deltas"][0]["type"] == "subagent_action_recorded"
@@ -2812,6 +2896,23 @@ mod tests {
         assert_eq!(
             records[2]["projection_deltas"][0]["metadata"]["provider_response"]["closed"],
             true
+        );
+        assert_eq!(records[3]["event"]["signal"]["kind"], "handoff_updated");
+        assert_eq!(
+            records[3]["projection_deltas"][0]["type"],
+            "handoff_updated"
+        );
+        assert_eq!(
+            records[3]["projection_deltas"][0]["handoff"]["source_thread_id"],
+            "thread-1"
+        );
+        assert_eq!(
+            records[3]["projection_deltas"][0]["handoff"]["target_thread_id"],
+            "agent-thread-1"
+        );
+        assert_eq!(
+            records[3]["projection_deltas"][0]["handoff"]["target_location"],
+            "local"
         );
     }
 
@@ -2929,6 +3030,41 @@ mod tests {
         assert_eq!(handoff["start_point"], "main");
         assert_eq!(handoff["transfer_status"], "metadata_updated");
         assert_eq!(handoff["interrupted_active_turn"], true);
+
+        let recent = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "handoff-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": { "provider": "codex", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent: WsServerResponse = serde_json::from_str(&recent).expect("recent events");
+        let WsServerPayload::Result { body } = recent.payload else {
+            panic!("expected recent events result");
+        };
+        let records = body["records"].as_array().expect("records");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["event"]["signal"]["kind"], "handoff_updated");
+        assert_eq!(
+            records[0]["projection_deltas"][0]["type"],
+            "handoff_updated"
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["handoff"]["worktree_path"],
+            worktree_path
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["handoff"]["branch"],
+            "feature/task-2"
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["handoff"]["interrupted_active_turn"],
+            true
+        );
     }
 
     #[tokio::test]
