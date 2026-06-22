@@ -78,6 +78,15 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
         reason: None,
         text: None,
         audio: None,
+        status: None,
+        name: None,
+        active: None,
+        archived: None,
+        diff: None,
+        files: None,
+        process_id: None,
+        exit_code: None,
+        request_id: None,
         metadata: params.clone(),
         provider: ProviderMetadata {
             provider: "codex".to_string(),
@@ -134,6 +143,53 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
             ]);
             signal.audio.as_ref()?;
         }
+        RuntimeSignalKind::ThreadLifecycleChanged => {
+            signal.status = first_string([
+                string_at(params, "status").as_deref(),
+                string_at(params, "state").as_deref(),
+                string_at(params, "lifecycle").as_deref(),
+            ])
+            .or_else(|| lifecycle_status_from_method(method));
+            signal.name = string_at(params, "name")
+                .or_else(|| nested_string_at(params, "/thread", &["name", "title"]));
+            signal.active =
+                bool_at(params, "active").or_else(|| lifecycle_active_from_method(method));
+            signal.archived =
+                bool_at(params, "archived").or_else(|| lifecycle_archived_from_method(method));
+        }
+        RuntimeSignalKind::ThreadSettingsUpdated => {
+            signal.status = Some("settings_updated".to_string());
+        }
+        RuntimeSignalKind::ThreadTokenUsageUpdated => {
+            signal.status = Some("token_usage_updated".to_string());
+        }
+        RuntimeSignalKind::TurnDiffUpdated => {
+            signal.diff = string_at(params, "diff").or_else(|| string_at(params, "patch"));
+            signal.files = params.get("files").cloned();
+        }
+        RuntimeSignalKind::ProcessExited => {
+            signal.process_id = first_string([
+                string_at(params, "processId").as_deref(),
+                string_at(params, "process_id").as_deref(),
+                string_at(params, "id").as_deref(),
+            ]);
+            signal.exit_code = i64_at(params, "exitCode")
+                .or_else(|| i64_at(params, "exit_code"))
+                .or_else(|| i64_at(params, "code"));
+        }
+        RuntimeSignalKind::ServerRequestResolved => {
+            signal.request_id = first_string([
+                string_at(params, "requestId").as_deref(),
+                string_at(params, "request_id").as_deref(),
+                string_at(params, "id").as_deref(),
+            ]);
+            signal.status = first_string([
+                string_at(params, "status").as_deref(),
+                string_at(params, "outcome").as_deref(),
+                string_at(params, "result").as_deref(),
+            ])
+            .or_else(|| Some("resolved".to_string()));
+        }
     }
     Some(signal)
 }
@@ -148,6 +204,19 @@ fn runtime_signal_kind(method: &str) -> Option<RuntimeSignalKind> {
         "realtime/audioDelta" | "thread/realtime/outputAudio/delta" => {
             Some(RuntimeSignalKind::RealtimeAudioDelta)
         }
+        "thread/started"
+        | "thread/status/changed"
+        | "thread/archived"
+        | "thread/unarchived"
+        | "thread/deleted"
+        | "thread/closed"
+        | "thread/compacted"
+        | "thread/name/updated" => Some(RuntimeSignalKind::ThreadLifecycleChanged),
+        "thread/settings/updated" => Some(RuntimeSignalKind::ThreadSettingsUpdated),
+        "thread/tokenUsage/updated" => Some(RuntimeSignalKind::ThreadTokenUsageUpdated),
+        "turn/diff/updated" => Some(RuntimeSignalKind::TurnDiffUpdated),
+        "process/exited" => Some(RuntimeSignalKind::ProcessExited),
+        "serverRequest/resolved" => Some(RuntimeSignalKind::ServerRequestResolved),
         _ => None,
     }
 }
@@ -824,6 +893,38 @@ fn item_type_from_method(method: &str) -> Option<String> {
     }
 }
 
+fn lifecycle_status_from_method(method: &str) -> Option<String> {
+    Some(
+        match method {
+            "thread/started" => "started",
+            "thread/archived" => "archived",
+            "thread/unarchived" => "unarchived",
+            "thread/deleted" => "deleted",
+            "thread/closed" => "closed",
+            "thread/compacted" => "compacted",
+            "thread/name/updated" => "renamed",
+            _ => return None,
+        }
+        .to_string(),
+    )
+}
+
+fn lifecycle_active_from_method(method: &str) -> Option<bool> {
+    match method {
+        "thread/deleted" | "thread/closed" => Some(false),
+        "thread/started" => Some(true),
+        _ => None,
+    }
+}
+
+fn lifecycle_archived_from_method(method: &str) -> Option<bool> {
+    match method {
+        "thread/archived" => Some(true),
+        "thread/unarchived" => Some(false),
+        _ => None,
+    }
+}
+
 fn string_at(value: &Value, key: &str) -> Option<String> {
     value
         .as_object()
@@ -833,6 +934,20 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
             Value::Number(number) => Some(number.to_string()),
             _ => None,
         })
+}
+
+fn bool_at(value: &Value, key: &str) -> Option<bool> {
+    value
+        .as_object()
+        .and_then(|object| object.get(key))
+        .and_then(Value::as_bool)
+}
+
+fn i64_at(value: &Value, key: &str) -> Option<i64> {
+    value
+        .as_object()
+        .and_then(|object| object.get(key))
+        .and_then(Value::as_i64)
 }
 
 fn string_at_deep(value: &Value, key: &str) -> Option<String> {
@@ -1164,6 +1279,79 @@ mod tests {
             ace_runtime::provider::RuntimeSignalKind::RealtimeTranscriptDelta
         );
         assert_eq!(signal.text.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn normalizes_current_lifecycle_diff_and_process_notifications() {
+        let lifecycle = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "thread/status/changed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "status": "running",
+                "active": true
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &lifecycle[0] else {
+            panic!("expected lifecycle signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::ThreadLifecycleChanged
+        );
+        assert_eq!(signal.thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(signal.status.as_deref(), Some("running"));
+        assert_eq!(signal.active, Some(true));
+        assert_eq!(signal.provider.raw_payload["status"], "running");
+
+        let renamed = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "thread/name/updated".to_string(),
+            params: json!({
+                "thread": { "id": "thread-1", "name": "Adapter parity" }
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &renamed[0] else {
+            panic!("expected rename signal");
+        };
+        assert_eq!(signal.status.as_deref(), Some("renamed"));
+        assert_eq!(signal.name.as_deref(), Some("Adapter parity"));
+
+        let diff = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "turn/diff/updated".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "diff": "@@ -1 +1 @@",
+                "files": [{ "path": "src/lib.rs" }]
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &diff[0] else {
+            panic!("expected diff signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::TurnDiffUpdated
+        );
+        assert_eq!(signal.diff.as_deref(), Some("@@ -1 +1 @@"));
+        assert_eq!(signal.files.as_ref().unwrap()[0]["path"], "src/lib.rs");
+
+        let process = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "process/exited".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "processId": "proc-1",
+                "exitCode": 2
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &process[0] else {
+            panic!("expected process signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::ProcessExited
+        );
+        assert_eq!(signal.process_id.as_deref(), Some("proc-1"));
+        assert_eq!(signal.exit_code, Some(2));
     }
 
     #[test]

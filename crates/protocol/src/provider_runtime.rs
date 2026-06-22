@@ -619,6 +619,72 @@ pub enum ProviderRuntimeProjectionDelta {
         turn_id: Option<String>,
         audio: String,
     },
+    ThreadLifecycleChanged {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        active: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        archived: Option<bool>,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        metadata: serde_json::Value,
+    },
+    ThreadSettingsUpdated {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        settings: serde_json::Value,
+    },
+    ThreadTokenUsageUpdated {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        token_usage: serde_json::Value,
+    },
+    TurnDiffUpdated {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        diff: Option<String>,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        files: serde_json::Value,
+    },
+    ProcessExited {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        process_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i64>,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        metadata: serde_json::Value,
+    },
+    ServerRequestResolvedObserved {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<String>,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        metadata: serde_json::Value,
+    },
     ActiveTurnChanged {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1032,6 +1098,71 @@ fn projection_deltas_for_runtime_signal(
                 }]
             })
             .unwrap_or_default(),
+        RuntimeSignalKind::ThreadLifecycleChanged => {
+            vec![ProviderRuntimeProjectionDelta::ThreadLifecycleChanged {
+                provider: signal.provider.provider.clone(),
+                thread_id: signal.thread_id.clone(),
+                status: signal.status.clone(),
+                name: signal.name.clone(),
+                active: signal.active,
+                archived: signal.archived,
+                metadata: signal.metadata.clone(),
+            }]
+        }
+        RuntimeSignalKind::ThreadSettingsUpdated => {
+            vec![ProviderRuntimeProjectionDelta::ThreadSettingsUpdated {
+                provider: signal.provider.provider.clone(),
+                thread_id: signal.thread_id.clone(),
+                settings: signal
+                    .metadata
+                    .get("settings")
+                    .cloned()
+                    .unwrap_or_else(|| signal.metadata.clone()),
+            }]
+        }
+        RuntimeSignalKind::ThreadTokenUsageUpdated => {
+            vec![ProviderRuntimeProjectionDelta::ThreadTokenUsageUpdated {
+                provider: signal.provider.provider.clone(),
+                thread_id: signal.thread_id.clone(),
+                token_usage: signal
+                    .metadata
+                    .get("tokenUsage")
+                    .or_else(|| signal.metadata.get("token_usage"))
+                    .cloned()
+                    .unwrap_or_else(|| signal.metadata.clone()),
+            }]
+        }
+        RuntimeSignalKind::TurnDiffUpdated => {
+            vec![ProviderRuntimeProjectionDelta::TurnDiffUpdated {
+                provider: signal.provider.provider.clone(),
+                thread_id: signal.thread_id.clone(),
+                turn_id: signal.turn_id.clone(),
+                diff: signal.diff.clone(),
+                files: signal.files.clone().unwrap_or(serde_json::Value::Null),
+            }]
+        }
+        RuntimeSignalKind::ProcessExited => {
+            vec![ProviderRuntimeProjectionDelta::ProcessExited {
+                provider: signal.provider.provider.clone(),
+                thread_id: signal.thread_id.clone(),
+                turn_id: signal.turn_id.clone(),
+                process_id: signal.process_id.clone(),
+                exit_code: signal.exit_code,
+                metadata: signal.metadata.clone(),
+            }]
+        }
+        RuntimeSignalKind::ServerRequestResolved => {
+            vec![
+                ProviderRuntimeProjectionDelta::ServerRequestResolvedObserved {
+                    provider: signal.provider.provider.clone(),
+                    thread_id: signal.thread_id.clone(),
+                    turn_id: signal.turn_id.clone(),
+                    request_id: signal.request_id.clone(),
+                    status: signal.status.clone(),
+                    metadata: signal.metadata.clone(),
+                },
+            ]
+        }
     }
 }
 
@@ -1621,6 +1752,15 @@ mod tests {
                     reason: None,
                     text: None,
                     audio: None,
+                    status: None,
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
                     metadata: json!({ "severity": "warning" }),
                     provider: provider_metadata("warning"),
                 }),
@@ -1636,6 +1776,15 @@ mod tests {
                     reason: Some("capacity".to_string()),
                     text: None,
                     audio: None,
+                    status: None,
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
                     metadata: json!({}),
                     provider: provider_metadata("model/rerouted"),
                 }),
@@ -1651,6 +1800,15 @@ mod tests {
                     reason: None,
                     text: Some("hello".to_string()),
                     audio: None,
+                    status: None,
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
                     metadata: json!({}),
                     provider: provider_metadata("realtime/transcriptDelta"),
                 }),
@@ -1666,6 +1824,15 @@ mod tests {
                     reason: None,
                     text: None,
                     audio: Some("AAAA".to_string()),
+                    status: None,
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
                     metadata: json!({}),
                     provider: provider_metadata("realtime/audioDelta"),
                 }),
@@ -1726,6 +1893,184 @@ mod tests {
         assert!(deltas.iter().all(|delta| !matches!(
             delta,
             ProviderRuntimeProjectionDelta::RawNotificationObserved { .. }
+        )));
+    }
+
+    #[test]
+    fn provider_runtime_events_project_lifecycle_diff_and_process_signals() {
+        let events = [
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadLifecycleChanged,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("running".to_string()),
+                    name: Some("Adapter parity".to_string()),
+                    active: Some(true),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "status": "running" }),
+                    provider: provider_metadata("thread/status/changed"),
+                }),
+            },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadTokenUsageUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("token_usage_updated".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "tokenUsage": { "total": 128 } }),
+                    provider: provider_metadata("thread/tokenUsage/updated"),
+                }),
+            },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::TurnDiffUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: None,
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: Some("@@ -1 +1 @@".to_string()),
+                    files: Some(json!([{ "path": "src/lib.rs" }])),
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({}),
+                    provider: provider_metadata("turn/diff/updated"),
+                }),
+            },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ProcessExited,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: None,
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: Some("proc-1".to_string()),
+                    exit_code: Some(2),
+                    request_id: None,
+                    metadata: json!({ "processId": "proc-1", "exitCode": 2 }),
+                    provider: provider_metadata("process/exited"),
+                }),
+            },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ServerRequestResolved,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("approved".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: Some("req-1".to_string()),
+                    metadata: json!({ "requestId": "req-1", "status": "approved" }),
+                    provider: provider_metadata("serverRequest/resolved"),
+                }),
+            },
+        ];
+        let deltas = projection_deltas_for_events(&events);
+
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ThreadLifecycleChanged {
+                thread_id,
+                status,
+                name,
+                active,
+                ..
+            } if thread_id.as_deref() == Some("thread-1")
+                && status.as_deref() == Some("running")
+                && name.as_deref() == Some("Adapter parity")
+                && *active == Some(true)
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ThreadTokenUsageUpdated {
+                thread_id,
+                token_usage,
+                ..
+            } if thread_id.as_deref() == Some("thread-1") && token_usage["total"] == 128
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::TurnDiffUpdated {
+                thread_id,
+                turn_id,
+                diff,
+                files,
+                ..
+            } if thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+                && diff.as_deref() == Some("@@ -1 +1 @@")
+                && files[0]["path"] == "src/lib.rs"
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ProcessExited {
+                process_id,
+                exit_code,
+                ..
+            } if process_id.as_deref() == Some("proc-1") && *exit_code == Some(2)
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ServerRequestResolvedObserved {
+                request_id,
+                status,
+                ..
+            } if request_id.as_deref() == Some("req-1") && status.as_deref() == Some("approved")
         )));
     }
 

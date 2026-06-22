@@ -563,6 +563,12 @@ pub mod provider {
         ModelRerouted,
         RealtimeTranscriptDelta,
         RealtimeAudioDelta,
+        ThreadLifecycleChanged,
+        ThreadSettingsUpdated,
+        ThreadTokenUsageUpdated,
+        TurnDiffUpdated,
+        ProcessExited,
+        ServerRequestResolved,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -584,6 +590,24 @@ pub mod provider {
         pub text: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub audio: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub status: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub active: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub archived: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub diff: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub files: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub process_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub exit_code: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub request_id: Option<String>,
         #[serde(default)]
         pub metadata: Value,
         pub provider: ProviderMetadata,
@@ -1199,6 +1223,12 @@ pub mod provider {
                 RuntimeSignalKind::ModelRerouted,
                 RuntimeSignalKind::RealtimeTranscriptDelta,
                 RuntimeSignalKind::RealtimeAudioDelta,
+                RuntimeSignalKind::ThreadLifecycleChanged,
+                RuntimeSignalKind::ThreadSettingsUpdated,
+                RuntimeSignalKind::ThreadTokenUsageUpdated,
+                RuntimeSignalKind::TurnDiffUpdated,
+                RuntimeSignalKind::ProcessExited,
+                RuntimeSignalKind::ServerRequestResolved,
             ],
             provider_event_types: vec![
                 "raw_notification".to_string(),
