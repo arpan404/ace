@@ -1,6 +1,7 @@
 use crate::provider::{
-    ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent, ProviderEventSource,
-    ProviderFeature, ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport,
+    NormalizedServerRequest, NormalizedServerRequestDecision, ProviderDescriptor, ProviderDriver,
+    ProviderDriverError, ProviderEvent, ProviderEventSource, ProviderFeature,
+    ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport,
     ProviderLifecycleAction, ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
     ProviderServerRequestResponder, ace_provider_adapter_contract,
     ace_provider_contract_requirements, provider_adapter_profile, provider_contract_report,
@@ -17,7 +18,7 @@ use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 use tokio::sync::{Mutex, mpsc};
 
 const ACE_NATIVE_EVENT_QUEUE_CAPACITY: usize = 256;
@@ -88,6 +89,7 @@ pub struct NativeProviderRuntimeSignalNormalizeRequest {
 pub struct AceNativeProvider {
     event_tx: mpsc::Sender<Vec<ProviderEvent>>,
     event_rx: Mutex<mpsc::Receiver<Vec<ProviderEvent>>>,
+    pending_server_requests: Mutex<HashMap<String, NormalizedServerRequest>>,
 }
 
 impl AceNativeProvider {
@@ -97,6 +99,38 @@ impl AceNativeProvider {
         Self {
             event_tx,
             event_rx: Mutex::new(event_rx),
+            pending_server_requests: Mutex::new(HashMap::new()),
+        }
+    }
+
+    async fn emit_events(
+        &self,
+        method: &'static str,
+        events: Vec<ProviderEvent>,
+    ) -> Result<(), ProviderDriverError> {
+        self.track_pending_server_requests(&events).await;
+        self.event_tx
+            .send(events)
+            .await
+            .map_err(|_| ProviderDriverError::RequestFailed {
+                provider: "ace".to_string(),
+                method: method.to_string(),
+                message: "Ace native provider event queue is closed".to_string(),
+            })
+    }
+
+    async fn track_pending_server_requests(&self, events: &[ProviderEvent]) {
+        let mut pending = self.pending_server_requests.lock().await;
+        for event in events {
+            match event {
+                ProviderEvent::ServerRequest { request } => {
+                    pending.insert(request.request_id.clone(), request.as_ref().clone());
+                }
+                ProviderEvent::ServerRequestResolved { request_id, .. } => {
+                    pending.remove(request_id);
+                }
+                _ => {}
+            }
         }
     }
 
@@ -329,13 +363,7 @@ impl ProviderDriver for AceNativeProvider {
                             message: error.to_string(),
                         })?;
                 let event_count = emit.events.len();
-                self.event_tx.send(emit.events).await.map_err(|_| {
-                    ProviderDriverError::RequestFailed {
-                        provider: "ace".to_string(),
-                        method: "ace.events.emit".to_string(),
-                        message: "Ace native provider event queue is closed".to_string(),
-                    }
-                })?;
+                self.emit_events("ace.events.emit", emit.events).await?;
                 Ok(json!({
                     "provider": "ace",
                     "accepted": true,
@@ -350,16 +378,13 @@ impl ProviderDriver for AceNativeProvider {
                             method: "ace.semantic_tool.emit".to_string(),
                             message: error.to_string(),
                         })?;
-                self.event_tx
-                    .send(vec![ProviderEvent::SemanticTool {
+                self.emit_events(
+                    "ace.semantic_tool.emit",
+                    vec![ProviderEvent::SemanticTool {
                         tool: Box::new(emit.tool),
-                    }])
-                    .await
-                    .map_err(|_| ProviderDriverError::RequestFailed {
-                        provider: "ace".to_string(),
-                        method: "ace.semantic_tool.emit".to_string(),
-                        message: "Ace native provider event queue is closed".to_string(),
-                    })?;
+                    }],
+                )
+                .await?;
                 Ok(json!({
                     "provider": "ace",
                     "accepted": true,
@@ -378,16 +403,13 @@ impl ProviderDriver for AceNativeProvider {
                     })?;
                 let tool = normalize_tool_call(normalize.input);
                 if normalize.emit {
-                    self.event_tx
-                        .send(vec![ProviderEvent::SemanticTool {
+                    self.emit_events(
+                        "ace.semantic_tool.normalize",
+                        vec![ProviderEvent::SemanticTool {
                             tool: Box::new(tool.clone()),
-                        }])
-                        .await
-                        .map_err(|_| ProviderDriverError::RequestFailed {
-                            provider: "ace".to_string(),
-                            method: "ace.semantic_tool.normalize".to_string(),
-                            message: "Ace native provider event queue is closed".to_string(),
-                        })?;
+                        }],
+                    )
+                    .await?;
                 }
                 Ok(json!({
                     "provider": "ace",
@@ -415,16 +437,13 @@ impl ProviderDriver for AceNativeProvider {
                     }
                 })?;
                 if emit {
-                    self.event_tx
-                        .send(vec![ProviderEvent::SemanticTool {
+                    self.emit_events(
+                        "ace.tool_event.normalize",
+                        vec![ProviderEvent::SemanticTool {
                             tool: Box::new(tool.clone()),
-                        }])
-                        .await
-                        .map_err(|_| ProviderDriverError::RequestFailed {
-                            provider: "ace".to_string(),
-                            method: "ace.tool_event.normalize".to_string(),
-                            message: "Ace native provider event queue is closed".to_string(),
-                        })?;
+                        }],
+                    )
+                    .await?;
                 }
                 Ok(json!({
                     "provider": "ace",
@@ -453,16 +472,13 @@ impl ProviderDriver for AceNativeProvider {
                         }
                     })?;
                 if emit {
-                    self.event_tx
-                        .send(vec![ProviderEvent::SemanticTool {
+                    self.emit_events(
+                        "ace.server_request_tool.normalize",
+                        vec![ProviderEvent::SemanticTool {
                             tool: Box::new(tool.clone()),
-                        }])
-                        .await
-                        .map_err(|_| ProviderDriverError::RequestFailed {
-                            provider: "ace".to_string(),
-                            method: "ace.server_request_tool.normalize".to_string(),
-                            message: "Ace native provider event queue is closed".to_string(),
-                        })?;
+                        }],
+                    )
+                    .await?;
                 }
                 Ok(json!({
                     "provider": "ace",
@@ -485,16 +501,13 @@ impl ProviderDriver for AceNativeProvider {
                 let emit = normalize.emit;
                 let normalized = normalize_provider_server_request(normalize.input);
                 if emit {
-                    self.event_tx
-                        .send(vec![ProviderEvent::ServerRequest {
+                    self.emit_events(
+                        "ace.server_request.normalize",
+                        vec![ProviderEvent::ServerRequest {
                             request: Box::new(normalized.clone()),
-                        }])
-                        .await
-                        .map_err(|_| ProviderDriverError::RequestFailed {
-                            provider: "ace".to_string(),
-                            method: "ace.server_request.normalize".to_string(),
-                            message: "Ace native provider event queue is closed".to_string(),
-                        })?;
+                        }],
+                    )
+                    .await?;
                 }
                 Ok(json!({
                     "provider": "ace",
@@ -522,16 +535,13 @@ impl ProviderDriver for AceNativeProvider {
                     }
                 })?;
                 if emit {
-                    self.event_tx
-                        .send(vec![ProviderEvent::ThreadItem {
+                    self.emit_events(
+                        "ace.thread_item.normalize",
+                        vec![ProviderEvent::ThreadItem {
                             item: Box::new(item.clone()),
-                        }])
-                        .await
-                        .map_err(|_| ProviderDriverError::RequestFailed {
-                            provider: "ace".to_string(),
-                            method: "ace.thread_item.normalize".to_string(),
-                            message: "Ace native provider event queue is closed".to_string(),
-                        })?;
+                        }],
+                    )
+                    .await?;
                 }
                 Ok(json!({
                     "provider": "ace",
@@ -561,16 +571,13 @@ impl ProviderDriver for AceNativeProvider {
                         }
                     })?;
                 if emit {
-                    self.event_tx
-                        .send(vec![ProviderEvent::RuntimeSignal {
+                    self.emit_events(
+                        "ace.runtime_signal.normalize",
+                        vec![ProviderEvent::RuntimeSignal {
                             signal: Box::new(signal.clone()),
-                        }])
-                        .await
-                        .map_err(|_| ProviderDriverError::RequestFailed {
-                            provider: "ace".to_string(),
-                            method: "ace.runtime_signal.normalize".to_string(),
-                            message: "Ace native provider event queue is closed".to_string(),
-                        })?;
+                        }],
+                    )
+                    .await?;
                 }
                 Ok(json!({
                     "provider": "ace",
@@ -642,13 +649,37 @@ impl ProviderServerRequestResponder for AceNativeProvider {
     async fn respond_server_request_result(
         &self,
         request_id: String,
-        _result: Value,
+        result: Value,
     ) -> Result<(), ProviderDriverError> {
-        Err(ProviderDriverError::RequestFailed {
-            provider: "ace".to_string(),
-            method: "provider.server_request.result".to_string(),
-            message: format!("Ace native provider has no pending server request `{request_id}`"),
-        })
+        let request = self
+            .pending_server_requests
+            .lock()
+            .await
+            .remove(&request_id)
+            .ok_or_else(|| ProviderDriverError::RequestFailed {
+                provider: "ace".to_string(),
+                method: "provider.server_request.result".to_string(),
+                message: format!(
+                    "Ace native provider has no pending server request `{request_id}`"
+                ),
+            })?;
+
+        self.emit_events(
+            "provider.server_request.result",
+            vec![ProviderEvent::ServerRequestResolved {
+                request_id,
+                decision: NormalizedServerRequestDecision {
+                    outcome: "result".to_string(),
+                    payload: result,
+                    audit: json!({
+                        "provider": "ace",
+                        "source": "ace_native_provider",
+                    }),
+                },
+                request: Some(Box::new(request)),
+            }],
+        )
+        .await
     }
 
     async fn respond_server_request_error(
@@ -657,13 +688,39 @@ impl ProviderServerRequestResponder for AceNativeProvider {
         code: i64,
         message: String,
     ) -> Result<(), ProviderDriverError> {
-        Err(ProviderDriverError::RequestFailed {
-            provider: "ace".to_string(),
-            method: "provider.server_request.error".to_string(),
-            message: format!(
-                "Ace native provider has no pending server request `{request_id}` for error {code}: {message}"
-            ),
-        })
+        let request = self
+            .pending_server_requests
+            .lock()
+            .await
+            .remove(&request_id)
+            .ok_or_else(|| ProviderDriverError::RequestFailed {
+                provider: "ace".to_string(),
+                method: "provider.server_request.error".to_string(),
+                message: format!(
+                    "Ace native provider has no pending server request `{request_id}` for error {code}: {message}"
+                ),
+            })?;
+
+        self.emit_events(
+            "provider.server_request.error",
+            vec![ProviderEvent::ServerRequestResolved {
+                request_id,
+                decision: NormalizedServerRequestDecision {
+                    outcome: "error".to_string(),
+                    payload: json!({
+                        "code": code,
+                        "message": message,
+                    }),
+                    audit: json!({
+                        "provider": "ace",
+                        "source": "ace_native_provider",
+                        "error_code": code,
+                    }),
+                },
+                request: Some(Box::new(request)),
+            }],
+        )
+        .await
     }
 }
 
@@ -1251,6 +1308,151 @@ mod tests {
         assert_eq!(request.item_id.as_deref(), Some("tool-1"));
         assert_eq!(request.provider.provider, "future-provider");
         assert_eq!(request.metadata["choices"], json!(["eng", "design"]));
+    }
+
+    #[tokio::test]
+    async fn native_provider_records_and_resolves_emitted_server_request_result() {
+        let provider = AceNativeProvider::new();
+        provider
+            .request(ProviderRequest {
+                method: "ace.server_request.normalize".to_string(),
+                params: json!({
+                    "provider": "future-provider",
+                    "request_id": "req-result",
+                    "method": "mcp/elicitation",
+                    "emit": true,
+                    "params": {
+                        "thread_id": "thread-2",
+                        "tool_call_id": "tool-1",
+                        "serverName": "linear",
+                        "prompt": "Pick a workspace",
+                        "choices": ["eng", "design"]
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize and emit server request");
+
+        let events = provider
+            .next_events()
+            .await
+            .expect("event poll")
+            .expect("server request event");
+        let ProviderEvent::ServerRequest { request } = &events[0] else {
+            panic!("expected server request event");
+        };
+        assert_eq!(request.kind, ServerRequestKind::McpElicitation);
+        assert_eq!(request.request_id, "req-result");
+
+        provider
+            .respond_server_request_result(
+                "req-result".to_string(),
+                json!({
+                    "choice": "eng"
+                }),
+            )
+            .await
+            .expect("respond server request result");
+
+        let events = provider
+            .next_events()
+            .await
+            .expect("event poll")
+            .expect("server request resolved event");
+        let ProviderEvent::ServerRequestResolved {
+            request_id,
+            decision,
+            request,
+        } = &events[0]
+        else {
+            panic!("expected server request resolved event");
+        };
+        assert_eq!(request_id, "req-result");
+        assert_eq!(decision.outcome, "result");
+        assert_eq!(decision.payload["choice"], "eng");
+        assert_eq!(decision.audit["provider"], "ace");
+        assert_eq!(
+            request.as_ref().expect("resolved request").request_id,
+            "req-result"
+        );
+
+        let error = provider
+            .respond_server_request_result("req-result".to_string(), json!({ "choice": "design" }))
+            .await
+            .expect_err("duplicate server request response");
+        assert!(matches!(
+            error,
+            ProviderDriverError::RequestFailed {
+                provider,
+                method,
+                message
+            } if provider == "ace"
+                && method == "provider.server_request.result"
+                && message.contains("no pending server request")
+        ));
+    }
+
+    #[tokio::test]
+    async fn native_provider_records_and_resolves_emitted_server_request_error() {
+        let provider = AceNativeProvider::new();
+        provider
+            .request(ProviderRequest {
+                method: "ace.server_request.normalize".to_string(),
+                params: json!({
+                    "provider": "future-provider",
+                    "request_id": "req-error",
+                    "method": "permission/approvalRequest",
+                    "emit": true,
+                    "params": {
+                        "threadId": "thread-3",
+                        "turnId": "turn-3",
+                        "prompt": "Allow full access?",
+                        "permission": "danger-full-access"
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize and emit server request");
+
+        let events = provider
+            .next_events()
+            .await
+            .expect("event poll")
+            .expect("server request event");
+        let ProviderEvent::ServerRequest { request } = &events[0] else {
+            panic!("expected server request event");
+        };
+        assert_eq!(request.request_id, "req-error");
+
+        provider
+            .respond_server_request_error("req-error".to_string(), 403, "denied".to_string())
+            .await
+            .expect("respond server request error");
+
+        let events = provider
+            .next_events()
+            .await
+            .expect("event poll")
+            .expect("server request resolved event");
+        let ProviderEvent::ServerRequestResolved {
+            request_id,
+            decision,
+            request,
+        } = &events[0]
+        else {
+            panic!("expected server request resolved event");
+        };
+        assert_eq!(request_id, "req-error");
+        assert_eq!(decision.outcome, "error");
+        assert_eq!(decision.payload["code"], 403);
+        assert_eq!(decision.payload["message"], "denied");
+        assert_eq!(decision.audit["error_code"], 403);
+        assert_eq!(
+            request.as_ref().expect("resolved request").request_id,
+            "req-error"
+        );
     }
 
     #[tokio::test]
