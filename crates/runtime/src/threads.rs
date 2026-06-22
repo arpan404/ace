@@ -254,6 +254,7 @@ pub struct AgentThread {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AgentRuntimeState {
+    threads: HashMap<String, AgentThread>,
     active_turns: HashMap<String, Turn>,
     plan_sessions: HashMap<String, PlanSession>,
     goals: HashMap<String, GoalState>,
@@ -270,6 +271,7 @@ pub struct AgentRuntimeState {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AgentRuntimeSnapshot {
+    pub threads: Vec<AgentThread>,
     pub active_turns: Vec<Turn>,
     pub plan_sessions: Vec<PlanSession>,
     pub goals: Vec<GoalState>,
@@ -287,6 +289,13 @@ pub struct AgentRuntimeSnapshot {
 impl AgentRuntimeState {
     #[must_use]
     pub fn snapshot(&self) -> AgentRuntimeSnapshot {
+        let mut threads = self.threads.values().cloned().collect::<Vec<_>>();
+        for thread in &mut threads {
+            thread.active_turn = self.active_turns.get(&thread.thread_id).cloned();
+            thread.plan_session = self.plan_sessions.get(&thread.thread_id).cloned();
+        }
+        threads.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
+
         let mut active_turns = self.active_turns.values().cloned().collect::<Vec<_>>();
         active_turns.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
 
@@ -309,6 +318,7 @@ impl AgentRuntimeState {
         review_threads.sort();
 
         AgentRuntimeSnapshot {
+            threads,
             active_turns,
             plan_sessions,
             goals,
@@ -366,6 +376,28 @@ impl AgentRuntimeState {
 
     pub fn record_fork(&mut self, fork: ForkPoint) {
         self.fork_points.insert(fork.child_thread_id.clone(), fork);
+    }
+
+    pub fn upsert_thread(&mut self, thread: AgentThread) {
+        self.threads.insert(thread.thread_id.clone(), thread);
+    }
+
+    pub fn upsert_threads(&mut self, threads: impl IntoIterator<Item = AgentThread>) {
+        for thread in threads {
+            self.upsert_thread(thread);
+        }
+    }
+
+    #[must_use]
+    pub fn thread(&self, thread_id: &str) -> Option<&AgentThread> {
+        self.threads.get(thread_id)
+    }
+
+    #[must_use]
+    pub fn threads(&self) -> Vec<AgentThread> {
+        let mut threads = self.threads.values().cloned().collect::<Vec<_>>();
+        threads.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
+        threads
     }
 
     pub fn record_side_chat(&mut self, side_chat: SideChat) {
@@ -1845,6 +1877,22 @@ mod tests {
             role: Some("planner".to_string()),
             nickname: None,
         });
+        state.upsert_thread(AgentThread {
+            thread_id: "thread-b".to_string(),
+            provider: "codex".to_string(),
+            execution_location: ExecutionLocation::Worktree,
+            active_turn: None,
+            plan_session: None,
+            metadata: json!({ "name": "B" }),
+        });
+        state.upsert_thread(AgentThread {
+            thread_id: "thread-a".to_string(),
+            provider: "codex".to_string(),
+            execution_location: ExecutionLocation::Local,
+            active_turn: None,
+            plan_session: None,
+            metadata: json!({ "name": "A" }),
+        });
         state.apply_provider_events(&[ProviderEvent::ThreadItem {
             item: Box::new(NormalizedThreadItem {
                 kind: ThreadItemKind::EnteredReviewMode,
@@ -1869,6 +1917,29 @@ mod tests {
         }]);
 
         let snapshot = state.snapshot();
+        assert_eq!(
+            snapshot
+                .threads
+                .iter()
+                .map(|thread| thread.thread_id.as_str())
+                .collect::<Vec<_>>(),
+            ["thread-a", "thread-b"]
+        );
+        assert_eq!(
+            snapshot.threads[0]
+                .active_turn
+                .as_ref()
+                .map(|turn| turn.turn_id.as_deref()),
+            Some(Some("turn-a"))
+        );
+        assert_eq!(
+            snapshot.threads[0]
+                .plan_session
+                .as_ref()
+                .map(|plan| plan.status),
+            Some(PlanSessionStatus::Active)
+        );
+        assert_eq!(snapshot.threads[1].metadata["name"], "B");
         assert_eq!(
             snapshot
                 .active_turns

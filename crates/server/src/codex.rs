@@ -14,10 +14,11 @@ use ace_runtime::{
         ProviderServerRequestResponder,
     },
     threads::{
-        AgentRuntimeSnapshot, AgentRuntimeState, ApprovalRetryRecord, ExecutionLocation, ForkPoint,
-        HandoffPlan, HandoffStatus, PlanImplementationMode, PlanImplementationRecord,
-        PlanSessionStatus, RuntimeStateError, SideChat, SubagentActionKind, SubagentActionRecord,
-        ThreadLifecycleActionKind, ThreadLifecycleRecord, TurnMode,
+        AgentRuntimeSnapshot, AgentRuntimeState, AgentThread, ApprovalRetryRecord,
+        ExecutionLocation, ForkPoint, HandoffPlan, HandoffStatus, PlanImplementationMode,
+        PlanImplementationRecord, PlanSessionStatus, RuntimeStateError, SideChat,
+        SubagentActionKind, SubagentActionRecord, ThreadLifecycleActionKind, ThreadLifecycleRecord,
+        TurnMode,
     },
 };
 use async_trait::async_trait;
@@ -640,15 +641,22 @@ impl CodexService {
         &self,
         thread_id: String,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.read_thread(&thread_id).await?)
+        let response = self.backend.read_thread(&thread_id).await?;
+        self.record_threads_from_response(&response, Some(&thread_id))
+            .await;
+        Ok(response)
     }
 
     pub async fn list_threads(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.list_threads(params).await?)
+        let response = self.backend.list_threads(params).await?;
+        self.record_threads_from_response(&response, None).await;
+        Ok(response)
     }
 
     pub async fn list_loaded_threads(&self) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.list_loaded_threads().await?)
+        let response = self.backend.list_loaded_threads().await?;
+        self.record_threads_from_response(&response, None).await;
+        Ok(response)
     }
 
     pub async fn archive_thread(
@@ -948,6 +956,17 @@ impl CodexService {
 
     async fn record_thread_lifecycle(&self, record: ThreadLifecycleRecord) {
         self.state.lock().await.record_thread_lifecycle(record);
+    }
+
+    async fn record_threads_from_response(
+        &self,
+        response: &Value,
+        fallback_thread_id: Option<&str>,
+    ) {
+        let threads = agent_threads_from_codex_response(response, fallback_thread_id);
+        if !threads.is_empty() {
+            self.state.lock().await.upsert_threads(threads);
+        }
     }
 
     async fn record_subagent_action(&self, record: SubagentActionRecord) {
@@ -1382,6 +1401,82 @@ fn extract_thread_id(response: &Value) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn agent_threads_from_codex_response(
+    response: &Value,
+    fallback_thread_id: Option<&str>,
+) -> Vec<AgentThread> {
+    let mut threads = Vec::new();
+    if let Some(thread) = response.get("thread") {
+        if let Some(thread) = agent_thread_from_value(thread, fallback_thread_id) {
+            threads.push(thread);
+        }
+    } else if let Some(thread) = agent_thread_from_value(response, fallback_thread_id) {
+        threads.push(thread);
+    }
+
+    for key in ["threads", "loadedThreads", "loaded_threads"] {
+        if let Some(items) = response.get(key).and_then(Value::as_array) {
+            threads.extend(
+                items
+                    .iter()
+                    .filter_map(|thread| agent_thread_from_value(thread, None)),
+            );
+        }
+    }
+
+    threads.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
+    threads.dedup_by(|left, right| left.thread_id == right.thread_id);
+    threads
+}
+
+fn agent_thread_from_value(value: &Value, fallback_thread_id: Option<&str>) -> Option<AgentThread> {
+    let thread_id = extract_thread_id(value)
+        .or_else(|| string_field(value, "thread_id"))
+        .or_else(|| fallback_thread_id.map(ToString::to_string))?;
+    Some(AgentThread {
+        thread_id,
+        provider: "codex".to_string(),
+        execution_location: execution_location_from_thread(value),
+        active_turn: None,
+        plan_session: None,
+        metadata: value.clone(),
+    })
+}
+
+fn execution_location_from_thread(value: &Value) -> ExecutionLocation {
+    let location = string_field(value, "executionLocation")
+        .or_else(|| string_field(value, "execution_location"))
+        .or_else(|| string_field(value, "location"))
+        .or_else(|| string_field(value, "runtimeLocation"))
+        .or_else(|| {
+            value
+                .pointer("/metadata/executionLocation")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
+        .or_else(|| {
+            value
+                .pointer("/metadata/execution_location")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        });
+    match location.as_deref() {
+        Some("worktree") => ExecutionLocation::Worktree,
+        Some("remote") | Some("remote_host") | Some("remote-host") | Some("remoteHost") => {
+            ExecutionLocation::RemoteHost
+        }
+        Some("cloud") => ExecutionLocation::Cloud,
+        _ => ExecutionLocation::Local,
+    }
+}
+
+fn string_field(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
 fn plan_implementation_record(
     request: &CodexPlanImplementation,
     target_thread_id: String,
@@ -1510,7 +1605,13 @@ pub mod tests {
                 .lock()
                 .expect("calls")
                 .push(format!("thread/read:{thread_id}"));
-            Ok(serde_json::json!({ "thread": { "id": thread_id } }))
+            Ok(serde_json::json!({
+                "thread": {
+                    "id": thread_id,
+                    "name": "Read thread",
+                    "executionLocation": "worktree"
+                }
+            }))
         }
 
         async fn list_threads(&self, _params: Value) -> Result<Value> {
@@ -1518,7 +1619,20 @@ pub mod tests {
                 .lock()
                 .expect("calls")
                 .push("thread/list".to_string());
-            Ok(serde_json::json!({ "threads": [] }))
+            Ok(serde_json::json!({
+                "threads": [
+                    {
+                        "id": "thread-1",
+                        "name": "Listed thread",
+                        "executionLocation": "local"
+                    },
+                    {
+                        "threadId": "thread-2",
+                        "name": "Remote thread",
+                        "metadata": { "executionLocation": "remote_host" }
+                    }
+                ]
+            }))
         }
 
         async fn list_loaded_threads(&self) -> Result<Value> {
@@ -1526,7 +1640,15 @@ pub mod tests {
                 .lock()
                 .expect("calls")
                 .push("thread/loaded/list".to_string());
-            Ok(serde_json::json!({ "threads": [] }))
+            Ok(serde_json::json!({
+                "loadedThreads": [
+                    {
+                        "id": "thread-3",
+                        "name": "Loaded cloud thread",
+                        "execution_location": "cloud"
+                    }
+                ]
+            }))
         }
 
         async fn archive_thread(&self, thread_id: &str) -> Result<Value> {
@@ -2110,6 +2232,53 @@ pub mod tests {
         assert_eq!(
             snapshot.plan_sessions[0].status,
             PlanSessionStatus::Rejected
+        );
+    }
+
+    #[tokio::test]
+    async fn service_records_thread_metadata_from_read_and_lists() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        service
+            .read_thread("thread-1".to_string())
+            .await
+            .expect("read thread");
+        service
+            .list_threads(json!({ "includeArchived": true }))
+            .await
+            .expect("list threads");
+        service
+            .list_loaded_threads()
+            .await
+            .expect("list loaded threads");
+
+        let snapshot = service.runtime_state_snapshot().await;
+        assert_eq!(
+            snapshot
+                .threads
+                .iter()
+                .map(|thread| thread.thread_id.as_str())
+                .collect::<Vec<_>>(),
+            ["thread-1", "thread-2", "thread-3"]
+        );
+        assert_eq!(snapshot.threads[0].metadata["name"], "Listed thread");
+        assert_eq!(
+            snapshot.threads[0].execution_location,
+            ExecutionLocation::Local
+        );
+        assert_eq!(
+            snapshot.threads[1].execution_location,
+            ExecutionLocation::RemoteHost
+        );
+        assert_eq!(
+            snapshot.threads[2].execution_location,
+            ExecutionLocation::Cloud
+        );
+        assert_eq!(snapshot.threads[2].metadata["name"], "Loaded cloud thread");
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["thread/read:thread-1", "thread/list", "thread/loaded/list"]
         );
     }
 
