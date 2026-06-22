@@ -2,8 +2,9 @@ use ace_core::ProviderKind;
 use ace_runtime::{
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem,
-        ProviderAdapterContract, ProviderAdapterOperation, ProviderContractReport,
-        ProviderDescriptor, ProviderDriverStatus, ProviderEvent, ProviderFeature,
+        ProviderAdapterContract, ProviderAdapterOperation, ProviderAdapterOperationSpec,
+        ProviderAdapterOperationSupport, ProviderContractReport, ProviderDescriptor,
+        ProviderDriverStatus, ProviderEvent, ProviderFeature, ProviderFeatureCategory,
         ProviderLifecycleAction, ProviderLifecycleResult, RuntimeSignalKind, ThreadItemKind,
         ThreadItemStatus,
     },
@@ -81,6 +82,63 @@ pub struct ProviderRuntimeProviderInfo {
 pub struct ProviderRuntimeContractReport {
     pub adapter_contract: ProviderAdapterContract,
     pub reports: Vec<ProviderContractReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ProviderRuntimeOperationsListRequest {
+    pub provider: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderAdapterInvocationKind {
+    DirectProviderMethod,
+    TypedApi,
+    CompositeTypedApi,
+    EventStream,
+    Deferred,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeProviderOperation {
+    pub operation: ProviderAdapterOperation,
+    pub category: ProviderFeatureCategory,
+    pub support: ProviderAdapterOperationSupport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_method: Option<String>,
+    #[serde(default)]
+    pub provider_methods: Vec<String>,
+    pub invocation: ProviderAdapterInvocationKind,
+    pub direct_invocation: bool,
+}
+
+impl ProviderRuntimeProviderOperation {
+    pub fn from_spec(spec: &ProviderAdapterOperationSpec) -> Self {
+        let invocation = provider_adapter_invocation_kind(spec);
+        Self {
+            operation: spec.operation,
+            category: spec.category,
+            support: spec.support,
+            canonical_method: spec.canonical_method.clone(),
+            provider_methods: spec.provider_methods.clone(),
+            direct_invocation: invocation == ProviderAdapterInvocationKind::DirectProviderMethod,
+            invocation,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeProviderOperations {
+    pub provider: ProviderKind,
+    pub runtime_id: String,
+    pub display_name: String,
+    pub operations: Vec<ProviderRuntimeProviderOperation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeOperationsListResponse {
+    pub adapter_contract: ProviderAdapterContract,
+    pub providers: Vec<ProviderRuntimeProviderOperations>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -162,6 +220,25 @@ pub struct ProviderRuntimeLifecycleResponse {
 
 fn default_provider_request_timeout_ms() -> u64 {
     30_000
+}
+
+pub fn provider_adapter_invocation_kind(
+    spec: &ProviderAdapterOperationSpec,
+) -> ProviderAdapterInvocationKind {
+    if spec.support == ProviderAdapterOperationSupport::Deferred {
+        return ProviderAdapterInvocationKind::Deferred;
+    }
+
+    match spec.operation {
+        ProviderAdapterOperation::ProviderEvents | ProviderAdapterOperation::SemanticTools => {
+            ProviderAdapterInvocationKind::EventStream
+        }
+        _ => match spec.provider_methods.len() {
+            0 => ProviderAdapterInvocationKind::TypedApi,
+            1 => ProviderAdapterInvocationKind::DirectProviderMethod,
+            _ => ProviderAdapterInvocationKind::CompositeTypedApi,
+        },
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -840,8 +917,9 @@ fn nested_string_at(
 mod tests {
     use ace_runtime::provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
-        NormalizedThreadItem, ProviderAdapterOperation, ProviderMetadata, RuntimeSignalKind,
-        ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+        NormalizedThreadItem, ProviderAdapterOperation, ProviderAdapterOperationSupport,
+        ProviderFeatureCategory, ProviderMetadata, RuntimeSignalKind, ServerRequestKind,
+        ThreadItemKind, ThreadItemStatus,
     };
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
@@ -873,6 +951,46 @@ mod tests {
             by_operation.operation,
             Some(ProviderAdapterOperation::ThreadRead)
         );
+    }
+
+    #[test]
+    fn provider_runtime_operation_classifies_invocation_paths() {
+        let contract = ace_runtime::provider::ace_provider_adapter_contract();
+        let operation = |target| {
+            contract
+                .operations
+                .iter()
+                .find(|operation| operation.operation == target)
+                .map(ProviderRuntimeProviderOperation::from_spec)
+                .expect("operation")
+        };
+
+        let direct = operation(ProviderAdapterOperation::ThreadRead);
+        assert_eq!(
+            direct.invocation,
+            ProviderAdapterInvocationKind::DirectProviderMethod
+        );
+        assert!(direct.direct_invocation);
+        assert_eq!(direct.provider_methods, ["thread/read"]);
+
+        let composite = operation(ProviderAdapterOperation::PlanForkForImplementation);
+        assert_eq!(
+            composite.invocation,
+            ProviderAdapterInvocationKind::CompositeTypedApi
+        );
+        assert!(!composite.direct_invocation);
+        assert_eq!(composite.category, ProviderFeatureCategory::Plans);
+
+        let event_stream = operation(ProviderAdapterOperation::ProviderEvents);
+        assert_eq!(
+            event_stream.invocation,
+            ProviderAdapterInvocationKind::EventStream
+        );
+        assert!(!event_stream.direct_invocation);
+
+        let deferred = operation(ProviderAdapterOperation::CloudHandoff);
+        assert_eq!(deferred.invocation, ProviderAdapterInvocationKind::Deferred);
+        assert_eq!(deferred.support, ProviderAdapterOperationSupport::Deferred);
     }
 
     #[test]

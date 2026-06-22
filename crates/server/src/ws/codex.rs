@@ -25,11 +25,13 @@ use ace_protocol::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeContractReport, ProviderRuntimeEvent,
         ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
         ProviderRuntimeFeaturesListResponse, ProviderRuntimeLifecycleRequest,
-        ProviderRuntimeLifecycleResponse, ProviderRuntimeProviderFeatures,
-        ProviderRuntimeProviderInfo, ProviderRuntimeProviderState, ProviderRuntimeProviderStatus,
-        ProviderRuntimeProvidersList, ProviderRuntimeRecentEventsRequest,
-        ProviderRuntimeRecentEventsResponse, ProviderRuntimeRequest,
-        ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
+        ProviderRuntimeLifecycleResponse, ProviderRuntimeOperationsListRequest,
+        ProviderRuntimeOperationsListResponse, ProviderRuntimeProviderFeatures,
+        ProviderRuntimeProviderInfo, ProviderRuntimeProviderOperation,
+        ProviderRuntimeProviderOperations, ProviderRuntimeProviderState,
+        ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
+        ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
+        ProviderRuntimeRequest, ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
         ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
         ProviderRuntimeSubscribeRequest, ProviderServerRequestAudit,
         ProviderServerRequestDecisionRecord, ProviderServerRequestError,
@@ -528,6 +530,32 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     adapter_contract: ace_provider_adapter_contract(),
                     reports: self.providers.contract_reports(),
                 })?)
+            }
+            methods::PROVIDER_RUNTIME_OPERATIONS_LIST => {
+                let request =
+                    serde_json::from_value::<ProviderRuntimeOperationsListRequest>(payload)?;
+                let providers = self.provider_runtime_filter(request.provider, "operation list")?;
+                let adapter_contract = ace_provider_adapter_contract();
+                let operations = adapter_contract
+                    .operations
+                    .iter()
+                    .map(ProviderRuntimeProviderOperation::from_spec)
+                    .collect::<Vec<_>>();
+                let provider_operations = providers
+                    .into_iter()
+                    .map(|provider| ProviderRuntimeProviderOperations {
+                        provider,
+                        runtime_id: provider.runtime_id().to_string(),
+                        display_name: provider.display_name().to_string(),
+                        operations: operations.clone(),
+                    })
+                    .collect();
+                Ok(serde_json::to_value(
+                    ProviderRuntimeOperationsListResponse {
+                        adapter_contract,
+                        providers: provider_operations,
+                    },
+                )?)
             }
             methods::PROVIDER_RUNTIME_FEATURES_LIST => {
                 let request =
@@ -2950,6 +2978,65 @@ mod tests {
                     .as_array()
                     .expect("missing")
                     .is_empty()
+        }));
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_lists_adapter_operations_by_invocation_path() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+
+        let list = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-operations",
+                    "method": methods::PROVIDER_RUNTIME_OPERATIONS_LIST,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let list: WsServerResponse = serde_json::from_str(&list).expect("operations response");
+        let WsServerPayload::Result { body } = list.payload else {
+            panic!("expected provider operation list");
+        };
+        assert_eq!(body["adapter_contract"]["version"], 1);
+
+        let providers = body["providers"].as_array().expect("providers");
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0]["runtime_id"], "codex");
+        let operations = providers[0]["operations"].as_array().expect("operations");
+
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "thread_read"
+                && operation["invocation"] == "direct_provider_method"
+                && operation["direct_invocation"] == true
+                && operation["provider_methods"] == json!(["thread/read"])
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "plan_fork_for_implementation"
+                && operation["invocation"] == "composite_typed_api"
+                && operation["direct_invocation"] == false
+                && operation["provider_methods"]
+                    .as_array()
+                    .expect("provider methods")
+                    .contains(&json!("thread/fork"))
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "provider_events"
+                && operation["invocation"] == "event_stream"
+                && operation["direct_invocation"] == false
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "cloud_handoff"
+                && operation["invocation"] == "deferred"
+                && operation["support"] == "deferred"
         }));
     }
 
