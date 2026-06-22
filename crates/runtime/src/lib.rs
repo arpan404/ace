@@ -258,10 +258,24 @@ pub mod provider {
         pub operation: ProviderAdapterOperation,
         pub category: ProviderFeatureCategory,
         pub support: ProviderAdapterOperationSupport,
+        pub policy: ProviderAdapterOperationPolicy,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub canonical_method: Option<String>,
         #[serde(default)]
         pub provider_methods: Vec<String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderAdapterOperationPolicy {
+        pub read_only: bool,
+        pub mutates_workspace: bool,
+        pub mutates_provider_state: bool,
+        pub external_side_effects: bool,
+        pub requires_user_initiation: bool,
+        pub approval_boundary: bool,
+        pub escapes_thread_sandbox: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub reason: Option<String>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -289,6 +303,7 @@ pub mod provider {
         pub category: ProviderFeatureCategory,
         pub support: ProviderAdapterOperationSupport,
         pub availability: ProviderAdapterOperationAvailability,
+        pub policy: ProviderAdapterOperationPolicy,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub availability_reason: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -310,6 +325,7 @@ pub mod provider {
                 category: spec.category,
                 support: spec.support,
                 availability: provider_adapter_operation_availability(spec),
+                policy: spec.policy.clone(),
                 availability_reason: provider_adapter_operation_availability_reason(spec),
                 canonical_method: spec.canonical_method.clone(),
                 provider_methods: spec.provider_methods.clone(),
@@ -1584,6 +1600,7 @@ pub mod provider {
             operation,
             category,
             support,
+            policy: provider_adapter_operation_policy(operation),
             canonical_method: canonical_method.map(ToString::to_string),
             provider_methods: canonical_method
                 .map(|method| method.split('+').map(ToString::to_string).collect())
@@ -1592,9 +1609,181 @@ pub mod provider {
     }
 
     #[must_use]
+    pub fn provider_adapter_operation_policy(
+        operation: ProviderAdapterOperation,
+    ) -> ProviderAdapterOperationPolicy {
+        let mut policy = ProviderAdapterOperationPolicy {
+            read_only: true,
+            mutates_workspace: false,
+            mutates_provider_state: false,
+            external_side_effects: false,
+            requires_user_initiation: false,
+            approval_boundary: false,
+            escapes_thread_sandbox: false,
+            reason: None,
+        };
+
+        match operation {
+            ProviderAdapterOperation::RuntimeLifecycle
+            | ProviderAdapterOperation::RawRequest
+            | ProviderAdapterOperation::ThreadStart
+            | ProviderAdapterOperation::ThreadResume
+            | ProviderAdapterOperation::ThreadArchive
+            | ProviderAdapterOperation::ThreadUnarchive
+            | ProviderAdapterOperation::ThreadDelete
+            | ProviderAdapterOperation::ThreadUnsubscribe
+            | ProviderAdapterOperation::ThreadSetName
+            | ProviderAdapterOperation::ThreadUpdateMetadata
+            | ProviderAdapterOperation::ThreadCompact
+            | ProviderAdapterOperation::ThreadRollback
+            | ProviderAdapterOperation::ThreadInjectItems
+            | ProviderAdapterOperation::TurnStart
+            | ProviderAdapterOperation::TurnSteer
+            | ProviderAdapterOperation::TurnInterrupt
+            | ProviderAdapterOperation::PlanStart
+            | ProviderAdapterOperation::PlanContinueInThread
+            | ProviderAdapterOperation::PlanForkForImplementation
+            | ProviderAdapterOperation::PlanSideImplementation
+            | ProviderAdapterOperation::ForkThread
+            | ProviderAdapterOperation::SideChatStart
+            | ProviderAdapterOperation::GoalSet
+            | ProviderAdapterOperation::GoalClear
+            | ProviderAdapterOperation::GoalPause
+            | ProviderAdapterOperation::GoalResume
+            | ProviderAdapterOperation::SubagentSteer
+            | ProviderAdapterOperation::SubagentStop
+            | ProviderAdapterOperation::SubagentClose
+            | ProviderAdapterOperation::HandoffToAgent
+            | ProviderAdapterOperation::GuardianDeniedActionApprove
+            | ProviderAdapterOperation::ServerRequestRespond
+            | ProviderAdapterOperation::ReviewStart
+            | ProviderAdapterOperation::FsWatch
+            | ProviderAdapterOperation::FsUnwatch
+            | ProviderAdapterOperation::McpOauthLogin
+            | ProviderAdapterOperation::SkillsInstall
+            | ProviderAdapterOperation::SkillsConfigWrite
+            | ProviderAdapterOperation::SkillsExtraRootsSet
+            | ProviderAdapterOperation::PluginsInstall
+            | ProviderAdapterOperation::PluginsUninstall
+            | ProviderAdapterOperation::PluginShareCheckout
+            | ProviderAdapterOperation::PluginShareDelete
+            | ProviderAdapterOperation::PluginShareSave
+            | ProviderAdapterOperation::PluginShareUpdateTargets
+            | ProviderAdapterOperation::AppsConfigWrite
+            | ProviderAdapterOperation::AccountLoginStart
+            | ProviderAdapterOperation::AccountLoginCancel
+            | ProviderAdapterOperation::AccountLogout
+            | ProviderAdapterOperation::ConfigValueWrite
+            | ProviderAdapterOperation::ConfigBatchWrite
+            | ProviderAdapterOperation::ConfigMcpServerReload
+            | ProviderAdapterOperation::ExperimentalFeatureEnablementSet
+            | ProviderAdapterOperation::ExternalAgentConfigImport
+            | ProviderAdapterOperation::FeedbackUpload
+            | ProviderAdapterOperation::HandoffToLocation
+            | ProviderAdapterOperation::WindowsSandboxSetupStart
+            | ProviderAdapterOperation::MarketplaceAdd
+            | ProviderAdapterOperation::MarketplaceRemove
+            | ProviderAdapterOperation::MarketplaceUpgrade
+            | ProviderAdapterOperation::RemoteHandoff
+            | ProviderAdapterOperation::CloudThreadStart
+            | ProviderAdapterOperation::CloudHandoff => {
+                policy.read_only = false;
+                policy.mutates_provider_state = true;
+            }
+            _ => {}
+        }
+
+        match operation {
+            ProviderAdapterOperation::HandoffToLocation
+            | ProviderAdapterOperation::ThreadShellCommand
+            | ProviderAdapterOperation::CommandExec
+            | ProviderAdapterOperation::CommandWriteStdin
+            | ProviderAdapterOperation::CommandResize
+            | ProviderAdapterOperation::CommandTerminate
+            | ProviderAdapterOperation::FsWriteFile
+            | ProviderAdapterOperation::FsCreateDirectory
+            | ProviderAdapterOperation::FsCopy
+            | ProviderAdapterOperation::FsRemove => {
+                policy.read_only = false;
+                policy.mutates_workspace = true;
+            }
+            _ => {}
+        }
+
+        match operation {
+            ProviderAdapterOperation::ThreadShellCommand
+            | ProviderAdapterOperation::CommandExec
+            | ProviderAdapterOperation::CommandWriteStdin
+            | ProviderAdapterOperation::CommandResize
+            | ProviderAdapterOperation::CommandTerminate
+            | ProviderAdapterOperation::McpOauthLogin
+            | ProviderAdapterOperation::McpToolCall
+            | ProviderAdapterOperation::SkillsInstall
+            | ProviderAdapterOperation::SkillsConfigWrite
+            | ProviderAdapterOperation::SkillsExtraRootsSet
+            | ProviderAdapterOperation::PluginsInstall
+            | ProviderAdapterOperation::PluginsUninstall
+            | ProviderAdapterOperation::PluginShareCheckout
+            | ProviderAdapterOperation::PluginShareDelete
+            | ProviderAdapterOperation::PluginShareSave
+            | ProviderAdapterOperation::PluginShareUpdateTargets
+            | ProviderAdapterOperation::AppsConfigWrite
+            | ProviderAdapterOperation::AccountLoginStart
+            | ProviderAdapterOperation::AccountLogout
+            | ProviderAdapterOperation::AccountSendAddCreditsNudgeEmail
+            | ProviderAdapterOperation::WindowsSandboxSetupStart
+            | ProviderAdapterOperation::MarketplaceAdd
+            | ProviderAdapterOperation::MarketplaceRemove
+            | ProviderAdapterOperation::MarketplaceUpgrade
+            | ProviderAdapterOperation::RemoteHandoff
+            | ProviderAdapterOperation::CloudThreadStart
+            | ProviderAdapterOperation::CloudHandoff => {
+                policy.read_only = false;
+                policy.external_side_effects = true;
+            }
+            _ => {}
+        }
+
+        match operation {
+            ProviderAdapterOperation::ThreadShellCommand
+            | ProviderAdapterOperation::CommandExec
+            | ProviderAdapterOperation::FsWriteFile
+            | ProviderAdapterOperation::FsCreateDirectory
+            | ProviderAdapterOperation::FsCopy
+            | ProviderAdapterOperation::FsRemove
+            | ProviderAdapterOperation::McpToolCall
+            | ProviderAdapterOperation::RawRequest
+            | ProviderAdapterOperation::ServerRequestRespond => {
+                policy.approval_boundary = true;
+            }
+            _ => {}
+        }
+
+        match operation {
+            ProviderAdapterOperation::ThreadShellCommand => {
+                policy.requires_user_initiation = true;
+                policy.escapes_thread_sandbox = true;
+                policy.reason = Some(
+                    "thread shell commands are explicit user actions and run outside the thread sandbox"
+                        .to_string(),
+                );
+            }
+            ProviderAdapterOperation::RawRequest => {
+                policy.reason = Some(
+                    "raw provider requests bypass normalized operation policy and must be separately authorized"
+                        .to_string(),
+                );
+            }
+            _ => {}
+        }
+
+        policy
+    }
+
+    #[must_use]
     pub fn ace_provider_adapter_contract() -> ProviderAdapterContract {
         ProviderAdapterContract {
-            version: 1,
+            version: 2,
             websocket_first: true,
             raw_payload_policy: "preserve_provider_payloads".to_string(),
             raw_payload: ace_provider_raw_payload_policy(),
@@ -2479,7 +2668,7 @@ pub mod provider {
                 .iter()
                 .find(|profile| profile.provider == ProviderKind::Codex)
                 .expect("codex profile");
-            assert_eq!(codex_profile.contract_version, 1);
+            assert_eq!(codex_profile.contract_version, 2);
             assert!(codex_profile.websocket_first);
             assert_eq!(
                 codex_profile.raw_payload.retention,
@@ -2509,6 +2698,8 @@ pub mod provider {
             assert!(codex_profile.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::RawRequest
                     && operation.availability == ProviderAdapterOperationAvailability::Optional
+                    && !operation.policy.read_only
+                    && operation.policy.approval_boundary
                     && operation
                         .availability_reason
                         .as_deref()
@@ -2549,10 +2740,43 @@ pub mod provider {
             assert!(codex_profile.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::CommandExec
                     && operation.availability == ProviderAdapterOperationAvailability::VersionGated
+                    && operation.policy.mutates_workspace
+                    && operation.policy.external_side_effects
+                    && operation.policy.approval_boundary
                     && operation
                         .availability_reason
                         .as_deref()
                         .is_some_and(|reason| reason.contains("version-gated"))
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::ThreadShellCommand
+                    && operation.policy.requires_user_initiation
+                    && operation.policy.escapes_thread_sandbox
+                    && operation.policy.mutates_workspace
+                    && operation.policy.approval_boundary
+                    && operation
+                        .policy
+                        .reason
+                        .as_deref()
+                        .is_some_and(|reason| reason.contains("outside the thread sandbox"))
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::FsReadFile
+                    && operation.policy.read_only
+                    && !operation.policy.mutates_workspace
+                    && !operation.policy.approval_boundary
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::FsWriteFile
+                    && !operation.policy.read_only
+                    && operation.policy.mutates_workspace
+                    && operation.policy.approval_boundary
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::SkillsInstall
+                    && !operation.policy.read_only
+                    && operation.policy.mutates_provider_state
+                    && operation.policy.external_side_effects
             }));
             let expected_version_gated_contracts = [
                 (
@@ -2841,6 +3065,7 @@ pub mod provider {
                     category: ProviderFeatureCategory::Threads,
                     support: ProviderAdapterOperationSupport::Required,
                     availability: ProviderAdapterOperationAvailability::Available,
+                    policy: provider_adapter_operation_policy(ProviderAdapterOperation::ThreadRead),
                     availability_reason: None,
                     canonical_method: Some("thread/read".to_string()),
                     provider_methods: Vec::new(),
@@ -2865,7 +3090,7 @@ pub mod provider {
         fn adapter_contract_lists_required_normalized_surfaces() {
             let contract = ace_provider_adapter_contract();
 
-            assert_eq!(contract.version, 1);
+            assert_eq!(contract.version, 2);
             assert!(contract.websocket_first);
             assert_eq!(contract.raw_payload_policy, "preserve_provider_payloads");
             assert_eq!(
@@ -2917,16 +3142,25 @@ pub mod provider {
             assert!(contract.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::McpToolCall
                     && operation.support == ProviderAdapterOperationSupport::VersionGated
+                    && operation.policy.approval_boundary
+                    && operation.policy.external_side_effects
             }));
             assert!(contract.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::FsReadFile
                     && operation.support == ProviderAdapterOperationSupport::Required
                     && operation.canonical_method.as_deref() == Some("fs/readFile")
+                    && operation.policy.read_only
             }));
             assert!(contract.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::FsWatch
                     && operation.support == ProviderAdapterOperationSupport::Required
                     && operation.canonical_method.as_deref() == Some("fs/watch")
+                    && operation.policy.mutates_provider_state
+            }));
+            assert!(contract.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::ThreadShellCommand
+                    && operation.policy.requires_user_initiation
+                    && operation.policy.escapes_thread_sandbox
             }));
             assert!(contract.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::CloudHandoff

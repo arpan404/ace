@@ -6303,7 +6303,7 @@ mod tests {
         assert_eq!(codex_runtime["supports_server_request_responses"], true);
         assert_eq!(codex_runtime["contract"]["satisfies_required"], true);
         assert_eq!(codex_runtime["adapter_profile"]["provider"], "Codex");
-        assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 1);
+        assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 2);
         assert_eq!(codex_runtime["adapter_profile"]["websocket_first"], true);
         assert_eq!(
             codex_runtime["adapter_runtime"]["satisfies_required_hooks"],
@@ -6753,7 +6753,7 @@ mod tests {
         let WsServerPayload::Result { body } = contract.payload else {
             panic!("expected provider contract result");
         };
-        assert_eq!(body["adapter_contract"]["version"], 1);
+        assert_eq!(body["adapter_contract"]["version"], 2);
         assert_eq!(body["adapter_contract"]["websocket_first"], true);
         assert_eq!(
             body["adapter_contract"]["raw_payload"]["retention"],
@@ -6856,7 +6856,7 @@ mod tests {
         let WsServerPayload::Result { body } = list.payload else {
             panic!("expected provider operation list");
         };
-        assert_eq!(body["adapter_contract"]["version"], 1);
+        assert_eq!(body["adapter_contract"]["version"], 2);
         assert_eq!(
             body["providers"][0]["adapter_runtime"]["satisfies_required_hooks"],
             true
@@ -6874,9 +6874,26 @@ mod tests {
                 && operation.get("availability_reason").is_none()
                 && operation["direct_invocation"] == true
                 && operation["provider_methods"] == json!(["thread/read"])
+                && operation["policy"]["read_only"] == true
+                && operation["policy"]["approval_boundary"] == false
                 && operation["runtime_request"]["invokable"] == true
                 && operation["runtime_request"]["mode"] == "adapter_operation"
                 && operation["runtime_request"]["params"] == "adapter_normalized"
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "thread_shell_command"
+                && operation["policy"]["requires_user_initiation"] == true
+                && operation["policy"]["escapes_thread_sandbox"] == true
+                && operation["policy"]["approval_boundary"] == true
+                && operation["policy"]["reason"]
+                    .as_str()
+                    .is_some_and(|reason| reason.contains("outside the thread sandbox"))
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "fs_write_file"
+                && operation["policy"]["read_only"] == false
+                && operation["policy"]["mutates_workspace"] == true
+                && operation["policy"]["approval_boundary"] == true
         }));
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "plan_fork_for_implementation"

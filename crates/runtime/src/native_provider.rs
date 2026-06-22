@@ -799,7 +799,7 @@ mod tests {
             .expect("contract");
 
         assert_eq!(response["provider"], "ace");
-        assert_eq!(response["version"], 1);
+        assert_eq!(response["version"], 2);
         assert_eq!(response["runtime"]["transport"], "websocket");
         assert_eq!(response["runtime"]["websocket_first"], true);
         assert_eq!(
@@ -824,7 +824,16 @@ mod tests {
                 .expect("events")
                 .contains(&json!("semantic_tool"))
         );
-        assert_eq!(response["adapter_contract"]["version"], 1);
+        assert_eq!(response["adapter_contract"]["version"], 2);
+        assert!(
+            response["adapter_contract"]["operations"]
+                .as_array()
+                .expect("operations")
+                .iter()
+                .any(|operation| operation["operation"] == "thread_shell_command"
+                    && operation["policy"]["requires_user_initiation"] == true
+                    && operation["policy"]["escapes_thread_sandbox"] == true)
+        );
         assert!(
             response["adapter_contract"]["normalized_thread_item_kinds"]
                 .as_array()
