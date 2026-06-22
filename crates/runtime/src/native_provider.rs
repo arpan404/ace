@@ -2,7 +2,7 @@ use crate::provider::{
     ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderFeature,
     ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport,
     ProviderLifecycleAction, ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
-    ace_provider_contract_requirements,
+    ace_provider_adapter_contract, ace_provider_contract_requirements,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
@@ -172,32 +172,27 @@ impl ProviderDriver for AceNativeProvider {
                 "provider": "ace",
                 "capabilities": self.descriptor().capabilities,
             })),
-            "ace.contract" => Ok(json!({
-                "provider": "ace",
-                "version": 1,
-                "runtime": {
-                    "transport": "websocket",
-                    "events": [
-                        "thread_item",
-                        "tool_started",
-                        "tool_updated",
-                        "tool_completed",
-                        "tool_failed",
-                        "tool_approval_requested",
-                        "server_request",
-                        "raw_notification",
-                        "raw_server_request"
-                    ],
-                    "raw_payload_policy": "preserve_provider_payloads"
-                },
-                "provider_requirements": {
-                    "capabilities": ace_provider_contract_requirements(),
-                    "events": "emit normalized ProviderEvent values",
-                    "tools": "map provider tool calls to SemanticToolCall when possible",
-                    "server_requests": "map provider host requests to NormalizedServerRequest",
-                    "fallback": "preserve raw provider methods and payloads"
-                }
-            })),
+            "ace.contract" => {
+                let contract = ace_provider_adapter_contract();
+                Ok(json!({
+                    "provider": "ace",
+                    "version": contract.version,
+                    "runtime": {
+                        "transport": "websocket",
+                        "websocket_first": contract.websocket_first,
+                        "events": contract.provider_event_types,
+                        "raw_payload_policy": contract.raw_payload_policy
+                    },
+                    "adapter_contract": contract,
+                    "provider_requirements": {
+                        "capabilities": ace_provider_contract_requirements(),
+                        "events": "emit normalized ProviderEvent values",
+                        "tools": "map provider tool calls to SemanticToolCall when possible",
+                        "server_requests": "map provider host requests to NormalizedServerRequest",
+                        "fallback": "preserve raw provider methods and payloads"
+                    }
+                }))
+            }
             _ => Err(ProviderDriverError::RequestFailed {
                 provider: "ace".to_string(),
                 method: request.method,
@@ -254,7 +249,44 @@ mod tests {
             .expect("contract");
 
         assert_eq!(response["provider"], "ace");
+        assert_eq!(response["version"], 1);
         assert_eq!(response["runtime"]["transport"], "websocket");
+        assert_eq!(response["runtime"]["websocket_first"], true);
+        assert_eq!(
+            response["runtime"]["raw_payload_policy"],
+            "preserve_provider_payloads"
+        );
+        assert!(
+            response["runtime"]["events"]
+                .as_array()
+                .expect("events")
+                .contains(&json!("semantic_tool"))
+        );
+        assert_eq!(response["adapter_contract"]["version"], 1);
+        assert!(
+            response["adapter_contract"]["normalized_thread_item_kinds"]
+                .as_array()
+                .expect("thread item kinds")
+                .contains(&json!("plan"))
+        );
+        assert!(
+            response["adapter_contract"]["normalized_server_request_kinds"]
+                .as_array()
+                .expect("server request kinds")
+                .contains(&json!("mcp_elicitation"))
+        );
+        assert!(
+            response["adapter_contract"]["tool_surfaces"]
+                .as_array()
+                .expect("tool surfaces")
+                .contains(&json!("browser"))
+        );
+        assert!(
+            response["adapter_contract"]["execution_locations"]
+                .as_array()
+                .expect("execution locations")
+                .contains(&json!("worktree"))
+        );
         assert_eq!(
             response["provider_requirements"]["server_requests"],
             "map provider host requests to NormalizedServerRequest"

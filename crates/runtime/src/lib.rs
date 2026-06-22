@@ -40,7 +40,10 @@ pub enum RuntimeError {
 }
 
 pub mod provider {
-    use crate::tools::SemanticToolCall;
+    use crate::{
+        threads::ExecutionLocation,
+        tools::{SemanticToolCall, ToolSurface, ToolTransport},
+    };
     use ace_core::{ProviderCapability, ProviderKind};
     use async_trait::async_trait;
     use serde::{Deserialize, Serialize};
@@ -76,6 +79,21 @@ pub mod provider {
         pub requirements: Vec<ProviderContractRequirementStatus>,
         pub capabilities: Vec<ProviderCapability>,
         pub missing_required: Vec<String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct ProviderAdapterContract {
+        pub version: u32,
+        pub websocket_first: bool,
+        pub raw_payload_policy: String,
+        pub required_capabilities: Vec<ProviderContractRequirement>,
+        pub normalized_thread_item_kinds: Vec<ThreadItemKind>,
+        pub normalized_server_request_kinds: Vec<ServerRequestKind>,
+        pub runtime_signal_kinds: Vec<RuntimeSignalKind>,
+        pub provider_event_types: Vec<String>,
+        pub tool_transports: Vec<ToolTransport>,
+        pub tool_surfaces: Vec<ToolSurface>,
+        pub execution_locations: Vec<ExecutionLocation>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -477,6 +495,97 @@ pub mod provider {
                 required: false,
             },
         ]
+    }
+
+    #[must_use]
+    pub fn ace_provider_adapter_contract() -> ProviderAdapterContract {
+        ProviderAdapterContract {
+            version: 1,
+            websocket_first: true,
+            raw_payload_policy: "preserve_provider_payloads".to_string(),
+            required_capabilities: ace_provider_contract_requirements(),
+            normalized_thread_item_kinds: vec![
+                ThreadItemKind::UserMessage,
+                ThreadItemKind::HookPrompt,
+                ThreadItemKind::AgentMessage,
+                ThreadItemKind::Plan,
+                ThreadItemKind::Reasoning,
+                ThreadItemKind::CommandExecution,
+                ThreadItemKind::FileChange,
+                ThreadItemKind::McpToolCall,
+                ThreadItemKind::DynamicToolCall,
+                ThreadItemKind::CollabAgentToolCall,
+                ThreadItemKind::SubAgentActivity,
+                ThreadItemKind::WebSearch,
+                ThreadItemKind::ImageView,
+                ThreadItemKind::ImageGeneration,
+                ThreadItemKind::EnteredReviewMode,
+                ThreadItemKind::ExitedReviewMode,
+                ThreadItemKind::ContextCompaction,
+                ThreadItemKind::Unknown,
+            ],
+            normalized_server_request_kinds: vec![
+                ServerRequestKind::CommandApproval,
+                ServerRequestKind::FileChangeApproval,
+                ServerRequestKind::ToolUserInput,
+                ServerRequestKind::McpElicitation,
+                ServerRequestKind::PermissionApproval,
+                ServerRequestKind::DynamicToolCall,
+                ServerRequestKind::AccountTokenRefresh,
+                ServerRequestKind::Attestation,
+                ServerRequestKind::ApplyPatchApproval,
+                ServerRequestKind::ExecApproval,
+                ServerRequestKind::Unknown,
+            ],
+            runtime_signal_kinds: vec![
+                RuntimeSignalKind::Warning,
+                RuntimeSignalKind::ModelRerouted,
+                RuntimeSignalKind::RealtimeTranscriptDelta,
+                RuntimeSignalKind::RealtimeAudioDelta,
+            ],
+            provider_event_types: vec![
+                "raw_notification".to_string(),
+                "raw_server_request".to_string(),
+                "semantic_tool".to_string(),
+                "thread_item".to_string(),
+                "server_request".to_string(),
+                "server_request_resolved".to_string(),
+                "runtime_signal".to_string(),
+                "stderr_line".to_string(),
+                "exited".to_string(),
+            ],
+            tool_transports: vec![
+                ToolTransport::CodexBuiltin,
+                ToolTransport::CodexDynamic,
+                ToolTransport::Mcp,
+                ToolTransport::AppConnector,
+                ToolTransport::BrowserBridge,
+                ToolTransport::ComputerBridge,
+                ToolTransport::Shell,
+                ToolTransport::Filesystem,
+                ToolTransport::Process,
+            ],
+            tool_surfaces: vec![
+                ToolSurface::Browser,
+                ToolSurface::Computer,
+                ToolSurface::Terminal,
+                ToolSurface::Filesystem,
+                ToolSurface::Git,
+                ToolSurface::Github,
+                ToolSurface::WebSearch,
+                ToolSurface::Image,
+                ToolSurface::Subagent,
+                ToolSurface::App,
+                ToolSurface::GenericMcp,
+                ToolSurface::Unknown,
+            ],
+            execution_locations: vec![
+                ExecutionLocation::Local,
+                ExecutionLocation::Worktree,
+                ExecutionLocation::RemoteHost,
+                ExecutionLocation::Cloud,
+            ],
+        }
     }
 
     #[must_use]
@@ -919,6 +1028,57 @@ pub mod provider {
             assert_eq!(reports[0].provider, ProviderKind::Ace);
             assert!(reports[0].satisfies_required);
             assert!(reports[0].missing_required.is_empty());
+        }
+
+        #[test]
+        fn adapter_contract_lists_required_normalized_surfaces() {
+            let contract = ace_provider_adapter_contract();
+
+            assert_eq!(contract.version, 1);
+            assert!(contract.websocket_first);
+            assert_eq!(contract.raw_payload_policy, "preserve_provider_payloads");
+            assert!(
+                contract
+                    .required_capabilities
+                    .iter()
+                    .any(|capability| capability.key == "provider.normalized_events"
+                        && capability.required)
+            );
+            assert!(
+                contract
+                    .normalized_thread_item_kinds
+                    .contains(&ThreadItemKind::Plan)
+            );
+            assert!(
+                contract
+                    .normalized_thread_item_kinds
+                    .contains(&ThreadItemKind::SubAgentActivity)
+            );
+            assert!(
+                contract
+                    .normalized_server_request_kinds
+                    .contains(&ServerRequestKind::McpElicitation)
+            );
+            assert!(
+                contract
+                    .provider_event_types
+                    .contains(&"server_request_resolved".to_string())
+            );
+            assert!(
+                contract
+                    .tool_surfaces
+                    .contains(&crate::tools::ToolSurface::Browser)
+            );
+            assert!(
+                contract
+                    .tool_transports
+                    .contains(&crate::tools::ToolTransport::Mcp)
+            );
+            assert!(
+                contract
+                    .execution_locations
+                    .contains(&crate::threads::ExecutionLocation::Worktree)
+            );
         }
 
         #[tokio::test]
