@@ -131,7 +131,54 @@ pub struct AgentRuntimeState {
     review_threads: HashSet<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AgentRuntimeSnapshot {
+    pub active_turns: Vec<Turn>,
+    pub plan_sessions: Vec<PlanSession>,
+    pub goals: Vec<GoalState>,
+    pub fork_points: Vec<ForkPoint>,
+    pub side_chats: Vec<SideChat>,
+    pub subagents: Vec<SubagentThread>,
+    pub handoffs: Vec<HandoffPlan>,
+    pub review_threads: Vec<String>,
+}
+
 impl AgentRuntimeState {
+    #[must_use]
+    pub fn snapshot(&self) -> AgentRuntimeSnapshot {
+        let mut active_turns = self.active_turns.values().cloned().collect::<Vec<_>>();
+        active_turns.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
+
+        let mut plan_sessions = self.plan_sessions.values().cloned().collect::<Vec<_>>();
+        plan_sessions.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
+
+        let mut goals = self.goals.values().cloned().collect::<Vec<_>>();
+        goals.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
+
+        let mut fork_points = self.fork_points.values().cloned().collect::<Vec<_>>();
+        fork_points.sort_by(|left, right| left.child_thread_id.cmp(&right.child_thread_id));
+
+        let mut side_chats = self.side_chats.values().cloned().collect::<Vec<_>>();
+        side_chats.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
+
+        let mut subagents = self.subagents.values().cloned().collect::<Vec<_>>();
+        subagents.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
+
+        let mut review_threads = self.review_threads.iter().cloned().collect::<Vec<_>>();
+        review_threads.sort();
+
+        AgentRuntimeSnapshot {
+            active_turns,
+            plan_sessions,
+            goals,
+            fork_points,
+            side_chats,
+            subagents,
+            handoffs: self.handoffs.clone(),
+            review_threads,
+        }
+    }
+
     #[must_use]
     pub fn active_turn(&self, thread_id: &str) -> Option<&Turn> {
         self.active_turns.get(thread_id)
@@ -554,6 +601,109 @@ mod tests {
         assert_eq!(state.handoffs().len(), 1);
         state.close_subagent("subagent-1");
         assert!(state.subagent("subagent-1").is_none());
+    }
+
+    #[test]
+    fn snapshots_runtime_state_with_stable_ordering() {
+        let mut state = AgentRuntimeState::default();
+        state
+            .begin_turn("thread-b", Some("turn-b".to_string()), TurnMode::Normal)
+            .expect("begin b");
+        state
+            .begin_turn("thread-a", Some("turn-a".to_string()), TurnMode::Plan)
+            .expect("begin a");
+        state.set_goal("thread-b", "Ship adapter", Some(100));
+        state.record_fork(ForkPoint {
+            parent_thread_id: "thread-a".to_string(),
+            child_thread_id: "child-b".to_string(),
+            turn_id: Some("turn-a".to_string()),
+        });
+        state.record_fork(ForkPoint {
+            parent_thread_id: "thread-a".to_string(),
+            child_thread_id: "child-a".to_string(),
+            turn_id: None,
+        });
+        state.record_side_chat(SideChat {
+            parent_thread_id: "thread-a".to_string(),
+            thread_id: "side-b".to_string(),
+            ephemeral: true,
+        });
+        state.record_side_chat(SideChat {
+            parent_thread_id: "thread-a".to_string(),
+            thread_id: "side-a".to_string(),
+            ephemeral: true,
+        });
+        state.record_subagent(SubagentThread {
+            parent_thread_id: "thread-a".to_string(),
+            thread_id: "sub-b".to_string(),
+            role: Some("reviewer".to_string()),
+            nickname: None,
+        });
+        state.record_subagent(SubagentThread {
+            parent_thread_id: "thread-a".to_string(),
+            thread_id: "sub-a".to_string(),
+            role: Some("planner".to_string()),
+            nickname: None,
+        });
+        state.apply_provider_events(&[ProviderEvent::ThreadItem {
+            item: Box::new(NormalizedThreadItem {
+                kind: ThreadItemKind::EnteredReviewMode,
+                status: ThreadItemStatus::Completed,
+                thread_id: Some("thread-c".to_string()),
+                turn_id: None,
+                item_id: Some("review-1".to_string()),
+                parent_thread_id: None,
+                child_thread_id: None,
+                sender: None,
+                role: None,
+                title: None,
+                text: None,
+                metadata: json!({}),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("item/completed".to_string()),
+                    schema_version: None,
+                    raw_payload: json!({}),
+                },
+            }),
+        }]);
+
+        let snapshot = state.snapshot();
+        assert_eq!(
+            snapshot
+                .active_turns
+                .iter()
+                .map(|turn| turn.thread_id.as_str())
+                .collect::<Vec<_>>(),
+            ["thread-a", "thread-b"]
+        );
+        assert_eq!(snapshot.plan_sessions[0].thread_id, "thread-a");
+        assert_eq!(snapshot.goals[0].thread_id, "thread-b");
+        assert_eq!(
+            snapshot
+                .fork_points
+                .iter()
+                .map(|fork| fork.child_thread_id.as_str())
+                .collect::<Vec<_>>(),
+            ["child-a", "child-b"]
+        );
+        assert_eq!(
+            snapshot
+                .side_chats
+                .iter()
+                .map(|side_chat| side_chat.thread_id.as_str())
+                .collect::<Vec<_>>(),
+            ["side-a", "side-b"]
+        );
+        assert_eq!(
+            snapshot
+                .subagents
+                .iter()
+                .map(|subagent| subagent.thread_id.as_str())
+                .collect::<Vec<_>>(),
+            ["sub-a", "sub-b"]
+        );
+        assert_eq!(snapshot.review_threads, ["thread-c"]);
     }
 
     #[test]

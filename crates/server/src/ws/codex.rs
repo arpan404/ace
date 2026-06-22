@@ -26,12 +26,13 @@ use ace_protocol::{
         ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
         ProviderRuntimeFeaturesListResponse, ProviderRuntimeLifecycleRequest,
         ProviderRuntimeLifecycleResponse, ProviderRuntimeProviderFeatures,
-        ProviderRuntimeProviderInfo, ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
-        ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
-        ProviderRuntimeRequest, ProviderRuntimeStatusListRequest,
-        ProviderRuntimeStatusListResponse, ProviderRuntimeSubscribeRequest,
-        ProviderServerRequestDecisionRecord, ProviderServerRequestError,
-        ProviderServerRequestRecord, ProviderServerRequestResult,
+        ProviderRuntimeProviderInfo, ProviderRuntimeProviderState, ProviderRuntimeProviderStatus,
+        ProviderRuntimeProvidersList, ProviderRuntimeRecentEventsRequest,
+        ProviderRuntimeRecentEventsResponse, ProviderRuntimeRequest,
+        ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
+        ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
+        ProviderRuntimeSubscribeRequest, ProviderServerRequestDecisionRecord,
+        ProviderServerRequestError, ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
         ProviderServerRequestsListResponse, projection_deltas_for_events,
     },
@@ -570,6 +571,35 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 }
                 Ok(serde_json::to_value(ProviderRuntimeStatusListResponse {
                     providers: provider_statuses,
+                })?)
+            }
+            methods::PROVIDER_RUNTIME_STATE_GET => {
+                let request = serde_json::from_value::<ProviderRuntimeStateGetRequest>(payload)?;
+                let requested_provider = request.provider.clone();
+                let providers = self.provider_runtime_filter(request.provider, "state get")?;
+                let mut provider_states = Vec::with_capacity(providers.len());
+                for provider in providers {
+                    match provider {
+                        ProviderKind::Codex => {
+                            provider_states.push(ProviderRuntimeProviderState {
+                                provider,
+                                runtime_id: provider.runtime_id().to_string(),
+                                display_name: provider.display_name().to_string(),
+                                state: self.codex.runtime_state_snapshot().await,
+                            });
+                        }
+                        _ => {
+                            if requested_provider.is_some() {
+                                return Err(WsDispatchError::BadRequest(format!(
+                                    "provider `{}` does not expose runtime state",
+                                    provider.runtime_id()
+                                )));
+                            }
+                        }
+                    }
+                }
+                Ok(serde_json::to_value(ProviderRuntimeStateGetResponse {
+                    providers: provider_states,
                 })?)
             }
             methods::PROVIDER_RUNTIME_LIFECYCLE => {
@@ -2401,6 +2431,151 @@ mod tests {
         };
         assert_eq!(body["providers"].as_array().expect("providers").len(), 1);
         assert_eq!(body["providers"][0]["runtime_id"], "ace");
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_returns_codex_runtime_state_snapshot() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+
+        for (request_id, method, payload) in [
+            (
+                "state-turn",
+                methods::CODEX_TURN_START,
+                json!({
+                    "thread_id": "thread-1",
+                    "input": [{ "type": "text", "text": "work" }]
+                }),
+            ),
+            (
+                "state-goal",
+                methods::CODEX_GOAL_SET,
+                json!({
+                    "thread_id": "thread-1",
+                    "objective": "finish provider adapter",
+                    "token_budget": 2048
+                }),
+            ),
+            (
+                "state-fork",
+                methods::CODEX_THREAD_FORK,
+                json!({
+                    "thread_id": "thread-1",
+                    "turn_id": "turn-1",
+                    "ephemeral": false
+                }),
+            ),
+            (
+                "state-side-chat",
+                methods::CODEX_SIDE_CHAT_START,
+                json!({
+                    "thread_id": "thread-1",
+                    "turn_id": "turn-1"
+                }),
+            ),
+            (
+                "state-handoff",
+                methods::CODEX_HANDOFF_TO_AGENT,
+                json!({
+                    "thread_id": "thread-1",
+                    "prompt": "continue implementation",
+                    "agent_role": "implementer",
+                    "nickname": "builder",
+                    "model": "gpt-5.5",
+                    "reasoning_effort": "high",
+                    "sandbox_policy": { "mode": "workspace-write" },
+                    "approval_policy": { "mode": "on-request" },
+                    "skills": [],
+                    "mcp_config": {}
+                }),
+            ),
+        ] {
+            let response = state
+                .dispatch_text(
+                    &json!({
+                        "version": PROTOCOL_VERSION,
+                        "request_id": request_id,
+                        "method": method,
+                        "payload": payload
+                    })
+                    .to_string(),
+                )
+                .await;
+            let response: WsServerResponse = serde_json::from_str(&response).expect("response");
+            assert!(matches!(response.payload, WsServerPayload::Result { .. }));
+        }
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-state",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+
+        assert_eq!(body["providers"][0]["runtime_id"], "codex");
+        let snapshot_state = &body["providers"][0]["state"];
+        assert_eq!(snapshot_state["active_turns"][0]["thread_id"], "thread-1");
+        assert_eq!(snapshot_state["active_turns"][0]["turn_id"], "turn-1");
+        assert_eq!(
+            snapshot_state["goals"][0]["objective"],
+            "finish provider adapter"
+        );
+        assert_eq!(snapshot_state["goals"][0]["token_budget"], 2048);
+        assert_eq!(
+            snapshot_state["fork_points"][0]["parent_thread_id"],
+            "thread-1"
+        );
+        assert_eq!(
+            snapshot_state["fork_points"][0]["child_thread_id"],
+            "fork-1"
+        );
+        assert_eq!(snapshot_state["fork_points"][0]["turn_id"], "turn-1");
+        assert_eq!(
+            snapshot_state["side_chats"][0]["parent_thread_id"],
+            "thread-1"
+        );
+        assert_eq!(snapshot_state["side_chats"][0]["thread_id"], "fork-1");
+        assert_eq!(
+            snapshot_state["handoffs"][0]["source_thread_id"],
+            "thread-1"
+        );
+        assert_eq!(snapshot_state["handoffs"][0]["target_location"], "local");
+        assert_eq!(
+            snapshot_state["handoffs"][0]["target_thread_id"],
+            "agent-thread-1"
+        );
+
+        let all_states = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-state-all",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let all_states: WsServerResponse = serde_json::from_str(&all_states).expect("all states");
+        let WsServerPayload::Result { body } = all_states.payload else {
+            panic!("expected all state result");
+        };
+        assert_eq!(body["providers"].as_array().expect("providers").len(), 1);
+        assert_eq!(body["providers"][0]["runtime_id"], "codex");
     }
 
     #[tokio::test]

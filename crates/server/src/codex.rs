@@ -12,8 +12,8 @@ use ace_runtime::{
         ProviderServerRequestResponder,
     },
     threads::{
-        AgentRuntimeState, ExecutionLocation, ForkPoint, HandoffPlan, PlanSessionStatus,
-        RuntimeStateError, SideChat, TurnMode,
+        AgentRuntimeSnapshot, AgentRuntimeState, ExecutionLocation, ForkPoint, HandoffPlan,
+        PlanSessionStatus, RuntimeStateError, SideChat, TurnMode,
     },
 };
 use async_trait::async_trait;
@@ -663,6 +663,10 @@ impl CodexService {
 
     pub async fn has_active_turn(&self, thread_id: &str) -> bool {
         self.state.lock().await.active_turn(thread_id).is_some()
+    }
+
+    pub async fn runtime_state_snapshot(&self) -> AgentRuntimeSnapshot {
+        self.state.lock().await.snapshot()
     }
 
     pub async fn config_requirements_read(&self) -> std::result::Result<Value, CodexApiError> {

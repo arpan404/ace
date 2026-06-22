@@ -5,6 +5,7 @@ use ace_runtime::{
         ProviderDriverStatus, ProviderEvent, ProviderFeature, ProviderLifecycleAction,
         ProviderLifecycleResult, ThreadItemKind, ThreadItemStatus,
     },
+    threads::AgentRuntimeSnapshot,
     tools::{SemanticToolCall, ToolRunStatus},
 };
 use serde::{Deserialize, Serialize};
@@ -113,6 +114,24 @@ pub struct ProviderRuntimeProviderStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRuntimeStatusListResponse {
     pub providers: Vec<ProviderRuntimeProviderStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ProviderRuntimeStateGetRequest {
+    pub provider: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeProviderState {
+    pub provider: ProviderKind,
+    pub runtime_id: String,
+    pub display_name: String,
+    pub state: AgentRuntimeSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeStateGetResponse {
+    pub providers: Vec<ProviderRuntimeProviderState>,
 }
 
 fn default_provider_lifecycle_grace_ms() -> u64 {
