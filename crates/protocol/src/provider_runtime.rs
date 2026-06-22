@@ -875,9 +875,18 @@ impl ProviderRuntimeEvent {
             ace_runtime::tools::ToolRunStatus::Started => Self::ToolStarted {
                 tool: Box::new(tool),
             },
-            ace_runtime::tools::ToolRunStatus::Updated => Self::ToolUpdated {
-                tool: Box::new(tool),
-            },
+            ace_runtime::tools::ToolRunStatus::Updated => {
+                if let Some(delta) = tool_output_delta_text(&tool) {
+                    Self::ToolOutputDelta {
+                        tool: Box::new(tool),
+                        delta,
+                    }
+                } else {
+                    Self::ToolUpdated {
+                        tool: Box::new(tool),
+                    }
+                }
+            }
             ace_runtime::tools::ToolRunStatus::Completed => Self::ToolCompleted {
                 tool: Box::new(tool),
             },
@@ -959,11 +968,51 @@ impl ProviderRuntimeEvent {
         match self {
             Self::ToolStarted { tool }
             | Self::ToolUpdated { tool }
-            | Self::ToolOutputDelta { tool, .. }
             | Self::ToolCompleted { tool }
             | Self::ToolFailed { tool, .. }
             | Self::ToolApprovalRequested { tool } => {
                 vec![ProviderRuntimeProjectionDelta::ToolTimelineUpsert { tool: tool.clone() }]
+            }
+            Self::ToolOutputDelta { tool, delta } => {
+                let mut deltas =
+                    vec![ProviderRuntimeProjectionDelta::ToolTimelineUpsert { tool: tool.clone() }];
+                match tool.surface {
+                    ace_runtime::tools::ToolSurface::Terminal => {
+                        deltas.push(ProviderRuntimeProjectionDelta::TerminalOutputAppended {
+                            provider: tool
+                                .provider
+                                .provider
+                                .clone()
+                                .unwrap_or_else(|| "unknown".to_string()),
+                            thread_id: tool.provider.thread_id.clone(),
+                            turn_id: tool.provider.turn_id.clone(),
+                            item_id: tool.provider.item_id.clone(),
+                            text: delta.clone(),
+                        });
+                    }
+                    ace_runtime::tools::ToolSurface::Filesystem => {
+                        deltas.push(ProviderRuntimeProjectionDelta::DiffUpdated {
+                            provider: tool
+                                .provider
+                                .provider
+                                .clone()
+                                .unwrap_or_else(|| "unknown".to_string()),
+                            thread_id: tool.provider.thread_id.clone(),
+                            turn_id: tool.provider.turn_id.clone(),
+                            item_id: tool.provider.item_id.clone(),
+                            status: ThreadItemStatus::Updated,
+                            diff: Some(delta.clone()),
+                            files: tool
+                                .provider
+                                .raw_args
+                                .get("files")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null),
+                        });
+                    }
+                    _ => {}
+                }
+                deltas
             }
             Self::ThreadItem { item } => {
                 let mut deltas =
@@ -1139,6 +1188,28 @@ pub fn projection_deltas_for_events(
         .iter()
         .flat_map(ProviderRuntimeEvent::projection_deltas)
         .collect()
+}
+
+fn tool_output_delta_text(tool: &SemanticToolCall) -> Option<String> {
+    string_at(
+        &tool.provider.raw_args,
+        &["delta", "text", "output", "stdout", "stderr", "chunk"],
+    )
+    .or_else(|| {
+        string_at(
+            &tool.provider.raw_payload,
+            &["delta", "text", "output", "stdout", "stderr", "chunk"],
+        )
+    })
+    .or_else(|| {
+        tool.provider.raw_payload.get("item").and_then(|item| {
+            string_at(
+                item,
+                &["delta", "text", "output", "stdout", "stderr", "chunk"],
+            )
+        })
+    })
+    .filter(|delta| !delta.is_empty())
 }
 
 fn projection_deltas_for_runtime_signal(
@@ -1775,6 +1846,139 @@ mod tests {
             encoded["tool"]["display"]["title"],
             "Clicked Run in Browser"
         );
+    }
+
+    #[test]
+    fn provider_runtime_event_uses_tool_output_delta_for_terminal_streams() {
+        let mut provider = ProviderToolMetadata::new();
+        provider.provider = Some("codex".to_string());
+        provider.method = Some("item/commandExecution/outputDelta".to_string());
+        provider.thread_id = Some("thread-1".to_string());
+        provider.turn_id = Some("turn-1".to_string());
+        provider.item_id = Some("cmd-1".to_string());
+        provider.tool_name = Some("shell".to_string());
+        provider.operation = Some("process/outputDelta".to_string());
+        provider.raw_args = json!({ "processId": "proc-1", "delta": "running tests\n" });
+        let tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::Process,
+            status: ToolRunStatus::Updated,
+            provider,
+            item_type: Some("commandExecution".to_string()),
+        });
+
+        let event = ProviderRuntimeEvent::tool(tool);
+        let encoded = serde_json::to_value(&event).expect("encode");
+        assert_eq!(encoded["type"], "tool_output_delta");
+        assert_eq!(encoded["delta"], "running tests\n");
+        assert_eq!(
+            encoded["tool"]["display"]["title"],
+            "Reading terminal output from proc-1"
+        );
+
+        let deltas = event.projection_deltas();
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ToolTimelineUpsert { tool }
+                if tool.provider.item_id.as_deref() == Some("cmd-1")
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::TerminalOutputAppended {
+                provider,
+                thread_id,
+                turn_id,
+                item_id,
+                text,
+            } if provider == "codex"
+                && thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+                && item_id.as_deref() == Some("cmd-1")
+                && text == "running tests\n"
+        )));
+    }
+
+    #[test]
+    fn codex_output_delta_provider_event_becomes_runtime_tool_output_delta() {
+        let events =
+            ace_codex::normalize_codex_inbound_event(&ace_codex::CodexInboundEvent::Notification {
+                method: "process/outputDelta".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "cmd-1",
+                    "item": {
+                        "id": "cmd-1",
+                        "type": "commandExecution",
+                        "processId": "proc-1",
+                        "delta": "cargo test output"
+                    }
+                }),
+            });
+        let tool_event = events
+            .into_iter()
+            .find(|event| matches!(event, ProviderEvent::SemanticTool { .. }))
+            .expect("semantic tool event");
+        let runtime_event = ProviderRuntimeEvent::from_provider_event("codex", tool_event);
+        let encoded = serde_json::to_value(&runtime_event).expect("runtime event");
+        assert_eq!(encoded["type"], "tool_output_delta");
+        assert_eq!(encoded["delta"], "cargo test output");
+        assert_eq!(encoded["tool"]["surface"], "terminal");
+
+        assert!(
+            runtime_event
+                .projection_deltas()
+                .iter()
+                .any(|delta| matches!(
+                    delta,
+                    ProviderRuntimeProjectionDelta::TerminalOutputAppended {
+                        item_id,
+                        text,
+                        ..
+                    } if item_id.as_deref() == Some("cmd-1") && text == "cargo test output"
+                ))
+        );
+    }
+
+    #[test]
+    fn provider_runtime_event_projects_file_tool_output_delta_as_diff_update() {
+        let mut provider = ProviderToolMetadata::new();
+        provider.provider = Some("codex".to_string());
+        provider.method = Some("item/fileChange/patchUpdated".to_string());
+        provider.thread_id = Some("thread-1".to_string());
+        provider.turn_id = Some("turn-1".to_string());
+        provider.item_id = Some("file-1".to_string());
+        provider.tool_name = Some("apply_patch".to_string());
+        provider.operation = Some("apply_patch".to_string());
+        provider.raw_args = json!({
+            "delta": "@@ -1 +1 @@\n-old\n+new\n",
+            "files": ["src/lib.rs"]
+        });
+        let tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::Filesystem,
+            status: ToolRunStatus::Updated,
+            provider,
+            item_type: Some("fileChange".to_string()),
+        });
+
+        let event = ProviderRuntimeEvent::tool(tool);
+        let encoded = serde_json::to_value(&event).expect("encode");
+        assert_eq!(encoded["type"], "tool_output_delta");
+        assert_eq!(encoded["delta"], "@@ -1 +1 @@\n-old\n+new\n");
+
+        let deltas = event.projection_deltas();
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::DiffUpdated {
+                provider,
+                item_id,
+                diff,
+                files,
+                ..
+            } if provider == "codex"
+                && item_id.as_deref() == Some("file-1")
+                && diff.as_deref() == Some("@@ -1 +1 @@\n-old\n+new\n")
+                && files == &json!(["src/lib.rs"])
+        )));
     }
 
     #[test]
