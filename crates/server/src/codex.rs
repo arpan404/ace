@@ -1791,6 +1791,23 @@ pub mod tests {
                     "interruptedActiveTurn": true
                 }));
             }
+            if method == "model/list" {
+                return Ok(serde_json::json!({
+                    "defaultProvider": "openai",
+                    "models": [
+                        {
+                            "id": "gpt-5",
+                            "displayName": "GPT-5",
+                            "provider": "openai",
+                            "family": "gpt",
+                            "contextWindow": 256000,
+                            "maxOutputTokens": 32000,
+                            "capabilities": ["reasoning", "tools", "vision"],
+                            "defaultReasoningEffort": "medium"
+                        }
+                    ]
+                }));
+            }
             Ok(serde_json::json!({ "method": method }))
         }
 

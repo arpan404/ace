@@ -3,6 +3,7 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 
 pub mod host_tools;
+pub mod models;
 pub mod native_provider;
 pub mod runtime_signals;
 pub mod server_requests;

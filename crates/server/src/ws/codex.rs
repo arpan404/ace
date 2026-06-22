@@ -31,6 +31,7 @@ use ace_protocol::{
         ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeEventRecord,
         ProviderRuntimeFeaturesListRequest, ProviderRuntimeFeaturesListResponse,
         ProviderRuntimeLifecycleRequest, ProviderRuntimeLifecycleResponse,
+        ProviderRuntimeModelsListRequest, ProviderRuntimeModelsListResponse,
         ProviderRuntimeOperationGateResolution, ProviderRuntimeOperationGateStatus,
         ProviderRuntimeOperationParams, ProviderRuntimeOperationRequest,
         ProviderRuntimeOperationRequestMode, ProviderRuntimeOperationsListRequest,
@@ -59,6 +60,7 @@ use ace_runtime::{
     host_tools::{
         HostToolError, HostToolInvocation, HostToolResult, host_tool_invocation_from_server_request,
     },
+    models::normalize_provider_model_catalog,
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
         ProviderAdapterOperation, ProviderAdapterOperationGate, ProviderAdapterProfile,
@@ -1087,6 +1089,49 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 }
                 Ok(serde_json::to_value(ProviderRuntimeStateGetResponse {
                     providers: provider_states,
+                })?)
+            }
+            methods::PROVIDER_RUNTIME_MODELS_LIST => {
+                let request = serde_json::from_value::<ProviderRuntimeModelsListRequest>(payload)?;
+                let provider =
+                    ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
+                        WsDispatchError::BadRequest(format!(
+                            "unknown provider `{}` for model list",
+                            request.provider
+                        ))
+                    })?;
+                let adapter_profile = self.providers.adapter_profile(provider).ok_or(
+                    ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider },
+                )?;
+                validate_provider_runtime_operation(
+                    ProviderAdapterOperation::ModelList,
+                    &adapter_profile,
+                )?;
+                let raw_models = if provider == ProviderKind::Codex {
+                    self.dispatch_codex_method(methods::CODEX_MODEL_LIST, request.params)
+                        .await?
+                } else {
+                    let method = resolve_provider_runtime_request_method(
+                        None,
+                        Some(ProviderAdapterOperation::ModelList),
+                        &adapter_profile,
+                    )?;
+                    self.providers
+                        .request(
+                            provider,
+                            ProviderRequest {
+                                method,
+                                params: request.params,
+                                timeout: Duration::from_millis(request.timeout_ms),
+                            },
+                        )
+                        .await?
+                };
+                Ok(serde_json::to_value(ProviderRuntimeModelsListResponse {
+                    provider,
+                    runtime_id: provider.runtime_id().to_string(),
+                    display_name: provider.display_name().to_string(),
+                    catalog: normalize_provider_model_catalog(provider.runtime_id(), raw_models),
                 })?)
             }
             methods::PROVIDER_RUNTIME_LIFECYCLE => {
@@ -7983,6 +8028,62 @@ mod tests {
         };
         assert_eq!(body["providers"].as_array().expect("providers").len(), 1);
         assert_eq!(body["providers"][0]["runtime_id"], "ace");
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_lists_normalized_models_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "models-list",
+                    "method": methods::PROVIDER_RUNTIME_MODELS_LIST,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse = serde_json::from_str(&response).expect("models response");
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected models result");
+        };
+
+        assert_eq!(body["runtime_id"], "codex");
+        assert_eq!(body["catalog"]["provider"], "codex");
+        assert_eq!(body["catalog"]["models"][0]["id"], "gpt-5");
+        assert_eq!(body["catalog"]["models"][0]["display_name"], "GPT-5");
+        assert_eq!(
+            body["catalog"]["models"][0]["capabilities"]["context_window"],
+            256000
+        );
+        assert_eq!(
+            body["catalog"]["models"][0]["capabilities"]["supports_reasoning"],
+            true
+        );
+        assert_eq!(
+            body["catalog"]["models"][0]["capabilities"]["supports_tools"],
+            true
+        );
+        assert_eq!(
+            body["catalog"]["models"][0]["capabilities"]["supports_attachments"],
+            true
+        );
+        assert_eq!(body["catalog"]["raw_payload"]["defaultProvider"], "openai");
+        assert!(
+            backend
+                .calls
+                .lock()
+                .expect("calls")
+                .contains(&"model/list".to_string())
+        );
     }
 
     #[tokio::test]
