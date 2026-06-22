@@ -54,7 +54,8 @@ use ace_runtime::provider::{
     provider_adapter_profile, provider_contract_report,
 };
 use ace_runtime::threads::{
-    ExecutionLocation, HandoffPlan, HandoffStatus, PlanImplementationMode, PlanImplementationRecord,
+    ApprovalRetryRecord, ExecutionLocation, HandoffPlan, HandoffStatus, PlanImplementationMode,
+    PlanImplementationRecord,
 };
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
@@ -421,15 +422,18 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 )?)
             }
             methods::CODEX_THREAD_APPROVE_GUARDIAN_DENIED_ACTION => {
-                self.codex_json::<CodexGuardianDeniedActionApprovalRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service
-                            .approve_guardian_denied_action(request.params)
-                            .await
-                    },
-                )
-                .await
+                let request =
+                    serde_json::from_value::<CodexGuardianDeniedActionApprovalRequest>(payload)?;
+                let params = request.params;
+                let response = self
+                    .codex
+                    .approve_guardian_denied_action(params.clone())
+                    .await?;
+                self.publish_codex_approval_retry_signal(CodexApprovalRetrySignal {
+                    retry: approval_retry_record_from_codex(params, response.clone()),
+                    method: "ace/approval_retry/guardian_denied_action",
+                })?;
+                Ok(response)
             }
             methods::CODEX_GOAL_SET => {
                 self.codex_json::<CodexGoalSetRequest, _, _, _>(
@@ -1309,6 +1313,54 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         )
     }
 
+    fn publish_codex_approval_retry_signal(
+        &self,
+        signal: CodexApprovalRetrySignal,
+    ) -> Result<(), WsDispatchError> {
+        let retry = serde_json::to_value(&signal.retry)?;
+        let metadata = json!({
+            "approval_retry": retry,
+        });
+        let raw_payload = metadata.clone();
+        self.append_and_publish_provider_events(
+            ProviderKind::Codex,
+            vec![ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ApprovalRetryRecorded,
+                    thread_id: Some(signal.retry.thread_id),
+                    turn_id: None,
+                    item_id: signal.retry.item_id,
+                    message: signal.retry.reason.clone(),
+                    from_model: None,
+                    to_model: None,
+                    reason: signal.retry.reason,
+                    text: None,
+                    audio: None,
+                    status: Some(if signal.retry.approved {
+                        "approved".to_string()
+                    } else {
+                        "rejected".to_string()
+                    }),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(signal.method.to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            }],
+        )
+    }
+
     pub(super) async fn subscribe_provider_runtime_events(
         &self,
         payload: Value,
@@ -1534,6 +1586,11 @@ struct CodexPlanImplementationSignal {
     method: &'static str,
 }
 
+struct CodexApprovalRetrySignal {
+    retry: ApprovalRetryRecord,
+    method: &'static str,
+}
+
 fn extract_thread_id_from_value(value: &Value) -> Option<String> {
     value
         .pointer("/thread/id")
@@ -1572,6 +1629,21 @@ fn plan_implementation_mode_key(mode: PlanImplementationMode) -> String {
         PlanImplementationMode::SideImplementation => "side_implementation",
     }
     .to_string()
+}
+
+fn approval_retry_record_from_codex(
+    request: ace_codex::CodexGuardianDeniedActionApproval,
+    provider_response: Value,
+) -> ApprovalRetryRecord {
+    ApprovalRetryRecord {
+        thread_id: request.thread_id,
+        item_id: request.item_id,
+        action_id: request.action_id,
+        approved: request.approved,
+        reason: request.reason,
+        audit: request.audit,
+        provider_response,
+    }
 }
 
 fn validate_provider_runtime_operation(
@@ -2812,6 +2884,44 @@ mod tests {
         assert_eq!(retry_record["reason"], "retry after user approval");
         assert_eq!(retry_record["audit"]["selected_policy"], "on-request");
         assert_eq!(retry_record["provider_response"]["approved"], true);
+
+        let recent = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "guardian-retry-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": { "provider": "codex", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent: WsServerResponse = serde_json::from_str(&recent).expect("recent events");
+        let WsServerPayload::Result { body } = recent.payload else {
+            panic!("expected recent events result");
+        };
+        let records = body["records"].as_array().expect("records");
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0]["event"]["signal"]["kind"],
+            "approval_retry_recorded"
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["type"],
+            "approval_retry_recorded"
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["retry"]["action_id"],
+            "action-1"
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["retry"]["audit"]["selected_policy"],
+            "on-request"
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["retry"]["provider_response"]["approved"],
+            true
+        );
 
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),

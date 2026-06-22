@@ -586,6 +586,7 @@ pub mod provider {
         SubagentAction,
         HandoffUpdated,
         PlanImplementationUpdated,
+        ApprovalRetryRecorded,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1309,6 +1310,7 @@ pub mod provider {
                 RuntimeSignalKind::SubagentAction,
                 RuntimeSignalKind::HandoffUpdated,
                 RuntimeSignalKind::PlanImplementationUpdated,
+                RuntimeSignalKind::ApprovalRetryRecorded,
             ],
             provider_event_types: vec![
                 "raw_notification".to_string(),

@@ -652,6 +652,9 @@ impl AgentRuntimeState {
                 if let Some(implementation) = plan_implementation_from_signal(signal) {
                     self.record_plan_implementation(implementation);
                 }
+                if let Some(retry) = approval_retry_from_signal(signal) {
+                    self.record_approval_retry(retry);
+                }
             }
             ProviderEvent::RawServerRequest { .. }
             | ProviderEvent::ServerRequest { .. }
@@ -840,6 +843,18 @@ fn plan_implementation_from_signal(
     let value = signal
         .metadata
         .get("plan_implementation")
+        .cloned()
+        .unwrap_or_else(|| signal.metadata.clone());
+    serde_json::from_value(value).ok()
+}
+
+fn approval_retry_from_signal(signal: &NormalizedRuntimeSignal) -> Option<ApprovalRetryRecord> {
+    if signal.kind != RuntimeSignalKind::ApprovalRetryRecorded {
+        return None;
+    }
+    let value = signal
+        .metadata
+        .get("approval_retry")
         .cloned()
         .unwrap_or_else(|| signal.metadata.clone());
     serde_json::from_value(value).ok()
@@ -1376,6 +1391,64 @@ mod tests {
         assert_eq!(implementations[0].prompt, "implement this plan");
         assert_eq!(implementations[0].plan["markdown"], "1. Edit\n2. Test");
         assert_eq!(implementations[0].provider_response["forked"], true);
+    }
+
+    #[test]
+    fn applies_approval_retry_runtime_signals() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[ProviderEvent::RuntimeSignal {
+            signal: Box::new(NormalizedRuntimeSignal {
+                kind: RuntimeSignalKind::ApprovalRetryRecorded,
+                thread_id: Some("thread-1".to_string()),
+                turn_id: None,
+                item_id: Some("item-1".to_string()),
+                message: Some("retry after user approval".to_string()),
+                from_model: None,
+                to_model: None,
+                reason: Some("retry after user approval".to_string()),
+                text: None,
+                audio: None,
+                status: Some("approved".to_string()),
+                name: None,
+                active: None,
+                archived: None,
+                diff: None,
+                files: None,
+                process_id: None,
+                exit_code: None,
+                request_id: None,
+                metadata: json!({
+                    "approval_retry": {
+                        "thread_id": "thread-1",
+                        "item_id": "item-1",
+                        "action_id": "action-1",
+                        "approved": true,
+                        "reason": "retry after user approval",
+                        "audit": { "selected_policy": "on-request" },
+                        "provider_response": { "approved": true }
+                    }
+                }),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("ace/approval_retry".to_string()),
+                    schema_version: None,
+                    raw_payload: json!({}),
+                },
+            }),
+        }]);
+
+        let retries = state.approval_retries();
+        assert_eq!(retries.len(), 1);
+        assert_eq!(retries[0].thread_id, "thread-1");
+        assert_eq!(retries[0].item_id.as_deref(), Some("item-1"));
+        assert_eq!(retries[0].action_id.as_deref(), Some("action-1"));
+        assert!(retries[0].approved);
+        assert_eq!(
+            retries[0].reason.as_deref(),
+            Some("retry after user approval")
+        );
+        assert_eq!(retries[0].audit["selected_policy"], "on-request");
+        assert_eq!(retries[0].provider_response["approved"], true);
     }
 
     #[test]

@@ -10,7 +10,10 @@ use ace_runtime::{
         ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
         RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
     },
-    threads::{AgentRuntimeSnapshot, GoalState, GoalStatus, HandoffPlan, PlanImplementationRecord},
+    threads::{
+        AgentRuntimeSnapshot, ApprovalRetryRecord, GoalState, GoalStatus, HandoffPlan,
+        PlanImplementationRecord,
+    },
     tools::{SemanticToolCall, ToolRunStatus},
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -749,6 +752,10 @@ pub enum ProviderRuntimeProjectionDelta {
         provider: String,
         implementation: PlanImplementationRecord,
     },
+    ApprovalRetryRecorded {
+        provider: String,
+        retry: ApprovalRetryRecord,
+    },
     ActiveTurnChanged {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1330,6 +1337,20 @@ fn projection_deltas_for_runtime_signal(
             vec![ProviderRuntimeProjectionDelta::PlanImplementationUpdated {
                 provider: signal.provider.provider.clone(),
                 implementation,
+            }]
+        }
+        RuntimeSignalKind::ApprovalRetryRecorded => {
+            let value = signal
+                .metadata
+                .get("approval_retry")
+                .cloned()
+                .unwrap_or_else(|| signal.metadata.clone());
+            let Ok(retry) = serde_json::from_value::<ApprovalRetryRecord>(value) else {
+                return Vec::new();
+            };
+            vec![ProviderRuntimeProjectionDelta::ApprovalRetryRecorded {
+                provider: signal.provider.provider.clone(),
+                retry,
             }]
         }
     }
@@ -2191,6 +2212,41 @@ mod tests {
                     provider: provider_metadata("plan/implementation"),
                 }),
             },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ApprovalRetryRecorded,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: Some("item-1".to_string()),
+                    message: Some("retry after user approval".to_string()),
+                    from_model: None,
+                    to_model: None,
+                    reason: Some("retry after user approval".to_string()),
+                    text: None,
+                    audio: None,
+                    status: Some("approved".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "approval_retry": {
+                            "thread_id": "thread-1",
+                            "item_id": "item-1",
+                            "action_id": "action-1",
+                            "approved": true,
+                            "reason": "retry after user approval",
+                            "audit": { "selected_policy": "on-request" },
+                            "provider_response": { "approved": true }
+                        }
+                    }),
+                    provider: provider_metadata("approval/retry"),
+                }),
+            },
         ];
         let deltas = projection_deltas_for_events(&events);
 
@@ -2321,6 +2377,16 @@ mod tests {
                     && implementation.mode == ace_runtime::threads::PlanImplementationMode::ForkForImplementation
                     && implementation.prompt == "implement this plan"
                     && implementation.provider_response["forked"] == true
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ApprovalRetryRecorded { retry, .. }
+                if retry.thread_id == "thread-1"
+                    && retry.item_id.as_deref() == Some("item-1")
+                    && retry.action_id.as_deref() == Some("action-1")
+                    && retry.approved
+                    && retry.audit["selected_policy"] == "on-request"
+                    && retry.provider_response["approved"] == true
         )));
         assert!(deltas.iter().all(|delta| !matches!(
             delta,
