@@ -26,6 +26,7 @@ pub mod methods {
     pub const CODEX_PLAN_FORK_FOR_IMPLEMENTATION: &str = "codex.plan.fork_for_implementation";
     pub const CODEX_PLAN_SIDE_IMPLEMENTATION: &str = "codex.plan.side_implementation";
     pub const CODEX_CONFIG_REQUIREMENTS_READ: &str = "codex.config_requirements.read";
+    pub const CODEX_COMPATIBILITY_INVENTORY: &str = "codex.compatibility.inventory";
     pub const CODEX_PERMISSION_PROFILES_LIST: &str = "codex.permission_profiles.list";
     pub const CODEX_PERMISSION_CATALOG: &str = "codex.permissions.catalog";
     pub const CODEX_PERMISSION_PRESET_RESOLVE: &str = "codex.permissions.preset.resolve";

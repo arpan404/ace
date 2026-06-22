@@ -562,6 +562,10 @@ impl<T: AppServerTransport + 'static> ProviderDriver for CodexAdapter<T> {
                     version: 1,
                 },
                 ProviderCapability {
+                    key: "codex.compatibility_inventory".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
                     key: "provider.semantic_tools".to_string(),
                     version: 1,
                 },
@@ -996,6 +1000,12 @@ mod tests {
                 .capabilities
                 .iter()
                 .any(|capability| capability.key == "provider.semantic_tools")
+        );
+        assert!(
+            descriptor
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "codex.compatibility_inventory")
         );
     }
 }

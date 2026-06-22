@@ -4,6 +4,7 @@ mod error;
 mod event;
 mod goals;
 mod permissions;
+mod schema;
 mod transport;
 
 pub use agents::{CodexHandoffToAgent, CodexSubagentSteer, CodexSubagentThreadRequest};
@@ -18,6 +19,10 @@ pub use goals::{CodexGoalSet, CodexGoalThread};
 pub use permissions::{
     CodexApprovalsReviewer, CodexGuardianDeniedActionApproval, CodexPermissionCatalog,
     CodexPermissionPreset, CodexTurnPermissions, available_permission_presets,
+};
+pub use schema::{
+    CODEX_METHOD_INVENTORY, CodexMethodDirection, CodexMethodSpec, CodexMethodSupport,
+    classify_codex_method, codex_method_inventory,
 };
 pub use transport::{
     AppServerTransport, CodexJsonRpcError, CodexResponse, CodexStdioTransport,

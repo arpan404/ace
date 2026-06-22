@@ -1,7 +1,7 @@
 use ace_codex::{
-    CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent, CodexPermissionPreset,
-    CodexPlanImplementation, CodexSubagentSteer, CodexSubagentThreadRequest, CodexThreadStart,
-    CodexTurnStart,
+    CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent, CodexMethodDirection,
+    CodexMethodSpec, CodexMethodSupport, CodexPermissionPreset, CodexPlanImplementation,
+    CodexSubagentSteer, CodexSubagentThreadRequest, CodexThreadStart, CodexTurnStart,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -132,6 +132,28 @@ pub struct CodexShutdownRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodexStderrTailResponse {
     pub lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexCompatibilityMethod {
+    pub method: String,
+    pub direction: CodexMethodDirection,
+    pub support: CodexMethodSupport,
+}
+
+impl From<CodexMethodSpec> for CodexCompatibilityMethod {
+    fn from(spec: CodexMethodSpec) -> Self {
+        Self {
+            method: spec.method.to_string(),
+            direction: spec.direction,
+            support: spec.support,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexCompatibilityInventoryResponse {
+    pub methods: Vec<CodexCompatibilityMethod>,
 }
 
 fn default_shutdown_grace_ms() -> u64 {

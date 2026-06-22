@@ -3,7 +3,8 @@ use ace_git::ProcessRunner;
 use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
-        CodexGoalSetRequest, CodexGuardianDeniedActionApprovalRequest, CodexHandoffToAgentRequest,
+        CodexCompatibilityInventoryResponse, CodexGoalSetRequest,
+        CodexGuardianDeniedActionApprovalRequest, CodexHandoffToAgentRequest,
         CodexPermissionPresetRequest, CodexPlanImplementationRequest, CodexPlanTurnStartRequest,
         CodexRawRequest, CodexShutdownRequest, CodexStderrTailResponse, CodexSubagentSteerRequest,
         CodexSubagentThreadRpcRequest, CodexThreadForkRequest, CodexThreadIdRequest,
@@ -237,6 +238,15 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             methods::CODEX_CONFIG_REQUIREMENTS_READ => {
                 let response = self.codex.config_requirements_read().await?;
                 Ok(response)
+            }
+            methods::CODEX_COMPATIBILITY_INVENTORY => {
+                Ok(serde_json::to_value(CodexCompatibilityInventoryResponse {
+                    methods: ace_codex::codex_method_inventory()
+                        .iter()
+                        .copied()
+                        .map(Into::into)
+                        .collect(),
+                })?)
             }
             methods::CODEX_PERMISSION_PROFILES_LIST => {
                 let response = self.codex.permission_profile_list().await?;
@@ -767,6 +777,31 @@ mod tests {
         };
         assert_eq!(body["sandbox_policy"]["mode"], "danger-full-access");
         assert_eq!(body["approval_policy"]["mode"], "never");
+
+        let inventory = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-inventory",
+                    "method": methods::CODEX_COMPATIBILITY_INVENTORY,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let inventory: WsServerResponse =
+            serde_json::from_str(&inventory).expect("inventory response");
+        let WsServerPayload::Result { body } = inventory.payload else {
+            panic!("expected inventory result");
+        };
+        assert!(
+            body["methods"]
+                .as_array()
+                .expect("methods")
+                .iter()
+                .any(|method| method["method"] == "thread/start"
+                    && method["support"] == "typed_supported")
+        );
 
         let retry = state
             .dispatch_text(
