@@ -25,6 +25,10 @@ pub const PROVIDER_RUNTIME_EVENT_TOPIC: &str = "provider_runtime.event";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeSubscribeRequest {
     pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_sequence_exclusive: Option<i64>,
+    #[serde(default = "default_recent_events_limit")]
+    pub replay_limit: usize,
     #[serde(default = "default_raw_event_mode")]
     pub raw_event_mode: ProviderRuntimeRawEventMode,
 }
@@ -698,6 +702,8 @@ pub struct ProviderServerRequestsListResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRuntimeEventBatch {
     pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_persisted_sequence: Option<i64>,
     pub events: Vec<ProviderRuntimeEvent>,
     #[serde(default)]
     pub projection_deltas: Vec<ProviderRuntimeProjectionDelta>,
@@ -2024,6 +2030,7 @@ mod tests {
 
         let compact_batch = ProviderRuntimeEventBatch {
             provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
             events: vec![ProviderRuntimeEvent::from_provider_event(
                 "codex",
                 event.clone(),
@@ -2034,6 +2041,7 @@ mod tests {
         };
         let encoded = serde_json::to_value(&compact_batch).expect("compact batch");
         assert!(encoded.get("raw_events").is_none());
+        assert_eq!(encoded["last_persisted_sequence"], 1);
         assert_eq!(
             encoded["raw_event_summaries"][0]["provider_method"],
             "item/completed"

@@ -2048,27 +2048,52 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         let response_provider = provider_name.clone();
         let raw_event_mode = request.raw_event_mode;
         let mut receiver = self.provider_event_receiver(provider_kind);
+        let replay_records = if request.from_sequence_exclusive.is_some() {
+            self.provider_events
+                .lock()
+                .expect("provider event log")
+                .recent_or_after_sequence(
+                    Some(provider_kind.runtime_id()),
+                    request.from_sequence_exclusive,
+                    request.replay_limit,
+                )?
+        } else {
+            Vec::new()
+        };
         tokio::spawn(async move {
+            let replay_watermark = replay_records.last().map(|record| record.sequence);
+            let replay_events = replay_records
+                .into_iter()
+                .map(|record| record.event)
+                .collect::<Vec<_>>();
+            if !replay_events.is_empty()
+                && send_provider_runtime_event_batch(
+                    &outbound,
+                    &provider_name,
+                    replay_events,
+                    raw_event_mode,
+                    replay_watermark,
+                )
+                .await
+                .is_err()
+            {
+                return;
+            }
             loop {
                 let message = match receiver.recv().await {
                     Ok(message) => message,
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         let events = vec![provider_stream_lag_event(&provider_name, skipped)];
-                        let batch =
-                            provider_runtime_event_batch(&provider_name, events, raw_event_mode);
-                        let response = WsServerResponse {
-                            version: PROTOCOL_VERSION,
-                            request_id: String::new(),
-                            payload: WsServerPayload::Event {
-                                topic: PROVIDER_RUNTIME_EVENT_TOPIC.to_string(),
-                                body: serde_json::to_value(batch)
-                                    .expect("serialize provider runtime websocket lag event"),
-                            },
-                        };
-                        let Ok(text) = serde_json::to_string(&response) else {
-                            continue;
-                        };
-                        if outbound.send(text).await.is_err() {
+                        if send_provider_runtime_event_batch(
+                            &outbound,
+                            &provider_name,
+                            events,
+                            raw_event_mode,
+                            None,
+                        )
+                        .await
+                        .is_err()
+                        {
                             break;
                         }
                         continue;
@@ -2093,20 +2118,16 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 if events.is_empty() {
                     continue;
                 }
-                let batch = provider_runtime_event_batch(&provider_name, events, raw_event_mode);
-                let response = WsServerResponse {
-                    version: PROTOCOL_VERSION,
-                    request_id: String::new(),
-                    payload: WsServerPayload::Event {
-                        topic: PROVIDER_RUNTIME_EVENT_TOPIC.to_string(),
-                        body: serde_json::to_value(batch)
-                            .expect("serialize provider runtime websocket event"),
-                    },
-                };
-                let Ok(text) = serde_json::to_string(&response) else {
-                    continue;
-                };
-                if outbound.send(text).await.is_err() {
+                if send_provider_runtime_event_batch(
+                    &outbound,
+                    &provider_name,
+                    events,
+                    raw_event_mode,
+                    None,
+                )
+                .await
+                .is_err()
+                {
                     break;
                 }
             }
@@ -2228,10 +2249,37 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     }
 }
 
+async fn send_provider_runtime_event_batch(
+    outbound: &mpsc::Sender<String>,
+    provider_name: &str,
+    events: Vec<ProviderEvent>,
+    raw_event_mode: ProviderRuntimeRawEventMode,
+    last_persisted_sequence: Option<i64>,
+) -> Result<(), mpsc::error::SendError<String>> {
+    let batch = provider_runtime_event_batch(
+        provider_name,
+        events,
+        raw_event_mode,
+        last_persisted_sequence,
+    );
+    let response = WsServerResponse {
+        version: PROTOCOL_VERSION,
+        request_id: String::new(),
+        payload: WsServerPayload::Event {
+            topic: PROVIDER_RUNTIME_EVENT_TOPIC.to_string(),
+            body: serde_json::to_value(batch).expect("serialize provider runtime websocket event"),
+        },
+    };
+    let text =
+        serde_json::to_string(&response).expect("serialize provider runtime websocket frame");
+    outbound.send(text).await
+}
+
 fn provider_runtime_event_batch(
     provider_name: &str,
     events: Vec<ProviderEvent>,
     raw_event_mode: ProviderRuntimeRawEventMode,
+    last_persisted_sequence: Option<i64>,
 ) -> ProviderRuntimeEventBatch {
     let runtime_events = events
         .iter()
@@ -2245,6 +2293,7 @@ fn provider_runtime_event_batch(
         .collect::<Vec<_>>();
     ProviderRuntimeEventBatch {
         provider: provider_name.to_string(),
+        last_persisted_sequence,
         events: runtime_events,
         projection_deltas,
         raw_event_summaries,
@@ -5924,6 +5973,49 @@ mod tests {
             records[7]["projection_deltas"][0]["request"]["prompt"],
             "Run tests?"
         );
+
+        let (replay_outbound_tx, mut replay_outbound_rx) = tokio::sync::mpsc::channel::<String>(2);
+        let replay_subscription = state
+            .dispatch_text_with_events(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-events-replay-subscribe",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                    "payload": {
+                        "provider": "codex",
+                        "from_sequence_exclusive": replay_cursor,
+                        "replay_limit": 3,
+                        "raw_event_mode": "full"
+                    }
+                })
+                .to_string(),
+                Some(replay_outbound_tx),
+            )
+            .await;
+        let replay_subscription: WsServerResponse =
+            serde_json::from_str(&replay_subscription).expect("replay subscription response");
+        assert!(matches!(
+            replay_subscription.payload,
+            WsServerPayload::Result { .. }
+        ));
+        let replay_pushed =
+            tokio::time::timeout(std::time::Duration::from_secs(1), replay_outbound_rx.recv())
+                .await
+                .expect("provider runtime replay event timeout")
+                .expect("provider runtime replay event");
+        let replay_pushed: WsServerResponse =
+            serde_json::from_str(&replay_pushed).expect("replay pushed response");
+        let WsServerPayload::Event { topic, body } = replay_pushed.payload else {
+            panic!("expected replay websocket event");
+        };
+        assert_eq!(topic, PROVIDER_RUNTIME_EVENT_TOPIC);
+        assert_eq!(body["provider"], "codex");
+        assert_eq!(body["events"].as_array().expect("events").len(), 3);
+        assert_eq!(
+            body["last_persisted_sequence"],
+            replay_records[2]["sequence"]
+        );
+        assert_eq!(body["raw_events"][0]["type"], "raw_notification");
 
         let (ace_outbound_tx, _ace_outbound_rx) = tokio::sync::mpsc::channel::<String>(1);
         let ace_subscription = state
