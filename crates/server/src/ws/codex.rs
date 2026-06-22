@@ -5,15 +5,20 @@ use ace_persistence::ProviderServerRequestStatus;
 use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
+        CodexAppConfigWriteRequest, CodexCommandExecRequest, CodexCommandProcessRequest,
+        CodexCommandResizeRequest, CodexCommandWriteStdinRequest,
         CodexCompatibilityInventoryResponse, CodexGoalSetRequest,
         CodexGuardianDeniedActionApprovalRequest, CodexHandoffLocation, CodexHandoffToAgentRequest,
-        CodexHandoffToLocationRequest, CodexHandoffToLocationResponse,
-        CodexPermissionPresetRequest, CodexPlanImplementationRequest, CodexPlanTurnStartRequest,
-        CodexRawRequest, CodexShutdownRequest, CodexStderrTailResponse, CodexSubagentSteerRequest,
-        CodexSubagentThreadRpcRequest, CodexThreadForkRequest, CodexThreadIdRequest,
-        CodexThreadInjectItemsRequest, CodexThreadRollbackRequest, CodexThreadSetNameRequest,
-        CodexThreadStartRequest, CodexThreadUpdateMetadataRequest, CodexThreadsListRequest,
-        CodexTurnStartRequest, CodexVersionedRequest,
+        CodexHandoffToLocationRequest, CodexHandoffToLocationResponse, CodexMcpOauthLoginRequest,
+        CodexMcpResourceReadRequest, CodexMcpStatusRequest, CodexMcpToolCallRequest,
+        CodexNamedQueryRequest, CodexPermissionPresetRequest, CodexPlanImplementationRequest,
+        CodexPlanTurnStartRequest, CodexPluginRequest, CodexProcessCleanRequest,
+        CodexProcessListRequest, CodexRawRequest, CodexRemoteHandoffRequest,
+        CodexReviewStartRequest, CodexShutdownRequest, CodexSkillRequest, CodexStderrTailResponse,
+        CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest, CodexThreadForkRequest,
+        CodexThreadIdRequest, CodexThreadInjectItemsRequest, CodexThreadRollbackRequest,
+        CodexThreadSetNameRequest, CodexThreadStartRequest, CodexThreadUpdateMetadataRequest,
+        CodexThreadsListRequest, CodexTurnStartRequest, CodexVersionedRequest,
     },
     git::GitWorktreeCreateRequest,
     provider_runtime::{
@@ -35,6 +40,7 @@ use ace_protocol::{
 use ace_runtime::provider::ProviderRequest;
 use ace_runtime::threads::ExecutionLocation;
 use ace_terminal::PtyAdapter;
+use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast, mpsc};
@@ -45,11 +51,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         method: &str,
         payload: Value,
     ) -> Result<Value, WsDispatchError> {
-        if let Some(codex_method) = codex_versioned_app_server_method(method) {
-            let request = serde_json::from_value::<CodexVersionedRequest>(payload)?;
+        if let Some((codex_method, params)) = codex_versioned_app_server_request(method, &payload)?
+        {
             return self
                 .codex
-                .raw_request(codex_method.to_string(), request.params)
+                .raw_request(codex_method.to_string(), params)
                 .await
                 .map_err(Into::into);
         }
@@ -937,30 +943,106 @@ fn provider_server_request_record_to_protocol(
     }
 }
 
-fn codex_versioned_app_server_method(ws_method: &str) -> Option<&'static str> {
-    match ws_method {
-        methods::CODEX_REVIEW_START => Some("review/start"),
-        methods::CODEX_COMMAND_EXEC => Some("command/exec"),
-        methods::CODEX_COMMAND_WRITE_STDIN => Some("command/writeStdin"),
-        methods::CODEX_COMMAND_RESIZE => Some("command/resize"),
-        methods::CODEX_COMMAND_TERMINATE => Some("command/terminate"),
-        methods::CODEX_PROCESS_LIST => Some("process/list"),
-        methods::CODEX_PROCESS_CLEAN => Some("process/clean"),
-        methods::CODEX_MCP_STATUS => Some("mcp/status"),
-        methods::CODEX_MCP_RESOURCE_READ => Some("mcp/resourceRead"),
-        methods::CODEX_MCP_OAUTH_LOGIN => Some("mcp/oauthLogin"),
-        methods::CODEX_MCP_TOOL_CALL => Some("mcp/toolCall"),
-        methods::CODEX_SKILLS_LIST => Some("skills/list"),
-        methods::CODEX_SKILLS_READ => Some("skills/read"),
-        methods::CODEX_SKILLS_INSTALL => Some("skills/install"),
-        methods::CODEX_PLUGINS_LIST => Some("plugins/list"),
-        methods::CODEX_PLUGINS_INSTALL => Some("plugins/install"),
-        methods::CODEX_APPS_LIST => Some("apps/list"),
-        methods::CODEX_APPS_CONFIG_WRITE => Some("apps/configWrite"),
-        methods::CODEX_REMOTE_CONNECTION_LIST => Some("remote/connectionList"),
-        methods::CODEX_REMOTE_HANDOFF => Some("remote/handoff"),
+fn codex_versioned_app_server_request(
+    ws_method: &str,
+    payload: &Value,
+) -> Result<Option<(&'static str, Value)>, WsDispatchError> {
+    let request = match ws_method {
+        methods::CODEX_REVIEW_START => Some((
+            "review/start",
+            typed_or_enveloped::<CodexReviewStartRequest>(payload)?,
+        )),
+        methods::CODEX_COMMAND_EXEC => Some((
+            "command/exec",
+            typed_or_enveloped::<CodexCommandExecRequest>(payload)?,
+        )),
+        methods::CODEX_COMMAND_WRITE_STDIN => Some((
+            "command/writeStdin",
+            typed_or_enveloped::<CodexCommandWriteStdinRequest>(payload)?,
+        )),
+        methods::CODEX_COMMAND_RESIZE => Some((
+            "command/resize",
+            typed_or_enveloped::<CodexCommandResizeRequest>(payload)?,
+        )),
+        methods::CODEX_COMMAND_TERMINATE => Some((
+            "command/terminate",
+            typed_or_enveloped::<CodexCommandProcessRequest>(payload)?,
+        )),
+        methods::CODEX_PROCESS_LIST => Some((
+            "process/list",
+            typed_or_enveloped::<CodexProcessListRequest>(payload)?,
+        )),
+        methods::CODEX_PROCESS_CLEAN => Some((
+            "process/clean",
+            typed_or_enveloped::<CodexProcessCleanRequest>(payload)?,
+        )),
+        methods::CODEX_MCP_STATUS => Some((
+            "mcp/status",
+            typed_or_enveloped::<CodexMcpStatusRequest>(payload)?,
+        )),
+        methods::CODEX_MCP_RESOURCE_READ => Some((
+            "mcp/resourceRead",
+            typed_or_enveloped::<CodexMcpResourceReadRequest>(payload)?,
+        )),
+        methods::CODEX_MCP_OAUTH_LOGIN => Some((
+            "mcp/oauthLogin",
+            typed_or_enveloped::<CodexMcpOauthLoginRequest>(payload)?,
+        )),
+        methods::CODEX_MCP_TOOL_CALL => Some((
+            "mcp/toolCall",
+            typed_or_enveloped::<CodexMcpToolCallRequest>(payload)?,
+        )),
+        methods::CODEX_SKILLS_LIST => Some((
+            "skills/list",
+            typed_or_enveloped::<CodexNamedQueryRequest>(payload)?,
+        )),
+        methods::CODEX_SKILLS_READ => Some((
+            "skills/read",
+            typed_or_enveloped::<CodexSkillRequest>(payload)?,
+        )),
+        methods::CODEX_SKILLS_INSTALL => Some((
+            "skills/install",
+            typed_or_enveloped::<CodexSkillRequest>(payload)?,
+        )),
+        methods::CODEX_PLUGINS_LIST => Some((
+            "plugins/list",
+            typed_or_enveloped::<CodexNamedQueryRequest>(payload)?,
+        )),
+        methods::CODEX_PLUGINS_INSTALL => Some((
+            "plugins/install",
+            typed_or_enveloped::<CodexPluginRequest>(payload)?,
+        )),
+        methods::CODEX_APPS_LIST => Some((
+            "apps/list",
+            typed_or_enveloped::<CodexNamedQueryRequest>(payload)?,
+        )),
+        methods::CODEX_APPS_CONFIG_WRITE => Some((
+            "apps/configWrite",
+            typed_or_enveloped::<CodexAppConfigWriteRequest>(payload)?,
+        )),
+        methods::CODEX_REMOTE_CONNECTION_LIST => Some((
+            "remote/connectionList",
+            typed_or_enveloped::<CodexNamedQueryRequest>(payload)?,
+        )),
+        methods::CODEX_REMOTE_HANDOFF => Some((
+            "remote/handoff",
+            typed_or_enveloped::<CodexRemoteHandoffRequest>(payload)?,
+        )),
         _ => None,
+    };
+    Ok(request)
+}
+
+fn typed_or_enveloped<T>(payload: &Value) -> Result<Value, WsDispatchError>
+where
+    T: DeserializeOwned + Serialize,
+{
+    if payload.get("params").is_some() {
+        return Ok(serde_json::from_value::<CodexVersionedRequest>(payload.clone())?.params);
     }
+    Ok(serde_json::to_value(serde_json::from_value::<T>(
+        payload.clone(),
+    )?)?)
 }
 
 #[cfg(test)]
@@ -2387,15 +2469,15 @@ mod tests {
         let calls = [
             (
                 methods::CODEX_REVIEW_START,
-                json!({ "params": { "threadId": "thread-1" } }),
+                json!({ "thread_id": "thread-1", "detached": true }),
             ),
             (
                 methods::CODEX_COMMAND_EXEC,
-                json!({ "params": { "command": "cargo test" } }),
+                json!({ "command": "cargo test", "thread_id": "thread-1", "cwd": "/tmp" }),
             ),
             (
                 methods::CODEX_COMMAND_WRITE_STDIN,
-                json!({ "params": { "processId": "p1", "stdin": "q" } }),
+                json!({ "process_id": "p1", "stdin": "q" }),
             ),
             (
                 methods::CODEX_PROCESS_LIST,
@@ -2403,19 +2485,20 @@ mod tests {
             ),
             (
                 methods::CODEX_MCP_TOOL_CALL,
-                json!({ "params": { "server": "github", "tool": "list_issues" } }),
+                json!({
+                    "server": "github",
+                    "tool": "list_issues",
+                    "arguments": { "state": "open" }
+                }),
             ),
-            (
-                methods::CODEX_SKILLS_INSTALL,
-                json!({ "params": { "skill": "rust" } }),
-            ),
+            (methods::CODEX_SKILLS_INSTALL, json!({ "skill": "rust" })),
             (
                 methods::CODEX_APPS_CONFIG_WRITE,
-                json!({ "params": { "app": "browser", "config": {} } }),
+                json!({ "app": "browser", "config": { "enabled": true } }),
             ),
             (
                 methods::CODEX_REMOTE_HANDOFF,
-                json!({ "params": { "threadId": "thread-1", "host": "devbox" } }),
+                json!({ "thread_id": "thread-1", "host": "devbox" }),
             ),
         ];
 
@@ -2448,6 +2531,20 @@ mod tests {
                 "remote/handoff",
             ]
         );
+
+        let invalid = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "versioned-invalid",
+                    "method": methods::CODEX_MCP_RESOURCE_READ,
+                    "payload": { "server": "docs" }
+                })
+                .to_string(),
+            )
+            .await;
+        let invalid: WsServerResponse = serde_json::from_str(&invalid).expect("invalid response");
+        assert!(matches!(invalid.payload, WsServerPayload::Error { .. }));
     }
 
     #[tokio::test]
