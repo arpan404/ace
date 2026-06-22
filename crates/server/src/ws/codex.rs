@@ -4647,7 +4647,10 @@ mod tests {
                 .expect("preset entries")
                 .iter()
                 .any(|entry| entry["preset"] == "auto_review"
-                    && entry["permissions"]["approvals_reviewer"] == "auto_review")
+                    && entry["permissions"]["approvals_reviewer"] == "auto_review"
+                    && entry["normalized_policy"]["sandbox_mode"] == "workspace_write"
+                    && entry["normalized_policy"]["approval_mode"] == "on_request"
+                    && entry["normalized_policy"]["approval_reviewer"] == "auto_review")
         );
 
         let preset = state

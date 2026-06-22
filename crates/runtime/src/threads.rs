@@ -27,10 +27,167 @@ pub enum ExecutionLocation {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PermissionPolicy {
+    pub sandbox_mode: PermissionSandboxMode,
+    pub network_access: PermissionNetworkAccess,
+    pub approval_mode: PermissionApprovalMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_reviewer: Option<PermissionApprovalReviewer>,
     pub sandbox_policy: Value,
     pub approval_policy: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approvals_reviewer: Option<String>,
+}
+
+impl PermissionPolicy {
+    #[must_use]
+    pub fn from_raw(
+        sandbox_policy: Value,
+        approval_policy: Value,
+        approvals_reviewer: Option<String>,
+    ) -> Self {
+        Self {
+            sandbox_mode: PermissionSandboxMode::from_policy(&sandbox_policy),
+            network_access: PermissionNetworkAccess::from_policy(&sandbox_policy),
+            approval_mode: PermissionApprovalMode::from_policy(&approval_policy),
+            approval_reviewer: approvals_reviewer
+                .as_deref()
+                .map(PermissionApprovalReviewer::from_value),
+            sandbox_policy,
+            approval_policy,
+            approvals_reviewer,
+        }
+    }
+
+    #[must_use]
+    pub fn allows_full_access_without_prompts(&self) -> bool {
+        self.sandbox_mode == PermissionSandboxMode::DangerFullAccess
+            && self.approval_mode == PermissionApprovalMode::Never
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionSandboxMode {
+    ReadOnly,
+    WorkspaceWrite,
+    DangerFullAccess,
+    External,
+    Unknown,
+}
+
+impl PermissionSandboxMode {
+    #[must_use]
+    fn from_policy(policy: &Value) -> Self {
+        string_from_value_or_field(policy, &["mode", "sandbox", "sandboxMode", "sandbox_mode"])
+            .map(|value| match normalize_policy_key(&value).as_str() {
+                "read_only" | "readonly" => Self::ReadOnly,
+                "workspace_write" => Self::WorkspaceWrite,
+                "danger_full_access" | "full_access" => Self::DangerFullAccess,
+                "external" | "external_sandbox" => Self::External,
+                _ => Self::Unknown,
+            })
+            .unwrap_or(Self::Unknown)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionNetworkAccess {
+    Restricted,
+    Enabled,
+    Unknown,
+}
+
+impl PermissionNetworkAccess {
+    #[must_use]
+    fn from_policy(policy: &Value) -> Self {
+        string_from_value_or_field(
+            policy,
+            &[
+                "networkAccess",
+                "network_access",
+                "network",
+                "networkPolicy",
+                "network_policy",
+            ],
+        )
+        .map(|value| match normalize_policy_key(&value).as_str() {
+            "restricted" | "disabled" | "off" | "false" => Self::Restricted,
+            "enabled" | "allow" | "allowed" | "on" | "true" => Self::Enabled,
+            _ => Self::Unknown,
+        })
+        .unwrap_or(Self::Unknown)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionApprovalMode {
+    Untrusted,
+    OnRequest,
+    Never,
+    Granular,
+    Unknown,
+}
+
+impl PermissionApprovalMode {
+    #[must_use]
+    fn from_policy(policy: &Value) -> Self {
+        string_from_value_or_field(
+            policy,
+            &[
+                "mode",
+                "approval",
+                "approvalMode",
+                "approval_mode",
+                "approvalPolicy",
+                "approval_policy",
+            ],
+        )
+        .map(|value| match normalize_policy_key(&value).as_str() {
+            "untrusted" => Self::Untrusted,
+            "on_request" | "onrequest" => Self::OnRequest,
+            "never" => Self::Never,
+            "granular" => Self::Granular,
+            _ => Self::Unknown,
+        })
+        .unwrap_or(Self::Unknown)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionApprovalReviewer {
+    User,
+    AutoReview,
+    Unknown,
+}
+
+impl PermissionApprovalReviewer {
+    #[must_use]
+    fn from_value(value: &str) -> Self {
+        match normalize_policy_key(value).as_str() {
+            "user" => Self::User,
+            "auto_review" | "autoreview" => Self::AutoReview,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+fn string_from_value_or_field(value: &Value, fields: &[&str]) -> Option<String> {
+    value.as_str().map(ToString::to_string).or_else(|| {
+        fields
+            .iter()
+            .find_map(|field| value.get(*field).and_then(Value::as_str))
+            .map(ToString::to_string)
+    })
+}
+
+fn normalize_policy_key(value: &str) -> String {
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', ' ', '.'], "_")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2895,6 +3052,34 @@ mod tests {
             state.plan_session("plan-thread").map(|plan| plan.status),
             Some(PlanSessionStatus::Rejected)
         );
+    }
+
+    #[test]
+    fn normalizes_permission_policy_without_discarding_raw_provider_payloads() {
+        let policy = PermissionPolicy::from_raw(
+            json!({
+                "mode": "danger-full-access",
+                "networkAccess": "enabled",
+                "extraProviderField": true
+            }),
+            json!({
+                "mode": "never",
+                "granularApprovals": []
+            }),
+            Some("auto_review".to_string()),
+        );
+
+        assert_eq!(policy.sandbox_mode, PermissionSandboxMode::DangerFullAccess);
+        assert_eq!(policy.network_access, PermissionNetworkAccess::Enabled);
+        assert_eq!(policy.approval_mode, PermissionApprovalMode::Never);
+        assert_eq!(
+            policy.approval_reviewer,
+            Some(PermissionApprovalReviewer::AutoReview)
+        );
+        assert!(policy.allows_full_access_without_prompts());
+        assert_eq!(policy.sandbox_policy["extraProviderField"], true);
+        assert_eq!(policy.approval_policy["granularApprovals"], json!([]));
+        assert_eq!(policy.approvals_reviewer.as_deref(), Some("auto_review"));
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use ace_runtime::threads::PermissionPolicy;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -91,6 +92,15 @@ impl CodexTurnPermissions {
         self.approvals_reviewer
             .map(CodexApprovalsReviewer::as_codex_value)
     }
+
+    #[must_use]
+    pub fn normalized_policy(&self) -> PermissionPolicy {
+        PermissionPolicy::from_raw(
+            self.sandbox_policy.clone(),
+            self.approval_policy.clone(),
+            self.approvals_reviewer_value().map(ToString::to_string),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -140,6 +150,7 @@ pub struct CodexPermissionPresetCatalogEntry {
     pub key: String,
     pub label: String,
     pub permissions: CodexTurnPermissions,
+    pub normalized_policy: PermissionPolicy,
     pub available: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unavailable_reason: Option<String>,
@@ -223,11 +234,14 @@ pub fn permission_preset_catalog_entries(
             } else {
                 None
             };
+            let permissions = preset.turn_permissions();
+            let normalized_policy = permissions.normalized_policy();
             CodexPermissionPresetCatalogEntry {
                 preset,
                 key: key.to_string(),
                 label: preset.label().to_string(),
-                permissions: preset.turn_permissions(),
+                permissions,
+                normalized_policy,
                 available: unavailable_reason.is_none(),
                 unavailable_reason,
             }
@@ -312,6 +326,10 @@ fn normalize_key(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ace_runtime::threads::{
+        PermissionApprovalMode, PermissionApprovalReviewer, PermissionNetworkAccess,
+        PermissionSandboxMode,
+    };
     use serde_json::json;
 
     #[test]
@@ -324,11 +342,29 @@ mod tests {
         let auto_review = CodexPermissionPreset::AutoReview.turn_permissions();
         assert_eq!(auto_review.sandbox_policy["mode"], "workspace-write");
         assert_eq!(auto_review.approvals_reviewer_value(), Some("auto_review"));
+        let auto_review_normalized = auto_review.normalized_policy();
+        assert_eq!(
+            auto_review_normalized.sandbox_mode,
+            PermissionSandboxMode::WorkspaceWrite
+        );
+        assert_eq!(
+            auto_review_normalized.approval_mode,
+            PermissionApprovalMode::OnRequest
+        );
+        assert_eq!(
+            auto_review_normalized.approval_reviewer,
+            Some(PermissionApprovalReviewer::AutoReview)
+        );
 
         let full_access = CodexPermissionPreset::FullAccess.turn_permissions();
         assert_eq!(full_access.sandbox_policy["mode"], "danger-full-access");
         assert_eq!(full_access.approval_policy["mode"], "never");
         assert_eq!(full_access.approvals_reviewer_value(), None);
+        assert!(
+            full_access
+                .normalized_policy()
+                .allows_full_access_without_prompts()
+        );
     }
 
     #[test]
@@ -369,6 +405,18 @@ mod tests {
         assert_eq!(
             full_access.permissions.sandbox_policy["mode"],
             "danger-full-access"
+        );
+        assert_eq!(
+            full_access.normalized_policy.sandbox_mode,
+            PermissionSandboxMode::DangerFullAccess
+        );
+        assert_eq!(
+            full_access.normalized_policy.network_access,
+            PermissionNetworkAccess::Enabled
+        );
+        assert_eq!(
+            full_access.normalized_policy.approval_mode,
+            PermissionApprovalMode::Never
         );
     }
 
