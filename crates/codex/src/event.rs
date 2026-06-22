@@ -142,8 +142,12 @@ fn runtime_signal_kind(method: &str) -> Option<RuntimeSignalKind> {
     match method {
         "warning" => Some(RuntimeSignalKind::Warning),
         "model/rerouted" => Some(RuntimeSignalKind::ModelRerouted),
-        "realtime/transcriptDelta" => Some(RuntimeSignalKind::RealtimeTranscriptDelta),
-        "realtime/audioDelta" => Some(RuntimeSignalKind::RealtimeAudioDelta),
+        "realtime/transcriptDelta" | "thread/realtime/transcript/delta" => {
+            Some(RuntimeSignalKind::RealtimeTranscriptDelta)
+        }
+        "realtime/audioDelta" | "thread/realtime/outputAudio/delta" => {
+            Some(RuntimeSignalKind::RealtimeAudioDelta)
+        }
         _ => None,
     }
 }
@@ -189,16 +193,26 @@ fn normalize_codex_server_request(
 
 fn server_request_kind(method: &str) -> ServerRequestKind {
     match method {
-        "command/approvalRequest" => ServerRequestKind::CommandApproval,
-        "fileChange/approvalRequest" => ServerRequestKind::FileChangeApproval,
-        "tool/userInputRequest" => ServerRequestKind::ToolUserInput,
-        "mcp/elicitation" => ServerRequestKind::McpElicitation,
-        "permission/approvalRequest" => ServerRequestKind::PermissionApproval,
-        "dynamicTool/call" => ServerRequestKind::DynamicToolCall,
-        "account/tokenRefresh" => ServerRequestKind::AccountTokenRefresh,
-        "attestation/request" => ServerRequestKind::Attestation,
-        "applyPatch/approvalRequest" => ServerRequestKind::ApplyPatchApproval,
-        "exec/approvalRequest" => ServerRequestKind::ExecApproval,
+        "item/commandExecution/requestApproval" | "command/approvalRequest" => {
+            ServerRequestKind::CommandApproval
+        }
+        "item/fileChange/requestApproval" | "fileChange/approvalRequest" => {
+            ServerRequestKind::FileChangeApproval
+        }
+        "item/tool/requestUserInput" | "tool/userInputRequest" => ServerRequestKind::ToolUserInput,
+        "mcpServer/elicitation/request" | "mcp/elicitation" => ServerRequestKind::McpElicitation,
+        "item/permissions/requestApproval" | "permission/approvalRequest" => {
+            ServerRequestKind::PermissionApproval
+        }
+        "item/tool/call" | "dynamicTool/call" => ServerRequestKind::DynamicToolCall,
+        "account/chatgptAuthTokens/refresh" | "account/tokenRefresh" => {
+            ServerRequestKind::AccountTokenRefresh
+        }
+        "attestation/generate" | "attestation/request" => ServerRequestKind::Attestation,
+        "applyPatchApproval" | "applyPatch/approvalRequest" => {
+            ServerRequestKind::ApplyPatchApproval
+        }
+        "execCommandApproval" | "exec/approvalRequest" => ServerRequestKind::ExecApproval,
         _ => ServerRequestKind::Unknown,
     }
 }
@@ -382,6 +396,9 @@ fn thread_item_status_from_method(method: &str) -> Option<ThreadItemStatus> {
         "item/failed" => Some(ThreadItemStatus::Failed),
         "item/agentMessage/delta"
         | "item/reasoning/delta"
+        | "item/reasoning/textDelta"
+        | "item/reasoning/summaryTextDelta"
+        | "item/reasoning/summaryPartAdded"
         | "item/plan/delta"
         | "turn/plan/updated"
         | "item/commandExecution/outputDelta"

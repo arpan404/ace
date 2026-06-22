@@ -1268,7 +1268,7 @@ pub mod tests {
             self.calls
                 .lock()
                 .expect("calls")
-                .push("thread/loadedList".to_string());
+                .push("thread/loaded/list".to_string());
             Ok(serde_json::json!({ "threads": [] }))
         }
 
@@ -1308,7 +1308,7 @@ pub mod tests {
             self.calls
                 .lock()
                 .expect("calls")
-                .push(format!("thread/setName:{thread_id}:{name}"));
+                .push(format!("thread/name/set:{thread_id}:{name}"));
             Ok(serde_json::json!({ "name": name }))
         }
 
@@ -1316,7 +1316,7 @@ pub mod tests {
             self.calls
                 .lock()
                 .expect("calls")
-                .push(format!("thread/updateMetadata:{thread_id}"));
+                .push(format!("thread/metadata/update:{thread_id}"));
             Ok(serde_json::json!({ "metadata": metadata }))
         }
 
@@ -1324,7 +1324,7 @@ pub mod tests {
             self.calls
                 .lock()
                 .expect("calls")
-                .push(format!("thread/compact:{thread_id}"));
+                .push(format!("thread/compact/start:{thread_id}"));
             Ok(serde_json::json!({ "compacted": true }))
         }
 
@@ -1340,7 +1340,7 @@ pub mod tests {
             self.calls
                 .lock()
                 .expect("calls")
-                .push(format!("thread/injectItems:{thread_id}:{}", items.len()));
+                .push(format!("thread/inject_items:{thread_id}:{}", items.len()));
             Ok(serde_json::json!({ "injected": items.len() }))
         }
 

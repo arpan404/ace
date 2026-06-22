@@ -51,21 +51,66 @@ use CodexMethodSupport::{IntentionallyDeferred, RawSupported, TypedSupported, Ve
 pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("initialize", ClientRequest, TypedSupported),
     CodexMethodSpec::new("initialized", ClientNotification, TypedSupported),
+    CodexMethodSpec::new("account/login/cancel", ClientRequest, RawSupported),
+    CodexMethodSpec::new("account/login/start", ClientRequest, RawSupported),
+    CodexMethodSpec::new("account/logout", ClientRequest, RawSupported),
+    CodexMethodSpec::new("account/rateLimits/read", ClientRequest, RawSupported),
+    CodexMethodSpec::new("account/read", ClientRequest, RawSupported),
+    CodexMethodSpec::new(
+        "account/sendAddCreditsNudgeEmail",
+        ClientRequest,
+        RawSupported,
+    ),
+    CodexMethodSpec::new("account/usage/read", ClientRequest, RawSupported),
+    CodexMethodSpec::new("app/list", ClientRequest, VersionGated),
+    CodexMethodSpec::new("config/batchWrite", ClientRequest, RawSupported),
+    CodexMethodSpec::new("config/mcpServer/reload", ClientRequest, RawSupported),
+    CodexMethodSpec::new("config/read", ClientRequest, RawSupported),
+    CodexMethodSpec::new("config/value/write", ClientRequest, RawSupported),
+    CodexMethodSpec::new(
+        "experimentalFeature/enablement/set",
+        ClientRequest,
+        RawSupported,
+    ),
+    CodexMethodSpec::new("experimentalFeature/list", ClientRequest, RawSupported),
+    CodexMethodSpec::new("externalAgentConfig/detect", ClientRequest, RawSupported),
+    CodexMethodSpec::new("externalAgentConfig/import", ClientRequest, RawSupported),
+    CodexMethodSpec::new("feedback/upload", ClientRequest, RawSupported),
+    CodexMethodSpec::new("fs/copy", ClientRequest, RawSupported),
+    CodexMethodSpec::new("fs/createDirectory", ClientRequest, RawSupported),
+    CodexMethodSpec::new("fs/getMetadata", ClientRequest, RawSupported),
+    CodexMethodSpec::new("fs/readDirectory", ClientRequest, RawSupported),
+    CodexMethodSpec::new("fs/readFile", ClientRequest, RawSupported),
+    CodexMethodSpec::new("fs/remove", ClientRequest, RawSupported),
+    CodexMethodSpec::new("fs/unwatch", ClientRequest, RawSupported),
+    CodexMethodSpec::new("fs/watch", ClientRequest, RawSupported),
+    CodexMethodSpec::new("fs/writeFile", ClientRequest, RawSupported),
+    CodexMethodSpec::new("fuzzyFileSearch", ClientRequest, RawSupported),
+    CodexMethodSpec::new("hooks/list", ClientRequest, RawSupported),
+    CodexMethodSpec::new("marketplace/add", ClientRequest, RawSupported),
+    CodexMethodSpec::new("marketplace/remove", ClientRequest, RawSupported),
+    CodexMethodSpec::new("marketplace/upgrade", ClientRequest, RawSupported),
+    CodexMethodSpec::new("model/list", ClientRequest, RawSupported),
+    CodexMethodSpec::new(
+        "modelProvider/capabilities/read",
+        ClientRequest,
+        RawSupported,
+    ),
     CodexMethodSpec::new("thread/start", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/resume", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/fork", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/read", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/list", ClientRequest, TypedSupported),
-    CodexMethodSpec::new("thread/loadedList", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("thread/loaded/list", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/archive", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/unarchive", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/delete", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/unsubscribe", ClientRequest, TypedSupported),
-    CodexMethodSpec::new("thread/setName", ClientRequest, TypedSupported),
-    CodexMethodSpec::new("thread/updateMetadata", ClientRequest, TypedSupported),
-    CodexMethodSpec::new("thread/compact", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("thread/name/set", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("thread/metadata/update", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("thread/compact/start", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/rollback", ClientRequest, TypedSupported),
-    CodexMethodSpec::new("thread/injectItems", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("thread/inject_items", ClientRequest, TypedSupported),
     CodexMethodSpec::new(
         "thread/approveGuardianDeniedAction",
         ClientRequest,
@@ -86,46 +131,153 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("subagent/stop", ClientRequest, TypedSupported),
     CodexMethodSpec::new("subagent/close", ClientRequest, TypedSupported),
     CodexMethodSpec::new("review/start", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/shellCommand", ClientRequest, VersionGated),
     CodexMethodSpec::new("command/exec", ClientRequest, VersionGated),
-    CodexMethodSpec::new("command/writeStdin", ClientRequest, VersionGated),
-    CodexMethodSpec::new("command/resize", ClientRequest, VersionGated),
-    CodexMethodSpec::new("command/terminate", ClientRequest, VersionGated),
+    CodexMethodSpec::new("command/exec/write", ClientRequest, VersionGated),
+    CodexMethodSpec::new("command/exec/resize", ClientRequest, VersionGated),
+    CodexMethodSpec::new("command/exec/terminate", ClientRequest, VersionGated),
     CodexMethodSpec::new("process/list", ClientRequest, VersionGated),
     CodexMethodSpec::new("process/clean", ClientRequest, VersionGated),
-    CodexMethodSpec::new("mcp/status", ClientRequest, VersionGated),
-    CodexMethodSpec::new("mcp/resourceRead", ClientRequest, VersionGated),
-    CodexMethodSpec::new("mcp/oauthLogin", ClientRequest, VersionGated),
-    CodexMethodSpec::new("mcp/toolCall", ClientRequest, VersionGated),
+    CodexMethodSpec::new("mcpServerStatus/list", ClientRequest, VersionGated),
+    CodexMethodSpec::new("mcpServer/resource/read", ClientRequest, VersionGated),
+    CodexMethodSpec::new("mcpServer/oauth/login", ClientRequest, VersionGated),
+    CodexMethodSpec::new("mcpServer/tool/call", ClientRequest, VersionGated),
+    CodexMethodSpec::new("plugin/skill/read", ClientRequest, VersionGated),
+    CodexMethodSpec::new("plugin/installed", ClientRequest, RawSupported),
+    CodexMethodSpec::new("plugin/read", ClientRequest, RawSupported),
+    CodexMethodSpec::new("plugin/share/checkout", ClientRequest, RawSupported),
+    CodexMethodSpec::new("plugin/share/delete", ClientRequest, RawSupported),
+    CodexMethodSpec::new("plugin/share/list", ClientRequest, RawSupported),
+    CodexMethodSpec::new("plugin/share/save", ClientRequest, RawSupported),
+    CodexMethodSpec::new("plugin/share/updateTargets", ClientRequest, RawSupported),
+    CodexMethodSpec::new("plugin/uninstall", ClientRequest, RawSupported),
+    CodexMethodSpec::new("skills/config/write", ClientRequest, VersionGated),
+    CodexMethodSpec::new("skills/extraRoots/set", ClientRequest, RawSupported),
     CodexMethodSpec::new("skills/list", ClientRequest, VersionGated),
-    CodexMethodSpec::new("skills/read", ClientRequest, VersionGated),
     CodexMethodSpec::new("skills/install", ClientRequest, VersionGated),
-    CodexMethodSpec::new("plugins/list", ClientRequest, VersionGated),
-    CodexMethodSpec::new("plugins/install", ClientRequest, VersionGated),
-    CodexMethodSpec::new("apps/list", ClientRequest, VersionGated),
+    CodexMethodSpec::new("plugin/list", ClientRequest, VersionGated),
+    CodexMethodSpec::new("plugin/install", ClientRequest, VersionGated),
     CodexMethodSpec::new("apps/configWrite", ClientRequest, VersionGated),
     CodexMethodSpec::new("remote/connectionList", ClientRequest, VersionGated),
     CodexMethodSpec::new("remote/handoff", ClientRequest, VersionGated),
+    CodexMethodSpec::new("windowsSandbox/readiness", ClientRequest, RawSupported),
+    CodexMethodSpec::new("windowsSandbox/setupStart", ClientRequest, RawSupported),
     CodexMethodSpec::new("cloud/threadStart", ClientRequest, IntentionallyDeferred),
     CodexMethodSpec::new("cloud/handoff", ClientRequest, IntentionallyDeferred),
-    CodexMethodSpec::new("turn/started", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("turn/startedStreaming", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("turn/completed", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("turn/failed", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("turn/interrupted", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("turn/cancelled", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("turn/plan/updated", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("thread/goal/updated", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("thread/goal/cleared", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("item/started", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("item/updated", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("item/completed", ServerNotification, TypedSupported),
-    CodexMethodSpec::new("item/failed", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("account/login/completed", ServerNotification, RawSupported),
     CodexMethodSpec::new(
-        "item/assistantMessage/delta",
+        "account/rateLimits/updated",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new("account/updated", ServerNotification, RawSupported),
+    CodexMethodSpec::new("app/list/updated", ServerNotification, RawSupported),
+    CodexMethodSpec::new(
+        "command/exec/outputDelta",
         ServerNotification,
         TypedSupported,
     ),
+    CodexMethodSpec::new("configWarning", ServerNotification, RawSupported),
+    CodexMethodSpec::new("deprecationNotice", ServerNotification, RawSupported),
+    CodexMethodSpec::new("error", ServerNotification, RawSupported),
+    CodexMethodSpec::new(
+        "externalAgentConfig/import/completed",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new("fs/changed", ServerNotification, RawSupported),
+    CodexMethodSpec::new(
+        "fuzzyFileSearch/sessionCompleted",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new(
+        "fuzzyFileSearch/sessionUpdated",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new("guardianWarning", ServerNotification, RawSupported),
+    CodexMethodSpec::new("hook/completed", ServerNotification, RawSupported),
+    CodexMethodSpec::new("hook/started", ServerNotification, RawSupported),
+    CodexMethodSpec::new("turn/started", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("turn/completed", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("turn/diff/updated", ServerNotification, RawSupported),
+    CodexMethodSpec::new("turn/moderationMetadata", ServerNotification, RawSupported),
+    CodexMethodSpec::new("turn/plan/updated", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("thread/archived", ServerNotification, RawSupported),
+    CodexMethodSpec::new("thread/closed", ServerNotification, RawSupported),
+    CodexMethodSpec::new("thread/compacted", ServerNotification, RawSupported),
+    CodexMethodSpec::new("thread/deleted", ServerNotification, RawSupported),
+    CodexMethodSpec::new("thread/goal/updated", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("thread/goal/cleared", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("thread/name/updated", ServerNotification, RawSupported),
+    CodexMethodSpec::new("thread/realtime/closed", ServerNotification, RawSupported),
+    CodexMethodSpec::new("thread/realtime/error", ServerNotification, RawSupported),
+    CodexMethodSpec::new(
+        "thread/realtime/itemAdded",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new(
+        "thread/realtime/outputAudio/delta",
+        ServerNotification,
+        TypedSupported,
+    ),
+    CodexMethodSpec::new("thread/realtime/sdp", ServerNotification, RawSupported),
+    CodexMethodSpec::new("thread/realtime/started", ServerNotification, RawSupported),
+    CodexMethodSpec::new(
+        "thread/realtime/transcript/delta",
+        ServerNotification,
+        TypedSupported,
+    ),
+    CodexMethodSpec::new(
+        "thread/realtime/transcript/done",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new("thread/settings/updated", ServerNotification, RawSupported),
+    CodexMethodSpec::new("thread/started", ServerNotification, RawSupported),
+    CodexMethodSpec::new("thread/status/changed", ServerNotification, RawSupported),
+    CodexMethodSpec::new(
+        "thread/tokenUsage/updated",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new("thread/unarchived", ServerNotification, RawSupported),
+    CodexMethodSpec::new("item/started", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("item/completed", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("item/failed", ServerNotification, TypedSupported),
+    CodexMethodSpec::new(
+        "item/agentMessage/delta",
+        ServerNotification,
+        TypedSupported,
+    ),
+    CodexMethodSpec::new(
+        "item/autoApprovalReview/completed",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new(
+        "item/autoApprovalReview/started",
+        ServerNotification,
+        RawSupported,
+    ),
     CodexMethodSpec::new("item/reasoning/delta", ServerNotification, TypedSupported),
+    CodexMethodSpec::new(
+        "item/reasoning/summaryPartAdded",
+        ServerNotification,
+        TypedSupported,
+    ),
+    CodexMethodSpec::new(
+        "item/reasoning/summaryTextDelta",
+        ServerNotification,
+        TypedSupported,
+    ),
+    CodexMethodSpec::new(
+        "item/reasoning/textDelta",
+        ServerNotification,
+        TypedSupported,
+    ),
     CodexMethodSpec::new("item/plan/delta", ServerNotification, TypedSupported),
     CodexMethodSpec::new(
         "item/commandExecution/outputDelta",
@@ -133,7 +285,17 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
         TypedSupported,
     ),
     CodexMethodSpec::new(
-        "item/fileChange/patchDelta",
+        "item/commandExecution/terminalInteraction",
+        ServerNotification,
+        TypedSupported,
+    ),
+    CodexMethodSpec::new(
+        "item/fileChange/outputDelta",
+        ServerNotification,
+        TypedSupported,
+    ),
+    CodexMethodSpec::new(
+        "item/fileChange/patchUpdated",
         ServerNotification,
         TypedSupported,
     ),
@@ -153,10 +315,65 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
         TypedSupported,
     ),
     CodexMethodSpec::new("process/outputDelta", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("process/exited", ServerNotification, RawSupported),
+    CodexMethodSpec::new(
+        "mcpServer/oauthLogin/completed",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new(
+        "mcpServer/startupStatus/updated",
+        ServerNotification,
+        RawSupported,
+    ),
     CodexMethodSpec::new("model/rerouted", ServerNotification, RawSupported),
+    CodexMethodSpec::new("model/verification", ServerNotification, RawSupported),
+    CodexMethodSpec::new(
+        "remoteControl/status/changed",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new("serverRequest/resolved", ServerNotification, RawSupported),
+    CodexMethodSpec::new("skills/changed", ServerNotification, RawSupported),
     CodexMethodSpec::new("warning", ServerNotification, RawSupported),
     CodexMethodSpec::new("realtime/transcriptDelta", ServerNotification, VersionGated),
     CodexMethodSpec::new("realtime/audioDelta", ServerNotification, VersionGated),
+    CodexMethodSpec::new(
+        "windows/worldWritableWarning",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new(
+        "windowsSandbox/setupCompleted",
+        ServerNotification,
+        RawSupported,
+    ),
+    CodexMethodSpec::new(
+        "account/chatgptAuthTokens/refresh",
+        ServerRequest,
+        RawSupported,
+    ),
+    CodexMethodSpec::new("applyPatchApproval", ServerRequest, RawSupported),
+    CodexMethodSpec::new("attestation/generate", ServerRequest, RawSupported),
+    CodexMethodSpec::new("execCommandApproval", ServerRequest, RawSupported),
+    CodexMethodSpec::new(
+        "item/commandExecution/requestApproval",
+        ServerRequest,
+        RawSupported,
+    ),
+    CodexMethodSpec::new(
+        "item/fileChange/requestApproval",
+        ServerRequest,
+        RawSupported,
+    ),
+    CodexMethodSpec::new(
+        "item/permissions/requestApproval",
+        ServerRequest,
+        RawSupported,
+    ),
+    CodexMethodSpec::new("item/tool/call", ServerRequest, RawSupported),
+    CodexMethodSpec::new("item/tool/requestUserInput", ServerRequest, RawSupported),
+    CodexMethodSpec::new("mcpServer/elicitation/request", ServerRequest, RawSupported),
     CodexMethodSpec::new("command/approvalRequest", ServerRequest, RawSupported),
     CodexMethodSpec::new("fileChange/approvalRequest", ServerRequest, RawSupported),
     CodexMethodSpec::new("tool/userInputRequest", ServerRequest, RawSupported),
@@ -388,14 +605,22 @@ fn codex_method_category(method: &str, direction: CodexMethodDirection) -> Provi
             }
         }
         "subagent" => ProviderFeatureCategory::Subagents,
-        "review" => ProviderFeatureCategory::Tools,
-        "command" | "process" | "tool" | "dynamicTool" | "applyPatch" | "exec" => {
-            ProviderFeatureCategory::Tools
-        }
-        "mcp" => ProviderFeatureCategory::Mcp,
+        "command"
+        | "process"
+        | "tool"
+        | "dynamicTool"
+        | "applyPatch"
+        | "applyPatchApproval"
+        | "exec"
+        | "execCommandApproval"
+        | "review"
+        | "fs"
+        | "fuzzyFileSearch"
+        | "hooks" => ProviderFeatureCategory::Tools,
+        "mcp" | "mcpServer" | "mcpServerStatus" => ProviderFeatureCategory::Mcp,
         "skills" => ProviderFeatureCategory::Skills,
-        "plugins" => ProviderFeatureCategory::Plugins,
-        "apps" => ProviderFeatureCategory::Apps,
+        "plugins" | "plugin" | "marketplace" => ProviderFeatureCategory::Plugins,
+        "apps" | "app" => ProviderFeatureCategory::Apps,
         "remote" => {
             if method.contains("handoff") {
                 ProviderFeatureCategory::Handoff
@@ -404,9 +629,11 @@ fn codex_method_category(method: &str, direction: CodexMethodDirection) -> Provi
             }
         }
         "cloud" => ProviderFeatureCategory::Cloud,
-        "configRequirements" | "permissionProfile" | "permission" => {
-            ProviderFeatureCategory::Permissions
-        }
+        "configRequirements"
+        | "permissionProfile"
+        | "permission"
+        | "config"
+        | "experimentalFeature" => ProviderFeatureCategory::Permissions,
         "item" => {
             if method.contains("/plan/") {
                 ProviderFeatureCategory::Plans
@@ -415,7 +642,16 @@ fn codex_method_category(method: &str, direction: CodexMethodDirection) -> Provi
             }
         }
         "model" | "warning" | "realtime" => ProviderFeatureCategory::Events,
-        "account" | "attestation" => ProviderFeatureCategory::Diagnostics,
+        "account"
+        | "attestation"
+        | "feedback"
+        | "externalAgentConfig"
+        | "windows"
+        | "windowsSandbox"
+        | "configWarning"
+        | "guardianWarning"
+        | "deprecationNotice"
+        | "error" => ProviderFeatureCategory::Diagnostics,
         _ => ProviderFeatureCategory::Unknown,
     }
 }
@@ -441,7 +677,179 @@ fn codex_method_display_name(method: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    use serde_json::Value;
+    use std::collections::{BTreeSet, HashSet};
+
+    const CURRENT_CLIENT_REQUEST_METHODS: &[&str] = &[
+        "account/login/cancel",
+        "account/login/start",
+        "account/logout",
+        "account/rateLimits/read",
+        "account/read",
+        "account/sendAddCreditsNudgeEmail",
+        "account/usage/read",
+        "app/list",
+        "command/exec",
+        "command/exec/resize",
+        "command/exec/terminate",
+        "command/exec/write",
+        "config/batchWrite",
+        "config/mcpServer/reload",
+        "config/read",
+        "config/value/write",
+        "configRequirements/read",
+        "experimentalFeature/enablement/set",
+        "experimentalFeature/list",
+        "externalAgentConfig/detect",
+        "externalAgentConfig/import",
+        "feedback/upload",
+        "fs/copy",
+        "fs/createDirectory",
+        "fs/getMetadata",
+        "fs/readDirectory",
+        "fs/readFile",
+        "fs/remove",
+        "fs/unwatch",
+        "fs/watch",
+        "fs/writeFile",
+        "fuzzyFileSearch",
+        "hooks/list",
+        "initialize",
+        "marketplace/add",
+        "marketplace/remove",
+        "marketplace/upgrade",
+        "mcpServer/oauth/login",
+        "mcpServer/resource/read",
+        "mcpServer/tool/call",
+        "mcpServerStatus/list",
+        "model/list",
+        "modelProvider/capabilities/read",
+        "permissionProfile/list",
+        "plugin/install",
+        "plugin/installed",
+        "plugin/list",
+        "plugin/read",
+        "plugin/share/checkout",
+        "plugin/share/delete",
+        "plugin/share/list",
+        "plugin/share/save",
+        "plugin/share/updateTargets",
+        "plugin/skill/read",
+        "plugin/uninstall",
+        "review/start",
+        "skills/config/write",
+        "skills/extraRoots/set",
+        "skills/list",
+        "thread/approveGuardianDeniedAction",
+        "thread/archive",
+        "thread/compact/start",
+        "thread/delete",
+        "thread/fork",
+        "thread/goal/clear",
+        "thread/goal/get",
+        "thread/goal/set",
+        "thread/inject_items",
+        "thread/list",
+        "thread/loaded/list",
+        "thread/metadata/update",
+        "thread/name/set",
+        "thread/read",
+        "thread/resume",
+        "thread/rollback",
+        "thread/shellCommand",
+        "thread/start",
+        "thread/unarchive",
+        "thread/unsubscribe",
+        "turn/interrupt",
+        "turn/start",
+        "turn/steer",
+        "windowsSandbox/readiness",
+        "windowsSandbox/setupStart",
+    ];
+
+    const CURRENT_CLIENT_NOTIFICATION_METHODS: &[&str] = &["initialized"];
+
+    const CURRENT_SERVER_NOTIFICATION_METHODS: &[&str] = &[
+        "account/login/completed",
+        "account/rateLimits/updated",
+        "account/updated",
+        "app/list/updated",
+        "command/exec/outputDelta",
+        "configWarning",
+        "deprecationNotice",
+        "error",
+        "externalAgentConfig/import/completed",
+        "fs/changed",
+        "fuzzyFileSearch/sessionCompleted",
+        "fuzzyFileSearch/sessionUpdated",
+        "guardianWarning",
+        "hook/completed",
+        "hook/started",
+        "item/agentMessage/delta",
+        "item/autoApprovalReview/completed",
+        "item/autoApprovalReview/started",
+        "item/commandExecution/outputDelta",
+        "item/commandExecution/terminalInteraction",
+        "item/completed",
+        "item/fileChange/outputDelta",
+        "item/fileChange/patchUpdated",
+        "item/mcpToolCall/progress",
+        "item/plan/delta",
+        "item/reasoning/summaryPartAdded",
+        "item/reasoning/summaryTextDelta",
+        "item/reasoning/textDelta",
+        "item/started",
+        "mcpServer/oauthLogin/completed",
+        "mcpServer/startupStatus/updated",
+        "model/rerouted",
+        "model/verification",
+        "process/exited",
+        "process/outputDelta",
+        "remoteControl/status/changed",
+        "serverRequest/resolved",
+        "skills/changed",
+        "thread/archived",
+        "thread/closed",
+        "thread/compacted",
+        "thread/deleted",
+        "thread/goal/cleared",
+        "thread/goal/updated",
+        "thread/name/updated",
+        "thread/realtime/closed",
+        "thread/realtime/error",
+        "thread/realtime/itemAdded",
+        "thread/realtime/outputAudio/delta",
+        "thread/realtime/sdp",
+        "thread/realtime/started",
+        "thread/realtime/transcript/delta",
+        "thread/realtime/transcript/done",
+        "thread/settings/updated",
+        "thread/started",
+        "thread/status/changed",
+        "thread/tokenUsage/updated",
+        "thread/unarchived",
+        "turn/completed",
+        "turn/diff/updated",
+        "turn/moderationMetadata",
+        "turn/plan/updated",
+        "turn/started",
+        "warning",
+        "windows/worldWritableWarning",
+        "windowsSandbox/setupCompleted",
+    ];
+
+    const CURRENT_SERVER_REQUEST_METHODS: &[&str] = &[
+        "account/chatgptAuthTokens/refresh",
+        "applyPatchApproval",
+        "attestation/generate",
+        "execCommandApproval",
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+        "item/permissions/requestApproval",
+        "item/tool/call",
+        "item/tool/requestUserInput",
+        "mcpServer/elicitation/request",
+    ];
 
     #[test]
     fn inventory_classifies_every_known_method_once_per_direction() {
@@ -484,13 +892,73 @@ mod tests {
             Some(IntentionallyDeferred)
         );
         assert_eq!(
-            classify_codex_method("command/approvalRequest", ServerRequest),
+            classify_codex_method("item/commandExecution/requestApproval", ServerRequest),
             Some(RawSupported)
         );
         assert_eq!(
             classify_codex_method("item/plan/delta", ServerNotification),
             Some(TypedSupported)
         );
+    }
+
+    #[test]
+    fn current_generated_app_server_methods_are_classified() {
+        assert_all_methods_classified(CURRENT_CLIENT_REQUEST_METHODS, ClientRequest);
+        assert_all_methods_classified(CURRENT_CLIENT_NOTIFICATION_METHODS, ClientNotification);
+        assert_all_methods_classified(CURRENT_SERVER_NOTIFICATION_METHODS, ServerNotification);
+        assert_all_methods_classified(CURRENT_SERVER_REQUEST_METHODS, ServerRequest);
+    }
+
+    #[test]
+    fn generated_json_schema_method_parser_reads_single_value_enums() {
+        let schema = serde_json::json!({
+            "oneOf": [
+                {
+                    "properties": {
+                        "method": {
+                            "enum": ["thread/start"]
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "method": {
+                            "enum": ["turn/start"]
+                        }
+                    }
+                }
+            ]
+        });
+        assert_eq!(
+            schema_methods(&schema),
+            BTreeSet::from(["thread/start".to_string(), "turn/start".to_string()])
+        );
+    }
+
+    fn assert_all_methods_classified(methods: &[&str], direction: CodexMethodDirection) {
+        let missing = methods
+            .iter()
+            .filter(|method| classify_codex_method(method, direction).is_none())
+            .copied()
+            .collect::<Vec<_>>();
+        assert!(
+            missing.is_empty(),
+            "missing generated Codex methods for {direction:?}: {missing:#?}"
+        );
+    }
+
+    fn schema_methods(schema: &Value) -> BTreeSet<String> {
+        schema
+            .get("oneOf")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.pointer("/properties/method/enum"))
+            .filter_map(Value::as_array)
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(ToString::to_string)
+            .collect()
     }
 
     #[test]
@@ -602,7 +1070,7 @@ mod tests {
                 .iter()
                 .map(|method| method.method.as_str())
                 .collect::<Vec<_>>(),
-            ["thread/fork", "thread/injectItems", "turn/start"]
+            ["thread/fork", "thread/inject_items", "turn/start"]
         );
         assert!(
             plan_fork

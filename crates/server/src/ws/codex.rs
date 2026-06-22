@@ -1438,15 +1438,15 @@ fn codex_versioned_app_server_request(
             user_initiated_typed_or_enveloped::<CodexCommandExecRequest>(payload)?,
         )),
         methods::CODEX_COMMAND_WRITE_STDIN => Some((
-            "command/writeStdin",
+            "command/exec/write",
             user_initiated_typed_or_enveloped::<CodexCommandWriteStdinRequest>(payload)?,
         )),
         methods::CODEX_COMMAND_RESIZE => Some((
-            "command/resize",
+            "command/exec/resize",
             user_initiated_typed_or_enveloped::<CodexCommandResizeRequest>(payload)?,
         )),
         methods::CODEX_COMMAND_TERMINATE => Some((
-            "command/terminate",
+            "command/exec/terminate",
             user_initiated_typed_or_enveloped::<CodexCommandProcessRequest>(payload)?,
         )),
         methods::CODEX_PROCESS_LIST => Some((
@@ -1458,19 +1458,19 @@ fn codex_versioned_app_server_request(
             user_initiated_typed_or_enveloped::<CodexProcessCleanRequest>(payload)?,
         )),
         methods::CODEX_MCP_STATUS => Some((
-            "mcp/status",
+            "mcpServerStatus/list",
             typed_or_enveloped::<CodexMcpStatusRequest>(payload)?,
         )),
         methods::CODEX_MCP_RESOURCE_READ => Some((
-            "mcp/resourceRead",
+            "mcpServer/resource/read",
             typed_or_enveloped::<CodexMcpResourceReadRequest>(payload)?,
         )),
         methods::CODEX_MCP_OAUTH_LOGIN => Some((
-            "mcp/oauthLogin",
+            "mcpServer/oauth/login",
             typed_or_enveloped::<CodexMcpOauthLoginRequest>(payload)?,
         )),
         methods::CODEX_MCP_TOOL_CALL => Some((
-            "mcp/toolCall",
+            "mcpServer/tool/call",
             typed_or_enveloped::<CodexMcpToolCallRequest>(payload)?,
         )),
         methods::CODEX_SKILLS_LIST => Some((
@@ -1478,7 +1478,7 @@ fn codex_versioned_app_server_request(
             typed_or_enveloped::<CodexNamedQueryRequest>(payload)?,
         )),
         methods::CODEX_SKILLS_READ => Some((
-            "skills/read",
+            "plugin/skill/read",
             typed_or_enveloped::<CodexSkillRequest>(payload)?,
         )),
         methods::CODEX_SKILLS_INSTALL => Some((
@@ -1486,15 +1486,15 @@ fn codex_versioned_app_server_request(
             typed_or_enveloped::<CodexSkillRequest>(payload)?,
         )),
         methods::CODEX_PLUGINS_LIST => Some((
-            "plugins/list",
+            "plugin/list",
             typed_or_enveloped::<CodexNamedQueryRequest>(payload)?,
         )),
         methods::CODEX_PLUGINS_INSTALL => Some((
-            "plugins/install",
+            "plugin/install",
             typed_or_enveloped::<CodexPluginRequest>(payload)?,
         )),
         methods::CODEX_APPS_LIST => Some((
-            "apps/list",
+            "app/list",
             typed_or_enveloped::<CodexNamedQueryRequest>(payload)?,
         )),
         methods::CODEX_APPS_CONFIG_WRITE => Some((
@@ -1606,9 +1606,9 @@ fn codex_shell_process_method(method: &str) -> bool {
     matches!(
         method,
         "command/exec"
-            | "command/writeStdin"
-            | "command/resize"
-            | "command/terminate"
+            | "command/exec/write"
+            | "command/exec/resize"
+            | "command/exec/terminate"
             | "process/list"
             | "process/clean"
     )
@@ -1855,13 +1855,13 @@ mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             [
-                "thread/injectItems:thread-1:1",
+                "thread/inject_items:thread-1:1",
                 "turn/start:thread-1",
                 "thread/fork:thread-1:false",
-                "thread/injectItems:fork-1:1",
+                "thread/inject_items:fork-1:1",
                 "turn/start:fork-1",
                 "thread/fork:thread-1:true",
-                "thread/injectItems:fork-1:1",
+                "thread/inject_items:fork-1:1",
                 "turn/start:fork-1",
             ]
         );
@@ -2390,7 +2390,7 @@ mod tests {
             [
                 "turn/start:thread-1",
                 "turn/interrupt:thread-1",
-                "thread/updateMetadata:thread-1",
+                "thread/metadata/update:thread-1",
             ]
         );
 
@@ -2490,16 +2490,16 @@ mod tests {
             [
                 "thread/read:thread-1",
                 "thread/list",
-                "thread/loadedList",
+                "thread/loaded/list",
                 "thread/archive:thread-1",
                 "thread/unarchive:thread-1",
                 "thread/delete:thread-1",
                 "thread/unsubscribe:thread-1",
-                "thread/setName:thread-1:Adapter work",
-                "thread/updateMetadata:thread-1",
-                "thread/compact:thread-1",
+                "thread/name/set:thread-1:Adapter work",
+                "thread/metadata/update:thread-1",
+                "thread/compact/start:thread-1",
                 "thread/rollback:thread-1:turn-2",
-                "thread/injectItems:thread-1:1",
+                "thread/inject_items:thread-1:1",
             ]
         );
     }
@@ -3142,7 +3142,7 @@ mod tests {
                 "thread/read",
                 "thread/read:thread-2",
                 "thread/fork:thread-2:false",
-                "thread/injectItems:fork-1:1",
+                "thread/inject_items:fork-1:1",
                 "turn/start:fork-1"
             ]
         );
@@ -3224,7 +3224,7 @@ mod tests {
                 "thread/read",
                 "thread/read:thread-2",
                 "thread/fork:thread-2:false",
-                "thread/injectItems:fork-1:1",
+                "thread/inject_items:fork-1:1",
                 "turn/start:fork-1"
             ]
         );
@@ -3260,7 +3260,7 @@ mod tests {
                 "thread/read",
                 "thread/read:thread-2",
                 "thread/fork:thread-2:false",
-                "thread/injectItems:fork-1:1",
+                "thread/inject_items:fork-1:1",
                 "turn/start:fork-1",
                 "command/exec"
             ]
@@ -3298,7 +3298,7 @@ mod tests {
                 "thread/read",
                 "thread/read:thread-2",
                 "thread/fork:thread-2:false",
-                "thread/injectItems:fork-1:1",
+                "thread/inject_items:fork-1:1",
                 "turn/start:fork-1",
                 "command/exec",
                 "command/exec"
@@ -3358,7 +3358,7 @@ mod tests {
                 "thread/read",
                 "thread/read:thread-2",
                 "thread/fork:thread-2:false",
-                "thread/injectItems:fork-1:1",
+                "thread/inject_items:fork-1:1",
                 "turn/start:fork-1",
                 "command/exec",
                 "command/exec"
@@ -4232,9 +4232,9 @@ mod tests {
             [
                 "review/start",
                 "command/exec",
-                "command/writeStdin",
+                "command/exec/write",
                 "process/list",
-                "mcp/toolCall",
+                "mcpServer/tool/call",
                 "skills/install",
                 "apps/configWrite",
                 "remote/handoff",
@@ -4298,7 +4298,7 @@ mod tests {
         )
         .expect("user initiated enveloped resize")
         .expect("resize method");
-        assert_eq!(method, "command/resize");
+        assert_eq!(method, "command/exec/resize");
         assert_eq!(params["processId"], "p1");
         assert_eq!(params["cols"], 120);
         assert_eq!(params["rows"], 40);

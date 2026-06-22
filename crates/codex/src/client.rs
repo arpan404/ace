@@ -57,25 +57,31 @@ impl Default for CodexConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodexThreadStart {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "model_provider")]
     pub model_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "approval_policy")]
     pub approval_policy: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "approvals_reviewer")]
     pub approvals_reviewer: Option<String>,
     #[serde(default)]
     pub ephemeral: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodexTurnStart {
+    #[serde(alias = "thread_id")]
     pub thread_id: String,
     pub input: Vec<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -83,21 +89,29 @@ pub struct CodexTurnStart {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "sandbox_policy")]
     pub sandbox_policy: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "approval_policy")]
     pub approval_policy: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "approvals_reviewer")]
     pub approvals_reviewer: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "collaboration_mode")]
     pub collaboration_mode: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodexTurnSteer {
+    #[serde(alias = "thread_id")]
     pub thread_id: String,
+    #[serde(alias = "expected_turn_id")]
     pub expected_turn_id: String,
     pub input: Vec<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "client_user_message_id")]
     pub client_user_message_id: Option<String>,
 }
 
@@ -134,7 +148,9 @@ impl CodexTurnStart {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodexPlanImplementation {
+    #[serde(alias = "thread_id")]
     pub thread_id: String,
     pub plan: Value,
     pub prompt: String,
@@ -143,10 +159,13 @@ pub struct CodexPlanImplementation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "sandbox_policy")]
     pub sandbox_policy: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "approval_policy")]
     pub approval_policy: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "approvals_reviewer")]
     pub approvals_reviewer: Option<String>,
 }
 
@@ -254,7 +273,7 @@ impl<T: AppServerTransport> CodexClient<T> {
     }
 
     pub async fn list_loaded_threads(&self) -> Result<Value> {
-        self.raw_request("thread/loadedList", json!({})).await
+        self.raw_request("thread/loaded/list", json!({})).await
     }
 
     pub async fn archive_thread(&self, thread_id: &str) -> Result<Value> {
@@ -279,7 +298,7 @@ impl<T: AppServerTransport> CodexClient<T> {
 
     pub async fn set_thread_name(&self, thread_id: &str, name: &str) -> Result<Value> {
         self.raw_request(
-            "thread/setName",
+            "thread/name/set",
             json!({
                 "threadId": thread_id,
                 "name": name,
@@ -290,7 +309,7 @@ impl<T: AppServerTransport> CodexClient<T> {
 
     pub async fn update_thread_metadata(&self, thread_id: &str, metadata: Value) -> Result<Value> {
         self.raw_request(
-            "thread/updateMetadata",
+            "thread/metadata/update",
             json!({
                 "threadId": thread_id,
                 "metadata": metadata,
@@ -300,7 +319,7 @@ impl<T: AppServerTransport> CodexClient<T> {
     }
 
     pub async fn compact_thread(&self, thread_id: &str) -> Result<Value> {
-        self.raw_request("thread/compact", json!({ "threadId": thread_id }))
+        self.raw_request("thread/compact/start", json!({ "threadId": thread_id }))
             .await
     }
 
@@ -317,7 +336,7 @@ impl<T: AppServerTransport> CodexClient<T> {
 
     pub async fn inject_thread_items(&self, thread_id: &str, items: Vec<Value>) -> Result<Value> {
         self.raw_request(
-            "thread/injectItems",
+            "thread/inject_items",
             json!({
                 "threadId": thread_id,
                 "items": items,
@@ -527,15 +546,15 @@ impl<T: AppServerTransport> CodexClient<T> {
     }
 
     pub async fn command_write_stdin(&self, params: Value) -> Result<Value> {
-        self.raw_request("command/writeStdin", params).await
+        self.raw_request("command/exec/write", params).await
     }
 
     pub async fn command_resize(&self, params: Value) -> Result<Value> {
-        self.raw_request("command/resize", params).await
+        self.raw_request("command/exec/resize", params).await
     }
 
     pub async fn command_terminate(&self, params: Value) -> Result<Value> {
-        self.raw_request("command/terminate", params).await
+        self.raw_request("command/exec/terminate", params).await
     }
 
     pub async fn process_list(&self, params: Value) -> Result<Value> {
@@ -547,19 +566,19 @@ impl<T: AppServerTransport> CodexClient<T> {
     }
 
     pub async fn mcp_status(&self, params: Value) -> Result<Value> {
-        self.raw_request("mcp/status", params).await
+        self.raw_request("mcpServerStatus/list", params).await
     }
 
     pub async fn mcp_resource_read(&self, params: Value) -> Result<Value> {
-        self.raw_request("mcp/resourceRead", params).await
+        self.raw_request("mcpServer/resource/read", params).await
     }
 
     pub async fn mcp_oauth_login(&self, params: Value) -> Result<Value> {
-        self.raw_request("mcp/oauthLogin", params).await
+        self.raw_request("mcpServer/oauth/login", params).await
     }
 
     pub async fn mcp_tool_call(&self, params: Value) -> Result<Value> {
-        self.raw_request("mcp/toolCall", params).await
+        self.raw_request("mcpServer/tool/call", params).await
     }
 
     pub async fn skills_list(&self, params: Value) -> Result<Value> {
@@ -567,7 +586,7 @@ impl<T: AppServerTransport> CodexClient<T> {
     }
 
     pub async fn skills_read(&self, params: Value) -> Result<Value> {
-        self.raw_request("skills/read", params).await
+        self.raw_request("plugin/skill/read", params).await
     }
 
     pub async fn skills_install(&self, params: Value) -> Result<Value> {
@@ -575,15 +594,15 @@ impl<T: AppServerTransport> CodexClient<T> {
     }
 
     pub async fn plugins_list(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugins/list", params).await
+        self.raw_request("plugin/list", params).await
     }
 
     pub async fn plugins_install(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugins/install", params).await
+        self.raw_request("plugin/install", params).await
     }
 
     pub async fn apps_list(&self, params: Value) -> Result<Value> {
-        self.raw_request("apps/list", params).await
+        self.raw_request("app/list", params).await
     }
 
     pub async fn apps_config_write(&self, params: Value) -> Result<Value> {
@@ -835,9 +854,9 @@ mod tests {
             .expect("turn");
         let requests = client.transport.requests.lock().expect("requests");
         assert_eq!(requests[0].0, "turn/start");
-        assert_eq!(requests[0].1["collaboration_mode"]["mode"], "plan");
+        assert_eq!(requests[0].1["collaborationMode"]["mode"], "plan");
         assert_eq!(
-            requests[0].1["collaboration_mode"]["settings"]["model"],
+            requests[0].1["collaborationMode"]["settings"]["model"],
             "gpt-5.5"
         );
     }
@@ -914,16 +933,16 @@ mod tests {
             [
                 "thread/read",
                 "thread/list",
-                "thread/loadedList",
+                "thread/loaded/list",
                 "thread/archive",
                 "thread/unarchive",
                 "thread/delete",
                 "thread/unsubscribe",
-                "thread/setName",
-                "thread/updateMetadata",
-                "thread/compact",
+                "thread/name/set",
+                "thread/metadata/update",
+                "thread/compact/start",
                 "thread/rollback",
-                "thread/injectItems",
+                "thread/inject_items",
             ]
         );
         assert_eq!(requests[7].1["name"], "Adapter work");
@@ -961,10 +980,10 @@ mod tests {
 
         assert_eq!(response["threadId"], "thread-1");
         let requests = client.transport.requests.lock().expect("requests");
-        assert_eq!(requests[0].0, "thread/injectItems");
+        assert_eq!(requests[0].0, "thread/inject_items");
         assert_eq!(requests[0].1["items"][0]["status"], "accepted");
         assert_eq!(requests[1].0, "turn/start");
-        assert_eq!(requests[1].1["thread_id"], "thread-1");
+        assert_eq!(requests[1].1["threadId"], "thread-1");
         assert_eq!(requests[1].1["model"], "gpt-5.5");
     }
 
@@ -1005,10 +1024,10 @@ mod tests {
         let requests = client.transport.requests.lock().expect("requests");
         assert_eq!(requests[0].0, "thread/fork");
         assert_eq!(requests[0].1["ephemeral"], true);
-        assert_eq!(requests[1].0, "thread/injectItems");
+        assert_eq!(requests[1].0, "thread/inject_items");
         assert_eq!(requests[1].1["threadId"], "fork-1");
         assert_eq!(requests[2].0, "turn/start");
-        assert_eq!(requests[2].1["thread_id"], "fork-1");
+        assert_eq!(requests[2].1["threadId"], "fork-1");
         assert_eq!(requests[2].1["cwd"], "/tmp/repo");
     }
 
@@ -1155,7 +1174,7 @@ mod tests {
             ]
         );
         assert_eq!(requests[2].1["prompt"], "focus on tests");
-        assert_eq!(requests[5].1["agent_role"], "implementer");
+        assert_eq!(requests[5].1["agentRole"], "implementer");
         assert_eq!(requests[5].1["skills"][0], "rust");
     }
 
@@ -1240,21 +1259,21 @@ mod tests {
             [
                 "review/start",
                 "command/exec",
-                "command/writeStdin",
-                "command/resize",
-                "command/terminate",
+                "command/exec/write",
+                "command/exec/resize",
+                "command/exec/terminate",
                 "process/list",
                 "process/clean",
-                "mcp/status",
-                "mcp/resourceRead",
-                "mcp/oauthLogin",
-                "mcp/toolCall",
+                "mcpServerStatus/list",
+                "mcpServer/resource/read",
+                "mcpServer/oauth/login",
+                "mcpServer/tool/call",
                 "skills/list",
-                "skills/read",
+                "plugin/skill/read",
                 "skills/install",
-                "plugins/list",
-                "plugins/install",
-                "apps/list",
+                "plugin/list",
+                "plugin/install",
+                "app/list",
                 "apps/configWrite",
                 "remote/connectionList",
                 "remote/handoff",
