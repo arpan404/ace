@@ -7,8 +7,9 @@ use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::{
     provider::{
         ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderDriverStatus,
-        ProviderEvent, ProviderEventSource, ProviderFeature, ProviderRequest,
-        ProviderRuntimeHealth, ProviderServerRequestResponder,
+        ProviderEvent, ProviderEventSource, ProviderFeature, ProviderLifecycleAction,
+        ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
+        ProviderServerRequestResponder,
     },
     threads::{
         AgentRuntimeState, ExecutionLocation, ForkPoint, HandoffPlan, PlanSessionStatus,
@@ -70,6 +71,7 @@ impl From<RuntimeStateError> for CodexApiError {
 #[async_trait]
 pub trait CodexBackend: Send + Sync {
     async fn status(&self) -> ProviderDriverStatus;
+    async fn start(&self) -> Result<()>;
     async fn raw_request(&self, method: &str, params: Value) -> Result<Value>;
     async fn start_thread(&self, request: CodexThreadStart) -> Result<Value>;
     async fn resume_thread(&self, thread_id: &str) -> Result<Value>;
@@ -175,6 +177,11 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn raw_request(&self, method: &str, params: Value) -> Result<Value> {
         self.client().await?.raw_request(method, params).await
+    }
+
+    async fn start(&self) -> Result<()> {
+        let _ = self.client().await?;
+        Ok(())
     }
 
     async fn start_thread(&self, request: CodexThreadStart) -> Result<Value> {
@@ -887,6 +894,31 @@ impl ProviderDriver for CodexService {
         self.backend.status().await
     }
 
+    async fn lifecycle_action(
+        &self,
+        action: ProviderLifecycleAction,
+        grace: Duration,
+    ) -> std::result::Result<ProviderLifecycleResult, ProviderDriverError> {
+        let result = match action {
+            ProviderLifecycleAction::Start => self.backend.start().await,
+            ProviderLifecycleAction::Restart => self.backend.restart(grace).await,
+            ProviderLifecycleAction::Shutdown => self.backend.shutdown(grace).await,
+        };
+        result.map_err(|error| ProviderDriverError::RequestFailed {
+            provider: "codex".to_string(),
+            method: format!("lifecycle/{action:?}"),
+            message: error.to_string(),
+        })?;
+
+        Ok(ProviderLifecycleResult {
+            action,
+            status: self.backend.status().await,
+            metadata: json!({
+                "grace_ms": grace.as_millis() as u64
+            }),
+        })
+    }
+
     async fn request(
         &self,
         request: ProviderRequest,
@@ -994,6 +1026,7 @@ pub mod tests {
         pub events: StdMutex<VecDeque<Vec<ProviderEvent>>>,
         pub server_request_responses: StdMutex<Vec<ServerRequestResponse>>,
         pub stderr_tail: StdMutex<Vec<String>>,
+        pub starts: StdMutex<u64>,
         pub shutdowns: StdMutex<Vec<Duration>>,
         pub restarts: StdMutex<Vec<Duration>>,
     }
@@ -1036,6 +1069,11 @@ pub mod tests {
         async fn raw_request(&self, method: &str, _params: Value) -> Result<Value> {
             self.calls.lock().expect("calls").push(method.to_string());
             Ok(serde_json::json!({ "method": method }))
+        }
+
+        async fn start(&self) -> Result<()> {
+            *self.starts.lock().expect("starts") += 1;
+            Ok(())
         }
 
         async fn start_thread(&self, _request: CodexThreadStart) -> Result<Value> {

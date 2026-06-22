@@ -162,6 +162,22 @@ pub mod provider {
         pub metadata: Value,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProviderLifecycleAction {
+        Start,
+        Restart,
+        Shutdown,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct ProviderLifecycleResult {
+        pub action: ProviderLifecycleAction,
+        pub status: ProviderDriverStatus,
+        #[serde(default)]
+        pub metadata: Value,
+    }
+
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct ProviderRequest {
         pub method: String,
@@ -338,6 +354,17 @@ pub mod provider {
                 last_error: None,
                 metadata: Value::Null,
             }
+        }
+
+        async fn lifecycle_action(
+            &self,
+            action: ProviderLifecycleAction,
+            _grace: Duration,
+        ) -> Result<ProviderLifecycleResult, ProviderDriverError> {
+            Err(ProviderDriverError::LifecycleUnsupported {
+                provider: format!("{:?}", self.descriptor().kind),
+                action,
+            })
         }
 
         async fn request(&self, request: ProviderRequest) -> Result<Value, ProviderDriverError>;
@@ -539,6 +566,21 @@ pub mod provider {
             Ok(driver.status().await)
         }
 
+        pub async fn lifecycle_action(
+            &self,
+            kind: ProviderKind,
+            action: ProviderLifecycleAction,
+            grace: Duration,
+        ) -> Result<ProviderLifecycleResult, ProviderRuntimeError> {
+            let driver = self
+                .get(kind)
+                .ok_or(ProviderRuntimeError::ProviderUnavailable { provider: kind })?;
+            driver
+                .lifecycle_action(action, grace)
+                .await
+                .map_err(Into::into)
+        }
+
         pub async fn request(
             &self,
             kind: ProviderKind,
@@ -602,6 +644,11 @@ pub mod provider {
             provider: String,
             method: String,
             message: String,
+        },
+        #[error("provider `{provider}` does not support lifecycle action `{action:?}`")]
+        LifecycleUnsupported {
+            provider: String,
+            action: ProviderLifecycleAction,
         },
     }
 
@@ -844,6 +891,25 @@ pub mod provider {
 
             assert_eq!(status.health, ProviderRuntimeHealth::Ready);
             assert!(status.initialized);
+        }
+
+        #[tokio::test]
+        async fn registry_routes_provider_lifecycle_actions() {
+            let driver = Arc::new(crate::native_provider::AceNativeProvider::new());
+            let registry = ProviderRegistry::new().with_driver(driver);
+
+            let result = registry
+                .lifecycle_action(
+                    ProviderKind::Ace,
+                    ProviderLifecycleAction::Restart,
+                    Duration::from_millis(10),
+                )
+                .await
+                .expect("lifecycle");
+
+            assert_eq!(result.action, ProviderLifecycleAction::Restart);
+            assert_eq!(result.status.health, ProviderRuntimeHealth::Ready);
+            assert_eq!(result.metadata["no_op"], true);
         }
 
         #[tokio::test]

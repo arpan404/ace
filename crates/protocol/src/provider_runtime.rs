@@ -2,7 +2,8 @@ use ace_core::ProviderKind;
 use ace_runtime::{
     provider::{
         NormalizedServerRequest, NormalizedThreadItem, ProviderContractReport, ProviderDescriptor,
-        ProviderDriverStatus, ProviderEvent, ProviderFeature,
+        ProviderDriverStatus, ProviderEvent, ProviderFeature, ProviderLifecycleAction,
+        ProviderLifecycleResult,
     },
     tools::{SemanticToolCall, ToolRunStatus},
 };
@@ -110,6 +111,26 @@ pub struct ProviderRuntimeProviderStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRuntimeStatusListResponse {
     pub providers: Vec<ProviderRuntimeProviderStatus>,
+}
+
+fn default_provider_lifecycle_grace_ms() -> u64 {
+    5_000
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeLifecycleRequest {
+    pub provider: String,
+    pub action: ProviderLifecycleAction,
+    #[serde(default = "default_provider_lifecycle_grace_ms")]
+    pub grace_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeLifecycleResponse {
+    pub provider: ProviderKind,
+    pub runtime_id: String,
+    pub display_name: String,
+    pub result: ProviderLifecycleResult,
 }
 
 fn default_provider_request_timeout_ms() -> u64 {

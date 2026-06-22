@@ -19,7 +19,8 @@ use ace_protocol::{
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeContractReport, ProviderRuntimeEvent,
         ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
-        ProviderRuntimeFeaturesListResponse, ProviderRuntimeProviderFeatures,
+        ProviderRuntimeFeaturesListResponse, ProviderRuntimeLifecycleRequest,
+        ProviderRuntimeLifecycleResponse, ProviderRuntimeProviderFeatures,
         ProviderRuntimeProviderInfo, ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
         ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
         ProviderRuntimeRequest, ProviderRuntimeStatusListRequest,
@@ -563,6 +564,30 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 }
                 Ok(serde_json::to_value(ProviderRuntimeStatusListResponse {
                     providers: provider_statuses,
+                })?)
+            }
+            methods::PROVIDER_RUNTIME_LIFECYCLE => {
+                let request = serde_json::from_value::<ProviderRuntimeLifecycleRequest>(payload)?;
+                let provider =
+                    ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
+                        WsDispatchError::BadRequest(format!(
+                            "unknown provider `{}` for runtime lifecycle",
+                            request.provider
+                        ))
+                    })?;
+                let result = self
+                    .providers
+                    .lifecycle_action(
+                        provider,
+                        request.action,
+                        Duration::from_millis(request.grace_ms),
+                    )
+                    .await?;
+                Ok(serde_json::to_value(ProviderRuntimeLifecycleResponse {
+                    provider,
+                    runtime_id: provider.runtime_id().to_string(),
+                    display_name: provider.display_name().to_string(),
+                    result,
                 })?)
             }
             methods::PROVIDER_RUNTIME_EVENTS_RECENT => {
@@ -2150,6 +2175,86 @@ mod tests {
         };
         assert_eq!(body["providers"].as_array().expect("providers").len(), 1);
         assert_eq!(body["providers"][0]["runtime_id"], "ace");
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_runs_lifecycle_actions() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let start = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-start",
+                    "method": methods::PROVIDER_RUNTIME_LIFECYCLE,
+                    "payload": {
+                        "provider": "codex",
+                        "action": "start",
+                        "grace_ms": 25
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let start: WsServerResponse = serde_json::from_str(&start).expect("start response");
+        let WsServerPayload::Result { body } = start.payload else {
+            panic!("expected lifecycle result");
+        };
+        assert_eq!(body["runtime_id"], "codex");
+        assert_eq!(body["result"]["action"], "start");
+        assert_eq!(body["result"]["status"]["health"], "running");
+        assert_eq!(*backend.starts.lock().expect("starts"), 1);
+
+        let restart = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-restart",
+                    "method": methods::PROVIDER_RUNTIME_LIFECYCLE,
+                    "payload": {
+                        "provider": "Codex",
+                        "action": "restart",
+                        "grace_ms": 50
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let restart: WsServerResponse = serde_json::from_str(&restart).expect("restart response");
+        assert!(matches!(restart.payload, WsServerPayload::Result { .. }));
+        assert_eq!(
+            backend.restarts.lock().expect("restarts").as_slice(),
+            [Duration::from_millis(50)]
+        );
+
+        let ace = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-shutdown",
+                    "method": methods::PROVIDER_RUNTIME_LIFECYCLE,
+                    "payload": {
+                        "provider": "ace",
+                        "action": "shutdown"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let ace: WsServerResponse = serde_json::from_str(&ace).expect("ace lifecycle response");
+        let WsServerPayload::Result { body } = ace.payload else {
+            panic!("expected ace lifecycle result");
+        };
+        assert_eq!(body["runtime_id"], "ace");
+        assert_eq!(body["result"]["action"], "shutdown");
+        assert_eq!(body["result"]["status"]["health"], "ready");
+        assert_eq!(body["result"]["metadata"]["no_op"], true);
     }
 
     #[tokio::test]

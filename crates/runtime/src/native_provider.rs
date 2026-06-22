@@ -1,11 +1,13 @@
 use crate::provider::{
     ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderFeature,
-    ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport, ProviderRequest,
-    ProviderRuntimeHealth, ace_provider_contract_requirements,
+    ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport,
+    ProviderLifecycleAction, ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
+    ace_provider_contract_requirements,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Default)]
 pub struct AceNativeProvider;
@@ -138,6 +140,21 @@ impl ProviderDriver for AceNativeProvider {
         }
     }
 
+    async fn lifecycle_action(
+        &self,
+        action: ProviderLifecycleAction,
+        _grace: Duration,
+    ) -> Result<ProviderLifecycleResult, ProviderDriverError> {
+        Ok(ProviderLifecycleResult {
+            action,
+            status: self.status().await,
+            metadata: json!({
+                "no_op": true,
+                "reason": "ace provider is in-process"
+            }),
+        })
+    }
+
     async fn request(&self, request: ProviderRequest) -> Result<Value, ProviderDriverError> {
         match request.method.as_str() {
             "ace.ping" => Ok(json!({
@@ -253,5 +270,18 @@ mod tests {
         assert_eq!(status.transport.as_deref(), Some("in_process"));
         assert!(status.initialized);
         assert_eq!(status.metadata["websocket_first"], true);
+    }
+
+    #[tokio::test]
+    async fn native_provider_lifecycle_is_idempotent() {
+        let provider = AceNativeProvider::new();
+        let result = provider
+            .lifecycle_action(ProviderLifecycleAction::Shutdown, Duration::from_millis(1))
+            .await
+            .expect("lifecycle");
+
+        assert_eq!(result.action, ProviderLifecycleAction::Shutdown);
+        assert_eq!(result.status.health, ProviderRuntimeHealth::Ready);
+        assert_eq!(result.metadata["reason"], "ace provider is in-process");
     }
 }
