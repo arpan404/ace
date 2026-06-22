@@ -333,6 +333,32 @@ pub mod provider {
         pub operations: Vec<ProviderAdapterOperationProfile>,
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(tag = "kind", rename_all = "snake_case")]
+    pub enum ProviderAdapterRequestResolution {
+        DirectProviderMethod { method: String },
+        TypedApi,
+        CompositeTypedApi { methods: Vec<String> },
+        EventStream,
+        Deferred,
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum ProviderAdapterRequestResolutionError {
+        #[error("provider `{provider:?}` does not advertise adapter operation `{operation:?}`")]
+        OperationNotAdvertised {
+            provider: ProviderKind,
+            operation: ProviderAdapterOperation,
+        },
+        #[error(
+            "provider `{provider:?}` advertises adapter operation `{operation:?}` as direct but did not expose exactly one provider method"
+        )]
+        MissingDirectProviderMethod {
+            provider: ProviderKind,
+            operation: ProviderAdapterOperation,
+        },
+    }
+
     impl ProviderAdapterProfile {
         #[must_use]
         pub fn operation(
@@ -342,6 +368,48 @@ pub mod provider {
             self.operations
                 .iter()
                 .find(|profile| profile.operation == operation)
+        }
+
+        pub fn resolve_request_operation(
+            &self,
+            operation: ProviderAdapterOperation,
+        ) -> Result<ProviderAdapterRequestResolution, ProviderAdapterRequestResolutionError>
+        {
+            let profile = self.operation(operation).ok_or(
+                ProviderAdapterRequestResolutionError::OperationNotAdvertised {
+                    provider: self.provider,
+                    operation,
+                },
+            )?;
+            match profile.invocation {
+                ProviderAdapterInvocationKind::DirectProviderMethod => self
+                    .direct_provider_method(operation)
+                    .map(
+                        |method| ProviderAdapterRequestResolution::DirectProviderMethod {
+                            method: method.to_string(),
+                        },
+                    )
+                    .ok_or(
+                        ProviderAdapterRequestResolutionError::MissingDirectProviderMethod {
+                            provider: self.provider,
+                            operation,
+                        },
+                    ),
+                ProviderAdapterInvocationKind::TypedApi => {
+                    Ok(ProviderAdapterRequestResolution::TypedApi)
+                }
+                ProviderAdapterInvocationKind::CompositeTypedApi => {
+                    Ok(ProviderAdapterRequestResolution::CompositeTypedApi {
+                        methods: profile.provider_methods.clone(),
+                    })
+                }
+                ProviderAdapterInvocationKind::EventStream => {
+                    Ok(ProviderAdapterRequestResolution::EventStream)
+                }
+                ProviderAdapterInvocationKind::Deferred => {
+                    Ok(ProviderAdapterRequestResolution::Deferred)
+                }
+            }
         }
 
         #[must_use]
@@ -2600,14 +2668,46 @@ pub mod provider {
             );
             assert_eq!(
                 codex_profile
+                    .resolve_request_operation(ProviderAdapterOperation::ThreadRead)
+                    .expect("thread read resolution"),
+                ProviderAdapterRequestResolution::DirectProviderMethod {
+                    method: "thread/read".to_string()
+                }
+            );
+            assert_eq!(
+                codex_profile
                     .operation(ProviderAdapterOperation::PlanForkForImplementation)
                     .map(|operation| operation.invocation),
                 Some(ProviderAdapterInvocationKind::CompositeTypedApi)
             );
             assert_eq!(
                 codex_profile
+                    .resolve_request_operation(ProviderAdapterOperation::PlanForkForImplementation)
+                    .expect("plan fork resolution"),
+                ProviderAdapterRequestResolution::CompositeTypedApi {
+                    methods: vec![
+                        "thread/fork".to_string(),
+                        "thread/inject_items".to_string(),
+                        "turn/start".to_string(),
+                    ]
+                }
+            );
+            assert_eq!(
+                codex_profile
                     .direct_provider_method(ProviderAdapterOperation::PlanForkForImplementation),
                 None
+            );
+            assert_eq!(
+                codex_profile
+                    .resolve_request_operation(ProviderAdapterOperation::ProviderEvents)
+                    .expect("events resolution"),
+                ProviderAdapterRequestResolution::EventStream
+            );
+            assert_eq!(
+                codex_profile
+                    .resolve_request_operation(ProviderAdapterOperation::CloudHandoff)
+                    .expect("cloud handoff resolution"),
+                ProviderAdapterRequestResolution::Deferred
             );
             let codex_runtime = registry
                 .adapter_runtime_report(ProviderKind::Codex)
@@ -2703,6 +2803,60 @@ pub mod provider {
                     .expect_err("missing state source"),
                 ProviderRuntimeError::ProviderUnavailable {
                     provider: ProviderKind::Codex
+                }
+            ));
+        }
+
+        #[test]
+        fn adapter_profile_reports_resolution_errors_for_invalid_operation_metadata() {
+            let empty_profile = ProviderAdapterProfile {
+                provider: ProviderKind::ClaudeCode,
+                descriptor: ProviderDescriptor {
+                    kind: ProviderKind::ClaudeCode,
+                    capabilities: Vec::new(),
+                },
+                contract_report: provider_contract_report(&ProviderDescriptor {
+                    kind: ProviderKind::ClaudeCode,
+                    capabilities: Vec::new(),
+                }),
+                contract_version: 1,
+                websocket_first: true,
+                raw_payload_policy: "preserve_provider_payloads".to_string(),
+                raw_payload: ace_provider_raw_payload_policy(),
+                operations: Vec::new(),
+            };
+            assert!(matches!(
+                empty_profile
+                    .resolve_request_operation(ProviderAdapterOperation::ThreadRead)
+                    .expect_err("missing operation"),
+                ProviderAdapterRequestResolutionError::OperationNotAdvertised {
+                    provider: ProviderKind::ClaudeCode,
+                    operation: ProviderAdapterOperation::ThreadRead
+                }
+            ));
+
+            let malformed_profile = ProviderAdapterProfile {
+                operations: vec![ProviderAdapterOperationProfile {
+                    operation: ProviderAdapterOperation::ThreadRead,
+                    category: ProviderFeatureCategory::Threads,
+                    support: ProviderAdapterOperationSupport::Required,
+                    availability: ProviderAdapterOperationAvailability::Available,
+                    availability_reason: None,
+                    canonical_method: Some("thread/read".to_string()),
+                    provider_methods: Vec::new(),
+                    invocation: ProviderAdapterInvocationKind::DirectProviderMethod,
+                    direct_invocation: true,
+                    required_runtime_hooks: Vec::new(),
+                }],
+                ..empty_profile
+            };
+            assert!(matches!(
+                malformed_profile
+                    .resolve_request_operation(ProviderAdapterOperation::ThreadRead)
+                    .expect_err("missing direct method"),
+                ProviderAdapterRequestResolutionError::MissingDirectProviderMethod {
+                    provider: ProviderKind::ClaudeCode,
+                    operation: ProviderAdapterOperation::ThreadRead
                 }
             ));
         }

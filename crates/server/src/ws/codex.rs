@@ -58,7 +58,7 @@ use ace_runtime::{
     },
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
-        ProviderAdapterInvocationKind, ProviderAdapterOperation, ProviderAdapterProfile,
+        ProviderAdapterOperation, ProviderAdapterProfile, ProviderAdapterRequestResolution,
         ProviderEvent, ProviderMetadata, ProviderRequest, RuntimeSignalKind,
         ace_provider_adapter_contract, provider_adapter_profile, provider_contract_report,
     },
@@ -2338,24 +2338,21 @@ fn validate_provider_runtime_operation(
     operation: ProviderAdapterOperation,
     adapter_profile: &ProviderAdapterProfile,
 ) -> Result<(), WsDispatchError> {
-    let operation_profile = adapter_profile.operation(operation).ok_or_else(|| {
-        WsDispatchError::BadRequest(format!(
-            "provider `{}` does not advertise adapter operation `{operation:?}`",
-            adapter_profile.provider.runtime_id()
-        ))
-    })?;
-    match operation_profile.invocation {
-        ProviderAdapterInvocationKind::Deferred => Err(WsDispatchError::BadRequest(format!(
+    match adapter_profile
+        .resolve_request_operation(operation)
+        .map_err(|error| WsDispatchError::BadRequest(error.to_string()))?
+    {
+        ProviderAdapterRequestResolution::Deferred => Err(WsDispatchError::BadRequest(format!(
             "provider `{}` adapter operation `{operation:?}` is intentionally deferred",
             adapter_profile.provider.runtime_id()
         ))),
-        ProviderAdapterInvocationKind::EventStream => Err(WsDispatchError::BadRequest(format!(
+        ProviderAdapterRequestResolution::EventStream => Err(WsDispatchError::BadRequest(format!(
             "provider `{}` adapter operation `{operation:?}` is event-stream driven; subscribe to provider runtime events",
             adapter_profile.provider.runtime_id()
         ))),
-        ProviderAdapterInvocationKind::DirectProviderMethod
-        | ProviderAdapterInvocationKind::TypedApi
-        | ProviderAdapterInvocationKind::CompositeTypedApi => Ok(()),
+        ProviderAdapterRequestResolution::DirectProviderMethod { .. }
+        | ProviderAdapterRequestResolution::TypedApi
+        | ProviderAdapterRequestResolution::CompositeTypedApi { .. } => Ok(()),
     }
 }
 
@@ -3403,37 +3400,26 @@ fn resolve_provider_runtime_request_method(
             "provider runtime request requires either `method` or `operation`".to_string(),
         )
     })?;
-    let operation_profile = adapter_profile.operation(operation).ok_or_else(|| {
-        WsDispatchError::BadRequest(format!(
-            "provider `{}` does not advertise adapter operation `{operation:?}`",
-            adapter_profile.provider.runtime_id()
-        ))
-    })?;
 
-    match operation_profile.invocation {
-        ProviderAdapterInvocationKind::DirectProviderMethod => adapter_profile
-            .direct_provider_method(operation)
-            .map(str::to_string)
-            .ok_or_else(|| {
-                WsDispatchError::BadRequest(format!(
-                    "provider `{}` advertises adapter operation `{operation:?}` as direct but did not expose exactly one provider method",
-                    adapter_profile.provider.runtime_id()
-                ))
-            }),
-        ProviderAdapterInvocationKind::Deferred => Err(WsDispatchError::BadRequest(format!(
+    match adapter_profile
+        .resolve_request_operation(operation)
+        .map_err(|error| WsDispatchError::BadRequest(error.to_string()))?
+    {
+        ProviderAdapterRequestResolution::DirectProviderMethod { method } => Ok(method),
+        ProviderAdapterRequestResolution::Deferred => Err(WsDispatchError::BadRequest(format!(
             "provider `{}` adapter operation `{operation:?}` is intentionally deferred",
             adapter_profile.provider.runtime_id()
         ))),
-        ProviderAdapterInvocationKind::EventStream => Err(WsDispatchError::BadRequest(format!(
+        ProviderAdapterRequestResolution::EventStream => Err(WsDispatchError::BadRequest(format!(
             "provider `{}` adapter operation `{operation:?}` is event-stream driven; subscribe to provider runtime events",
             adapter_profile.provider.runtime_id()
         ))),
-        ProviderAdapterInvocationKind::TypedApi => Err(WsDispatchError::BadRequest(format!(
+        ProviderAdapterRequestResolution::TypedApi => Err(WsDispatchError::BadRequest(format!(
             "provider `{}` adapter operation `{operation:?}` has no direct provider method; use its typed API",
             adapter_profile.provider.runtime_id()
         ))),
-        ProviderAdapterInvocationKind::CompositeTypedApi => {
-            let methods = operation_profile.provider_methods.join("+");
+        ProviderAdapterRequestResolution::CompositeTypedApi { methods } => {
+            let methods = methods.join("+");
             Err(WsDispatchError::BadRequest(format!(
                 "provider `{}` adapter operation `{operation:?}` maps to composite provider methods {methods}; use its typed API",
                 adapter_profile.provider.runtime_id()
