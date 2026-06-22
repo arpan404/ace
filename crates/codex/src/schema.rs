@@ -1,5 +1,7 @@
 use ace_runtime::provider::{
-    ProviderFeature, ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport,
+    ProviderAdapterContract, ProviderAdapterOperation, ProviderAdapterOperationSpec,
+    ProviderAdapterOperationSupport, ProviderFeature, ProviderFeatureCategory,
+    ProviderFeatureDirection, ProviderFeatureSupport,
 };
 use serde::{Deserialize, Serialize};
 
@@ -198,6 +200,104 @@ pub fn codex_provider_features() -> Vec<ProviderFeature> {
         .collect::<Vec<_>>();
     features.extend(codex_execution_location_features());
     features
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexAdapterOperationCoverage {
+    pub operation: ProviderAdapterOperation,
+    pub declared_support: ProviderAdapterOperationSupport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_method: Option<String>,
+    #[serde(default)]
+    pub provider_methods: Vec<CodexAdapterProviderMethodCoverage>,
+    #[serde(default)]
+    pub missing_methods: Vec<String>,
+    #[serde(default)]
+    pub support_mismatches: Vec<CodexAdapterSupportMismatch>,
+    pub fully_covered: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexAdapterProviderMethodCoverage {
+    pub method: String,
+    pub support: CodexMethodSupport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexAdapterSupportMismatch {
+    pub method: String,
+    pub expected: ProviderAdapterOperationSupport,
+    pub actual: CodexMethodSupport,
+}
+
+#[must_use]
+pub fn codex_adapter_contract_coverage(
+    contract: &ProviderAdapterContract,
+) -> Vec<CodexAdapterOperationCoverage> {
+    contract
+        .operations
+        .iter()
+        .map(codex_adapter_operation_coverage)
+        .collect()
+}
+
+fn codex_adapter_operation_coverage(
+    operation: &ProviderAdapterOperationSpec,
+) -> CodexAdapterOperationCoverage {
+    let mut provider_methods = Vec::with_capacity(operation.provider_methods.len());
+    let mut missing_methods = Vec::new();
+    let mut support_mismatches = Vec::new();
+
+    for method in &operation.provider_methods {
+        match classify_codex_method(method, CodexMethodDirection::ClientRequest) {
+            Some(support) => {
+                if !codex_support_satisfies_adapter_support(support, operation.support) {
+                    support_mismatches.push(CodexAdapterSupportMismatch {
+                        method: method.clone(),
+                        expected: operation.support,
+                        actual: support,
+                    });
+                }
+                provider_methods.push(CodexAdapterProviderMethodCoverage {
+                    method: method.clone(),
+                    support,
+                });
+            }
+            None => missing_methods.push(method.clone()),
+        }
+    }
+
+    let fully_covered = missing_methods.is_empty() && support_mismatches.is_empty();
+
+    CodexAdapterOperationCoverage {
+        operation: operation.operation,
+        declared_support: operation.support,
+        canonical_method: operation.canonical_method.clone(),
+        provider_methods,
+        missing_methods,
+        support_mismatches,
+        fully_covered,
+    }
+}
+
+fn codex_support_satisfies_adapter_support(
+    method_support: CodexMethodSupport,
+    adapter_support: ProviderAdapterOperationSupport,
+) -> bool {
+    match adapter_support {
+        ProviderAdapterOperationSupport::Required | ProviderAdapterOperationSupport::Optional => {
+            matches!(
+                method_support,
+                CodexMethodSupport::TypedSupported | CodexMethodSupport::RawSupported
+            )
+        }
+        ProviderAdapterOperationSupport::VersionGated => {
+            method_support == CodexMethodSupport::VersionGated
+        }
+        ProviderAdapterOperationSupport::Deferred => {
+            method_support == CodexMethodSupport::IntentionallyDeferred
+        }
+    }
 }
 
 #[must_use]
@@ -470,5 +570,62 @@ mod tests {
             .expect("cloud execution location feature");
         assert_eq!(cloud_location.category, ProviderFeatureCategory::Cloud);
         assert_eq!(cloud_location.support, ProviderFeatureSupport::Deferred);
+    }
+
+    #[test]
+    fn adapter_contract_provider_methods_are_covered_by_codex_inventory() {
+        let contract = ace_runtime::provider::ace_provider_adapter_contract();
+        let coverage = codex_adapter_contract_coverage(&contract);
+
+        assert_eq!(coverage.len(), contract.operations.len());
+        assert!(
+            coverage.iter().all(|operation| operation.fully_covered),
+            "adapter contract coverage drift: {coverage:#?}"
+        );
+
+        let plan_fork = coverage
+            .iter()
+            .find(|operation| {
+                operation.operation
+                    == ace_runtime::provider::ProviderAdapterOperation::PlanForkForImplementation
+            })
+            .expect("plan fork operation");
+        assert_eq!(
+            plan_fork
+                .provider_methods
+                .iter()
+                .map(|method| method.method.as_str())
+                .collect::<Vec<_>>(),
+            ["thread/fork", "thread/injectItems", "turn/start"]
+        );
+        assert!(
+            plan_fork
+                .provider_methods
+                .iter()
+                .all(|method| method.support == TypedSupported)
+        );
+
+        let mcp_tool = coverage
+            .iter()
+            .find(|operation| {
+                operation.operation == ace_runtime::provider::ProviderAdapterOperation::McpToolCall
+            })
+            .expect("mcp tool operation");
+        assert_eq!(
+            mcp_tool.declared_support,
+            ProviderAdapterOperationSupport::VersionGated
+        );
+        assert_eq!(mcp_tool.provider_methods[0].support, VersionGated);
+
+        let cloud_handoff = coverage
+            .iter()
+            .find(|operation| {
+                operation.operation == ace_runtime::provider::ProviderAdapterOperation::CloudHandoff
+            })
+            .expect("cloud handoff operation");
+        assert_eq!(
+            cloud_handoff.provider_methods[0].support,
+            IntentionallyDeferred
+        );
     }
 }

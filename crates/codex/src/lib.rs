@@ -22,8 +22,10 @@ pub use permissions::{
     available_permission_presets, permission_preset_catalog_entries,
 };
 pub use schema::{
-    CODEX_METHOD_INVENTORY, CodexMethodDirection, CodexMethodSpec, CodexMethodSupport,
-    classify_codex_method, codex_method_inventory, codex_provider_features,
+    CODEX_METHOD_INVENTORY, CodexAdapterOperationCoverage, CodexAdapterProviderMethodCoverage,
+    CodexAdapterSupportMismatch, CodexMethodDirection, CodexMethodSpec, CodexMethodSupport,
+    classify_codex_method, codex_adapter_contract_coverage, codex_method_inventory,
+    codex_provider_features,
 };
 pub use transport::{
     AppServerTransport, CodexJsonRpcError, CodexResponse, CodexStdioTransport,
