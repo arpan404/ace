@@ -570,9 +570,19 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT => {
                 let request = serde_json::from_value::<ProviderServerRequestResult>(payload)?;
-                ensure_codex_provider(&request.provider)?;
-                self.codex
-                    .respond_server_request_result(request.request_id, request.result.clone())
+                let provider_kind = provider_kind_from_runtime_name(Some(&request.provider))
+                    .ok_or_else(|| {
+                        WsDispatchError::UnknownMethod(format!(
+                            "unknown provider `{}` for server request result",
+                            request.provider
+                        ))
+                    })?;
+                self.providers
+                    .respond_server_request_result(
+                        provider_kind,
+                        request.request_id.to_string(),
+                        request.result.clone(),
+                    )
                     .await?;
                 self.provider_events
                     .lock()
@@ -587,10 +597,17 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_ERROR => {
                 let request = serde_json::from_value::<ProviderServerRequestError>(payload)?;
-                ensure_codex_provider(&request.provider)?;
-                self.codex
+                let provider_kind = provider_kind_from_runtime_name(Some(&request.provider))
+                    .ok_or_else(|| {
+                        WsDispatchError::UnknownMethod(format!(
+                            "unknown provider `{}` for server request error",
+                            request.provider
+                        ))
+                    })?;
+                self.providers
                     .respond_server_request_error(
-                        request.request_id,
+                        provider_kind,
+                        request.request_id.to_string(),
                         request.error.code,
                         request.error.message.clone(),
                     )
@@ -744,16 +761,6 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .remove(&provider_kind);
         });
         receiver
-    }
-}
-
-fn ensure_codex_provider(provider: &str) -> Result<(), crate::codex::CodexApiError> {
-    if provider == "codex" {
-        Ok(())
-    } else {
-        Err(crate::codex::CodexApiError::UnsupportedProvider(
-            provider.to_string(),
-        ))
     }
 }
 
@@ -2091,7 +2098,7 @@ mod tests {
         let WsServerPayload::Error { code, .. } = response.payload else {
             panic!("expected provider error");
         };
-        assert_eq!(code, "unsupported_provider");
+        assert_eq!(code, "provider_unavailable");
     }
 
     #[tokio::test]

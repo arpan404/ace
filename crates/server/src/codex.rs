@@ -7,7 +7,7 @@ use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::{
     provider::{
         ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent,
-        ProviderEventSource, ProviderRequest,
+        ProviderEventSource, ProviderRequest, ProviderServerRequestResponder,
     },
     threads::{
         AgentRuntimeState, ExecutionLocation, ForkPoint, HandoffPlan, PlanSessionStatus,
@@ -883,6 +883,53 @@ impl ProviderEventSource for CodexService {
                 message: error.to_string(),
             })
     }
+}
+
+#[async_trait]
+impl ProviderServerRequestResponder for CodexService {
+    async fn respond_server_request_result(
+        &self,
+        request_id: String,
+        result: Value,
+    ) -> std::result::Result<(), ProviderDriverError> {
+        let request_id = parse_codex_server_request_id(&request_id, "server_request/result")?;
+        CodexService::respond_server_request_result(self, request_id, result)
+            .await
+            .map_err(|error| ProviderDriverError::RequestFailed {
+                provider: "codex".to_string(),
+                method: "server_request/result".to_string(),
+                message: error.to_string(),
+            })
+    }
+
+    async fn respond_server_request_error(
+        &self,
+        request_id: String,
+        code: i64,
+        message: String,
+    ) -> std::result::Result<(), ProviderDriverError> {
+        let request_id = parse_codex_server_request_id(&request_id, "server_request/error")?;
+        CodexService::respond_server_request_error(self, request_id, code, message)
+            .await
+            .map_err(|error| ProviderDriverError::RequestFailed {
+                provider: "codex".to_string(),
+                method: "server_request/error".to_string(),
+                message: error.to_string(),
+            })
+    }
+}
+
+fn parse_codex_server_request_id(
+    request_id: &str,
+    method: &'static str,
+) -> std::result::Result<i64, ProviderDriverError> {
+    request_id
+        .parse::<i64>()
+        .map_err(|error| ProviderDriverError::RequestFailed {
+            provider: "codex".to_string(),
+            method: method.to_string(),
+            message: format!("invalid Codex server request id `{request_id}`: {error}"),
+        })
 }
 
 fn extract_turn_id(response: &Value) -> Option<String> {

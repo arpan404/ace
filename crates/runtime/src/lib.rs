@@ -236,13 +236,31 @@ pub mod provider {
         async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>, ProviderDriverError>;
     }
 
+    #[async_trait]
+    pub trait ProviderServerRequestResponder: Send + Sync + 'static {
+        async fn respond_server_request_result(
+            &self,
+            request_id: String,
+            result: Value,
+        ) -> Result<(), ProviderDriverError>;
+
+        async fn respond_server_request_error(
+            &self,
+            request_id: String,
+            code: i64,
+            message: String,
+        ) -> Result<(), ProviderDriverError>;
+    }
+
     pub type DynProviderDriver = Arc<dyn ProviderDriver>;
     pub type DynProviderEventSource = Arc<dyn ProviderEventSource>;
+    pub type DynProviderServerRequestResponder = Arc<dyn ProviderServerRequestResponder>;
 
     #[derive(Default, Clone)]
     pub struct ProviderRegistry {
         drivers: HashMap<ProviderKind, DynProviderDriver>,
         event_sources: HashMap<ProviderKind, DynProviderEventSource>,
+        server_request_responders: HashMap<ProviderKind, DynProviderServerRequestResponder>,
     }
 
     #[must_use]
@@ -329,6 +347,16 @@ pub mod provider {
             self
         }
 
+        #[must_use]
+        pub fn with_server_request_responder(
+            mut self,
+            provider: ProviderKind,
+            responder: DynProviderServerRequestResponder,
+        ) -> Self {
+            self.register_server_request_responder(provider, responder);
+            self
+        }
+
         pub fn register(&mut self, driver: DynProviderDriver) {
             let kind = driver.descriptor().kind;
             self.drivers.insert(kind, driver);
@@ -342,6 +370,14 @@ pub mod provider {
             self.event_sources.insert(provider, source);
         }
 
+        pub fn register_server_request_responder(
+            &mut self,
+            provider: ProviderKind,
+            responder: DynProviderServerRequestResponder,
+        ) {
+            self.server_request_responders.insert(provider, responder);
+        }
+
         #[must_use]
         pub fn get(&self, kind: ProviderKind) -> Option<DynProviderDriver> {
             self.drivers.get(&kind).cloned()
@@ -350,6 +386,11 @@ pub mod provider {
         #[must_use]
         pub fn has_event_source(&self, kind: ProviderKind) -> bool {
             self.event_sources.contains_key(&kind)
+        }
+
+        #[must_use]
+        pub fn has_server_request_responder(&self, kind: ProviderKind) -> bool {
+            self.server_request_responders.contains_key(&kind)
         }
 
         #[must_use]
@@ -391,6 +432,39 @@ pub mod provider {
                 .get(&kind)
                 .ok_or(ProviderRuntimeError::ProviderUnavailable { provider: kind })?;
             source.next_events().await.map_err(Into::into)
+        }
+
+        pub async fn respond_server_request_result(
+            &self,
+            kind: ProviderKind,
+            request_id: String,
+            result: Value,
+        ) -> Result<(), ProviderRuntimeError> {
+            let responder = self
+                .server_request_responders
+                .get(&kind)
+                .ok_or(ProviderRuntimeError::ProviderUnavailable { provider: kind })?;
+            responder
+                .respond_server_request_result(request_id, result)
+                .await
+                .map_err(Into::into)
+        }
+
+        pub async fn respond_server_request_error(
+            &self,
+            kind: ProviderKind,
+            request_id: String,
+            code: i64,
+            message: String,
+        ) -> Result<(), ProviderRuntimeError> {
+            let responder = self
+                .server_request_responders
+                .get(&kind)
+                .ok_or(ProviderRuntimeError::ProviderUnavailable { provider: kind })?;
+            responder
+                .respond_server_request_error(request_id, code, message)
+                .await
+                .map_err(Into::into)
         }
     }
 
@@ -452,6 +526,55 @@ pub mod provider {
                 } else {
                     Ok(Some(std::mem::take(&mut events)))
                 }
+            }
+        }
+
+        #[derive(Debug, Clone, PartialEq)]
+        enum FakeServerRequestDecision {
+            Result {
+                request_id: String,
+                result: Value,
+            },
+            Error {
+                request_id: String,
+                code: i64,
+                message: String,
+            },
+        }
+
+        struct FakeServerRequestResponder {
+            decisions: Mutex<Vec<FakeServerRequestDecision>>,
+        }
+
+        #[async_trait]
+        impl ProviderServerRequestResponder for FakeServerRequestResponder {
+            async fn respond_server_request_result(
+                &self,
+                request_id: String,
+                result: Value,
+            ) -> Result<(), ProviderDriverError> {
+                self.decisions
+                    .lock()
+                    .expect("decisions")
+                    .push(FakeServerRequestDecision::Result { request_id, result });
+                Ok(())
+            }
+
+            async fn respond_server_request_error(
+                &self,
+                request_id: String,
+                code: i64,
+                message: String,
+            ) -> Result<(), ProviderDriverError> {
+                self.decisions
+                    .lock()
+                    .expect("decisions")
+                    .push(FakeServerRequestDecision::Error {
+                        request_id,
+                        code,
+                        message,
+                    });
+                Ok(())
             }
         }
 
@@ -632,6 +755,64 @@ pub mod provider {
                 .next_events(ProviderKind::Cursor)
                 .await
                 .expect_err("unregistered provider event source");
+
+            assert!(matches!(
+                error,
+                ProviderRuntimeError::ProviderUnavailable {
+                    provider: ProviderKind::Cursor
+                }
+            ));
+        }
+
+        #[tokio::test]
+        async fn registry_routes_provider_server_request_responses_by_kind() {
+            let responder = Arc::new(FakeServerRequestResponder {
+                decisions: Mutex::new(Vec::new()),
+            });
+            let registry = ProviderRegistry::new()
+                .with_server_request_responder(ProviderKind::Codex, responder.clone());
+
+            assert!(registry.has_server_request_responder(ProviderKind::Codex));
+            registry
+                .respond_server_request_result(
+                    ProviderKind::Codex,
+                    "42".to_string(),
+                    json!({ "approved": true }),
+                )
+                .await
+                .expect("result");
+            registry
+                .respond_server_request_error(
+                    ProviderKind::Codex,
+                    "43".to_string(),
+                    -32000,
+                    "denied".to_string(),
+                )
+                .await
+                .expect("error");
+
+            assert_eq!(
+                responder.decisions.lock().expect("decisions").as_slice(),
+                [
+                    FakeServerRequestDecision::Result {
+                        request_id: "42".to_string(),
+                        result: json!({ "approved": true }),
+                    },
+                    FakeServerRequestDecision::Error {
+                        request_id: "43".to_string(),
+                        code: -32000,
+                        message: "denied".to_string(),
+                    },
+                ]
+            );
+        }
+
+        #[tokio::test]
+        async fn registry_rejects_unregistered_provider_server_request_responder() {
+            let error = ProviderRegistry::new()
+                .respond_server_request_result(ProviderKind::Cursor, "42".to_string(), json!({}))
+                .await
+                .expect_err("unregistered provider server request responder");
 
             assert!(matches!(
                 error,
