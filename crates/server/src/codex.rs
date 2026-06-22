@@ -2735,6 +2735,7 @@ pub mod tests {
                 target: None,
                 url: None,
                 files: None,
+                attachments: None,
                 diff: None,
                 token_usage: None,
                 plan_questions: None,

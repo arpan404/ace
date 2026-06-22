@@ -89,6 +89,8 @@ pub mod methods {
     pub const CODEX_ACCOUNT_LOGIN_CANCEL: &str = "codex.account.login_cancel";
     pub const CODEX_ACCOUNT_LOGOUT: &str = "codex.account.logout";
     pub const CODEX_ACCOUNT_READ: &str = "codex.account.read";
+    pub const CODEX_ACCOUNT_RATE_LIMIT_RESET_CREDIT_CONSUME: &str =
+        "codex.account.rate_limit_reset_credit.consume";
     pub const CODEX_ACCOUNT_RATE_LIMITS_READ: &str = "codex.account.rate_limits_read";
     pub const CODEX_ACCOUNT_USAGE_READ: &str = "codex.account.usage_read";
     pub const CODEX_ACCOUNT_SEND_ADD_CREDITS_NUDGE_EMAIL: &str =

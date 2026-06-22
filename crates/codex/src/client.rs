@@ -1195,6 +1195,11 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.raw_request("account/read", params).await
     }
 
+    pub async fn account_rate_limit_reset_credit_consume(&self, params: Value) -> Result<Value> {
+        self.raw_request("account/rateLimitResetCredit/consume", params)
+            .await
+    }
+
     pub async fn account_rate_limits_read(&self, params: Value) -> Result<Value> {
         self.raw_request("account/rateLimits/read", params).await
     }
@@ -2082,6 +2087,13 @@ mod tests {
             .expect("logout");
         client.account_read(json!({})).await.expect("account read");
         client
+            .account_rate_limit_reset_credit_consume(json!({
+                "accountId": "acct-1",
+                "source": "rate-limit-banner"
+            }))
+            .await
+            .expect("rate-limit reset credit consume");
+        client
             .account_rate_limits_read(json!({ "accountId": "acct-1" }))
             .await
             .expect("rate limits");
@@ -2114,6 +2126,7 @@ mod tests {
                 "account/login/cancel",
                 "account/logout",
                 "account/read",
+                "account/rateLimitResetCredit/consume",
                 "account/rateLimits/read",
                 "account/usage/read",
                 "account/sendAddCreditsNudgeEmail",
@@ -2122,7 +2135,11 @@ mod tests {
             ]
         );
         assert_eq!(requests[0].1["provider"], "chatgpt");
-        assert_eq!(requests[8].1["mode"], "default");
+        let windows_setup = requests
+            .iter()
+            .find(|(method, _)| method == "windowsSandbox/setupStart")
+            .expect("windows setup request");
+        assert_eq!(windows_setup.1["mode"], "default");
     }
 
     #[tokio::test]

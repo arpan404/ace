@@ -63,6 +63,7 @@ pub fn normalize_provider_thread_item(
             .or_else(|| string_at(&input.params, "command")),
         url: string_at(item, "url").or_else(|| string_at(&input.params, "url")),
         files: value_at(item, "files").or_else(|| value_at(&input.params, "files")),
+        attachments: attachments_for_thread_item(item, &input.params),
         diff: value_at(item, "diff")
             .or_else(|| value_at(&input.params, "diff"))
             .or_else(|| value_at(item, "patch"))
@@ -191,6 +192,14 @@ fn metadata_for_thread_item(item: &Value) -> Value {
         "target",
         "url",
         "files",
+        "attachments",
+        "images",
+        "image",
+        "inputImages",
+        "input_images",
+        "documents",
+        "audio",
+        "attachment",
         "diff",
         "tokens",
         "questions",
@@ -204,6 +213,25 @@ fn metadata_for_thread_item(item: &Value) -> Value {
         }
     }
     Value::Object(metadata)
+}
+
+fn attachments_for_thread_item(item: &Value, params: &Value) -> Option<Value> {
+    value_at(item, "attachments")
+        .or_else(|| value_at(params, "attachments"))
+        .or_else(|| value_at(item, "attachment"))
+        .or_else(|| value_at(params, "attachment"))
+        .or_else(|| value_at(item, "inputImages"))
+        .or_else(|| value_at(params, "inputImages"))
+        .or_else(|| value_at(item, "input_images"))
+        .or_else(|| value_at(params, "input_images"))
+        .or_else(|| value_at(item, "images"))
+        .or_else(|| value_at(params, "images"))
+        .or_else(|| value_at(item, "image"))
+        .or_else(|| value_at(params, "image"))
+        .or_else(|| value_at(item, "documents"))
+        .or_else(|| value_at(params, "documents"))
+        .or_else(|| value_at(item, "audio"))
+        .or_else(|| value_at(params, "audio"))
 }
 
 fn compact_title(text: &str) -> String {
@@ -457,6 +485,66 @@ mod tests {
         assert_eq!(
             web_search.metadata["url"],
             "https://developers.openai.com/codex/app-server"
+        );
+    }
+
+    #[test]
+    fn normalizes_thread_item_attachments_as_first_class_data() {
+        let item = normalize_provider_thread_item(ThreadItemNormalizationInput {
+            provider: "codex".to_string(),
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "message-1",
+                    "type": "userMessage",
+                    "text": "Review this screenshot",
+                    "attachments": [
+                        {
+                            "kind": "image",
+                            "mimeType": "image/png",
+                            "url": "codex://attachment/screenshot.png"
+                        }
+                    ]
+                }
+            }),
+        })
+        .expect("message with attachment");
+
+        assert_eq!(item.kind, ThreadItemKind::UserMessage);
+        assert_eq!(
+            item.attachments.as_ref().expect("attachments")[0]["mimeType"],
+            "image/png"
+        );
+        assert_eq!(
+            item.metadata["attachments"][0]["url"],
+            "codex://attachment/screenshot.png"
+        );
+        assert_eq!(
+            item.provider.raw_payload["item"]["attachments"][0]["kind"],
+            "image"
+        );
+
+        let image_alias = normalize_provider_thread_item(ThreadItemNormalizationInput {
+            provider: "future-provider".to_string(),
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "item": {
+                    "id": "image-message-1",
+                    "type": "userMessage",
+                    "inputImages": [
+                        { "path": "screenshots/login.png" }
+                    ]
+                }
+            }),
+        })
+        .expect("message with image alias");
+
+        assert_eq!(
+            image_alias.attachments.as_ref().expect("image alias")[0]["path"],
+            "screenshots/login.png"
         );
     }
 

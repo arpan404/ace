@@ -54,6 +54,11 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("account/login/cancel", ClientRequest, RawSupported),
     CodexMethodSpec::new("account/login/start", ClientRequest, RawSupported),
     CodexMethodSpec::new("account/logout", ClientRequest, RawSupported),
+    CodexMethodSpec::new(
+        "account/rateLimitResetCredit/consume",
+        ClientRequest,
+        RawSupported,
+    ),
     CodexMethodSpec::new("account/rateLimits/read", ClientRequest, RawSupported),
     CodexMethodSpec::new("account/read", ClientRequest, RawSupported),
     CodexMethodSpec::new(
@@ -689,6 +694,7 @@ mod tests {
         "account/login/cancel",
         "account/login/start",
         "account/logout",
+        "account/rateLimitResetCredit/consume",
         "account/rateLimits/read",
         "account/read",
         "account/sendAddCreditsNudgeEmail",

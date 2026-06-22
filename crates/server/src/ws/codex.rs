@@ -2652,6 +2652,9 @@ fn codex_ws_method_for_adapter_operation(
         ProviderAdapterOperation::AccountLoginCancel => methods::CODEX_ACCOUNT_LOGIN_CANCEL,
         ProviderAdapterOperation::AccountLogout => methods::CODEX_ACCOUNT_LOGOUT,
         ProviderAdapterOperation::AccountRead => methods::CODEX_ACCOUNT_READ,
+        ProviderAdapterOperation::AccountRateLimitResetCreditConsume => {
+            methods::CODEX_ACCOUNT_RATE_LIMIT_RESET_CREDIT_CONSUME
+        }
         ProviderAdapterOperation::AccountRateLimitsRead => methods::CODEX_ACCOUNT_RATE_LIMITS_READ,
         ProviderAdapterOperation::AccountUsageRead => methods::CODEX_ACCOUNT_USAGE_READ,
         ProviderAdapterOperation::AccountSendAddCreditsNudgeEmail => {
@@ -3440,6 +3443,10 @@ fn codex_versioned_app_server_request(
         }
         methods::CODEX_ACCOUNT_LOGOUT => Some(("account/logout", raw_or_enveloped(payload)?)),
         methods::CODEX_ACCOUNT_READ => Some(("account/read", raw_or_enveloped(payload)?)),
+        methods::CODEX_ACCOUNT_RATE_LIMIT_RESET_CREDIT_CONSUME => Some((
+            "account/rateLimitResetCredit/consume",
+            raw_or_enveloped(payload)?,
+        )),
         methods::CODEX_ACCOUNT_RATE_LIMITS_READ => {
             Some(("account/rateLimits/read", raw_or_enveloped(payload)?))
         }
@@ -5533,6 +5540,7 @@ mod tests {
                     target: Some("src/main.rs".to_string()),
                     url: None,
                     files: Some(json!(["src/main.rs"])),
+                    attachments: None,
                     diff: Some(json!("@@ -1 +1 @@")),
                     token_usage: None,
                     plan_questions: None,
@@ -8257,6 +8265,7 @@ mod tests {
                             target: None,
                             url: None,
                             files: None,
+                            attachments: None,
                             diff: None,
                             token_usage: None,
                             plan_questions: None,
@@ -8291,6 +8300,7 @@ mod tests {
                             target: None,
                             url: None,
                             files: None,
+                            attachments: None,
                             diff: None,
                             token_usage: None,
                             plan_questions: None,
@@ -8325,6 +8335,7 @@ mod tests {
                             target: None,
                             url: None,
                             files: None,
+                            attachments: None,
                             diff: None,
                             token_usage: None,
                             plan_questions: Some(json!([{ "id": "repo" }])),
@@ -8755,6 +8766,10 @@ mod tests {
             ),
             (methods::CODEX_ACCOUNT_READ, json!({})),
             (
+                methods::CODEX_ACCOUNT_RATE_LIMIT_RESET_CREDIT_CONSUME,
+                json!({ "accountId": "acct-1", "source": "rate-limit-banner" }),
+            ),
+            (
                 methods::CODEX_ACCOUNT_RATE_LIMITS_READ,
                 json!({ "accountId": "acct-1" }),
             ),
@@ -8871,6 +8886,7 @@ mod tests {
                 "account/login/cancel",
                 "account/logout",
                 "account/read",
+                "account/rateLimitResetCredit/consume",
                 "account/rateLimits/read",
                 "account/usage/read",
                 "account/sendAddCreditsNudgeEmail",
@@ -9288,6 +9304,16 @@ mod tests {
         assert_eq!(method, "account/login/start");
         assert_eq!(params["provider"], "chatgpt");
         assert_eq!(params["scopes"][0], "openid");
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_ACCOUNT_RATE_LIMIT_RESET_CREDIT_CONSUME,
+            &json!({ "params": { "accountId": "acct-1", "source": "banner" } }),
+        )
+        .expect("rate-limit reset credit consume")
+        .expect("account method");
+        assert_eq!(method, "account/rateLimitResetCredit/consume");
+        assert_eq!(params["accountId"], "acct-1");
+        assert_eq!(params["source"], "banner");
 
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_WINDOWS_SANDBOX_SETUP_START,

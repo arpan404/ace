@@ -753,6 +753,8 @@ pub enum ProviderRuntimeProjectionDelta {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         files: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        attachments: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         diff: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         token_usage: Option<serde_json::Value>,
@@ -1266,6 +1268,7 @@ impl ProviderRuntimeEvent {
                         target: item.target.clone(),
                         url: item.url.clone(),
                         files: item.files.clone(),
+                        attachments: item.attachments.clone(),
                         diff: item.diff.clone(),
                         token_usage: item.token_usage.clone(),
                         plan_questions: item.plan_questions.clone(),
@@ -1447,6 +1450,7 @@ fn thread_item_has_details(item: &NormalizedThreadItem) -> bool {
         || item.target.is_some()
         || item.url.is_some()
         || item.files.is_some()
+        || item.attachments.is_some()
         || item.diff.is_some()
         || item.token_usage.is_some()
         || item.plan_questions.is_some()
@@ -2464,6 +2468,7 @@ mod tests {
                     target: None,
                     url: None,
                     files: None,
+                    attachments: None,
                     diff: None,
                     token_usage: None,
                     plan_questions: None,
@@ -2611,6 +2616,7 @@ mod tests {
                     target: None,
                     url: None,
                     files: None,
+                    attachments: None,
                     diff: None,
                     token_usage: None,
                     plan_questions: Some(json!([
@@ -2696,6 +2702,7 @@ mod tests {
                 target: None,
                 url: None,
                 files: None,
+                attachments: None,
                 diff: None,
                 token_usage: None,
                 plan_questions: None,
@@ -2720,6 +2727,7 @@ mod tests {
                 target: None,
                 url: None,
                 files: None,
+                attachments: None,
                 diff: None,
                 token_usage: None,
                 plan_questions: None,
@@ -2744,6 +2752,12 @@ mod tests {
                 target: Some("src/main.rs".to_string()),
                 url: None,
                 files: Some(json!(["src/main.rs"])),
+                attachments: Some(json!([
+                    {
+                        "kind": "image",
+                        "url": "codex://attachment/diff-context.png"
+                    }
+                ])),
                 diff: Some(json!("@@ -1 +1 @@")),
                 token_usage: None,
                 plan_questions: None,
@@ -2771,6 +2785,7 @@ mod tests {
                 target: Some("cargo test".to_string()),
                 url: None,
                 files: None,
+                attachments: None,
                 diff: None,
                 token_usage: None,
                 plan_questions: None,
@@ -2842,6 +2857,10 @@ mod tests {
         assert_eq!(encoded_file_details["kind"], "fileChange");
         assert_eq!(encoded_file_details["target"], "src/main.rs");
         assert_eq!(encoded_file_details["files"], json!(["src/main.rs"]));
+        assert_eq!(
+            encoded_file_details["attachments"][0]["url"],
+            "codex://attachment/diff-context.png"
+        );
         assert_eq!(encoded_file_details["diff"], "@@ -1 +1 @@");
         assert!(deltas.iter().any(|delta| matches!(
             delta,

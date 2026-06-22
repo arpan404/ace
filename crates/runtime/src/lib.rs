@@ -224,6 +224,7 @@ pub mod provider {
         AccountLoginCancel,
         AccountLogout,
         AccountRead,
+        AccountRateLimitResetCreditConsume,
         AccountRateLimitsRead,
         AccountUsageRead,
         AccountSendAddCreditsNudgeEmail,
@@ -684,6 +685,8 @@ pub mod provider {
         pub url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub files: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub attachments: Option<Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub diff: Option<Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1471,6 +1474,12 @@ pub mod provider {
                 Some("account/read"),
             ),
             op(
+                Operation::AccountRateLimitResetCreditConsume,
+                Category::Account,
+                Optional,
+                Some("account/rateLimitResetCredit/consume"),
+            ),
+            op(
                 Operation::AccountRateLimitsRead,
                 Category::Account,
                 Optional,
@@ -1766,6 +1775,7 @@ pub mod provider {
             | ProviderAdapterOperation::AppsConfigWrite
             | ProviderAdapterOperation::AccountLoginStart
             | ProviderAdapterOperation::AccountLogout
+            | ProviderAdapterOperation::AccountRateLimitResetCreditConsume
             | ProviderAdapterOperation::AccountSendAddCreditsNudgeEmail
             | ProviderAdapterOperation::WindowsSandboxSetupStart
             | ProviderAdapterOperation::MarketplaceAdd
