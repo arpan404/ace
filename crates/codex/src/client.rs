@@ -480,6 +480,86 @@ impl<T: AppServerTransport> CodexClient<T> {
             .await
     }
 
+    pub async fn review_start(&self, params: Value) -> Result<Value> {
+        self.raw_request("review/start", params).await
+    }
+
+    pub async fn command_exec(&self, params: Value) -> Result<Value> {
+        self.raw_request("command/exec", params).await
+    }
+
+    pub async fn command_write_stdin(&self, params: Value) -> Result<Value> {
+        self.raw_request("command/writeStdin", params).await
+    }
+
+    pub async fn command_resize(&self, params: Value) -> Result<Value> {
+        self.raw_request("command/resize", params).await
+    }
+
+    pub async fn command_terminate(&self, params: Value) -> Result<Value> {
+        self.raw_request("command/terminate", params).await
+    }
+
+    pub async fn process_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("process/list", params).await
+    }
+
+    pub async fn process_clean(&self, params: Value) -> Result<Value> {
+        self.raw_request("process/clean", params).await
+    }
+
+    pub async fn mcp_status(&self, params: Value) -> Result<Value> {
+        self.raw_request("mcp/status", params).await
+    }
+
+    pub async fn mcp_resource_read(&self, params: Value) -> Result<Value> {
+        self.raw_request("mcp/resourceRead", params).await
+    }
+
+    pub async fn mcp_oauth_login(&self, params: Value) -> Result<Value> {
+        self.raw_request("mcp/oauthLogin", params).await
+    }
+
+    pub async fn mcp_tool_call(&self, params: Value) -> Result<Value> {
+        self.raw_request("mcp/toolCall", params).await
+    }
+
+    pub async fn skills_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("skills/list", params).await
+    }
+
+    pub async fn skills_read(&self, params: Value) -> Result<Value> {
+        self.raw_request("skills/read", params).await
+    }
+
+    pub async fn skills_install(&self, params: Value) -> Result<Value> {
+        self.raw_request("skills/install", params).await
+    }
+
+    pub async fn plugins_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("plugins/list", params).await
+    }
+
+    pub async fn plugins_install(&self, params: Value) -> Result<Value> {
+        self.raw_request("plugins/install", params).await
+    }
+
+    pub async fn apps_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("apps/list", params).await
+    }
+
+    pub async fn apps_config_write(&self, params: Value) -> Result<Value> {
+        self.raw_request("apps/configWrite", params).await
+    }
+
+    pub async fn remote_connection_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("remote/connectionList", params).await
+    }
+
+    pub async fn remote_handoff(&self, params: Value) -> Result<Value> {
+        self.raw_request("remote/handoff", params).await
+    }
+
     pub async fn next_provider_events(&self) -> Option<Vec<ProviderEvent>> {
         self.transport
             .recv()
@@ -953,6 +1033,112 @@ mod tests {
         assert_eq!(requests[2].1["prompt"], "focus on tests");
         assert_eq!(requests[5].1["agent_role"], "implementer");
         assert_eq!(requests[5].1["skills"][0], "rust");
+    }
+
+    #[tokio::test]
+    async fn version_gated_tool_methods_use_documented_codex_calls() {
+        let fake = FakeTransport::default();
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        client
+            .review_start(json!({ "threadId": "thread-1" }))
+            .await
+            .expect("review");
+        client
+            .command_exec(json!({ "command": "cargo test" }))
+            .await
+            .expect("exec");
+        client
+            .command_write_stdin(json!({ "processId": "p1", "stdin": "q" }))
+            .await
+            .expect("stdin");
+        client
+            .command_resize(json!({ "processId": "p1", "cols": 120, "rows": 40 }))
+            .await
+            .expect("resize");
+        client
+            .command_terminate(json!({ "processId": "p1" }))
+            .await
+            .expect("terminate");
+        client.process_list(json!({})).await.expect("process list");
+        client
+            .process_clean(json!({}))
+            .await
+            .expect("process clean");
+        client.mcp_status(json!({})).await.expect("mcp status");
+        client
+            .mcp_resource_read(json!({ "server": "docs", "uri": "file://readme" }))
+            .await
+            .expect("resource");
+        client
+            .mcp_oauth_login(json!({ "server": "github" }))
+            .await
+            .expect("oauth");
+        client
+            .mcp_tool_call(json!({ "server": "github", "tool": "list_issues" }))
+            .await
+            .expect("tool call");
+        client.skills_list(json!({})).await.expect("skills list");
+        client
+            .skills_read(json!({ "skill": "rust" }))
+            .await
+            .expect("skills read");
+        client
+            .skills_install(json!({ "skill": "rust" }))
+            .await
+            .expect("skills install");
+        client.plugins_list(json!({})).await.expect("plugins list");
+        client
+            .plugins_install(json!({ "plugin": "browser" }))
+            .await
+            .expect("plugins install");
+        client.apps_list(json!({})).await.expect("apps list");
+        client
+            .apps_config_write(json!({ "app": "browser", "config": {} }))
+            .await
+            .expect("apps config");
+        client
+            .remote_connection_list(json!({}))
+            .await
+            .expect("remote list");
+        client
+            .remote_handoff(json!({ "threadId": "thread-1", "host": "devbox" }))
+            .await
+            .expect("remote handoff");
+
+        let requests = client.transport.requests.lock().expect("requests");
+        let methods = requests
+            .iter()
+            .map(|(method, _)| method.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            methods,
+            [
+                "review/start",
+                "command/exec",
+                "command/writeStdin",
+                "command/resize",
+                "command/terminate",
+                "process/list",
+                "process/clean",
+                "mcp/status",
+                "mcp/resourceRead",
+                "mcp/oauthLogin",
+                "mcp/toolCall",
+                "skills/list",
+                "skills/read",
+                "skills/install",
+                "plugins/list",
+                "plugins/install",
+                "apps/list",
+                "apps/configWrite",
+                "remote/connectionList",
+                "remote/handoff",
+            ]
+        );
+        assert_eq!(requests[1].1["command"], "cargo test");
+        assert_eq!(requests[10].1["tool"], "list_issues");
+        assert_eq!(requests[19].1["host"], "devbox");
     }
 
     #[tokio::test]

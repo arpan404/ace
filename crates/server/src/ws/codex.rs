@@ -11,7 +11,7 @@ use ace_protocol::{
         CodexSubagentThreadRpcRequest, CodexThreadForkRequest, CodexThreadIdRequest,
         CodexThreadInjectItemsRequest, CodexThreadRollbackRequest, CodexThreadSetNameRequest,
         CodexThreadStartRequest, CodexThreadUpdateMetadataRequest, CodexThreadsListRequest,
-        CodexTurnStartRequest,
+        CodexTurnStartRequest, CodexVersionedRequest,
     },
     git::GitWorktreeCreateRequest,
     provider_runtime::{
@@ -34,6 +34,15 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         method: &str,
         payload: Value,
     ) -> Result<Value, WsDispatchError> {
+        if let Some(codex_method) = codex_versioned_app_server_method(method) {
+            let request = serde_json::from_value::<CodexVersionedRequest>(payload)?;
+            return self
+                .codex
+                .raw_request(codex_method.to_string(), request.params)
+                .await
+                .map_err(Into::into);
+        }
+
         match method {
             methods::CODEX_RAW_REQUEST => {
                 self.codex_json::<CodexRawRequest, _, _, _>(payload, |service, request| async move {
@@ -607,6 +616,32 @@ fn ensure_codex_provider(provider: &str) -> Result<(), crate::codex::CodexApiErr
         Err(crate::codex::CodexApiError::UnsupportedProvider(
             provider.to_string(),
         ))
+    }
+}
+
+fn codex_versioned_app_server_method(ws_method: &str) -> Option<&'static str> {
+    match ws_method {
+        methods::CODEX_REVIEW_START => Some("review/start"),
+        methods::CODEX_COMMAND_EXEC => Some("command/exec"),
+        methods::CODEX_COMMAND_WRITE_STDIN => Some("command/writeStdin"),
+        methods::CODEX_COMMAND_RESIZE => Some("command/resize"),
+        methods::CODEX_COMMAND_TERMINATE => Some("command/terminate"),
+        methods::CODEX_PROCESS_LIST => Some("process/list"),
+        methods::CODEX_PROCESS_CLEAN => Some("process/clean"),
+        methods::CODEX_MCP_STATUS => Some("mcp/status"),
+        methods::CODEX_MCP_RESOURCE_READ => Some("mcp/resourceRead"),
+        methods::CODEX_MCP_OAUTH_LOGIN => Some("mcp/oauthLogin"),
+        methods::CODEX_MCP_TOOL_CALL => Some("mcp/toolCall"),
+        methods::CODEX_SKILLS_LIST => Some("skills/list"),
+        methods::CODEX_SKILLS_READ => Some("skills/read"),
+        methods::CODEX_SKILLS_INSTALL => Some("skills/install"),
+        methods::CODEX_PLUGINS_LIST => Some("plugins/list"),
+        methods::CODEX_PLUGINS_INSTALL => Some("plugins/install"),
+        methods::CODEX_APPS_LIST => Some("apps/list"),
+        methods::CODEX_APPS_CONFIG_WRITE => Some("apps/configWrite"),
+        methods::CODEX_REMOTE_CONNECTION_LIST => Some("remote/connectionList"),
+        methods::CODEX_REMOTE_HANDOFF => Some("remote/handoff"),
+        _ => None,
     }
 }
 
@@ -1425,6 +1460,82 @@ mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["thread/read"]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_codex_version_gated_tool_surfaces_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let calls = [
+            (
+                methods::CODEX_REVIEW_START,
+                json!({ "params": { "threadId": "thread-1" } }),
+            ),
+            (
+                methods::CODEX_COMMAND_EXEC,
+                json!({ "params": { "command": "cargo test" } }),
+            ),
+            (
+                methods::CODEX_COMMAND_WRITE_STDIN,
+                json!({ "params": { "processId": "p1", "stdin": "q" } }),
+            ),
+            (
+                methods::CODEX_PROCESS_LIST,
+                json!({ "params": { "threadId": "thread-1" } }),
+            ),
+            (
+                methods::CODEX_MCP_TOOL_CALL,
+                json!({ "params": { "server": "github", "tool": "list_issues" } }),
+            ),
+            (
+                methods::CODEX_SKILLS_INSTALL,
+                json!({ "params": { "skill": "rust" } }),
+            ),
+            (
+                methods::CODEX_APPS_CONFIG_WRITE,
+                json!({ "params": { "app": "browser", "config": {} } }),
+            ),
+            (
+                methods::CODEX_REMOTE_HANDOFF,
+                json!({ "params": { "threadId": "thread-1", "host": "devbox" } }),
+            ),
+        ];
+
+        for (index, (method, payload)) in calls.iter().enumerate() {
+            let response = state
+                .dispatch_text(
+                    &json!({
+                        "version": PROTOCOL_VERSION,
+                        "request_id": format!("versioned-{index}"),
+                        "method": method,
+                        "payload": payload
+                    })
+                    .to_string(),
+                )
+                .await;
+            let response: WsServerResponse = serde_json::from_str(&response).expect("response");
+            assert!(matches!(response.payload, WsServerPayload::Result { .. }));
+        }
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "review/start",
+                "command/exec",
+                "command/writeStdin",
+                "process/list",
+                "mcp/toolCall",
+                "skills/install",
+                "apps/configWrite",
+                "remote/handoff",
+            ]
         );
     }
 

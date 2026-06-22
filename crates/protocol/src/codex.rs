@@ -13,6 +13,12 @@ pub struct CodexRawRequest {
     pub params: Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CodexVersionedRequest {
+    #[serde(default)]
+    pub params: Value,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodexThreadStartRequest {
     #[serde(flatten)]
