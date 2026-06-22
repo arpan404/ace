@@ -123,6 +123,7 @@ pub struct AgentThread {
 pub struct AgentRuntimeState {
     active_turns: HashMap<String, Turn>,
     plan_sessions: HashMap<String, PlanSession>,
+    goals: HashMap<String, GoalState>,
 }
 
 impl AgentRuntimeState {
@@ -134,6 +135,63 @@ impl AgentRuntimeState {
     #[must_use]
     pub fn plan_session(&self, thread_id: &str) -> Option<&PlanSession> {
         self.plan_sessions.get(thread_id)
+    }
+
+    #[must_use]
+    pub fn goal(&self, thread_id: &str) -> Option<&GoalState> {
+        self.goals.get(thread_id)
+    }
+
+    pub fn set_goal(
+        &mut self,
+        thread_id: impl Into<String>,
+        objective: impl Into<String>,
+        token_budget: Option<u64>,
+    ) {
+        let thread_id = thread_id.into();
+        self.goals.insert(
+            thread_id.clone(),
+            GoalState {
+                thread_id,
+                status: GoalStatus::Active,
+                objective: Some(objective.into()),
+                token_budget,
+            },
+        );
+    }
+
+    pub fn pause_goal(&mut self, thread_id: &str) {
+        if let Some(goal) = self.goals.get_mut(thread_id) {
+            goal.status = GoalStatus::Paused;
+        }
+    }
+
+    pub fn resume_goal(&mut self, thread_id: &str) {
+        if let Some(goal) = self.goals.get_mut(thread_id) {
+            goal.status = GoalStatus::Active;
+        }
+    }
+
+    pub fn clear_goal(&mut self, thread_id: &str) {
+        if let Some(goal) = self.goals.get_mut(thread_id) {
+            goal.status = GoalStatus::Cleared;
+        } else {
+            self.goals.insert(
+                thread_id.to_string(),
+                GoalState {
+                    thread_id: thread_id.to_string(),
+                    status: GoalStatus::Cleared,
+                    objective: None,
+                    token_budget: None,
+                },
+            );
+        }
+    }
+
+    pub fn complete_goal(&mut self, thread_id: &str) {
+        if let Some(goal) = self.goals.get_mut(thread_id) {
+            goal.status = GoalStatus::Complete;
+        }
     }
 
     pub fn begin_turn(
@@ -342,5 +400,37 @@ mod tests {
         let session = state.plan_session("thread-1").expect("plan session");
         assert_eq!(session.turn_id.as_deref(), Some("turn-1"));
         assert_eq!(session.status, PlanSessionStatus::Active);
+    }
+
+    #[test]
+    fn tracks_goal_lifecycle_independent_of_turn_state() {
+        let mut state = AgentRuntimeState::default();
+        state.set_goal("thread-1", "finish adapter", Some(42));
+
+        let goal = state.goal("thread-1").expect("goal");
+        assert_eq!(goal.status, GoalStatus::Active);
+        assert_eq!(goal.objective.as_deref(), Some("finish adapter"));
+        assert_eq!(goal.token_budget, Some(42));
+
+        state
+            .begin_turn("thread-1", Some("turn-1".to_string()), TurnMode::Plan)
+            .expect("turn");
+        state.pause_goal("thread-1");
+        assert_eq!(
+            state.goal("thread-1").map(|goal| goal.status),
+            Some(GoalStatus::Paused)
+        );
+        assert!(state.active_turn("thread-1").is_some());
+
+        state.resume_goal("thread-1");
+        assert_eq!(
+            state.goal("thread-1").map(|goal| goal.status),
+            Some(GoalStatus::Active)
+        );
+        state.clear_goal("thread-1");
+        assert_eq!(
+            state.goal("thread-1").map(|goal| goal.status),
+            Some(GoalStatus::Cleared)
+        );
     }
 }

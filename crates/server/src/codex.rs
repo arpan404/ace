@@ -1,6 +1,7 @@
 use ace_codex::{
-    CodexClient, CodexConfig, CodexGuardianDeniedActionApproval, CodexPermissionCatalog,
-    CodexPlanImplementation, CodexStdioTransport, CodexThreadStart, CodexTurnStart, Result,
+    CodexClient, CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval,
+    CodexPermissionCatalog, CodexPlanImplementation, CodexStdioTransport, CodexThreadStart,
+    CodexTurnStart, Result,
 };
 use ace_runtime::{
     provider::ProviderEvent,
@@ -77,6 +78,11 @@ pub trait CodexBackend: Send + Sync {
         &self,
         request: CodexGuardianDeniedActionApproval,
     ) -> Result<Value>;
+    async fn goal_set(&self, request: CodexGoalSet) -> Result<Value>;
+    async fn goal_get(&self, thread_id: &str) -> Result<Value>;
+    async fn goal_clear(&self, thread_id: &str) -> Result<Value>;
+    async fn goal_pause(&self, thread_id: &str) -> Result<Value>;
+    async fn goal_resume(&self, thread_id: &str) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
     async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()>;
     async fn respond_server_request_error(
@@ -238,6 +244,26 @@ impl CodexBackend for LiveCodexBackend {
             .await?
             .approve_guardian_denied_action(request)
             .await
+    }
+
+    async fn goal_set(&self, request: CodexGoalSet) -> Result<Value> {
+        self.client().await?.goal_set(request).await
+    }
+
+    async fn goal_get(&self, thread_id: &str) -> Result<Value> {
+        self.client().await?.goal_get(thread_id).await
+    }
+
+    async fn goal_clear(&self, thread_id: &str) -> Result<Value> {
+        self.client().await?.goal_clear(thread_id).await
+    }
+
+    async fn goal_pause(&self, thread_id: &str) -> Result<Value> {
+        self.client().await?.goal_pause(thread_id).await
+    }
+
+    async fn goal_resume(&self, thread_id: &str) -> Result<Value> {
+        self.client().await?.goal_resume(thread_id).await
     }
 
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
@@ -502,6 +528,46 @@ impl CodexService {
         request: CodexGuardianDeniedActionApproval,
     ) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.approve_guardian_denied_action(request).await?)
+    }
+
+    pub async fn goal_set(
+        &self,
+        request: CodexGoalSet,
+    ) -> std::result::Result<Value, CodexApiError> {
+        let thread_id = request.thread_id.clone();
+        let objective = request.objective.clone();
+        let token_budget = request.token_budget;
+        let response = self.backend.goal_set(request).await?;
+        self.state
+            .lock()
+            .await
+            .set_goal(thread_id, objective, token_budget);
+        Ok(response)
+    }
+
+    pub async fn goal_get(&self, thread_id: String) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.goal_get(&thread_id).await?)
+    }
+
+    pub async fn goal_clear(&self, thread_id: String) -> std::result::Result<Value, CodexApiError> {
+        let response = self.backend.goal_clear(&thread_id).await?;
+        self.state.lock().await.clear_goal(&thread_id);
+        Ok(response)
+    }
+
+    pub async fn goal_pause(&self, thread_id: String) -> std::result::Result<Value, CodexApiError> {
+        let response = self.backend.goal_pause(&thread_id).await?;
+        self.state.lock().await.pause_goal(&thread_id);
+        Ok(response)
+    }
+
+    pub async fn goal_resume(
+        &self,
+        thread_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        let response = self.backend.goal_resume(&thread_id).await?;
+        self.state.lock().await.resume_goal(&thread_id);
+        Ok(response)
     }
 
     pub async fn next_events(
@@ -803,6 +869,55 @@ pub mod tests {
             Ok(serde_json::json!({ "approved": request.approved }))
         }
 
+        async fn goal_set(&self, request: CodexGoalSet) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("goal/set:{}", request.thread_id));
+            Ok(serde_json::json!({
+                "threadId": request.thread_id,
+                "objective": request.objective,
+                "tokenBudget": request.token_budget,
+                "status": "active"
+            }))
+        }
+
+        async fn goal_get(&self, thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("goal/get:{thread_id}"));
+            Ok(serde_json::json!({
+                "threadId": thread_id,
+                "objective": "finish adapter",
+                "status": "active"
+            }))
+        }
+
+        async fn goal_clear(&self, thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("goal/clear:{thread_id}"));
+            Ok(serde_json::json!({ "threadId": thread_id, "status": "cleared" }))
+        }
+
+        async fn goal_pause(&self, thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("goal/pause:{thread_id}"));
+            Ok(serde_json::json!({ "threadId": thread_id, "status": "paused" }))
+        }
+
+        async fn goal_resume(&self, thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("goal/resume:{thread_id}"));
+            Ok(serde_json::json!({ "threadId": thread_id, "status": "active" }))
+        }
+
         async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
             Ok(self.events.lock().expect("events").pop_front())
         }
@@ -939,6 +1054,49 @@ pub mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["turn/start:thread-1", "turn/start:thread-1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_runs_goal_lifecycle_through_backend() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        let set = service
+            .goal_set(CodexGoalSet {
+                thread_id: "thread-1".to_string(),
+                objective: "finish adapter".to_string(),
+                token_budget: Some(12_000),
+            })
+            .await
+            .expect("goal set");
+        assert_eq!(set["status"], "active");
+        service
+            .goal_get("thread-1".to_string())
+            .await
+            .expect("goal get");
+        service
+            .goal_pause("thread-1".to_string())
+            .await
+            .expect("goal pause");
+        service
+            .goal_resume("thread-1".to_string())
+            .await
+            .expect("goal resume");
+        service
+            .goal_clear("thread-1".to_string())
+            .await
+            .expect("goal clear");
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "goal/set:thread-1",
+                "goal/get:thread-1",
+                "goal/pause:thread-1",
+                "goal/resume:thread-1",
+                "goal/clear:thread-1",
+            ]
         );
     }
 }

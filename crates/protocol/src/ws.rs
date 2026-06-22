@@ -30,6 +30,11 @@ pub mod methods {
     pub const CODEX_PERMISSION_PRESET_RESOLVE: &str = "codex.permissions.preset.resolve";
     pub const CODEX_THREAD_APPROVE_GUARDIAN_DENIED_ACTION: &str =
         "codex.thread.approve_guardian_denied_action";
+    pub const CODEX_GOAL_SET: &str = "codex.goal.set";
+    pub const CODEX_GOAL_GET: &str = "codex.goal.get";
+    pub const CODEX_GOAL_CLEAR: &str = "codex.goal.clear";
+    pub const CODEX_GOAL_PAUSE: &str = "codex.goal.pause";
+    pub const CODEX_GOAL_RESUME: &str = "codex.goal.resume";
     pub const CODEX_STDERR_TAIL: &str = "codex.stderr_tail";
     pub const CODEX_SHUTDOWN: &str = "codex.shutdown";
     pub const CODEX_RESTART: &str = "codex.restart";

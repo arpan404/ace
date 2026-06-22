@@ -1,7 +1,7 @@
 use crate::{
     AppServerTransport, CodexError, CodexStdioTransport, Result, normalize_codex_inbound_event,
 };
-use crate::{CodexGuardianDeniedActionApproval, CodexPermissionCatalog};
+use crate::{CodexGoalSet, CodexGuardianDeniedActionApproval, CodexPermissionCatalog};
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::provider::{
     ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent, ProviderRequest,
@@ -390,6 +390,38 @@ impl<T: AppServerTransport> CodexClient<T> {
         .await
     }
 
+    pub async fn goal_set(&self, request: CodexGoalSet) -> Result<Value> {
+        self.raw_request(
+            "goal/set",
+            json!({
+                "threadId": request.thread_id,
+                "objective": request.objective,
+                "tokenBudget": request.token_budget,
+            }),
+        )
+        .await
+    }
+
+    pub async fn goal_get(&self, thread_id: &str) -> Result<Value> {
+        self.raw_request("goal/get", json!({ "threadId": thread_id }))
+            .await
+    }
+
+    pub async fn goal_clear(&self, thread_id: &str) -> Result<Value> {
+        self.raw_request("goal/clear", json!({ "threadId": thread_id }))
+            .await
+    }
+
+    pub async fn goal_pause(&self, thread_id: &str) -> Result<Value> {
+        self.raw_request("goal/pause", json!({ "threadId": thread_id }))
+            .await
+    }
+
+    pub async fn goal_resume(&self, thread_id: &str) -> Result<Value> {
+        self.raw_request("goal/resume", json!({ "threadId": thread_id }))
+            .await
+    }
+
     pub async fn next_provider_events(&self) -> Option<Vec<ProviderEvent>> {
         self.transport
             .recv()
@@ -757,6 +789,44 @@ mod tests {
         assert_eq!(requests[2].0, "thread/approveGuardianDeniedAction");
         assert_eq!(requests[2].1["threadId"], "thread-1");
         assert_eq!(requests[2].1["approved"], true);
+    }
+
+    #[tokio::test]
+    async fn goal_methods_use_typed_codex_app_server_calls() {
+        let fake = FakeTransport::default();
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        client
+            .goal_set(CodexGoalSet {
+                thread_id: "thread-1".to_string(),
+                objective: "finish the adapter".to_string(),
+                token_budget: Some(10_000),
+            })
+            .await
+            .expect("goal set");
+        client.goal_get("thread-1").await.expect("goal get");
+        client.goal_pause("thread-1").await.expect("goal pause");
+        client.goal_resume("thread-1").await.expect("goal resume");
+        client.goal_clear("thread-1").await.expect("goal clear");
+
+        let requests = client.transport.requests.lock().expect("requests");
+        let methods = requests
+            .iter()
+            .map(|(method, _)| method.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            methods,
+            [
+                "goal/set",
+                "goal/get",
+                "goal/pause",
+                "goal/resume",
+                "goal/clear"
+            ]
+        );
+        assert_eq!(requests[0].1["threadId"], "thread-1");
+        assert_eq!(requests[0].1["objective"], "finish the adapter");
+        assert_eq!(requests[0].1["tokenBudget"], 10_000);
     }
 
     #[tokio::test]

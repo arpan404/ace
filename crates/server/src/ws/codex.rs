@@ -3,9 +3,9 @@ use ace_git::ProcessRunner;
 use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
-        CodexGuardianDeniedActionApprovalRequest, CodexPermissionPresetRequest,
-        CodexPlanImplementationRequest, CodexPlanTurnStartRequest, CodexRawRequest,
-        CodexShutdownRequest, CodexStderrTailResponse, CodexThreadForkRequest,
+        CodexGoalSetRequest, CodexGuardianDeniedActionApprovalRequest,
+        CodexPermissionPresetRequest, CodexPlanImplementationRequest, CodexPlanTurnStartRequest,
+        CodexRawRequest, CodexShutdownRequest, CodexStderrTailResponse, CodexThreadForkRequest,
         CodexThreadIdRequest, CodexThreadInjectItemsRequest, CodexThreadRollbackRequest,
         CodexThreadSetNameRequest, CodexThreadStartRequest, CodexThreadUpdateMetadataRequest,
         CodexThreadsListRequest, CodexTurnStartRequest,
@@ -244,6 +244,41 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             .approve_guardian_denied_action(request.params)
                             .await
                     },
+                )
+                .await
+            }
+            methods::CODEX_GOAL_SET => {
+                self.codex_json::<CodexGoalSetRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.goal_set(request.params).await },
+                )
+                .await
+            }
+            methods::CODEX_GOAL_GET => {
+                self.codex_json::<CodexThreadIdRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.goal_get(request.thread_id).await },
+                )
+                .await
+            }
+            methods::CODEX_GOAL_CLEAR => {
+                self.codex_json::<CodexThreadIdRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.goal_clear(request.thread_id).await },
+                )
+                .await
+            }
+            methods::CODEX_GOAL_PAUSE => {
+                self.codex_json::<CodexThreadIdRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.goal_pause(request.thread_id).await },
+                )
+                .await
+            }
+            methods::CODEX_GOAL_RESUME => {
+                self.codex_json::<CodexThreadIdRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.goal_resume(request.thread_id).await },
                 )
                 .await
             }
@@ -608,6 +643,68 @@ mod tests {
                 "configRequirements/read",
                 "permissionProfile/list",
                 "thread/approveGuardianDeniedAction:thread-1:action-1",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_codex_goal_methods_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let calls = [
+            (
+                methods::CODEX_GOAL_SET,
+                json!({
+                    "thread_id": "thread-1",
+                    "objective": "finish adapter",
+                    "token_budget": 12000
+                }),
+            ),
+            (methods::CODEX_GOAL_GET, json!({ "thread_id": "thread-1" })),
+            (
+                methods::CODEX_GOAL_PAUSE,
+                json!({ "thread_id": "thread-1" }),
+            ),
+            (
+                methods::CODEX_GOAL_RESUME,
+                json!({ "thread_id": "thread-1" }),
+            ),
+            (
+                methods::CODEX_GOAL_CLEAR,
+                json!({ "thread_id": "thread-1" }),
+            ),
+        ];
+
+        for (index, (method, payload)) in calls.iter().enumerate() {
+            let response = state
+                .dispatch_text(
+                    &json!({
+                        "version": PROTOCOL_VERSION,
+                        "request_id": format!("goal-{index}"),
+                        "method": method,
+                        "payload": payload
+                    })
+                    .to_string(),
+                )
+                .await;
+            let response: WsServerResponse = serde_json::from_str(&response).expect("response");
+            assert!(matches!(response.payload, WsServerPayload::Result { .. }));
+        }
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "goal/set:thread-1",
+                "goal/get:thread-1",
+                "goal/pause:thread-1",
+                "goal/resume:thread-1",
+                "goal/clear:thread-1",
             ]
         );
     }
