@@ -1540,6 +1540,7 @@ pub mod tests {
         pub starts: StdMutex<u64>,
         pub shutdowns: StdMutex<Vec<Duration>>,
         pub restarts: StdMutex<Vec<Duration>>,
+        pub supported_client_request_methods: StdMutex<Option<Vec<String>>>,
     }
 
     #[derive(Debug, Clone, PartialEq)]
@@ -1564,6 +1565,11 @@ pub mod tests {
     #[async_trait]
     impl CodexBackend for FakeCodexBackend {
         async fn status(&self) -> ProviderDriverStatus {
+            let supported_client_request_methods = self
+                .supported_client_request_methods
+                .lock()
+                .expect("supported client request methods")
+                .clone();
             ProviderDriverStatus {
                 health: ProviderRuntimeHealth::Running,
                 transport: Some("fake_stdio".to_string()),
@@ -1572,7 +1578,8 @@ pub mod tests {
                 last_error: None,
                 metadata: serde_json::json!({
                     "fake": true,
-                    "queued_event_batches": self.events.lock().expect("events").len()
+                    "queued_event_batches": self.events.lock().expect("events").len(),
+                    "supported_client_request_methods": supported_client_request_methods
                 }),
             }
         }

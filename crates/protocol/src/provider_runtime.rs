@@ -250,6 +250,8 @@ pub struct ProviderRuntimeProviderOperation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_gate: Option<ProviderAdapterOperationGate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_gate_resolution: Option<ProviderRuntimeOperationGateResolution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub availability_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canonical_method: Option<String>,
@@ -275,6 +277,7 @@ impl ProviderRuntimeProviderOperation {
             availability: profile.availability,
             policy: profile.policy,
             runtime_gate: profile.runtime_gate,
+            runtime_gate_resolution: None,
             availability_reason: profile.availability_reason,
             canonical_method: profile.canonical_method,
             provider_methods: profile.provider_methods,
@@ -293,6 +296,35 @@ impl ProviderRuntimeProviderOperation {
         self.runtime_request = runtime_request;
         self
     }
+
+    #[must_use]
+    pub fn with_runtime_gate_resolution(
+        mut self,
+        resolution: Option<ProviderRuntimeOperationGateResolution>,
+    ) -> Self {
+        self.runtime_gate_resolution = resolution;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderRuntimeOperationGateStatus {
+    Available,
+    Unavailable,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeOperationGateResolution {
+    pub status: ProviderRuntimeOperationGateStatus,
+    #[serde(default)]
+    pub provider_methods: Vec<String>,
+    #[serde(default)]
+    pub missing_provider_methods: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

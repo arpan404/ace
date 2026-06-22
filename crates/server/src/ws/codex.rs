@@ -31,6 +31,7 @@ use ace_protocol::{
         ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeEventRecord,
         ProviderRuntimeFeaturesListRequest, ProviderRuntimeFeaturesListResponse,
         ProviderRuntimeLifecycleRequest, ProviderRuntimeLifecycleResponse,
+        ProviderRuntimeOperationGateResolution, ProviderRuntimeOperationGateStatus,
         ProviderRuntimeOperationParams, ProviderRuntimeOperationRequest,
         ProviderRuntimeOperationRequestMode, ProviderRuntimeOperationsListRequest,
         ProviderRuntimeOperationsListResponse, ProviderRuntimeProviderFeatures,
@@ -59,9 +60,10 @@ use ace_runtime::{
     },
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
-        ProviderAdapterOperation, ProviderAdapterProfile, ProviderAdapterRequestResolution,
-        ProviderEvent, ProviderMetadata, ProviderRequest, RuntimeSignalKind,
-        ace_provider_adapter_contract, provider_adapter_profile, provider_contract_report,
+        ProviderAdapterOperation, ProviderAdapterOperationGate, ProviderAdapterProfile,
+        ProviderAdapterRequestResolution, ProviderDriverStatus, ProviderEvent, ProviderMetadata,
+        ProviderRequest, RuntimeSignalKind, ace_provider_adapter_contract,
+        provider_adapter_profile, provider_contract_report,
     },
     tools::{
         ProviderToolMetadata, SemanticToolCall, ToolNormalizationInput, ToolRunStatus,
@@ -919,33 +921,32 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     serde_json::from_value::<ProviderRuntimeOperationsListRequest>(payload)?;
                 let providers = self.provider_runtime_filter(request.provider, "operation list")?;
                 let adapter_contract = ace_provider_adapter_contract();
-                let provider_operations = providers
-                    .into_iter()
-                    .map(|provider| {
-                        let adapter_profile = self.providers.adapter_profile(provider).ok_or(
-                            ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
-                                provider,
-                            },
-                        )?;
-                        let adapter_runtime =
-                            self.providers.adapter_runtime_report(provider).ok_or(
-                                ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
-                                    provider,
-                                },
-                            )?;
-                        Ok(ProviderRuntimeProviderOperations {
+                let mut provider_operations = Vec::with_capacity(providers.len());
+                for provider in providers {
+                    let adapter_profile = self.providers.adapter_profile(provider).ok_or(
+                        ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
                             provider,
-                            runtime_id: provider.runtime_id().to_string(),
-                            display_name: provider.display_name().to_string(),
-                            operations: provider_runtime_operations_for_provider(
-                                provider,
-                                &adapter_profile,
-                            ),
-                            adapter_profile,
-                            adapter_runtime,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, ace_runtime::provider::ProviderRuntimeError>>()?;
+                        },
+                    )?;
+                    let adapter_runtime = self.providers.adapter_runtime_report(provider).ok_or(
+                        ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
+                            provider,
+                        },
+                    )?;
+                    let status = self.providers.status(provider).await.ok();
+                    provider_operations.push(ProviderRuntimeProviderOperations {
+                        provider,
+                        runtime_id: provider.runtime_id().to_string(),
+                        display_name: provider.display_name().to_string(),
+                        operations: provider_runtime_operations_for_provider(
+                            provider,
+                            &adapter_profile,
+                            status.as_ref(),
+                        ),
+                        adapter_profile,
+                        adapter_runtime,
+                    });
+                }
                 Ok(serde_json::to_value(
                     ProviderRuntimeOperationsListResponse {
                         adapter_contract,
@@ -2525,6 +2526,7 @@ fn codex_ws_method_for_adapter_operation(
 fn provider_runtime_operations_for_provider(
     provider: ProviderKind,
     adapter_profile: &ProviderAdapterProfile,
+    status: Option<&ProviderDriverStatus>,
 ) -> Vec<ProviderRuntimeProviderOperation> {
     adapter_profile
         .operations
@@ -2537,10 +2539,111 @@ fn provider_runtime_operations_for_provider(
             } else {
                 ProviderRuntimeOperationRequest::from_invocation(profile.invocation)
             };
+            let gate_resolution = profile
+                .runtime_gate
+                .as_ref()
+                .map(|gate| resolve_provider_operation_gate(gate, status));
             ProviderRuntimeProviderOperation::from_profile(profile)
                 .with_runtime_request(runtime_request)
+                .with_runtime_gate_resolution(gate_resolution)
         })
         .collect()
+}
+
+fn resolve_provider_operation_gate(
+    gate: &ProviderAdapterOperationGate,
+    status: Option<&ProviderDriverStatus>,
+) -> ProviderRuntimeOperationGateResolution {
+    let provider_methods = gate.provider_methods.clone();
+    let Some(status) = status else {
+        return ProviderRuntimeOperationGateResolution {
+            status: ProviderRuntimeOperationGateStatus::Unknown,
+            provider_methods,
+            missing_provider_methods: Vec::new(),
+            source: None,
+            reason: "provider status unavailable; installed method support was not checked"
+                .to_string(),
+        };
+    };
+    let Some((source, supported_methods)) = supported_client_request_methods(&status.metadata)
+    else {
+        return ProviderRuntimeOperationGateResolution {
+            status: ProviderRuntimeOperationGateStatus::Unknown,
+            provider_methods,
+            missing_provider_methods: Vec::new(),
+            source: None,
+            reason: "provider status did not report installed client request methods".to_string(),
+        };
+    };
+
+    let missing_provider_methods = provider_methods
+        .iter()
+        .filter(|method| !supported_methods.contains(method.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let status = if missing_provider_methods.is_empty() {
+        ProviderRuntimeOperationGateStatus::Available
+    } else {
+        ProviderRuntimeOperationGateStatus::Unavailable
+    };
+    let reason = if status == ProviderRuntimeOperationGateStatus::Available {
+        "all gated provider methods are reported by the installed provider".to_string()
+    } else {
+        "one or more gated provider methods are missing from the installed provider".to_string()
+    };
+
+    ProviderRuntimeOperationGateResolution {
+        status,
+        provider_methods,
+        missing_provider_methods,
+        source: Some(source),
+        reason,
+    }
+}
+
+fn supported_client_request_methods(metadata: &Value) -> Option<(String, BTreeSet<String>)> {
+    [
+        (
+            "supported_client_request_methods",
+            "/supported_client_request_methods",
+        ),
+        (
+            "installed_client_request_methods",
+            "/installed_client_request_methods",
+        ),
+        ("client_request_methods", "/client_request_methods"),
+        (
+            "schema.client_request_methods",
+            "/schema/client_request_methods",
+        ),
+        (
+            "schema.clientRequestMethods",
+            "/schema/clientRequestMethods",
+        ),
+        ("methods.client_request", "/methods/client_request"),
+        ("methods.clientRequest", "/methods/clientRequest"),
+    ]
+    .into_iter()
+    .find_map(|(source, pointer)| {
+        let methods = method_set_from_value(metadata.pointer(pointer)?)?;
+        Some((source.to_string(), methods))
+    })
+}
+
+fn method_set_from_value(value: &Value) -> Option<BTreeSet<String>> {
+    let methods = value
+        .as_array()?
+        .iter()
+        .filter_map(|entry| {
+            entry.as_str().map(ToString::to_string).or_else(|| {
+                entry
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+            })
+        })
+        .collect::<BTreeSet<_>>();
+    (!methods.is_empty()).then_some(methods)
 }
 
 fn codex_runtime_request_for_operation(
@@ -6834,6 +6937,29 @@ mod tests {
     #[tokio::test]
     async fn provider_runtime_lists_adapter_operations_by_invocation_path() {
         let backend = Arc::new(FakeCodexBackend::default());
+        *backend
+            .supported_client_request_methods
+            .lock()
+            .expect("supported methods") = Some(vec![
+            "thread/read".to_string(),
+            "thread/fork".to_string(),
+            "thread/inject_items".to_string(),
+            "turn/start".to_string(),
+            "command/exec".to_string(),
+            "fs/readFile".to_string(),
+            "skills/config/write".to_string(),
+            "skills/extraRoots/set".to_string(),
+            "plugin/installed".to_string(),
+            "plugin/read".to_string(),
+            "plugin/uninstall".to_string(),
+            "plugin/share/save".to_string(),
+            "account/read".to_string(),
+            "config/value/write".to_string(),
+            "fuzzyFileSearch".to_string(),
+            "marketplace/upgrade".to_string(),
+            "model/list".to_string(),
+            "modelProvider/capabilities/read".to_string(),
+        ]);
         let runner = Arc::new(FakeRunner);
         let state = WsApiState::new_services(
             GitService::new(GitClient::with_runner(runner.clone())),
@@ -6914,6 +7040,10 @@ mod tests {
                 && operation["availability"] == "version_gated"
                 && operation["runtime_gate"]["kind"] == "version_gated_provider_method"
                 && operation["runtime_gate"]["provider_methods"] == json!(["command/exec"])
+                && operation["runtime_gate_resolution"]["status"] == "available"
+                && operation["runtime_gate_resolution"]["source"]
+                    == "supported_client_request_methods"
+                && operation["runtime_gate_resolution"]["missing_provider_methods"] == json!([])
                 && operation["availability_reason"]
                     .as_str()
                     .expect("availability reason")
@@ -6928,6 +7058,9 @@ mod tests {
                 && operation["availability"] == "version_gated"
                 && operation["runtime_gate"]["kind"] == "version_gated_provider_method"
                 && operation["runtime_gate"]["provider_methods"] == json!(["thread/shellCommand"])
+                && operation["runtime_gate_resolution"]["status"] == "unavailable"
+                && operation["runtime_gate_resolution"]["missing_provider_methods"]
+                    == json!(["thread/shellCommand"])
                 && operation["availability_reason"]
                     .as_str()
                     .expect("availability reason")
@@ -7036,6 +7169,9 @@ mod tests {
                         && entry
                             .get("runtime_gate")
                             .is_some_and(|gate| gate["provider_methods"] == json!([method]))
+                        && entry.get("runtime_gate_resolution").is_some_and(|gate| {
+                            gate["source"] == "supported_client_request_methods"
+                        })
                         && entry["invocation"] == "direct_provider_method"
                         && entry["provider_methods"] == json!([method])
                         && entry["runtime_request"]["invokable"] == true
