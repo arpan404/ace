@@ -50,6 +50,8 @@ pub enum ToolActionKind {
     BrowserConsole,
     #[serde(rename = "browser.viewport")]
     BrowserViewport,
+    #[serde(rename = "browser.zoom")]
+    BrowserZoom,
     #[serde(rename = "computer.click")]
     ComputerClick,
     #[serde(rename = "computer.type")]
@@ -385,15 +387,21 @@ fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAct
         | "next_tab" | "previous_tab" | "create_tab" | "new_tab" | "close_tab" => {
             ToolActionKind::BrowserTab
         }
-        "set_viewport_size" | "resize_browser" | "get_viewport_size" | "get_browser_zoom"
-        | "set_browser_zoom" | "reset_browser_zoom" | "zoom_browser" => {
+        "set_viewport_size" | "resize_browser" | "get_viewport_size" => {
             ToolActionKind::BrowserViewport
+        }
+        "get_browser_zoom" | "set_browser_zoom" | "reset_browser_zoom" | "zoom_browser" => {
+            ToolActionKind::BrowserZoom
         }
         _ if facts.haystack.contains("click") => ToolActionKind::BrowserClick,
         _ if facts.haystack.contains("type") || facts.haystack.contains("fill") => {
             ToolActionKind::BrowserType
         }
         _ if facts.haystack.contains("screenshot") => ToolActionKind::BrowserScreenshot,
+        _ if facts.haystack.contains("zoom") => ToolActionKind::BrowserZoom,
+        _ if facts.haystack.contains("viewport") || facts.haystack.contains("resize") => {
+            ToolActionKind::BrowserViewport
+        }
         _ if facts.haystack.contains("navigate") || facts.haystack.contains("url") => {
             ToolActionKind::BrowserNavigate
         }
@@ -491,12 +499,10 @@ fn terminal_action(
     facts: &ToolFacts,
     args: &Value,
 ) -> Option<ToolActionKind> {
-    if transport == ToolTransport::Shell || transport == ToolTransport::Process {
-        return Some(ToolActionKind::TerminalRun);
-    }
     if facts.haystack.contains("command execution")
         || facts.haystack.contains("command/exec")
         || facts.haystack.contains("terminal")
+        || facts.haystack.contains("process output")
         || string_at_deep(args, "command").is_some()
         || string_at_deep(args, "cmd").is_some()
     {
@@ -511,6 +517,8 @@ fn terminal_action(
         } else {
             Some(ToolActionKind::TerminalRun)
         }
+    } else if transport == ToolTransport::Shell || transport == ToolTransport::Process {
+        Some(ToolActionKind::TerminalRun)
     } else {
         None
     }
@@ -575,7 +583,13 @@ fn infer_target(
             string_at_deep(args, "terminalId").as_deref(),
         ])
         .map(|label| ToolTarget {
-            kind: ToolTargetKind::Command,
+            kind: match action {
+                ToolActionKind::TerminalWrite
+                | ToolActionKind::TerminalResize
+                | ToolActionKind::TerminalTerminate
+                | ToolActionKind::TerminalOutput => ToolTargetKind::Terminal,
+                _ => ToolTargetKind::Command,
+            },
             label,
         }),
         ToolSurface::Filesystem => file_target(args),
@@ -613,6 +627,27 @@ fn browser_target(action: ToolActionKind, args: &Value) -> Option<ToolTarget> {
         ])
         .map(|label| ToolTarget {
             kind: ToolTargetKind::Url,
+            label,
+        });
+    }
+    if action == ToolActionKind::BrowserViewport {
+        let width = number_at_deep(args, "width");
+        let height = number_at_deep(args, "height");
+        if let (Some(width), Some(height)) = (width, height) {
+            return Some(ToolTarget {
+                kind: ToolTargetKind::Window,
+                label: format!("{width}x{height}"),
+            });
+        }
+    }
+    if action == ToolActionKind::BrowserZoom {
+        return first_string([
+            string_at_deep(args, "zoom").as_deref(),
+            string_at_deep(args, "level").as_deref(),
+            string_at_deep(args, "scale").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Window,
             label,
         });
     }
@@ -716,8 +751,25 @@ fn display_for(
         (ToolSurface::Browser, None) => format!("{verb} Browser {noun}"),
         (ToolSurface::Computer, Some(target)) => format!("{verb} {target} on Computer"),
         (ToolSurface::Computer, None) => format!("{verb} Computer {noun}"),
-        (ToolSurface::Terminal, Some(target)) => format!("{verb} `{}`", truncate(target, 96)),
-        (ToolSurface::Terminal, None) => format!("{verb} terminal command"),
+        (ToolSurface::Terminal, Some(target)) => match action {
+            ToolActionKind::TerminalRun => format!("{verb} `{}`", truncate(target, 96)),
+            ToolActionKind::TerminalOutput => {
+                format!("{verb} terminal output from {}", truncate(target, 96))
+            }
+            ToolActionKind::TerminalWrite
+            | ToolActionKind::TerminalResize
+            | ToolActionKind::TerminalTerminate => {
+                format!("{verb} terminal {}", truncate(target, 96))
+            }
+            _ => format!("{verb} terminal {}", truncate(target, 96)),
+        },
+        (ToolSurface::Terminal, None) => match action {
+            ToolActionKind::TerminalOutput => format!("{verb} terminal output"),
+            ToolActionKind::TerminalWrite => format!("{verb} terminal stdin"),
+            ToolActionKind::TerminalResize => format!("{verb} terminal"),
+            ToolActionKind::TerminalTerminate => format!("{verb} terminal"),
+            _ => format!("{verb} terminal command"),
+        },
         (ToolSurface::Filesystem, Some(target)) => format!("{verb} {target}"),
         (ToolSurface::Filesystem, None) => format!("{verb} file"),
         (ToolSurface::Github, Some(target)) => format!("{verb} GitHub {noun} {target}"),
@@ -762,11 +814,13 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 ToolActionKind::BrowserInspect => "Inspecting",
                 ToolActionKind::BrowserTab => "Switching",
                 ToolActionKind::BrowserViewport => "Resizing",
+                ToolActionKind::BrowserZoom => "Changing zoom for",
                 ToolActionKind::BrowserConsole => "Reading",
                 ToolActionKind::TerminalRun => "Running",
                 ToolActionKind::TerminalWrite => "Writing to",
                 ToolActionKind::TerminalResize => "Resizing",
                 ToolActionKind::TerminalTerminate => "Stopping",
+                ToolActionKind::TerminalOutput => "Reading",
                 ToolActionKind::FilePatch | ToolActionKind::FileEdit => "Editing",
                 ToolActionKind::FileRead => "Reading",
                 ToolActionKind::GithubIssue | ToolActionKind::GithubPullRequest => "Reading",
@@ -788,11 +842,13 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             ToolActionKind::BrowserInspect => "Inspected",
             ToolActionKind::BrowserTab => "Switched",
             ToolActionKind::BrowserViewport => "Resized",
+            ToolActionKind::BrowserZoom => "Changed zoom for",
             ToolActionKind::BrowserConsole => "Read",
             ToolActionKind::TerminalRun => "Ran",
             ToolActionKind::TerminalWrite => "Wrote to",
             ToolActionKind::TerminalResize => "Resized",
             ToolActionKind::TerminalTerminate => "Stopped",
+            ToolActionKind::TerminalOutput => "Read",
             ToolActionKind::FilePatch | ToolActionKind::FileEdit => "Edited",
             ToolActionKind::FileRead => "Read",
             ToolActionKind::GithubIssue | ToolActionKind::GithubPullRequest => "Read",
@@ -818,6 +874,7 @@ fn noun_for(action: ToolActionKind) -> &'static str {
         ToolActionKind::BrowserConsole => "console logs",
         ToolActionKind::BrowserTab => "tab",
         ToolActionKind::BrowserViewport => "viewport",
+        ToolActionKind::BrowserZoom => "zoom",
         ToolActionKind::GithubIssue => "issue",
         ToolActionKind::GithubPullRequest => "pull request",
         ToolActionKind::GithubSearch => "search",
@@ -1060,7 +1117,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_inspection_screenshot_console_and_viewport_are_distinct() {
+    fn browser_inspection_screenshot_console_viewport_and_zoom_are_distinct() {
         let cases = [
             (
                 "playwright_screenshot",
@@ -1081,6 +1138,11 @@ mod tests {
                 "resize_browser",
                 ToolActionKind::BrowserViewport,
                 "Resized Browser viewport",
+            ),
+            (
+                "set_browser_zoom",
+                ToolActionKind::BrowserZoom,
+                "Changed zoom for Browser zoom",
             ),
         ];
         for (op, action, title) in cases {
@@ -1198,6 +1260,50 @@ mod tests {
         assert_eq!(image.surface, ToolSurface::Image);
         assert_eq!(image.action, ToolActionKind::ImageGenerate);
         assert_eq!(image.display.title, "Generated image");
+    }
+
+    #[test]
+    fn terminal_output_write_resize_and_terminate_have_distinct_labels() {
+        let output = normalize_tool_call(input(
+            ToolTransport::Process,
+            "commandExecution",
+            "shell",
+            "process/outputDelta",
+            json!({ "processId": "proc-1", "delta": "building..." }),
+        ));
+        assert_eq!(output.surface, ToolSurface::Terminal);
+        assert_eq!(output.action, ToolActionKind::TerminalOutput);
+        assert_eq!(output.display.title, "Read terminal output from proc-1");
+
+        let write = normalize_tool_call(input(
+            ToolTransport::Process,
+            "commandExecution",
+            "shell",
+            "command/exec/write",
+            json!({ "terminalId": "term-1", "stdin": "q" }),
+        ));
+        assert_eq!(write.action, ToolActionKind::TerminalWrite);
+        assert_eq!(write.display.title, "Wrote to terminal term-1");
+
+        let resize = normalize_tool_call(input(
+            ToolTransport::Process,
+            "commandExecution",
+            "shell",
+            "command/exec/resize",
+            json!({ "terminalId": "term-1", "cols": 120, "rows": 40 }),
+        ));
+        assert_eq!(resize.action, ToolActionKind::TerminalResize);
+        assert_eq!(resize.display.title, "Resized terminal term-1");
+
+        let terminate = normalize_tool_call(input(
+            ToolTransport::Process,
+            "commandExecution",
+            "shell",
+            "command/exec/terminate",
+            json!({ "terminalId": "term-1" }),
+        ));
+        assert_eq!(terminate.action, ToolActionKind::TerminalTerminate);
+        assert_eq!(terminate.display.title, "Stopped terminal term-1");
     }
 
     #[test]

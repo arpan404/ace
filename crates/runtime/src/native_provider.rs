@@ -369,6 +369,18 @@ mod tests {
                 .contains(&json!("browser"))
         );
         assert!(
+            response["adapter_contract"]["tool_action_kinds"]
+                .as_array()
+                .expect("tool action kinds")
+                .contains(&json!("browser.zoom"))
+        );
+        assert!(
+            response["adapter_contract"]["tool_action_kinds"]
+                .as_array()
+                .expect("tool action kinds")
+                .contains(&json!("terminal.output"))
+        );
+        assert!(
             response["adapter_contract"]["execution_locations"]
                 .as_array()
                 .expect("execution locations")

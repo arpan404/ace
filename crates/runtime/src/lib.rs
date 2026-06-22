@@ -42,7 +42,7 @@ pub enum RuntimeError {
 pub mod provider {
     use crate::{
         threads::ExecutionLocation,
-        tools::{SemanticToolCall, ToolSurface, ToolTransport},
+        tools::{SemanticToolCall, ToolActionKind, ToolSurface, ToolTransport},
     };
     use ace_core::{ProviderCapability, ProviderKind};
     use async_trait::async_trait;
@@ -95,6 +95,7 @@ pub mod provider {
         pub provider_event_types: Vec<String>,
         pub tool_transports: Vec<ToolTransport>,
         pub tool_surfaces: Vec<ToolSurface>,
+        pub tool_action_kinds: Vec<ToolActionKind>,
         pub execution_locations: Vec<ExecutionLocation>,
     }
 
@@ -1266,6 +1267,43 @@ pub mod provider {
                 ToolSurface::GenericMcp,
                 ToolSurface::Unknown,
             ],
+            tool_action_kinds: vec![
+                ToolActionKind::BrowserClick,
+                ToolActionKind::BrowserType,
+                ToolActionKind::BrowserNavigate,
+                ToolActionKind::BrowserScreenshot,
+                ToolActionKind::BrowserInspect,
+                ToolActionKind::BrowserTab,
+                ToolActionKind::BrowserConsole,
+                ToolActionKind::BrowserViewport,
+                ToolActionKind::BrowserZoom,
+                ToolActionKind::ComputerClick,
+                ToolActionKind::ComputerType,
+                ToolActionKind::ComputerScroll,
+                ToolActionKind::ComputerKey,
+                ToolActionKind::ComputerScreenshot,
+                ToolActionKind::ComputerApp,
+                ToolActionKind::TerminalRun,
+                ToolActionKind::TerminalWrite,
+                ToolActionKind::TerminalResize,
+                ToolActionKind::TerminalTerminate,
+                ToolActionKind::TerminalOutput,
+                ToolActionKind::FileRead,
+                ToolActionKind::FileEdit,
+                ToolActionKind::FilePatch,
+                ToolActionKind::GitCommit,
+                ToolActionKind::GitPush,
+                ToolActionKind::GithubIssue,
+                ToolActionKind::GithubPullRequest,
+                ToolActionKind::GithubSearch,
+                ToolActionKind::WebSearch,
+                ToolActionKind::ImageView,
+                ToolActionKind::ImageGenerate,
+                ToolActionKind::SubagentSpawn,
+                ToolActionKind::SubagentSteer,
+                ToolActionKind::SubagentStop,
+                ToolActionKind::ToolRun,
+            ],
             execution_locations: vec![
                 ExecutionLocation::Local,
                 ExecutionLocation::Worktree,
@@ -2189,6 +2227,16 @@ pub mod provider {
                 contract
                     .tool_surfaces
                     .contains(&crate::tools::ToolSurface::Browser)
+            );
+            assert!(
+                contract
+                    .tool_action_kinds
+                    .contains(&crate::tools::ToolActionKind::BrowserZoom)
+            );
+            assert!(
+                contract
+                    .tool_action_kinds
+                    .contains(&crate::tools::ToolActionKind::TerminalOutput)
             );
             assert!(
                 contract

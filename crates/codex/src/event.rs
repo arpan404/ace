@@ -1203,6 +1203,97 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_browser_tab_zoom_resize_and_terminal_output_updates() {
+        let cases = [
+            (
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "item-tab",
+                    "item": {
+                        "id": "item-tab",
+                        "type": "dynamicToolCall",
+                        "toolName": "ace_browser",
+                        "input": { "operation": "select_tab", "label": "Docs" }
+                    }
+                }),
+                ToolActionKind::BrowserTab,
+                "Switching Docs in Browser",
+            ),
+            (
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "item-zoom",
+                    "item": {
+                        "id": "item-zoom",
+                        "type": "dynamicToolCall",
+                        "toolName": "ace_browser",
+                        "input": { "operation": "set_browser_zoom", "zoom": "125%" }
+                    }
+                }),
+                ToolActionKind::BrowserZoom,
+                "Changing zoom for 125% in Browser",
+            ),
+            (
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "item-resize",
+                    "item": {
+                        "id": "item-resize",
+                        "type": "dynamicToolCall",
+                        "toolName": "ace_browser",
+                        "input": {
+                            "operation": "set_viewport_size",
+                            "width": 1440,
+                            "height": 900
+                        }
+                    }
+                }),
+                ToolActionKind::BrowserViewport,
+                "Resizing 1440x900 in Browser",
+            ),
+        ];
+
+        for (params, action, title) in cases {
+            let events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+                method: "item/dynamicToolCall/progress".to_string(),
+                params,
+            });
+            let ProviderEvent::SemanticTool { tool } = &events[0] else {
+                panic!("expected semantic browser update");
+            };
+            assert_eq!(tool.surface, ToolSurface::Browser);
+            assert_eq!(tool.action, action);
+            assert_eq!(tool.display.title, title);
+            assert!(!tool.display.title.contains("MCP tool"));
+        }
+
+        let terminal = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "process/outputDelta".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "cmd-1",
+                "item": {
+                    "id": "cmd-1",
+                    "type": "commandExecution",
+                    "processId": "proc-1",
+                    "delta": "cargo test output"
+                }
+            }),
+        });
+
+        let ProviderEvent::SemanticTool { tool } = &terminal[0] else {
+            panic!("expected semantic terminal update");
+        };
+        assert_eq!(tool.surface, ToolSurface::Terminal);
+        assert_eq!(tool.action, ToolActionKind::TerminalOutput);
+        assert_eq!(tool.display.title, "Reading terminal output from proc-1");
+    }
+
+    #[test]
     fn normalizes_stdio_lifecycle_events() {
         let stderr =
             normalize_codex_inbound_event(&CodexInboundEvent::StderrLine("warning".to_string()));
