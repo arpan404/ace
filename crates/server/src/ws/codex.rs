@@ -62,6 +62,10 @@ use ace_runtime::{
         ProviderEvent, ProviderMetadata, ProviderRequest, RuntimeSignalKind,
         ace_provider_adapter_contract, provider_adapter_profile, provider_contract_report,
     },
+    tools::{
+        ProviderToolMetadata, SemanticToolCall, ToolNormalizationInput, ToolRunStatus,
+        ToolTransport, normalize_tool_call,
+    },
 };
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
@@ -95,11 +99,42 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
 
         if let Some((codex_method, params)) = codex_versioned_app_server_request(method, &payload)?
         {
-            return self
+            self.publish_codex_versioned_tool_event(
+                method,
+                codex_method,
+                &params,
+                None,
+                ToolRunStatus::Started,
+            )?;
+            let response = self
                 .codex
-                .raw_request(codex_method.to_string(), params)
-                .await
-                .map_err(Into::into);
+                .raw_request(codex_method.to_string(), params.clone())
+                .await;
+            return match response {
+                Ok(response) => {
+                    self.publish_codex_versioned_tool_event(
+                        method,
+                        codex_method,
+                        &params,
+                        Some(&response),
+                        ToolRunStatus::Completed,
+                    )?;
+                    Ok(response)
+                }
+                Err(error) => {
+                    let error_payload = json!({
+                        "message": error.to_string(),
+                    });
+                    self.publish_codex_versioned_tool_event(
+                        method,
+                        codex_method,
+                        &params,
+                        Some(&error_payload),
+                        ToolRunStatus::Failed,
+                    )?;
+                    Err(error.into())
+                }
+            };
         }
 
         match method {
@@ -1451,6 +1486,31 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             let _ = sender.send(ProviderEventStreamMessage::Events(events));
         }
         Ok(())
+    }
+
+    fn publish_codex_versioned_tool_event(
+        &self,
+        ws_method: &str,
+        codex_method: &str,
+        params: &Value,
+        result: Option<&Value>,
+        status: ToolRunStatus,
+    ) -> Result<(), WsDispatchError> {
+        let Some(tool) = semantic_tool_for_codex_versioned_request(
+            ws_method,
+            codex_method,
+            params,
+            result,
+            status,
+        ) else {
+            return Ok(());
+        };
+        self.append_and_publish_provider_events(
+            ProviderKind::Codex,
+            vec![ProviderEvent::SemanticTool {
+                tool: Box::new(tool),
+            }],
+        )
     }
 
     fn publish_codex_thread_lifecycle_signal(
@@ -2929,6 +2989,119 @@ fn codex_versioned_app_server_request(
         _ => None,
     };
     Ok(request)
+}
+
+fn semantic_tool_for_codex_versioned_request(
+    ws_method: &str,
+    codex_method: &str,
+    params: &Value,
+    result: Option<&Value>,
+    status: ToolRunStatus,
+) -> Option<SemanticToolCall> {
+    let transport = codex_versioned_tool_transport(codex_method)?;
+    let mut provider = ProviderToolMetadata::new();
+    provider.provider = Some(ProviderKind::Codex.runtime_id().to_string());
+    provider.method = Some(codex_method.to_string());
+    provider.thread_id = string_field(params, &["threadId", "thread_id"]);
+    provider.item_id = string_field(params, &["processId", "process_id", "path", "uri"]);
+    provider.server_name = string_field(params, &["server", "serverName", "server_name"]);
+    provider.tool_name = Some(codex_versioned_tool_name(codex_method, params));
+    provider.operation = Some(codex_versioned_tool_operation(codex_method));
+    provider.raw_args = params.clone();
+    provider.raw_result = result.cloned().unwrap_or(Value::Null);
+    provider.raw_payload = json!({
+        "ws_method": ws_method,
+        "provider_method": codex_method,
+        "params": params,
+        "result": result.cloned().unwrap_or(Value::Null),
+    });
+
+    Some(normalize_tool_call(ToolNormalizationInput {
+        transport,
+        status,
+        provider,
+        item_type: Some(codex_versioned_tool_item_type(codex_method).to_string()),
+    }))
+}
+
+fn codex_versioned_tool_transport(codex_method: &str) -> Option<ToolTransport> {
+    match codex_method {
+        "thread/shellCommand" | "command/exec" => Some(ToolTransport::Shell),
+        "command/exec/write"
+        | "command/exec/resize"
+        | "command/exec/terminate"
+        | "process/list"
+        | "process/clean" => Some(ToolTransport::Process),
+        "fs/readFile" | "fs/writeFile" | "fs/readDirectory" | "fs/createDirectory" | "fs/copy"
+        | "fs/remove" | "fs/getMetadata" | "fs/watch" | "fs/unwatch" => {
+            Some(ToolTransport::Filesystem)
+        }
+        "mcpServerStatus/list"
+        | "mcpServer/resource/read"
+        | "mcpServer/oauth/login"
+        | "mcpServer/tool/call" => Some(ToolTransport::Mcp),
+        _ => None,
+    }
+}
+
+fn codex_versioned_tool_name(codex_method: &str, params: &Value) -> String {
+    string_field(params, &["tool", "command", "path", "uri"])
+        .unwrap_or_else(|| codex_method.replace('/', "."))
+}
+
+fn codex_versioned_tool_operation(codex_method: &str) -> String {
+    match codex_method {
+        "thread/shellCommand" => "shell_command",
+        "command/exec" => "command_exec",
+        "command/exec/write" => "stdin_write",
+        "command/exec/resize" => "terminal_resize",
+        "command/exec/terminate" => "terminal_terminate",
+        "process/list" => "process_list",
+        "process/clean" => "process_clean",
+        "fs/readFile" => "read_file",
+        "fs/writeFile" => "write_file",
+        "fs/readDirectory" => "read_directory",
+        "fs/createDirectory" => "create_directory",
+        "fs/copy" => "copy_file",
+        "fs/remove" => "remove_file",
+        "fs/getMetadata" => "file_metadata",
+        "fs/watch" => "watch_file",
+        "fs/unwatch" => "unwatch_file",
+        "mcpServerStatus/list" => "mcp_status",
+        "mcpServer/resource/read" => "mcp_resource_read",
+        "mcpServer/oauth/login" => "mcp_oauth_login",
+        "mcpServer/tool/call" => "mcp_tool_call",
+        _ => codex_method,
+    }
+    .to_string()
+}
+
+fn codex_versioned_tool_item_type(codex_method: &str) -> &'static str {
+    match codex_method {
+        "thread/shellCommand"
+        | "command/exec"
+        | "command/exec/write"
+        | "command/exec/resize"
+        | "command/exec/terminate"
+        | "process/list"
+        | "process/clean" => "commandExecution",
+        "fs/readFile" | "fs/readDirectory" | "fs/getMetadata" | "fs/watch" | "fs/unwatch" => {
+            "fileRead"
+        }
+        "fs/writeFile" | "fs/createDirectory" | "fs/copy" | "fs/remove" => "fileChange",
+        "mcpServerStatus/list"
+        | "mcpServer/resource/read"
+        | "mcpServer/oauth/login"
+        | "mcpServer/tool/call" => "mcpToolCall",
+        _ => "tool",
+    }
+}
+
+fn string_field(value: &Value, fields: &[&str]) -> Option<String> {
+    fields
+        .iter()
+        .find_map(|field| value.get(*field).and_then(Value::as_str))
+        .map(ToOwned::to_owned)
 }
 
 fn resolve_provider_runtime_request_method(
@@ -7307,7 +7480,7 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "review-events",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
-                    "payload": { "provider": "codex", "limit": 10 }
+                    "payload": { "provider": "codex", "limit": 128 }
                 })
                 .to_string(),
             )
@@ -7317,20 +7490,25 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0]["event"]["signal"]["kind"], "review_mode_updated");
-        assert_eq!(records[0]["event"]["signal"]["status"], "entered");
-        assert_eq!(records[0]["event"]["signal"]["active"], true);
+        let review_record = records
+            .iter()
+            .find(|record| record["event"]["signal"]["kind"] == "review_mode_updated")
+            .expect("review mode event");
+        assert_eq!(review_record["event"]["signal"]["status"], "entered");
+        assert_eq!(review_record["event"]["signal"]["active"], true);
         assert_eq!(
-            records[0]["event"]["signal"]["metadata"]["request"]["detached"],
+            review_record["event"]["signal"]["metadata"]["request"]["detached"],
             true
         );
         assert_eq!(
-            records[0]["projection_deltas"][0]["type"],
+            review_record["projection_deltas"][0]["type"],
             "review_mode_changed"
         );
-        assert_eq!(records[0]["projection_deltas"][0]["thread_id"], "thread-1");
-        assert_eq!(records[0]["projection_deltas"][0]["active"], true);
+        assert_eq!(
+            review_record["projection_deltas"][0]["thread_id"],
+            "thread-1"
+        );
+        assert_eq!(review_record["projection_deltas"][0]["active"], true);
 
         let invalid = state
             .dispatch_text(
@@ -7345,6 +7523,106 @@ mod tests {
             .await;
         let invalid: WsServerResponse = serde_json::from_str(&invalid).expect("invalid response");
         assert!(matches!(invalid.payload, WsServerPayload::Error { .. }));
+    }
+
+    #[tokio::test]
+    async fn version_gated_codex_tool_requests_emit_semantic_provider_events() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+
+        for (request_id, method, payload) in [
+            (
+                "codex-fs-read",
+                methods::CODEX_FS_READ_FILE,
+                json!({ "path": "src/lib.rs", "encoding": "utf8" }),
+            ),
+            (
+                "codex-mcp-call",
+                methods::CODEX_MCP_TOOL_CALL,
+                json!({
+                    "server": "linear",
+                    "tool": "list_projects",
+                    "arguments": { "team": "eng" }
+                }),
+            ),
+        ] {
+            let response = state
+                .dispatch_text(
+                    &json!({
+                        "version": PROTOCOL_VERSION,
+                        "request_id": request_id,
+                        "method": method,
+                        "payload": payload
+                    })
+                    .to_string(),
+                )
+                .await;
+            let response: WsServerResponse = serde_json::from_str(&response).expect("response");
+            assert!(matches!(response.payload, WsServerPayload::Result { .. }));
+        }
+
+        let recent = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "semantic-tool-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": { "provider": "codex", "limit": 8 }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent: WsServerResponse = serde_json::from_str(&recent).expect("recent events");
+        let WsServerPayload::Result { body } = recent.payload else {
+            panic!("expected recent events result");
+        };
+        let records = body["records"].as_array().expect("records");
+        assert_eq!(records.len(), 4);
+
+        let file_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["surface"] == "filesystem"
+            })
+            .expect("completed filesystem event");
+        assert_eq!(file_completed["event"]["type"], "tool_completed");
+        assert_eq!(file_completed["event"]["tool"]["action"], "file.read");
+        assert_eq!(
+            file_completed["event"]["tool"]["display"]["title"],
+            "Read src/lib.rs"
+        );
+        assert_eq!(
+            file_completed["event"]["tool"]["provider"]["raw_payload"]["provider_method"],
+            "fs/readFile"
+        );
+
+        let mcp_started = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "started"
+                    && record["event"]["tool"]["surface"] == "generic_mcp"
+            })
+            .expect("started mcp event");
+        assert_eq!(mcp_started["event"]["tool"]["action"], "tool.run");
+        assert_eq!(
+            mcp_started["event"]["tool"]["display"]["title"],
+            "Running linear.list_projects tool"
+        );
+        assert_ne!(mcp_started["event"]["tool"]["display"]["title"], "MCP tool");
+        assert_eq!(
+            mcp_started["event"]["tool"]["provider"]["server_name"],
+            "linear"
+        );
+        assert_eq!(
+            mcp_started["event"]["tool"]["provider"]["raw_args"]["arguments"]["team"],
+            "eng"
+        );
     }
 
     #[test]
