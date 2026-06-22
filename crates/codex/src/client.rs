@@ -647,6 +647,14 @@ impl<T: AppServerTransport + 'static> ProviderDriver for CodexAdapter<T> {
                     version: 1,
                 },
                 ProviderCapability {
+                    key: "codex.execution_location.local".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
+                    key: "codex.execution_location.worktree".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
                     key: "provider.semantic_tools".to_string(),
                     version: 1,
                 },
@@ -1205,6 +1213,24 @@ mod tests {
                 .capabilities
                 .iter()
                 .any(|capability| capability.key == "codex.compatibility_inventory")
+        );
+        assert!(
+            descriptor
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "codex.execution_location.local")
+        );
+        assert!(
+            descriptor
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "codex.execution_location.worktree")
+        );
+        assert!(
+            descriptor
+                .capabilities
+                .iter()
+                .all(|capability| capability.key != "codex.execution_location.cloud")
         );
     }
 }

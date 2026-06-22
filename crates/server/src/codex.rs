@@ -916,6 +916,14 @@ impl ProviderDriver for CodexService {
                     version: 1,
                 },
                 ProviderCapability {
+                    key: "codex.execution_location.local".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
+                    key: "codex.execution_location.worktree".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
                     key: "provider.semantic_tools".to_string(),
                     version: 1,
                 },

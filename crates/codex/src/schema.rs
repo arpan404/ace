@@ -184,7 +184,7 @@ pub fn classify_codex_method(
 
 #[must_use]
 pub fn codex_provider_features() -> Vec<ProviderFeature> {
-    CODEX_METHOD_INVENTORY
+    let mut features = CODEX_METHOD_INVENTORY
         .iter()
         .map(|spec| ProviderFeature {
             key: format!("codex.method.{}", spec.method.replace('/', ".")),
@@ -195,7 +195,56 @@ pub fn codex_provider_features() -> Vec<ProviderFeature> {
             provider_method: Some(spec.method.to_string()),
             capability: None,
         })
-        .collect()
+        .collect::<Vec<_>>();
+    features.extend(codex_execution_location_features());
+    features
+}
+
+#[must_use]
+pub fn codex_execution_location_features() -> Vec<ProviderFeature> {
+    [
+        (
+            "codex.execution_location.local",
+            "Local execution",
+            ProviderFeatureCategory::Handoff,
+            ProviderFeatureSupport::Native,
+            None,
+        ),
+        (
+            "codex.execution_location.worktree",
+            "Worktree execution",
+            ProviderFeatureCategory::Handoff,
+            ProviderFeatureSupport::Native,
+            Some("codex.handoff.to_location"),
+        ),
+        (
+            "codex.execution_location.remote_host",
+            "Remote host execution",
+            ProviderFeatureCategory::Remote,
+            ProviderFeatureSupport::VersionGated,
+            Some("remote/handoff"),
+        ),
+        (
+            "codex.execution_location.cloud",
+            "Cloud execution",
+            ProviderFeatureCategory::Cloud,
+            ProviderFeatureSupport::Deferred,
+            Some("cloud/handoff"),
+        ),
+    ]
+    .into_iter()
+    .map(
+        |(key, display_name, category, support, provider_method)| ProviderFeature {
+            key: key.to_string(),
+            display_name: display_name.to_string(),
+            category,
+            support,
+            direction: Some(ProviderFeatureDirection::Internal),
+            provider_method: provider_method.map(ToString::to_string),
+            capability: None,
+        },
+    )
+    .collect()
 }
 
 fn codex_method_direction(direction: CodexMethodDirection) -> ProviderFeatureDirection {
@@ -381,5 +430,45 @@ mod tests {
             .find(|feature| feature.provider_method.as_deref() == Some("cloud/handoff"))
             .expect("cloud handoff feature");
         assert_eq!(cloud.support, ProviderFeatureSupport::Deferred);
+
+        let local_location = features
+            .iter()
+            .find(|feature| feature.key == "codex.execution_location.local")
+            .expect("local execution location feature");
+        assert_eq!(local_location.category, ProviderFeatureCategory::Handoff);
+        assert_eq!(local_location.support, ProviderFeatureSupport::Native);
+        assert_eq!(
+            local_location.direction,
+            Some(ProviderFeatureDirection::Internal)
+        );
+        assert!(local_location.provider_method.is_none());
+
+        let worktree_location = features
+            .iter()
+            .find(|feature| feature.key == "codex.execution_location.worktree")
+            .expect("worktree execution location feature");
+        assert_eq!(worktree_location.category, ProviderFeatureCategory::Handoff);
+        assert_eq!(worktree_location.support, ProviderFeatureSupport::Native);
+        assert_eq!(
+            worktree_location.provider_method.as_deref(),
+            Some("codex.handoff.to_location")
+        );
+
+        let remote_location = features
+            .iter()
+            .find(|feature| feature.key == "codex.execution_location.remote_host")
+            .expect("remote execution location feature");
+        assert_eq!(remote_location.category, ProviderFeatureCategory::Remote);
+        assert_eq!(
+            remote_location.support,
+            ProviderFeatureSupport::VersionGated
+        );
+
+        let cloud_location = features
+            .iter()
+            .find(|feature| feature.key == "codex.execution_location.cloud")
+            .expect("cloud execution location feature");
+        assert_eq!(cloud_location.category, ProviderFeatureCategory::Cloud);
+        assert_eq!(cloud_location.support, ProviderFeatureSupport::Deferred);
     }
 }

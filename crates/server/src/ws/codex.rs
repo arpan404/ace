@@ -2448,6 +2448,27 @@ mod tests {
                 .any(|capability| capability["key"] == "provider.runtime.raw_request")
         );
         assert!(
+            body["providers"][0]["capabilities"]
+                .as_array()
+                .expect("capabilities")
+                .iter()
+                .any(|capability| capability["key"] == "codex.execution_location.local")
+        );
+        assert!(
+            body["providers"][0]["capabilities"]
+                .as_array()
+                .expect("capabilities")
+                .iter()
+                .any(|capability| capability["key"] == "codex.execution_location.worktree")
+        );
+        assert!(
+            body["providers"][0]["capabilities"]
+                .as_array()
+                .expect("capabilities")
+                .iter()
+                .all(|capability| capability["key"] != "codex.execution_location.cloud")
+        );
+        assert!(
             body["providers"].as_array().expect("providers").iter().any(
                 |provider| provider["kind"] == "Ace"
                     && provider["capabilities"]
@@ -2685,6 +2706,46 @@ mod tests {
                 .expect("codex feature list")
                 .iter()
                 .any(|feature| feature["provider_method"] == "cloud/handoff"
+                    && feature["support"] == "deferred"
+                    && feature["category"] == "cloud")
+        );
+        assert!(
+            codex["features"]
+                .as_array()
+                .expect("codex feature list")
+                .iter()
+                .any(|feature| feature["key"] == "codex.execution_location.local"
+                    && feature["support"] == "native"
+                    && feature["category"] == "handoff")
+        );
+        assert!(
+            codex["features"]
+                .as_array()
+                .expect("codex feature list")
+                .iter()
+                .any(
+                    |feature| feature["key"] == "codex.execution_location.worktree"
+                        && feature["support"] == "native"
+                        && feature["provider_method"] == "codex.handoff.to_location"
+                )
+        );
+        assert!(
+            codex["features"]
+                .as_array()
+                .expect("codex feature list")
+                .iter()
+                .any(
+                    |feature| feature["key"] == "codex.execution_location.remote_host"
+                        && feature["support"] == "version_gated"
+                        && feature["category"] == "remote"
+                )
+        );
+        assert!(
+            codex["features"]
+                .as_array()
+                .expect("codex feature list")
+                .iter()
+                .any(|feature| feature["key"] == "codex.execution_location.cloud"
                     && feature["support"] == "deferred"
                     && feature["category"] == "cloud")
         );
