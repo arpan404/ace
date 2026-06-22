@@ -1,5 +1,8 @@
-use ace_runtime::{provider::NormalizedThreadItem, tools::SemanticToolCall};
-use ace_runtime::{provider::ProviderEvent, tools::ToolRunStatus};
+use ace_core::ProviderKind;
+use ace_runtime::{
+    provider::{NormalizedThreadItem, ProviderDescriptor, ProviderEvent},
+    tools::{SemanticToolCall, ToolRunStatus},
+};
 use serde::{Deserialize, Serialize};
 
 pub const PROVIDER_RUNTIME_EVENT_TOPIC: &str = "provider_runtime.event";
@@ -7,6 +10,25 @@ pub const PROVIDER_RUNTIME_EVENT_TOPIC: &str = "provider_runtime.event";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeSubscribeRequest {
     pub provider: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeRequest {
+    pub provider: ProviderKind,
+    pub method: String,
+    #[serde(default)]
+    pub params: serde_json::Value,
+    #[serde(default = "default_provider_request_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeProvidersList {
+    pub providers: Vec<ProviderDescriptor>,
+}
+
+fn default_provider_request_timeout_ms() -> u64 {
+    30_000
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]

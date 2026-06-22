@@ -20,6 +20,7 @@ use ace_protocol::{
     PROTOCOL_VERSION,
     ws::{WsClientRequest, WsServerPayload, WsServerResponse},
 };
+use ace_runtime::provider::{ProviderRegistry, ProviderRuntimeError};
 use ace_terminal::{PortablePtyAdapter, PtyAdapter, TerminalError, TerminalManager};
 use axum::{
     Router,
@@ -40,6 +41,7 @@ use tokio::sync::mpsc;
 pub struct WsApiState<R: ProcessRunner = TokioProcessRunner, A: PtyAdapter = PortablePtyAdapter> {
     checkpoint: Arc<CheckpointService<TokioProcessRunner>>,
     codex: Arc<CodexService>,
+    providers: ProviderRegistry,
     git: Arc<GitService<R>>,
     github: Arc<GithubService<R>>,
     project: Arc<ProjectService>,
@@ -52,6 +54,7 @@ impl<R: ProcessRunner, A: PtyAdapter> Clone for WsApiState<R, A> {
         Self {
             checkpoint: Arc::clone(&self.checkpoint),
             codex: Arc::clone(&self.codex),
+            providers: self.providers.clone(),
             git: Arc::clone(&self.git),
             github: Arc::clone(&self.github),
             project: Arc::clone(&self.project),
@@ -64,9 +67,12 @@ impl<R: ProcessRunner, A: PtyAdapter> Clone for WsApiState<R, A> {
 impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
     #[must_use]
     pub fn production() -> Self {
+        let codex = Arc::new(CodexService::production());
+        let providers = ProviderRegistry::new().with_driver(codex.clone());
         Self {
             checkpoint: Arc::new(CheckpointService::production()),
-            codex: Arc::new(CodexService::production()),
+            codex,
+            providers,
             git: Arc::new(GitService::new_with_github(
                 GitClient::new(),
                 GithubCliClient::new(),
@@ -82,9 +88,12 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
 impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
     #[must_use]
     pub fn new_services(git: GitService<R>, github: GithubService<R>) -> Self {
+        let codex = Arc::new(CodexService::production());
+        let providers = ProviderRegistry::new().with_driver(codex.clone());
         Self {
             checkpoint: Arc::new(CheckpointService::production()),
-            codex: Arc::new(CodexService::production()),
+            codex,
+            providers,
             git: Arc::new(git),
             github: Arc::new(github),
             project: Arc::new(
@@ -103,6 +112,7 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
         WsApiState {
             checkpoint: self.checkpoint,
             codex: self.codex,
+            providers: self.providers,
             git: self.git,
             github: self.github,
             project: self.project,
@@ -121,7 +131,9 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
 
     #[must_use]
     pub fn with_codex_service(mut self, codex: CodexService) -> Self {
-        self.codex = Arc::new(codex);
+        let codex = Arc::new(codex);
+        self.providers.register(codex.clone());
+        self.codex = codex;
         self
     }
 
@@ -446,6 +458,8 @@ enum WsDispatchError {
     #[error("{0}")]
     Codex(#[from] CodexApiError),
     #[error("{0}")]
+    ProviderRuntime(#[from] ProviderRuntimeError),
+    #[error("{0}")]
     Terminal(#[from] TerminalError),
     #[error("{0}")]
     Editor(#[from] EditorApiError),
@@ -461,6 +475,10 @@ impl WsDispatchError {
             Self::Project(_) => "project_error",
             Self::Checkpoint(_) => "checkpoint_error",
             Self::Codex(error) => error.code(),
+            Self::ProviderRuntime(error) => match error {
+                ProviderRuntimeError::ProviderUnavailable { .. } => "provider_unavailable",
+                ProviderRuntimeError::Driver(_) => "provider_request_failed",
+            },
             Self::Terminal(_) => "terminal_error",
             Self::Editor(_) => "editor_error",
         }

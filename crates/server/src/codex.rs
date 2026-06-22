@@ -3,8 +3,11 @@ use ace_codex::{
     CodexPermissionCatalog, CodexPlanImplementation, CodexStdioTransport, CodexSubagentSteer,
     CodexThreadStart, CodexTurnStart, Result,
 };
+use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::{
-    provider::ProviderEvent,
+    provider::{
+        ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent, ProviderRequest,
+    },
     threads::{
         AgentRuntimeState, ExecutionLocation, ForkPoint, HandoffPlan, PlanSessionStatus,
         RuntimeStateError, SideChat, TurnMode,
@@ -791,6 +794,46 @@ impl CodexService {
 
     pub async fn restart(&self, timeout: Duration) -> std::result::Result<(), CodexApiError> {
         Ok(self.backend.restart(timeout).await?)
+    }
+}
+
+#[async_trait]
+impl ProviderDriver for CodexService {
+    fn descriptor(&self) -> ProviderDescriptor {
+        ProviderDescriptor {
+            kind: ProviderKind::Codex,
+            capabilities: vec![
+                ProviderCapability {
+                    key: "codex.app_server".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
+                    key: "codex.experimental_api".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
+                    key: "provider.semantic_tools".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
+                    key: "provider.runtime.raw_request".to_string(),
+                    version: 1,
+                },
+            ],
+        }
+    }
+
+    async fn request(
+        &self,
+        request: ProviderRequest,
+    ) -> std::result::Result<Value, ProviderDriverError> {
+        self.raw_request(request.method.clone(), request.params)
+            .await
+            .map_err(|error| ProviderDriverError::RequestFailed {
+                provider: "codex".to_string(),
+                method: request.method,
+                message: error.to_string(),
+            })
     }
 }
 

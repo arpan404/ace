@@ -13,10 +13,12 @@ use ace_protocol::{
     },
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
-        ProviderRuntimeSubscribeRequest, ProviderServerRequestError, ProviderServerRequestResult,
+        ProviderRuntimeProvidersList, ProviderRuntimeRequest, ProviderRuntimeSubscribeRequest,
+        ProviderServerRequestError, ProviderServerRequestResult,
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
+use ace_runtime::provider::ProviderRequest;
 use ace_terminal::PtyAdapter;
 use serde_json::Value;
 use std::time::Duration;
@@ -395,6 +397,26 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         payload: Value,
     ) -> Result<Value, WsDispatchError> {
         match method {
+            methods::PROVIDER_RUNTIME_PROVIDERS_LIST => {
+                Ok(serde_json::to_value(ProviderRuntimeProvidersList {
+                    providers: self.providers.descriptors(),
+                })?)
+            }
+            methods::PROVIDER_RUNTIME_REQUEST => {
+                let request = serde_json::from_value::<ProviderRuntimeRequest>(payload)?;
+                let response = self
+                    .providers
+                    .request(
+                        request.provider,
+                        ProviderRequest {
+                            method: request.method,
+                            params: request.params,
+                            timeout: Duration::from_millis(request.timeout_ms),
+                        },
+                    )
+                    .await?;
+                Ok(response)
+            }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT => {
                 self.codex_json::<ProviderServerRequestResult, _, _, _>(
                     payload,
@@ -1080,6 +1102,64 @@ mod tests {
         );
         assert_eq!(body["raw_events"][1]["type"], "raw_notification");
         assert_eq!(body["raw_events"][1]["method"], "item/completed");
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_lists_and_routes_registered_providers() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let list = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "providers-list",
+                    "method": methods::PROVIDER_RUNTIME_PROVIDERS_LIST,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let list: WsServerResponse = serde_json::from_str(&list).expect("list response");
+        let WsServerPayload::Result { body } = list.payload else {
+            panic!("expected provider list");
+        };
+        assert_eq!(body["providers"][0]["kind"], "Codex");
+        assert!(
+            body["providers"][0]["capabilities"]
+                .as_array()
+                .expect("capabilities")
+                .iter()
+                .any(|capability| capability["key"] == "provider.runtime.raw_request")
+        );
+
+        let routed = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-request",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "Codex",
+                        "method": "thread/read",
+                        "params": { "threadId": "thread-1" },
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let routed: WsServerResponse = serde_json::from_str(&routed).expect("routed response");
+        assert!(matches!(routed.payload, WsServerPayload::Result { .. }));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["thread/read"]
+        );
     }
 
     #[tokio::test]
