@@ -105,12 +105,41 @@ pub struct SubagentThread {
     pub nickname: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HandoffStatus {
+    Requested,
+    Interrupted,
+    Transferring,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HandoffPlan {
     pub source_thread_id: String,
     pub target_location: ExecutionLocation,
+    pub status: HandoffStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_point: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transfer_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupted_active_turn: Option<bool>,
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub metadata: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -722,9 +751,28 @@ mod tests {
         state.record_handoff(HandoffPlan {
             source_thread_id: "parent-1".to_string(),
             target_location: ExecutionLocation::Worktree,
+            status: HandoffStatus::Completed,
             target_thread_id: Some("subagent-1".to_string()),
+            repo_root: Some("/repo".to_string()),
+            worktree_path: Some("/worktrees/repo-feature".to_string()),
+            branch: Some("feature/task".to_string()),
+            start_point: Some("main".to_string()),
+            checkpoint_ref: Some("checkpoint-1".to_string()),
+            remote_host: None,
+            transfer_status: Some("metadata_updated".to_string()),
+            interrupted_active_turn: Some(true),
+            metadata: json!({ "handoff": { "worktree_branch": "feature/task" } }),
         });
         assert_eq!(state.handoffs().len(), 1);
+        let handoff = &state.handoffs()[0];
+        assert_eq!(handoff.status, HandoffStatus::Completed);
+        assert_eq!(handoff.branch.as_deref(), Some("feature/task"));
+        assert_eq!(handoff.start_point.as_deref(), Some("main"));
+        assert_eq!(handoff.interrupted_active_turn, Some(true));
+        assert_eq!(
+            handoff.metadata["handoff"]["worktree_branch"],
+            "feature/task"
+        );
         state.close_subagent("subagent-1");
         assert!(state.subagent("subagent-1").is_none());
     }

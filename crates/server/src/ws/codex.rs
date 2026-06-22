@@ -52,7 +52,7 @@ use ace_runtime::provider::{
     ProviderAdapterOperation, ProviderAdapterProfile, ProviderEvent, ProviderRequest,
     ace_provider_adapter_contract, provider_adapter_profile, provider_contract_report,
 };
-use ace_runtime::threads::ExecutionLocation;
+use ace_runtime::threads::{ExecutionLocation, HandoffPlan, HandoffStatus};
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -485,7 +485,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             .create_worktree(GitWorktreeCreateRequest {
                 repo_path: request.repo_path.clone(),
                 preferred_branch: request.preferred_branch,
-                start_point: request.start_point,
+                start_point: request.start_point.clone(),
             })
             .await?;
 
@@ -504,11 +504,21 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             .update_thread_metadata(request.thread_id.clone(), metadata.clone())
             .await?;
         self.codex
-            .record_handoff_to_location(
-                request.thread_id.clone(),
-                ExecutionLocation::Worktree,
-                Some(request.thread_id.clone()),
-            )
+            .record_handoff_to_location(HandoffPlan {
+                source_thread_id: request.thread_id.clone(),
+                target_location: ExecutionLocation::Worktree,
+                status: HandoffStatus::Completed,
+                target_thread_id: Some(request.thread_id.clone()),
+                repo_root: Some(repo_root.clone()),
+                worktree_path: Some(worktree_path.clone()),
+                branch: Some(worktree.branch.clone()),
+                start_point: request.start_point.clone(),
+                checkpoint_ref: None,
+                remote_host: None,
+                transfer_status: Some("metadata_updated".to_string()),
+                interrupted_active_turn: Some(interrupted_active_turn),
+                metadata: metadata.clone(),
+            })
             .await;
 
         Ok(serde_json::to_value(CodexHandoffToLocationResponse {
@@ -2548,6 +2558,33 @@ mod tests {
             requests[3].args[0..4],
             ["worktree", "add", "-b", "feature/task-2"]
         );
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "handoff-snapshot",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        let handoff = &body["providers"][0]["state"]["handoffs"][0];
+        assert_eq!(handoff["source_thread_id"], "thread-1");
+        assert_eq!(handoff["target_location"], "worktree");
+        assert_eq!(handoff["status"], "completed");
+        assert_eq!(handoff["target_thread_id"], "thread-1");
+        assert_eq!(handoff["worktree_path"], worktree_path);
+        assert_eq!(handoff["branch"], "feature/task-2");
+        assert_eq!(handoff["repo_root"], "/repo");
+        assert_eq!(handoff["start_point"], "main");
+        assert_eq!(handoff["transfer_status"], "metadata_updated");
+        assert_eq!(handoff["interrupted_active_turn"], true);
     }
 
     #[tokio::test]

@@ -15,7 +15,7 @@ use ace_runtime::{
     },
     threads::{
         AgentRuntimeSnapshot, AgentRuntimeState, ExecutionLocation, ForkPoint, HandoffPlan,
-        PlanSessionStatus, RuntimeStateError, SideChat, TurnMode,
+        HandoffStatus, PlanSessionStatus, RuntimeStateError, SideChat, TurnMode,
     },
 };
 use async_trait::async_trait;
@@ -942,22 +942,23 @@ impl CodexService {
         self.state.lock().await.record_handoff(HandoffPlan {
             source_thread_id,
             target_location: ExecutionLocation::Local,
+            status: HandoffStatus::Completed,
             target_thread_id: extract_thread_id(&response),
+            repo_root: None,
+            worktree_path: None,
+            branch: None,
+            start_point: None,
+            checkpoint_ref: None,
+            remote_host: None,
+            transfer_status: Some("completed".to_string()),
+            interrupted_active_turn: None,
+            metadata: response.clone(),
         });
         Ok(response)
     }
 
-    pub async fn record_handoff_to_location(
-        &self,
-        source_thread_id: String,
-        target_location: ExecutionLocation,
-        target_thread_id: Option<String>,
-    ) {
-        self.state.lock().await.record_handoff(HandoffPlan {
-            source_thread_id,
-            target_location,
-            target_thread_id,
-        });
+    pub async fn record_handoff_to_location(&self, handoff: HandoffPlan) {
+        self.state.lock().await.record_handoff(handoff);
     }
 
     pub async fn next_events(
