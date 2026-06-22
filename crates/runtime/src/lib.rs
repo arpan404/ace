@@ -585,6 +585,7 @@ pub mod provider {
         AutoApprovalReviewUpdated,
         SubagentAction,
         HandoffUpdated,
+        PlanImplementationUpdated,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1307,6 +1308,7 @@ pub mod provider {
                 RuntimeSignalKind::AutoApprovalReviewUpdated,
                 RuntimeSignalKind::SubagentAction,
                 RuntimeSignalKind::HandoffUpdated,
+                RuntimeSignalKind::PlanImplementationUpdated,
             ],
             provider_event_types: vec![
                 "raw_notification".to_string(),

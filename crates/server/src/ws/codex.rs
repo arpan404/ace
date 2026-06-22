@@ -53,7 +53,9 @@ use ace_runtime::provider::{
     ProviderMetadata, ProviderRequest, RuntimeSignalKind, ace_provider_adapter_contract,
     provider_adapter_profile, provider_contract_report,
 };
-use ace_runtime::threads::{ExecutionLocation, HandoffPlan, HandoffStatus};
+use ace_runtime::threads::{
+    ExecutionLocation, HandoffPlan, HandoffStatus, PlanImplementationMode, PlanImplementationRecord,
+};
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -340,31 +342,56 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .await
             }
             methods::CODEX_PLAN_CONTINUE_IN_THREAD => {
-                self.codex_json::<CodexPlanImplementationRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service.continue_plan_in_thread(request.params).await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexPlanImplementationRequest>(payload)?;
+                let params = request.params;
+                let response = self.codex.continue_plan_in_thread(params.clone()).await?;
+                self.publish_codex_plan_implementation_signal(CodexPlanImplementationSignal {
+                    implementation: plan_implementation_record_from_codex(
+                        &params,
+                        params.thread_id.clone(),
+                        PlanImplementationMode::ContinueInThread,
+                        response.clone(),
+                    ),
+                    method: "ace/plan/continue_in_thread",
+                })?;
+                Ok(response)
             }
             methods::CODEX_PLAN_FORK_FOR_IMPLEMENTATION => {
-                self.codex_json::<CodexPlanImplementationRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service.fork_plan_for_implementation(request.params).await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexPlanImplementationRequest>(payload)?;
+                let params = request.params;
+                let response = self
+                    .codex
+                    .fork_plan_for_implementation(params.clone())
+                    .await?;
+                if let Some(target_thread_id) = extract_thread_id_from_value(&response) {
+                    self.publish_codex_plan_implementation_signal(CodexPlanImplementationSignal {
+                        implementation: plan_implementation_record_from_codex(
+                            &params,
+                            target_thread_id,
+                            PlanImplementationMode::ForkForImplementation,
+                            response.clone(),
+                        ),
+                        method: "ace/plan/fork_for_implementation",
+                    })?;
+                }
+                Ok(response)
             }
             methods::CODEX_PLAN_SIDE_IMPLEMENTATION => {
-                self.codex_json::<CodexPlanImplementationRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service.side_implementation(request.params).await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexPlanImplementationRequest>(payload)?;
+                let params = request.params;
+                let response = self.codex.side_implementation(params.clone()).await?;
+                if let Some(target_thread_id) = extract_thread_id_from_value(&response) {
+                    self.publish_codex_plan_implementation_signal(CodexPlanImplementationSignal {
+                        implementation: plan_implementation_record_from_codex(
+                            &params,
+                            target_thread_id,
+                            PlanImplementationMode::SideImplementation,
+                            response.clone(),
+                        ),
+                        method: "ace/plan/side_implementation",
+                    })?;
+                }
+                Ok(response)
             }
             methods::CODEX_CONFIG_REQUIREMENTS_READ => {
                 let response = self.codex.config_requirements_read().await?;
@@ -1238,6 +1265,50 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         )
     }
 
+    fn publish_codex_plan_implementation_signal(
+        &self,
+        signal: CodexPlanImplementationSignal,
+    ) -> Result<(), WsDispatchError> {
+        let implementation = serde_json::to_value(&signal.implementation)?;
+        let metadata = json!({
+            "plan_implementation": implementation,
+        });
+        let raw_payload = metadata.clone();
+        self.append_and_publish_provider_events(
+            ProviderKind::Codex,
+            vec![ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::PlanImplementationUpdated,
+                    thread_id: Some(signal.implementation.parent_thread_id),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: Some(signal.implementation.prompt),
+                    audio: None,
+                    status: Some(plan_implementation_mode_key(signal.implementation.mode)),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(signal.method.to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            }],
+        )
+    }
+
     pub(super) async fn subscribe_provider_runtime_events(
         &self,
         payload: Value,
@@ -1458,6 +1529,11 @@ struct CodexHandoffSignal {
     provider_response: Value,
 }
 
+struct CodexPlanImplementationSignal {
+    implementation: PlanImplementationRecord,
+    method: &'static str,
+}
+
 fn extract_thread_id_from_value(value: &Value) -> Option<String> {
     value
         .pointer("/thread/id")
@@ -1466,6 +1542,36 @@ fn extract_thread_id_from_value(value: &Value) -> Option<String> {
         .or_else(|| value.get("id"))
         .and_then(Value::as_str)
         .map(ToString::to_string)
+}
+
+fn plan_implementation_record_from_codex(
+    request: &ace_codex::CodexPlanImplementation,
+    target_thread_id: String,
+    mode: PlanImplementationMode,
+    provider_response: Value,
+) -> PlanImplementationRecord {
+    PlanImplementationRecord {
+        parent_thread_id: request.thread_id.clone(),
+        target_thread_id,
+        mode,
+        prompt: request.prompt.clone(),
+        model: request.model.clone(),
+        cwd: request.cwd.clone(),
+        plan: request.plan.clone(),
+        sandbox_policy: request.sandbox_policy.clone().unwrap_or(Value::Null),
+        approval_policy: request.approval_policy.clone().unwrap_or(Value::Null),
+        approvals_reviewer: request.approvals_reviewer.clone(),
+        provider_response,
+    }
+}
+
+fn plan_implementation_mode_key(mode: PlanImplementationMode) -> String {
+    match mode {
+        PlanImplementationMode::ContinueInThread => "continue_in_thread",
+        PlanImplementationMode::ForkForImplementation => "fork_for_implementation",
+        PlanImplementationMode::SideImplementation => "side_implementation",
+    }
+    .to_string()
 }
 
 fn validate_provider_runtime_operation(
@@ -2344,6 +2450,49 @@ mod tests {
         assert_eq!(implementations[2]["mode"], "side_implementation");
         assert_eq!(implementations[2]["target_thread_id"], "fork-1");
         assert_eq!(implementations[2]["provider_response"]["ephemeral"], true);
+
+        let recent = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "plan-impl-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": { "provider": "codex", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent: WsServerResponse = serde_json::from_str(&recent).expect("recent events");
+        let WsServerPayload::Result { body } = recent.payload else {
+            panic!("expected recent events result");
+        };
+        let records = body["records"].as_array().expect("records");
+        assert_eq!(records.len(), 3);
+        assert!(records.iter().all(|record| {
+            record["event"]["type"] == "runtime_signal"
+                && record["event"]["signal"]["kind"] == "plan_implementation_updated"
+                && record["projection_deltas"][0]["type"] == "plan_implementation_updated"
+        }));
+        assert_eq!(
+            records[0]["event"]["signal"]["status"],
+            "continue_in_thread"
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["implementation"]["target_thread_id"],
+            "thread-1"
+        );
+        assert_eq!(
+            records[1]["projection_deltas"][0]["implementation"]["mode"],
+            "fork_for_implementation"
+        );
+        assert_eq!(
+            records[1]["projection_deltas"][0]["implementation"]["provider_response"]["forked"],
+            true
+        );
+        assert_eq!(
+            records[2]["projection_deltas"][0]["implementation"]["mode"],
+            "side_implementation"
+        );
     }
 
     #[tokio::test]

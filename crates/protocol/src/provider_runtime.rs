@@ -10,7 +10,7 @@ use ace_runtime::{
         ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
         RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
     },
-    threads::{AgentRuntimeSnapshot, GoalState, GoalStatus, HandoffPlan},
+    threads::{AgentRuntimeSnapshot, GoalState, GoalStatus, HandoffPlan, PlanImplementationRecord},
     tools::{SemanticToolCall, ToolRunStatus},
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -745,6 +745,10 @@ pub enum ProviderRuntimeProjectionDelta {
         provider: String,
         handoff: HandoffPlan,
     },
+    PlanImplementationUpdated {
+        provider: String,
+        implementation: PlanImplementationRecord,
+    },
     ActiveTurnChanged {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1311,6 +1315,21 @@ fn projection_deltas_for_runtime_signal(
             vec![ProviderRuntimeProjectionDelta::HandoffUpdated {
                 provider: signal.provider.provider.clone(),
                 handoff,
+            }]
+        }
+        RuntimeSignalKind::PlanImplementationUpdated => {
+            let value = signal
+                .metadata
+                .get("plan_implementation")
+                .cloned()
+                .unwrap_or_else(|| signal.metadata.clone());
+            let Ok(implementation) = serde_json::from_value::<PlanImplementationRecord>(value)
+            else {
+                return Vec::new();
+            };
+            vec![ProviderRuntimeProjectionDelta::PlanImplementationUpdated {
+                provider: signal.provider.provider.clone(),
+                implementation,
             }]
         }
     }
@@ -2133,6 +2152,45 @@ mod tests {
                     provider: provider_metadata("handoff/worktree"),
                 }),
             },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::PlanImplementationUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("fork_for_implementation".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "plan_implementation": {
+                            "parent_thread_id": "thread-1",
+                            "target_thread_id": "fork-1",
+                            "mode": "fork_for_implementation",
+                            "prompt": "implement this plan",
+                            "model": "gpt-5.5",
+                            "cwd": "/repo",
+                            "plan": { "markdown": "1. Edit\n2. Test" },
+                            "sandbox_policy": { "mode": "workspace-write" },
+                            "approval_policy": { "mode": "on-request" },
+                            "approvals_reviewer": "user",
+                            "provider_response": { "forked": true }
+                        }
+                    }),
+                    provider: provider_metadata("plan/implementation"),
+                }),
+            },
         ];
         let deltas = projection_deltas_for_events(&events);
 
@@ -2254,6 +2312,15 @@ mod tests {
                     && handoff.status == ace_runtime::threads::HandoffStatus::Completed
                     && handoff.branch.as_deref() == Some("feature/task")
                     && handoff.interrupted_active_turn == Some(true)
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::PlanImplementationUpdated { implementation, .. }
+                if implementation.parent_thread_id == "thread-1"
+                    && implementation.target_thread_id == "fork-1"
+                    && implementation.mode == ace_runtime::threads::PlanImplementationMode::ForkForImplementation
+                    && implementation.prompt == "implement this plan"
+                    && implementation.provider_response["forked"] == true
         )));
         assert!(deltas.iter().all(|delta| !matches!(
             delta,

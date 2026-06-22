@@ -649,6 +649,9 @@ impl AgentRuntimeState {
                 if let Some(handoff) = handoff_from_signal(signal) {
                     self.record_handoff(handoff);
                 }
+                if let Some(implementation) = plan_implementation_from_signal(signal) {
+                    self.record_plan_implementation(implementation);
+                }
             }
             ProviderEvent::RawServerRequest { .. }
             | ProviderEvent::ServerRequest { .. }
@@ -823,6 +826,20 @@ fn handoff_from_signal(signal: &NormalizedRuntimeSignal) -> Option<HandoffPlan> 
     let value = signal
         .metadata
         .get("handoff")
+        .cloned()
+        .unwrap_or_else(|| signal.metadata.clone());
+    serde_json::from_value(value).ok()
+}
+
+fn plan_implementation_from_signal(
+    signal: &NormalizedRuntimeSignal,
+) -> Option<PlanImplementationRecord> {
+    if signal.kind != RuntimeSignalKind::PlanImplementationUpdated {
+        return None;
+    }
+    let value = signal
+        .metadata
+        .get("plan_implementation")
         .cloned()
         .unwrap_or_else(|| signal.metadata.clone());
     serde_json::from_value(value).ok()
@@ -1298,6 +1315,67 @@ mod tests {
         assert_eq!(handoffs[0].status, HandoffStatus::Completed);
         assert_eq!(handoffs[0].branch.as_deref(), Some("feature/task"));
         assert_eq!(handoffs[0].interrupted_active_turn, Some(true));
+    }
+
+    #[test]
+    fn applies_plan_implementation_runtime_signals() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[ProviderEvent::RuntimeSignal {
+            signal: Box::new(NormalizedRuntimeSignal {
+                kind: RuntimeSignalKind::PlanImplementationUpdated,
+                thread_id: Some("thread-1".to_string()),
+                turn_id: None,
+                item_id: None,
+                message: None,
+                from_model: None,
+                to_model: None,
+                reason: None,
+                text: None,
+                audio: None,
+                status: Some("fork_for_implementation".to_string()),
+                name: None,
+                active: None,
+                archived: None,
+                diff: None,
+                files: None,
+                process_id: None,
+                exit_code: None,
+                request_id: None,
+                metadata: json!({
+                    "plan_implementation": {
+                        "parent_thread_id": "thread-1",
+                        "target_thread_id": "fork-1",
+                        "mode": "fork_for_implementation",
+                        "prompt": "implement this plan",
+                        "model": "gpt-5.5",
+                        "cwd": "/repo",
+                        "plan": { "markdown": "1. Edit\n2. Test" },
+                        "sandbox_policy": { "mode": "workspace-write" },
+                        "approval_policy": { "mode": "on-request" },
+                        "approvals_reviewer": "user",
+                        "provider_response": { "forked": true }
+                    }
+                }),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("ace/plan_implementation".to_string()),
+                    schema_version: None,
+                    raw_payload: json!({}),
+                },
+            }),
+        }]);
+
+        let implementations = state.plan_implementations();
+        assert_eq!(implementations.len(), 1);
+        assert_eq!(implementations[0].parent_thread_id, "thread-1");
+        assert_eq!(implementations[0].target_thread_id, "fork-1");
+        assert_eq!(
+            implementations[0].mode,
+            PlanImplementationMode::ForkForImplementation
+        );
+        assert_eq!(implementations[0].prompt, "implement this plan");
+        assert_eq!(implementations[0].plan["markdown"], "1. Edit\n2. Test");
+        assert_eq!(implementations[0].provider_response["forked"], true);
     }
 
     #[test]

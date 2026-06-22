@@ -264,6 +264,7 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
         }
         RuntimeSignalKind::SubagentAction => {}
         RuntimeSignalKind::HandoffUpdated => {}
+        RuntimeSignalKind::PlanImplementationUpdated => {}
     }
     Some(signal)
 }
