@@ -116,10 +116,28 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 None,
                 ToolRunStatus::Started,
             )?;
-            let response = self
-                .codex
-                .raw_request(codex_method.to_string(), params.clone())
-                .await;
+            let response = match codex_method {
+                "remote/connectionList" => self
+                    .codex
+                    .remote_connection_list(params.clone())
+                    .await
+                    .map_err(WsDispatchError::from),
+                "remote/handoff" => {
+                    match serde_json::from_value::<CodexRemoteHandoffRequest>(params.clone()) {
+                        Ok(request) => self
+                            .codex
+                            .remote_handoff(request)
+                            .await
+                            .map_err(WsDispatchError::from),
+                        Err(error) => Err(WsDispatchError::from(error)),
+                    }
+                }
+                _ => self
+                    .codex
+                    .raw_request(codex_method.to_string(), params.clone())
+                    .await
+                    .map_err(WsDispatchError::from),
+            };
             return match response {
                 Ok(response) => {
                     self.publish_codex_versioned_tool_event(
@@ -142,7 +160,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         Some(&error_payload),
                         ToolRunStatus::Failed,
                     )?;
-                    Err(error.into())
+                    Err(error)
                 }
             };
         }
@@ -8712,9 +8730,15 @@ mod tests {
                 methods::CODEX_APPS_CONFIG_WRITE,
                 json!({ "app": "browser", "config": { "enabled": true } }),
             ),
+            (methods::CODEX_REMOTE_CONNECTION_LIST, json!({})),
             (
                 methods::CODEX_REMOTE_HANDOFF,
-                json!({ "thread_id": "thread-1", "host": "devbox" }),
+                json!({
+                    "thread_id": "thread-1",
+                    "host": "devbox",
+                    "target_path": "/srv/ace",
+                    "branch": "feature/remote"
+                }),
             ),
             (
                 methods::CODEX_ACCOUNT_LOGIN_START,
@@ -8840,6 +8864,7 @@ mod tests {
                 "plugin/share/save",
                 "plugin/share/updateTargets",
                 "apps/configWrite",
+                "remote/connectionList",
                 "remote/handoff",
                 "account/login/start",
                 "account/login/cancel",
@@ -8888,6 +8913,26 @@ mod tests {
             .as_array()
             .expect("review threads");
         assert_eq!(review_threads, &[json!("thread-1")]);
+        assert_eq!(
+            body["providers"][0]["state"]["remote_connections"][0]["host_id"],
+            "devbox"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["remote_connections"][0]["projects"][0]["path"],
+            "/srv/ace"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["handoffs"][0]["target_location"],
+            "remote_host"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["handoffs"][0]["remote_host"],
+            "devbox"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["handoffs"][0]["branch"],
+            "feature/remote"
+        );
 
         let recent = state
             .dispatch_text(

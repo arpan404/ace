@@ -375,6 +375,23 @@ pub struct ProviderStateRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteConnectionRecord {
+    pub provider: String,
+    pub host_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    pub execution_location: ExecutionLocation,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub projects: Value,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RealtimeSessionRecord {
     pub provider: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -459,6 +476,7 @@ type RuntimeThreadTurnKey = (Option<String>, Option<String>);
 type AutoApprovalReviewKey = (Option<String>, Option<String>, Option<String>);
 type ApprovalKey = (String, String);
 type ChildThreadKey = (String, String, String, ChildThreadRelationship);
+type RemoteConnectionKey = (String, String);
 type RealtimeStreamKey = (String, Option<String>, Option<String>);
 type TerminalOutputKey = (
     String,
@@ -547,6 +565,7 @@ pub struct AgentRuntimeState {
     warnings: Vec<RuntimeWarningRecord>,
     model_reroutes: Vec<ModelRerouteRecord>,
     provider_states: HashMap<String, ProviderStateRecord>,
+    remote_connections: HashMap<RemoteConnectionKey, RemoteConnectionRecord>,
     realtime_sessions: HashMap<RuntimeThreadTurnKey, RealtimeSessionRecord>,
     realtime_transcripts: HashMap<RealtimeStreamKey, RealtimeTranscriptRecord>,
     realtime_transcript_order: VecDeque<RealtimeStreamKey>,
@@ -591,6 +610,7 @@ pub struct AgentRuntimeSnapshot {
     pub warnings: Vec<RuntimeWarningRecord>,
     pub model_reroutes: Vec<ModelRerouteRecord>,
     pub provider_states: Vec<ProviderStateRecord>,
+    pub remote_connections: Vec<RemoteConnectionRecord>,
     pub realtime_sessions: Vec<RealtimeSessionRecord>,
     pub realtime_transcripts: Vec<RealtimeTranscriptRecord>,
     pub realtime_audio: Vec<RealtimeAudioRecord>,
@@ -643,6 +663,17 @@ impl AgentRuntimeState {
 
         let mut provider_states = self.provider_states.values().cloned().collect::<Vec<_>>();
         provider_states.sort_by(|left, right| left.provider.cmp(&right.provider));
+
+        let mut remote_connections = self
+            .remote_connections
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        remote_connections.sort_by(|left, right| {
+            left.provider
+                .cmp(&right.provider)
+                .then_with(|| left.host_id.cmp(&right.host_id))
+        });
 
         let mut realtime_sessions = self.realtime_sessions.values().cloned().collect::<Vec<_>>();
         realtime_sessions.sort_by(|left, right| {
@@ -707,6 +738,7 @@ impl AgentRuntimeState {
             warnings: self.warnings.clone(),
             model_reroutes: self.model_reroutes.clone(),
             provider_states,
+            remote_connections,
             realtime_sessions,
             realtime_transcripts,
             realtime_audio,
@@ -1193,6 +1225,40 @@ impl AgentRuntimeState {
 
     pub fn upsert_provider_state(&mut self, state: ProviderStateRecord) {
         self.provider_states.insert(state.provider.clone(), state);
+    }
+
+    pub fn upsert_remote_connection(&mut self, connection: RemoteConnectionRecord) {
+        self.remote_connections.insert(
+            (connection.provider.clone(), connection.host_id.clone()),
+            connection,
+        );
+    }
+
+    pub fn replace_remote_connections(
+        &mut self,
+        provider: &str,
+        connections: impl IntoIterator<Item = RemoteConnectionRecord>,
+    ) {
+        self.remote_connections
+            .retain(|(existing_provider, _), _| existing_provider != provider);
+        for connection in connections {
+            self.upsert_remote_connection(connection);
+        }
+    }
+
+    #[must_use]
+    pub fn remote_connections(&self) -> Vec<RemoteConnectionRecord> {
+        let mut connections = self
+            .remote_connections
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        connections.sort_by(|left, right| {
+            left.provider
+                .cmp(&right.provider)
+                .then_with(|| left.host_id.cmp(&right.host_id))
+        });
+        connections
     }
 
     pub fn upsert_realtime_session(&mut self, session: RealtimeSessionRecord) {
@@ -4370,6 +4436,71 @@ mod tests {
         assert_eq!(lifecycle[1].action, ThreadLifecycleActionKind::Rollback);
         assert_eq!(lifecycle[1].turn_id.as_deref(), Some("turn-2"));
         assert_eq!(lifecycle[1].request["turn_id"], "turn-2");
+    }
+
+    #[test]
+    fn records_remote_connections_with_stable_replacement() {
+        let mut state = AgentRuntimeState::default();
+        state.replace_remote_connections(
+            "codex",
+            [
+                RemoteConnectionRecord {
+                    provider: "codex".to_string(),
+                    host_id: "devbox-b".to_string(),
+                    host: Some("devbox-b".to_string()),
+                    display_name: Some("Devbox B".to_string()),
+                    status: Some("online".to_string()),
+                    execution_location: ExecutionLocation::RemoteHost,
+                    projects: json!([{ "path": "/repo-b" }]),
+                    metadata: json!({ "platform": "linux" }),
+                },
+                RemoteConnectionRecord {
+                    provider: "codex".to_string(),
+                    host_id: "devbox-a".to_string(),
+                    host: Some("devbox-a".to_string()),
+                    display_name: Some("Devbox A".to_string()),
+                    status: Some("offline".to_string()),
+                    execution_location: ExecutionLocation::RemoteHost,
+                    projects: Value::Null,
+                    metadata: json!({ "platform": "macos" }),
+                },
+            ],
+        );
+        state.upsert_remote_connection(RemoteConnectionRecord {
+            provider: "ace".to_string(),
+            host_id: "native-local".to_string(),
+            host: Some("localhost".to_string()),
+            display_name: Some("This computer".to_string()),
+            status: Some("ready".to_string()),
+            execution_location: ExecutionLocation::Local,
+            projects: Value::Null,
+            metadata: Value::Null,
+        });
+        state.replace_remote_connections(
+            "codex",
+            [RemoteConnectionRecord {
+                provider: "codex".to_string(),
+                host_id: "devbox-c".to_string(),
+                host: Some("devbox-c".to_string()),
+                display_name: Some("Devbox C".to_string()),
+                status: Some("online".to_string()),
+                execution_location: ExecutionLocation::RemoteHost,
+                projects: json!([{ "path": "/repo-c" }]),
+                metadata: json!({ "platform": "linux" }),
+            }],
+        );
+
+        let connections = state.remote_connections();
+        assert_eq!(
+            connections
+                .iter()
+                .map(|connection| connection.host_id.as_str())
+                .collect::<Vec<_>>(),
+            ["native-local", "devbox-c"]
+        );
+        assert_eq!(connections[1].display_name.as_deref(), Some("Devbox C"));
+        assert_eq!(connections[1].projects[0]["path"], "/repo-c");
+        assert_eq!(state.snapshot().remote_connections, connections);
     }
 
     #[test]

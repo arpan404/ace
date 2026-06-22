@@ -6,6 +6,7 @@ use ace_codex::{
     classify_codex_method,
 };
 use ace_core::{ProviderCapability, ProviderKind};
+use ace_protocol::codex::CodexRemoteHandoffRequest;
 use ace_runtime::{
     provider::{
         ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderDriverStatus,
@@ -16,9 +17,9 @@ use ace_runtime::{
     threads::{
         AgentRuntimeSnapshot, AgentRuntimeState, AgentThread, ApprovalRetryRecord,
         ExecutionLocation, ForkPoint, HandoffPlan, HandoffStatus, PlanImplementationMode,
-        PlanImplementationRecord, PlanSessionStatus, RuntimeStateError, SideChat,
-        SubagentActionKind, SubagentActionRecord, ThreadLifecycleActionKind, ThreadLifecycleRecord,
-        TurnMode,
+        PlanImplementationRecord, PlanSessionStatus, RemoteConnectionRecord, RuntimeStateError,
+        SideChat, SubagentActionKind, SubagentActionRecord, ThreadLifecycleActionKind,
+        ThreadLifecycleRecord, TurnMode,
     },
 };
 use async_trait::async_trait;
@@ -946,6 +947,40 @@ impl CodexService {
         Ok(response)
     }
 
+    pub async fn remote_connection_list(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        let response = self
+            .backend
+            .raw_request("remote/connectionList", params)
+            .await?;
+        let connections = remote_connections_from_codex_response(&response);
+        self.state
+            .lock()
+            .await
+            .replace_remote_connections(ProviderKind::Codex.runtime_id(), connections);
+        Ok(response)
+    }
+
+    pub async fn remote_handoff(
+        &self,
+        request: CodexRemoteHandoffRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        let response = self
+            .backend
+            .raw_request(
+                "remote/handoff",
+                serde_json::to_value(&request).unwrap_or(Value::Null),
+            )
+            .await?;
+        self.state
+            .lock()
+            .await
+            .record_handoff(remote_handoff_plan(&request, &response));
+        Ok(response)
+    }
+
     pub async fn has_active_turn(&self, thread_id: &str) -> bool {
         self.state.lock().await.active_turn(thread_id).is_some()
     }
@@ -1438,6 +1473,120 @@ fn agent_threads_from_codex_response(
     threads
 }
 
+fn remote_connections_from_codex_response(response: &Value) -> Vec<RemoteConnectionRecord> {
+    let mut connections = Vec::new();
+    collect_remote_connections(response, &mut connections);
+    for key in [
+        "connections",
+        "remoteConnections",
+        "remote_connections",
+        "hosts",
+        "devices",
+    ] {
+        if let Some(items) = response.get(key).and_then(Value::as_array) {
+            for item in items {
+                collect_remote_connections(item, &mut connections);
+            }
+        }
+    }
+    connections.sort_by(|left, right| left.host_id.cmp(&right.host_id));
+    connections.dedup_by(|left, right| left.host_id == right.host_id);
+    connections
+}
+
+fn collect_remote_connections(value: &Value, connections: &mut Vec<RemoteConnectionRecord>) {
+    if let Some(items) = value.as_array() {
+        connections.extend(items.iter().filter_map(remote_connection_from_value));
+    } else if let Some(connection) = remote_connection_from_value(value) {
+        connections.push(connection);
+    }
+}
+
+fn remote_connection_from_value(value: &Value) -> Option<RemoteConnectionRecord> {
+    let host = string_field_any(value, &["host", "hostname", "hostName", "sshHost", "alias"]);
+    let display_name = string_field_any(value, &["displayName", "display_name", "name", "title"]);
+    let host_id = string_field_any(
+        value,
+        &["id", "hostId", "host_id", "connectionId", "deviceId"],
+    )
+    .or_else(|| host.clone())
+    .or_else(|| display_name.clone())?;
+    Some(RemoteConnectionRecord {
+        provider: ProviderKind::Codex.runtime_id().to_string(),
+        host_id,
+        host,
+        display_name,
+        status: string_field_any(value, &["status", "state", "health"]),
+        execution_location: execution_location_from_remote_connection(value),
+        projects: value
+            .get("projects")
+            .or_else(|| value.get("savedProjects"))
+            .or_else(|| value.get("saved_projects"))
+            .or_else(|| value.get("repositories"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        metadata: value.clone(),
+    })
+}
+
+fn execution_location_from_remote_connection(value: &Value) -> ExecutionLocation {
+    match string_field_any(
+        value,
+        &[
+            "executionLocation",
+            "execution_location",
+            "location",
+            "kind",
+            "type",
+        ],
+    )
+    .as_deref()
+    {
+        Some("local") | Some("this_computer") | Some("this-computer") => ExecutionLocation::Local,
+        Some("cloud") => ExecutionLocation::Cloud,
+        _ => ExecutionLocation::RemoteHost,
+    }
+}
+
+fn remote_handoff_plan(request: &CodexRemoteHandoffRequest, response: &Value) -> HandoffPlan {
+    HandoffPlan {
+        source_thread_id: request.thread_id.clone(),
+        target_location: ExecutionLocation::RemoteHost,
+        status: remote_handoff_status(response),
+        target_thread_id: extract_thread_id(response)
+            .or_else(|| string_field_any(response, &["targetThreadId", "target_thread_id"])),
+        repo_root: None,
+        worktree_path: request
+            .target_path
+            .clone()
+            .or_else(|| string_field_any(response, &["targetPath", "target_path", "worktreePath"])),
+        branch: request
+            .branch
+            .clone()
+            .or_else(|| string_field_any(response, &["branch", "worktreeBranch"])),
+        start_point: string_field_any(response, &["startPoint", "start_point"]),
+        checkpoint_ref: string_field_any(response, &["checkpointRef", "checkpoint_ref"]),
+        remote_host: Some(request.host.clone()),
+        transfer_status: string_field_any(
+            response,
+            &["transferStatus", "transfer_status", "status"],
+        ),
+        interrupted_active_turn: bool_field(response, "interruptedActiveTurn")
+            .or_else(|| bool_field(response, "interrupted_active_turn")),
+        metadata: response.clone(),
+    }
+}
+
+fn remote_handoff_status(response: &Value) -> HandoffStatus {
+    match string_field_any(response, &["status", "handoffStatus", "handoff_status"]).as_deref() {
+        Some("failed") | Some("error") => HandoffStatus::Failed,
+        Some("requested") | Some("pending") => HandoffStatus::Requested,
+        Some("transferring") => HandoffStatus::Transferring,
+        Some("interrupted") => HandoffStatus::Interrupted,
+        _ => HandoffStatus::Completed,
+    }
+}
+
 fn agent_thread_from_value(value: &Value, fallback_thread_id: Option<&str>) -> Option<AgentThread> {
     let thread_id = extract_thread_id(value)
         .or_else(|| string_field(value, "thread_id"))
@@ -1491,6 +1640,10 @@ fn execution_location_from_thread(value: &Value) -> ExecutionLocation {
 
 fn bool_field(value: &Value, key: &str) -> Option<bool> {
     value.get(key).and_then(Value::as_bool)
+}
+
+fn string_field_any(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| string_field(value, key))
 }
 
 fn string_field(value: &Value, key: &str) -> Option<String> {
@@ -1596,8 +1749,48 @@ pub mod tests {
             }
         }
 
-        async fn raw_request(&self, method: &str, _params: Value) -> Result<Value> {
+        async fn raw_request(&self, method: &str, params: Value) -> Result<Value> {
             self.calls.lock().expect("calls").push(method.to_string());
+            if method == "remote/connectionList" {
+                return Ok(serde_json::json!({
+                    "connections": [
+                        {
+                            "id": "devbox",
+                            "host": "devbox",
+                            "displayName": "Devbox",
+                            "status": "online",
+                            "projects": [
+                                {
+                                    "path": "/srv/ace",
+                                    "repoRoot": "/srv/ace"
+                                }
+                            ],
+                            "platform": "linux"
+                        },
+                        {
+                            "hostId": "mac-mini",
+                            "hostname": "mac-mini.local",
+                            "name": "Mac mini",
+                            "state": "offline",
+                            "metadata": {
+                                "executionLocation": "remote_host"
+                            }
+                        }
+                    ]
+                }));
+            }
+            if method == "remote/handoff" {
+                return Ok(serde_json::json!({
+                    "threadId": params.get("threadId").cloned().unwrap_or(Value::Null),
+                    "targetThreadId": params.get("threadId").cloned().unwrap_or(Value::Null),
+                    "host": params.get("host").cloned().unwrap_or(Value::Null),
+                    "targetPath": params.get("targetPath").cloned().unwrap_or(Value::Null),
+                    "branch": params.get("branch").cloned().unwrap_or(Value::Null),
+                    "status": "completed",
+                    "transferStatus": "files_transferred",
+                    "interruptedActiveTurn": true
+                }));
+            }
             Ok(serde_json::json!({ "method": method }))
         }
 
@@ -2043,7 +2236,8 @@ pub mod tests {
             )
             .await
             .expect("version-gated raw request");
-        assert_eq!(allowed["method"], "remote/handoff");
+        assert_eq!(allowed["status"], "completed");
+        assert_eq!(allowed["threadId"], "thread-1");
 
         let deferred = service
             .raw_request("cloud/handoff".to_string(), json!({}))
@@ -2067,6 +2261,75 @@ pub mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["remote/handoff"]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_records_remote_connections_and_handoff_state() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        let connections = service
+            .remote_connection_list(json!({ "includeProjects": true }))
+            .await
+            .expect("remote connection list");
+        assert_eq!(connections["connections"][0]["id"], "devbox");
+
+        let handoff = service
+            .remote_handoff(CodexRemoteHandoffRequest {
+                thread_id: "thread-1".to_string(),
+                host: "devbox".to_string(),
+                target_path: Some("/srv/ace".to_string()),
+                branch: Some("feature/remote".to_string()),
+            })
+            .await
+            .expect("remote handoff");
+        assert_eq!(handoff["status"], "completed");
+
+        let snapshot = service.runtime_state_snapshot().await;
+        assert_eq!(
+            snapshot
+                .remote_connections
+                .iter()
+                .map(|connection| connection.host_id.as_str())
+                .collect::<Vec<_>>(),
+            ["devbox", "mac-mini"]
+        );
+        assert_eq!(
+            snapshot.remote_connections[0].display_name.as_deref(),
+            Some("Devbox")
+        );
+        assert_eq!(
+            snapshot.remote_connections[0].execution_location,
+            ExecutionLocation::RemoteHost
+        );
+        assert_eq!(
+            snapshot.remote_connections[0].projects[0]["path"],
+            "/srv/ace"
+        );
+        assert_eq!(
+            snapshot.remote_connections[1].host.as_deref(),
+            Some("mac-mini.local")
+        );
+        assert_eq!(snapshot.handoffs.len(), 1);
+        assert_eq!(snapshot.handoffs[0].source_thread_id, "thread-1");
+        assert_eq!(
+            snapshot.handoffs[0].target_location,
+            ExecutionLocation::RemoteHost
+        );
+        assert_eq!(snapshot.handoffs[0].status, HandoffStatus::Completed);
+        assert_eq!(snapshot.handoffs[0].remote_host.as_deref(), Some("devbox"));
+        assert_eq!(
+            snapshot.handoffs[0].worktree_path.as_deref(),
+            Some("/srv/ace")
+        );
+        assert_eq!(
+            snapshot.handoffs[0].branch.as_deref(),
+            Some("feature/remote")
+        );
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["remote/connectionList", "remote/handoff"]
         );
     }
 
