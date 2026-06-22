@@ -7,19 +7,20 @@ use ace_protocol::{
     codex::{
         CodexAppConfigWriteRequest, CodexCommandExecRequest, CodexCommandProcessRequest,
         CodexCommandResizeRequest, CodexCommandWriteStdinRequest,
-        CodexCompatibilityInventoryResponse, CodexGoalSetRequest,
-        CodexGuardianDeniedActionApprovalRequest, CodexHandoffLocation, CodexHandoffToAgentRequest,
-        CodexHandoffToLocationRequest, CodexHandoffToLocationResponse, CodexMcpOauthLoginRequest,
-        CodexMcpResourceReadRequest, CodexMcpStatusRequest, CodexMcpToolCallRequest,
-        CodexNamedQueryRequest, CodexPermissionPresetRequest, CodexPlanImplementationRequest,
-        CodexPlanTurnStartRequest, CodexPluginRequest, CodexProcessCleanRequest,
-        CodexProcessListRequest, CodexRawRequest, CodexRemoteHandoffRequest,
-        CodexReviewStartRequest, CodexShutdownRequest, CodexSkillRequest, CodexStderrTailResponse,
-        CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest, CodexThreadForkRequest,
-        CodexThreadIdRequest, CodexThreadInjectItemsRequest, CodexThreadRollbackRequest,
-        CodexThreadSetNameRequest, CodexThreadStartRequest, CodexThreadUpdateMetadataRequest,
-        CodexThreadsListRequest, CodexTurnStartRequest, CodexTurnSteerRequest,
-        CodexVersionedRequest,
+        CodexCompatibilityInventoryResponse, CodexFsCopyRequest, CodexFsPathRequest,
+        CodexFsReadDirectoryRequest, CodexFsReadFileRequest, CodexFsWriteFileRequest,
+        CodexGoalSetRequest, CodexGuardianDeniedActionApprovalRequest, CodexHandoffLocation,
+        CodexHandoffToAgentRequest, CodexHandoffToLocationRequest, CodexHandoffToLocationResponse,
+        CodexMcpOauthLoginRequest, CodexMcpResourceReadRequest, CodexMcpStatusRequest,
+        CodexMcpToolCallRequest, CodexNamedQueryRequest, CodexPermissionPresetRequest,
+        CodexPlanImplementationRequest, CodexPlanTurnStartRequest, CodexPluginRequest,
+        CodexProcessCleanRequest, CodexProcessListRequest, CodexRawRequest,
+        CodexRemoteHandoffRequest, CodexReviewStartRequest, CodexShutdownRequest,
+        CodexSkillRequest, CodexStderrTailResponse, CodexSubagentSteerRequest,
+        CodexSubagentThreadRpcRequest, CodexThreadForkRequest, CodexThreadIdRequest,
+        CodexThreadInjectItemsRequest, CodexThreadRollbackRequest, CodexThreadSetNameRequest,
+        CodexThreadStartRequest, CodexThreadUpdateMetadataRequest, CodexThreadsListRequest,
+        CodexTurnStartRequest, CodexTurnSteerRequest, CodexVersionedRequest,
     },
     git::GitWorktreeCreateRequest,
     provider_runtime::{
@@ -1249,6 +1250,15 @@ fn codex_ws_method_for_adapter_operation(
         ProviderAdapterOperation::CommandTerminate => methods::CODEX_COMMAND_TERMINATE,
         ProviderAdapterOperation::ProcessList => methods::CODEX_PROCESS_LIST,
         ProviderAdapterOperation::ProcessClean => methods::CODEX_PROCESS_CLEAN,
+        ProviderAdapterOperation::FsReadFile => methods::CODEX_FS_READ_FILE,
+        ProviderAdapterOperation::FsWriteFile => methods::CODEX_FS_WRITE_FILE,
+        ProviderAdapterOperation::FsReadDirectory => methods::CODEX_FS_READ_DIRECTORY,
+        ProviderAdapterOperation::FsCreateDirectory => methods::CODEX_FS_CREATE_DIRECTORY,
+        ProviderAdapterOperation::FsCopy => methods::CODEX_FS_COPY,
+        ProviderAdapterOperation::FsRemove => methods::CODEX_FS_REMOVE,
+        ProviderAdapterOperation::FsMetadata => methods::CODEX_FS_METADATA,
+        ProviderAdapterOperation::FsWatch => methods::CODEX_FS_WATCH,
+        ProviderAdapterOperation::FsUnwatch => methods::CODEX_FS_UNWATCH,
         ProviderAdapterOperation::McpStatus => methods::CODEX_MCP_STATUS,
         ProviderAdapterOperation::McpResourceRead => methods::CODEX_MCP_RESOURCE_READ,
         ProviderAdapterOperation::McpOauthLogin => methods::CODEX_MCP_OAUTH_LOGIN,
@@ -1456,6 +1466,42 @@ fn codex_versioned_app_server_request(
         methods::CODEX_PROCESS_CLEAN => Some((
             "process/clean",
             user_initiated_typed_or_enveloped::<CodexProcessCleanRequest>(payload)?,
+        )),
+        methods::CODEX_FS_READ_FILE => Some((
+            "fs/readFile",
+            typed_or_enveloped::<CodexFsReadFileRequest>(payload)?,
+        )),
+        methods::CODEX_FS_WRITE_FILE => Some((
+            "fs/writeFile",
+            typed_or_enveloped::<CodexFsWriteFileRequest>(payload)?,
+        )),
+        methods::CODEX_FS_READ_DIRECTORY => Some((
+            "fs/readDirectory",
+            typed_or_enveloped::<CodexFsReadDirectoryRequest>(payload)?,
+        )),
+        methods::CODEX_FS_CREATE_DIRECTORY => Some((
+            "fs/createDirectory",
+            typed_or_enveloped::<CodexFsPathRequest>(payload)?,
+        )),
+        methods::CODEX_FS_COPY => Some((
+            "fs/copy",
+            typed_or_enveloped::<CodexFsCopyRequest>(payload)?,
+        )),
+        methods::CODEX_FS_REMOVE => Some((
+            "fs/remove",
+            typed_or_enveloped::<CodexFsPathRequest>(payload)?,
+        )),
+        methods::CODEX_FS_METADATA => Some((
+            "fs/getMetadata",
+            typed_or_enveloped::<CodexFsPathRequest>(payload)?,
+        )),
+        methods::CODEX_FS_WATCH => Some((
+            "fs/watch",
+            typed_or_enveloped::<CodexFsPathRequest>(payload)?,
+        )),
+        methods::CODEX_FS_UNWATCH => Some((
+            "fs/unwatch",
+            typed_or_enveloped::<CodexFsPathRequest>(payload)?,
         )),
         methods::CODEX_MCP_STATUS => Some((
             "mcpServerStatus/list",
@@ -3118,6 +3164,33 @@ mod tests {
             ["thread/read", "thread/read:thread-2"]
         );
 
+        let routed_fs_operation = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-fs-operation-request",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "operation": "fs_read_file",
+                        "params": { "path": "src/lib.rs" },
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let routed_fs_operation: WsServerResponse =
+            serde_json::from_str(&routed_fs_operation).expect("filesystem operation response");
+        assert!(matches!(
+            routed_fs_operation.payload,
+            WsServerPayload::Result { .. }
+        ));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["thread/read", "thread/read:thread-2", "fs/readFile"]
+        );
+
         let composite_operation = state
             .dispatch_text(
                 &json!({
@@ -3150,6 +3223,7 @@ mod tests {
             [
                 "thread/read",
                 "thread/read:thread-2",
+                "fs/readFile",
                 "thread/fork:thread-2:false",
                 "thread/inject_items:fork-1:1",
                 "turn/start:fork-1"
@@ -3232,6 +3306,7 @@ mod tests {
             [
                 "thread/read",
                 "thread/read:thread-2",
+                "fs/readFile",
                 "thread/fork:thread-2:false",
                 "thread/inject_items:fork-1:1",
                 "turn/start:fork-1"
@@ -3268,6 +3343,7 @@ mod tests {
             [
                 "thread/read",
                 "thread/read:thread-2",
+                "fs/readFile",
                 "thread/fork:thread-2:false",
                 "thread/inject_items:fork-1:1",
                 "turn/start:fork-1",
@@ -3306,6 +3382,7 @@ mod tests {
             [
                 "thread/read",
                 "thread/read:thread-2",
+                "fs/readFile",
                 "thread/fork:thread-2:false",
                 "thread/inject_items:fork-1:1",
                 "turn/start:fork-1",
@@ -3366,6 +3443,7 @@ mod tests {
             [
                 "thread/read",
                 "thread/read:thread-2",
+                "fs/readFile",
                 "thread/fork:thread-2:false",
                 "thread/inject_items:fork-1:1",
                 "turn/start:fork-1",
@@ -3585,6 +3663,16 @@ mod tests {
                     .as_str()
                     .expect("availability reason")
                     .contains("version-gated")
+                && operation["runtime_request"]["invokable"] == true
+                && operation["runtime_request"]["mode"] == "adapter_operation"
+                && operation["runtime_request"]["params"] == "adapter_normalized"
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "fs_read_file"
+                && operation["invocation"] == "direct_provider_method"
+                && operation["support"] == "required"
+                && operation["availability"] == "available"
+                && operation["provider_methods"] == json!(["fs/readFile"])
                 && operation["runtime_request"]["invokable"] == true
                 && operation["runtime_request"]["mode"] == "adapter_operation"
                 && operation["runtime_request"]["params"] == "adapter_normalized"
@@ -4202,6 +4290,33 @@ mod tests {
                 json!({ "userInitiated": true, "params": { "threadId": "thread-1" } }),
             ),
             (
+                methods::CODEX_FS_READ_FILE,
+                json!({ "path": "src/lib.rs", "encoding": "utf8" }),
+            ),
+            (
+                methods::CODEX_FS_WRITE_FILE,
+                json!({ "path": "src/lib.rs", "contents": "pub fn main() {}" }),
+            ),
+            (
+                methods::CODEX_FS_READ_DIRECTORY,
+                json!({ "path": "src", "recursive": true }),
+            ),
+            (
+                methods::CODEX_FS_CREATE_DIRECTORY,
+                json!({ "path": "src/generated" }),
+            ),
+            (
+                methods::CODEX_FS_COPY,
+                json!({ "from_path": "src/lib.rs", "to_path": "src/lib.copy.rs" }),
+            ),
+            (
+                methods::CODEX_FS_REMOVE,
+                json!({ "path": "src/lib.copy.rs" }),
+            ),
+            (methods::CODEX_FS_METADATA, json!({ "path": "src/lib.rs" })),
+            (methods::CODEX_FS_WATCH, json!({ "path": "src" })),
+            (methods::CODEX_FS_UNWATCH, json!({ "path": "src" })),
+            (
                 methods::CODEX_MCP_TOOL_CALL,
                 json!({
                     "server": "github",
@@ -4243,6 +4358,15 @@ mod tests {
                 "command/exec",
                 "command/exec/write",
                 "process/list",
+                "fs/readFile",
+                "fs/writeFile",
+                "fs/readDirectory",
+                "fs/createDirectory",
+                "fs/copy",
+                "fs/remove",
+                "fs/getMetadata",
+                "fs/watch",
+                "fs/unwatch",
                 "mcpServer/tool/call",
                 "skills/install",
                 "apps/configWrite",

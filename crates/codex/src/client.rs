@@ -565,6 +565,42 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.raw_request("process/clean", params).await
     }
 
+    pub async fn fs_read_file(&self, params: Value) -> Result<Value> {
+        self.raw_request("fs/readFile", params).await
+    }
+
+    pub async fn fs_write_file(&self, params: Value) -> Result<Value> {
+        self.raw_request("fs/writeFile", params).await
+    }
+
+    pub async fn fs_read_directory(&self, params: Value) -> Result<Value> {
+        self.raw_request("fs/readDirectory", params).await
+    }
+
+    pub async fn fs_create_directory(&self, params: Value) -> Result<Value> {
+        self.raw_request("fs/createDirectory", params).await
+    }
+
+    pub async fn fs_copy(&self, params: Value) -> Result<Value> {
+        self.raw_request("fs/copy", params).await
+    }
+
+    pub async fn fs_remove(&self, params: Value) -> Result<Value> {
+        self.raw_request("fs/remove", params).await
+    }
+
+    pub async fn fs_metadata(&self, params: Value) -> Result<Value> {
+        self.raw_request("fs/getMetadata", params).await
+    }
+
+    pub async fn fs_watch(&self, params: Value) -> Result<Value> {
+        self.raw_request("fs/watch", params).await
+    }
+
+    pub async fn fs_unwatch(&self, params: Value) -> Result<Value> {
+        self.raw_request("fs/unwatch", params).await
+    }
+
     pub async fn mcp_status(&self, params: Value) -> Result<Value> {
         self.raw_request("mcpServerStatus/list", params).await
     }
@@ -1208,6 +1244,42 @@ mod tests {
             .process_clean(json!({}))
             .await
             .expect("process clean");
+        client
+            .fs_read_file(json!({ "path": "src/lib.rs" }))
+            .await
+            .expect("read file");
+        client
+            .fs_write_file(json!({ "path": "src/lib.rs", "contents": "pub fn main() {}" }))
+            .await
+            .expect("write file");
+        client
+            .fs_read_directory(json!({ "path": "src", "recursive": false }))
+            .await
+            .expect("read directory");
+        client
+            .fs_create_directory(json!({ "path": "src/generated" }))
+            .await
+            .expect("create directory");
+        client
+            .fs_copy(json!({ "fromPath": "src/lib.rs", "toPath": "src/lib.copy.rs" }))
+            .await
+            .expect("copy");
+        client
+            .fs_remove(json!({ "path": "src/lib.copy.rs" }))
+            .await
+            .expect("remove");
+        client
+            .fs_metadata(json!({ "path": "src/lib.rs" }))
+            .await
+            .expect("metadata");
+        client
+            .fs_watch(json!({ "path": "src" }))
+            .await
+            .expect("watch");
+        client
+            .fs_unwatch(json!({ "path": "src" }))
+            .await
+            .expect("unwatch");
         client.mcp_status(json!({})).await.expect("mcp status");
         client
             .mcp_resource_read(json!({ "server": "docs", "uri": "file://readme" }))
@@ -1264,6 +1336,15 @@ mod tests {
                 "command/exec/terminate",
                 "process/list",
                 "process/clean",
+                "fs/readFile",
+                "fs/writeFile",
+                "fs/readDirectory",
+                "fs/createDirectory",
+                "fs/copy",
+                "fs/remove",
+                "fs/getMetadata",
+                "fs/watch",
+                "fs/unwatch",
                 "mcpServerStatus/list",
                 "mcpServer/resource/read",
                 "mcpServer/oauth/login",
@@ -1280,8 +1361,9 @@ mod tests {
             ]
         );
         assert_eq!(requests[1].1["command"], "cargo test");
-        assert_eq!(requests[10].1["tool"], "list_issues");
-        assert_eq!(requests[19].1["host"], "devbox");
+        assert_eq!(requests[11].1["fromPath"], "src/lib.rs");
+        assert_eq!(requests[19].1["tool"], "list_issues");
+        assert_eq!(requests[28].1["host"], "devbox");
     }
 
     #[tokio::test]

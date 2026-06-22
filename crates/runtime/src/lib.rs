@@ -185,6 +185,15 @@ pub mod provider {
         CommandTerminate,
         ProcessList,
         ProcessClean,
+        FsReadFile,
+        FsWriteFile,
+        FsReadDirectory,
+        FsCreateDirectory,
+        FsCopy,
+        FsRemove,
+        FsMetadata,
+        FsWatch,
+        FsUnwatch,
         McpStatus,
         McpResourceRead,
         McpOauthLogin,
@@ -1063,6 +1072,60 @@ pub mod provider {
                 Category::Tools,
                 VersionGated,
                 Some("process/clean"),
+            ),
+            op(
+                Operation::FsReadFile,
+                Category::Tools,
+                Required,
+                Some("fs/readFile"),
+            ),
+            op(
+                Operation::FsWriteFile,
+                Category::Tools,
+                Required,
+                Some("fs/writeFile"),
+            ),
+            op(
+                Operation::FsReadDirectory,
+                Category::Tools,
+                Required,
+                Some("fs/readDirectory"),
+            ),
+            op(
+                Operation::FsCreateDirectory,
+                Category::Tools,
+                Required,
+                Some("fs/createDirectory"),
+            ),
+            op(
+                Operation::FsCopy,
+                Category::Tools,
+                Required,
+                Some("fs/copy"),
+            ),
+            op(
+                Operation::FsRemove,
+                Category::Tools,
+                Required,
+                Some("fs/remove"),
+            ),
+            op(
+                Operation::FsMetadata,
+                Category::Tools,
+                Required,
+                Some("fs/getMetadata"),
+            ),
+            op(
+                Operation::FsWatch,
+                Category::Tools,
+                Required,
+                Some("fs/watch"),
+            ),
+            op(
+                Operation::FsUnwatch,
+                Category::Tools,
+                Required,
+                Some("fs/unwatch"),
             ),
             op(
                 Operation::McpStatus,
@@ -2198,6 +2261,16 @@ pub mod provider {
             assert!(contract.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::McpToolCall
                     && operation.support == ProviderAdapterOperationSupport::VersionGated
+            }));
+            assert!(contract.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::FsReadFile
+                    && operation.support == ProviderAdapterOperationSupport::Required
+                    && operation.canonical_method.as_deref() == Some("fs/readFile")
+            }));
+            assert!(contract.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::FsWatch
+                    && operation.support == ProviderAdapterOperationSupport::Required
+                    && operation.canonical_method.as_deref() == Some("fs/watch")
             }));
             assert!(contract.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::CloudHandoff

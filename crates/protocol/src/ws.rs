@@ -56,6 +56,15 @@ pub mod methods {
     pub const CODEX_MCP_RESOURCE_READ: &str = "codex.mcp.resource_read";
     pub const CODEX_MCP_OAUTH_LOGIN: &str = "codex.mcp.oauth_login";
     pub const CODEX_MCP_TOOL_CALL: &str = "codex.mcp.tool_call";
+    pub const CODEX_FS_READ_FILE: &str = "codex.fs.read_file";
+    pub const CODEX_FS_WRITE_FILE: &str = "codex.fs.write_file";
+    pub const CODEX_FS_READ_DIRECTORY: &str = "codex.fs.read_directory";
+    pub const CODEX_FS_CREATE_DIRECTORY: &str = "codex.fs.create_directory";
+    pub const CODEX_FS_COPY: &str = "codex.fs.copy";
+    pub const CODEX_FS_REMOVE: &str = "codex.fs.remove";
+    pub const CODEX_FS_METADATA: &str = "codex.fs.metadata";
+    pub const CODEX_FS_WATCH: &str = "codex.fs.watch";
+    pub const CODEX_FS_UNWATCH: &str = "codex.fs.unwatch";
     pub const CODEX_SKILLS_LIST: &str = "codex.skills.list";
     pub const CODEX_SKILLS_READ: &str = "codex.skills.read";
     pub const CODEX_SKILLS_INSTALL: &str = "codex.skills.install";
