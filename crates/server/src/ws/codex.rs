@@ -2034,7 +2034,27 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             loop {
                 let message = match receiver.recv().await {
                     Ok(message) => message,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        let events = vec![provider_stream_lag_event(&provider_name, skipped)];
+                        let batch =
+                            provider_runtime_event_batch(&provider_name, events, raw_event_mode);
+                        let response = WsServerResponse {
+                            version: PROTOCOL_VERSION,
+                            request_id: String::new(),
+                            payload: WsServerPayload::Event {
+                                topic: PROVIDER_RUNTIME_EVENT_TOPIC.to_string(),
+                                body: serde_json::to_value(batch)
+                                    .expect("serialize provider runtime websocket lag event"),
+                            },
+                        };
+                        let Ok(text) = serde_json::to_string(&response) else {
+                            continue;
+                        };
+                        if outbound.send(text).await.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 };
                 let events = match message {
@@ -2055,26 +2075,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 if events.is_empty() {
                     continue;
                 }
-                let runtime_events = events
-                    .iter()
-                    .cloned()
-                    .map(|event| ProviderRuntimeEvent::from_provider_event(&provider_name, event))
-                    .collect::<Vec<_>>();
-                let projection_deltas = projection_deltas_for_events(&runtime_events);
-                let raw_event_summaries = events
-                    .iter()
-                    .map(ProviderRuntimeRawEventSummary::from_event)
-                    .collect::<Vec<_>>();
-                let batch = ProviderRuntimeEventBatch {
-                    provider: provider_name.clone(),
-                    events: runtime_events,
-                    projection_deltas,
-                    raw_event_summaries,
-                    raw_events: match raw_event_mode {
-                        ProviderRuntimeRawEventMode::Compact => None,
-                        ProviderRuntimeRawEventMode::Full => Some(events),
-                    },
-                };
+                let batch = provider_runtime_event_batch(&provider_name, events, raw_event_mode);
                 let response = WsServerResponse {
                     version: PROTOCOL_VERSION,
                     request_id: String::new(),
@@ -2206,6 +2207,74 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .remove(&provider_kind);
         });
         receiver
+    }
+}
+
+fn provider_runtime_event_batch(
+    provider_name: &str,
+    events: Vec<ProviderEvent>,
+    raw_event_mode: ProviderRuntimeRawEventMode,
+) -> ProviderRuntimeEventBatch {
+    let runtime_events = events
+        .iter()
+        .cloned()
+        .map(|event| ProviderRuntimeEvent::from_provider_event(provider_name, event))
+        .collect::<Vec<_>>();
+    let projection_deltas = projection_deltas_for_events(&runtime_events);
+    let raw_event_summaries = events
+        .iter()
+        .map(ProviderRuntimeRawEventSummary::from_event)
+        .collect::<Vec<_>>();
+    ProviderRuntimeEventBatch {
+        provider: provider_name.to_string(),
+        events: runtime_events,
+        projection_deltas,
+        raw_event_summaries,
+        raw_events: match raw_event_mode {
+            ProviderRuntimeRawEventMode::Compact => None,
+            ProviderRuntimeRawEventMode::Full => Some(events),
+        },
+    }
+}
+
+fn provider_stream_lag_event(provider_name: &str, skipped: u64) -> ProviderEvent {
+    let message = format!("Provider runtime subscriber skipped {skipped} event batch(es)");
+    let raw_payload = json!({
+        "provider": provider_name,
+        "skipped_event_batches": skipped,
+    });
+    ProviderEvent::RuntimeSignal {
+        signal: Box::new(NormalizedRuntimeSignal {
+            kind: RuntimeSignalKind::Warning,
+            thread_id: None,
+            turn_id: None,
+            item_id: None,
+            message: Some(message),
+            from_model: None,
+            to_model: None,
+            reason: Some("provider_runtime_subscriber_lagged".to_string()),
+            text: None,
+            audio: None,
+            status: Some("lagged".to_string()),
+            name: None,
+            active: None,
+            archived: None,
+            diff: None,
+            files: None,
+            process_id: None,
+            exit_code: None,
+            request_id: None,
+            metadata: json!({
+                "skipped_event_batches": skipped,
+                "source": "provider_runtime_subscription",
+            }),
+            provider: ProviderMetadata {
+                provider: provider_name.to_string(),
+                method: Some("ace/provider_runtime/subscriber_lagged".to_string()),
+                schema_version: None,
+                raw_payload,
+            },
+        }),
     }
 }
 
@@ -5822,6 +5891,112 @@ mod tests {
         };
         assert_eq!(body["subscribed"], true);
         assert_eq!(body["provider"], "ace");
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_subscription_reports_lag_as_warning_event() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+
+        let (provider_sender, _) = broadcast::channel(1);
+        state
+            .provider_event_streams
+            .lock()
+            .expect("provider event streams")
+            .insert(ProviderKind::Codex, provider_sender.clone());
+
+        let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::channel::<String>(1);
+        let subscribe = state
+            .dispatch_text_with_events(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-events-lag",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                    "payload": {
+                        "provider": "codex",
+                        "raw_event_mode": "full"
+                    }
+                })
+                .to_string(),
+                Some(outbound_tx),
+            )
+            .await;
+        let subscribe: WsServerResponse = serde_json::from_str(&subscribe).expect("subscribe");
+        assert!(matches!(subscribe.payload, WsServerPayload::Result { .. }));
+
+        provider_sender
+            .send(ProviderEventStreamMessage::Events(vec![
+                ProviderEvent::RawNotification {
+                    method: "first".to_string(),
+                    params: json!({}),
+                },
+            ]))
+            .expect("send first event");
+        for index in 0..8 {
+            provider_sender
+                .send(ProviderEventStreamMessage::Events(vec![
+                    ProviderEvent::RawNotification {
+                        method: format!("overflow-{index}"),
+                        params: json!({ "index": index }),
+                    },
+                ]))
+                .expect("send overflow event");
+        }
+
+        let mut warning_body = None;
+        for _ in 0..8 {
+            let pushed =
+                tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
+                    .await
+                    .expect("provider runtime lag event timeout")
+                    .expect("provider runtime lag event");
+            let pushed: WsServerResponse =
+                serde_json::from_str(&pushed).expect("provider runtime response");
+            let WsServerPayload::Event { topic, body } = pushed.payload else {
+                panic!("expected provider runtime event");
+            };
+            assert_eq!(topic, PROVIDER_RUNTIME_EVENT_TOPIC);
+            let has_lag_warning = body["events"]
+                .as_array()
+                .expect("events")
+                .iter()
+                .any(|event| {
+                    event["type"] == "runtime_signal"
+                        && event["signal"]["kind"] == "warning"
+                        && event["signal"]["provider"]["method"]
+                            == "ace/provider_runtime/subscriber_lagged"
+                });
+            if has_lag_warning {
+                warning_body = Some(body);
+                break;
+            }
+        }
+
+        let warning_body = warning_body.expect("subscriber lag warning");
+        assert_eq!(warning_body["provider"], "codex");
+        assert_eq!(
+            warning_body["projection_deltas"][0]["type"],
+            "warning_raised"
+        );
+        assert_eq!(
+            warning_body["raw_event_summaries"][0]["provider_method"],
+            "ace/provider_runtime/subscriber_lagged"
+        );
+        assert_eq!(
+            warning_body["raw_events"][0]["signal"]["metadata"]["source"],
+            "provider_runtime_subscription"
+        );
+        assert!(
+            warning_body["raw_events"][0]["signal"]["metadata"]["skipped_event_batches"]
+                .as_u64()
+                .expect("skipped event batches")
+                > 0
+        );
     }
 
     #[tokio::test]
