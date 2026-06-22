@@ -576,6 +576,11 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.transport.shutdown(timeout).await
     }
 
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.transport.is_closed()
+    }
+
     pub async fn respond_tool_result(&self, request_id: i64, result: Value) -> Result<()> {
         self.transport.respond_result(request_id, result).await
     }
@@ -740,6 +745,16 @@ mod tests {
             .lock()
             .expect("notifications");
         assert_eq!(notifications[0].0, "initialized");
+    }
+
+    #[test]
+    fn client_reports_transport_closed_state() {
+        let fake = FakeTransport::default();
+        *fake.closed.lock().expect("closed") = true;
+
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        assert!(client.is_closed());
     }
 
     #[tokio::test]

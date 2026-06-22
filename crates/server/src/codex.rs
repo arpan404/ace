@@ -174,8 +174,15 @@ impl LiveCodexBackend {
 
     async fn client(&self) -> Result<CodexClient<CodexStdioTransport>> {
         let mut guard = self.client.lock().await;
-        if let Some(client) = guard.as_ref() {
+        if let Some(client) = guard.as_ref()
+            && !client.is_closed()
+        {
             return Ok(client.clone());
+        }
+        if guard.as_ref().is_some_and(CodexClient::is_closed) {
+            *guard = None;
+            *self.last_error.lock().await =
+                Some("codex app-server transport closed; respawning on demand".to_string());
         }
         let client = match CodexClient::spawn(self.config.clone()).await {
             Ok(client) => client,
@@ -193,24 +200,32 @@ impl LiveCodexBackend {
 #[async_trait]
 impl CodexBackend for LiveCodexBackend {
     async fn status(&self) -> ProviderDriverStatus {
-        let initialized = self.client.lock().await.is_some();
+        let (has_client, client_closed) = {
+            let guard = self.client.lock().await;
+            let client_closed = guard.as_ref().is_some_and(CodexClient::is_closed);
+            (guard.is_some(), client_closed)
+        };
+        let initialized = has_client && !client_closed;
         let last_error = self.last_error.lock().await.clone();
         ProviderDriverStatus {
-            health: match (initialized, last_error.is_some()) {
-                (true, _) => ProviderRuntimeHealth::Running,
-                (false, true) => ProviderRuntimeHealth::Unavailable,
-                (false, false) => ProviderRuntimeHealth::Stopped,
+            health: match (initialized, client_closed, last_error.is_some()) {
+                (true, _, _) => ProviderRuntimeHealth::Running,
+                (false, true, _) => ProviderRuntimeHealth::Degraded,
+                (false, false, true) => ProviderRuntimeHealth::Unavailable,
+                (false, false, false) => ProviderRuntimeHealth::Stopped,
             },
             transport: Some("stdio".to_string()),
             version: None,
             initialized,
-            last_error,
+            last_error: last_error
+                .or_else(|| client_closed.then(|| "codex app-server transport closed".to_string())),
             metadata: json!({
                 "command": self.config.command,
                 "args": self.config.args,
                 "request_timeout_ms": self.config.request_timeout.as_millis() as u64,
                 "experimental_api": true,
-                "spawns_on_first_request": true
+                "spawns_on_first_request": true,
+                "transport_closed": client_closed
             }),
         }
     }

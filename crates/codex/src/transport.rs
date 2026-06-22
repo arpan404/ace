@@ -8,7 +8,7 @@ use std::{
     process::Stdio,
     sync::{
         Arc,
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, Ordering},
     },
     time::Duration,
 };
@@ -79,6 +79,10 @@ pub trait AppServerTransport: Send + Sync {
     async fn recv(&self) -> Option<CodexInboundEvent>;
     async fn stderr_tail(&self) -> Vec<String>;
     async fn shutdown(&self, timeout: Duration) -> Result<()>;
+
+    fn is_closed(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone)]
@@ -89,6 +93,7 @@ pub struct CodexStdioTransport {
     next_id: Arc<AtomicI64>,
     stderr_tail: StderrTail,
     child_control: mpsc::Sender<ChildControl>,
+    closed: Arc<AtomicBool>,
 }
 
 pub type JsonlAppServerTransport = CodexStdioTransport;
@@ -120,6 +125,7 @@ impl CodexStdioTransport {
         let pending: PendingRequests = Arc::new(Mutex::new(HashMap::new()));
         let stderr_tail: StderrTail =
             Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL_LINES)));
+        let closed = Arc::new(AtomicBool::new(false));
 
         tokio::spawn(async move {
             while let Some(frame) = outbound_rx.recv().await {
@@ -144,6 +150,7 @@ impl CodexStdioTransport {
             child_control_rx,
             Arc::clone(&pending),
             events_tx,
+            Arc::clone(&closed),
         ));
 
         Ok(Self {
@@ -153,6 +160,7 @@ impl CodexStdioTransport {
             next_id: Arc::new(AtomicI64::new(1)),
             stderr_tail,
             child_control,
+            closed,
         })
     }
 
@@ -256,6 +264,10 @@ impl AppServerTransport for CodexStdioTransport {
         }
         done_rx.await.map_err(|_| CodexError::TransportClosed)
     }
+
+    fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Relaxed)
+    }
 }
 
 async fn read_stdout_loop(
@@ -309,6 +321,7 @@ async fn child_lifecycle_loop(
     mut control: mpsc::Receiver<ChildControl>,
     pending: PendingRequests,
     events: mpsc::Sender<CodexInboundEvent>,
+    closed: Arc<AtomicBool>,
 ) {
     let code = tokio::select! {
         status = child.wait() => status.ok().and_then(|status| status.code()),
@@ -329,6 +342,7 @@ async fn child_lifecycle_loop(
             }
         }
     };
+    closed.store(true, Ordering::Relaxed);
     close_pending_requests(&pending).await;
     let _ = events.send(CodexInboundEvent::ServerExited { code }).await;
 }
@@ -412,6 +426,7 @@ pub(crate) mod tests {
         pub inbound: StdMutex<VecDeque<CodexInboundEvent>>,
         pub stderr_tail: StdMutex<Vec<String>>,
         pub shutdowns: StdMutex<Vec<Duration>>,
+        pub closed: StdMutex<bool>,
     }
 
     #[async_trait]
@@ -469,6 +484,10 @@ pub(crate) mod tests {
         async fn shutdown(&self, timeout: Duration) -> Result<()> {
             self.shutdowns.lock().expect("shutdowns").push(timeout);
             Ok(())
+        }
+
+        fn is_closed(&self) -> bool {
+            *self.closed.lock().expect("closed")
         }
     }
 
