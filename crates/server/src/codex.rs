@@ -2334,6 +2334,72 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn service_records_remote_connection_status_from_provider_events() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+        backend.push_events(vec![ProviderEvent::RuntimeSignal {
+            signal: Box::new(ace_runtime::provider::NormalizedRuntimeSignal {
+                kind: ace_runtime::provider::RuntimeSignalKind::ProviderStateUpdated,
+                thread_id: None,
+                turn_id: None,
+                item_id: None,
+                message: None,
+                from_model: None,
+                to_model: None,
+                reason: None,
+                text: None,
+                audio: None,
+                status: Some("connected".to_string()),
+                name: Some("Devbox".to_string()),
+                active: None,
+                archived: None,
+                diff: None,
+                files: None,
+                process_id: None,
+                exit_code: None,
+                request_id: None,
+                metadata: serde_json::json!({
+                    "hostId": "devbox",
+                    "host": "devbox.example.com",
+                    "displayName": "Devbox",
+                    "status": "connected",
+                    "projects": [{ "path": "/srv/ace" }]
+                }),
+                provider: ace_runtime::provider::ProviderMetadata {
+                    provider: ProviderKind::Codex.runtime_id().to_string(),
+                    method: Some("remoteControl/status/changed".to_string()),
+                    schema_version: None,
+                    raw_payload: serde_json::json!({
+                        "hostId": "devbox",
+                        "host": "devbox.example.com",
+                        "displayName": "Devbox",
+                        "status": "connected",
+                        "projects": [{ "path": "/srv/ace" }]
+                    }),
+                },
+            }),
+        }]);
+
+        service.next_events().await.expect("remote status event");
+
+        let snapshot = service.runtime_state_snapshot().await;
+        assert_eq!(snapshot.remote_connections.len(), 1);
+        assert_eq!(snapshot.remote_connections[0].host_id, "devbox");
+        assert_eq!(
+            snapshot.remote_connections[0].host.as_deref(),
+            Some("devbox.example.com")
+        );
+        assert_eq!(
+            snapshot.remote_connections[0].status.as_deref(),
+            Some("connected")
+        );
+        assert_eq!(
+            snapshot.remote_connections[0].projects[0]["path"],
+            "/srv/ace"
+        );
+    }
+
+    #[tokio::test]
     async fn live_backend_status_reports_spawn_failures() {
         let backend = LiveCodexBackend::with_config(CodexConfig {
             transport: CodexTransportConfig::stdio(

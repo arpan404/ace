@@ -1864,6 +1864,9 @@ impl AgentRuntimeState {
                 if let Some(provider_state) = provider_state_from_signal(signal) {
                     self.upsert_provider_state(provider_state);
                 }
+                if let Some(connection) = remote_connection_from_signal(signal) {
+                    self.upsert_remote_connection(connection);
+                }
                 if let Some(session) = realtime_session_from_signal(signal) {
                     self.upsert_realtime_session(session);
                 }
@@ -2257,6 +2260,73 @@ fn provider_state_from_signal(signal: &NormalizedRuntimeSignal) -> Option<Provid
         name: signal.name.clone(),
         metadata: signal.metadata.clone(),
     })
+}
+
+fn remote_connection_from_signal(
+    signal: &NormalizedRuntimeSignal,
+) -> Option<RemoteConnectionRecord> {
+    if signal.kind != RuntimeSignalKind::ProviderStateUpdated
+        || signal.provider.method.as_deref() != Some("remoteControl/status/changed")
+    {
+        return None;
+    }
+
+    let payload = &signal.provider.raw_payload;
+    let host = string_field_any(
+        payload,
+        &["host", "hostname", "hostName", "sshHost", "alias"],
+    );
+    let display_name = signal
+        .name
+        .clone()
+        .or_else(|| string_field_any(payload, &["displayName", "display_name", "name", "title"]));
+    let host_id = string_field_any(
+        payload,
+        &["id", "hostId", "host_id", "connectionId", "deviceId"],
+    )
+    .or_else(|| host.clone())
+    .or_else(|| display_name.clone())
+    .unwrap_or_else(|| "remote_control".to_string());
+
+    Some(RemoteConnectionRecord {
+        provider: signal.provider.provider.clone(),
+        host_id,
+        host,
+        display_name,
+        status: signal.status.clone(),
+        execution_location: execution_location_from_remote_signal(payload),
+        projects: payload
+            .get("projects")
+            .or_else(|| payload.get("savedProjects"))
+            .or_else(|| payload.get("saved_projects"))
+            .or_else(|| payload.get("repositories"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        metadata: signal.metadata.clone(),
+    })
+}
+
+fn execution_location_from_remote_signal(value: &Value) -> ExecutionLocation {
+    match string_field_any(
+        value,
+        &[
+            "executionLocation",
+            "execution_location",
+            "location",
+            "kind",
+            "type",
+        ],
+    )
+    .as_deref()
+    {
+        Some("local") | Some("this_computer") | Some("this-computer") => ExecutionLocation::Local,
+        Some("cloud") => ExecutionLocation::Cloud,
+        _ => ExecutionLocation::RemoteHost,
+    }
+}
+
+fn string_field_any(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| string_field(value, key))
 }
 
 fn realtime_session_from_signal(signal: &NormalizedRuntimeSignal) -> Option<RealtimeSessionRecord> {
@@ -4501,6 +4571,63 @@ mod tests {
         assert_eq!(connections[1].display_name.as_deref(), Some("Devbox C"));
         assert_eq!(connections[1].projects[0]["path"], "/repo-c");
         assert_eq!(state.snapshot().remote_connections, connections);
+    }
+
+    #[test]
+    fn records_remote_connection_status_updates_from_provider_events() {
+        let mut state = AgentRuntimeState::default();
+        let mut signal = runtime_signal(
+            RuntimeSignalKind::ProviderStateUpdated,
+            "remoteControl/status/changed",
+        );
+        signal.status = Some("connected".to_string());
+        signal.name = Some("Devbox".to_string());
+        signal.metadata = json!({
+            "hostId": "devbox",
+            "host": "devbox.example.com",
+            "displayName": "Devbox",
+            "status": "connected",
+            "projects": [{ "path": "/srv/ace" }],
+        });
+        signal.provider.raw_payload = signal.metadata.clone();
+
+        state.apply_provider_events(&[ProviderEvent::RuntimeSignal {
+            signal: Box::new(signal),
+        }]);
+
+        let connections = state.remote_connections();
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0].provider, "codex");
+        assert_eq!(connections[0].host_id, "devbox");
+        assert_eq!(connections[0].host.as_deref(), Some("devbox.example.com"));
+        assert_eq!(connections[0].display_name.as_deref(), Some("Devbox"));
+        assert_eq!(connections[0].status.as_deref(), Some("connected"));
+        assert_eq!(
+            connections[0].execution_location,
+            ExecutionLocation::RemoteHost
+        );
+        assert_eq!(connections[0].projects[0]["path"], "/srv/ace");
+    }
+
+    #[test]
+    fn records_coarse_remote_control_status_without_host_identity() {
+        let mut state = AgentRuntimeState::default();
+        let mut signal = runtime_signal(
+            RuntimeSignalKind::ProviderStateUpdated,
+            "remoteControl/status/changed",
+        );
+        signal.status = Some("disconnected".to_string());
+        signal.metadata = json!({ "status": "disconnected" });
+        signal.provider.raw_payload = signal.metadata.clone();
+
+        state.apply_provider_events(&[ProviderEvent::RuntimeSignal {
+            signal: Box::new(signal),
+        }]);
+
+        let connections = state.remote_connections();
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0].host_id, "remote_control");
+        assert_eq!(connections[0].status.as_deref(), Some("disconnected"));
     }
 
     #[test]
