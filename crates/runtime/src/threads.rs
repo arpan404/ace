@@ -1,8 +1,12 @@
-use crate::provider::{NormalizedRuntimeSignal, ProviderEvent, RuntimeSignalKind};
+use crate::provider::{
+    NormalizedRuntimeSignal, NormalizedThreadItem, ProviderEvent, RuntimeSignalKind,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use thiserror::Error;
+
+const MAX_THREAD_ITEM_RECORDS: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -358,6 +362,20 @@ pub struct AutoApprovalReviewRecord {
 type RuntimeThreadTurnKey = (Option<String>, Option<String>);
 type AutoApprovalReviewKey = (Option<String>, Option<String>, Option<String>);
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ThreadItemKey {
+    provider: String,
+    thread_id: Option<String>,
+    turn_id: Option<String>,
+    identity: ThreadItemIdentity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum ThreadItemIdentity {
+    ProviderItem(String),
+    Generated(u64),
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentThread {
     pub thread_id: String,
@@ -398,6 +416,12 @@ pub struct AgentRuntimeState {
     turn_moderation: HashMap<RuntimeThreadTurnKey, TurnModerationRecord>,
     auto_approval_reviews: HashMap<AutoApprovalReviewKey, AutoApprovalReviewRecord>,
     review_threads: HashSet<String>,
+    #[serde(skip)]
+    thread_items: HashMap<ThreadItemKey, NormalizedThreadItem>,
+    #[serde(skip)]
+    thread_item_order: VecDeque<ThreadItemKey>,
+    #[serde(skip)]
+    next_thread_item_sequence: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -423,6 +447,8 @@ pub struct AgentRuntimeSnapshot {
     pub turn_moderation: Vec<TurnModerationRecord>,
     pub auto_approval_reviews: Vec<AutoApprovalReviewRecord>,
     pub review_threads: Vec<String>,
+    #[serde(default)]
+    pub thread_items: Vec<NormalizedThreadItem>,
 }
 
 impl AgentRuntimeState {
@@ -492,6 +518,8 @@ impl AgentRuntimeState {
         let mut review_threads = self.review_threads.iter().cloned().collect::<Vec<_>>();
         review_threads.sort();
 
+        let thread_items = self.thread_items_in_order();
+
         AgentRuntimeSnapshot {
             threads,
             active_turns,
@@ -514,6 +542,7 @@ impl AgentRuntimeState {
             turn_moderation,
             auto_approval_reviews,
             review_threads,
+            thread_items,
         }
     }
 
@@ -619,6 +648,49 @@ impl AgentRuntimeState {
         let mut threads = self.threads.values().cloned().collect::<Vec<_>>();
         threads.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
         threads
+    }
+
+    #[must_use]
+    pub fn thread_items(&self) -> Vec<NormalizedThreadItem> {
+        self.thread_items_in_order()
+    }
+
+    fn thread_items_in_order(&self) -> Vec<NormalizedThreadItem> {
+        self.thread_item_order
+            .iter()
+            .filter_map(|key| self.thread_items.get(key).cloned())
+            .collect()
+    }
+
+    pub fn upsert_thread_item(&mut self, item: NormalizedThreadItem) {
+        let key = self.thread_item_key(&item);
+        let is_new = !self.thread_items.contains_key(&key);
+        self.thread_items.insert(key.clone(), item);
+        if is_new {
+            self.thread_item_order.push_back(key);
+            while self.thread_item_order.len() > MAX_THREAD_ITEM_RECORDS {
+                if let Some(oldest) = self.thread_item_order.pop_front() {
+                    self.thread_items.remove(&oldest);
+                }
+            }
+        }
+    }
+
+    fn thread_item_key(&mut self, item: &NormalizedThreadItem) -> ThreadItemKey {
+        let identity = item.item_id.as_ref().map_or_else(
+            || {
+                let sequence = self.next_thread_item_sequence;
+                self.next_thread_item_sequence = self.next_thread_item_sequence.saturating_add(1);
+                ThreadItemIdentity::Generated(sequence)
+            },
+            |item_id| ThreadItemIdentity::ProviderItem(item_id.clone()),
+        );
+        ThreadItemKey {
+            provider: item.provider.provider.clone(),
+            thread_id: item.thread_id.clone(),
+            turn_id: item.turn_id.clone(),
+            identity,
+        }
     }
 
     fn ensure_thread(&mut self, thread_id: String, provider: String) -> &mut AgentThread {
@@ -994,6 +1066,7 @@ impl AgentRuntimeState {
                 }
             }
             ProviderEvent::ThreadItem { item } => {
+                self.upsert_thread_item((**item).clone());
                 if item.kind == crate::provider::ThreadItemKind::Plan
                     && let Some(thread_id) = item.thread_id.as_deref()
                 {
@@ -1588,6 +1661,49 @@ mod tests {
         }
     }
 
+    fn thread_item(
+        kind: ThreadItemKind,
+        thread_id: &str,
+        turn_id: Option<&str>,
+        item_id: Option<&str>,
+        text: Option<&str>,
+    ) -> NormalizedThreadItem {
+        NormalizedThreadItem {
+            kind,
+            status: ThreadItemStatus::Updated,
+            thread_id: Some(thread_id.to_string()),
+            turn_id: turn_id.map(ToString::to_string),
+            item_id: item_id.map(ToString::to_string),
+            parent_thread_id: None,
+            child_thread_id: None,
+            sender: None,
+            role: None,
+            title: None,
+            text: text.map(ToString::to_string),
+            status_text: None,
+            model: None,
+            target: None,
+            url: None,
+            files: None,
+            diff: None,
+            token_usage: None,
+            plan_questions: None,
+            plan_completion: None,
+            metadata: json!({}),
+            provider: ProviderMetadata {
+                provider: "codex".to_string(),
+                method: Some("item/agentMessage/delta".to_string()),
+                schema_version: Some("test-v1".to_string()),
+                raw_payload: json!({
+                    "threadId": thread_id,
+                    "turnId": turn_id,
+                    "itemId": item_id,
+                    "text": text
+                }),
+            },
+        }
+    }
+
     #[test]
     fn tracks_active_turns_and_rejects_concurrent_starts() {
         let mut state = AgentRuntimeState::default();
@@ -1700,6 +1816,86 @@ mod tests {
                 .as_ref()
                 .expect("questions")[0]["id"],
             "repo"
+        );
+    }
+
+    #[test]
+    fn records_normalized_thread_items_with_bounded_upserts() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            ProviderEvent::ThreadItem {
+                item: Box::new(thread_item(
+                    ThreadItemKind::AgentMessage,
+                    "thread-1",
+                    Some("turn-1"),
+                    Some("item-1"),
+                    Some("draft"),
+                )),
+            },
+            ProviderEvent::ThreadItem {
+                item: Box::new(thread_item(
+                    ThreadItemKind::AgentMessage,
+                    "thread-1",
+                    Some("turn-1"),
+                    Some("item-1"),
+                    Some("final"),
+                )),
+            },
+            ProviderEvent::ThreadItem {
+                item: Box::new(thread_item(
+                    ThreadItemKind::Reasoning,
+                    "thread-1",
+                    Some("turn-1"),
+                    Some("item-2"),
+                    Some("reasoning"),
+                )),
+            },
+        ]);
+
+        let items = state.thread_items();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].item_id.as_deref(), Some("item-1"));
+        assert_eq!(items[0].text.as_deref(), Some("final"));
+        assert_eq!(items[0].provider.schema_version.as_deref(), Some("test-v1"));
+        assert_eq!(items[0].provider.raw_payload["text"], "final");
+        assert_eq!(items[1].item_id.as_deref(), Some("item-2"));
+        assert!(state.thread("thread-1").is_none());
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.thread_items, items);
+
+        for index in 0..=MAX_THREAD_ITEM_RECORDS {
+            state.apply_provider_events(&[ProviderEvent::ThreadItem {
+                item: Box::new(thread_item(
+                    ThreadItemKind::Reasoning,
+                    "thread-1",
+                    Some("turn-1"),
+                    None,
+                    Some(&format!("generated-{index}")),
+                )),
+            }]);
+        }
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.thread_items.len(), MAX_THREAD_ITEM_RECORDS);
+        assert!(
+            snapshot
+                .thread_items
+                .iter()
+                .all(|item| item.item_id.as_deref() != Some("item-1"))
+        );
+        assert!(
+            snapshot
+                .thread_items
+                .iter()
+                .all(|item| item.text.as_deref() != Some("generated-0"))
+        );
+        let newest_generated = format!("generated-{MAX_THREAD_ITEM_RECORDS}");
+        assert!(
+            snapshot
+                .thread_items
+                .iter()
+                .any(|item| item.text.as_deref() == Some(newest_generated.as_str()))
         );
     }
 
