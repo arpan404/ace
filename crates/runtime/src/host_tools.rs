@@ -209,13 +209,24 @@ impl HostToolRegistry {
         request: &NormalizedServerRequest,
     ) -> Result<HostToolResult, HostToolError> {
         let invocation = self.invocation_from_server_request(provider, request)?;
-        let descriptor_name =
-            invocation
-                .descriptor_name
-                .clone()
-                .ok_or_else(|| HostToolError::NotFound {
-                    name: invocation.tool_name.clone(),
-                })?;
+        self.invoke_invocation(invocation).await
+    }
+
+    pub async fn invoke_invocation(
+        &self,
+        mut invocation: HostToolInvocation,
+    ) -> Result<HostToolResult, HostToolError> {
+        let descriptor_name = if let Some(descriptor_name) = invocation.descriptor_name.clone() {
+            descriptor_name
+        } else {
+            let (canonical, _) =
+                self.resolve(&invocation.tool_name)
+                    .ok_or_else(|| HostToolError::NotFound {
+                        name: invocation.tool_name.clone(),
+                    })?;
+            invocation.descriptor_name = Some(canonical.clone());
+            canonical
+        };
         let handler = self
             .handlers
             .get(&descriptor_name)
@@ -223,6 +234,8 @@ impl HostToolRegistry {
             .ok_or_else(|| HostToolError::NotFound {
                 name: descriptor_name.clone(),
             })?;
+        let descriptor = handler.descriptor();
+        enforce_argument_limit(&invocation.arguments, descriptor.max_argument_bytes)?;
         handler.invoke(invocation).await
     }
 }
@@ -612,6 +625,45 @@ mod tests {
             .await
             .expect_err("argument limit");
         assert_eq!(error, HostToolError::ArgumentsTooLarge { limit: 64 });
+    }
+
+    #[tokio::test]
+    async fn registry_invokes_prebuilt_invocation_without_reparsing_request() {
+        let mut descriptor = HostToolDescriptor::new(
+            "browser.open",
+            ToolTransport::BrowserBridge,
+            ToolSurface::Browser,
+        );
+        descriptor.aliases = vec!["ace_browser".to_string()];
+        let handler = Arc::new(RecordingTool {
+            descriptor,
+            invocations: Mutex::new(Vec::new()),
+        });
+        let mut registry = HostToolRegistry::new();
+        registry.register(handler.clone()).expect("register");
+
+        let result = registry
+            .invoke_invocation(HostToolInvocation {
+                request_id: "42".to_string(),
+                provider: ProviderKind::Codex,
+                descriptor_name: None,
+                tool_name: "ace_browser".to_string(),
+                server_name: None,
+                thread_id: Some("thread-1".to_string()),
+                turn_id: None,
+                item_id: Some("tool-1".to_string()),
+                arguments: json!({ "url": "http://localhost:5173" }),
+                raw_payload: json!({ "toolName": "ace_browser" }),
+            })
+            .await
+            .expect("invoke");
+        assert_eq!(result.output["ok"], true);
+        let invocations = handler.invocations.lock().expect("invocations");
+        assert_eq!(invocations.len(), 1);
+        assert_eq!(
+            invocations[0].descriptor_name.as_deref(),
+            Some("browser.open")
+        );
     }
 
     #[test]
