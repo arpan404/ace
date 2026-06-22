@@ -3003,7 +3003,20 @@ fn semantic_tool_for_codex_versioned_request(
     provider.provider = Some(ProviderKind::Codex.runtime_id().to_string());
     provider.method = Some(codex_method.to_string());
     provider.thread_id = string_field(params, &["threadId", "thread_id"]);
-    provider.item_id = string_field(params, &["processId", "process_id", "path", "uri"]);
+    provider.item_id = string_field(
+        params,
+        &[
+            "processId",
+            "process_id",
+            "path",
+            "uri",
+            "skill",
+            "plugin",
+            "shareId",
+            "share_id",
+            "app",
+        ],
+    );
     provider.server_name = string_field(params, &["server", "serverName", "server_name"]);
     provider.tool_name = Some(codex_versioned_tool_name(codex_method, params));
     provider.operation = Some(codex_versioned_tool_operation(codex_method));
@@ -3040,13 +3053,37 @@ fn codex_versioned_tool_transport(codex_method: &str) -> Option<ToolTransport> {
         | "mcpServer/resource/read"
         | "mcpServer/oauth/login"
         | "mcpServer/tool/call" => Some(ToolTransport::Mcp),
+        "skills/list"
+        | "plugin/skill/read"
+        | "skills/install"
+        | "skills/config/write"
+        | "skills/extraRoots/set"
+        | "plugin/installed"
+        | "plugin/list"
+        | "plugin/read"
+        | "plugin/install"
+        | "plugin/uninstall"
+        | "plugin/share/checkout"
+        | "plugin/share/delete"
+        | "plugin/share/list"
+        | "plugin/share/save"
+        | "plugin/share/updateTargets"
+        | "marketplace/add"
+        | "marketplace/remove"
+        | "marketplace/upgrade" => Some(ToolTransport::CodexBuiltin),
+        "app/list" | "apps/configWrite" => Some(ToolTransport::AppConnector),
         _ => None,
     }
 }
 
 fn codex_versioned_tool_name(codex_method: &str, params: &Value) -> String {
-    string_field(params, &["tool", "command", "path", "uri"])
-        .unwrap_or_else(|| codex_method.replace('/', "."))
+    string_field(
+        params,
+        &[
+            "tool", "command", "path", "uri", "skill", "plugin", "shareId", "share_id", "app",
+        ],
+    )
+    .unwrap_or_else(|| codex_method.replace('/', "."))
 }
 
 fn codex_versioned_tool_operation(codex_method: &str) -> String {
@@ -3071,6 +3108,26 @@ fn codex_versioned_tool_operation(codex_method: &str) -> String {
         "mcpServer/resource/read" => "mcp_resource_read",
         "mcpServer/oauth/login" => "mcp_oauth_login",
         "mcpServer/tool/call" => "mcp_tool_call",
+        "skills/list" => "skills_list",
+        "plugin/skill/read" => "skill_read",
+        "skills/install" => "skill_install",
+        "skills/config/write" => "skills_config_write",
+        "skills/extraRoots/set" => "skills_extra_roots_set",
+        "plugin/installed" => "plugin_installed",
+        "plugin/list" => "plugin_list",
+        "plugin/read" => "plugin_read",
+        "plugin/install" => "plugin_install",
+        "plugin/uninstall" => "plugin_uninstall",
+        "plugin/share/checkout" => "plugin_share_checkout",
+        "plugin/share/delete" => "plugin_share_delete",
+        "plugin/share/list" => "plugin_share_list",
+        "plugin/share/save" => "plugin_share_save",
+        "plugin/share/updateTargets" => "plugin_share_update_targets",
+        "marketplace/add" => "marketplace_add",
+        "marketplace/remove" => "marketplace_remove",
+        "marketplace/upgrade" => "marketplace_upgrade",
+        "app/list" => "app_list",
+        "apps/configWrite" => "apps_config_write",
         _ => codex_method,
     }
     .to_string()
@@ -3093,6 +3150,25 @@ fn codex_versioned_tool_item_type(codex_method: &str) -> &'static str {
         | "mcpServer/resource/read"
         | "mcpServer/oauth/login"
         | "mcpServer/tool/call" => "mcpToolCall",
+        "skills/list"
+        | "plugin/skill/read"
+        | "skills/install"
+        | "skills/config/write"
+        | "skills/extraRoots/set" => "skill",
+        "plugin/installed"
+        | "plugin/list"
+        | "plugin/read"
+        | "plugin/install"
+        | "plugin/uninstall"
+        | "plugin/share/checkout"
+        | "plugin/share/delete"
+        | "plugin/share/list"
+        | "plugin/share/save"
+        | "plugin/share/updateTargets"
+        | "marketplace/add"
+        | "marketplace/remove"
+        | "marketplace/upgrade" => "plugin",
+        "app/list" | "apps/configWrite" => "appConnector",
         _ => "tool",
     }
 }
@@ -7550,6 +7626,21 @@ mod tests {
                     "arguments": { "team": "eng" }
                 }),
             ),
+            (
+                "codex-skill-install",
+                methods::CODEX_SKILLS_INSTALL,
+                json!({ "skill": "rust" }),
+            ),
+            (
+                "codex-plugin-read",
+                methods::CODEX_PLUGINS_READ,
+                json!({ "plugin": "browser" }),
+            ),
+            (
+                "codex-app-config",
+                methods::CODEX_APPS_CONFIG_WRITE,
+                json!({ "app": "browser", "config": { "enabled": true } }),
+            ),
         ] {
             let response = state
                 .dispatch_text(
@@ -7572,7 +7663,7 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "semantic-tool-events",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
-                    "payload": { "provider": "codex", "limit": 8 }
+                    "payload": { "provider": "codex", "limit": 16 }
                 })
                 .to_string(),
             )
@@ -7582,7 +7673,7 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 4);
+        assert_eq!(records.len(), 10);
 
         let file_completed = records
             .iter()
@@ -7622,6 +7713,49 @@ mod tests {
         assert_eq!(
             mcp_started["event"]["tool"]["provider"]["raw_args"]["arguments"]["team"],
             "eng"
+        );
+
+        let skill_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["surface"] == "skill"
+            })
+            .expect("completed skill event");
+        assert_eq!(skill_completed["event"]["tool"]["action"], "skill.install");
+        assert_eq!(
+            skill_completed["event"]["tool"]["display"]["title"],
+            "Installed skill rust"
+        );
+        assert_eq!(
+            skill_completed["event"]["tool"]["provider"]["raw_payload"]["provider_method"],
+            "skills/install"
+        );
+
+        let plugin_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["surface"] == "plugin"
+            })
+            .expect("completed plugin event");
+        assert_eq!(plugin_completed["event"]["tool"]["action"], "plugin.read");
+        assert_eq!(
+            plugin_completed["event"]["tool"]["display"]["title"],
+            "Read plugin browser"
+        );
+
+        let app_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["surface"] == "app"
+            })
+            .expect("completed app event");
+        assert_eq!(app_completed["event"]["tool"]["action"], "app.configure");
+        assert_eq!(
+            app_completed["event"]["tool"]["display"]["title"],
+            "Configured app browser"
         );
     }
 

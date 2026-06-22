@@ -31,6 +31,8 @@ pub enum ToolSurface {
     WebSearch,
     Image,
     Subagent,
+    Skill,
+    Plugin,
     App,
     GenericMcp,
     Unknown,
@@ -112,6 +114,28 @@ pub enum ToolActionKind {
     SubagentSteer,
     #[serde(rename = "subagent.stop")]
     SubagentStop,
+    #[serde(rename = "skill.list")]
+    SkillList,
+    #[serde(rename = "skill.read")]
+    SkillRead,
+    #[serde(rename = "skill.install")]
+    SkillInstall,
+    #[serde(rename = "skill.configure")]
+    SkillConfigure,
+    #[serde(rename = "plugin.list")]
+    PluginList,
+    #[serde(rename = "plugin.read")]
+    PluginRead,
+    #[serde(rename = "plugin.install")]
+    PluginInstall,
+    #[serde(rename = "plugin.uninstall")]
+    PluginUninstall,
+    #[serde(rename = "plugin.share")]
+    PluginShare,
+    #[serde(rename = "app.list")]
+    AppList,
+    #[serde(rename = "app.configure")]
+    AppConfigure,
     #[serde(rename = "tool.run")]
     ToolRun,
 }
@@ -412,6 +436,15 @@ fn infer_surface_action(
     input: &ToolNormalizationInput,
     facts: &ToolFacts,
 ) -> (ToolSurface, ToolActionKind) {
+    if let Some(mapped) = skill_action(facts) {
+        return (ToolSurface::Skill, mapped);
+    }
+    if let Some(mapped) = plugin_action(facts) {
+        return (ToolSurface::Plugin, mapped);
+    }
+    if let Some(mapped) = app_action(facts) {
+        return (ToolSurface::App, mapped);
+    }
     if let Some(mapped) = browser_action(input.transport, facts) {
         return (ToolSurface::Browser, mapped);
     }
@@ -769,6 +802,57 @@ fn git_action(facts: &ToolFacts) -> Option<ToolActionKind> {
     }
 }
 
+fn skill_action(facts: &ToolFacts) -> Option<ToolActionKind> {
+    if !facts.haystack.contains("skill") && !facts.haystack.contains("skills") {
+        return None;
+    }
+    if facts.haystack.contains("install") {
+        Some(ToolActionKind::SkillInstall)
+    } else if facts.haystack.contains("config") || facts.haystack.contains("extra roots") {
+        Some(ToolActionKind::SkillConfigure)
+    } else if facts.haystack.contains("read") {
+        Some(ToolActionKind::SkillRead)
+    } else {
+        Some(ToolActionKind::SkillList)
+    }
+}
+
+fn plugin_action(facts: &ToolFacts) -> Option<ToolActionKind> {
+    if !facts.haystack.contains("plugin") && !facts.haystack.contains("marketplace") {
+        return None;
+    }
+    if facts.haystack.contains("share")
+        || facts.haystack.contains("marketplace add")
+        || facts.haystack.contains("marketplace remove")
+        || facts.haystack.contains("marketplace upgrade")
+    {
+        Some(ToolActionKind::PluginShare)
+    } else if facts.haystack.contains("uninstall") {
+        Some(ToolActionKind::PluginUninstall)
+    } else if facts.haystack.contains("install") {
+        Some(ToolActionKind::PluginInstall)
+    } else if facts.haystack.contains("read") {
+        Some(ToolActionKind::PluginRead)
+    } else {
+        Some(ToolActionKind::PluginList)
+    }
+}
+
+fn app_action(facts: &ToolFacts) -> Option<ToolActionKind> {
+    if !facts.haystack.contains("app/list")
+        && !facts.haystack.contains("app list")
+        && !facts.haystack.contains("apps")
+        && !facts.haystack.contains("app connector")
+    {
+        return None;
+    }
+    if facts.haystack.contains("config") || facts.haystack.contains("write") {
+        Some(ToolActionKind::AppConfigure)
+    } else {
+        Some(ToolActionKind::AppList)
+    }
+}
+
 fn infer_target(
     surface: ToolSurface,
     action: ToolActionKind,
@@ -806,6 +890,34 @@ fn infer_target(
         ])
         .map(|label| ToolTarget {
             kind: ToolTargetKind::Agent,
+            label,
+        }),
+        ToolSurface::Skill => first_string([
+            string_at_deep(args, "skill").as_deref(),
+            string_at_deep(args, "name").as_deref(),
+            string_at_deep(args, "query").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Unknown,
+            label,
+        }),
+        ToolSurface::Plugin => first_string([
+            string_at_deep(args, "plugin").as_deref(),
+            string_at_deep(args, "shareId").as_deref(),
+            string_at_deep(args, "share_id").as_deref(),
+            string_at_deep(args, "query").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Unknown,
+            label,
+        }),
+        ToolSurface::App => first_string([
+            string_at_deep(args, "app").as_deref(),
+            string_at_deep(args, "name").as_deref(),
+            string_at_deep(args, "query").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Application,
             label,
         }),
         ToolSurface::GenericMcp => Some(ToolTarget {
@@ -989,6 +1101,12 @@ fn display_for(
         (ToolSurface::WebSearch, Some(target)) => format!("{verb} web search {target}"),
         (ToolSurface::WebSearch, None) => format!("{verb} web search"),
         (ToolSurface::Image, _) => format!("{verb} image"),
+        (ToolSurface::Skill, Some(target)) => format!("{verb} skill {target}"),
+        (ToolSurface::Skill, None) => format!("{verb} skills"),
+        (ToolSurface::Plugin, Some(target)) => format!("{verb} plugin {target}"),
+        (ToolSurface::Plugin, None) => format!("{verb} plugins"),
+        (ToolSurface::App, Some(target)) => format!("{verb} app {target}"),
+        (ToolSurface::App, None) => format!("{verb} apps"),
         (ToolSurface::GenericMcp, Some(target)) => format!("{verb} {target} tool"),
         (ToolSurface::GenericMcp, None) => format!("{verb} external tool"),
         _ => format!(
@@ -1044,6 +1162,14 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 ToolActionKind::SubagentSpawn => "Starting",
                 ToolActionKind::SubagentSteer => "Steering",
                 ToolActionKind::SubagentStop => "Stopping",
+                ToolActionKind::SkillList
+                | ToolActionKind::PluginList
+                | ToolActionKind::AppList => "Listing",
+                ToolActionKind::SkillRead | ToolActionKind::PluginRead => "Reading",
+                ToolActionKind::SkillInstall | ToolActionKind::PluginInstall => "Installing",
+                ToolActionKind::SkillConfigure | ToolActionKind::AppConfigure => "Configuring",
+                ToolActionKind::PluginUninstall => "Uninstalling",
+                ToolActionKind::PluginShare => "Sharing",
                 _ => "Running",
             }
         }
@@ -1075,6 +1201,14 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             ToolActionKind::SubagentSpawn => "Started",
             ToolActionKind::SubagentSteer => "Steered",
             ToolActionKind::SubagentStop => "Stopped",
+            ToolActionKind::SkillList | ToolActionKind::PluginList | ToolActionKind::AppList => {
+                "Listed"
+            }
+            ToolActionKind::SkillRead | ToolActionKind::PluginRead => "Read",
+            ToolActionKind::SkillInstall | ToolActionKind::PluginInstall => "Installed",
+            ToolActionKind::SkillConfigure | ToolActionKind::AppConfigure => "Configured",
+            ToolActionKind::PluginUninstall => "Uninstalled",
+            ToolActionKind::PluginShare => "Shared",
             _ => "Ran",
         },
         ToolRunStatus::Failed => "Failed",
@@ -1098,6 +1232,17 @@ fn noun_for(action: ToolActionKind) -> &'static str {
         ToolActionKind::GithubCheck => "checks",
         ToolActionKind::GithubCommit => "commit",
         ToolActionKind::GithubSearch => "search",
+        ToolActionKind::SkillList => "skills",
+        ToolActionKind::SkillRead
+        | ToolActionKind::SkillInstall
+        | ToolActionKind::SkillConfigure => "skill",
+        ToolActionKind::PluginList => "plugins",
+        ToolActionKind::PluginRead
+        | ToolActionKind::PluginInstall
+        | ToolActionKind::PluginUninstall
+        | ToolActionKind::PluginShare => "plugin",
+        ToolActionKind::AppList => "apps",
+        ToolActionKind::AppConfigure => "app",
         _ => "tool",
     }
 }
@@ -1148,6 +1293,9 @@ fn icon_for(surface: ToolSurface, action: ToolActionKind) -> &'static str {
         ToolSurface::WebSearch => "search",
         ToolSurface::Image => "image",
         ToolSurface::Subagent => "bot",
+        ToolSurface::Skill => "sparkles",
+        ToolSurface::Plugin => "plug",
+        ToolSurface::App => "app-window",
         ToolSurface::GenericMcp => "plug",
         _ => match action {
             ToolActionKind::ToolRun => "tool",
@@ -1838,6 +1986,42 @@ mod tests {
         assert_eq!(image.surface, ToolSurface::Image);
         assert_eq!(image.action, ToolActionKind::ImageGenerate);
         assert_eq!(image.display.title, "Generated image");
+    }
+
+    #[test]
+    fn skill_plugin_and_app_connector_actions_are_semantic() {
+        let skill = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "skill",
+            "rust",
+            "skills/install",
+            json!({ "skill": "rust" }),
+        ));
+        assert_eq!(skill.surface, ToolSurface::Skill);
+        assert_eq!(skill.action, ToolActionKind::SkillInstall);
+        assert_eq!(skill.display.title, "Installed skill rust");
+
+        let plugin = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "plugin",
+            "browser",
+            "plugin/read",
+            json!({ "plugin": "browser" }),
+        ));
+        assert_eq!(plugin.surface, ToolSurface::Plugin);
+        assert_eq!(plugin.action, ToolActionKind::PluginRead);
+        assert_eq!(plugin.display.title, "Read plugin browser");
+
+        let app = normalize_tool_call(input(
+            ToolTransport::AppConnector,
+            "appConnector",
+            "browser",
+            "apps/configWrite",
+            json!({ "app": "browser" }),
+        ));
+        assert_eq!(app.surface, ToolSurface::App);
+        assert_eq!(app.action, ToolActionKind::AppConfigure);
+        assert_eq!(app.display.title, "Configured app browser");
     }
 
     #[test]

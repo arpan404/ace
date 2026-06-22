@@ -341,6 +341,17 @@ fn operation_for_action(action: ToolActionKind) -> &'static str {
         ToolActionKind::SubagentSpawn => "subagent_spawn",
         ToolActionKind::SubagentSteer => "subagent_steer",
         ToolActionKind::SubagentStop => "subagent_stop",
+        ToolActionKind::SkillList => "skill_list",
+        ToolActionKind::SkillRead => "skill_read",
+        ToolActionKind::SkillInstall => "skill_install",
+        ToolActionKind::SkillConfigure => "skill_configure",
+        ToolActionKind::PluginList => "plugin_list",
+        ToolActionKind::PluginRead => "plugin_read",
+        ToolActionKind::PluginInstall => "plugin_install",
+        ToolActionKind::PluginUninstall => "plugin_uninstall",
+        ToolActionKind::PluginShare => "plugin_share",
+        ToolActionKind::AppList => "app_list",
+        ToolActionKind::AppConfigure => "app_configure",
         ToolActionKind::ToolRun => "tool",
     }
 }
