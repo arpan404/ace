@@ -305,6 +305,39 @@ pub mod provider {
         pub audit: Value,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum RuntimeSignalKind {
+        Warning,
+        ModelRerouted,
+        RealtimeTranscriptDelta,
+        RealtimeAudioDelta,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct NormalizedRuntimeSignal {
+        pub kind: RuntimeSignalKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub message: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub from_model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub to_model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub reason: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub audio: Option<String>,
+        #[serde(default)]
+        pub metadata: Value,
+        pub provider: ProviderMetadata,
+    }
+
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     #[serde(tag = "type", rename_all = "snake_case")]
     pub enum ProviderEvent {
@@ -333,6 +366,9 @@ pub mod provider {
             decision: NormalizedServerRequestDecision,
             #[serde(default, skip_serializing_if = "Option::is_none")]
             request: Option<Box<NormalizedServerRequest>>,
+        },
+        RuntimeSignal {
+            signal: Box<NormalizedRuntimeSignal>,
         },
         StderrLine {
             line: String,

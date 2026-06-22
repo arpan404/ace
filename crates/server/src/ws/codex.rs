@@ -2043,6 +2043,31 @@ mod tests {
                     },
                 }),
             },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(ace_runtime::provider::NormalizedRuntimeSignal {
+                    kind: ace_runtime::provider::RuntimeSignalKind::Warning,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    message: Some("Context is almost full".to_string()),
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    metadata: json!({ "severity": "warning" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("warning".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({
+                            "threadId": "thread-1",
+                            "turnId": "turn-1",
+                            "message": "Context is almost full",
+                            "severity": "warning"
+                        }),
+                    },
+                }),
+            },
             ProviderEvent::RawNotification {
                 method: "warning".to_string(),
                 params: json!({
@@ -2150,16 +2175,18 @@ mod tests {
             json!(["src/main.rs"])
         );
         assert_eq!(body["projection_deltas"][4]["diff"], "@@ -1 +1 @@");
+        assert_eq!(body["projection_deltas"][5]["type"], "warning_raised");
         assert_eq!(
-            body["projection_deltas"][5]["type"],
-            "raw_notification_observed"
-        );
-        assert_eq!(body["projection_deltas"][5]["method"], "warning");
-        assert_eq!(body["projection_deltas"][6]["type"], "warning_raised");
-        assert_eq!(
-            body["projection_deltas"][6]["message"],
+            body["projection_deltas"][5]["message"],
             "Context is almost full"
         );
+        assert_eq!(
+            body["projection_deltas"][6]["type"],
+            "raw_notification_observed"
+        );
+        assert_eq!(body["projection_deltas"][6]["method"], "warning");
+        assert_eq!(body["events"][4]["type"], "runtime_signal");
+        assert_eq!(body["events"][4]["signal"]["kind"], "warning");
         assert_eq!(body["raw_events"][2]["type"], "raw_notification");
         assert_eq!(body["raw_events"][2]["method"], "item/completed");
 
@@ -2256,7 +2283,7 @@ mod tests {
             panic!("expected recent provider event result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 6);
+        assert_eq!(records.len(), 7);
         assert_eq!(records[0]["provider"], "codex");
         assert_eq!(records[0]["event"]["type"], "tool_completed");
         assert_eq!(
@@ -2298,28 +2325,31 @@ mod tests {
             records[3]["projection_deltas"][1]["files"],
             json!(["src/main.rs"])
         );
+        assert_eq!(records[4]["projection_deltas"][0]["type"], "warning_raised");
         assert_eq!(
-            records[4]["projection_deltas"][0]["type"],
-            "raw_notification_observed"
-        );
-        assert_eq!(records[4]["projection_deltas"][1]["type"], "warning_raised");
-        assert_eq!(
-            records[4]["projection_deltas"][1]["message"],
+            records[4]["projection_deltas"][0]["message"],
             "Context is almost full"
         );
-        assert_eq!(records[5]["event"]["type"], "server_request_resolved");
-        assert_eq!(records[5]["event"]["request_id"], "42");
-        assert_eq!(records[5]["event"]["decision"]["outcome"], "result");
+        assert_eq!(records[4]["event"]["type"], "runtime_signal");
+        assert_eq!(records[4]["event"]["signal"]["kind"], "warning");
         assert_eq!(
             records[5]["projection_deltas"][0]["type"],
+            "raw_notification_observed"
+        );
+        assert_eq!(records[5]["projection_deltas"][0]["method"], "warning");
+        assert_eq!(records[6]["event"]["type"], "server_request_resolved");
+        assert_eq!(records[6]["event"]["request_id"], "42");
+        assert_eq!(records[6]["event"]["decision"]["outcome"], "result");
+        assert_eq!(
+            records[6]["projection_deltas"][0]["type"],
             "approval_resolved"
         );
         assert_eq!(
-            records[5]["projection_deltas"][0]["decision"]["payload"]["approved"],
+            records[6]["projection_deltas"][0]["decision"]["payload"]["approved"],
             true
         );
         assert_eq!(
-            records[5]["projection_deltas"][0]["request"]["prompt"],
+            records[6]["projection_deltas"][0]["request"]["prompt"],
             "Run tests?"
         );
 

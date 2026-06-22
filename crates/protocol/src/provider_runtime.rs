@@ -1,9 +1,10 @@
 use ace_core::ProviderKind;
 use ace_runtime::{
     provider::{
-        NormalizedServerRequest, NormalizedThreadItem, ProviderContractReport, ProviderDescriptor,
-        ProviderDriverStatus, ProviderEvent, ProviderFeature, ProviderLifecycleAction,
-        ProviderLifecycleResult, ThreadItemKind, ThreadItemStatus,
+        NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem,
+        ProviderContractReport, ProviderDescriptor, ProviderDriverStatus, ProviderEvent,
+        ProviderFeature, ProviderLifecycleAction, ProviderLifecycleResult, RuntimeSignalKind,
+        ThreadItemKind, ThreadItemStatus,
     },
     threads::AgentRuntimeSnapshot,
     tools::{SemanticToolCall, ToolRunStatus},
@@ -473,6 +474,9 @@ pub enum ProviderRuntimeEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         request: Option<Box<NormalizedServerRequest>>,
     },
+    RuntimeSignal {
+        signal: Box<NormalizedRuntimeSignal>,
+    },
     RawNotification {
         provider: String,
         method: String,
@@ -538,6 +542,7 @@ impl ProviderRuntimeEvent {
                 },
                 request,
             },
+            ProviderEvent::RuntimeSignal { signal } => Self::RuntimeSignal { signal },
             ProviderEvent::RawNotification { method, params } => Self::RawNotification {
                 provider: provider.to_string(),
                 method,
@@ -570,7 +575,8 @@ impl ProviderRuntimeEvent {
             | Self::ToolApprovalRequested { tool } => Some(tool.display.status),
             Self::ThreadItem { .. }
             | Self::ServerRequest { .. }
-            | Self::ServerRequestResolved { .. } => None,
+            | Self::ServerRequestResolved { .. }
+            | Self::RuntimeSignal { .. } => None,
             Self::RawNotification { .. }
             | Self::RawServerRequest { .. }
             | Self::StderrLine { .. }
@@ -681,6 +687,7 @@ impl ProviderRuntimeEvent {
                     request: request.clone(),
                 }]
             }
+            Self::RuntimeSignal { signal } => projection_deltas_for_runtime_signal(signal),
             Self::RawNotification {
                 provider,
                 method,
@@ -707,68 +714,6 @@ impl ProviderRuntimeEvent {
                         ),
                         active,
                     });
-                }
-                match method.as_str() {
-                    "warning" => {
-                        if let Some(message) =
-                            string_at(params, &["message", "text", "warning", "description"])
-                        {
-                            deltas.push(ProviderRuntimeProjectionDelta::WarningRaised {
-                                provider: provider.clone(),
-                                thread_id: thread_id_from_params(params),
-                                turn_id: turn_id_from_params(params),
-                                message,
-                                metadata: params.clone(),
-                            });
-                        }
-                    }
-                    "model/rerouted" => {
-                        deltas.push(ProviderRuntimeProjectionDelta::ModelRerouted {
-                            provider: provider.clone(),
-                            thread_id: thread_id_from_params(params),
-                            turn_id: turn_id_from_params(params),
-                            from_model: string_at(
-                                params,
-                                &["fromModel", "from_model", "previousModel", "previous_model"],
-                            ),
-                            to_model: string_at(
-                                params,
-                                &[
-                                    "toModel",
-                                    "to_model",
-                                    "model",
-                                    "targetModel",
-                                    "target_model",
-                                ],
-                            ),
-                            reason: string_at(params, &["reason", "message", "description"]),
-                        });
-                    }
-                    "realtime/transcriptDelta" => {
-                        if let Some(text) =
-                            string_at(params, &["delta", "text", "transcript", "content"])
-                        {
-                            deltas.push(ProviderRuntimeProjectionDelta::RealtimeTranscriptDelta {
-                                provider: provider.clone(),
-                                thread_id: thread_id_from_params(params),
-                                turn_id: turn_id_from_params(params),
-                                text,
-                            });
-                        }
-                    }
-                    "realtime/audioDelta" => {
-                        if let Some(audio) =
-                            string_at(params, &["audio", "delta", "data", "base64"])
-                        {
-                            deltas.push(ProviderRuntimeProjectionDelta::RealtimeAudioDelta {
-                                provider: provider.clone(),
-                                thread_id: thread_id_from_params(params),
-                                turn_id: turn_id_from_params(params),
-                                audio,
-                            });
-                        }
-                    }
-                    _ => {}
                 }
                 deltas
             }
@@ -805,6 +750,60 @@ pub fn projection_deltas_for_events(
         .collect()
 }
 
+fn projection_deltas_for_runtime_signal(
+    signal: &NormalizedRuntimeSignal,
+) -> Vec<ProviderRuntimeProjectionDelta> {
+    match signal.kind {
+        RuntimeSignalKind::Warning => signal
+            .message
+            .as_ref()
+            .map(|message| {
+                vec![ProviderRuntimeProjectionDelta::WarningRaised {
+                    provider: signal.provider.provider.clone(),
+                    thread_id: signal.thread_id.clone(),
+                    turn_id: signal.turn_id.clone(),
+                    message: message.clone(),
+                    metadata: signal.metadata.clone(),
+                }]
+            })
+            .unwrap_or_default(),
+        RuntimeSignalKind::ModelRerouted => {
+            vec![ProviderRuntimeProjectionDelta::ModelRerouted {
+                provider: signal.provider.provider.clone(),
+                thread_id: signal.thread_id.clone(),
+                turn_id: signal.turn_id.clone(),
+                from_model: signal.from_model.clone(),
+                to_model: signal.to_model.clone(),
+                reason: signal.reason.clone(),
+            }]
+        }
+        RuntimeSignalKind::RealtimeTranscriptDelta => signal
+            .text
+            .as_ref()
+            .map(|text| {
+                vec![ProviderRuntimeProjectionDelta::RealtimeTranscriptDelta {
+                    provider: signal.provider.provider.clone(),
+                    thread_id: signal.thread_id.clone(),
+                    turn_id: signal.turn_id.clone(),
+                    text: text.clone(),
+                }]
+            })
+            .unwrap_or_default(),
+        RuntimeSignalKind::RealtimeAudioDelta => signal
+            .audio
+            .as_ref()
+            .map(|audio| {
+                vec![ProviderRuntimeProjectionDelta::RealtimeAudioDelta {
+                    provider: signal.provider.provider.clone(),
+                    thread_id: signal.thread_id.clone(),
+                    turn_id: signal.turn_id.clone(),
+                    audio: audio.clone(),
+                }]
+            })
+            .unwrap_or_default(),
+    }
+}
+
 fn active_turn_for_method(method: &str) -> Option<bool> {
     match method {
         "turn/started" | "turn/startedStreaming" => Some(true),
@@ -832,29 +831,12 @@ fn nested_string_at(
     })
 }
 
-fn thread_id_from_params(value: &serde_json::Value) -> Option<String> {
-    nested_string_at(
-        value,
-        &["threadId", "thread_id", "conversationId", "conversation_id"],
-        "/thread",
-        &["id", "threadId", "thread_id"],
-    )
-}
-
-fn turn_id_from_params(value: &serde_json::Value) -> Option<String> {
-    nested_string_at(
-        value,
-        &["turnId", "turn_id"],
-        "/turn",
-        &["id", "turnId", "turn_id"],
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use ace_runtime::provider::{
-        NormalizedServerRequest, NormalizedServerRequestDecision, NormalizedThreadItem,
-        ProviderMetadata, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+        NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
+        NormalizedThreadItem, ProviderMetadata, RuntimeSignalKind, ServerRequestKind,
+        ThreadItemKind, ThreadItemStatus,
     };
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
@@ -1228,43 +1210,64 @@ mod tests {
     #[test]
     fn provider_runtime_events_project_runtime_warning_reroute_and_realtime_state() {
         let events = [
-            ProviderRuntimeEvent::RawNotification {
-                provider: "codex".to_string(),
-                method: "warning".to_string(),
-                params: json!({
-                    "threadId": "thread-1",
-                    "turnId": "turn-1",
-                    "message": "Context is almost full",
-                    "severity": "warning"
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::Warning,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    message: Some("Context is almost full".to_string()),
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    metadata: json!({ "severity": "warning" }),
+                    provider: provider_metadata("warning"),
                 }),
             },
-            ProviderRuntimeEvent::RawNotification {
-                provider: "codex".to_string(),
-                method: "model/rerouted".to_string(),
-                params: json!({
-                    "thread": { "id": "thread-1" },
-                    "turn": { "id": "turn-1" },
-                    "fromModel": "gpt-5",
-                    "toModel": "gpt-5-mini",
-                    "reason": "capacity"
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ModelRerouted,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    message: None,
+                    from_model: Some("gpt-5".to_string()),
+                    to_model: Some("gpt-5-mini".to_string()),
+                    reason: Some("capacity".to_string()),
+                    text: None,
+                    audio: None,
+                    metadata: json!({}),
+                    provider: provider_metadata("model/rerouted"),
                 }),
             },
-            ProviderRuntimeEvent::RawNotification {
-                provider: "codex".to_string(),
-                method: "realtime/transcriptDelta".to_string(),
-                params: json!({
-                    "threadId": "thread-1",
-                    "turnId": "turn-1",
-                    "delta": "hello"
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::RealtimeTranscriptDelta,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: Some("hello".to_string()),
+                    audio: None,
+                    metadata: json!({}),
+                    provider: provider_metadata("realtime/transcriptDelta"),
                 }),
             },
-            ProviderRuntimeEvent::RawNotification {
-                provider: "codex".to_string(),
-                method: "realtime/audioDelta".to_string(),
-                params: json!({
-                    "threadId": "thread-1",
-                    "turnId": "turn-1",
-                    "audio": "AAAA"
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::RealtimeAudioDelta,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: Some("AAAA".to_string()),
+                    metadata: json!({}),
+                    provider: provider_metadata("realtime/audioDelta"),
                 }),
             },
         ];
@@ -1320,16 +1323,10 @@ mod tests {
                 && turn_id.as_deref() == Some("turn-1")
                 && audio == "AAAA"
         )));
-        assert_eq!(
-            deltas
-                .iter()
-                .filter(|delta| matches!(
-                    delta,
-                    ProviderRuntimeProjectionDelta::RawNotificationObserved { .. }
-                ))
-                .count(),
-            4
-        );
+        assert!(deltas.iter().all(|delta| !matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::RawNotificationObserved { .. }
+        )));
     }
 
     fn thread_item_event(item: NormalizedThreadItem) -> ProviderRuntimeEvent {

@@ -434,6 +434,7 @@ impl AgentRuntimeState {
             ProviderEvent::RawServerRequest { .. }
             | ProviderEvent::ServerRequest { .. }
             | ProviderEvent::ServerRequestResolved { .. }
+            | ProviderEvent::RuntimeSignal { .. }
             | ProviderEvent::SemanticTool { .. }
             | ProviderEvent::StderrLine { .. } => {}
         }

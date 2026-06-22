@@ -1,7 +1,7 @@
 use ace_runtime::{
     provider::{
-        NormalizedServerRequest, NormalizedThreadItem, ProviderEvent, ProviderMetadata,
-        ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+        NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem, ProviderEvent,
+        ProviderMetadata, RuntimeSignalKind, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     },
     tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
@@ -17,6 +17,11 @@ pub fn normalize_codex_inbound_event(event: &CodexInboundEvent) -> Vec<ProviderE
     match event {
         CodexInboundEvent::Notification { method, params } => {
             let mut events = Vec::new();
+            if let Some(signal) = normalize_codex_runtime_signal(method, params) {
+                events.push(ProviderEvent::RuntimeSignal {
+                    signal: Box::new(signal),
+                });
+            }
             if let Some(tool) = normalize_codex_tool_notification(method, params) {
                 events.push(ProviderEvent::SemanticTool {
                     tool: Box::new(tool),
@@ -47,6 +52,91 @@ pub fn normalize_codex_inbound_event(event: &CodexInboundEvent) -> Vec<ProviderE
             vec![ProviderEvent::StderrLine { line: line.clone() }]
         }
         CodexInboundEvent::ServerExited { .. } => vec![ProviderEvent::Exited],
+    }
+}
+
+fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<NormalizedRuntimeSignal> {
+    let mut signal = NormalizedRuntimeSignal {
+        kind: runtime_signal_kind(method)?,
+        thread_id: string_at(params, "threadId")
+            .or_else(|| string_at(params, "thread_id"))
+            .or_else(|| nested_string_at(params, "/thread", &["id", "threadId", "thread_id"])),
+        turn_id: string_at(params, "turnId")
+            .or_else(|| string_at(params, "turn_id"))
+            .or_else(|| nested_string_at(params, "/turn", &["id", "turnId", "turn_id"])),
+        message: None,
+        from_model: None,
+        to_model: None,
+        reason: None,
+        text: None,
+        audio: None,
+        metadata: params.clone(),
+        provider: ProviderMetadata {
+            provider: "codex".to_string(),
+            method: Some(method.to_string()),
+            schema_version: string_at(params, "schemaVersion"),
+            raw_payload: params.clone(),
+        },
+    };
+    match signal.kind {
+        RuntimeSignalKind::Warning => {
+            signal.message = first_string([
+                string_at(params, "message").as_deref(),
+                string_at(params, "text").as_deref(),
+                string_at(params, "warning").as_deref(),
+                string_at(params, "description").as_deref(),
+            ]);
+            signal.message.as_ref()?;
+        }
+        RuntimeSignalKind::ModelRerouted => {
+            signal.from_model = first_string([
+                string_at(params, "fromModel").as_deref(),
+                string_at(params, "from_model").as_deref(),
+                string_at(params, "previousModel").as_deref(),
+                string_at(params, "previous_model").as_deref(),
+            ]);
+            signal.to_model = first_string([
+                string_at(params, "toModel").as_deref(),
+                string_at(params, "to_model").as_deref(),
+                string_at(params, "model").as_deref(),
+                string_at(params, "targetModel").as_deref(),
+                string_at(params, "target_model").as_deref(),
+            ]);
+            signal.reason = first_string([
+                string_at(params, "reason").as_deref(),
+                string_at(params, "message").as_deref(),
+                string_at(params, "description").as_deref(),
+            ]);
+        }
+        RuntimeSignalKind::RealtimeTranscriptDelta => {
+            signal.text = first_string([
+                string_at(params, "delta").as_deref(),
+                string_at(params, "text").as_deref(),
+                string_at(params, "transcript").as_deref(),
+                string_at(params, "content").as_deref(),
+            ]);
+            signal.text.as_ref()?;
+        }
+        RuntimeSignalKind::RealtimeAudioDelta => {
+            signal.audio = first_string([
+                string_at(params, "audio").as_deref(),
+                string_at(params, "delta").as_deref(),
+                string_at(params, "data").as_deref(),
+                string_at(params, "base64").as_deref(),
+            ]);
+            signal.audio.as_ref()?;
+        }
+    }
+    Some(signal)
+}
+
+fn runtime_signal_kind(method: &str) -> Option<RuntimeSignalKind> {
+    match method {
+        "warning" => Some(RuntimeSignalKind::Warning),
+        "model/rerouted" => Some(RuntimeSignalKind::ModelRerouted),
+        "realtime/transcriptDelta" => Some(RuntimeSignalKind::RealtimeTranscriptDelta),
+        "realtime/audioDelta" => Some(RuntimeSignalKind::RealtimeAudioDelta),
+        _ => None,
     }
 }
 
@@ -538,6 +628,21 @@ fn string_at_deep(value: &Value, key: &str) -> Option<String> {
     })
 }
 
+fn nested_string_at(value: &Value, pointer: &str, keys: &[&str]) -> Option<String> {
+    value
+        .pointer(pointer)
+        .and_then(|nested| keys.iter().find_map(|key| string_at(nested, key)))
+}
+
+fn first_string<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Option<String> {
+    values
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 #[cfg(test)]
 mod tests {
     use ace_runtime::{
@@ -780,6 +885,69 @@ mod tests {
         let exited =
             normalize_codex_inbound_event(&CodexInboundEvent::ServerExited { code: Some(0) });
         assert_eq!(exited, vec![ProviderEvent::Exited]);
+    }
+
+    #[test]
+    fn normalizes_runtime_signals_and_preserves_raw_notifications() {
+        let warning = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "warning".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "message": "Context is almost full",
+                "severity": "warning"
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &warning[0] else {
+            panic!("expected runtime signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::Warning
+        );
+        assert_eq!(signal.message.as_deref(), Some("Context is almost full"));
+        assert_eq!(signal.thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(signal.provider.raw_payload["severity"], "warning");
+        assert!(matches!(warning[1], ProviderEvent::RawNotification { .. }));
+
+        let reroute = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "model/rerouted".to_string(),
+            params: json!({
+                "thread": { "id": "thread-1" },
+                "turn": { "id": "turn-1" },
+                "fromModel": "gpt-5",
+                "toModel": "gpt-5-mini",
+                "reason": "capacity"
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &reroute[0] else {
+            panic!("expected reroute signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::ModelRerouted
+        );
+        assert_eq!(signal.thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(signal.turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(signal.from_model.as_deref(), Some("gpt-5"));
+        assert_eq!(signal.to_model.as_deref(), Some("gpt-5-mini"));
+
+        let transcript = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "realtime/transcriptDelta".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "delta": "hello"
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &transcript[0] else {
+            panic!("expected transcript signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::RealtimeTranscriptDelta
+        );
+        assert_eq!(signal.text.as_deref(), Some("hello"));
     }
 
     #[test]
