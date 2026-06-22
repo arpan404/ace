@@ -729,6 +729,14 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 let adapter_profile = self.providers.adapter_profile(provider).ok_or(
                     ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider },
                 )?;
+                if let (ProviderKind::Codex, None, Some(operation)) =
+                    (provider, request.method.as_ref(), request.operation)
+                {
+                    validate_provider_runtime_operation(operation, &adapter_profile)?;
+                    if let Some(method) = codex_ws_method_for_adapter_operation(operation)? {
+                        return self.dispatch_codex_method(method, request.params).await;
+                    }
+                }
                 let method = resolve_provider_runtime_request_method(
                     request.method,
                     request.operation,
@@ -1105,6 +1113,117 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         });
         receiver
     }
+}
+
+fn validate_provider_runtime_operation(
+    operation: ProviderAdapterOperation,
+    adapter_profile: &ProviderAdapterProfile,
+) -> Result<(), WsDispatchError> {
+    let operation_profile = adapter_profile.operation(operation).ok_or_else(|| {
+        WsDispatchError::BadRequest(format!(
+            "provider `{}` does not advertise adapter operation `{operation:?}`",
+            adapter_profile.provider.runtime_id()
+        ))
+    })?;
+    match operation_profile.invocation {
+        ProviderAdapterInvocationKind::Deferred => Err(WsDispatchError::BadRequest(format!(
+            "provider `{}` adapter operation `{operation:?}` is intentionally deferred",
+            adapter_profile.provider.runtime_id()
+        ))),
+        ProviderAdapterInvocationKind::EventStream => Err(WsDispatchError::BadRequest(format!(
+            "provider `{}` adapter operation `{operation:?}` is event-stream driven; subscribe to provider runtime events",
+            adapter_profile.provider.runtime_id()
+        ))),
+        ProviderAdapterInvocationKind::DirectProviderMethod
+        | ProviderAdapterInvocationKind::TypedApi
+        | ProviderAdapterInvocationKind::CompositeTypedApi => Ok(()),
+    }
+}
+
+fn codex_ws_method_for_adapter_operation(
+    operation: ProviderAdapterOperation,
+) -> Result<Option<&'static str>, WsDispatchError> {
+    let method = match operation {
+        ProviderAdapterOperation::RawRequest => methods::CODEX_RAW_REQUEST,
+        ProviderAdapterOperation::ThreadStart => methods::CODEX_THREAD_START,
+        ProviderAdapterOperation::ThreadResume => methods::CODEX_THREAD_RESUME,
+        ProviderAdapterOperation::ThreadRead => methods::CODEX_THREAD_READ,
+        ProviderAdapterOperation::ThreadList => methods::CODEX_THREADS_LIST,
+        ProviderAdapterOperation::ThreadLoadedList => methods::CODEX_THREADS_LOADED_LIST,
+        ProviderAdapterOperation::ThreadArchive => methods::CODEX_THREAD_ARCHIVE,
+        ProviderAdapterOperation::ThreadUnarchive => methods::CODEX_THREAD_UNARCHIVE,
+        ProviderAdapterOperation::ThreadDelete => methods::CODEX_THREAD_DELETE,
+        ProviderAdapterOperation::ThreadUnsubscribe => methods::CODEX_THREAD_UNSUBSCRIBE,
+        ProviderAdapterOperation::ThreadSetName => methods::CODEX_THREAD_SET_NAME,
+        ProviderAdapterOperation::ThreadUpdateMetadata => methods::CODEX_THREAD_UPDATE_METADATA,
+        ProviderAdapterOperation::ThreadCompact => methods::CODEX_THREAD_COMPACT,
+        ProviderAdapterOperation::ThreadRollback => methods::CODEX_THREAD_ROLLBACK,
+        ProviderAdapterOperation::ThreadInjectItems => methods::CODEX_THREAD_INJECT_ITEMS,
+        ProviderAdapterOperation::TurnStart => methods::CODEX_TURN_START,
+        ProviderAdapterOperation::TurnInterrupt => methods::CODEX_TURN_INTERRUPT,
+        ProviderAdapterOperation::PlanStart => methods::CODEX_TURN_PLAN_START,
+        ProviderAdapterOperation::PlanContinueInThread => methods::CODEX_PLAN_CONTINUE_IN_THREAD,
+        ProviderAdapterOperation::PlanForkForImplementation => {
+            methods::CODEX_PLAN_FORK_FOR_IMPLEMENTATION
+        }
+        ProviderAdapterOperation::PlanSideImplementation => methods::CODEX_PLAN_SIDE_IMPLEMENTATION,
+        ProviderAdapterOperation::ForkThread => methods::CODEX_THREAD_FORK,
+        ProviderAdapterOperation::SideChatStart => methods::CODEX_SIDE_CHAT_START,
+        ProviderAdapterOperation::GoalSet => methods::CODEX_GOAL_SET,
+        ProviderAdapterOperation::GoalGet => methods::CODEX_GOAL_GET,
+        ProviderAdapterOperation::GoalClear => methods::CODEX_GOAL_CLEAR,
+        ProviderAdapterOperation::GoalPause => methods::CODEX_GOAL_PAUSE,
+        ProviderAdapterOperation::GoalResume => methods::CODEX_GOAL_RESUME,
+        ProviderAdapterOperation::SubagentList => methods::CODEX_SUBAGENTS_LIST,
+        ProviderAdapterOperation::SubagentRead => methods::CODEX_SUBAGENT_READ,
+        ProviderAdapterOperation::SubagentSteer => methods::CODEX_SUBAGENT_STEER,
+        ProviderAdapterOperation::SubagentStop => methods::CODEX_SUBAGENT_STOP,
+        ProviderAdapterOperation::SubagentClose => methods::CODEX_SUBAGENT_CLOSE,
+        ProviderAdapterOperation::HandoffToAgent => methods::CODEX_HANDOFF_TO_AGENT,
+        ProviderAdapterOperation::HandoffToLocation => methods::CODEX_HANDOFF_TO_LOCATION,
+        ProviderAdapterOperation::PermissionRequirementsRead => {
+            methods::CODEX_CONFIG_REQUIREMENTS_READ
+        }
+        ProviderAdapterOperation::PermissionProfilesList => methods::CODEX_PERMISSION_PROFILES_LIST,
+        ProviderAdapterOperation::PermissionPresetResolve => {
+            methods::CODEX_PERMISSION_PRESET_RESOLVE
+        }
+        ProviderAdapterOperation::GuardianDeniedActionApprove => {
+            methods::CODEX_THREAD_APPROVE_GUARDIAN_DENIED_ACTION
+        }
+        ProviderAdapterOperation::ReviewStart => methods::CODEX_REVIEW_START,
+        ProviderAdapterOperation::CommandExec => methods::CODEX_COMMAND_EXEC,
+        ProviderAdapterOperation::CommandWriteStdin => methods::CODEX_COMMAND_WRITE_STDIN,
+        ProviderAdapterOperation::CommandResize => methods::CODEX_COMMAND_RESIZE,
+        ProviderAdapterOperation::CommandTerminate => methods::CODEX_COMMAND_TERMINATE,
+        ProviderAdapterOperation::ProcessList => methods::CODEX_PROCESS_LIST,
+        ProviderAdapterOperation::ProcessClean => methods::CODEX_PROCESS_CLEAN,
+        ProviderAdapterOperation::McpStatus => methods::CODEX_MCP_STATUS,
+        ProviderAdapterOperation::McpResourceRead => methods::CODEX_MCP_RESOURCE_READ,
+        ProviderAdapterOperation::McpOauthLogin => methods::CODEX_MCP_OAUTH_LOGIN,
+        ProviderAdapterOperation::McpToolCall => methods::CODEX_MCP_TOOL_CALL,
+        ProviderAdapterOperation::SkillsList => methods::CODEX_SKILLS_LIST,
+        ProviderAdapterOperation::SkillsRead => methods::CODEX_SKILLS_READ,
+        ProviderAdapterOperation::SkillsInstall => methods::CODEX_SKILLS_INSTALL,
+        ProviderAdapterOperation::PluginsList => methods::CODEX_PLUGINS_LIST,
+        ProviderAdapterOperation::PluginsInstall => methods::CODEX_PLUGINS_INSTALL,
+        ProviderAdapterOperation::AppsList => methods::CODEX_APPS_LIST,
+        ProviderAdapterOperation::AppsConfigWrite => methods::CODEX_APPS_CONFIG_WRITE,
+        ProviderAdapterOperation::RemoteConnectionList => methods::CODEX_REMOTE_CONNECTION_LIST,
+        ProviderAdapterOperation::RemoteHandoff => methods::CODEX_REMOTE_HANDOFF,
+        ProviderAdapterOperation::RuntimeStatus
+        | ProviderAdapterOperation::RuntimeLifecycle
+        | ProviderAdapterOperation::ServerRequestRespond => return Ok(None),
+        ProviderAdapterOperation::CloudThreadStart
+        | ProviderAdapterOperation::CloudHandoff
+        | ProviderAdapterOperation::ProviderEvents
+        | ProviderAdapterOperation::SemanticTools => {
+            return Err(WsDispatchError::BadRequest(format!(
+                "Codex adapter operation `{operation:?}` is not invokable through provider_runtime.request"
+            )));
+        }
+    };
+    Ok(Some(method))
 }
 
 fn provider_runtime_error_code(
@@ -2775,7 +2894,7 @@ mod tests {
                     "payload": {
                         "provider": "codex",
                         "operation": "thread_read",
-                        "params": { "threadId": "thread-2" },
+                        "params": { "thread_id": "thread-2" },
                         "timeout_ms": 1000
                     }
                 })
@@ -2790,7 +2909,7 @@ mod tests {
         ));
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
-            ["thread/read", "thread/read"]
+            ["thread/read", "thread/read:thread-2"]
         );
 
         let composite_operation = state
@@ -2802,7 +2921,12 @@ mod tests {
                     "payload": {
                         "provider": "codex",
                         "operation": "plan_fork_for_implementation",
-                        "params": {},
+                        "params": {
+                            "thread_id": "thread-2",
+                            "plan": { "markdown": "Build the adapter router" },
+                            "prompt": "implement it",
+                            "model": "gpt-5.5"
+                        },
                         "timeout_ms": 1000
                     }
                 })
@@ -2811,11 +2935,20 @@ mod tests {
             .await;
         let composite_operation: WsServerResponse =
             serde_json::from_str(&composite_operation).expect("composite operation response");
-        let WsServerPayload::Error { code, message } = composite_operation.payload else {
-            panic!("expected composite operation error");
-        };
-        assert_eq!(code, "bad_request");
-        assert!(message.contains("composite provider methods"));
+        assert!(matches!(
+            composite_operation.payload,
+            WsServerPayload::Result { .. }
+        ));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "thread/read",
+                "thread/read:thread-2",
+                "thread/fork:thread-2:false",
+                "thread/injectItems:fork-1:1",
+                "turn/start:fork-1"
+            ]
+        );
 
         let deferred_operation = state
             .dispatch_text(
@@ -2890,7 +3023,13 @@ mod tests {
         assert!(message.contains("userInitiated: true"));
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
-            ["thread/read", "thread/read"]
+            [
+                "thread/read",
+                "thread/read:thread-2",
+                "thread/fork:thread-2:false",
+                "thread/injectItems:fork-1:1",
+                "turn/start:fork-1"
+            ]
         );
 
         let command_with_marker = state
@@ -2920,7 +3059,53 @@ mod tests {
         ));
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
-            ["thread/read", "thread/read", "command/exec"]
+            [
+                "thread/read",
+                "thread/read:thread-2",
+                "thread/fork:thread-2:false",
+                "thread/injectItems:fork-1:1",
+                "turn/start:fork-1",
+                "command/exec"
+            ]
+        );
+
+        let command_operation_with_marker = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-command-operation-with-marker",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "operation": "command_exec",
+                        "params": {
+                            "userInitiated": true,
+                            "command": "cargo check"
+                        },
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let command_operation_with_marker: WsServerResponse =
+            serde_json::from_str(&command_operation_with_marker)
+                .expect("provider command operation response");
+        assert!(matches!(
+            command_operation_with_marker.payload,
+            WsServerPayload::Result { .. }
+        ));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "thread/read",
+                "thread/read:thread-2",
+                "thread/fork:thread-2:false",
+                "thread/injectItems:fork-1:1",
+                "turn/start:fork-1",
+                "command/exec",
+                "command/exec"
+            ]
         );
 
         let deferred_codex = state
@@ -2972,7 +3157,15 @@ mod tests {
         assert!(message.contains("unknown Codex client request method"));
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
-            ["thread/read", "thread/read", "command/exec"]
+            [
+                "thread/read",
+                "thread/read:thread-2",
+                "thread/fork:thread-2:false",
+                "thread/injectItems:fork-1:1",
+                "turn/start:fork-1",
+                "command/exec",
+                "command/exec"
+            ]
         );
 
         let ace = state
