@@ -1254,6 +1254,24 @@ fn projection_deltas_for_runtime_signal(
                 metadata: signal.metadata.clone(),
             }]
         }
+        RuntimeSignalKind::TurnLifecycleChanged => {
+            let active = signal.active.or_else(|| {
+                signal
+                    .status
+                    .as_deref()
+                    .and_then(active_turn_for_signal_status)
+            });
+            active
+                .map(|active| {
+                    vec![ProviderRuntimeProjectionDelta::ActiveTurnChanged {
+                        provider: signal.provider.provider.clone(),
+                        thread_id: signal.thread_id.clone(),
+                        turn_id: signal.turn_id.clone(),
+                        active,
+                    }]
+                })
+                .unwrap_or_default()
+        }
         RuntimeSignalKind::RealtimeSessionUpdated => {
             vec![ProviderRuntimeProjectionDelta::RealtimeSessionUpdated {
                 provider: signal.provider.provider.clone(),
@@ -1424,6 +1442,14 @@ fn active_turn_for_method(method: &str) -> Option<bool> {
     match method {
         "turn/started" | "turn/startedStreaming" => Some(true),
         "turn/completed" | "turn/failed" | "turn/interrupted" | "turn/cancelled" => Some(false),
+        _ => None,
+    }
+}
+
+fn active_turn_for_signal_status(status: &str) -> Option<bool> {
+    match status {
+        "started" | "started_streaming" => Some(true),
+        "completed" | "failed" | "interrupted" | "cancelled" => Some(false),
         _ => None,
     }
 }
@@ -2145,6 +2171,93 @@ mod tests {
                 && parent_thread_id == "parent-1"
                 && child_thread_id == "child-1"
                 && role.as_deref() == Some("side_chat")
+        )));
+    }
+
+    #[test]
+    fn provider_runtime_events_project_turn_lifecycle_signals() {
+        let events = [
+            ProviderRuntimeEvent::from_provider_event(
+                "codex",
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::TurnLifecycleChanged,
+                        thread_id: Some("thread-1".to_string()),
+                        turn_id: Some("turn-1".to_string()),
+                        item_id: None,
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: None,
+                        audio: None,
+                        status: Some("started".to_string()),
+                        name: None,
+                        active: Some(true),
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata: json!({ "mode": "normal" }),
+                        provider: provider_metadata("ace/turn/start"),
+                    }),
+                },
+            ),
+            ProviderRuntimeEvent::from_provider_event(
+                "codex",
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::TurnLifecycleChanged,
+                        thread_id: Some("thread-1".to_string()),
+                        turn_id: Some("turn-1".to_string()),
+                        item_id: None,
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: None,
+                        audio: None,
+                        status: Some("interrupted".to_string()),
+                        name: None,
+                        active: Some(false),
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata: json!({ "mode": "normal" }),
+                        provider: provider_metadata("ace/turn/interrupted"),
+                    }),
+                },
+            ),
+        ];
+
+        let deltas = projection_deltas_for_events(&events);
+
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ActiveTurnChanged {
+                provider,
+                thread_id,
+                turn_id,
+                active: true,
+            } if provider == "codex"
+                && thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ActiveTurnChanged {
+                provider,
+                thread_id,
+                turn_id,
+                active: false,
+            } if provider == "codex"
+                && thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
         )));
     }
 

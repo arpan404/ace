@@ -55,7 +55,7 @@ use ace_runtime::provider::{
 };
 use ace_runtime::threads::{
     ApprovalRetryRecord, ExecutionLocation, ForkPoint, GoalState, GoalStatus, HandoffPlan,
-    HandoffStatus, PlanImplementationMode, PlanImplementationRecord, SideChat,
+    HandoffStatus, PlanImplementationMode, PlanImplementationRecord, SideChat, TurnMode,
 };
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
@@ -345,11 +345,26 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 Ok(response)
             }
             methods::CODEX_TURN_START => {
-                self.codex_json::<CodexTurnStartRequest, _, _, _>(
-                    payload,
-                    |service, request| async move { service.start_turn(request.params).await },
-                )
-                .await
+                let request = serde_json::from_value::<CodexTurnStartRequest>(payload)?;
+                let params = request.params;
+                let thread_id = params.thread_id.clone();
+                let mode = if params.is_plan_mode() {
+                    TurnMode::Plan
+                } else {
+                    TurnMode::Normal
+                };
+                let response = self.codex.start_turn(params.clone()).await?;
+                self.publish_codex_turn_lifecycle_signal(CodexTurnLifecycleSignal {
+                    thread_id,
+                    turn_id: extract_turn_id_from_value(&response),
+                    action: "started",
+                    active: true,
+                    mode,
+                    request: serde_json::to_value(params)?,
+                    provider_response: response.clone(),
+                    method: "ace/turn/start",
+                })?;
+                Ok(response)
             }
             methods::CODEX_TURN_STEER => {
                 self.codex_json::<CodexTurnSteerRequest, _, _, _>(
@@ -359,26 +374,39 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .await
             }
             methods::CODEX_TURN_PLAN_START => {
-                self.codex_json::<CodexPlanTurnStartRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service
-                            .start_turn(ace_codex::CodexTurnStart::plan(
-                                request.thread_id,
-                                request.prompt,
-                                request.model,
-                            ))
-                            .await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexPlanTurnStartRequest>(payload)?;
+                let params = ace_codex::CodexTurnStart::plan(
+                    request.thread_id.clone(),
+                    request.prompt,
+                    request.model,
+                );
+                let response = self.codex.start_turn(params.clone()).await?;
+                self.publish_codex_turn_lifecycle_signal(CodexTurnLifecycleSignal {
+                    thread_id: request.thread_id,
+                    turn_id: extract_turn_id_from_value(&response),
+                    action: "started",
+                    active: true,
+                    mode: TurnMode::Plan,
+                    request: serde_json::to_value(params)?,
+                    provider_response: response.clone(),
+                    method: "ace/turn/start",
+                })?;
+                Ok(response)
             }
             methods::CODEX_TURN_INTERRUPT => {
-                self.codex_json::<CodexThreadIdRequest, _, _, _>(
-                    payload,
-                    |service, request| async move { service.interrupt_turn(request.thread_id).await },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadIdRequest>(payload)?;
+                let response = self.codex.interrupt_turn(request.thread_id.clone()).await?;
+                self.publish_codex_turn_lifecycle_signal(CodexTurnLifecycleSignal {
+                    thread_id: request.thread_id.clone(),
+                    turn_id: extract_turn_id_from_value(&response),
+                    action: "interrupted",
+                    active: false,
+                    mode: TurnMode::Normal,
+                    request: json!({ "thread_id": request.thread_id }),
+                    provider_response: response.clone(),
+                    method: "ace/turn/interrupted",
+                })?;
+                Ok(response)
             }
             methods::CODEX_PLAN_CONTINUE_IN_THREAD => {
                 let request = serde_json::from_value::<CodexPlanImplementationRequest>(payload)?;
@@ -1249,6 +1277,53 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         )
     }
 
+    fn publish_codex_turn_lifecycle_signal(
+        &self,
+        signal: CodexTurnLifecycleSignal,
+    ) -> Result<(), WsDispatchError> {
+        let mode = turn_mode_key(signal.mode);
+        let metadata = json!({
+            "action": signal.action,
+            "mode": mode,
+            "request": signal.request,
+            "provider_response": signal.provider_response,
+        });
+        let raw_payload = metadata.clone();
+        self.append_and_publish_provider_events(
+            ProviderKind::Codex,
+            vec![ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::TurnLifecycleChanged,
+                    thread_id: Some(signal.thread_id),
+                    turn_id: signal.turn_id,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some(signal.action.to_string()),
+                    name: None,
+                    active: Some(signal.active),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(signal.method.to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            }],
+        )
+    }
+
     fn publish_codex_subagent_action_signal(
         &self,
         signal: CodexSubagentActionSignal,
@@ -1777,6 +1852,17 @@ struct CodexThreadLifecycleSignal {
     metadata: Value,
 }
 
+struct CodexTurnLifecycleSignal {
+    thread_id: String,
+    turn_id: Option<String>,
+    action: &'static str,
+    active: bool,
+    mode: TurnMode,
+    request: Value,
+    provider_response: Value,
+    method: &'static str,
+}
+
 struct CodexSubagentActionSignal {
     parent_thread_id: String,
     subagent_thread_id: String,
@@ -1832,11 +1918,28 @@ fn goal_status_key(status: GoalStatus) -> &'static str {
     }
 }
 
+fn turn_mode_key(mode: TurnMode) -> &'static str {
+    match mode {
+        TurnMode::Normal => "normal",
+        TurnMode::Plan => "plan",
+    }
+}
+
 fn extract_thread_id_from_value(value: &Value) -> Option<String> {
     value
         .pointer("/thread/id")
         .or_else(|| value.pointer("/thread/threadId"))
         .or_else(|| value.get("threadId"))
+        .or_else(|| value.get("id"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn extract_turn_id_from_value(value: &Value) -> Option<String> {
+    value
+        .pointer("/turn/id")
+        .or_else(|| value.pointer("/turn/turnId"))
+        .or_else(|| value.get("turnId"))
         .or_else(|| value.get("id"))
         .and_then(Value::as_str)
         .map(ToString::to_string)
@@ -2630,6 +2733,77 @@ mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["turn/start:thread-1"]
+        );
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-plan-snapshot",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        let active_turns = body["providers"][0]["state"]["active_turns"]
+            .as_array()
+            .expect("active turns");
+        assert_eq!(active_turns.len(), 1);
+        assert_eq!(active_turns[0]["thread_id"], "thread-1");
+        assert_eq!(active_turns[0]["turn_id"], "turn-1");
+        assert_eq!(active_turns[0]["mode"], "plan");
+
+        let interrupt = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-interrupt",
+                    "method": methods::CODEX_TURN_INTERRUPT,
+                    "payload": { "thread_id": "thread-1" }
+                })
+                .to_string(),
+            )
+            .await;
+        let interrupt: WsServerResponse = serde_json::from_str(&interrupt).expect("interrupt");
+        assert!(matches!(interrupt.payload, WsServerPayload::Result { .. }));
+
+        let recent = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-turn-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": { "provider": "codex", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent: WsServerResponse = serde_json::from_str(&recent).expect("recent events");
+        let WsServerPayload::Result { body } = recent.payload else {
+            panic!("expected recent events result");
+        };
+        let records = body["records"].as_array().expect("records");
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().all(|record| {
+            record["event"]["type"] == "runtime_signal"
+                && record["event"]["signal"]["kind"] == "turn_lifecycle_changed"
+                && record["projection_deltas"][0]["type"] == "active_turn_changed"
+        }));
+        assert_eq!(records[0]["event"]["signal"]["status"], "started");
+        assert_eq!(records[0]["event"]["signal"]["active"], true);
+        assert_eq!(records[0]["event"]["signal"]["metadata"]["mode"], "plan");
+        assert_eq!(records[0]["projection_deltas"][0]["active"], true);
+        assert_eq!(records[1]["event"]["signal"]["status"], "interrupted");
+        assert_eq!(records[1]["event"]["signal"]["active"], false);
+        assert_eq!(records[1]["projection_deltas"][0]["active"], false);
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["turn/start:thread-1", "turn/interrupt:thread-1"]
         );
     }
 
@@ -3695,22 +3869,32 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0]["event"]["signal"]["kind"], "handoff_updated");
+        assert_eq!(records.len(), 2);
+        assert_eq!(
+            records[0]["event"]["signal"]["kind"],
+            "turn_lifecycle_changed"
+        );
+        assert_eq!(records[0]["event"]["signal"]["status"], "started");
         assert_eq!(
             records[0]["projection_deltas"][0]["type"],
+            "active_turn_changed"
+        );
+        assert_eq!(records[0]["projection_deltas"][0]["active"], true);
+        assert_eq!(records[1]["event"]["signal"]["kind"], "handoff_updated");
+        assert_eq!(
+            records[1]["projection_deltas"][0]["type"],
             "handoff_updated"
         );
         assert_eq!(
-            records[0]["projection_deltas"][0]["handoff"]["worktree_path"],
+            records[1]["projection_deltas"][0]["handoff"]["worktree_path"],
             worktree_path
         );
         assert_eq!(
-            records[0]["projection_deltas"][0]["handoff"]["branch"],
+            records[1]["projection_deltas"][0]["handoff"]["branch"],
             "feature/task-2"
         );
         assert_eq!(
-            records[0]["projection_deltas"][0]["handoff"]["interrupted_active_turn"],
+            records[1]["projection_deltas"][0]["handoff"]["interrupted_active_turn"],
             true
         );
     }

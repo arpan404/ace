@@ -673,6 +673,7 @@ impl AgentRuntimeState {
                 if let Some(side_chat) = side_chat_from_signal(signal) {
                     self.record_side_chat(side_chat);
                 }
+                self.apply_turn_lifecycle_signal(signal);
             }
             ProviderEvent::RawServerRequest { .. }
             | ProviderEvent::ServerRequest { .. }
@@ -913,6 +914,41 @@ fn side_chat_from_signal(signal: &NormalizedRuntimeSignal) -> Option<SideChat> {
         .or_else(|| signal.metadata.get("sideChat").cloned())
         .unwrap_or_else(|| signal.metadata.clone());
     serde_json::from_value(value).ok()
+}
+
+impl AgentRuntimeState {
+    fn apply_turn_lifecycle_signal(&mut self, signal: &NormalizedRuntimeSignal) {
+        if signal.kind != RuntimeSignalKind::TurnLifecycleChanged {
+            return;
+        }
+        let Some(thread_id) = signal.thread_id.as_deref() else {
+            return;
+        };
+        let action = signal.status.as_deref().unwrap_or("updated");
+        match action {
+            "started" | "started_streaming" => {
+                let mode = signal
+                    .metadata
+                    .get("mode")
+                    .and_then(Value::as_str)
+                    .map(turn_mode_from_key)
+                    .unwrap_or(TurnMode::Normal);
+                let _ = self.begin_turn(thread_id.to_string(), signal.turn_id.clone(), mode);
+            }
+            "completed" => self.finish_active_turn(thread_id, PlanSessionStatus::Completed),
+            "failed" | "interrupted" | "cancelled" => {
+                self.finish_active_turn(thread_id, PlanSessionStatus::Rejected);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn turn_mode_from_key(mode: &str) -> TurnMode {
+    match mode {
+        "plan" => TurnMode::Plan,
+        _ => TurnMode::Normal,
+    }
 }
 
 #[cfg(test)]
@@ -1899,5 +1935,139 @@ mod tests {
         let side_chat = state.side_chat("child-1").expect("side chat");
         assert_eq!(side_chat.parent_thread_id, "parent-1");
         assert!(side_chat.ephemeral);
+    }
+
+    #[test]
+    fn applies_turn_lifecycle_runtime_signals() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::TurnLifecycleChanged,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("started".to_string()),
+                    name: None,
+                    active: Some(true),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "mode": "normal" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/turn/start".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::TurnLifecycleChanged,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("completed".to_string()),
+                    name: None,
+                    active: Some(false),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "mode": "normal" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/turn/completed".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::TurnLifecycleChanged,
+                    thread_id: Some("plan-thread".to_string()),
+                    turn_id: Some("plan-turn".to_string()),
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("started".to_string()),
+                    name: None,
+                    active: Some(true),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "mode": "plan" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/turn/start".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::TurnLifecycleChanged,
+                    thread_id: Some("plan-thread".to_string()),
+                    turn_id: Some("plan-turn".to_string()),
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("interrupted".to_string()),
+                    name: None,
+                    active: Some(false),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "mode": "plan" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/turn/interrupted".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+        ]);
+
+        assert!(state.active_turn("thread-1").is_none());
+        assert!(state.active_turn("plan-thread").is_none());
+        assert_eq!(
+            state.plan_session("plan-thread").map(|plan| plan.status),
+            Some(PlanSessionStatus::Rejected)
+        );
     }
 }

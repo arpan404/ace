@@ -198,6 +198,7 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
             ])
             .or_else(|| Some("resolved".to_string()));
         }
+        RuntimeSignalKind::TurnLifecycleChanged => {}
         RuntimeSignalKind::ProviderStateUpdated => {
             signal.status = first_string([
                 string_at(params, "status").as_deref(),
