@@ -190,6 +190,57 @@ pub mod provider {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case")]
+    pub enum ProviderAdapterInvocationKind {
+        DirectProviderMethod,
+        TypedApi,
+        CompositeTypedApi,
+        EventStream,
+        Deferred,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderAdapterOperationProfile {
+        pub operation: ProviderAdapterOperation,
+        pub category: ProviderFeatureCategory,
+        pub support: ProviderAdapterOperationSupport,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub canonical_method: Option<String>,
+        #[serde(default)]
+        pub provider_methods: Vec<String>,
+        pub invocation: ProviderAdapterInvocationKind,
+        pub direct_invocation: bool,
+    }
+
+    impl ProviderAdapterOperationProfile {
+        #[must_use]
+        pub fn from_spec(spec: &ProviderAdapterOperationSpec) -> Self {
+            let invocation = provider_adapter_invocation_kind(spec);
+            Self {
+                operation: spec.operation,
+                category: spec.category,
+                support: spec.support,
+                canonical_method: spec.canonical_method.clone(),
+                provider_methods: spec.provider_methods.clone(),
+                direct_invocation: invocation
+                    == ProviderAdapterInvocationKind::DirectProviderMethod,
+                invocation,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderAdapterProfile {
+        pub provider: ProviderKind,
+        pub descriptor: ProviderDescriptor,
+        pub contract_report: ProviderContractReport,
+        pub contract_version: u32,
+        pub websocket_first: bool,
+        pub raw_payload_policy: String,
+        pub operations: Vec<ProviderAdapterOperationProfile>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
     pub enum ProviderFeatureDirection {
         ClientRequest,
         ClientNotification,
@@ -489,6 +540,10 @@ pub mod provider {
     #[async_trait]
     pub trait ProviderDriver: Send + Sync + 'static {
         fn descriptor(&self) -> ProviderDescriptor;
+
+        fn adapter_profile(&self) -> ProviderAdapterProfile {
+            provider_adapter_profile(&self.descriptor())
+        }
 
         fn features(&self) -> Vec<ProviderFeature> {
             self.descriptor()
@@ -1126,6 +1181,44 @@ pub mod provider {
         }
     }
 
+    #[must_use]
+    pub fn provider_adapter_invocation_kind(
+        spec: &ProviderAdapterOperationSpec,
+    ) -> ProviderAdapterInvocationKind {
+        if spec.support == ProviderAdapterOperationSupport::Deferred {
+            return ProviderAdapterInvocationKind::Deferred;
+        }
+
+        match spec.operation {
+            ProviderAdapterOperation::ProviderEvents | ProviderAdapterOperation::SemanticTools => {
+                ProviderAdapterInvocationKind::EventStream
+            }
+            _ => match spec.provider_methods.len() {
+                0 => ProviderAdapterInvocationKind::TypedApi,
+                1 => ProviderAdapterInvocationKind::DirectProviderMethod,
+                _ => ProviderAdapterInvocationKind::CompositeTypedApi,
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn provider_adapter_profile(descriptor: &ProviderDescriptor) -> ProviderAdapterProfile {
+        let contract = ace_provider_adapter_contract();
+        ProviderAdapterProfile {
+            provider: descriptor.kind,
+            descriptor: descriptor.clone(),
+            contract_report: provider_contract_report(descriptor),
+            contract_version: contract.version,
+            websocket_first: contract.websocket_first,
+            raw_payload_policy: contract.raw_payload_policy,
+            operations: contract
+                .operations
+                .iter()
+                .map(ProviderAdapterOperationProfile::from_spec)
+                .collect(),
+        }
+    }
+
     impl ProviderRegistry {
         #[must_use]
         pub fn new() -> Self {
@@ -1211,6 +1304,24 @@ pub mod provider {
                 .iter()
                 .map(provider_contract_report)
                 .collect()
+        }
+
+        #[must_use]
+        pub fn adapter_profiles(&self) -> Vec<ProviderAdapterProfile> {
+            let mut profiles = self
+                .drivers
+                .values()
+                .map(|driver| driver.adapter_profile())
+                .collect::<Vec<_>>();
+            profiles.sort_by_key(|profile| profile.provider);
+            profiles
+        }
+
+        #[must_use]
+        pub fn adapter_profile(&self, kind: ProviderKind) -> Option<ProviderAdapterProfile> {
+            self.drivers
+                .get(&kind)
+                .map(|driver| driver.adapter_profile())
         }
 
         #[must_use]
@@ -1531,6 +1642,71 @@ pub mod provider {
             assert_eq!(reports[0].provider, ProviderKind::Ace);
             assert!(reports[0].satisfies_required);
             assert!(reports[0].missing_required.is_empty());
+        }
+
+        #[test]
+        fn registry_reports_provider_adapter_profiles() {
+            let codex = Arc::new(FakeProviderDriver {
+                descriptor: ProviderDescriptor {
+                    kind: ProviderKind::Codex,
+                    capabilities: ace_provider_contract_requirements()
+                        .into_iter()
+                        .filter(|requirement| requirement.required)
+                        .map(|requirement| ProviderCapability {
+                            key: requirement.key,
+                            version: requirement.min_version,
+                        })
+                        .collect(),
+                },
+                requests: Mutex::new(Vec::new()),
+            });
+            let ace = Arc::new(FakeProviderDriver {
+                descriptor: ProviderDescriptor {
+                    kind: ProviderKind::Ace,
+                    capabilities: vec![ProviderCapability {
+                        key: "provider.semantic_tools".to_string(),
+                        version: 1,
+                    }],
+                },
+                requests: Mutex::new(Vec::new()),
+            });
+            let registry = ProviderRegistry::new().with_driver(codex).with_driver(ace);
+
+            let profiles = registry.adapter_profiles();
+            assert_eq!(profiles.len(), 2);
+            let codex_profile = profiles
+                .iter()
+                .find(|profile| profile.provider == ProviderKind::Codex)
+                .expect("codex profile");
+            assert_eq!(codex_profile.contract_version, 1);
+            assert!(codex_profile.websocket_first);
+            assert!(codex_profile.contract_report.satisfies_required);
+            assert!(
+                registry
+                    .adapter_profile(ProviderKind::Ace)
+                    .expect("ace profile")
+                    .contract_report
+                    .missing_required
+                    .contains(&"provider.adapter_contract".to_string())
+            );
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::ThreadRead
+                    && operation.invocation == ProviderAdapterInvocationKind::DirectProviderMethod
+                    && operation.direct_invocation
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::PlanForkForImplementation
+                    && operation.invocation == ProviderAdapterInvocationKind::CompositeTypedApi
+                    && !operation.direct_invocation
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::ProviderEvents
+                    && operation.invocation == ProviderAdapterInvocationKind::EventStream
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::CloudHandoff
+                    && operation.invocation == ProviderAdapterInvocationKind::Deferred
+            }));
         }
 
         #[test]

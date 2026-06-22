@@ -536,20 +536,28 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     serde_json::from_value::<ProviderRuntimeOperationsListRequest>(payload)?;
                 let providers = self.provider_runtime_filter(request.provider, "operation list")?;
                 let adapter_contract = ace_provider_adapter_contract();
-                let operations = adapter_contract
-                    .operations
-                    .iter()
-                    .map(ProviderRuntimeProviderOperation::from_spec)
-                    .collect::<Vec<_>>();
                 let provider_operations = providers
                     .into_iter()
-                    .map(|provider| ProviderRuntimeProviderOperations {
-                        provider,
-                        runtime_id: provider.runtime_id().to_string(),
-                        display_name: provider.display_name().to_string(),
-                        operations: operations.clone(),
+                    .map(|provider| {
+                        let adapter_profile = self.providers.adapter_profile(provider).ok_or(
+                            ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
+                                provider,
+                            },
+                        )?;
+                        Ok(ProviderRuntimeProviderOperations {
+                            provider,
+                            runtime_id: provider.runtime_id().to_string(),
+                            display_name: provider.display_name().to_string(),
+                            operations: adapter_profile
+                                .operations
+                                .iter()
+                                .cloned()
+                                .map(ProviderRuntimeProviderOperation::from_profile)
+                                .collect(),
+                            adapter_profile,
+                        })
                     })
-                    .collect();
+                    .collect::<Result<Vec<_>, ace_runtime::provider::ProviderRuntimeError>>()?;
                 Ok(serde_json::to_value(
                     ProviderRuntimeOperationsListResponse {
                         adapter_contract,

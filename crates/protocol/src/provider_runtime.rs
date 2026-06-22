@@ -2,11 +2,12 @@ use ace_core::ProviderKind;
 use ace_runtime::{
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem,
-        ProviderAdapterContract, ProviderAdapterOperation, ProviderAdapterOperationSpec,
-        ProviderAdapterOperationSupport, ProviderContractReport, ProviderDescriptor,
-        ProviderDriverStatus, ProviderEvent, ProviderFeature, ProviderFeatureCategory,
-        ProviderLifecycleAction, ProviderLifecycleResult, RuntimeSignalKind, ThreadItemKind,
-        ThreadItemStatus,
+        ProviderAdapterContract, ProviderAdapterInvocationKind, ProviderAdapterOperation,
+        ProviderAdapterOperationProfile, ProviderAdapterOperationSpec,
+        ProviderAdapterOperationSupport, ProviderAdapterProfile, ProviderContractReport,
+        ProviderDescriptor, ProviderDriverStatus, ProviderEvent, ProviderFeature,
+        ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
+        RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
     },
     threads::AgentRuntimeSnapshot,
     tools::{SemanticToolCall, ToolRunStatus},
@@ -89,16 +90,6 @@ pub struct ProviderRuntimeOperationsListRequest {
     pub provider: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderAdapterInvocationKind {
-    DirectProviderMethod,
-    TypedApi,
-    CompositeTypedApi,
-    EventStream,
-    Deferred,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderRuntimeProviderOperation {
     pub operation: ProviderAdapterOperation,
@@ -114,15 +105,18 @@ pub struct ProviderRuntimeProviderOperation {
 
 impl ProviderRuntimeProviderOperation {
     pub fn from_spec(spec: &ProviderAdapterOperationSpec) -> Self {
-        let invocation = provider_adapter_invocation_kind(spec);
+        Self::from_profile(ProviderAdapterOperationProfile::from_spec(spec))
+    }
+
+    pub fn from_profile(profile: ProviderAdapterOperationProfile) -> Self {
         Self {
-            operation: spec.operation,
-            category: spec.category,
-            support: spec.support,
-            canonical_method: spec.canonical_method.clone(),
-            provider_methods: spec.provider_methods.clone(),
-            direct_invocation: invocation == ProviderAdapterInvocationKind::DirectProviderMethod,
-            invocation,
+            operation: profile.operation,
+            category: profile.category,
+            support: profile.support,
+            canonical_method: profile.canonical_method,
+            provider_methods: profile.provider_methods,
+            direct_invocation: profile.direct_invocation,
+            invocation: profile.invocation,
         }
     }
 }
@@ -132,6 +126,7 @@ pub struct ProviderRuntimeProviderOperations {
     pub provider: ProviderKind,
     pub runtime_id: String,
     pub display_name: String,
+    pub adapter_profile: ProviderAdapterProfile,
     pub operations: Vec<ProviderRuntimeProviderOperation>,
 }
 
@@ -220,25 +215,6 @@ pub struct ProviderRuntimeLifecycleResponse {
 
 fn default_provider_request_timeout_ms() -> u64 {
     30_000
-}
-
-pub fn provider_adapter_invocation_kind(
-    spec: &ProviderAdapterOperationSpec,
-) -> ProviderAdapterInvocationKind {
-    if spec.support == ProviderAdapterOperationSupport::Deferred {
-        return ProviderAdapterInvocationKind::Deferred;
-    }
-
-    match spec.operation {
-        ProviderAdapterOperation::ProviderEvents | ProviderAdapterOperation::SemanticTools => {
-            ProviderAdapterInvocationKind::EventStream
-        }
-        _ => match spec.provider_methods.len() {
-            0 => ProviderAdapterInvocationKind::TypedApi,
-            1 => ProviderAdapterInvocationKind::DirectProviderMethod,
-            _ => ProviderAdapterInvocationKind::CompositeTypedApi,
-        },
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
