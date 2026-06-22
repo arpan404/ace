@@ -154,14 +154,21 @@ pub type DynCodexBackend = Arc<dyn CodexBackend>;
 pub struct LiveCodexBackend {
     config: CodexConfig,
     client: Mutex<Option<CodexClient<CodexStdioTransport>>>,
+    last_error: Mutex<Option<String>>,
 }
 
 impl LiveCodexBackend {
     #[must_use]
     pub fn production() -> Self {
+        Self::with_config(CodexConfig::default())
+    }
+
+    #[must_use]
+    pub fn with_config(config: CodexConfig) -> Self {
         Self {
-            config: CodexConfig::default(),
+            config,
             client: Mutex::new(None),
+            last_error: Mutex::new(None),
         }
     }
 
@@ -170,7 +177,14 @@ impl LiveCodexBackend {
         if let Some(client) = guard.as_ref() {
             return Ok(client.clone());
         }
-        let client = CodexClient::spawn(self.config.clone()).await?;
+        let client = match CodexClient::spawn(self.config.clone()).await {
+            Ok(client) => client,
+            Err(error) => {
+                *self.last_error.lock().await = Some(error.to_string());
+                return Err(error);
+            }
+        };
+        *self.last_error.lock().await = None;
         *guard = Some(client.clone());
         Ok(client)
     }
@@ -180,19 +194,21 @@ impl LiveCodexBackend {
 impl CodexBackend for LiveCodexBackend {
     async fn status(&self) -> ProviderDriverStatus {
         let initialized = self.client.lock().await.is_some();
+        let last_error = self.last_error.lock().await.clone();
         ProviderDriverStatus {
-            health: if initialized {
-                ProviderRuntimeHealth::Running
-            } else {
-                ProviderRuntimeHealth::Stopped
+            health: match (initialized, last_error.is_some()) {
+                (true, _) => ProviderRuntimeHealth::Running,
+                (false, true) => ProviderRuntimeHealth::Unavailable,
+                (false, false) => ProviderRuntimeHealth::Stopped,
             },
             transport: Some("stdio".to_string()),
             version: None,
             initialized,
-            last_error: None,
+            last_error,
             metadata: json!({
                 "command": self.config.command,
                 "args": self.config.args,
+                "request_timeout_ms": self.config.request_timeout.as_millis() as u64,
                 "experimental_api": true,
                 "spawns_on_first_request": true
             }),
@@ -1554,6 +1570,37 @@ pub mod tests {
             backend.calls.lock().expect("calls").as_slice(),
             ["remote/handoff"]
         );
+    }
+
+    #[tokio::test]
+    async fn live_backend_status_reports_spawn_failures() {
+        let backend = LiveCodexBackend::with_config(CodexConfig {
+            command: "__ace_missing_codex_binary_for_status_test__".to_string(),
+            args: vec!["app-server".to_string()],
+            client_info: ace_codex::CodexClientInfo::default(),
+            request_timeout: Duration::from_millis(25),
+        });
+
+        let error = backend.start().await.expect_err("missing binary");
+        assert!(matches!(error, ace_codex::CodexError::MissingBinary(_)));
+
+        let status = backend.status().await;
+        assert_eq!(status.health, ProviderRuntimeHealth::Unavailable);
+        assert_eq!(status.transport.as_deref(), Some("stdio"));
+        assert!(!status.initialized);
+        assert!(
+            status
+                .last_error
+                .as_deref()
+                .expect("last error")
+                .contains("__ace_missing_codex_binary_for_status_test__")
+        );
+        assert_eq!(
+            status.metadata["command"],
+            "__ace_missing_codex_binary_for_status_test__"
+        );
+        assert_eq!(status.metadata["request_timeout_ms"], 25);
+        assert_eq!(status.metadata["spawns_on_first_request"], true);
     }
 
     #[tokio::test]
