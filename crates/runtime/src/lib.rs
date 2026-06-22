@@ -623,7 +623,10 @@ pub mod provider {
         StderrLine {
             line: String,
         },
-        Exited,
+        Exited {
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            code: Option<i32>,
+        },
     }
 
     #[async_trait]

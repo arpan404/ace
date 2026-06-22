@@ -623,6 +623,8 @@ pub enum ProviderRuntimeProjectionDelta {
     },
     ProviderExited {
         provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<i32>,
     },
     RawNotificationObserved {
         provider: String,
@@ -688,6 +690,8 @@ pub enum ProviderRuntimeEvent {
     },
     Exited {
         provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<i32>,
     },
 }
 
@@ -750,8 +754,9 @@ impl ProviderRuntimeEvent {
                 provider: provider.to_string(),
                 line,
             },
-            ProviderEvent::Exited => Self::Exited {
+            ProviderEvent::Exited { code } => Self::Exited {
                 provider: provider.to_string(),
+                code,
             },
         }
     }
@@ -923,9 +928,10 @@ impl ProviderRuntimeEvent {
                     line: line.clone(),
                 }]
             }
-            Self::Exited { provider } => {
+            Self::Exited { provider, code } => {
                 vec![ProviderRuntimeProjectionDelta::ProviderExited {
                     provider: provider.clone(),
+                    code: *code,
                 }]
             }
         }
@@ -1657,6 +1663,26 @@ mod tests {
             delta,
             ProviderRuntimeProjectionDelta::RawNotificationObserved { .. }
         )));
+    }
+
+    #[test]
+    fn provider_runtime_event_preserves_provider_exit_code() {
+        let event = ProviderRuntimeEvent::from_provider_event(
+            "codex",
+            ProviderEvent::Exited { code: Some(7) },
+        );
+        let encoded = serde_json::to_value(&event).expect("event json");
+
+        assert_eq!(encoded["type"], "exited");
+        assert_eq!(encoded["provider"], "codex");
+        assert_eq!(encoded["code"], 7);
+        assert_eq!(
+            event.projection_deltas(),
+            vec![ProviderRuntimeProjectionDelta::ProviderExited {
+                provider: "codex".to_string(),
+                code: Some(7),
+            }]
+        );
     }
 
     fn thread_item_event(item: NormalizedThreadItem) -> ProviderRuntimeEvent {

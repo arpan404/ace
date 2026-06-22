@@ -59,7 +59,7 @@ pub fn normalize_codex_inbound_event(event: &CodexInboundEvent) -> Vec<ProviderE
         CodexInboundEvent::StderrLine(line) => {
             vec![ProviderEvent::StderrLine { line: line.clone() }]
         }
-        CodexInboundEvent::ServerExited { .. } => vec![ProviderEvent::Exited],
+        CodexInboundEvent::ServerExited { code } => vec![ProviderEvent::Exited { code: *code }],
     }
 }
 
@@ -1083,7 +1083,7 @@ mod tests {
 
         let exited =
             normalize_codex_inbound_event(&CodexInboundEvent::ServerExited { code: Some(0) });
-        assert_eq!(exited, vec![ProviderEvent::Exited]);
+        assert_eq!(exited, vec![ProviderEvent::Exited { code: Some(0) }]);
     }
 
     #[test]

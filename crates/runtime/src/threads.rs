@@ -428,7 +428,7 @@ impl AgentRuntimeState {
                     self.review_threads.remove(thread_id);
                 }
             }
-            ProviderEvent::Exited => {
+            ProviderEvent::Exited { .. } => {
                 self.active_turns.clear();
             }
             ProviderEvent::RawServerRequest { .. }
