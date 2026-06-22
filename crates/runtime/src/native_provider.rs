@@ -1,8 +1,9 @@
 use crate::provider::{
-    ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent, ProviderEventSource,
-    ProviderFeature, ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport,
-    ProviderLifecycleAction, ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
-    ProviderServerRequestResponder, ace_provider_adapter_contract,
+    NormalizedServerRequest, ProviderDescriptor, ProviderDriver, ProviderDriverError,
+    ProviderEvent, ProviderEventSource, ProviderFeature, ProviderFeatureCategory,
+    ProviderFeatureDirection, ProviderFeatureSupport, ProviderLifecycleAction,
+    ProviderLifecycleResult, ProviderMetadata, ProviderRequest, ProviderRuntimeHealth,
+    ProviderServerRequestResponder, ServerRequestKind, ace_provider_adapter_contract,
     ace_provider_contract_requirements, provider_adapter_profile, provider_contract_report,
 };
 use crate::tools::{SemanticToolCall, ToolNormalizationInput, normalize_tool_call};
@@ -33,6 +34,18 @@ pub struct NativeProviderSemanticToolEmitRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NativeProviderSemanticToolNormalizeRequest {
     pub input: ToolNormalizationInput,
+    #[serde(default)]
+    pub emit: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeProviderServerRequestNormalizeRequest {
+    pub request_id: String,
+    pub method: String,
+    #[serde(default)]
+    pub params: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     #[serde(default)]
     pub emit: bool,
 }
@@ -116,6 +129,12 @@ impl AceNativeProvider {
                 "Normalize provider tool call",
                 ProviderFeatureCategory::Tools,
                 "ace.semantic_tool.normalize",
+            ),
+            (
+                "ace.server_request.normalize",
+                "Normalize provider server request",
+                ProviderFeatureCategory::ServerRequests,
+                "ace.server_request.normalize",
             ),
             (
                 "provider.adapter_contract",
@@ -320,6 +339,37 @@ impl ProviderDriver for AceNativeProvider {
                     "event_count": if normalize.emit { 1 } else { 0 },
                 }))
             }
+            "ace.server_request.normalize" => {
+                let normalize =
+                    serde_json::from_value::<NativeProviderServerRequestNormalizeRequest>(
+                        request.params,
+                    )
+                    .map_err(|error| ProviderDriverError::RequestFailed {
+                        provider: "ace".to_string(),
+                        method: "ace.server_request.normalize".to_string(),
+                        message: error.to_string(),
+                    })?;
+                let normalized = normalize_provider_server_request(&normalize);
+                if normalize.emit {
+                    self.event_tx
+                        .send(vec![ProviderEvent::ServerRequest {
+                            request: Box::new(normalized.clone()),
+                        }])
+                        .await
+                        .map_err(|_| ProviderDriverError::RequestFailed {
+                            provider: "ace".to_string(),
+                            method: "ace.server_request.normalize".to_string(),
+                            message: "Ace native provider event queue is closed".to_string(),
+                        })?;
+                }
+                Ok(json!({
+                    "provider": "ace",
+                    "accepted": true,
+                    "request": normalized,
+                    "emitted": normalize.emit,
+                    "event_count": if normalize.emit { 1 } else { 0 },
+                }))
+            }
             "ace.adapter.validate" => {
                 let request = serde_json::from_value::<AdapterValidationRequest>(request.params)
                     .map_err(|error| ProviderDriverError::RequestFailed {
@@ -367,6 +417,215 @@ impl ProviderDriver for AceNativeProvider {
             }),
         }
     }
+}
+
+fn normalize_provider_server_request(
+    request: &NativeProviderServerRequestNormalizeRequest,
+) -> NormalizedServerRequest {
+    let kind = server_request_kind(&request.method);
+    NormalizedServerRequest {
+        kind,
+        request_id: request.request_id.clone(),
+        method: request.method.clone(),
+        thread_id: string_at(&request.params, "threadId")
+            .or_else(|| string_at(&request.params, "thread_id"))
+            .or_else(|| string_at(&request.params, "conversationId"))
+            .or_else(|| string_at(&request.params, "conversation_id"))
+            .or_else(|| {
+                nested_string_at(&request.params, "/thread", &["id", "threadId", "thread_id"])
+            }),
+        turn_id: string_at(&request.params, "turnId")
+            .or_else(|| string_at(&request.params, "turn_id")),
+        item_id: string_at(&request.params, "itemId")
+            .or_else(|| string_at(&request.params, "item_id"))
+            .or_else(|| string_at(&request.params, "sourceItemId"))
+            .or_else(|| string_at(&request.params, "source_item_id"))
+            .or_else(|| string_at(&request.params, "toolCallId"))
+            .or_else(|| string_at(&request.params, "tool_call_id")),
+        scope: server_request_scope(kind, &request.params),
+        title: Some(server_request_title(kind).to_string()),
+        prompt: server_request_prompt(&request.params),
+        selected_policy: string_at(&request.params, "approvalPolicy")
+            .or_else(|| string_at(&request.params, "approval_policy"))
+            .or_else(|| string_at(&request.params, "permissionPolicy"))
+            .or_else(|| string_at(&request.params, "permission_policy")),
+        metadata: metadata_for_server_request(&request.params),
+        provider: ProviderMetadata {
+            provider: request
+                .provider
+                .clone()
+                .unwrap_or_else(|| "ace".to_string()),
+            method: Some(request.method.clone()),
+            schema_version: string_at(&request.params, "schemaVersion"),
+            raw_payload: request.params.clone(),
+        },
+    }
+}
+
+fn server_request_kind(method: &str) -> ServerRequestKind {
+    match method {
+        "item/commandExecution/requestApproval" | "command/approvalRequest" => {
+            ServerRequestKind::CommandApproval
+        }
+        "item/fileChange/requestApproval" | "fileChange/approvalRequest" => {
+            ServerRequestKind::FileChangeApproval
+        }
+        "item/tool/requestUserInput" | "tool/userInputRequest" => ServerRequestKind::ToolUserInput,
+        "mcpServer/elicitation/request" | "mcp/elicitation" => ServerRequestKind::McpElicitation,
+        "item/permissions/requestApproval" | "permission/approvalRequest" => {
+            ServerRequestKind::PermissionApproval
+        }
+        "item/tool/call" | "dynamicTool/call" => ServerRequestKind::DynamicToolCall,
+        "account/chatgptAuthTokens/refresh" | "account/tokenRefresh" => {
+            ServerRequestKind::AccountTokenRefresh
+        }
+        "attestation/generate" | "attestation/request" => ServerRequestKind::Attestation,
+        "applyPatchApproval" | "applyPatch/approvalRequest" => {
+            ServerRequestKind::ApplyPatchApproval
+        }
+        "execCommandApproval" | "exec/approvalRequest" => ServerRequestKind::ExecApproval,
+        _ => ServerRequestKind::Unknown,
+    }
+}
+
+fn server_request_scope(kind: ServerRequestKind, params: &Value) -> Option<String> {
+    string_at(params, "scope").or_else(|| {
+        Some(
+            match kind {
+                ServerRequestKind::CommandApproval | ServerRequestKind::ExecApproval => "command",
+                ServerRequestKind::FileChangeApproval | ServerRequestKind::ApplyPatchApproval => {
+                    "filesystem"
+                }
+                ServerRequestKind::ToolUserInput | ServerRequestKind::DynamicToolCall => "tool",
+                ServerRequestKind::McpElicitation => "mcp",
+                ServerRequestKind::PermissionApproval => "permission",
+                ServerRequestKind::AccountTokenRefresh => "account",
+                ServerRequestKind::Attestation => "attestation",
+                ServerRequestKind::Unknown => return None,
+            }
+            .to_string(),
+        )
+    })
+}
+
+fn server_request_title(kind: ServerRequestKind) -> &'static str {
+    match kind {
+        ServerRequestKind::CommandApproval => "Approve command execution",
+        ServerRequestKind::FileChangeApproval => "Approve file changes",
+        ServerRequestKind::ToolUserInput => "Tool needs input",
+        ServerRequestKind::McpElicitation => "MCP server needs input",
+        ServerRequestKind::PermissionApproval => "Approve permission change",
+        ServerRequestKind::DynamicToolCall => "Run dynamic tool",
+        ServerRequestKind::AccountTokenRefresh => "Refresh account token",
+        ServerRequestKind::Attestation => "Provide attestation",
+        ServerRequestKind::ApplyPatchApproval => "Approve patch application",
+        ServerRequestKind::ExecApproval => "Approve command execution",
+        ServerRequestKind::Unknown => "Provider request",
+    }
+}
+
+fn server_request_prompt(params: &Value) -> Option<String> {
+    string_at(params, "prompt")
+        .or_else(|| string_at(params, "message"))
+        .or_else(|| string_at(params, "question"))
+        .or_else(|| string_at(params, "userPrompt"))
+        .or_else(|| string_at(params, "user_prompt"))
+        .or_else(|| string_at(params, "reason"))
+        .or_else(|| string_at(params, "description"))
+        .or_else(|| string_at(params, "instructions"))
+        .or_else(|| string_at(params, "command").map(|command| format!("Run `{command}`?")))
+        .or_else(|| {
+            first_string([
+                string_at(params, "toolName").as_deref(),
+                string_at(params, "tool_name").as_deref(),
+                string_at(params, "name").as_deref(),
+            ])
+            .map(|tool| format!("Run `{tool}`?"))
+        })
+}
+
+fn metadata_for_server_request(params: &Value) -> Value {
+    let mut metadata = serde_json::Map::new();
+    for key in [
+        "requestId",
+        "request_id",
+        "threadId",
+        "thread_id",
+        "turnId",
+        "turn_id",
+        "itemId",
+        "item_id",
+        "sourceItemId",
+        "source_item_id",
+        "toolCallId",
+        "tool_call_id",
+        "command",
+        "argv",
+        "args",
+        "arguments",
+        "input",
+        "result",
+        "cwd",
+        "env",
+        "path",
+        "paths",
+        "uri",
+        "files",
+        "diff",
+        "patch",
+        "toolName",
+        "tool_name",
+        "tool",
+        "name",
+        "serverName",
+        "server_name",
+        "server",
+        "operation",
+        "action",
+        "sandbox",
+        "sandboxPolicy",
+        "sandbox_policy",
+        "permission",
+        "permissions",
+        "permissionPolicy",
+        "permission_policy",
+        "approvalPolicy",
+        "approval_policy",
+        "approvalsReviewer",
+        "approvals_reviewer",
+        "account",
+        "accountId",
+        "account_id",
+        "attestation",
+        "challenge",
+        "resource",
+        "schema",
+        "choices",
+        "options",
+        "timeoutMs",
+        "timeout_ms",
+    ] {
+        if let Some(value) = params.get(key) {
+            metadata.insert(key.to_string(), value.clone());
+        }
+    }
+    Value::Object(metadata)
+}
+
+fn string_at(value: &Value, key: &str) -> Option<String> {
+    value.get(key)?.as_str().map(ToString::to_string)
+}
+
+fn nested_string_at(value: &Value, pointer: &str, keys: &[&str]) -> Option<String> {
+    let nested = value.pointer(pointer)?;
+    keys.iter().find_map(|key| string_at(nested, key))
+}
+
+fn first_string<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Option<String> {
+    values.into_iter().flatten().find_map(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
 }
 
 #[async_trait]
@@ -804,6 +1063,101 @@ mod tests {
         assert_eq!(tool.action, ToolActionKind::BrowserType);
         assert_eq!(tool.display.title, "Typing into hello in Browser");
         assert_eq!(tool.provider.raw_args["text"], "hello");
+    }
+
+    #[tokio::test]
+    async fn native_provider_normalizes_server_request_without_emitting() {
+        let provider = AceNativeProvider::new();
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.server_request.normalize".to_string(),
+                params: json!({
+                    "provider": "future-provider",
+                    "request_id": "req-1",
+                    "method": "command/approvalRequest",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "itemId": "item-1",
+                        "command": "cargo test --workspace",
+                        "approvalPolicy": "on-request",
+                        "schemaVersion": "2026-06-22"
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize server request");
+
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["emitted"], false);
+        assert_eq!(response["event_count"], 0);
+        assert_eq!(response["request"]["kind"], "command_approval");
+        assert_eq!(response["request"]["request_id"], "req-1");
+        assert_eq!(response["request"]["scope"], "command");
+        assert_eq!(
+            response["request"]["prompt"],
+            "Run `cargo test --workspace`?"
+        );
+        assert_eq!(response["request"]["selected_policy"], "on-request");
+        assert_eq!(
+            response["request"]["provider"]["provider"],
+            "future-provider"
+        );
+        assert_eq!(
+            response["request"]["provider"]["raw_payload"]["command"],
+            "cargo test --workspace"
+        );
+        assert_eq!(
+            response["request"]["metadata"]["command"],
+            "cargo test --workspace"
+        );
+    }
+
+    #[tokio::test]
+    async fn native_provider_normalizes_and_emits_server_request() {
+        let provider = AceNativeProvider::new();
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.server_request.normalize".to_string(),
+                params: json!({
+                    "provider": "future-provider",
+                    "request_id": "req-2",
+                    "method": "mcp/elicitation",
+                    "emit": true,
+                    "params": {
+                        "thread_id": "thread-2",
+                        "tool_call_id": "tool-1",
+                        "serverName": "linear",
+                        "prompt": "Pick a workspace",
+                        "choices": ["eng", "design"]
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize and emit server request");
+
+        assert_eq!(response["emitted"], true);
+        assert_eq!(response["event_count"], 1);
+        assert_eq!(response["request"]["kind"], "mcp_elicitation");
+        assert_eq!(response["request"]["scope"], "mcp");
+        assert_eq!(response["request"]["prompt"], "Pick a workspace");
+
+        let events = provider
+            .next_events()
+            .await
+            .expect("event poll")
+            .expect("server request event");
+        let ProviderEvent::ServerRequest { request } = &events[0] else {
+            panic!("expected server request event");
+        };
+        assert_eq!(request.kind, ServerRequestKind::McpElicitation);
+        assert_eq!(request.request_id, "req-2");
+        assert_eq!(request.thread_id.as_deref(), Some("thread-2"));
+        assert_eq!(request.item_id.as_deref(), Some("tool-1"));
+        assert_eq!(request.provider.provider, "future-provider");
+        assert_eq!(request.metadata["choices"], json!(["eng", "design"]));
     }
 
     #[tokio::test]
