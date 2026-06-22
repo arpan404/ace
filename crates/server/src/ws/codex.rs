@@ -2562,6 +2562,7 @@ mod tests {
                     "message": "Context is almost full"
                 }),
             },
+            ProviderEvent::Exited { code: Some(9) },
         ]);
 
         let runner = Arc::new(FakeRunner);
@@ -2671,8 +2672,15 @@ mod tests {
             "raw_notification_observed"
         );
         assert_eq!(body["projection_deltas"][6]["method"], "warning");
+        assert_eq!(body["projection_deltas"][7]["type"], "provider_exited");
+        assert_eq!(body["projection_deltas"][7]["provider"], "codex");
+        assert_eq!(body["projection_deltas"][7]["code"], 9);
+        assert_eq!(body["projection_deltas"][8]["type"], "active_turns_cleared");
+        assert_eq!(body["projection_deltas"][8]["provider"], "codex");
         assert_eq!(body["events"][4]["type"], "runtime_signal");
         assert_eq!(body["events"][4]["signal"]["kind"], "warning");
+        assert_eq!(body["events"][6]["type"], "exited");
+        assert_eq!(body["events"][6]["code"], 9);
         assert_eq!(body["raw_events"][2]["type"], "raw_notification");
         assert_eq!(body["raw_events"][2]["method"], "item/completed");
 
@@ -2769,7 +2777,7 @@ mod tests {
             panic!("expected recent provider event result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 7);
+        assert_eq!(records.len(), 8);
         assert_eq!(records[0]["provider"], "codex");
         assert_eq!(records[0]["event"]["type"], "tool_completed");
         assert_eq!(
@@ -2823,19 +2831,32 @@ mod tests {
             "raw_notification_observed"
         );
         assert_eq!(records[5]["projection_deltas"][0]["method"], "warning");
-        assert_eq!(records[6]["event"]["type"], "server_request_resolved");
-        assert_eq!(records[6]["event"]["request_id"], "42");
-        assert_eq!(records[6]["event"]["decision"]["outcome"], "result");
+        assert_eq!(records[6]["event"]["type"], "exited");
+        assert_eq!(records[6]["event"]["code"], 9);
         assert_eq!(
             records[6]["projection_deltas"][0]["type"],
+            "provider_exited"
+        );
+        assert_eq!(records[6]["projection_deltas"][0]["provider"], "codex");
+        assert_eq!(records[6]["projection_deltas"][0]["code"], 9);
+        assert_eq!(
+            records[6]["projection_deltas"][1]["type"],
+            "active_turns_cleared"
+        );
+        assert_eq!(records[6]["projection_deltas"][1]["provider"], "codex");
+        assert_eq!(records[7]["event"]["type"], "server_request_resolved");
+        assert_eq!(records[7]["event"]["request_id"], "42");
+        assert_eq!(records[7]["event"]["decision"]["outcome"], "result");
+        assert_eq!(
+            records[7]["projection_deltas"][0]["type"],
             "approval_resolved"
         );
         assert_eq!(
-            records[6]["projection_deltas"][0]["decision"]["payload"]["approved"],
+            records[7]["projection_deltas"][0]["decision"]["payload"]["approved"],
             true
         );
         assert_eq!(
-            records[6]["projection_deltas"][0]["request"]["prompt"],
+            records[7]["projection_deltas"][0]["request"]["prompt"],
             "Run tests?"
         );
 

@@ -617,6 +617,9 @@ pub enum ProviderRuntimeProjectionDelta {
         turn_id: Option<String>,
         active: bool,
     },
+    ActiveTurnsCleared {
+        provider: String,
+    },
     StderrAppended {
         provider: String,
         line: String,
@@ -928,12 +931,15 @@ impl ProviderRuntimeEvent {
                     line: line.clone(),
                 }]
             }
-            Self::Exited { provider, code } => {
-                vec![ProviderRuntimeProjectionDelta::ProviderExited {
+            Self::Exited { provider, code } => vec![
+                ProviderRuntimeProjectionDelta::ProviderExited {
                     provider: provider.clone(),
                     code: *code,
-                }]
-            }
+                },
+                ProviderRuntimeProjectionDelta::ActiveTurnsCleared {
+                    provider: provider.clone(),
+                },
+            ],
         }
     }
 }
@@ -1678,10 +1684,15 @@ mod tests {
         assert_eq!(encoded["code"], 7);
         assert_eq!(
             event.projection_deltas(),
-            vec![ProviderRuntimeProjectionDelta::ProviderExited {
-                provider: "codex".to_string(),
-                code: Some(7),
-            }]
+            vec![
+                ProviderRuntimeProjectionDelta::ProviderExited {
+                    provider: "codex".to_string(),
+                    code: Some(7),
+                },
+                ProviderRuntimeProjectionDelta::ActiveTurnsCleared {
+                    provider: "codex".to_string(),
+                },
+            ]
         );
     }
 
