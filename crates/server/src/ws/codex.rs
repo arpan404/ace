@@ -25,11 +25,12 @@ use ace_protocol::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeContractReport, ProviderRuntimeEvent,
         ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
         ProviderRuntimeFeaturesListResponse, ProviderRuntimeLifecycleRequest,
-        ProviderRuntimeLifecycleResponse, ProviderRuntimeOperationsListRequest,
-        ProviderRuntimeOperationsListResponse, ProviderRuntimeProviderFeatures,
-        ProviderRuntimeProviderInfo, ProviderRuntimeProviderOperation,
-        ProviderRuntimeProviderOperations, ProviderRuntimeProviderState,
-        ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
+        ProviderRuntimeLifecycleResponse, ProviderRuntimeOperationParams,
+        ProviderRuntimeOperationRequest, ProviderRuntimeOperationRequestMode,
+        ProviderRuntimeOperationsListRequest, ProviderRuntimeOperationsListResponse,
+        ProviderRuntimeProviderFeatures, ProviderRuntimeProviderInfo,
+        ProviderRuntimeProviderOperation, ProviderRuntimeProviderOperations,
+        ProviderRuntimeProviderState, ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
         ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
         ProviderRuntimeRequest, ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
         ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
@@ -555,12 +556,10 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             provider,
                             runtime_id: provider.runtime_id().to_string(),
                             display_name: provider.display_name().to_string(),
-                            operations: adapter_profile
-                                .operations
-                                .iter()
-                                .cloned()
-                                .map(ProviderRuntimeProviderOperation::from_profile)
-                                .collect(),
+                            operations: provider_runtime_operations_for_provider(
+                                provider,
+                                &adapter_profile,
+                            ),
                             adapter_profile,
                             adapter_runtime,
                         })
@@ -1224,6 +1223,59 @@ fn codex_ws_method_for_adapter_operation(
         }
     };
     Ok(Some(method))
+}
+
+fn provider_runtime_operations_for_provider(
+    provider: ProviderKind,
+    adapter_profile: &ProviderAdapterProfile,
+) -> Vec<ProviderRuntimeProviderOperation> {
+    adapter_profile
+        .operations
+        .iter()
+        .cloned()
+        .map(|profile| {
+            let operation = profile.operation;
+            let runtime_request = if provider == ProviderKind::Codex {
+                codex_runtime_request_for_operation(operation)
+            } else {
+                ProviderRuntimeOperationRequest::from_invocation(profile.invocation)
+            };
+            ProviderRuntimeProviderOperation::from_profile(profile)
+                .with_runtime_request(runtime_request)
+        })
+        .collect()
+}
+
+fn codex_runtime_request_for_operation(
+    operation: ProviderAdapterOperation,
+) -> ProviderRuntimeOperationRequest {
+    match codex_ws_method_for_adapter_operation(operation) {
+        Ok(Some(_)) => ProviderRuntimeOperationRequest::operation(
+            ProviderRuntimeOperationParams::AdapterNormalized,
+        ),
+        Ok(None) => ProviderRuntimeOperationRequest::unavailable(
+            ProviderRuntimeOperationRequestMode::TypedApi,
+            "use the dedicated provider runtime websocket method for this operation",
+        ),
+        Err(_) => match operation {
+            ProviderAdapterOperation::ProviderEvents | ProviderAdapterOperation::SemanticTools => {
+                ProviderRuntimeOperationRequest::unavailable(
+                    ProviderRuntimeOperationRequestMode::EventStream,
+                    "subscribe to provider runtime events for this operation",
+                )
+            }
+            ProviderAdapterOperation::CloudThreadStart | ProviderAdapterOperation::CloudHandoff => {
+                ProviderRuntimeOperationRequest::unavailable(
+                    ProviderRuntimeOperationRequestMode::Deferred,
+                    "this adapter operation is intentionally deferred",
+                )
+            }
+            _ => ProviderRuntimeOperationRequest::unavailable(
+                ProviderRuntimeOperationRequestMode::TypedApi,
+                "use the provider typed API for this operation",
+            ),
+        },
+    }
 }
 
 fn provider_runtime_error_code(
@@ -3328,25 +3380,42 @@ mod tests {
                 && operation["invocation"] == "direct_provider_method"
                 && operation["direct_invocation"] == true
                 && operation["provider_methods"] == json!(["thread/read"])
+                && operation["runtime_request"]["invokable"] == true
+                && operation["runtime_request"]["mode"] == "adapter_operation"
+                && operation["runtime_request"]["params"] == "adapter_normalized"
         }));
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "plan_fork_for_implementation"
                 && operation["invocation"] == "composite_typed_api"
                 && operation["direct_invocation"] == false
+                && operation["runtime_request"]["invokable"] == true
+                && operation["runtime_request"]["mode"] == "adapter_operation"
+                && operation["runtime_request"]["params"] == "adapter_normalized"
                 && operation["provider_methods"]
                     .as_array()
                     .expect("provider methods")
                     .contains(&json!("thread/fork"))
         }));
         assert!(operations.iter().any(|operation| {
+            operation["operation"] == "command_exec"
+                && operation["support"] == "version_gated"
+                && operation["runtime_request"]["invokable"] == true
+                && operation["runtime_request"]["mode"] == "adapter_operation"
+                && operation["runtime_request"]["params"] == "adapter_normalized"
+        }));
+        assert!(operations.iter().any(|operation| {
             operation["operation"] == "provider_events"
                 && operation["invocation"] == "event_stream"
                 && operation["direct_invocation"] == false
+                && operation["runtime_request"]["invokable"] == false
+                && operation["runtime_request"]["mode"] == "event_stream"
         }));
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "cloud_handoff"
                 && operation["invocation"] == "deferred"
                 && operation["support"] == "deferred"
+                && operation["runtime_request"]["invokable"] == false
+                && operation["runtime_request"]["mode"] == "deferred"
         }));
     }
 

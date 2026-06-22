@@ -103,6 +103,7 @@ pub struct ProviderRuntimeProviderOperation {
     pub provider_methods: Vec<String>,
     pub invocation: ProviderAdapterInvocationKind,
     pub direct_invocation: bool,
+    pub runtime_request: ProviderRuntimeOperationRequest,
 }
 
 impl ProviderRuntimeProviderOperation {
@@ -119,8 +120,105 @@ impl ProviderRuntimeProviderOperation {
             provider_methods: profile.provider_methods,
             direct_invocation: profile.direct_invocation,
             invocation: profile.invocation,
+            runtime_request: ProviderRuntimeOperationRequest::from_invocation(profile.invocation),
         }
     }
+
+    #[must_use]
+    pub fn with_runtime_request(
+        mut self,
+        runtime_request: ProviderRuntimeOperationRequest,
+    ) -> Self {
+        self.runtime_request = runtime_request;
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeOperationRequest {
+    pub invokable: bool,
+    pub mode: ProviderRuntimeOperationRequestMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<ProviderRuntimeOperationParams>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl ProviderRuntimeOperationRequest {
+    #[must_use]
+    pub fn operation(params: ProviderRuntimeOperationParams) -> Self {
+        Self {
+            invokable: true,
+            mode: ProviderRuntimeOperationRequestMode::AdapterOperation,
+            params: Some(params),
+            reason: None,
+        }
+    }
+
+    #[must_use]
+    pub fn provider_method(params: ProviderRuntimeOperationParams) -> Self {
+        Self {
+            invokable: true,
+            mode: ProviderRuntimeOperationRequestMode::ProviderMethod,
+            params: Some(params),
+            reason: None,
+        }
+    }
+
+    #[must_use]
+    pub fn unavailable(
+        mode: ProviderRuntimeOperationRequestMode,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self {
+            invokable: false,
+            mode,
+            params: None,
+            reason: Some(reason.into()),
+        }
+    }
+
+    #[must_use]
+    pub fn from_invocation(invocation: ProviderAdapterInvocationKind) -> Self {
+        match invocation {
+            ProviderAdapterInvocationKind::DirectProviderMethod => {
+                Self::provider_method(ProviderRuntimeOperationParams::ProviderNative)
+            }
+            ProviderAdapterInvocationKind::TypedApi => Self::unavailable(
+                ProviderRuntimeOperationRequestMode::TypedApi,
+                "use the provider typed API for this operation",
+            ),
+            ProviderAdapterInvocationKind::CompositeTypedApi => Self::unavailable(
+                ProviderRuntimeOperationRequestMode::TypedApi,
+                "use the provider typed API because this operation maps to multiple provider calls",
+            ),
+            ProviderAdapterInvocationKind::EventStream => Self::unavailable(
+                ProviderRuntimeOperationRequestMode::EventStream,
+                "subscribe to provider runtime events for this operation",
+            ),
+            ProviderAdapterInvocationKind::Deferred => Self::unavailable(
+                ProviderRuntimeOperationRequestMode::Deferred,
+                "this adapter operation is intentionally deferred",
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderRuntimeOperationRequestMode {
+    AdapterOperation,
+    ProviderMethod,
+    TypedApi,
+    EventStream,
+    Deferred,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderRuntimeOperationParams {
+    AdapterNormalized,
+    ProviderNative,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -953,6 +1051,15 @@ mod tests {
         );
         assert!(direct.direct_invocation);
         assert_eq!(direct.provider_methods, ["thread/read"]);
+        assert!(direct.runtime_request.invokable);
+        assert_eq!(
+            direct.runtime_request.mode,
+            ProviderRuntimeOperationRequestMode::ProviderMethod
+        );
+        assert_eq!(
+            direct.runtime_request.params,
+            Some(ProviderRuntimeOperationParams::ProviderNative)
+        );
 
         let composite = operation(ProviderAdapterOperation::PlanForkForImplementation);
         assert_eq!(
@@ -961,6 +1068,11 @@ mod tests {
         );
         assert!(!composite.direct_invocation);
         assert_eq!(composite.category, ProviderFeatureCategory::Plans);
+        assert!(!composite.runtime_request.invokable);
+        assert_eq!(
+            composite.runtime_request.mode,
+            ProviderRuntimeOperationRequestMode::TypedApi
+        );
 
         let event_stream = operation(ProviderAdapterOperation::ProviderEvents);
         assert_eq!(
@@ -968,10 +1080,20 @@ mod tests {
             ProviderAdapterInvocationKind::EventStream
         );
         assert!(!event_stream.direct_invocation);
+        assert!(!event_stream.runtime_request.invokable);
+        assert_eq!(
+            event_stream.runtime_request.mode,
+            ProviderRuntimeOperationRequestMode::EventStream
+        );
 
         let deferred = operation(ProviderAdapterOperation::CloudHandoff);
         assert_eq!(deferred.invocation, ProviderAdapterInvocationKind::Deferred);
         assert_eq!(deferred.support, ProviderAdapterOperationSupport::Deferred);
+        assert!(!deferred.runtime_request.invokable);
+        assert_eq!(
+            deferred.runtime_request.mode,
+            ProviderRuntimeOperationRequestMode::Deferred
+        );
     }
 
     #[test]
