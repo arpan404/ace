@@ -1,7 +1,7 @@
 use crate::provider::ProviderEvent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,8 +124,11 @@ pub struct AgentRuntimeState {
     active_turns: HashMap<String, Turn>,
     plan_sessions: HashMap<String, PlanSession>,
     goals: HashMap<String, GoalState>,
+    fork_points: HashMap<String, ForkPoint>,
+    side_chats: HashMap<String, SideChat>,
     subagents: HashMap<String, SubagentThread>,
     handoffs: Vec<HandoffPlan>,
+    review_threads: HashSet<String>,
 }
 
 impl AgentRuntimeState {
@@ -150,8 +153,36 @@ impl AgentRuntimeState {
     }
 
     #[must_use]
+    pub fn fork_point(&self, child_thread_id: &str) -> Option<&ForkPoint> {
+        self.fork_points.get(child_thread_id)
+    }
+
+    #[must_use]
+    pub fn side_chat(&self, thread_id: &str) -> Option<&SideChat> {
+        self.side_chats.get(thread_id)
+    }
+
+    #[must_use]
+    pub fn is_reviewing(&self, thread_id: &str) -> bool {
+        self.review_threads.contains(thread_id)
+    }
+
+    #[must_use]
     pub fn handoffs(&self) -> &[HandoffPlan] {
         &self.handoffs
+    }
+
+    pub fn record_fork(&mut self, fork: ForkPoint) {
+        self.fork_points.insert(fork.child_thread_id.clone(), fork);
+    }
+
+    pub fn record_side_chat(&mut self, side_chat: SideChat) {
+        self.side_chats
+            .insert(side_chat.thread_id.clone(), side_chat);
+    }
+
+    pub fn close_side_chat(&mut self, thread_id: &str) {
+        self.side_chats.remove(thread_id);
     }
 
     pub fn record_subagent(&mut self, subagent: SubagentThread) {
@@ -339,6 +370,16 @@ impl AgentRuntimeState {
                         nickname: item.sender.clone(),
                     });
                 }
+                if item.kind == crate::provider::ThreadItemKind::EnteredReviewMode
+                    && let Some(thread_id) = item.thread_id.as_deref()
+                {
+                    self.review_threads.insert(thread_id.to_string());
+                }
+                if item.kind == crate::provider::ThreadItemKind::ExitedReviewMode
+                    && let Some(thread_id) = item.thread_id.as_deref()
+                {
+                    self.review_threads.remove(thread_id);
+                }
             }
             ProviderEvent::Exited => {
                 self.active_turns.clear();
@@ -512,5 +553,60 @@ mod tests {
         assert_eq!(state.handoffs().len(), 1);
         state.close_subagent("subagent-1");
         assert!(state.subagent("subagent-1").is_none());
+    }
+
+    #[test]
+    fn records_forks_side_chats_and_review_state() {
+        let mut state = AgentRuntimeState::default();
+        state.record_fork(ForkPoint {
+            parent_thread_id: "parent-1".to_string(),
+            child_thread_id: "child-1".to_string(),
+            turn_id: Some("turn-2".to_string()),
+        });
+        state.record_side_chat(SideChat {
+            parent_thread_id: "parent-1".to_string(),
+            thread_id: "child-1".to_string(),
+            ephemeral: true,
+        });
+
+        assert_eq!(
+            state
+                .fork_point("child-1")
+                .and_then(|fork| fork.turn_id.as_deref()),
+            Some("turn-2")
+        );
+        assert_eq!(
+            state
+                .side_chat("child-1")
+                .map(|side_chat| side_chat.parent_thread_id.as_str()),
+            Some("parent-1")
+        );
+
+        state.apply_provider_events(&[ProviderEvent::ThreadItem {
+            item: Box::new(NormalizedThreadItem {
+                kind: ThreadItemKind::EnteredReviewMode,
+                status: ThreadItemStatus::Started,
+                thread_id: Some("parent-1".to_string()),
+                turn_id: None,
+                item_id: Some("review-1".to_string()),
+                parent_thread_id: None,
+                child_thread_id: None,
+                sender: None,
+                role: None,
+                title: None,
+                text: None,
+                metadata: json!({}),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("item/started".to_string()),
+                    schema_version: None,
+                    raw_payload: json!({}),
+                },
+            }),
+        }]);
+        assert!(state.is_reviewing("parent-1"));
+
+        state.close_side_chat("child-1");
+        assert!(state.side_chat("child-1").is_none());
     }
 }

@@ -6,6 +6,7 @@ pub mod methods {
     pub const CODEX_THREAD_START: &str = "codex.thread.start";
     pub const CODEX_THREAD_RESUME: &str = "codex.thread.resume";
     pub const CODEX_THREAD_FORK: &str = "codex.thread.fork";
+    pub const CODEX_SIDE_CHAT_START: &str = "codex.side_chat.start";
     pub const CODEX_THREAD_READ: &str = "codex.thread.read";
     pub const CODEX_THREADS_LIST: &str = "codex.threads.list";
     pub const CODEX_THREADS_LOADED_LIST: &str = "codex.threads.loaded_list";

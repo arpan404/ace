@@ -6,8 +6,8 @@ use ace_codex::{
 use ace_runtime::{
     provider::ProviderEvent,
     threads::{
-        AgentRuntimeState, ExecutionLocation, HandoffPlan, PlanSessionStatus, RuntimeStateError,
-        TurnMode,
+        AgentRuntimeState, ExecutionLocation, ForkPoint, HandoffPlan, PlanSessionStatus,
+        RuntimeStateError, SideChat, TurnMode,
     },
 };
 use async_trait::async_trait;
@@ -24,6 +24,12 @@ pub enum CodexApiError {
     UnsupportedProvider(String),
     #[error("thread `{thread_id}` already has an active turn")]
     TurnAlreadyActive { thread_id: String },
+    #[error("cannot create a side chat from side chat `{thread_id}`")]
+    NestedSideChat { thread_id: String },
+    #[error("cannot create a side chat while thread `{thread_id}` is in review mode")]
+    ReviewModeSideChat { thread_id: String },
+    #[error("Codex response did not include a thread id")]
+    MissingThreadId,
 }
 
 impl CodexApiError {
@@ -36,6 +42,9 @@ impl CodexApiError {
             Self::Codex(_) => "codex_error",
             Self::UnsupportedProvider(_) => "unsupported_provider",
             Self::TurnAlreadyActive { .. } => "turn_already_active",
+            Self::NestedSideChat { .. } => "nested_side_chat",
+            Self::ReviewModeSideChat { .. } => "review_mode_side_chat",
+            Self::MissingThreadId => "missing_thread_id",
         }
     }
 }
@@ -399,8 +408,48 @@ impl CodexService {
         &self,
         thread_id: String,
         ephemeral: bool,
+        turn_id: Option<String>,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.fork_thread(&thread_id, ephemeral).await?)
+        let response = self.backend.fork_thread(&thread_id, ephemeral).await?;
+        let child_thread_id = extract_thread_id(&response).ok_or(CodexApiError::MissingThreadId)?;
+        if let Some(turn_id) = turn_id.as_deref() {
+            self.backend
+                .rollback_thread(&child_thread_id, turn_id)
+                .await?;
+        }
+        self.state.lock().await.record_fork(ForkPoint {
+            parent_thread_id: thread_id,
+            child_thread_id,
+            turn_id,
+        });
+        Ok(response)
+    }
+
+    pub async fn start_side_chat(
+        &self,
+        thread_id: String,
+        turn_id: Option<String>,
+    ) -> std::result::Result<Value, CodexApiError> {
+        {
+            let state = self.state.lock().await;
+            if state.side_chat(&thread_id).is_some() {
+                return Err(CodexApiError::NestedSideChat { thread_id });
+            }
+            if state.is_reviewing(&thread_id) {
+                return Err(CodexApiError::ReviewModeSideChat { thread_id });
+            }
+        }
+
+        let response = self
+            .fork_thread(thread_id.clone(), true, turn_id.clone())
+            .await?;
+        let child_thread_id = extract_thread_id(&response).ok_or(CodexApiError::MissingThreadId)?;
+        self.state.lock().await.record_side_chat(SideChat {
+            parent_thread_id: thread_id,
+            thread_id: child_thread_id,
+            ephemeral: true,
+        });
+        Ok(response)
     }
 
     pub async fn read_thread(
@@ -529,14 +578,38 @@ impl CodexService {
         &self,
         request: CodexPlanImplementation,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.fork_plan_for_implementation(request).await?)
+        let parent_thread_id = request.thread_id.clone();
+        let response = self.backend.fork_plan_for_implementation(request).await?;
+        if let Some(child_thread_id) = extract_thread_id(&response) {
+            self.state.lock().await.record_fork(ForkPoint {
+                parent_thread_id,
+                child_thread_id,
+                turn_id: None,
+            });
+        }
+        Ok(response)
     }
 
     pub async fn side_implementation(
         &self,
         request: CodexPlanImplementation,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.side_implementation(request).await?)
+        let parent_thread_id = request.thread_id.clone();
+        let response = self.backend.side_implementation(request).await?;
+        if let Some(child_thread_id) = extract_thread_id(&response) {
+            let mut state = self.state.lock().await;
+            state.record_fork(ForkPoint {
+                parent_thread_id: parent_thread_id.clone(),
+                child_thread_id: child_thread_id.clone(),
+                turn_id: None,
+            });
+            state.record_side_chat(SideChat {
+                parent_thread_id,
+                thread_id: child_thread_id,
+                ephemeral: true,
+            });
+        }
+        Ok(response)
     }
 
     pub async fn interrupt_turn(
@@ -1226,6 +1299,94 @@ pub mod tests {
             backend.calls.lock().expect("calls").as_slice(),
             ["turn/start:thread-1", "turn/start:thread-1"]
         );
+    }
+
+    #[tokio::test]
+    async fn service_records_fork_from_turn_and_side_chat_state() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        service
+            .fork_thread("thread-1".to_string(), false, Some("turn-2".to_string()))
+            .await
+            .expect("fork from turn");
+        service
+            .start_side_chat("thread-1".to_string(), Some("turn-3".to_string()))
+            .await
+            .expect("side chat");
+
+        let state = service.state.lock().await;
+        assert_eq!(
+            state
+                .fork_point("fork-1")
+                .and_then(|fork| fork.turn_id.as_deref()),
+            Some("turn-3")
+        );
+        assert_eq!(
+            state
+                .side_chat("fork-1")
+                .map(|side_chat| side_chat.parent_thread_id.as_str()),
+            Some("thread-1")
+        );
+        drop(state);
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "thread/fork:thread-1:false",
+                "thread/rollback:fork-1:turn-2",
+                "thread/fork:thread-1:true",
+                "thread/rollback:fork-1:turn-3",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_rejects_side_chat_from_side_chat_or_review_mode() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        service
+            .start_side_chat("thread-1".to_string(), None)
+            .await
+            .expect("side chat");
+        let nested = service
+            .start_side_chat("fork-1".to_string(), None)
+            .await
+            .expect_err("nested side chat rejection");
+        assert!(matches!(
+            nested,
+            CodexApiError::NestedSideChat { ref thread_id } if thread_id == "fork-1"
+        ));
+
+        backend.push_events(vec![ProviderEvent::ThreadItem {
+            item: Box::new(ace_runtime::provider::NormalizedThreadItem {
+                kind: ace_runtime::provider::ThreadItemKind::EnteredReviewMode,
+                status: ace_runtime::provider::ThreadItemStatus::Started,
+                thread_id: Some("review-thread".to_string()),
+                turn_id: None,
+                item_id: Some("review-1".to_string()),
+                parent_thread_id: None,
+                child_thread_id: None,
+                sender: None,
+                role: None,
+                title: None,
+                text: None,
+                metadata: serde_json::json!({}),
+                provider: ace_runtime::provider::ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("item/started".to_string()),
+                    schema_version: None,
+                    raw_payload: serde_json::json!({}),
+                },
+            }),
+        }]);
+        service.next_events().await.expect("events");
+        let review = service
+            .start_side_chat("review-thread".to_string(), None)
+            .await
+            .expect_err("review side chat rejection");
+        assert_eq!(review.code(), "review_mode_side_chat");
     }
 
     #[tokio::test]

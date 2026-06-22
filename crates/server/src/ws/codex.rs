@@ -54,7 +54,18 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     payload,
                     |service, request| async move {
                         service
-                            .fork_thread(request.thread_id, request.ephemeral)
+                            .fork_thread(request.thread_id, request.ephemeral, request.turn_id)
+                            .await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_SIDE_CHAT_START => {
+                self.codex_json::<CodexThreadForkRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .start_side_chat(request.thread_id, request.turn_id)
                             .await
                     },
                 )
@@ -628,6 +639,61 @@ mod tests {
                 "thread/fork:thread-1:true",
                 "thread/injectItems:fork-1:1",
                 "turn/start:fork-1",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_codex_fork_from_turn_and_side_chat_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        for (request_id, method, payload) in [
+            (
+                "fork-from-turn",
+                methods::CODEX_THREAD_FORK,
+                json!({
+                    "thread_id": "thread-1",
+                    "ephemeral": false,
+                    "turn_id": "turn-2"
+                }),
+            ),
+            (
+                "side-chat",
+                methods::CODEX_SIDE_CHAT_START,
+                json!({
+                    "thread_id": "thread-1",
+                    "turn_id": "turn-3"
+                }),
+            ),
+        ] {
+            let response = state
+                .dispatch_text(
+                    &json!({
+                        "version": PROTOCOL_VERSION,
+                        "request_id": request_id,
+                        "method": method,
+                        "payload": payload
+                    })
+                    .to_string(),
+                )
+                .await;
+            let response: WsServerResponse = serde_json::from_str(&response).expect("response");
+            assert!(matches!(response.payload, WsServerPayload::Result { .. }));
+        }
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "thread/fork:thread-1:false",
+                "thread/rollback:fork-1:turn-2",
+                "thread/fork:thread-1:true",
+                "thread/rollback:fork-1:turn-3",
             ]
         );
     }

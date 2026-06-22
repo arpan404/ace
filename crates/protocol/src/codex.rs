@@ -39,6 +39,8 @@ pub struct CodexThreadForkRequest {
     pub thread_id: String,
     #[serde(default)]
     pub ephemeral: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
