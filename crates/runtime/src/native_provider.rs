@@ -3,12 +3,18 @@ use crate::provider::{
     ProviderFeature, ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport,
     ProviderLifecycleAction, ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
     ProviderServerRequestResponder, ace_provider_adapter_contract,
-    ace_provider_contract_requirements,
+    ace_provider_contract_requirements, provider_adapter_profile, provider_contract_report,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::Duration;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdapterValidationRequest {
+    pub descriptor: ProviderDescriptor,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct AceNativeProvider;
@@ -58,6 +64,12 @@ impl AceNativeProvider {
                 "Ace capabilities",
                 ProviderFeatureCategory::Native,
                 "ace.capabilities",
+            ),
+            (
+                "ace.adapter_validation",
+                "Adapter validation",
+                ProviderFeatureCategory::Native,
+                "ace.adapter.validate",
             ),
             (
                 "provider.adapter_contract",
@@ -179,6 +191,24 @@ impl ProviderDriver for AceNativeProvider {
                 "provider": "ace",
                 "capabilities": self.descriptor().capabilities,
             })),
+            "ace.adapter.validate" => {
+                let request = serde_json::from_value::<AdapterValidationRequest>(request.params)
+                    .map_err(|error| ProviderDriverError::RequestFailed {
+                        provider: "ace".to_string(),
+                        method: "ace.adapter.validate".to_string(),
+                        message: error.to_string(),
+                    })?;
+                let report = provider_contract_report(&request.descriptor);
+                let profile = provider_adapter_profile(&request.descriptor);
+                Ok(json!({
+                    "provider": "ace",
+                    "descriptor": request.descriptor,
+                    "satisfies_required": report.satisfies_required,
+                    "missing_required": report.missing_required,
+                    "contract_report": report,
+                    "adapter_profile": profile,
+                }))
+            }
             "ace.contract" => {
                 let contract = ace_provider_adapter_contract();
                 Ok(json!({
@@ -347,6 +377,79 @@ mod tests {
         assert_eq!(
             response["provider_requirements"]["server_requests"],
             "map provider host requests to NormalizedServerRequest"
+        );
+    }
+
+    #[tokio::test]
+    async fn native_provider_validates_future_adapter_descriptors() {
+        let provider = AceNativeProvider::new();
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.adapter.validate".to_string(),
+                params: json!({
+                    "descriptor": {
+                        "kind": ProviderKind::ClaudeCode,
+                        "capabilities": ace_provider_contract_requirements()
+                            .into_iter()
+                            .map(|requirement| ProviderCapability {
+                                key: requirement.key,
+                                version: requirement.min_version,
+                            })
+                            .collect::<Vec<_>>()
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("adapter validation");
+
+        assert_eq!(response["provider"], "ace");
+        assert_eq!(response["descriptor"]["kind"], "ClaudeCode");
+        assert_eq!(response["satisfies_required"], true);
+        assert_eq!(response["missing_required"], json!([]));
+        assert_eq!(
+            response["adapter_profile"]["raw_payload"]["large_payload_strategy"],
+            "store_once_reference_deltas"
+        );
+        assert!(
+            response["adapter_profile"]["operations"]
+                .as_array()
+                .expect("operations")
+                .iter()
+                .any(|operation| operation["operation"] == "semantic_tools"
+                    && operation["invocation"] == "event_stream")
+        );
+    }
+
+    #[tokio::test]
+    async fn native_provider_validation_reports_missing_required_capabilities() {
+        let provider = AceNativeProvider::new();
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.adapter.validate".to_string(),
+                params: json!({
+                    "descriptor": {
+                        "kind": ProviderKind::ClaudeCode,
+                        "capabilities": [
+                            { "key": "provider.adapter_contract", "version": 1 }
+                        ]
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("adapter validation");
+
+        assert_eq!(response["satisfies_required"], false);
+        assert!(
+            response["missing_required"]
+                .as_array()
+                .expect("missing required")
+                .contains(&json!("provider.semantic_tools"))
+        );
+        assert_eq!(
+            response["contract_report"]["satisfies_required"],
+            response["satisfies_required"]
         );
     }
 
