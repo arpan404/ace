@@ -124,6 +124,38 @@ pub struct CodexHandoffToAgentRequest {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexHandoffLocation {
+    Local,
+    Worktree,
+    RemoteHost,
+    Cloud,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexHandoffToLocationRequest {
+    pub thread_id: String,
+    pub repo_path: String,
+    pub target_location: CodexHandoffLocation,
+    pub preferred_branch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_point: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexHandoffToLocationResponse {
+    pub source_thread_id: String,
+    pub target_location: CodexHandoffLocation,
+    pub target_thread_id: Option<String>,
+    pub worktree_path: String,
+    pub worktree_branch: String,
+    pub repo_root: String,
+    pub interrupted_active_turn: bool,
+    #[serde(default)]
+    pub thread_metadata: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodexShutdownRequest {
     #[serde(default = "default_shutdown_grace_ms")]
     pub grace_ms: u64,

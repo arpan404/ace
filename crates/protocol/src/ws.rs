@@ -43,6 +43,7 @@ pub mod methods {
     pub const CODEX_SUBAGENT_STOP: &str = "codex.subagent.stop";
     pub const CODEX_SUBAGENT_CLOSE: &str = "codex.subagent.close";
     pub const CODEX_HANDOFF_TO_AGENT: &str = "codex.handoff.to_agent";
+    pub const CODEX_HANDOFF_TO_LOCATION: &str = "codex.handoff.to_location";
     pub const CODEX_STDERR_TAIL: &str = "codex.stderr_tail";
     pub const CODEX_SHUTDOWN: &str = "codex.shutdown";
     pub const CODEX_RESTART: &str = "codex.restart";

@@ -4,7 +4,8 @@ use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
         CodexCompatibilityInventoryResponse, CodexGoalSetRequest,
-        CodexGuardianDeniedActionApprovalRequest, CodexHandoffToAgentRequest,
+        CodexGuardianDeniedActionApprovalRequest, CodexHandoffLocation, CodexHandoffToAgentRequest,
+        CodexHandoffToLocationRequest, CodexHandoffToLocationResponse,
         CodexPermissionPresetRequest, CodexPlanImplementationRequest, CodexPlanTurnStartRequest,
         CodexRawRequest, CodexShutdownRequest, CodexStderrTailResponse, CodexSubagentSteerRequest,
         CodexSubagentThreadRpcRequest, CodexThreadForkRequest, CodexThreadIdRequest,
@@ -12,6 +13,7 @@ use ace_protocol::{
         CodexThreadStartRequest, CodexThreadUpdateMetadataRequest, CodexThreadsListRequest,
         CodexTurnStartRequest,
     },
+    git::GitWorktreeCreateRequest,
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
         ProviderRuntimeProvidersList, ProviderRuntimeRequest, ProviderRuntimeSubscribeRequest,
@@ -20,6 +22,7 @@ use ace_protocol::{
     ws::{WsServerPayload, WsServerResponse, methods},
 };
 use ace_runtime::provider::ProviderRequest;
+use ace_runtime::threads::ExecutionLocation;
 use ace_terminal::PtyAdapter;
 use serde_json::Value;
 use std::time::Duration;
@@ -369,6 +372,10 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 )
                 .await
             }
+            methods::CODEX_HANDOFF_TO_LOCATION => {
+                let request = serde_json::from_value::<CodexHandoffToLocationRequest>(payload)?;
+                self.handoff_codex_to_location(request).await
+            }
             methods::CODEX_STDERR_TAIL => {
                 let lines = self.codex.stderr_tail().await?;
                 Ok(serde_json::to_value(CodexStderrTailResponse { lines })?)
@@ -399,6 +406,70 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
             _ => Err(WsDispatchError::UnknownMethod(method.to_string())),
         }
+    }
+
+    async fn handoff_codex_to_location(
+        &self,
+        request: CodexHandoffToLocationRequest,
+    ) -> Result<Value, WsDispatchError> {
+        if request.target_location != CodexHandoffLocation::Worktree {
+            return Err(
+                crate::codex::CodexApiError::UnsupportedExecutionLocation(format!(
+                    "{:?}",
+                    request.target_location
+                ))
+                .into(),
+            );
+        }
+
+        let interrupted_active_turn = if self.codex.has_active_turn(&request.thread_id).await {
+            self.codex.interrupt_turn(request.thread_id.clone()).await?;
+            true
+        } else {
+            false
+        };
+
+        let worktree = self
+            .git
+            .create_worktree(GitWorktreeCreateRequest {
+                repo_path: request.repo_path.clone(),
+                preferred_branch: request.preferred_branch,
+                start_point: request.start_point,
+            })
+            .await?;
+
+        let worktree_path = worktree.path.to_string_lossy().to_string();
+        let repo_root = worktree.repo_root.to_string_lossy().to_string();
+        let metadata = serde_json::json!({
+            "execution_location": "worktree",
+            "handoff": {
+                "source_thread_id": request.thread_id,
+                "worktree_path": worktree_path,
+                "worktree_branch": worktree.branch,
+                "repo_root": repo_root,
+            }
+        });
+        self.codex
+            .update_thread_metadata(request.thread_id.clone(), metadata.clone())
+            .await?;
+        self.codex
+            .record_handoff_to_location(
+                request.thread_id.clone(),
+                ExecutionLocation::Worktree,
+                Some(request.thread_id.clone()),
+            )
+            .await;
+
+        Ok(serde_json::to_value(CodexHandoffToLocationResponse {
+            source_thread_id: request.thread_id.clone(),
+            target_location: CodexHandoffLocation::Worktree,
+            target_thread_id: Some(request.thread_id),
+            worktree_path,
+            worktree_branch: worktree.branch,
+            repo_root,
+            interrupted_active_turn,
+            thread_metadata: metadata,
+        })?)
     }
 
     pub(super) async fn dispatch_provider_runtime_method(
@@ -580,6 +651,53 @@ mod tests {
                 context: "codex ws fake runner",
                 message: "no git process expected".to_string(),
             })
+        }
+    }
+
+    #[derive(Debug)]
+    struct ScriptedRunner {
+        responses: std::sync::Mutex<std::collections::VecDeque<ace_git::Result<CommandOutput>>>,
+        requests: std::sync::Mutex<Vec<CommandRequest>>,
+    }
+
+    impl ScriptedRunner {
+        fn new(responses: Vec<ace_git::Result<CommandOutput>>) -> Self {
+            Self {
+                responses: std::sync::Mutex::new(responses.into()),
+                requests: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        fn requests(&self) -> Vec<CommandRequest> {
+            self.requests.lock().expect("requests").clone()
+        }
+    }
+
+    #[async_trait]
+    impl ProcessRunner for ScriptedRunner {
+        async fn run(&self, request: CommandRequest) -> ace_git::Result<CommandOutput> {
+            self.requests
+                .lock()
+                .expect("requests")
+                .push(request.clone());
+            self.responses
+                .lock()
+                .expect("responses")
+                .pop_front()
+                .unwrap_or_else(|| {
+                    Err(GitToolError::Parse {
+                        context: "codex ws scripted runner",
+                        message: format!("unexpected command {:?}", request.args),
+                    })
+                })
+        }
+    }
+
+    fn ok(stdout: impl AsRef<[u8]>) -> CommandOutput {
+        CommandOutput {
+            status: 0,
+            stdout: stdout.as_ref().to_vec(),
+            stderr: Vec::new(),
         }
     }
 
@@ -975,6 +1093,95 @@ mod tests {
                 "subagent/close:thread-1:subagent-1",
                 "thread/handoffToAgent:thread-1",
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_codex_handoff_to_worktree_over_ws_rpc() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let worktree_root = temp.path().join("worktrees");
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(ScriptedRunner::new(vec![
+            Ok(ok("main||origin/main\nfeature/task||\n")),
+            Ok(ok("/repo\n")),
+            Ok(ok("true\n")),
+            Ok(ok("")),
+            Ok(ok("## feature/task-2\n")),
+        ]));
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone()))
+                .with_worktree_root(worktree_root.clone()),
+            GithubService::new(GithubCliClient::with_runner(runner.clone())),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let turn = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "turn-start",
+                    "method": methods::CODEX_TURN_START,
+                    "payload": {
+                        "thread_id": "thread-1",
+                        "input": [{ "type": "text", "text": "work" }]
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let turn: WsServerResponse = serde_json::from_str(&turn).expect("turn response");
+        assert!(matches!(turn.payload, WsServerPayload::Result { .. }));
+
+        let handoff = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "handoff-worktree",
+                    "method": methods::CODEX_HANDOFF_TO_LOCATION,
+                    "payload": {
+                        "thread_id": "thread-1",
+                        "repo_path": "/repo",
+                        "target_location": "worktree",
+                        "preferred_branch": "feature/task",
+                        "start_point": "main"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let handoff: WsServerResponse = serde_json::from_str(&handoff).expect("handoff response");
+        let WsServerPayload::Result { body } = handoff.payload else {
+            panic!("expected handoff result");
+        };
+        let worktree_path = body["worktree_path"].as_str().expect("worktree path");
+        assert!(worktree_path.starts_with(worktree_root.to_string_lossy().as_ref()));
+        assert_eq!(body["worktree_branch"], "feature/task-2");
+        assert_eq!(body["interrupted_active_turn"], true);
+        assert_eq!(
+            body["thread_metadata"]["handoff"]["worktree_branch"],
+            "feature/task-2"
+        );
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "turn/start:thread-1",
+                "turn/interrupt:thread-1",
+                "thread/updateMetadata:thread-1",
+            ]
+        );
+
+        let requests = runner.requests();
+        assert_eq!(
+            requests[0].args,
+            vec![
+                "branch",
+                "--format=%(refname:short)|%(HEAD)|%(upstream:short)"
+            ]
+        );
+        assert_eq!(
+            requests[3].args[0..4],
+            ["worktree", "add", "-b", "feature/task-2"]
         );
     }
 

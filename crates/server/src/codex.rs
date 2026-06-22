@@ -33,6 +33,8 @@ pub enum CodexApiError {
     ReviewModeSideChat { thread_id: String },
     #[error("Codex response did not include a thread id")]
     MissingThreadId,
+    #[error("unsupported execution location `{0}` for this handoff")]
+    UnsupportedExecutionLocation(String),
 }
 
 impl CodexApiError {
@@ -48,6 +50,7 @@ impl CodexApiError {
             Self::NestedSideChat { .. } => "nested_side_chat",
             Self::ReviewModeSideChat { .. } => "review_mode_side_chat",
             Self::MissingThreadId => "missing_thread_id",
+            Self::UnsupportedExecutionLocation(_) => "unsupported_execution_location",
         }
     }
 }
@@ -627,6 +630,10 @@ impl CodexService {
         Ok(response)
     }
 
+    pub async fn has_active_turn(&self, thread_id: &str) -> bool {
+        self.state.lock().await.active_turn(thread_id).is_some()
+    }
+
     pub async fn config_requirements_read(&self) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.config_requirements_read().await?)
     }
@@ -749,6 +756,19 @@ impl CodexService {
             target_thread_id: extract_thread_id(&response),
         });
         Ok(response)
+    }
+
+    pub async fn record_handoff_to_location(
+        &self,
+        source_thread_id: String,
+        target_location: ExecutionLocation,
+        target_thread_id: Option<String>,
+    ) {
+        self.state.lock().await.record_handoff(HandoffPlan {
+            source_thread_id,
+            target_location,
+            target_thread_id,
+        });
     }
 
     pub async fn next_events(
