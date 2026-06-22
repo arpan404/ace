@@ -1,8 +1,8 @@
 use ace_codex::{
     CodexClient, CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent,
-    CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog, CodexPlanImplementation,
-    CodexStdioTransport, CodexSubagentSteer, CodexThreadStart, CodexTurnStart, Result,
-    classify_codex_method,
+    CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog, CodexPermissionPreset,
+    CodexPlanImplementation, CodexStdioTransport, CodexSubagentSteer, CodexThreadStart,
+    CodexTurnPermissions, CodexTurnStart, Result, classify_codex_method,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::{
@@ -43,6 +43,8 @@ pub enum CodexApiError {
     DeferredMethod(String),
     #[error("unknown Codex client request method `{0}`")]
     UnknownClientMethod(String),
+    #[error("Codex permission preset `{preset}` is unavailable: {reason}")]
+    PermissionPresetUnavailable { preset: String, reason: String },
 }
 
 impl CodexApiError {
@@ -61,6 +63,7 @@ impl CodexApiError {
             Self::UnsupportedExecutionLocation(_) => "unsupported_execution_location",
             Self::DeferredMethod(_) => "codex_deferred_method",
             Self::UnknownClientMethod(_) => "codex_unknown_client_method",
+            Self::PermissionPresetUnavailable { .. } => "codex_permission_preset_unavailable",
         }
     }
 }
@@ -705,6 +708,26 @@ impl CodexService {
         Ok(self.backend.permission_catalog().await?)
     }
 
+    pub async fn resolve_permission_preset(
+        &self,
+        preset: CodexPermissionPreset,
+    ) -> std::result::Result<CodexTurnPermissions, CodexApiError> {
+        let catalog = self.permission_catalog().await?;
+        if let Some(entry) = catalog.preset_entry(preset)
+            && entry.available
+        {
+            return Ok(entry.permissions.clone());
+        }
+        let reason = catalog
+            .preset_entry(preset)
+            .and_then(|entry| entry.unavailable_reason.clone())
+            .unwrap_or_else(|| "missing_permission_catalog_entry".to_string());
+        Err(CodexApiError::PermissionPresetUnavailable {
+            preset: preset.as_key().to_string(),
+            reason,
+        })
+    }
+
     pub async fn approve_guardian_denied_action(
         &self,
         request: CodexGuardianDeniedActionApproval,
@@ -1267,7 +1290,7 @@ pub mod tests {
                 .expect("calls")
                 .push("configRequirements/read".to_string());
             Ok(serde_json::json!({
-                "allowedPermissionPresets": ["strict", "auto", "auto_review"],
+                "allowedPermissionPresets": ["strict", "auto", "auto_review", "full_access"],
                 "deniedPermissionPresets": ["full_access"]
             }))
         }

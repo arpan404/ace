@@ -18,7 +18,8 @@ pub use event::{CodexInboundEvent, normalize_codex_inbound_event};
 pub use goals::{CodexGoalSet, CodexGoalThread};
 pub use permissions::{
     CodexApprovalsReviewer, CodexGuardianDeniedActionApproval, CodexPermissionCatalog,
-    CodexPermissionPreset, CodexTurnPermissions, available_permission_presets,
+    CodexPermissionPreset, CodexPermissionPresetCatalogEntry, CodexTurnPermissions,
+    available_permission_presets, permission_preset_catalog_entries,
 };
 pub use schema::{
     CODEX_METHOD_INVENTORY, CodexMethodDirection, CodexMethodSpec, CodexMethodSupport,

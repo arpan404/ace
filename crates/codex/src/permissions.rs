@@ -98,18 +98,51 @@ pub struct CodexPermissionCatalog {
     pub requirements: Value,
     pub profiles: Value,
     pub available_presets: Vec<CodexPermissionPreset>,
+    pub presets: Vec<CodexPermissionPresetCatalogEntry>,
 }
 
 impl CodexPermissionCatalog {
     #[must_use]
     pub fn from_sources(requirements: Value, profiles: Value) -> Self {
-        let available_presets = available_permission_presets(&requirements, &profiles);
+        let presets = permission_preset_catalog_entries(&requirements, &profiles);
+        let available_presets = presets
+            .iter()
+            .filter(|entry| entry.available)
+            .map(|entry| entry.preset)
+            .collect();
         Self {
             requirements,
             profiles,
             available_presets,
+            presets,
         }
     }
+
+    #[must_use]
+    pub fn preset_entry(
+        &self,
+        preset: CodexPermissionPreset,
+    ) -> Option<&CodexPermissionPresetCatalogEntry> {
+        self.presets.iter().find(|entry| entry.preset == preset)
+    }
+
+    #[must_use]
+    pub fn is_preset_available(&self, preset: CodexPermissionPreset) -> bool {
+        self.preset_entry(preset)
+            .map(|entry| entry.available)
+            .unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexPermissionPresetCatalogEntry {
+    pub preset: CodexPermissionPreset,
+    pub key: String,
+    pub label: String,
+    pub permissions: CodexTurnPermissions,
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -133,6 +166,18 @@ pub fn available_permission_presets(
     requirements: &Value,
     profiles: &Value,
 ) -> Vec<CodexPermissionPreset> {
+    permission_preset_catalog_entries(requirements, profiles)
+        .into_iter()
+        .filter(|entry| entry.available)
+        .map(|entry| entry.preset)
+        .collect()
+}
+
+#[must_use]
+pub fn permission_preset_catalog_entries(
+    requirements: &Value,
+    profiles: &Value,
+) -> Vec<CodexPermissionPresetCatalogEntry> {
     let all = [
         CodexPermissionPreset::Strict,
         CodexPermissionPreset::Auto,
@@ -161,22 +206,45 @@ pub fn available_permission_presets(
     let profile_names = profile_names(profiles);
 
     all.into_iter()
-        .filter(|preset| {
+        .map(|preset| {
             let key = preset.as_key();
-            if let Some(allowed) = allowed.as_ref()
+            let unavailable_reason = if let Some(allowed) = allowed.as_ref()
                 && !allowed.iter().any(|value| preset_key_matches(value, key))
             {
-                return false;
-            }
-            if denied.iter().any(|value| preset_key_matches(value, key)) {
-                return false;
-            }
-            profile_names.is_empty()
-                || profile_names.iter().any(|value| {
-                    preset_key_matches(value, key) || profile_supports_preset(value, *preset)
+                Some("blocked_by_managed_allow_list".to_string())
+            } else if denied.iter().any(|value| preset_key_matches(value, key)) {
+                Some("blocked_by_managed_deny_list".to_string())
+            } else if !profile_names.is_empty()
+                && !profile_names.iter().any(|value| {
+                    preset_key_matches(value, key) || profile_supports_preset(value, preset)
                 })
+            {
+                Some("missing_permission_profile".to_string())
+            } else {
+                None
+            };
+            CodexPermissionPresetCatalogEntry {
+                preset,
+                key: key.to_string(),
+                label: preset.label().to_string(),
+                permissions: preset.turn_permissions(),
+                available: unavailable_reason.is_none(),
+                unavailable_reason,
+            }
         })
         .collect()
+}
+
+impl CodexPermissionPreset {
+    #[must_use]
+    fn label(self) -> &'static str {
+        match self {
+            Self::Strict => "Strict",
+            Self::Auto => "Auto",
+            Self::AutoReview => "Auto Review",
+            Self::FullAccess => "Full Access",
+        }
+    }
 }
 
 fn string_set_from_any_path(value: &Value, paths: &[&str]) -> Option<Vec<String>> {
@@ -284,6 +352,40 @@ mod tests {
                 CodexPermissionPreset::Strict,
                 CodexPermissionPreset::AutoReview,
             ]
+        );
+
+        let catalog = CodexPermissionCatalog::from_sources(requirements, profiles);
+        assert!(catalog.is_preset_available(CodexPermissionPreset::Strict));
+        assert!(!catalog.is_preset_available(CodexPermissionPreset::FullAccess));
+        let full_access = catalog
+            .preset_entry(CodexPermissionPreset::FullAccess)
+            .expect("full access entry");
+        assert_eq!(full_access.key, "full_access");
+        assert_eq!(full_access.label, "Full Access");
+        assert_eq!(
+            full_access.unavailable_reason.as_deref(),
+            Some("blocked_by_managed_deny_list")
+        );
+        assert_eq!(
+            full_access.permissions.sandbox_policy["mode"],
+            "danger-full-access"
+        );
+    }
+
+    #[test]
+    fn permission_catalog_marks_missing_profiles_unavailable() {
+        let catalog = CodexPermissionCatalog::from_sources(
+            json!({}),
+            json!({ "profiles": [{ "id": "strict" }] }),
+        );
+
+        assert!(catalog.is_preset_available(CodexPermissionPreset::Strict));
+        assert!(!catalog.is_preset_available(CodexPermissionPreset::Auto));
+        assert_eq!(
+            catalog
+                .preset_entry(CodexPermissionPreset::Auto)
+                .and_then(|entry| entry.unavailable_reason.as_deref()),
+            Some("missing_permission_profile")
         );
     }
 }

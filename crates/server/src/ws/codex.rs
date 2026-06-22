@@ -289,7 +289,9 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
             methods::CODEX_PERMISSION_PRESET_RESOLVE => {
                 let request = serde_json::from_value::<CodexPermissionPresetRequest>(payload)?;
-                Ok(serde_json::to_value(request.preset.turn_permissions())?)
+                Ok(serde_json::to_value(
+                    self.codex.resolve_permission_preset(request.preset).await?,
+                )?)
             }
             methods::CODEX_THREAD_APPROVE_GUARDIAN_DENIED_ACTION => {
                 self.codex_json::<CodexGuardianDeniedActionApprovalRequest, _, _, _>(
@@ -1485,6 +1487,23 @@ mod tests {
             body["available_presets"],
             json!(["strict", "auto", "auto_review"])
         );
+        assert!(
+            body["presets"]
+                .as_array()
+                .expect("preset entries")
+                .iter()
+                .any(|entry| entry["preset"] == "full_access"
+                    && entry["available"] == false
+                    && entry["unavailable_reason"] == "blocked_by_managed_deny_list")
+        );
+        assert!(
+            body["presets"]
+                .as_array()
+                .expect("preset entries")
+                .iter()
+                .any(|entry| entry["preset"] == "auto_review"
+                    && entry["permissions"]["approvals_reviewer"] == "auto_review")
+        );
 
         let preset = state
             .dispatch_text(
@@ -1492,7 +1511,7 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "permission-preset",
                     "method": methods::CODEX_PERMISSION_PRESET_RESOLVE,
-                    "payload": { "preset": "full_access" }
+                    "payload": { "preset": "auto_review" }
                 })
                 .to_string(),
             )
@@ -1501,8 +1520,28 @@ mod tests {
         let WsServerPayload::Result { body } = preset.payload else {
             panic!("expected preset result");
         };
-        assert_eq!(body["sandbox_policy"]["mode"], "danger-full-access");
-        assert_eq!(body["approval_policy"]["mode"], "never");
+        assert_eq!(body["sandbox_policy"]["mode"], "workspace-write");
+        assert_eq!(body["approval_policy"]["mode"], "on-request");
+        assert_eq!(body["approvals_reviewer"], "auto_review");
+
+        let denied_preset = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "permission-preset-denied",
+                    "method": methods::CODEX_PERMISSION_PRESET_RESOLVE,
+                    "payload": { "preset": "full_access" }
+                })
+                .to_string(),
+            )
+            .await;
+        let denied_preset: WsServerResponse =
+            serde_json::from_str(&denied_preset).expect("denied preset response");
+        let WsServerPayload::Error { code, message } = denied_preset.payload else {
+            panic!("expected denied preset error");
+        };
+        assert_eq!(code, "codex_permission_preset_unavailable");
+        assert!(message.contains("full_access"));
 
         let inventory = state
             .dispatch_text(
@@ -1592,6 +1631,10 @@ mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             [
+                "configRequirements/read",
+                "permissionProfile/list",
+                "configRequirements/read",
+                "permissionProfile/list",
                 "configRequirements/read",
                 "permissionProfile/list",
                 "thread/approveGuardianDeniedAction:thread-1:action-1",
