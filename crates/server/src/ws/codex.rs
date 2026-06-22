@@ -612,6 +612,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             .providers
                             .has_server_request_responder(provider),
                         contract: ace_runtime::provider::provider_contract_report(&descriptor),
+                        adapter_profile: self.providers.adapter_profile(provider).ok_or(
+                            ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
+                                provider,
+                            },
+                        )?,
                     });
                 }
                 Ok(serde_json::to_value(ProviderRuntimeStatusListResponse {
@@ -974,6 +979,10 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         descriptor: ace_runtime::provider::ProviderDescriptor,
     ) -> ProviderRuntimeProviderInfo {
         let provider = descriptor.kind;
+        let adapter_profile = self
+            .providers
+            .adapter_profile(provider)
+            .unwrap_or_else(|| ace_runtime::provider::provider_adapter_profile(&descriptor));
         ProviderRuntimeProviderInfo {
             provider,
             runtime_id: provider.runtime_id().to_string(),
@@ -983,6 +992,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .providers
                 .has_server_request_responder(provider),
             contract: ace_runtime::provider::provider_contract_report(&descriptor),
+            adapter_profile,
             descriptor,
         }
     }
@@ -2650,6 +2660,17 @@ mod tests {
         assert_eq!(codex_runtime["supports_events"], true);
         assert_eq!(codex_runtime["supports_server_request_responses"], true);
         assert_eq!(codex_runtime["contract"]["satisfies_required"], true);
+        assert_eq!(codex_runtime["adapter_profile"]["provider"], "Codex");
+        assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 1);
+        assert_eq!(codex_runtime["adapter_profile"]["websocket_first"], true);
+        assert!(
+            codex_runtime["adapter_profile"]["operations"]
+                .as_array()
+                .expect("adapter profile operations")
+                .iter()
+                .any(|operation| operation["operation"] == "thread_read"
+                    && operation["invocation"] == "direct_provider_method")
+        );
 
         let ace_runtime = runtime
             .iter()
@@ -2661,6 +2682,11 @@ mod tests {
         assert_eq!(ace_runtime["supports_events"], false);
         assert_eq!(ace_runtime["supports_server_request_responses"], false);
         assert_eq!(ace_runtime["contract"]["satisfies_required"], true);
+        assert_eq!(ace_runtime["adapter_profile"]["provider"], "Ace");
+        assert_eq!(
+            ace_runtime["adapter_profile"]["contract_report"]["satisfies_required"],
+            true
+        );
 
         let routed = state
             .dispatch_text(
@@ -3209,6 +3235,19 @@ mod tests {
         assert_eq!(codex["status"]["initialized"], true);
         assert_eq!(codex["supports_events"], true);
         assert_eq!(codex["supports_server_request_responses"], true);
+        assert_eq!(codex["adapter_profile"]["provider"], "Codex");
+        assert_eq!(
+            codex["adapter_profile"]["contract_report"]["satisfies_required"],
+            true
+        );
+        assert!(
+            codex["adapter_profile"]["operations"]
+                .as_array()
+                .expect("codex adapter operations")
+                .iter()
+                .any(|operation| operation["operation"] == "provider_events"
+                    && operation["invocation"] == "event_stream")
+        );
 
         let ace = providers
             .iter()
@@ -3219,6 +3258,11 @@ mod tests {
         assert_eq!(ace["status"]["initialized"], true);
         assert_eq!(ace["supports_events"], false);
         assert_eq!(ace["supports_server_request_responses"], false);
+        assert_eq!(ace["adapter_profile"]["provider"], "Ace");
+        assert_eq!(
+            ace["adapter_profile"]["contract_report"]["satisfies_required"],
+            true
+        );
 
         let ace_only = state
             .dispatch_text(

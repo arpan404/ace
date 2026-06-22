@@ -77,6 +77,7 @@ pub struct ProviderRuntimeProviderInfo {
     pub supports_events: bool,
     pub supports_server_request_responses: bool,
     pub contract: ProviderContractReport,
+    pub adapter_profile: ProviderAdapterProfile,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -168,6 +169,7 @@ pub struct ProviderRuntimeProviderStatus {
     pub supports_events: bool,
     pub supports_server_request_responses: bool,
     pub contract: ProviderContractReport,
+    pub adapter_profile: ProviderAdapterProfile,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
