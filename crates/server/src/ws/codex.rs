@@ -3,12 +3,13 @@ use ace_git::ProcessRunner;
 use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
-        CodexGoalSetRequest, CodexGuardianDeniedActionApprovalRequest,
+        CodexGoalSetRequest, CodexGuardianDeniedActionApprovalRequest, CodexHandoffToAgentRequest,
         CodexPermissionPresetRequest, CodexPlanImplementationRequest, CodexPlanTurnStartRequest,
-        CodexRawRequest, CodexShutdownRequest, CodexStderrTailResponse, CodexThreadForkRequest,
-        CodexThreadIdRequest, CodexThreadInjectItemsRequest, CodexThreadRollbackRequest,
-        CodexThreadSetNameRequest, CodexThreadStartRequest, CodexThreadUpdateMetadataRequest,
-        CodexThreadsListRequest, CodexTurnStartRequest,
+        CodexRawRequest, CodexShutdownRequest, CodexStderrTailResponse, CodexSubagentSteerRequest,
+        CodexSubagentThreadRpcRequest, CodexThreadForkRequest, CodexThreadIdRequest,
+        CodexThreadInjectItemsRequest, CodexThreadRollbackRequest, CodexThreadSetNameRequest,
+        CodexThreadStartRequest, CodexThreadUpdateMetadataRequest, CodexThreadsListRequest,
+        CodexTurnStartRequest,
     },
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
@@ -279,6 +280,69 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 self.codex_json::<CodexThreadIdRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.goal_resume(request.thread_id).await },
+                )
+                .await
+            }
+            methods::CODEX_SUBAGENTS_LIST => {
+                self.codex_json::<CodexThreadIdRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.subagent_list(request.thread_id).await },
+                )
+                .await
+            }
+            methods::CODEX_SUBAGENT_READ => {
+                self.codex_json::<CodexSubagentThreadRpcRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .subagent_read(
+                                request.params.thread_id,
+                                request.params.subagent_thread_id,
+                            )
+                            .await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_SUBAGENT_STEER => {
+                self.codex_json::<CodexSubagentSteerRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.subagent_steer(request.params).await },
+                )
+                .await
+            }
+            methods::CODEX_SUBAGENT_STOP => {
+                self.codex_json::<CodexSubagentThreadRpcRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .subagent_stop(
+                                request.params.thread_id,
+                                request.params.subagent_thread_id,
+                            )
+                            .await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_SUBAGENT_CLOSE => {
+                self.codex_json::<CodexSubagentThreadRpcRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .subagent_close(
+                                request.params.thread_id,
+                                request.params.subagent_thread_id,
+                            )
+                            .await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_HANDOFF_TO_AGENT => {
+                self.codex_json::<CodexHandoffToAgentRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.handoff_to_agent(request.params).await },
                 )
                 .await
             }
@@ -705,6 +769,88 @@ mod tests {
                 "goal/pause:thread-1",
                 "goal/resume:thread-1",
                 "goal/clear:thread-1",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_codex_subagent_and_handoff_methods_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let calls = [
+            (
+                methods::CODEX_SUBAGENTS_LIST,
+                json!({ "thread_id": "thread-1" }),
+            ),
+            (
+                methods::CODEX_SUBAGENT_READ,
+                json!({ "thread_id": "thread-1", "subagent_thread_id": "subagent-1" }),
+            ),
+            (
+                methods::CODEX_SUBAGENT_STEER,
+                json!({
+                    "thread_id": "thread-1",
+                    "subagent_thread_id": "subagent-1",
+                    "prompt": "focus on tests"
+                }),
+            ),
+            (
+                methods::CODEX_SUBAGENT_STOP,
+                json!({ "thread_id": "thread-1", "subagent_thread_id": "subagent-1" }),
+            ),
+            (
+                methods::CODEX_SUBAGENT_CLOSE,
+                json!({ "thread_id": "thread-1", "subagent_thread_id": "subagent-1" }),
+            ),
+            (
+                methods::CODEX_HANDOFF_TO_AGENT,
+                json!({
+                    "thread_id": "thread-1",
+                    "prompt": "take over implementation",
+                    "agent_role": "implementer",
+                    "nickname": "builder",
+                    "model": "gpt-5.5",
+                    "reasoning_effort": "high",
+                    "sandbox_policy": { "mode": "workspace-write" },
+                    "approval_policy": { "mode": "on-request" },
+                    "approvals_reviewer": "user",
+                    "skills": ["rust"],
+                    "mcp_config": { "servers": [] }
+                }),
+            ),
+        ];
+
+        for (index, (method, payload)) in calls.iter().enumerate() {
+            let response = state
+                .dispatch_text(
+                    &json!({
+                        "version": PROTOCOL_VERSION,
+                        "request_id": format!("subagent-{index}"),
+                        "method": method,
+                        "payload": payload
+                    })
+                    .to_string(),
+                )
+                .await;
+            let response: WsServerResponse = serde_json::from_str(&response).expect("response");
+            assert!(matches!(response.payload, WsServerPayload::Result { .. }));
+        }
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "subagent/list:thread-1",
+                "subagent/read:thread-1:subagent-1",
+                "subagent/steer:thread-1:subagent-1",
+                "subagent/stop:thread-1:subagent-1",
+                "subagent/close:thread-1:subagent-1",
+                "thread/handoffToAgent:thread-1",
             ]
         );
     }

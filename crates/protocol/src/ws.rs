@@ -35,6 +35,12 @@ pub mod methods {
     pub const CODEX_GOAL_CLEAR: &str = "codex.goal.clear";
     pub const CODEX_GOAL_PAUSE: &str = "codex.goal.pause";
     pub const CODEX_GOAL_RESUME: &str = "codex.goal.resume";
+    pub const CODEX_SUBAGENTS_LIST: &str = "codex.subagents.list";
+    pub const CODEX_SUBAGENT_READ: &str = "codex.subagent.read";
+    pub const CODEX_SUBAGENT_STEER: &str = "codex.subagent.steer";
+    pub const CODEX_SUBAGENT_STOP: &str = "codex.subagent.stop";
+    pub const CODEX_SUBAGENT_CLOSE: &str = "codex.subagent.close";
+    pub const CODEX_HANDOFF_TO_AGENT: &str = "codex.handoff.to_agent";
     pub const CODEX_STDERR_TAIL: &str = "codex.stderr_tail";
     pub const CODEX_SHUTDOWN: &str = "codex.shutdown";
     pub const CODEX_RESTART: &str = "codex.restart";

@@ -1,11 +1,14 @@
 use ace_codex::{
-    CodexClient, CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval,
-    CodexPermissionCatalog, CodexPlanImplementation, CodexStdioTransport, CodexThreadStart,
-    CodexTurnStart, Result,
+    CodexClient, CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent,
+    CodexPermissionCatalog, CodexPlanImplementation, CodexStdioTransport, CodexSubagentSteer,
+    CodexThreadStart, CodexTurnStart, Result,
 };
 use ace_runtime::{
     provider::ProviderEvent,
-    threads::{AgentRuntimeState, PlanSessionStatus, RuntimeStateError, TurnMode},
+    threads::{
+        AgentRuntimeState, ExecutionLocation, HandoffPlan, PlanSessionStatus, RuntimeStateError,
+        TurnMode,
+    },
 };
 use async_trait::async_trait;
 use serde_json::Value;
@@ -83,6 +86,12 @@ pub trait CodexBackend: Send + Sync {
     async fn goal_clear(&self, thread_id: &str) -> Result<Value>;
     async fn goal_pause(&self, thread_id: &str) -> Result<Value>;
     async fn goal_resume(&self, thread_id: &str) -> Result<Value>;
+    async fn subagent_list(&self, thread_id: &str) -> Result<Value>;
+    async fn subagent_read(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value>;
+    async fn subagent_steer(&self, request: CodexSubagentSteer) -> Result<Value>;
+    async fn subagent_stop(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value>;
+    async fn subagent_close(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value>;
+    async fn handoff_to_agent(&self, request: CodexHandoffToAgent) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
     async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()>;
     async fn respond_server_request_error(
@@ -264,6 +273,39 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn goal_resume(&self, thread_id: &str) -> Result<Value> {
         self.client().await?.goal_resume(thread_id).await
+    }
+
+    async fn subagent_list(&self, thread_id: &str) -> Result<Value> {
+        self.client().await?.subagent_list(thread_id).await
+    }
+
+    async fn subagent_read(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+        self.client()
+            .await?
+            .subagent_read(thread_id, subagent_thread_id)
+            .await
+    }
+
+    async fn subagent_steer(&self, request: CodexSubagentSteer) -> Result<Value> {
+        self.client().await?.subagent_steer(request).await
+    }
+
+    async fn subagent_stop(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+        self.client()
+            .await?
+            .subagent_stop(thread_id, subagent_thread_id)
+            .await
+    }
+
+    async fn subagent_close(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+        self.client()
+            .await?
+            .subagent_close(thread_id, subagent_thread_id)
+            .await
+    }
+
+    async fn handoff_to_agent(&self, request: CodexHandoffToAgent) -> Result<Value> {
+        self.client().await?.handoff_to_agent(request).await
     }
 
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
@@ -570,6 +612,69 @@ impl CodexService {
         Ok(response)
     }
 
+    pub async fn subagent_list(
+        &self,
+        thread_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.subagent_list(&thread_id).await?)
+    }
+
+    pub async fn subagent_read(
+        &self,
+        thread_id: String,
+        subagent_thread_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self
+            .backend
+            .subagent_read(&thread_id, &subagent_thread_id)
+            .await?)
+    }
+
+    pub async fn subagent_steer(
+        &self,
+        request: CodexSubagentSteer,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.subagent_steer(request).await?)
+    }
+
+    pub async fn subagent_stop(
+        &self,
+        thread_id: String,
+        subagent_thread_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self
+            .backend
+            .subagent_stop(&thread_id, &subagent_thread_id)
+            .await?)
+    }
+
+    pub async fn subagent_close(
+        &self,
+        thread_id: String,
+        subagent_thread_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        let response = self
+            .backend
+            .subagent_close(&thread_id, &subagent_thread_id)
+            .await?;
+        self.state.lock().await.close_subagent(&subagent_thread_id);
+        Ok(response)
+    }
+
+    pub async fn handoff_to_agent(
+        &self,
+        request: CodexHandoffToAgent,
+    ) -> std::result::Result<Value, CodexApiError> {
+        let source_thread_id = request.thread_id.clone();
+        let response = self.backend.handoff_to_agent(request).await?;
+        self.state.lock().await.record_handoff(HandoffPlan {
+            source_thread_id,
+            target_location: ExecutionLocation::Local,
+            target_thread_id: extract_thread_id(&response),
+        });
+        Ok(response)
+    }
+
     pub async fn next_events(
         &self,
     ) -> std::result::Result<Option<Vec<ProviderEvent>>, CodexApiError> {
@@ -621,6 +726,16 @@ fn extract_turn_id(response: &Value) -> Option<String> {
         .pointer("/turn/id")
         .or_else(|| response.pointer("/turn/turnId"))
         .or_else(|| response.get("turnId"))
+        .or_else(|| response.get("id"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn extract_thread_id(response: &Value) -> Option<String> {
+    response
+        .pointer("/thread/id")
+        .or_else(|| response.pointer("/thread/threadId"))
+        .or_else(|| response.get("threadId"))
         .or_else(|| response.get("id"))
         .and_then(Value::as_str)
         .map(ToString::to_string)
@@ -918,6 +1033,62 @@ pub mod tests {
             Ok(serde_json::json!({ "threadId": thread_id, "status": "active" }))
         }
 
+        async fn subagent_list(&self, thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("subagent/list:{thread_id}"));
+            Ok(serde_json::json!({ "subagents": [] }))
+        }
+
+        async fn subagent_read(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("subagent/read:{thread_id}:{subagent_thread_id}"));
+            Ok(serde_json::json!({
+                "threadId": subagent_thread_id,
+                "parentThreadId": thread_id,
+            }))
+        }
+
+        async fn subagent_steer(&self, request: CodexSubagentSteer) -> Result<Value> {
+            self.calls.lock().expect("calls").push(format!(
+                "subagent/steer:{}:{}",
+                request.thread_id, request.subagent_thread_id
+            ));
+            Ok(serde_json::json!({ "steered": true }))
+        }
+
+        async fn subagent_stop(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("subagent/stop:{thread_id}:{subagent_thread_id}"));
+            Ok(serde_json::json!({ "stopped": true }))
+        }
+
+        async fn subagent_close(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("subagent/close:{thread_id}:{subagent_thread_id}"));
+            Ok(serde_json::json!({ "closed": true }))
+        }
+
+        async fn handoff_to_agent(&self, request: CodexHandoffToAgent) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("thread/handoffToAgent:{}", request.thread_id));
+            Ok(serde_json::json!({
+                "thread": {
+                    "id": "agent-thread-1"
+                },
+                "role": request.agent_role,
+            }))
+        }
+
         async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
             Ok(self.events.lock().expect("events").pop_front())
         }
@@ -1096,6 +1267,66 @@ pub mod tests {
                 "goal/pause:thread-1",
                 "goal/resume:thread-1",
                 "goal/clear:thread-1",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_runs_subagent_and_handoff_lifecycle_through_backend() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        service
+            .subagent_list("thread-1".to_string())
+            .await
+            .expect("list");
+        service
+            .subagent_read("thread-1".to_string(), "subagent-1".to_string())
+            .await
+            .expect("read");
+        service
+            .subagent_steer(CodexSubagentSteer {
+                thread_id: "thread-1".to_string(),
+                subagent_thread_id: "subagent-1".to_string(),
+                prompt: "focus on tests".to_string(),
+            })
+            .await
+            .expect("steer");
+        service
+            .subagent_stop("thread-1".to_string(), "subagent-1".to_string())
+            .await
+            .expect("stop");
+        service
+            .subagent_close("thread-1".to_string(), "subagent-1".to_string())
+            .await
+            .expect("close");
+        let handoff = service
+            .handoff_to_agent(CodexHandoffToAgent {
+                thread_id: "thread-1".to_string(),
+                prompt: "take over".to_string(),
+                agent_role: Some("implementer".to_string()),
+                nickname: Some("builder".to_string()),
+                model: None,
+                reasoning_effort: None,
+                sandbox_policy: None,
+                approval_policy: None,
+                approvals_reviewer: None,
+                skills: vec![],
+                mcp_config: serde_json::json!({}),
+            })
+            .await
+            .expect("handoff");
+        assert_eq!(handoff["thread"]["id"], "agent-thread-1");
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "subagent/list:thread-1",
+                "subagent/read:thread-1:subagent-1",
+                "subagent/steer:thread-1:subagent-1",
+                "subagent/stop:thread-1:subagent-1",
+                "subagent/close:thread-1:subagent-1",
+                "thread/handoffToAgent:thread-1",
             ]
         );
     }

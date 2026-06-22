@@ -1,6 +1,7 @@
 use ace_codex::{
-    CodexGoalSet, CodexGuardianDeniedActionApproval, CodexPermissionPreset,
-    CodexPlanImplementation, CodexThreadStart, CodexTurnStart,
+    CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent, CodexPermissionPreset,
+    CodexPlanImplementation, CodexSubagentSteer, CodexSubagentThreadRequest, CodexThreadStart,
+    CodexTurnStart,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -100,6 +101,24 @@ pub struct CodexGuardianDeniedActionApprovalRequest {
 pub struct CodexGoalSetRequest {
     #[serde(flatten)]
     pub params: CodexGoalSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexSubagentThreadRpcRequest {
+    #[serde(flatten)]
+    pub params: CodexSubagentThreadRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexSubagentSteerRequest {
+    #[serde(flatten)]
+    pub params: CodexSubagentSteer,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexHandoffToAgentRequest {
+    #[serde(flatten)]
+    pub params: CodexHandoffToAgent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

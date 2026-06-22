@@ -1,7 +1,10 @@
 use crate::{
     AppServerTransport, CodexError, CodexStdioTransport, Result, normalize_codex_inbound_event,
 };
-use crate::{CodexGoalSet, CodexGuardianDeniedActionApproval, CodexPermissionCatalog};
+use crate::{
+    CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent, CodexPermissionCatalog,
+    CodexSubagentSteer,
+};
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::provider::{
     ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent, ProviderRequest,
@@ -422,6 +425,61 @@ impl<T: AppServerTransport> CodexClient<T> {
             .await
     }
 
+    pub async fn subagent_list(&self, thread_id: &str) -> Result<Value> {
+        self.raw_request("subagent/list", json!({ "threadId": thread_id }))
+            .await
+    }
+
+    pub async fn subagent_read(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+        self.raw_request(
+            "subagent/read",
+            json!({
+                "threadId": thread_id,
+                "subagentThreadId": subagent_thread_id,
+            }),
+        )
+        .await
+    }
+
+    pub async fn subagent_steer(&self, request: CodexSubagentSteer) -> Result<Value> {
+        self.raw_request(
+            "subagent/steer",
+            json!({
+                "threadId": request.thread_id,
+                "subagentThreadId": request.subagent_thread_id,
+                "prompt": request.prompt,
+            }),
+        )
+        .await
+    }
+
+    pub async fn subagent_stop(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+        self.raw_request(
+            "subagent/stop",
+            json!({
+                "threadId": thread_id,
+                "subagentThreadId": subagent_thread_id,
+            }),
+        )
+        .await
+    }
+
+    pub async fn subagent_close(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+        self.raw_request(
+            "subagent/close",
+            json!({
+                "threadId": thread_id,
+                "subagentThreadId": subagent_thread_id,
+            }),
+        )
+        .await
+    }
+
+    pub async fn handoff_to_agent(&self, request: CodexHandoffToAgent) -> Result<Value> {
+        self.raw_request("thread/handoffToAgent", serde_json::to_value(request)?)
+            .await
+    }
+
     pub async fn next_provider_events(&self) -> Option<Vec<ProviderEvent>> {
         self.transport
             .recv()
@@ -827,6 +885,70 @@ mod tests {
         assert_eq!(requests[0].1["threadId"], "thread-1");
         assert_eq!(requests[0].1["objective"], "finish the adapter");
         assert_eq!(requests[0].1["tokenBudget"], 10_000);
+    }
+
+    #[tokio::test]
+    async fn subagent_and_handoff_methods_use_typed_codex_app_server_calls() {
+        let fake = FakeTransport::default();
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        client.subagent_list("thread-1").await.expect("list");
+        client
+            .subagent_read("thread-1", "subagent-1")
+            .await
+            .expect("read");
+        client
+            .subagent_steer(CodexSubagentSteer {
+                thread_id: "thread-1".to_string(),
+                subagent_thread_id: "subagent-1".to_string(),
+                prompt: "focus on tests".to_string(),
+            })
+            .await
+            .expect("steer");
+        client
+            .subagent_stop("thread-1", "subagent-1")
+            .await
+            .expect("stop");
+        client
+            .subagent_close("thread-1", "subagent-1")
+            .await
+            .expect("close");
+        client
+            .handoff_to_agent(CodexHandoffToAgent {
+                thread_id: "thread-1".to_string(),
+                prompt: "take over implementation".to_string(),
+                agent_role: Some("implementer".to_string()),
+                nickname: Some("builder".to_string()),
+                model: Some("gpt-5.5".to_string()),
+                reasoning_effort: Some("high".to_string()),
+                sandbox_policy: Some(json!({ "mode": "workspace-write" })),
+                approval_policy: Some(json!({ "mode": "on-request" })),
+                approvals_reviewer: Some("user".to_string()),
+                skills: vec!["rust".to_string()],
+                mcp_config: json!({ "servers": [] }),
+            })
+            .await
+            .expect("handoff");
+
+        let requests = client.transport.requests.lock().expect("requests");
+        let methods = requests
+            .iter()
+            .map(|(method, _)| method.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            methods,
+            [
+                "subagent/list",
+                "subagent/read",
+                "subagent/steer",
+                "subagent/stop",
+                "subagent/close",
+                "thread/handoffToAgent",
+            ]
+        );
+        assert_eq!(requests[2].1["prompt"], "focus on tests");
+        assert_eq!(requests[5].1["agent_role"], "implementer");
+        assert_eq!(requests[5].1["skills"][0], "rust");
     }
 
     #[tokio::test]

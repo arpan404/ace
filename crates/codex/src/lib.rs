@@ -1,3 +1,4 @@
+mod agents;
 mod client;
 mod error;
 mod event;
@@ -5,6 +6,7 @@ mod goals;
 mod permissions;
 mod transport;
 
+pub use agents::{CodexHandoffToAgent, CodexSubagentSteer, CodexSubagentThreadRequest};
 pub use client::{
     CodexAdapter, CodexClient, CodexClientInfo, CodexConfig, CodexPlanImplementation,
     CodexProviderRequest, CodexThreadStart, CodexTurnStart, DEFAULT_CODEX_REQUEST_TIMEOUT,

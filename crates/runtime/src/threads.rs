@@ -124,6 +124,8 @@ pub struct AgentRuntimeState {
     active_turns: HashMap<String, Turn>,
     plan_sessions: HashMap<String, PlanSession>,
     goals: HashMap<String, GoalState>,
+    subagents: HashMap<String, SubagentThread>,
+    handoffs: Vec<HandoffPlan>,
 }
 
 impl AgentRuntimeState {
@@ -140,6 +142,28 @@ impl AgentRuntimeState {
     #[must_use]
     pub fn goal(&self, thread_id: &str) -> Option<&GoalState> {
         self.goals.get(thread_id)
+    }
+
+    #[must_use]
+    pub fn subagent(&self, thread_id: &str) -> Option<&SubagentThread> {
+        self.subagents.get(thread_id)
+    }
+
+    #[must_use]
+    pub fn handoffs(&self) -> &[HandoffPlan] {
+        &self.handoffs
+    }
+
+    pub fn record_subagent(&mut self, subagent: SubagentThread) {
+        self.subagents.insert(subagent.thread_id.clone(), subagent);
+    }
+
+    pub fn close_subagent(&mut self, thread_id: &str) {
+        self.subagents.remove(thread_id);
+    }
+
+    pub fn record_handoff(&mut self, handoff: HandoffPlan) {
+        self.handoffs.push(handoff);
     }
 
     pub fn set_goal(
@@ -298,6 +322,23 @@ impl AgentRuntimeState {
                             status: PlanSessionStatus::Active,
                         });
                 }
+                if matches!(
+                    item.kind,
+                    crate::provider::ThreadItemKind::SubAgentActivity
+                        | crate::provider::ThreadItemKind::CollabAgentToolCall
+                ) && let (Some(parent_thread_id), Some(child_thread_id)) = (
+                    item.parent_thread_id
+                        .as_deref()
+                        .or(item.thread_id.as_deref()),
+                    item.child_thread_id.as_deref(),
+                ) {
+                    self.record_subagent(SubagentThread {
+                        parent_thread_id: parent_thread_id.to_string(),
+                        thread_id: child_thread_id.to_string(),
+                        role: item.role.clone(),
+                        nickname: item.sender.clone(),
+                    });
+                }
             }
             ProviderEvent::Exited => {
                 self.active_turns.clear();
@@ -432,5 +473,44 @@ mod tests {
             state.goal("thread-1").map(|goal| goal.status),
             Some(GoalStatus::Cleared)
         );
+    }
+
+    #[test]
+    fn records_subagent_threads_and_handoffs() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[ProviderEvent::ThreadItem {
+            item: Box::new(NormalizedThreadItem {
+                kind: ThreadItemKind::SubAgentActivity,
+                status: ThreadItemStatus::Started,
+                thread_id: Some("parent-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("item-1".to_string()),
+                parent_thread_id: Some("parent-1".to_string()),
+                child_thread_id: Some("subagent-1".to_string()),
+                sender: Some("reviewer".to_string()),
+                role: Some("reviewer".to_string()),
+                title: None,
+                text: None,
+                metadata: json!({}),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("item/started".to_string()),
+                    schema_version: None,
+                    raw_payload: json!({}),
+                },
+            }),
+        }]);
+        let subagent = state.subagent("subagent-1").expect("subagent");
+        assert_eq!(subagent.parent_thread_id, "parent-1");
+        assert_eq!(subagent.role.as_deref(), Some("reviewer"));
+
+        state.record_handoff(HandoffPlan {
+            source_thread_id: "parent-1".to_string(),
+            target_location: ExecutionLocation::Worktree,
+            target_thread_id: Some("subagent-1".to_string()),
+        });
+        assert_eq!(state.handoffs().len(), 1);
+        state.close_subagent("subagent-1");
+        assert!(state.subagent("subagent-1").is_none());
     }
 }
