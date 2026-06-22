@@ -2529,6 +2529,35 @@ mod tests {
                 "thread/handoffToAgent:thread-1",
             ]
         );
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "subagent-snapshot",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        let subagent_actions = body["providers"][0]["state"]["subagent_actions"]
+            .as_array()
+            .expect("subagent actions");
+        assert_eq!(subagent_actions.len(), 3);
+        assert_eq!(subagent_actions[0]["action"], "steer");
+        assert_eq!(subagent_actions[0]["parent_thread_id"], "thread-1");
+        assert_eq!(subagent_actions[0]["subagent_thread_id"], "subagent-1");
+        assert_eq!(subagent_actions[0]["prompt"], "focus on tests");
+        assert_eq!(subagent_actions[0]["provider_response"]["steered"], true);
+        assert_eq!(subagent_actions[1]["action"], "stop");
+        assert_eq!(subagent_actions[1]["provider_response"]["stopped"], true);
+        assert_eq!(subagent_actions[2]["action"], "close");
+        assert_eq!(subagent_actions[2]["provider_response"]["closed"], true);
     }
 
     #[tokio::test]

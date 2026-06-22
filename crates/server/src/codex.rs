@@ -16,8 +16,8 @@ use ace_runtime::{
     threads::{
         AgentRuntimeSnapshot, AgentRuntimeState, ApprovalRetryRecord, ExecutionLocation, ForkPoint,
         HandoffPlan, HandoffStatus, PlanImplementationMode, PlanImplementationRecord,
-        PlanSessionStatus, RuntimeStateError, SideChat, ThreadLifecycleActionKind,
-        ThreadLifecycleRecord, TurnMode,
+        PlanSessionStatus, RuntimeStateError, SideChat, SubagentActionKind, SubagentActionRecord,
+        ThreadLifecycleActionKind, ThreadLifecycleRecord, TurnMode,
     },
 };
 use async_trait::async_trait;
@@ -922,6 +922,10 @@ impl CodexService {
         self.state.lock().await.record_thread_lifecycle(record);
     }
 
+    async fn record_subagent_action(&self, record: SubagentActionRecord) {
+        self.state.lock().await.record_subagent_action(record);
+    }
+
     pub async fn config_requirements_read(&self) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.config_requirements_read().await?)
     }
@@ -1041,7 +1045,19 @@ impl CodexService {
         &self,
         request: CodexSubagentSteer,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.subagent_steer(request).await?)
+        let parent_thread_id = request.thread_id.clone();
+        let subagent_thread_id = request.subagent_thread_id.clone();
+        let prompt = request.prompt.clone();
+        let response = self.backend.subagent_steer(request).await?;
+        self.record_subagent_action(SubagentActionRecord {
+            parent_thread_id,
+            subagent_thread_id,
+            action: SubagentActionKind::Steer,
+            prompt: Some(prompt),
+            provider_response: response.clone(),
+        })
+        .await;
+        Ok(response)
     }
 
     pub async fn subagent_stop(
@@ -1049,10 +1065,19 @@ impl CodexService {
         thread_id: String,
         subagent_thread_id: String,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self
+        let response = self
             .backend
             .subagent_stop(&thread_id, &subagent_thread_id)
-            .await?)
+            .await?;
+        self.record_subagent_action(SubagentActionRecord {
+            parent_thread_id: thread_id,
+            subagent_thread_id,
+            action: SubagentActionKind::Stop,
+            prompt: None,
+            provider_response: response.clone(),
+        })
+        .await;
+        Ok(response)
     }
 
     pub async fn subagent_close(
@@ -1064,7 +1089,15 @@ impl CodexService {
             .backend
             .subagent_close(&thread_id, &subagent_thread_id)
             .await?;
-        self.state.lock().await.close_subagent(&subagent_thread_id);
+        let mut state = self.state.lock().await;
+        state.record_subagent_action(SubagentActionRecord {
+            parent_thread_id: thread_id,
+            subagent_thread_id: subagent_thread_id.clone(),
+            action: SubagentActionKind::Close,
+            prompt: None,
+            provider_response: response.clone(),
+        });
+        state.close_subagent(&subagent_thread_id);
         Ok(response)
     }
 
@@ -2240,6 +2273,36 @@ pub mod tests {
                 "subagent/close:thread-1:subagent-1",
                 "thread/handoffToAgent:thread-1",
             ]
+        );
+        let snapshot = service.runtime_state_snapshot().await;
+        assert_eq!(snapshot.subagent_actions.len(), 3);
+        assert_eq!(
+            snapshot.subagent_actions[0].action,
+            SubagentActionKind::Steer
+        );
+        assert_eq!(
+            snapshot.subagent_actions[0].prompt.as_deref(),
+            Some("focus on tests")
+        );
+        assert_eq!(
+            snapshot.subagent_actions[0].provider_response["steered"],
+            true
+        );
+        assert_eq!(
+            snapshot.subagent_actions[1].action,
+            SubagentActionKind::Stop
+        );
+        assert_eq!(
+            snapshot.subagent_actions[1].provider_response["stopped"],
+            true
+        );
+        assert_eq!(
+            snapshot.subagent_actions[2].action,
+            SubagentActionKind::Close
+        );
+        assert_eq!(
+            snapshot.subagent_actions[2].provider_response["closed"],
+            true
         );
     }
 }

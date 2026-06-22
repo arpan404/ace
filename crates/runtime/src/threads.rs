@@ -218,6 +218,25 @@ pub struct ThreadLifecycleRecord {
     pub provider_response: Value,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentActionKind {
+    Steer,
+    Stop,
+    Close,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SubagentActionRecord {
+    pub parent_thread_id: String,
+    pub subagent_thread_id: String,
+    pub action: SubagentActionKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub provider_response: Value,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentThread {
     pub thread_id: String,
@@ -243,6 +262,7 @@ pub struct AgentRuntimeState {
     approval_retries: Vec<ApprovalRetryRecord>,
     plan_implementations: Vec<PlanImplementationRecord>,
     thread_lifecycle: Vec<ThreadLifecycleRecord>,
+    subagent_actions: Vec<SubagentActionRecord>,
     review_threads: HashSet<String>,
 }
 
@@ -258,6 +278,7 @@ pub struct AgentRuntimeSnapshot {
     pub approval_retries: Vec<ApprovalRetryRecord>,
     pub plan_implementations: Vec<PlanImplementationRecord>,
     pub thread_lifecycle: Vec<ThreadLifecycleRecord>,
+    pub subagent_actions: Vec<SubagentActionRecord>,
     pub review_threads: Vec<String>,
 }
 
@@ -296,6 +317,7 @@ impl AgentRuntimeState {
             approval_retries: self.approval_retries.clone(),
             plan_implementations: self.plan_implementations.clone(),
             thread_lifecycle: self.thread_lifecycle.clone(),
+            subagent_actions: self.subagent_actions.clone(),
             review_threads,
         }
     }
@@ -359,6 +381,15 @@ impl AgentRuntimeState {
 
     pub fn close_subagent(&mut self, thread_id: &str) {
         self.subagents.remove(thread_id);
+    }
+
+    pub fn record_subagent_action(&mut self, action: SubagentActionRecord) {
+        self.subagent_actions.push(action);
+    }
+
+    #[must_use]
+    pub fn subagent_actions(&self) -> &[SubagentActionRecord] {
+        &self.subagent_actions
     }
 
     pub fn record_handoff(&mut self, handoff: HandoffPlan) {
@@ -859,6 +890,17 @@ mod tests {
         let subagent = state.subagent("subagent-1").expect("subagent");
         assert_eq!(subagent.parent_thread_id, "parent-1");
         assert_eq!(subagent.role.as_deref(), Some("reviewer"));
+        state.record_subagent_action(SubagentActionRecord {
+            parent_thread_id: "parent-1".to_string(),
+            subagent_thread_id: "subagent-1".to_string(),
+            action: SubagentActionKind::Steer,
+            prompt: Some("focus on tests".to_string()),
+            provider_response: json!({ "steered": true }),
+        });
+        let action = &state.subagent_actions()[0];
+        assert_eq!(action.action, SubagentActionKind::Steer);
+        assert_eq!(action.prompt.as_deref(), Some("focus on tests"));
+        assert_eq!(action.provider_response["steered"], true);
 
         state.record_handoff(HandoffPlan {
             source_thread_id: "parent-1".to_string(),
