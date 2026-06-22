@@ -1126,27 +1126,27 @@ fn codex_versioned_app_server_request(
         )),
         methods::CODEX_COMMAND_EXEC => Some((
             "command/exec",
-            typed_or_enveloped::<CodexCommandExecRequest>(payload)?,
+            user_initiated_typed_or_enveloped::<CodexCommandExecRequest>(payload)?,
         )),
         methods::CODEX_COMMAND_WRITE_STDIN => Some((
             "command/writeStdin",
-            typed_or_enveloped::<CodexCommandWriteStdinRequest>(payload)?,
+            user_initiated_typed_or_enveloped::<CodexCommandWriteStdinRequest>(payload)?,
         )),
         methods::CODEX_COMMAND_RESIZE => Some((
             "command/resize",
-            typed_or_enveloped::<CodexCommandResizeRequest>(payload)?,
+            user_initiated_typed_or_enveloped::<CodexCommandResizeRequest>(payload)?,
         )),
         methods::CODEX_COMMAND_TERMINATE => Some((
             "command/terminate",
-            typed_or_enveloped::<CodexCommandProcessRequest>(payload)?,
+            user_initiated_typed_or_enveloped::<CodexCommandProcessRequest>(payload)?,
         )),
         methods::CODEX_PROCESS_LIST => Some((
             "process/list",
-            typed_or_enveloped::<CodexProcessListRequest>(payload)?,
+            user_initiated_typed_or_enveloped::<CodexProcessListRequest>(payload)?,
         )),
         methods::CODEX_PROCESS_CLEAN => Some((
             "process/clean",
-            typed_or_enveloped::<CodexProcessCleanRequest>(payload)?,
+            user_initiated_typed_or_enveloped::<CodexProcessCleanRequest>(payload)?,
         )),
         methods::CODEX_MCP_STATUS => Some((
             "mcp/status",
@@ -1215,6 +1215,45 @@ where
     Ok(serde_json::to_value(serde_json::from_value::<T>(
         payload.clone(),
     )?)?)
+}
+
+fn user_initiated_typed_or_enveloped<T>(payload: &Value) -> Result<Value, WsDispatchError>
+where
+    T: DeserializeOwned + Serialize,
+{
+    let mut params = if let Some(params) = payload.get("params") {
+        params.clone()
+    } else {
+        payload.clone()
+    };
+
+    let user_initiated = bool_at(payload, "userInitiated")
+        .or_else(|| bool_at(payload, "user_initiated"))
+        .or_else(|| bool_at(&params, "userInitiated"))
+        .or_else(|| bool_at(&params, "user_initiated"))
+        .unwrap_or(false);
+    if !user_initiated {
+        return Err(WsDispatchError::BadRequest(
+            "Codex shell/process methods require explicit userInitiated: true".to_string(),
+        ));
+    }
+
+    strip_user_initiated_marker(&mut params);
+    Ok(serde_json::to_value(serde_json::from_value::<T>(params)?)?)
+}
+
+fn bool_at(value: &Value, key: &str) -> Option<bool> {
+    value
+        .as_object()
+        .and_then(|object| object.get(key))
+        .and_then(Value::as_bool)
+}
+
+fn strip_user_initiated_marker(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.remove("userInitiated");
+        object.remove("user_initiated");
+    }
 }
 
 #[cfg(test)]
@@ -2994,15 +3033,20 @@ mod tests {
             ),
             (
                 methods::CODEX_COMMAND_EXEC,
-                json!({ "command": "cargo test", "thread_id": "thread-1", "cwd": "/tmp" }),
+                json!({
+                    "userInitiated": true,
+                    "command": "cargo test",
+                    "thread_id": "thread-1",
+                    "cwd": "/tmp"
+                }),
             ),
             (
                 methods::CODEX_COMMAND_WRITE_STDIN,
-                json!({ "process_id": "p1", "stdin": "q" }),
+                json!({ "userInitiated": true, "process_id": "p1", "stdin": "q" }),
             ),
             (
                 methods::CODEX_PROCESS_LIST,
-                json!({ "params": { "threadId": "thread-1" } }),
+                json!({ "userInitiated": true, "params": { "threadId": "thread-1" } }),
             ),
             (
                 methods::CODEX_MCP_TOOL_CALL,
@@ -3066,6 +3110,66 @@ mod tests {
             .await;
         let invalid: WsServerResponse = serde_json::from_str(&invalid).expect("invalid response");
         assert!(matches!(invalid.payload, WsServerPayload::Error { .. }));
+    }
+
+    #[test]
+    fn codex_shell_methods_require_explicit_user_initiation_and_strip_marker() {
+        let missing_marker = codex_versioned_app_server_request(
+            methods::CODEX_COMMAND_EXEC,
+            &json!({ "command": "cargo test" }),
+        )
+        .expect_err("missing user initiation");
+        assert!(matches!(
+            missing_marker,
+            WsDispatchError::BadRequest(ref message)
+                if message.contains("userInitiated: true")
+        ));
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_COMMAND_EXEC,
+            &json!({
+                "userInitiated": true,
+                "command": "cargo test",
+                "thread_id": "thread-1"
+            }),
+        )
+        .expect("user initiated command")
+        .expect("command method");
+        assert_eq!(method, "command/exec");
+        assert_eq!(params["command"], "cargo test");
+        assert_eq!(params["threadId"], "thread-1");
+        assert!(params.get("userInitiated").is_none());
+        assert!(params.get("user_initiated").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_COMMAND_RESIZE,
+            &json!({
+                "params": {
+                    "user_initiated": true,
+                    "processId": "p1",
+                    "cols": 120,
+                    "rows": 40
+                }
+            }),
+        )
+        .expect("user initiated enveloped resize")
+        .expect("resize method");
+        assert_eq!(method, "command/resize");
+        assert_eq!(params["processId"], "p1");
+        assert_eq!(params["cols"], 120);
+        assert_eq!(params["rows"], 40);
+        assert!(params.get("userInitiated").is_none());
+        assert!(params.get("user_initiated").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_PROCESS_CLEAN,
+            &json!({ "userInitiated": true, "params": { "threadId": "thread-1" } }),
+        )
+        .expect("user initiated process clean")
+        .expect("process clean method");
+        assert_eq!(method, "process/clean");
+        assert_eq!(params["threadId"], "thread-1");
+        assert!(params.get("userInitiated").is_none());
     }
 
     #[tokio::test]
