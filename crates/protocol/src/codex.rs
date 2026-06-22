@@ -170,6 +170,20 @@ pub struct CodexSkillRequest {
     pub skill: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexSkillsConfigWriteRequest {
+    #[serde(default)]
+    pub config: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexSkillsExtraRootsSetRequest {
+    #[serde(default)]
+    pub roots: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexPluginRequest {

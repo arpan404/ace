@@ -1111,12 +1111,52 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.raw_request("skills/install", params).await
     }
 
+    pub async fn skills_config_write(&self, params: Value) -> Result<Value> {
+        self.raw_request("skills/config/write", params).await
+    }
+
+    pub async fn skills_extra_roots_set(&self, params: Value) -> Result<Value> {
+        self.raw_request("skills/extraRoots/set", params).await
+    }
+
+    pub async fn plugins_installed(&self, params: Value) -> Result<Value> {
+        self.raw_request("plugin/installed", params).await
+    }
+
     pub async fn plugins_list(&self, params: Value) -> Result<Value> {
         self.raw_request("plugin/list", params).await
     }
 
+    pub async fn plugins_read(&self, params: Value) -> Result<Value> {
+        self.raw_request("plugin/read", params).await
+    }
+
     pub async fn plugins_install(&self, params: Value) -> Result<Value> {
         self.raw_request("plugin/install", params).await
+    }
+
+    pub async fn plugins_uninstall(&self, params: Value) -> Result<Value> {
+        self.raw_request("plugin/uninstall", params).await
+    }
+
+    pub async fn plugin_share_checkout(&self, params: Value) -> Result<Value> {
+        self.raw_request("plugin/share/checkout", params).await
+    }
+
+    pub async fn plugin_share_delete(&self, params: Value) -> Result<Value> {
+        self.raw_request("plugin/share/delete", params).await
+    }
+
+    pub async fn plugin_share_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("plugin/share/list", params).await
+    }
+
+    pub async fn plugin_share_save(&self, params: Value) -> Result<Value> {
+        self.raw_request("plugin/share/save", params).await
+    }
+
+    pub async fn plugin_share_update_targets(&self, params: Value) -> Result<Value> {
+        self.raw_request("plugin/share/updateTargets", params).await
     }
 
     pub async fn apps_list(&self, params: Value) -> Result<Value> {
@@ -1796,11 +1836,51 @@ mod tests {
             .skills_install(json!({ "skill": "rust" }))
             .await
             .expect("skills install");
+        client
+            .skills_config_write(json!({ "config": { "enabled": ["rust"] } }))
+            .await
+            .expect("skills config");
+        client
+            .skills_extra_roots_set(json!({ "roots": ["/tmp/skills"] }))
+            .await
+            .expect("skills extra roots");
+        client
+            .plugins_installed(json!({}))
+            .await
+            .expect("plugins installed");
         client.plugins_list(json!({})).await.expect("plugins list");
+        client
+            .plugins_read(json!({ "plugin": "browser" }))
+            .await
+            .expect("plugins read");
         client
             .plugins_install(json!({ "plugin": "browser" }))
             .await
             .expect("plugins install");
+        client
+            .plugins_uninstall(json!({ "plugin": "browser" }))
+            .await
+            .expect("plugins uninstall");
+        client
+            .plugin_share_checkout(json!({ "shareId": "share-1" }))
+            .await
+            .expect("plugin share checkout");
+        client
+            .plugin_share_delete(json!({ "shareId": "share-1" }))
+            .await
+            .expect("plugin share delete");
+        client
+            .plugin_share_list(json!({}))
+            .await
+            .expect("plugin share list");
+        client
+            .plugin_share_save(json!({ "plugin": "browser", "targets": ["team"] }))
+            .await
+            .expect("plugin share save");
+        client
+            .plugin_share_update_targets(json!({ "shareId": "share-1", "targets": ["team"] }))
+            .await
+            .expect("plugin share update targets");
         client.apps_list(json!({})).await.expect("apps list");
         client
             .apps_config_write(json!({ "app": "browser", "config": {} }))
@@ -1846,8 +1926,18 @@ mod tests {
                 "skills/list",
                 "plugin/skill/read",
                 "skills/install",
+                "skills/config/write",
+                "skills/extraRoots/set",
+                "plugin/installed",
                 "plugin/list",
+                "plugin/read",
                 "plugin/install",
+                "plugin/uninstall",
+                "plugin/share/checkout",
+                "plugin/share/delete",
+                "plugin/share/list",
+                "plugin/share/save",
+                "plugin/share/updateTargets",
                 "app/list",
                 "apps/configWrite",
                 "remote/connectionList",
@@ -1857,7 +1947,7 @@ mod tests {
         assert_eq!(requests[1].1["command"], "cargo test");
         assert_eq!(requests[11].1["fromPath"], "src/lib.rs");
         assert_eq!(requests[19].1["tool"], "list_issues");
-        assert_eq!(requests[28].1["host"], "devbox");
+        assert_eq!(requests.last().expect("remote handoff").1["host"], "devbox");
     }
 
     #[tokio::test]

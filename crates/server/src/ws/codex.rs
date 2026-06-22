@@ -16,11 +16,12 @@ use ace_protocol::{
         CodexPlanImplementationRequest, CodexPlanTurnStartRequest, CodexPluginRequest,
         CodexProcessCleanRequest, CodexProcessListRequest, CodexRawRequest,
         CodexRemoteHandoffRequest, CodexReviewStartRequest, CodexShutdownRequest,
-        CodexSkillRequest, CodexStderrTailResponse, CodexSubagentSteerRequest,
-        CodexSubagentThreadRpcRequest, CodexThreadForkRequest, CodexThreadIdRequest,
-        CodexThreadInjectItemsRequest, CodexThreadRollbackRequest, CodexThreadSetNameRequest,
-        CodexThreadStartRequest, CodexThreadUpdateMetadataRequest, CodexThreadsListRequest,
-        CodexTurnStartRequest, CodexTurnSteerRequest, CodexVersionedRequest,
+        CodexSkillRequest, CodexSkillsConfigWriteRequest, CodexSkillsExtraRootsSetRequest,
+        CodexStderrTailResponse, CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest,
+        CodexThreadForkRequest, CodexThreadIdRequest, CodexThreadInjectItemsRequest,
+        CodexThreadRollbackRequest, CodexThreadSetNameRequest, CodexThreadStartRequest,
+        CodexThreadUpdateMetadataRequest, CodexThreadsListRequest, CodexTurnStartRequest,
+        CodexTurnSteerRequest, CodexVersionedRequest,
     },
     git::GitWorktreeCreateRequest,
     provider_runtime::{
@@ -1531,14 +1532,45 @@ fn codex_versioned_app_server_request(
             "skills/install",
             typed_or_enveloped::<CodexSkillRequest>(payload)?,
         )),
+        methods::CODEX_SKILLS_CONFIG_WRITE => Some((
+            "skills/config/write",
+            typed_or_enveloped::<CodexSkillsConfigWriteRequest>(payload)?,
+        )),
+        methods::CODEX_SKILLS_EXTRA_ROOTS_SET => Some((
+            "skills/extraRoots/set",
+            typed_or_enveloped::<CodexSkillsExtraRootsSetRequest>(payload)?,
+        )),
+        methods::CODEX_PLUGINS_INSTALLED => Some((
+            "plugin/installed",
+            typed_or_enveloped::<CodexNamedQueryRequest>(payload)?,
+        )),
         methods::CODEX_PLUGINS_LIST => Some((
             "plugin/list",
             typed_or_enveloped::<CodexNamedQueryRequest>(payload)?,
+        )),
+        methods::CODEX_PLUGINS_READ => Some((
+            "plugin/read",
+            typed_or_enveloped::<CodexPluginRequest>(payload)?,
         )),
         methods::CODEX_PLUGINS_INSTALL => Some((
             "plugin/install",
             typed_or_enveloped::<CodexPluginRequest>(payload)?,
         )),
+        methods::CODEX_PLUGINS_UNINSTALL => Some((
+            "plugin/uninstall",
+            typed_or_enveloped::<CodexPluginRequest>(payload)?,
+        )),
+        methods::CODEX_PLUGIN_SHARE_CHECKOUT => {
+            Some(("plugin/share/checkout", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_PLUGIN_SHARE_DELETE => {
+            Some(("plugin/share/delete", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_PLUGIN_SHARE_LIST => Some(("plugin/share/list", raw_or_enveloped(payload)?)),
+        methods::CODEX_PLUGIN_SHARE_SAVE => Some(("plugin/share/save", raw_or_enveloped(payload)?)),
+        methods::CODEX_PLUGIN_SHARE_UPDATE_TARGETS => {
+            Some(("plugin/share/updateTargets", raw_or_enveloped(payload)?))
+        }
         methods::CODEX_APPS_LIST => Some((
             "app/list",
             typed_or_enveloped::<CodexNamedQueryRequest>(payload)?,
@@ -1623,6 +1655,13 @@ where
     Ok(serde_json::to_value(serde_json::from_value::<T>(
         payload.clone(),
     )?)?)
+}
+
+fn raw_or_enveloped(payload: &Value) -> Result<Value, WsDispatchError> {
+    if payload.get("params").is_some() {
+        return Ok(serde_json::from_value::<CodexVersionedRequest>(payload.clone())?.params);
+    }
+    Ok(payload.clone())
 }
 
 fn user_initiated_typed_or_enveloped<T>(payload: &Value) -> Result<Value, WsDispatchError>
@@ -4326,6 +4365,37 @@ mod tests {
             ),
             (methods::CODEX_SKILLS_INSTALL, json!({ "skill": "rust" })),
             (
+                methods::CODEX_SKILLS_CONFIG_WRITE,
+                json!({ "config": { "enabled": ["rust"] } }),
+            ),
+            (
+                methods::CODEX_SKILLS_EXTRA_ROOTS_SET,
+                json!({ "roots": ["/tmp/skills"] }),
+            ),
+            (methods::CODEX_PLUGINS_INSTALLED, json!({})),
+            (methods::CODEX_PLUGINS_READ, json!({ "plugin": "browser" })),
+            (
+                methods::CODEX_PLUGINS_UNINSTALL,
+                json!({ "plugin": "browser" }),
+            ),
+            (
+                methods::CODEX_PLUGIN_SHARE_CHECKOUT,
+                json!({ "shareId": "share-1" }),
+            ),
+            (
+                methods::CODEX_PLUGIN_SHARE_DELETE,
+                json!({ "shareId": "share-1" }),
+            ),
+            (methods::CODEX_PLUGIN_SHARE_LIST, json!({})),
+            (
+                methods::CODEX_PLUGIN_SHARE_SAVE,
+                json!({ "plugin": "browser", "targets": ["team"] }),
+            ),
+            (
+                methods::CODEX_PLUGIN_SHARE_UPDATE_TARGETS,
+                json!({ "shareId": "share-1", "targets": ["team"] }),
+            ),
+            (
                 methods::CODEX_APPS_CONFIG_WRITE,
                 json!({ "app": "browser", "config": { "enabled": true } }),
             ),
@@ -4369,6 +4439,16 @@ mod tests {
                 "fs/unwatch",
                 "mcpServer/tool/call",
                 "skills/install",
+                "skills/config/write",
+                "skills/extraRoots/set",
+                "plugin/installed",
+                "plugin/read",
+                "plugin/uninstall",
+                "plugin/share/checkout",
+                "plugin/share/delete",
+                "plugin/share/list",
+                "plugin/share/save",
+                "plugin/share/updateTargets",
                 "apps/configWrite",
                 "remote/handoff",
             ]
@@ -4469,6 +4549,29 @@ mod tests {
             user_initiated_codex_params("thread/read", json!({ "threadId": "thread-1" }))
                 .expect("non-shell request does not require marker");
         assert_eq!(normal_params["threadId"], "thread-1");
+    }
+
+    #[test]
+    fn codex_raw_plugin_share_methods_preserve_payload_shape() {
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_PLUGIN_SHARE_SAVE,
+            &json!({ "plugin": "browser", "targets": ["team"] }),
+        )
+        .expect("raw share request")
+        .expect("share method");
+        assert_eq!(method, "plugin/share/save");
+        assert_eq!(params["plugin"], "browser");
+        assert_eq!(params["targets"][0], "team");
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_PLUGIN_SHARE_UPDATE_TARGETS,
+            &json!({ "params": { "shareId": "share-1", "targets": ["team"] } }),
+        )
+        .expect("enveloped raw share request")
+        .expect("share update method");
+        assert_eq!(method, "plugin/share/updateTargets");
+        assert_eq!(params["shareId"], "share-1");
+        assert_eq!(params["targets"][0], "team");
     }
 
     #[tokio::test]
