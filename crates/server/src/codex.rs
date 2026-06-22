@@ -1,7 +1,8 @@
 use ace_codex::{
     CodexClient, CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent,
-    CodexPermissionCatalog, CodexPlanImplementation, CodexStdioTransport, CodexSubagentSteer,
-    CodexThreadStart, CodexTurnStart, Result,
+    CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog, CodexPlanImplementation,
+    CodexStdioTransport, CodexSubagentSteer, CodexThreadStart, CodexTurnStart, Result,
+    classify_codex_method,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::{
@@ -38,6 +39,10 @@ pub enum CodexApiError {
     MissingThreadId,
     #[error("unsupported execution location `{0}` for this handoff")]
     UnsupportedExecutionLocation(String),
+    #[error("Codex method `{0}` is intentionally deferred")]
+    DeferredMethod(String),
+    #[error("unknown Codex client request method `{0}`")]
+    UnknownClientMethod(String),
 }
 
 impl CodexApiError {
@@ -54,6 +59,8 @@ impl CodexApiError {
             Self::ReviewModeSideChat { .. } => "review_mode_side_chat",
             Self::MissingThreadId => "missing_thread_id",
             Self::UnsupportedExecutionLocation(_) => "unsupported_execution_location",
+            Self::DeferredMethod(_) => "codex_deferred_method",
+            Self::UnknownClientMethod(_) => "codex_unknown_client_method",
         }
     }
 }
@@ -65,6 +72,20 @@ impl From<RuntimeStateError> for CodexApiError {
                 Self::TurnAlreadyActive { thread_id }
             }
         }
+    }
+}
+
+fn validate_codex_client_request_method(method: &str) -> std::result::Result<(), CodexApiError> {
+    match classify_codex_method(method, CodexMethodDirection::ClientRequest) {
+        Some(CodexMethodSupport::IntentionallyDeferred) => {
+            Err(CodexApiError::DeferredMethod(method.to_string()))
+        }
+        Some(
+            CodexMethodSupport::TypedSupported
+            | CodexMethodSupport::RawSupported
+            | CodexMethodSupport::VersionGated,
+        ) => Ok(()),
+        None => Err(CodexApiError::UnknownClientMethod(method.to_string())),
     }
 }
 
@@ -424,6 +445,7 @@ impl CodexService {
         method: String,
         params: Value,
     ) -> std::result::Result<Value, CodexApiError> {
+        validate_codex_client_request_method(&method)?;
         Ok(self.backend.raw_request(&method, params).await?)
     }
 
@@ -1458,6 +1480,45 @@ pub mod tests {
                 "ephemeral": ephemeral,
             }))
         }
+    }
+
+    #[tokio::test]
+    async fn raw_request_classifies_codex_client_methods_before_transport() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        let allowed = service
+            .raw_request(
+                "remote/handoff".to_string(),
+                json!({ "threadId": "thread-1" }),
+            )
+            .await
+            .expect("version-gated raw request");
+        assert_eq!(allowed["method"], "remote/handoff");
+
+        let deferred = service
+            .raw_request("cloud/handoff".to_string(), json!({}))
+            .await
+            .expect_err("deferred method rejection");
+        assert!(matches!(
+            deferred,
+            CodexApiError::DeferredMethod(ref method) if method == "cloud/handoff"
+        ));
+        assert_eq!(deferred.code(), "codex_deferred_method");
+
+        let unknown = service
+            .raw_request("command/approvalRequest".to_string(), json!({}))
+            .await
+            .expect_err("server request method rejection");
+        assert!(matches!(
+            unknown,
+            CodexApiError::UnknownClientMethod(ref method) if method == "command/approvalRequest"
+        ));
+        assert_eq!(unknown.code(), "codex_unknown_client_method");
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["remote/handoff"]
+        );
     }
 
     #[tokio::test]

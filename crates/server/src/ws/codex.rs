@@ -2354,6 +2354,58 @@ mod tests {
             ["thread/read"]
         );
 
+        let deferred_codex = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-request-deferred",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "method": "cloud/handoff",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let deferred_codex: WsServerResponse =
+            serde_json::from_str(&deferred_codex).expect("deferred codex response");
+        let WsServerPayload::Error { code, message } = deferred_codex.payload else {
+            panic!("expected deferred codex error");
+        };
+        assert_eq!(code, "provider_request_failed");
+        assert!(message.contains("intentionally deferred"));
+
+        let unknown_codex = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-request-unknown-method",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "method": "command/approvalRequest",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let unknown_codex: WsServerResponse =
+            serde_json::from_str(&unknown_codex).expect("unknown codex response");
+        let WsServerPayload::Error { code, message } = unknown_codex.payload else {
+            panic!("expected unknown codex method error");
+        };
+        assert_eq!(code, "provider_request_failed");
+        assert!(message.contains("unknown Codex client request method"));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["thread/read"]
+        );
+
         let ace = state
             .dispatch_text(
                 &json!({
@@ -2904,6 +2956,81 @@ mod tests {
             .await;
         let invalid: WsServerResponse = serde_json::from_str(&invalid).expect("invalid response");
         assert!(matches!(invalid.payload, WsServerPayload::Error { .. }));
+    }
+
+    #[tokio::test]
+    async fn codex_raw_request_rejects_deferred_and_non_client_methods() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let allowed = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "raw-version-gated",
+                    "method": methods::CODEX_RAW_REQUEST,
+                    "payload": {
+                        "method": "remote/connectionList",
+                        "params": {}
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let allowed: WsServerResponse = serde_json::from_str(&allowed).expect("allowed raw");
+        assert!(matches!(allowed.payload, WsServerPayload::Result { .. }));
+
+        let deferred = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "raw-deferred",
+                    "method": methods::CODEX_RAW_REQUEST,
+                    "payload": {
+                        "method": "cloud/handoff",
+                        "params": {}
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let deferred: WsServerResponse = serde_json::from_str(&deferred).expect("deferred raw");
+        let WsServerPayload::Error { code, message } = deferred.payload else {
+            panic!("expected deferred raw error");
+        };
+        assert_eq!(code, "codex_deferred_method");
+        assert!(message.contains("cloud/handoff"));
+
+        let server_request_method = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "raw-server-request-method",
+                    "method": methods::CODEX_RAW_REQUEST,
+                    "payload": {
+                        "method": "mcp/elicitation",
+                        "params": {}
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let server_request_method: WsServerResponse =
+            serde_json::from_str(&server_request_method).expect("server request raw");
+        let WsServerPayload::Error { code, message } = server_request_method.payload else {
+            panic!("expected server request raw error");
+        };
+        assert_eq!(code, "codex_unknown_client_method");
+        assert!(message.contains("mcp/elicitation"));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["remote/connectionList"]
+        );
     }
 
     #[tokio::test]
