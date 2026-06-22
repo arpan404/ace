@@ -36,9 +36,10 @@ use ace_protocol::{
         ProviderRuntimeOperationsListResponse, ProviderRuntimeProviderFeatures,
         ProviderRuntimeProviderInfo, ProviderRuntimeProviderOperation,
         ProviderRuntimeProviderOperations, ProviderRuntimeProviderState,
-        ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
-        ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
-        ProviderRuntimeRequest, ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
+        ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList, ProviderRuntimeRawEventMode,
+        ProviderRuntimeRawEventSummary, ProviderRuntimeRecentEventsRequest,
+        ProviderRuntimeRecentEventsResponse, ProviderRuntimeRequest,
+        ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
         ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
         ProviderRuntimeSubscribeRequest, ProviderServerRequestAudit,
         ProviderServerRequestDecisionRecord, ProviderServerRequestDecisionResponse,
@@ -1085,7 +1086,13 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             created_at: record.created_at,
                             projection_deltas: event.projection_deltas(),
                             event,
-                            raw_event: record.event,
+                            raw_event_summary: ProviderRuntimeRawEventSummary::from_event(
+                                &record.event,
+                            ),
+                            raw_event: match request.raw_event_mode {
+                                ProviderRuntimeRawEventMode::Compact => None,
+                                ProviderRuntimeRawEventMode::Full => Some(record.event),
+                            },
                         }
                     })
                     .collect();
@@ -5490,7 +5497,16 @@ mod tests {
             records[0]["projection_deltas"][0]["tool"]["display"]["title"],
             "Clicked Deploy in Browser"
         );
-        assert_eq!(records[0]["raw_event"]["type"], "semantic_tool");
+        assert_eq!(records[0]["raw_event"], Value::Null);
+        assert_eq!(
+            records[0]["raw_event_summary"]["event_type"],
+            "semantic_tool"
+        );
+        assert!(
+            records[0]["raw_event_summary"]["raw_json_bytes"]
+                .as_u64()
+                .is_some_and(|bytes| bytes > 0)
+        );
         assert_eq!(
             records[1]["projection_deltas"][0]["type"],
             "approval_upsert"
@@ -5507,7 +5523,34 @@ mod tests {
             records[2]["projection_deltas"][0]["method"],
             "item/completed"
         );
-        assert_eq!(records[2]["raw_event"]["method"], "item/completed");
+        assert_eq!(
+            records[2]["raw_event_summary"]["provider_method"],
+            "item/completed"
+        );
+
+        let recent_full = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-events-recent-full",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": {
+                        "provider": "codex",
+                        "limit": 10,
+                        "raw_event_mode": "full"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent_full: WsServerResponse =
+            serde_json::from_str(&recent_full).expect("recent full response");
+        let WsServerPayload::Result { body } = recent_full.payload else {
+            panic!("expected recent provider event full result");
+        };
+        let full_records = body["records"].as_array().expect("full records");
+        assert_eq!(full_records[0]["raw_event"]["type"], "semantic_tool");
+        assert_eq!(full_records[2]["raw_event"]["method"], "item/completed");
         assert_eq!(
             records[3]["projection_deltas"][0]["type"],
             "thread_item_upsert"

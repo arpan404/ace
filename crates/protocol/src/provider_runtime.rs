@@ -30,11 +30,136 @@ fn default_recent_events_limit() -> usize {
     100
 }
 
+fn default_raw_event_mode() -> ProviderRuntimeRawEventMode {
+    ProviderRuntimeRawEventMode::Compact
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderRuntimeRawEventMode {
+    Compact,
+    Full,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderRuntimeRecentEventsRequest {
     pub provider: Option<String>,
     #[serde(default = "default_recent_events_limit")]
     pub limit: usize,
+    #[serde(default = "default_raw_event_mode")]
+    pub raw_event_mode: ProviderRuntimeRawEventMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeRawEventSummary {
+    pub event_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    pub raw_json_bytes: usize,
+}
+
+impl ProviderRuntimeRawEventSummary {
+    #[must_use]
+    pub fn from_event(event: &ProviderEvent) -> Self {
+        let raw_json_bytes = serde_json::to_vec(event).map_or(0, |bytes| bytes.len());
+        match event {
+            ProviderEvent::RawNotification { method, .. } => Self {
+                event_type: "raw_notification".to_string(),
+                provider_method: Some(method.clone()),
+                thread_id: None,
+                turn_id: None,
+                item_id: None,
+                request_id: None,
+                raw_json_bytes,
+            },
+            ProviderEvent::RawServerRequest { id, method, .. } => Self {
+                event_type: "raw_server_request".to_string(),
+                provider_method: Some(method.clone()),
+                thread_id: None,
+                turn_id: None,
+                item_id: None,
+                request_id: Some(id.clone()),
+                raw_json_bytes,
+            },
+            ProviderEvent::SemanticTool { tool } => Self {
+                event_type: "semantic_tool".to_string(),
+                provider_method: tool.provider.method.clone(),
+                thread_id: tool.provider.thread_id.clone(),
+                turn_id: tool.provider.turn_id.clone(),
+                item_id: tool.provider.item_id.clone(),
+                request_id: None,
+                raw_json_bytes,
+            },
+            ProviderEvent::ThreadItem { item } => Self {
+                event_type: "thread_item".to_string(),
+                provider_method: item.provider.method.clone(),
+                thread_id: item.thread_id.clone(),
+                turn_id: item.turn_id.clone(),
+                item_id: item.item_id.clone(),
+                request_id: None,
+                raw_json_bytes,
+            },
+            ProviderEvent::ServerRequest { request } => Self {
+                event_type: "server_request".to_string(),
+                provider_method: Some(request.method.clone()),
+                thread_id: request.thread_id.clone(),
+                turn_id: request.turn_id.clone(),
+                item_id: request.item_id.clone(),
+                request_id: Some(request.request_id.clone()),
+                raw_json_bytes,
+            },
+            ProviderEvent::ServerRequestResolved {
+                request_id,
+                request,
+                ..
+            } => Self {
+                event_type: "server_request_resolved".to_string(),
+                provider_method: request.as_ref().map(|request| request.method.clone()),
+                thread_id: request
+                    .as_ref()
+                    .and_then(|request| request.thread_id.clone()),
+                turn_id: request.as_ref().and_then(|request| request.turn_id.clone()),
+                item_id: request.as_ref().and_then(|request| request.item_id.clone()),
+                request_id: Some(request_id.clone()),
+                raw_json_bytes,
+            },
+            ProviderEvent::RuntimeSignal { signal } => Self {
+                event_type: "runtime_signal".to_string(),
+                provider_method: signal.provider.method.clone(),
+                thread_id: signal.thread_id.clone(),
+                turn_id: signal.turn_id.clone(),
+                item_id: signal.item_id.clone(),
+                request_id: signal.request_id.clone(),
+                raw_json_bytes,
+            },
+            ProviderEvent::StderrLine { .. } => Self {
+                event_type: "stderr_line".to_string(),
+                provider_method: None,
+                thread_id: None,
+                turn_id: None,
+                item_id: None,
+                request_id: None,
+                raw_json_bytes,
+            },
+            ProviderEvent::Exited { .. } => Self {
+                event_type: "exited".to_string(),
+                provider_method: None,
+                thread_id: None,
+                turn_id: None,
+                item_id: None,
+                request_id: None,
+                raw_json_bytes,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -45,7 +170,9 @@ pub struct ProviderRuntimeEventRecord {
     pub event: ProviderRuntimeEvent,
     #[serde(default)]
     pub projection_deltas: Vec<ProviderRuntimeProjectionDelta>,
-    pub raw_event: ProviderEvent,
+    pub raw_event_summary: ProviderRuntimeRawEventSummary,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_event: Option<ProviderEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1662,8 +1789,8 @@ mod tests {
     use ace_runtime::provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
         NormalizedThreadItem, ProviderAdapterOperation, ProviderAdapterOperationSupport,
-        ProviderFeatureCategory, ProviderMetadata, RuntimeSignalKind, ServerRequestKind,
-        ThreadItemKind, ThreadItemStatus,
+        ProviderEvent, ProviderFeatureCategory, ProviderMetadata, RuntimeSignalKind,
+        ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     };
     use ace_runtime::threads::GoalStatus;
     use ace_runtime::tools::{
@@ -1696,6 +1823,57 @@ mod tests {
             by_operation.operation,
             Some(ProviderAdapterOperation::ThreadRead)
         );
+    }
+
+    #[test]
+    fn provider_runtime_recent_events_use_compact_raw_payloads_by_default() {
+        let request = serde_json::from_value::<ProviderRuntimeRecentEventsRequest>(json!({
+            "provider": "codex"
+        }))
+        .expect("recent request");
+        assert_eq!(request.raw_event_mode, ProviderRuntimeRawEventMode::Compact);
+
+        let full_request = serde_json::from_value::<ProviderRuntimeRecentEventsRequest>(json!({
+            "provider": "codex",
+            "raw_event_mode": "full"
+        }))
+        .expect("recent full request");
+        assert_eq!(
+            full_request.raw_event_mode,
+            ProviderRuntimeRawEventMode::Full
+        );
+
+        let event = ProviderEvent::RawNotification {
+            method: "item/completed".to_string(),
+            params: json!({ "threadId": "thread-1", "itemId": "item-1" }),
+        };
+        let summary = ProviderRuntimeRawEventSummary::from_event(&event);
+        assert_eq!(summary.event_type, "raw_notification");
+        assert_eq!(summary.provider_method.as_deref(), Some("item/completed"));
+        assert!(summary.raw_json_bytes > 0);
+
+        let compact_record = ProviderRuntimeEventRecord {
+            sequence: 1,
+            provider: "codex".to_string(),
+            created_at: "2026-06-22T00:00:00Z".to_string(),
+            event: ProviderRuntimeEvent::from_provider_event("codex", event.clone()),
+            projection_deltas: Vec::new(),
+            raw_event_summary: summary,
+            raw_event: None,
+        };
+        let encoded = serde_json::to_value(&compact_record).expect("compact record");
+        assert!(encoded.get("raw_event").is_none());
+        assert_eq!(
+            encoded["raw_event_summary"]["provider_method"],
+            "item/completed"
+        );
+
+        let full_record = ProviderRuntimeEventRecord {
+            raw_event: Some(event),
+            ..compact_record
+        };
+        let encoded = serde_json::to_value(&full_record).expect("full record");
+        assert_eq!(encoded["raw_event"]["type"], "raw_notification");
     }
 
     #[test]
