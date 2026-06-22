@@ -201,10 +201,43 @@ pub mod provider {
         SkillsList,
         SkillsRead,
         SkillsInstall,
+        SkillsConfigWrite,
+        SkillsExtraRootsSet,
+        PluginsInstalled,
         PluginsList,
+        PluginsRead,
         PluginsInstall,
+        PluginsUninstall,
+        PluginShareCheckout,
+        PluginShareDelete,
+        PluginShareList,
+        PluginShareSave,
+        PluginShareUpdateTargets,
         AppsList,
         AppsConfigWrite,
+        AccountLoginStart,
+        AccountLoginCancel,
+        AccountLogout,
+        AccountRead,
+        AccountRateLimitsRead,
+        AccountUsageRead,
+        AccountSendAddCreditsNudgeEmail,
+        WindowsSandboxReadiness,
+        WindowsSandboxSetupStart,
+        ConfigRead,
+        ConfigValueWrite,
+        ConfigBatchWrite,
+        ConfigMcpServerReload,
+        ExperimentalFeatureList,
+        ExperimentalFeatureEnablementSet,
+        ExternalAgentConfigDetect,
+        ExternalAgentConfigImport,
+        FeedbackUpload,
+        FuzzyFileSearch,
+        HooksList,
+        MarketplaceAdd,
+        MarketplaceRemove,
+        MarketplaceUpgrade,
         RemoteConnectionList,
         RemoteHandoff,
         CloudThreadStart,
@@ -374,6 +407,9 @@ pub mod provider {
         Skills,
         Plugins,
         Apps,
+        Account,
+        Config,
+        Search,
         Remote,
         Cloud,
         Events,
@@ -1185,16 +1221,76 @@ pub mod provider {
                 Some("skills/install"),
             ),
             op(
+                Operation::SkillsConfigWrite,
+                Category::Skills,
+                VersionGated,
+                Some("skills/config/write"),
+            ),
+            op(
+                Operation::SkillsExtraRootsSet,
+                Category::Skills,
+                Optional,
+                Some("skills/extraRoots/set"),
+            ),
+            op(
+                Operation::PluginsInstalled,
+                Category::Plugins,
+                Optional,
+                Some("plugin/installed"),
+            ),
+            op(
                 Operation::PluginsList,
                 Category::Plugins,
                 VersionGated,
                 Some("plugin/list"),
             ),
             op(
+                Operation::PluginsRead,
+                Category::Plugins,
+                Optional,
+                Some("plugin/read"),
+            ),
+            op(
                 Operation::PluginsInstall,
                 Category::Plugins,
                 VersionGated,
                 Some("plugin/install"),
+            ),
+            op(
+                Operation::PluginsUninstall,
+                Category::Plugins,
+                Optional,
+                Some("plugin/uninstall"),
+            ),
+            op(
+                Operation::PluginShareCheckout,
+                Category::Plugins,
+                Optional,
+                Some("plugin/share/checkout"),
+            ),
+            op(
+                Operation::PluginShareDelete,
+                Category::Plugins,
+                Optional,
+                Some("plugin/share/delete"),
+            ),
+            op(
+                Operation::PluginShareList,
+                Category::Plugins,
+                Optional,
+                Some("plugin/share/list"),
+            ),
+            op(
+                Operation::PluginShareSave,
+                Category::Plugins,
+                Optional,
+                Some("plugin/share/save"),
+            ),
+            op(
+                Operation::PluginShareUpdateTargets,
+                Category::Plugins,
+                Optional,
+                Some("plugin/share/updateTargets"),
             ),
             op(
                 Operation::AppsList,
@@ -1207,6 +1303,144 @@ pub mod provider {
                 Category::Apps,
                 VersionGated,
                 Some("apps/configWrite"),
+            ),
+            op(
+                Operation::AccountLoginStart,
+                Category::Account,
+                Optional,
+                Some("account/login/start"),
+            ),
+            op(
+                Operation::AccountLoginCancel,
+                Category::Account,
+                Optional,
+                Some("account/login/cancel"),
+            ),
+            op(
+                Operation::AccountLogout,
+                Category::Account,
+                Optional,
+                Some("account/logout"),
+            ),
+            op(
+                Operation::AccountRead,
+                Category::Account,
+                Optional,
+                Some("account/read"),
+            ),
+            op(
+                Operation::AccountRateLimitsRead,
+                Category::Account,
+                Optional,
+                Some("account/rateLimits/read"),
+            ),
+            op(
+                Operation::AccountUsageRead,
+                Category::Account,
+                Optional,
+                Some("account/usage/read"),
+            ),
+            op(
+                Operation::AccountSendAddCreditsNudgeEmail,
+                Category::Account,
+                Optional,
+                Some("account/sendAddCreditsNudgeEmail"),
+            ),
+            op(
+                Operation::WindowsSandboxReadiness,
+                Category::Config,
+                Optional,
+                Some("windowsSandbox/readiness"),
+            ),
+            op(
+                Operation::WindowsSandboxSetupStart,
+                Category::Config,
+                Optional,
+                Some("windowsSandbox/setupStart"),
+            ),
+            op(
+                Operation::ConfigRead,
+                Category::Config,
+                Optional,
+                Some("config/read"),
+            ),
+            op(
+                Operation::ConfigValueWrite,
+                Category::Config,
+                Optional,
+                Some("config/value/write"),
+            ),
+            op(
+                Operation::ConfigBatchWrite,
+                Category::Config,
+                Optional,
+                Some("config/batchWrite"),
+            ),
+            op(
+                Operation::ConfigMcpServerReload,
+                Category::Config,
+                Optional,
+                Some("config/mcpServer/reload"),
+            ),
+            op(
+                Operation::ExperimentalFeatureList,
+                Category::Config,
+                Optional,
+                Some("experimentalFeature/list"),
+            ),
+            op(
+                Operation::ExperimentalFeatureEnablementSet,
+                Category::Config,
+                Optional,
+                Some("experimentalFeature/enablement/set"),
+            ),
+            op(
+                Operation::ExternalAgentConfigDetect,
+                Category::Config,
+                Optional,
+                Some("externalAgentConfig/detect"),
+            ),
+            op(
+                Operation::ExternalAgentConfigImport,
+                Category::Config,
+                Optional,
+                Some("externalAgentConfig/import"),
+            ),
+            op(
+                Operation::FeedbackUpload,
+                Category::Diagnostics,
+                Optional,
+                Some("feedback/upload"),
+            ),
+            op(
+                Operation::FuzzyFileSearch,
+                Category::Search,
+                Optional,
+                Some("fuzzyFileSearch"),
+            ),
+            op(
+                Operation::HooksList,
+                Category::Config,
+                Optional,
+                Some("hooks/list"),
+            ),
+            op(
+                Operation::MarketplaceAdd,
+                Category::Plugins,
+                Optional,
+                Some("marketplace/add"),
+            ),
+            op(
+                Operation::MarketplaceRemove,
+                Category::Plugins,
+                Optional,
+                Some("marketplace/remove"),
+            ),
+            op(
+                Operation::MarketplaceUpgrade,
+                Category::Plugins,
+                Optional,
+                Some("marketplace/upgrade"),
             ),
             op(
                 Operation::RemoteConnectionList,
@@ -2158,6 +2392,99 @@ pub mod provider {
                         .as_deref()
                         .is_some_and(|reason| reason.contains("version-gated"))
             }));
+            let expected_version_gated_contracts = [
+                (
+                    ProviderAdapterOperation::SkillsConfigWrite,
+                    "skills/config/write",
+                    ProviderFeatureCategory::Skills,
+                ),
+                (
+                    ProviderAdapterOperation::AppsConfigWrite,
+                    "apps/configWrite",
+                    ProviderFeatureCategory::Apps,
+                ),
+            ];
+            for (operation, method, category) in expected_version_gated_contracts {
+                let profile = codex_profile
+                    .operation(operation)
+                    .unwrap_or_else(|| panic!("missing adapter operation {operation:?}"));
+                assert_eq!(profile.category, category);
+                assert_eq!(
+                    profile.availability,
+                    ProviderAdapterOperationAvailability::VersionGated
+                );
+                assert_eq!(profile.canonical_method.as_deref(), Some(method));
+                assert_eq!(profile.provider_methods, vec![method.to_string()]);
+                assert!(profile.direct_invocation);
+                assert_eq!(
+                    profile.invocation,
+                    ProviderAdapterInvocationKind::DirectProviderMethod
+                );
+            }
+            let expected_optional_contracts = [
+                (
+                    ProviderAdapterOperation::SkillsExtraRootsSet,
+                    "skills/extraRoots/set",
+                    ProviderFeatureCategory::Skills,
+                ),
+                (
+                    ProviderAdapterOperation::PluginsInstalled,
+                    "plugin/installed",
+                    ProviderFeatureCategory::Plugins,
+                ),
+                (
+                    ProviderAdapterOperation::PluginsRead,
+                    "plugin/read",
+                    ProviderFeatureCategory::Plugins,
+                ),
+                (
+                    ProviderAdapterOperation::PluginsUninstall,
+                    "plugin/uninstall",
+                    ProviderFeatureCategory::Plugins,
+                ),
+                (
+                    ProviderAdapterOperation::PluginShareSave,
+                    "plugin/share/save",
+                    ProviderFeatureCategory::Plugins,
+                ),
+                (
+                    ProviderAdapterOperation::AccountRead,
+                    "account/read",
+                    ProviderFeatureCategory::Account,
+                ),
+                (
+                    ProviderAdapterOperation::ConfigValueWrite,
+                    "config/value/write",
+                    ProviderFeatureCategory::Config,
+                ),
+                (
+                    ProviderAdapterOperation::FuzzyFileSearch,
+                    "fuzzyFileSearch",
+                    ProviderFeatureCategory::Search,
+                ),
+                (
+                    ProviderAdapterOperation::MarketplaceUpgrade,
+                    "marketplace/upgrade",
+                    ProviderFeatureCategory::Plugins,
+                ),
+            ];
+            for (operation, method, category) in expected_optional_contracts {
+                let profile = codex_profile
+                    .operation(operation)
+                    .unwrap_or_else(|| panic!("missing adapter operation {operation:?}"));
+                assert_eq!(profile.category, category);
+                assert_eq!(
+                    profile.availability,
+                    ProviderAdapterOperationAvailability::Optional
+                );
+                assert_eq!(profile.canonical_method.as_deref(), Some(method));
+                assert_eq!(profile.provider_methods, vec![method.to_string()]);
+                assert!(profile.direct_invocation);
+                assert_eq!(
+                    profile.invocation,
+                    ProviderAdapterInvocationKind::DirectProviderMethod
+                );
+            }
             assert_eq!(
                 codex_profile.direct_provider_method(ProviderAdapterOperation::ThreadRead),
                 Some("thread/read")

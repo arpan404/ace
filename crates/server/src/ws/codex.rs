@@ -2186,10 +2186,59 @@ fn codex_ws_method_for_adapter_operation(
         ProviderAdapterOperation::SkillsList => methods::CODEX_SKILLS_LIST,
         ProviderAdapterOperation::SkillsRead => methods::CODEX_SKILLS_READ,
         ProviderAdapterOperation::SkillsInstall => methods::CODEX_SKILLS_INSTALL,
+        ProviderAdapterOperation::SkillsConfigWrite => methods::CODEX_SKILLS_CONFIG_WRITE,
+        ProviderAdapterOperation::SkillsExtraRootsSet => methods::CODEX_SKILLS_EXTRA_ROOTS_SET,
+        ProviderAdapterOperation::PluginsInstalled => methods::CODEX_PLUGINS_INSTALLED,
         ProviderAdapterOperation::PluginsList => methods::CODEX_PLUGINS_LIST,
+        ProviderAdapterOperation::PluginsRead => methods::CODEX_PLUGINS_READ,
         ProviderAdapterOperation::PluginsInstall => methods::CODEX_PLUGINS_INSTALL,
+        ProviderAdapterOperation::PluginsUninstall => methods::CODEX_PLUGINS_UNINSTALL,
+        ProviderAdapterOperation::PluginShareCheckout => methods::CODEX_PLUGIN_SHARE_CHECKOUT,
+        ProviderAdapterOperation::PluginShareDelete => methods::CODEX_PLUGIN_SHARE_DELETE,
+        ProviderAdapterOperation::PluginShareList => methods::CODEX_PLUGIN_SHARE_LIST,
+        ProviderAdapterOperation::PluginShareSave => methods::CODEX_PLUGIN_SHARE_SAVE,
+        ProviderAdapterOperation::PluginShareUpdateTargets => {
+            methods::CODEX_PLUGIN_SHARE_UPDATE_TARGETS
+        }
         ProviderAdapterOperation::AppsList => methods::CODEX_APPS_LIST,
         ProviderAdapterOperation::AppsConfigWrite => methods::CODEX_APPS_CONFIG_WRITE,
+        ProviderAdapterOperation::AccountLoginStart => methods::CODEX_ACCOUNT_LOGIN_START,
+        ProviderAdapterOperation::AccountLoginCancel => methods::CODEX_ACCOUNT_LOGIN_CANCEL,
+        ProviderAdapterOperation::AccountLogout => methods::CODEX_ACCOUNT_LOGOUT,
+        ProviderAdapterOperation::AccountRead => methods::CODEX_ACCOUNT_READ,
+        ProviderAdapterOperation::AccountRateLimitsRead => methods::CODEX_ACCOUNT_RATE_LIMITS_READ,
+        ProviderAdapterOperation::AccountUsageRead => methods::CODEX_ACCOUNT_USAGE_READ,
+        ProviderAdapterOperation::AccountSendAddCreditsNudgeEmail => {
+            methods::CODEX_ACCOUNT_SEND_ADD_CREDITS_NUDGE_EMAIL
+        }
+        ProviderAdapterOperation::WindowsSandboxReadiness => {
+            methods::CODEX_WINDOWS_SANDBOX_READINESS
+        }
+        ProviderAdapterOperation::WindowsSandboxSetupStart => {
+            methods::CODEX_WINDOWS_SANDBOX_SETUP_START
+        }
+        ProviderAdapterOperation::ConfigRead => methods::CODEX_CONFIG_READ,
+        ProviderAdapterOperation::ConfigValueWrite => methods::CODEX_CONFIG_VALUE_WRITE,
+        ProviderAdapterOperation::ConfigBatchWrite => methods::CODEX_CONFIG_BATCH_WRITE,
+        ProviderAdapterOperation::ConfigMcpServerReload => methods::CODEX_CONFIG_MCP_SERVER_RELOAD,
+        ProviderAdapterOperation::ExperimentalFeatureList => {
+            methods::CODEX_EXPERIMENTAL_FEATURE_LIST
+        }
+        ProviderAdapterOperation::ExperimentalFeatureEnablementSet => {
+            methods::CODEX_EXPERIMENTAL_FEATURE_ENABLEMENT_SET
+        }
+        ProviderAdapterOperation::ExternalAgentConfigDetect => {
+            methods::CODEX_EXTERNAL_AGENT_CONFIG_DETECT
+        }
+        ProviderAdapterOperation::ExternalAgentConfigImport => {
+            methods::CODEX_EXTERNAL_AGENT_CONFIG_IMPORT
+        }
+        ProviderAdapterOperation::FeedbackUpload => methods::CODEX_FEEDBACK_UPLOAD,
+        ProviderAdapterOperation::FuzzyFileSearch => methods::CODEX_FUZZY_FILE_SEARCH,
+        ProviderAdapterOperation::HooksList => methods::CODEX_HOOKS_LIST,
+        ProviderAdapterOperation::MarketplaceAdd => methods::CODEX_MARKETPLACE_ADD,
+        ProviderAdapterOperation::MarketplaceRemove => methods::CODEX_MARKETPLACE_REMOVE,
+        ProviderAdapterOperation::MarketplaceUpgrade => methods::CODEX_MARKETPLACE_UPGRADE,
         ProviderAdapterOperation::RemoteConnectionList => methods::CODEX_REMOTE_CONNECTION_LIST,
         ProviderAdapterOperation::RemoteHandoff => methods::CODEX_REMOTE_HANDOFF,
         ProviderAdapterOperation::RuntimeStatus
@@ -5318,6 +5367,93 @@ mod tests {
                 && operation["runtime_request"]["mode"] == "adapter_operation"
                 && operation["runtime_request"]["params"] == "adapter_normalized"
         }));
+        for (operation, method, category, support, availability) in [
+            (
+                "skills_config_write",
+                "skills/config/write",
+                "skills",
+                "version_gated",
+                "version_gated",
+            ),
+            (
+                "skills_extra_roots_set",
+                "skills/extraRoots/set",
+                "skills",
+                "optional",
+                "optional",
+            ),
+            (
+                "plugins_installed",
+                "plugin/installed",
+                "plugins",
+                "optional",
+                "optional",
+            ),
+            (
+                "plugins_read",
+                "plugin/read",
+                "plugins",
+                "optional",
+                "optional",
+            ),
+            (
+                "plugins_uninstall",
+                "plugin/uninstall",
+                "plugins",
+                "optional",
+                "optional",
+            ),
+            (
+                "plugin_share_save",
+                "plugin/share/save",
+                "plugins",
+                "optional",
+                "optional",
+            ),
+            (
+                "account_read",
+                "account/read",
+                "account",
+                "optional",
+                "optional",
+            ),
+            (
+                "config_value_write",
+                "config/value/write",
+                "config",
+                "optional",
+                "optional",
+            ),
+            (
+                "fuzzy_file_search",
+                "fuzzyFileSearch",
+                "search",
+                "optional",
+                "optional",
+            ),
+            (
+                "marketplace_upgrade",
+                "marketplace/upgrade",
+                "plugins",
+                "optional",
+                "optional",
+            ),
+        ] {
+            assert!(
+                operations.iter().any(|entry| {
+                    entry["operation"] == operation
+                        && entry["category"] == category
+                        && entry["support"] == support
+                        && entry["availability"] == availability
+                        && entry["invocation"] == "direct_provider_method"
+                        && entry["provider_methods"] == json!([method])
+                        && entry["runtime_request"]["invokable"] == true
+                        && entry["runtime_request"]["mode"] == "adapter_operation"
+                        && entry["runtime_request"]["params"] == "adapter_normalized"
+                }),
+                "missing provider runtime operation {operation}"
+            );
+        }
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "provider_events"
                 && operation["invocation"] == "event_stream"
