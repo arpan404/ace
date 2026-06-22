@@ -233,16 +233,18 @@ impl ToolFacts {
     fn from_input(input: &ToolNormalizationInput) -> Self {
         let op = first_string([
             input.provider.operation.as_deref(),
-            string_at(&input.provider.raw_args, "operation").as_deref(),
-            string_at(&input.provider.raw_args, "action").as_deref(),
-            string_at(&input.provider.raw_args, "name").as_deref(),
+            string_at_deep(&input.provider.raw_args, "operation").as_deref(),
+            string_at_deep(&input.provider.raw_args, "action").as_deref(),
+            string_at_deep(&input.provider.raw_args, "action_type").as_deref(),
+            string_at_deep(&input.provider.raw_args, "name").as_deref(),
         ])
         .unwrap_or_default();
         let tool = first_string([
             input.provider.tool_name.as_deref(),
-            string_at(&input.provider.raw_args, "toolName").as_deref(),
-            string_at(&input.provider.raw_args, "tool_name").as_deref(),
-            string_at(&input.provider.raw_args, "name").as_deref(),
+            string_at_deep(&input.provider.raw_args, "toolName").as_deref(),
+            string_at_deep(&input.provider.raw_args, "tool_name").as_deref(),
+            string_at_deep(&input.provider.raw_args, "tool").as_deref(),
+            string_at_deep(&input.provider.raw_args, "name").as_deref(),
         ])
         .unwrap_or_default();
         let server = input.provider.server_name.clone().unwrap_or_default();
@@ -253,9 +255,10 @@ impl ToolFacts {
             &tool,
             &op,
         ]
-        .join(" ")
-        .to_lowercase()
-        .replace(['_', '-'], " ");
+        .join(" ");
+        let haystack = format!("{haystack} {}", spaced_words(&haystack))
+            .to_lowercase()
+            .replace(['_', '-', '.', '/'], " ");
 
         Self {
             op,
@@ -273,7 +276,7 @@ fn infer_surface_action(
     if let Some(mapped) = browser_action(input.transport, facts) {
         return (ToolSurface::Browser, mapped);
     }
-    if let Some(mapped) = computer_action(input.transport, facts) {
+    if let Some(mapped) = computer_action(input.transport, facts, &input.provider.raw_args) {
         return (ToolSurface::Computer, mapped);
     }
     if let Some(mapped) = terminal_action(input.transport, facts, &input.provider.raw_args) {
@@ -291,17 +294,33 @@ fn infer_surface_action(
     if facts.haystack.contains("web search") || facts.haystack.contains("websearch") {
         return (ToolSurface::WebSearch, ToolActionKind::WebSearch);
     }
-    if facts.haystack.contains("image generation") || facts.haystack.contains("generate image") {
+    if facts.haystack.contains("image generation")
+        || facts.haystack.contains("imagegeneration")
+        || facts.haystack.contains("generate image")
+    {
         return (ToolSurface::Image, ToolActionKind::ImageGenerate);
     }
-    if facts.haystack.contains("image view") || facts.haystack.contains("view image") {
+    if facts.haystack.contains("image view")
+        || facts.haystack.contains("imageview")
+        || facts.haystack.contains("view image")
+    {
         return (ToolSurface::Image, ToolActionKind::ImageView);
     }
     if facts.haystack.contains("subagent")
         || facts.haystack.contains("collab agent")
         || facts.haystack.contains("agent spawn")
     {
-        return (ToolSurface::Subagent, ToolActionKind::SubagentSpawn);
+        let action = if facts.haystack.contains("steer") || facts.haystack.contains("message") {
+            ToolActionKind::SubagentSteer
+        } else if facts.haystack.contains("stop")
+            || facts.haystack.contains("close")
+            || facts.haystack.contains("terminate")
+        {
+            ToolActionKind::SubagentStop
+        } else {
+            ToolActionKind::SubagentSpawn
+        };
+        return (ToolSurface::Subagent, action);
     }
     if input.transport == ToolTransport::Mcp {
         return (ToolSurface::GenericMcp, ToolActionKind::ToolRun);
@@ -319,8 +338,10 @@ fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAct
         return None;
     }
 
-    let op = facts.op.as_str();
-    let action = match op {
+    let op = first_string([Some(facts.op.as_str()), Some(facts.tool.as_str())])
+        .unwrap_or_default()
+        .to_lowercase();
+    let action = match op.as_str() {
         "click"
         | "cua_click"
         | "dom_cua_click"
@@ -328,10 +349,18 @@ fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAct
         | "playwright_locator_dblclick"
         | "cua_double_click"
         | "dom_cua_double_click" => ToolActionKind::BrowserClick,
-        "fill" | "cua_type" | "dom_cua_type" | "playwright_locator_fill" => {
-            ToolActionKind::BrowserType
-        }
+        "fill"
+        | "type"
+        | "cua_type"
+        | "dom_cua_type"
+        | "dom_cua_fill"
+        | "playwright_locator_fill"
+        | "playwright_locator_type"
+        | "playwright_locator_press"
+        | "select_option" => ToolActionKind::BrowserType,
         "open_url"
+        | "goto"
+        | "navigate"
         | "navigate_tab_url"
         | "back"
         | "forward"
@@ -351,7 +380,7 @@ fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAct
         | "playwright_locator_is_visible"
         | "playwright_locator_is_enabled"
         | "playwright_locator_count" => ToolActionKind::BrowserInspect,
-        "tab_dev_logs" => ToolActionKind::BrowserConsole,
+        "tab_dev_logs" | "console_logs" | "browser_console" => ToolActionKind::BrowserConsole,
         "list_tabs" | "selected_tab" | "get_tab" | "select_tab" | "switch_tab" | "activate_tab"
         | "next_tab" | "previous_tab" | "create_tab" | "new_tab" | "close_tab" => {
             ToolActionKind::BrowserTab
@@ -373,25 +402,41 @@ fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAct
     Some(action)
 }
 
-fn computer_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolActionKind> {
+fn computer_action(
+    transport: ToolTransport,
+    facts: &ToolFacts,
+    args: &Value,
+) -> Option<ToolActionKind> {
+    let has_computer_identity = transport == ToolTransport::ComputerBridge
+        || facts.haystack.contains("computer")
+        || facts.haystack.contains("desktop")
+        || facts.haystack.contains("accessibility");
+    let has_bridge_operation =
+        is_computer_bridge_op(facts.op.as_str()) || is_computer_bridge_op(facts.tool.as_str());
     if transport != ToolTransport::ComputerBridge
-        && !facts.haystack.contains("computer")
-        && !facts.haystack.contains("desktop")
-        && !facts.haystack.contains("accessibility")
+        && !has_computer_identity
+        && !(has_bridge_operation && has_computer_bridge_args(args))
     {
         return None;
     }
-    let action = match facts.op.as_str() {
+    let op = first_string([Some(facts.op.as_str()), Some(facts.tool.as_str())])
+        .unwrap_or_default()
+        .to_lowercase();
+    let action = match op.as_str() {
         "click" | "double_click" | "cua_click" | "cua_double_click" => {
             ToolActionKind::ComputerClick
         }
-        "type" | "cua_type" | "fill" => ToolActionKind::ComputerType,
+        "type" | "type_text" | "cua_type" | "fill" => ToolActionKind::ComputerType,
         "scroll" | "cua_scroll" => ToolActionKind::ComputerScroll,
-        "key" | "keypress" | "cua_keypress" | "press_key" => ToolActionKind::ComputerKey,
+        "key" | "keypress" | "key_press" | "cua_keypress" | "press_key" => {
+            ToolActionKind::ComputerKey
+        }
         "screenshot" | "get_screenshot" | "cua_get_visible_screenshot" => {
             ToolActionKind::ComputerScreenshot
         }
-        "activate_app" | "open_app" | "select_window" => ToolActionKind::ComputerApp,
+        "activate_app" | "open_app" | "select_window" | "get_app_state" | "list_apps" => {
+            ToolActionKind::ComputerApp
+        }
         _ if facts.haystack.contains("click") => ToolActionKind::ComputerClick,
         _ if facts.haystack.contains("type") => ToolActionKind::ComputerType,
         _ if facts.haystack.contains("scroll") => ToolActionKind::ComputerScroll,
@@ -399,6 +444,46 @@ fn computer_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAc
         _ => ToolActionKind::ComputerApp,
     };
     Some(action)
+}
+
+fn is_computer_bridge_op(value: &str) -> bool {
+    matches!(
+        value,
+        "click"
+            | "double_click"
+            | "cua_click"
+            | "cua_double_click"
+            | "type"
+            | "type_text"
+            | "cua_type"
+            | "scroll"
+            | "cua_scroll"
+            | "key"
+            | "keypress"
+            | "key_press"
+            | "cua_keypress"
+            | "press_key"
+            | "screenshot"
+            | "get_screenshot"
+            | "cua_get_visible_screenshot"
+            | "activate_app"
+            | "open_app"
+            | "select_window"
+            | "get_app_state"
+            | "list_apps"
+    )
+}
+
+fn has_computer_bridge_args(args: &Value) -> bool {
+    first_string([
+        string_at_deep(args, "app").as_deref(),
+        string_at_deep(args, "appName").as_deref(),
+        string_at_deep(args, "window").as_deref(),
+        string_at_deep(args, "element").as_deref(),
+        string_at_deep(args, "key").as_deref(),
+    ])
+    .is_some()
+        || coordinate_target(args).is_some()
 }
 
 fn terminal_action(
@@ -412,8 +497,8 @@ fn terminal_action(
     if facts.haystack.contains("command execution")
         || facts.haystack.contains("command/exec")
         || facts.haystack.contains("terminal")
-        || string_at(args, "command").is_some()
-        || string_at(args, "cmd").is_some()
+        || string_at_deep(args, "command").is_some()
+        || string_at_deep(args, "cmd").is_some()
     {
         if facts.haystack.contains("resize") {
             Some(ToolActionKind::TerminalResize)
@@ -483,10 +568,11 @@ fn infer_target(
         ToolSurface::Browser => browser_target(action, args),
         ToolSurface::Computer => computer_target(args),
         ToolSurface::Terminal => first_string([
-            string_at(args, "command").as_deref(),
-            string_at(args, "cmd").as_deref(),
-            string_at(args, "processId").as_deref(),
-            string_at(args, "terminalId").as_deref(),
+            string_at_deep(args, "command").as_deref(),
+            string_at_deep(args, "cmd").as_deref(),
+            string_at_deep(args, "processId").as_deref(),
+            string_at_deep(args, "process_id").as_deref(),
+            string_at_deep(args, "terminalId").as_deref(),
         ])
         .map(|label| ToolTarget {
             kind: ToolTargetKind::Command,
@@ -495,10 +581,10 @@ fn infer_target(
         ToolSurface::Filesystem => file_target(args),
         ToolSurface::Github => github_target(action, args),
         ToolSurface::Subagent => first_string([
-            string_at(args, "agentName").as_deref(),
-            string_at(args, "agent_name").as_deref(),
-            string_at(args, "name").as_deref(),
-            string_at(args, "agentRole").as_deref(),
+            string_at_deep(args, "agentName").as_deref(),
+            string_at_deep(args, "agent_name").as_deref(),
+            string_at_deep(args, "name").as_deref(),
+            string_at_deep(args, "agentRole").as_deref(),
         ])
         .map(|label| ToolTarget {
             kind: ToolTargetKind::Agent,
@@ -522,8 +608,8 @@ fn infer_target(
 fn browser_target(action: ToolActionKind, args: &Value) -> Option<ToolTarget> {
     if action == ToolActionKind::BrowserNavigate {
         return first_string([
-            string_at(args, "url").as_deref(),
-            string_at(args, "href").as_deref(),
+            string_at_deep(args, "url").as_deref(),
+            string_at_deep(args, "href").as_deref(),
         ])
         .map(|label| ToolTarget {
             kind: ToolTargetKind::Url,
@@ -531,11 +617,12 @@ fn browser_target(action: ToolActionKind, args: &Value) -> Option<ToolTarget> {
         });
     }
     first_string([
-        string_at(args, "label").as_deref(),
-        string_at(args, "text").as_deref(),
-        string_at(args, "selector").as_deref(),
-        string_at(args, "locator").as_deref(),
-        string_at(args, "node_id").as_deref(),
+        string_at_deep(args, "label").as_deref(),
+        string_at_deep(args, "text").as_deref(),
+        string_at_deep(args, "selector").as_deref(),
+        string_at_deep(args, "locator").as_deref(),
+        string_at_deep(args, "node_id").as_deref(),
+        string_at_deep(args, "element_index").as_deref(),
     ])
     .map(|label| ToolTarget {
         kind: if label.starts_with('#') || label.starts_with('.') || label.contains('[') {
@@ -550,11 +637,11 @@ fn browser_target(action: ToolActionKind, args: &Value) -> Option<ToolTarget> {
 
 fn computer_target(args: &Value) -> Option<ToolTarget> {
     first_string([
-        string_at(args, "app").as_deref(),
-        string_at(args, "appName").as_deref(),
-        string_at(args, "window").as_deref(),
-        string_at(args, "element").as_deref(),
-        string_at(args, "label").as_deref(),
+        string_at_deep(args, "app").as_deref(),
+        string_at_deep(args, "appName").as_deref(),
+        string_at_deep(args, "window").as_deref(),
+        string_at_deep(args, "element").as_deref(),
+        string_at_deep(args, "label").as_deref(),
     ])
     .map(|label| ToolTarget {
         kind: ToolTargetKind::Application,
@@ -565,10 +652,10 @@ fn computer_target(args: &Value) -> Option<ToolTarget> {
 
 fn file_target(args: &Value) -> Option<ToolTarget> {
     first_string([
-        string_at(args, "path").as_deref(),
-        string_at(args, "file").as_deref(),
-        string_at(args, "filePath").as_deref(),
-        string_at(args, "relativePath").as_deref(),
+        string_at_deep(args, "path").as_deref(),
+        string_at_deep(args, "file").as_deref(),
+        string_at_deep(args, "filePath").as_deref(),
+        string_at_deep(args, "relativePath").as_deref(),
     ])
     .map(|label| ToolTarget {
         kind: ToolTargetKind::File,
@@ -578,10 +665,10 @@ fn file_target(args: &Value) -> Option<ToolTarget> {
 
 fn github_target(action: ToolActionKind, args: &Value) -> Option<ToolTarget> {
     let number = first_string([
-        string_at(args, "number").as_deref(),
-        string_at(args, "issue").as_deref(),
-        string_at(args, "pr").as_deref(),
-        string_at(args, "pullRequest").as_deref(),
+        string_at_deep(args, "number").as_deref(),
+        string_at_deep(args, "issue").as_deref(),
+        string_at_deep(args, "pr").as_deref(),
+        string_at_deep(args, "pullRequest").as_deref(),
     ]);
     number
         .map(|label| ToolTarget {
@@ -594,8 +681,8 @@ fn github_target(action: ToolActionKind, args: &Value) -> Option<ToolTarget> {
         })
         .or_else(|| {
             first_string([
-                string_at(args, "repo").as_deref(),
-                string_at(args, "repository").as_deref(),
+                string_at_deep(args, "repo").as_deref(),
+                string_at_deep(args, "repository").as_deref(),
             ])
             .map(|label| ToolTarget {
                 kind: ToolTargetKind::Repository,
@@ -605,8 +692,8 @@ fn github_target(action: ToolActionKind, args: &Value) -> Option<ToolTarget> {
 }
 
 fn coordinate_target(args: &Value) -> Option<ToolTarget> {
-    let x = number_at(args, "x")?;
-    let y = number_at(args, "y")?;
+    let x = number_at_deep(args, "x")?;
+    let y = number_at_deep(args, "y")?;
     Some(ToolTarget {
         kind: ToolTargetKind::Coordinates,
         label: format!("{x},{y}"),
@@ -667,11 +754,14 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             match action {
                 ToolActionKind::BrowserClick | ToolActionKind::ComputerClick => "Clicking",
                 ToolActionKind::BrowserType | ToolActionKind::ComputerType => "Typing into",
+                ToolActionKind::ComputerKey => "Pressing key in",
                 ToolActionKind::BrowserNavigate => "Opening",
                 ToolActionKind::BrowserScreenshot | ToolActionKind::ComputerScreenshot => {
                     "Capturing"
                 }
                 ToolActionKind::BrowserInspect => "Inspecting",
+                ToolActionKind::BrowserTab => "Switching",
+                ToolActionKind::BrowserViewport => "Resizing",
                 ToolActionKind::BrowserConsole => "Reading",
                 ToolActionKind::TerminalRun => "Running",
                 ToolActionKind::TerminalWrite => "Writing to",
@@ -681,6 +771,8 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 ToolActionKind::FileRead => "Reading",
                 ToolActionKind::GithubIssue | ToolActionKind::GithubPullRequest => "Reading",
                 ToolActionKind::GithubSearch | ToolActionKind::WebSearch => "Searching",
+                ToolActionKind::ImageView => "Viewing",
+                ToolActionKind::ImageGenerate => "Generating",
                 ToolActionKind::SubagentSpawn => "Starting",
                 ToolActionKind::SubagentSteer => "Steering",
                 ToolActionKind::SubagentStop => "Stopping",
@@ -690,9 +782,12 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
         ToolRunStatus::Completed => match action {
             ToolActionKind::BrowserClick | ToolActionKind::ComputerClick => "Clicked",
             ToolActionKind::BrowserType | ToolActionKind::ComputerType => "Typed into",
+            ToolActionKind::ComputerKey => "Pressed key in",
             ToolActionKind::BrowserNavigate => "Opened",
             ToolActionKind::BrowserScreenshot | ToolActionKind::ComputerScreenshot => "Captured",
             ToolActionKind::BrowserInspect => "Inspected",
+            ToolActionKind::BrowserTab => "Switched",
+            ToolActionKind::BrowserViewport => "Resized",
             ToolActionKind::BrowserConsole => "Read",
             ToolActionKind::TerminalRun => "Ran",
             ToolActionKind::TerminalWrite => "Wrote to",
@@ -700,7 +795,10 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             ToolActionKind::TerminalTerminate => "Stopped",
             ToolActionKind::FilePatch | ToolActionKind::FileEdit => "Edited",
             ToolActionKind::FileRead => "Read",
+            ToolActionKind::GithubIssue | ToolActionKind::GithubPullRequest => "Read",
             ToolActionKind::GithubSearch | ToolActionKind::WebSearch => "Searched",
+            ToolActionKind::ImageView => "Viewed",
+            ToolActionKind::ImageGenerate => "Generated",
             ToolActionKind::SubagentSpawn => "Started",
             ToolActionKind::SubagentSteer => "Steered",
             ToolActionKind::SubagentStop => "Stopped",
@@ -781,6 +879,15 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
     }
 }
 
+fn string_at_deep(value: &Value, key: &str) -> Option<String> {
+    string_at(value, key).or_else(|| {
+        ["input", "arguments", "args", "parameters", "params"]
+            .into_iter()
+            .filter_map(|nested| value.get(nested))
+            .find_map(|nested| string_at_deep(nested, key))
+    })
+}
+
 fn value_to_string(value: &Value) -> Option<String> {
     match value {
         Value::String(text) if !text.trim().is_empty() => Some(text.trim().to_string()),
@@ -798,6 +905,28 @@ fn number_at(value: &Value, key: &str) -> Option<i64> {
         }),
         _ => None,
     }
+}
+
+fn number_at_deep(value: &Value, key: &str) -> Option<i64> {
+    number_at(value, key).or_else(|| {
+        ["input", "arguments", "args", "parameters", "params"]
+            .into_iter()
+            .filter_map(|nested| value.get(nested))
+            .find_map(|nested| number_at_deep(nested, key))
+    })
+}
+
+fn spaced_words(value: &str) -> String {
+    let mut output = String::with_capacity(value.len() + 8);
+    let mut previous_lower_or_digit = false;
+    for character in value.chars() {
+        if character.is_ascii_uppercase() && previous_lower_or_digit {
+            output.push(' ');
+        }
+        output.push(character);
+        previous_lower_or_digit = character.is_ascii_lowercase() || character.is_ascii_digit();
+    }
+    output
 }
 
 fn first_string<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Option<String> {
@@ -891,6 +1020,46 @@ mod tests {
     }
 
     #[test]
+    fn nested_browser_bridge_arguments_keep_semantic_display() {
+        let clicked = normalize_tool_call(input(
+            ToolTransport::Mcp,
+            "mcpToolCall",
+            "playwright_locator_click",
+            "",
+            json!({
+                "arguments": {
+                    "selector": "button[data-testid=save]",
+                    "operation": "playwright_locator_click"
+                }
+            }),
+        ));
+        assert_eq!(clicked.surface, ToolSurface::Browser);
+        assert_eq!(clicked.action, ToolActionKind::BrowserClick);
+        assert_eq!(
+            clicked.display.title,
+            "Clicked button[data-testid=save] in Browser"
+        );
+
+        let typed = normalize_tool_call(input(
+            ToolTransport::Mcp,
+            "mcpToolCall",
+            "dom_cua_type",
+            "",
+            json!({
+                "parameters": {
+                    "text": "hello@example.com"
+                }
+            }),
+        ));
+        assert_eq!(typed.surface, ToolSurface::Browser);
+        assert_eq!(typed.action, ToolActionKind::BrowserType);
+        assert_eq!(
+            typed.display.title,
+            "Typed into hello@example.com in Browser"
+        );
+    }
+
+    #[test]
     fn browser_inspection_screenshot_console_and_viewport_are_distinct() {
         let cases = [
             (
@@ -911,7 +1080,7 @@ mod tests {
             (
                 "resize_browser",
                 ToolActionKind::BrowserViewport,
-                "Ran Browser viewport",
+                "Resized Browser viewport",
             ),
         ];
         for (op, action, title) in cases {
@@ -950,6 +1119,17 @@ mod tests {
         assert_eq!(typed.surface, ToolSurface::Computer);
         assert_eq!(typed.action, ToolActionKind::ComputerType);
         assert_eq!(typed.display.title, "Typed into TextEdit on Computer");
+
+        let keyed = normalize_tool_call(input(
+            ToolTransport::Mcp,
+            "mcpToolCall",
+            "press_key",
+            "",
+            json!({ "arguments": { "app": "Terminal", "key": "Return" } }),
+        ));
+        assert_eq!(keyed.surface, ToolSurface::Computer);
+        assert_eq!(keyed.action, ToolActionKind::ComputerKey);
+        assert_eq!(keyed.display.title, "Pressed key in Terminal on Computer");
     }
 
     #[test]
@@ -1007,6 +1187,17 @@ mod tests {
         ));
         assert_eq!(subagent.surface, ToolSurface::Subagent);
         assert_eq!(subagent.display.title, "Started subagent reviewer");
+
+        let image = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "imageGeneration",
+            "image_generation",
+            "generate",
+            json!({ "prompt": "diagram" }),
+        ));
+        assert_eq!(image.surface, ToolSurface::Image);
+        assert_eq!(image.action, ToolActionKind::ImageGenerate);
+        assert_eq!(image.display.title, "Generated image");
     }
 
     #[test]

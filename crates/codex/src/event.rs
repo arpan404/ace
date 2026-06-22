@@ -377,7 +377,10 @@ fn normalize_codex_tool_notification(
     provider.turn_id = string_at(params, "turnId");
     provider.item_id = string_at(params, "itemId").or_else(|| string_at(item, "id"));
     provider.tool_name = tool_name_for_item(&item_type, item);
-    provider.server_name = string_at(item, "serverName").or_else(|| string_at(item, "server"));
+    provider.server_name = string_at_deep(item, "serverName")
+        .or_else(|| string_at_deep(item, "server_name"))
+        .or_else(|| string_at_deep(item, "server"))
+        .or_else(|| string_at_deep(item, "mcpServer"));
     provider.operation = operation_for_item(&item_type, item);
     provider.raw_args = args_for_item(item);
     provider.raw_result = item.get("result").cloned().unwrap_or(Value::Null);
@@ -432,15 +435,22 @@ fn transport_for_item(item_type: &str, provider: &ProviderToolMetadata) -> ToolT
 }
 
 fn tool_name_for_item(item_type: &str, item: &Value) -> Option<String> {
-    string_at(item, "toolName")
-        .or_else(|| string_at(item, "tool_name"))
-        .or_else(|| string_at(item, "name"))
-        .or_else(|| string_at(item, "tool"))
+    string_at_deep(item, "toolName")
+        .or_else(|| string_at_deep(item, "tool_name"))
+        .or_else(|| string_at_deep(item, "tool"))
+        .or_else(|| string_at_deep(item, "function"))
+        .or_else(|| string_at_deep(item, "name"))
         .or_else(|| {
             if item_type == "commandExecution" {
                 Some("shell".to_string())
             } else if item_type == "fileChange" {
                 Some("apply_patch".to_string())
+            } else if item_type == "webSearch" {
+                Some("web_search".to_string())
+            } else if item_type == "imageView" {
+                Some("image_view".to_string())
+            } else if item_type == "imageGeneration" {
+                Some("image_generation".to_string())
             } else {
                 None
             }
@@ -448,20 +458,18 @@ fn tool_name_for_item(item_type: &str, item: &Value) -> Option<String> {
 }
 
 fn operation_for_item(item_type: &str, item: &Value) -> Option<String> {
-    item.get("input")
-        .and_then(|input| string_at(input, "operation"))
-        .or_else(|| {
-            item.get("arguments")
-                .and_then(|args| string_at(args, "operation"))
-        })
-        .or_else(|| {
-            item.get("args")
-                .and_then(|args| string_at(args, "operation"))
-        })
-        .or_else(|| string_at(item, "operation"))
+    string_at_deep(item, "operation")
+        .or_else(|| string_at_deep(item, "action"))
+        .or_else(|| string_at_deep(item, "action_type"))
         .or_else(|| {
             if item_type == "commandExecution" {
                 Some("run".to_string())
+            } else if item_type == "webSearch" {
+                Some("search".to_string())
+            } else if item_type == "imageView" {
+                Some("view".to_string())
+            } else if item_type == "imageGeneration" {
+                Some("generate".to_string())
             } else {
                 None
             }
@@ -499,6 +507,12 @@ fn item_type_from_method(method: &str) -> Option<String> {
         Some("collabAgentToolCall".to_string())
     } else if method.contains("subAgentActivity") {
         Some("subAgentActivity".to_string())
+    } else if method.contains("webSearch") {
+        Some("webSearch".to_string())
+    } else if method.contains("imageView") {
+        Some("imageView".to_string())
+    } else if method.contains("imageGeneration") {
+        Some("imageGeneration".to_string())
     } else {
         None
     }
@@ -513,6 +527,15 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
             Value::Number(number) => Some(number.to_string()),
             _ => None,
         })
+}
+
+fn string_at_deep(value: &Value, key: &str) -> Option<String> {
+    string_at(value, key).or_else(|| {
+        ["input", "arguments", "args", "parameters", "params"]
+            .into_iter()
+            .filter_map(|nested| value.get(nested))
+            .find_map(|nested| string_at_deep(nested, key))
+    })
 }
 
 #[cfg(test)]
@@ -561,6 +584,73 @@ mod tests {
         assert_eq!(tool.action, ToolActionKind::BrowserClick);
         assert_eq!(tool.display.title, "Clicked Deploy in Browser");
         assert_eq!(tool.provider.raw_payload["threadId"], "thread-1");
+    }
+
+    #[test]
+    fn normalizes_nested_bridge_payloads_without_generic_mcp_titles() {
+        let raw = json!({
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "item": {
+                "id": "item-1",
+                "type": "mcpToolCall",
+                "serverName": "browser",
+                "toolName": "playwright_locator_click",
+                "input": {
+                    "arguments": {
+                        "operation": "playwright_locator_click",
+                        "selector": "#continue"
+                    }
+                },
+                "result": {
+                    "ok": true
+                }
+            }
+        });
+        let events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/completed".to_string(),
+            params: raw.clone(),
+        });
+
+        let ProviderEvent::SemanticTool { tool } = &events[0] else {
+            panic!("expected semantic tool");
+        };
+        assert_eq!(tool.surface, ToolSurface::Browser);
+        assert_eq!(tool.action, ToolActionKind::BrowserClick);
+        assert_eq!(tool.display.title, "Clicked #continue in Browser");
+        assert!(!tool.display.title.contains("MCP"));
+        assert_eq!(tool.provider.raw_payload, raw);
+        assert_eq!(tool.provider.raw_result["ok"], true);
+    }
+
+    #[test]
+    fn normalizes_computer_use_mcp_tool_names_as_desktop_actions() {
+        let events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "item-1",
+                    "type": "mcpToolCall",
+                    "serverName": "computer-use",
+                    "toolName": "press_key",
+                    "input": {
+                        "arguments": {
+                            "app": "Xcode",
+                            "key": "Return"
+                        }
+                    }
+                }
+            }),
+        });
+
+        let ProviderEvent::SemanticTool { tool } = &events[0] else {
+            panic!("expected semantic tool");
+        };
+        assert_eq!(tool.surface, ToolSurface::Computer);
+        assert_eq!(tool.action, ToolActionKind::ComputerKey);
+        assert_eq!(tool.display.title, "Pressed key in Xcode on Computer");
     }
 
     #[test]
