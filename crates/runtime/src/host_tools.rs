@@ -5,7 +5,7 @@ use crate::{
         ToolRunStatus, ToolSurface, ToolTransport, normalize_tool_call,
     },
 };
-use ace_core::ProviderKind;
+use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -22,6 +22,8 @@ pub struct HostToolDescriptor {
     pub surface: ToolSurface,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<ToolActionKind>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<ProviderCapability>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Value::is_null")]
@@ -40,12 +42,46 @@ impl HostToolDescriptor {
             transport,
             surface,
             actions: Vec::new(),
+            capabilities: Vec::new(),
             description: None,
             input_schema: Value::Null,
             requires_user_approval: false,
             max_argument_bytes: DEFAULT_MAX_ARGUMENT_BYTES,
             timeout: Duration::from_secs(30),
         }
+    }
+
+    #[must_use]
+    pub fn with_capability(mut self, key: impl Into<String>, version: u32) -> Self {
+        self.capabilities.push(ProviderCapability {
+            key: key.into(),
+            version,
+        });
+        self
+    }
+
+    #[must_use]
+    pub fn effective_capabilities(&self) -> Vec<ProviderCapability> {
+        let mut capabilities = self.capabilities.clone();
+        capabilities.push(ProviderCapability {
+            key: format!("host_tool.transport.{}", serde_name(self.transport)),
+            version: 1,
+        });
+        capabilities.push(ProviderCapability {
+            key: format!("host_tool.surface.{}", serde_name(self.surface)),
+            version: 1,
+        });
+        capabilities.extend(self.actions.iter().map(|action| ProviderCapability {
+            key: format!("host_tool.action.{}", serde_name(*action)),
+            version: 1,
+        }));
+        dedupe_capabilities(capabilities)
+    }
+
+    #[must_use]
+    pub fn with_effective_capabilities(mut self) -> Self {
+        self.capabilities = self.effective_capabilities();
+        self
     }
 }
 
@@ -169,6 +205,7 @@ impl HostToolRegistry {
             .handlers
             .values()
             .map(|handler| handler.descriptor())
+            .map(HostToolDescriptor::with_effective_capabilities)
             .collect::<Vec<_>>();
         descriptors.sort_by(|left, right| left.name.cmp(&right.name));
         descriptors
@@ -356,6 +393,23 @@ fn operation_for_action(action: ToolActionKind) -> &'static str {
     }
 }
 
+fn serde_name<T: Serialize>(value: T) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(ToString::to_string))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn dedupe_capabilities(mut capabilities: Vec<ProviderCapability>) -> Vec<ProviderCapability> {
+    capabilities.sort_by(|left, right| {
+        left.key
+            .cmp(&right.key)
+            .then_with(|| right.version.cmp(&left.version))
+    });
+    capabilities.dedup_by(|left, right| left.key == right.key);
+    capabilities
+}
+
 fn normalize_name(name: &str) -> Result<String, HostToolError> {
     let normalized = name.trim().to_ascii_lowercase();
     if normalized.is_empty() {
@@ -470,6 +524,10 @@ mod tests {
         );
         descriptor.aliases = vec!["ace_browser".to_string(), "browser".to_string()];
         descriptor.actions = vec![ToolActionKind::BrowserNavigate];
+        descriptor.capabilities = vec![ProviderCapability {
+            key: "host_tool.browser.tabs".to_string(),
+            version: 2,
+        }];
 
         let mut registry = HostToolRegistry::new();
         registry
@@ -481,7 +539,69 @@ mod tests {
 
         assert!(registry.resolve("BROWSER.OPEN").is_some());
         assert!(registry.resolve("ace_browser").is_some());
-        assert_eq!(registry.descriptors()[0].name, "browser.open");
+        let descriptor = &registry.descriptors()[0];
+        assert_eq!(descriptor.name, "browser.open");
+        assert!(descriptor.capabilities.contains(&ProviderCapability {
+            key: "host_tool.browser.tabs".to_string(),
+            version: 2,
+        }));
+        assert!(descriptor.capabilities.contains(&ProviderCapability {
+            key: "host_tool.transport.browser_bridge".to_string(),
+            version: 1,
+        }));
+        assert!(descriptor.capabilities.contains(&ProviderCapability {
+            key: "host_tool.surface.browser".to_string(),
+            version: 1,
+        }));
+        assert!(descriptor.capabilities.contains(&ProviderCapability {
+            key: "host_tool.action.browser.navigate".to_string(),
+            version: 1,
+        }));
+    }
+
+    #[test]
+    fn effective_capabilities_are_stable_and_versioned() {
+        let mut descriptor = HostToolDescriptor::new(
+            "computer.click",
+            ToolTransport::ComputerBridge,
+            ToolSurface::Computer,
+        );
+        descriptor.actions = vec![ToolActionKind::ComputerClick, ToolActionKind::ComputerClick];
+        descriptor.capabilities = vec![
+            ProviderCapability {
+                key: "host_tool.action.computer.click".to_string(),
+                version: 3,
+            },
+            ProviderCapability {
+                key: "host_tool.computer.accessibility".to_string(),
+                version: 1,
+            },
+        ];
+
+        let capabilities = descriptor.effective_capabilities();
+        assert_eq!(
+            capabilities
+                .iter()
+                .filter(|capability| capability.key == "host_tool.action.computer.click")
+                .count(),
+            1
+        );
+        assert!(capabilities.contains(&ProviderCapability {
+            key: "host_tool.action.computer.click".to_string(),
+            version: 3,
+        }));
+        assert!(capabilities.contains(&ProviderCapability {
+            key: "host_tool.transport.computer_bridge".to_string(),
+            version: 1,
+        }));
+        assert!(capabilities.contains(&ProviderCapability {
+            key: "host_tool.surface.computer".to_string(),
+            version: 1,
+        }));
+        assert!(capabilities.contains(&ProviderCapability {
+            key: "host_tool.computer.accessibility".to_string(),
+            version: 1,
+        }));
     }
 
     #[test]

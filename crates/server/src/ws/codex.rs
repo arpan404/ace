@@ -3831,6 +3831,7 @@ mod tests {
         git::GitService,
         github::GithubService,
     };
+    use ace_core::ProviderCapability;
     use ace_git::{
         CommandOutput, CommandRequest, GitClient, GitToolError, GithubCliClient, ProcessRunner,
     };
@@ -9470,6 +9471,10 @@ mod tests {
         );
         descriptor.aliases = vec!["ace_browser".to_string()];
         descriptor.actions = vec![ToolActionKind::BrowserNavigate];
+        descriptor.capabilities = vec![ProviderCapability {
+            key: "host_tool.browser.tabs".to_string(),
+            version: 2,
+        }];
         let mut host_tools = HostToolRegistry::new();
         host_tools
             .register(Arc::new(RecordingHostTool {
@@ -9505,6 +9510,24 @@ mod tests {
         assert_eq!(body["tools"][0]["aliases"][0], "ace_browser");
         assert_eq!(body["tools"][0]["transport"], "browser_bridge");
         assert_eq!(body["tools"][0]["surface"], "browser");
+        assert!(
+            body["tools"][0]["capabilities"]
+                .as_array()
+                .expect("capabilities")
+                .contains(&json!({
+                    "key": "host_tool.browser.tabs",
+                    "version": 2
+                }))
+        );
+        assert!(
+            body["tools"][0]["capabilities"]
+                .as_array()
+                .expect("capabilities")
+                .contains(&json!({
+                    "key": "host_tool.action.browser.navigate",
+                    "version": 1
+                }))
+        );
     }
 
     #[tokio::test]
