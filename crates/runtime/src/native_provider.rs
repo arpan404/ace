@@ -5,7 +5,7 @@ use crate::provider::{
     ProviderServerRequestResponder, ace_provider_adapter_contract,
     ace_provider_contract_requirements, provider_adapter_profile, provider_contract_report,
 };
-use crate::tools::SemanticToolCall;
+use crate::tools::{SemanticToolCall, ToolNormalizationInput, normalize_tool_call};
 use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,13 @@ pub struct NativeProviderEventsEmitRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NativeProviderSemanticToolEmitRequest {
     pub tool: SemanticToolCall,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeProviderSemanticToolNormalizeRequest {
+    pub input: ToolNormalizationInput,
+    #[serde(default)]
+    pub emit: bool,
 }
 
 #[derive(Debug)]
@@ -103,6 +110,12 @@ impl AceNativeProvider {
                 "Emit semantic tool call",
                 ProviderFeatureCategory::Tools,
                 "ace.semantic_tool.emit",
+            ),
+            (
+                "ace.semantic_tool.normalize",
+                "Normalize provider tool call",
+                ProviderFeatureCategory::Tools,
+                "ace.semantic_tool.normalize",
             ),
             (
                 "provider.adapter_contract",
@@ -276,6 +289,37 @@ impl ProviderDriver for AceNativeProvider {
                     "event_count": 1,
                 }))
             }
+            "ace.semantic_tool.normalize" => {
+                let normalize =
+                    serde_json::from_value::<NativeProviderSemanticToolNormalizeRequest>(
+                        request.params,
+                    )
+                    .map_err(|error| ProviderDriverError::RequestFailed {
+                        provider: "ace".to_string(),
+                        method: "ace.semantic_tool.normalize".to_string(),
+                        message: error.to_string(),
+                    })?;
+                let tool = normalize_tool_call(normalize.input);
+                if normalize.emit {
+                    self.event_tx
+                        .send(vec![ProviderEvent::SemanticTool {
+                            tool: Box::new(tool.clone()),
+                        }])
+                        .await
+                        .map_err(|_| ProviderDriverError::RequestFailed {
+                            provider: "ace".to_string(),
+                            method: "ace.semantic_tool.normalize".to_string(),
+                            message: "Ace native provider event queue is closed".to_string(),
+                        })?;
+                }
+                Ok(json!({
+                    "provider": "ace",
+                    "accepted": true,
+                    "tool": tool,
+                    "emitted": normalize.emit,
+                    "event_count": if normalize.emit { 1 } else { 0 },
+                }))
+            }
             "ace.adapter.validate" => {
                 let request = serde_json::from_value::<AdapterValidationRequest>(request.params)
                     .map_err(|error| ProviderDriverError::RequestFailed {
@@ -367,8 +411,8 @@ impl ProviderServerRequestResponder for AceNativeProvider {
 mod tests {
     use super::*;
     use crate::tools::{
-        ProviderToolMetadata, ToolActionKind, ToolDisplay, ToolRunStatus, ToolSurface, ToolTarget,
-        ToolTargetKind, ToolTransport,
+        ProviderToolMetadata, ToolActionKind, ToolDisplay, ToolNormalizationInput, ToolRunStatus,
+        ToolSurface, ToolTarget, ToolTargetKind, ToolTransport,
     };
     use std::time::Duration;
 
@@ -664,6 +708,102 @@ mod tests {
         };
         assert_eq!(tool.display.title, "Clicked #submit in Browser");
         assert_eq!(tool.provider.raw_args, json!({ "selector": "#submit" }));
+    }
+
+    #[tokio::test]
+    async fn native_provider_normalizes_provider_tool_metadata_without_emitting() {
+        let provider = AceNativeProvider::new();
+        let mut metadata = ProviderToolMetadata::new();
+        metadata.provider = Some("future-provider".to_string());
+        metadata.server_name = Some("browser".to_string());
+        metadata.tool_name = Some("playwright_locator_click".to_string());
+        metadata.operation = Some("playwright_locator_click".to_string());
+        metadata.raw_args = json!({
+            "selector": "button:has-text('Deploy')",
+            "label": "Deploy"
+        });
+        metadata.raw_payload = json!({
+            "providerSpecificEnvelope": true
+        });
+
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.semantic_tool.normalize".to_string(),
+                params: json!({
+                    "input": ToolNormalizationInput {
+                        transport: ToolTransport::Mcp,
+                        status: ToolRunStatus::Completed,
+                        provider: metadata,
+                        item_type: Some("mcpToolCall".to_string()),
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize semantic tool");
+
+        assert_eq!(response["emitted"], false);
+        assert_eq!(response["event_count"], 0);
+        assert_eq!(response["tool"]["surface"], "browser");
+        assert_eq!(response["tool"]["action"], "browser.click");
+        assert_eq!(
+            response["tool"]["display"]["title"],
+            "Clicked Deploy in Browser"
+        );
+        assert_eq!(
+            response["tool"]["provider"]["raw_payload"],
+            json!({ "providerSpecificEnvelope": true })
+        );
+    }
+
+    #[tokio::test]
+    async fn native_provider_normalizes_and_emits_provider_tool_metadata() {
+        let provider = AceNativeProvider::new();
+        let mut metadata = ProviderToolMetadata::new();
+        metadata.provider = Some("future-provider".to_string());
+        metadata.tool_name = Some("dom_cua_type".to_string());
+        metadata.operation = Some("dom_cua_type".to_string());
+        metadata.raw_args = json!({
+            "text": "hello",
+            "selector": "input[name=q]"
+        });
+
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.semantic_tool.normalize".to_string(),
+                params: json!({
+                    "emit": true,
+                    "input": ToolNormalizationInput {
+                        transport: ToolTransport::Mcp,
+                        status: ToolRunStatus::Started,
+                        provider: metadata,
+                        item_type: Some("dynamicToolCall".to_string()),
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize and emit semantic tool");
+
+        assert_eq!(response["emitted"], true);
+        assert_eq!(response["event_count"], 1);
+        assert_eq!(
+            response["tool"]["display"]["title"],
+            "Typing into hello in Browser"
+        );
+
+        let events = provider
+            .next_events()
+            .await
+            .expect("event poll")
+            .expect("semantic tool event");
+        let ProviderEvent::SemanticTool { tool } = &events[0] else {
+            panic!("expected semantic tool event");
+        };
+        assert_eq!(tool.surface, ToolSurface::Browser);
+        assert_eq!(tool.action, ToolActionKind::BrowserType);
+        assert_eq!(tool.display.title, "Typing into hello in Browser");
+        assert_eq!(tool.provider.raw_args["text"], "hello");
     }
 
     #[tokio::test]

@@ -5071,7 +5071,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn provider_runtime_emits_ace_native_semantic_tool_events_over_ws() {
+    async fn provider_runtime_normalizes_ace_native_semantic_tool_events_over_ws() {
         let backend = Arc::new(FakeCodexBackend::default());
         let runner = Arc::new(FakeRunner);
         let state = WsApiState::new_services(
@@ -5108,43 +5108,29 @@ mod tests {
                     "method": methods::PROVIDER_RUNTIME_REQUEST,
                     "payload": {
                         "provider": "ace",
-                        "method": "ace.semantic_tool.emit",
+                        "method": "ace.semantic_tool.normalize",
                         "params": {
-                            "tool": {
-                                "transport": "browser_bridge",
-                                "surface": "browser",
-                                "action": "browser.click",
-                                "display": {
-                                    "title": "Clicked Deploy in Browser",
-                                    "summary": "selector #deploy",
-                                    "target": {
-                                        "kind": "selector",
-                                        "label": "#deploy"
-                                    },
-                                    "status": "completed",
-                                    "icon_key": "browser-click",
-                                    "technical_metadata": {
-                                        "operation": "click"
-                                    }
-                                },
+                            "emit": true,
+                            "input": {
+                                "transport": "mcp",
+                                "status": "completed",
+                                "item_type": "mcpToolCall",
                                 "provider": {
-                                    "provider": "ace",
-                                    "method": "ace.semantic_tool.emit",
+                                    "provider": "future-provider",
+                                    "method": "tool/call",
                                     "item_id": "tool-1",
                                     "turn_id": "turn-1",
                                     "thread_id": "thread-1",
-                                    "server_name": null,
-                                    "tool_name": "browser",
-                                    "operation": "click",
+                                    "server_name": "browser",
+                                    "tool_name": "playwright_locator_click",
+                                    "operation": "playwright_locator_click",
                                     "raw_args": {
+                                        "label": "Deploy",
                                         "selector": "#deploy"
                                     },
-                                    "raw_result": {
-                                        "ok": true
-                                    },
+                                    "raw_result": { "ok": true },
                                     "raw_payload": {
-                                        "tool": "browser",
-                                        "operation": "click"
+                                        "providerSpecificEnvelope": true
                                     }
                                 }
                             }
@@ -5159,7 +5145,12 @@ mod tests {
             panic!("expected emit result");
         };
         assert_eq!(body["accepted"], true);
+        assert_eq!(body["emitted"], true);
         assert_eq!(body["event_count"], 1);
+        assert_eq!(
+            body["tool"]["display"]["title"],
+            "Clicked Deploy in Browser"
+        );
 
         let pushed = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
             .await
@@ -5179,7 +5170,11 @@ mod tests {
         );
         assert_eq!(
             body["events"][0]["tool"]["provider"]["raw_args"],
-            json!({ "selector": "#deploy" })
+            json!({ "label": "Deploy", "selector": "#deploy" })
+        );
+        assert_eq!(
+            body["events"][0]["tool"]["provider"]["raw_payload"],
+            json!({ "providerSpecificEnvelope": true })
         );
         assert_eq!(body["raw_events"][0]["type"], "semantic_tool");
         assert_eq!(
