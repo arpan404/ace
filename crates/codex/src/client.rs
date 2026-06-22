@@ -106,6 +106,15 @@ impl CodexTurnStart {
             })),
         }
     }
+
+    #[must_use]
+    pub fn is_plan_mode(&self) -> bool {
+        self.collaboration_mode
+            .as_ref()
+            .and_then(|mode| mode.get("mode"))
+            .and_then(Value::as_str)
+            == Some("plan")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

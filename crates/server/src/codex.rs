@@ -2,7 +2,10 @@ use ace_codex::{
     CodexClient, CodexConfig, CodexGuardianDeniedActionApproval, CodexPermissionCatalog,
     CodexPlanImplementation, CodexStdioTransport, CodexThreadStart, CodexTurnStart, Result,
 };
-use ace_runtime::provider::ProviderEvent;
+use ace_runtime::{
+    provider::ProviderEvent,
+    threads::{AgentRuntimeState, PlanSessionStatus, RuntimeStateError, TurnMode},
+};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::{sync::Arc, time::Duration};
@@ -15,6 +18,8 @@ pub enum CodexApiError {
     Codex(#[from] ace_codex::CodexError),
     #[error("unsupported provider `{0}` for Codex-backed provider runtime request")]
     UnsupportedProvider(String),
+    #[error("thread `{thread_id}` already has an active turn")]
+    TurnAlreadyActive { thread_id: String },
 }
 
 impl CodexApiError {
@@ -26,6 +31,17 @@ impl CodexApiError {
             Self::Codex(ace_codex::CodexError::RequestFailed { .. }) => "codex_request_failed",
             Self::Codex(_) => "codex_error",
             Self::UnsupportedProvider(_) => "unsupported_provider",
+            Self::TurnAlreadyActive { .. } => "turn_already_active",
+        }
+    }
+}
+
+impl From<RuntimeStateError> for CodexApiError {
+    fn from(error: RuntimeStateError) -> Self {
+        match error {
+            RuntimeStateError::TurnAlreadyActive { thread_id } => {
+                Self::TurnAlreadyActive { thread_id }
+            }
         }
     }
 }
@@ -269,6 +285,7 @@ impl CodexBackend for LiveCodexBackend {
 #[derive(Clone)]
 pub struct CodexService {
     backend: DynCodexBackend,
+    state: Arc<Mutex<AgentRuntimeState>>,
 }
 
 impl CodexService {
@@ -276,12 +293,16 @@ impl CodexService {
     pub fn production() -> Self {
         Self {
             backend: Arc::new(LiveCodexBackend::production()),
+            state: Arc::new(Mutex::new(AgentRuntimeState::default())),
         }
     }
 
     #[must_use]
     pub fn new(backend: DynCodexBackend) -> Self {
-        Self { backend }
+        Self {
+            backend,
+            state: Arc::new(Mutex::new(AgentRuntimeState::default())),
+        }
     }
 
     pub async fn raw_request(
@@ -403,14 +424,37 @@ impl CodexService {
         &self,
         request: CodexTurnStart,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.start_turn(request).await?)
+        let thread_id = request.thread_id.clone();
+        let mode = if request.is_plan_mode() {
+            TurnMode::Plan
+        } else {
+            TurnMode::Normal
+        };
+        self.state
+            .lock()
+            .await
+            .begin_turn(thread_id.clone(), None, mode)?;
+        match self.backend.start_turn(request).await {
+            Ok(response) => {
+                let turn_id = extract_turn_id(&response);
+                self.state.lock().await.update_turn_id(&thread_id, turn_id);
+                Ok(response)
+            }
+            Err(error) => {
+                self.state.lock().await.abandon_active_turn(&thread_id);
+                Err(error.into())
+            }
+        }
     }
 
     pub async fn continue_plan_in_thread(
         &self,
         request: CodexPlanImplementation,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.continue_plan_in_thread(request).await?)
+        let thread_id = request.thread_id.clone();
+        let response = self.backend.continue_plan_in_thread(request).await?;
+        self.state.lock().await.mark_plan_implementing(&thread_id);
+        Ok(response)
     }
 
     pub async fn fork_plan_for_implementation(
@@ -431,7 +475,12 @@ impl CodexService {
         &self,
         thread_id: String,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.interrupt_turn(&thread_id).await?)
+        let response = self.backend.interrupt_turn(&thread_id).await?;
+        self.state
+            .lock()
+            .await
+            .finish_active_turn(&thread_id, PlanSessionStatus::Rejected);
+        Ok(response)
     }
 
     pub async fn config_requirements_read(&self) -> std::result::Result<Value, CodexApiError> {
@@ -458,7 +507,11 @@ impl CodexService {
     pub async fn next_events(
         &self,
     ) -> std::result::Result<Option<Vec<ProviderEvent>>, CodexApiError> {
-        Ok(self.backend.next_events().await?)
+        let events = self.backend.next_events().await?;
+        if let Some(events) = events.as_ref() {
+            self.state.lock().await.apply_provider_events(events);
+        }
+        Ok(events)
     }
 
     pub async fn respond_server_request_result(
@@ -495,6 +548,16 @@ impl CodexService {
     pub async fn restart(&self, timeout: Duration) -> std::result::Result<(), CodexApiError> {
         Ok(self.backend.restart(timeout).await?)
     }
+}
+
+fn extract_turn_id(response: &Value) -> Option<String> {
+    response
+        .pointer("/turn/id")
+        .or_else(|| response.pointer("/turn/turnId"))
+        .or_else(|| response.get("turnId"))
+        .or_else(|| response.get("id"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
 }
 
 #[cfg(test)]
@@ -811,5 +874,71 @@ pub mod tests {
                 "ephemeral": ephemeral,
             }))
         }
+    }
+
+    #[tokio::test]
+    async fn service_rejects_plan_turn_while_thread_has_active_turn() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        service
+            .start_turn(CodexTurnStart::plan(
+                "thread-1",
+                "make a plan",
+                "gpt-5.5".to_string(),
+            ))
+            .await
+            .expect("first plan turn");
+
+        let error = service
+            .start_turn(CodexTurnStart::plan(
+                "thread-1",
+                "make another plan",
+                "gpt-5.5".to_string(),
+            ))
+            .await
+            .expect_err("active turn rejection");
+        assert!(matches!(
+            error,
+            CodexApiError::TurnAlreadyActive { ref thread_id } if thread_id == "thread-1"
+        ));
+        assert_eq!(error.code(), "turn_already_active");
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["turn/start:thread-1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_clears_active_turn_from_provider_completion_event() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        service
+            .start_turn(CodexTurnStart::plan(
+                "thread-1",
+                "make a plan",
+                "gpt-5.5".to_string(),
+            ))
+            .await
+            .expect("first plan turn");
+        backend.push_events(vec![ProviderEvent::RawNotification {
+            method: "turn/completed".to_string(),
+            params: serde_json::json!({ "threadId": "thread-1", "turnId": "turn-1" }),
+        }]);
+        service.next_events().await.expect("events");
+        service
+            .start_turn(CodexTurnStart::plan(
+                "thread-1",
+                "make another plan",
+                "gpt-5.5".to_string(),
+            ))
+            .await
+            .expect("second plan turn after completion");
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["turn/start:thread-1", "turn/start:thread-1"]
+        );
     }
 }
