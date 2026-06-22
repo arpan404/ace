@@ -5,6 +5,7 @@ use crate::provider::{
     ProviderServerRequestResponder, ace_provider_adapter_contract,
     ace_provider_contract_requirements, provider_adapter_profile, provider_contract_report,
 };
+use crate::runtime_signals::{RuntimeSignalNormalizationInput, normalize_provider_runtime_signal};
 use crate::server_requests::{ServerRequestNormalizationInput, normalize_provider_server_request};
 use crate::thread_items::{ThreadItemNormalizationInput, normalize_provider_thread_item};
 use crate::tools::{SemanticToolCall, ToolNormalizationInput, normalize_tool_call};
@@ -51,6 +52,14 @@ pub struct NativeProviderServerRequestNormalizeRequest {
 pub struct NativeProviderThreadItemNormalizeRequest {
     #[serde(flatten)]
     pub input: ThreadItemNormalizationInput,
+    #[serde(default)]
+    pub emit: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeProviderRuntimeSignalNormalizeRequest {
+    #[serde(flatten)]
+    pub input: RuntimeSignalNormalizationInput,
     #[serde(default)]
     pub emit: bool,
 }
@@ -146,6 +155,12 @@ impl AceNativeProvider {
                 "Normalize provider thread item",
                 ProviderFeatureCategory::Events,
                 "ace.thread_item.normalize",
+            ),
+            (
+                "ace.runtime_signal.normalize",
+                "Normalize provider runtime signal",
+                ProviderFeatureCategory::Events,
+                "ace.runtime_signal.normalize",
             ),
             (
                 "provider.adapter_contract",
@@ -415,6 +430,45 @@ impl ProviderDriver for AceNativeProvider {
                     "provider": "ace",
                     "accepted": true,
                     "item": item,
+                    "emitted": emit,
+                    "event_count": if emit { 1 } else { 0 },
+                }))
+            }
+            "ace.runtime_signal.normalize" => {
+                let normalize =
+                    serde_json::from_value::<NativeProviderRuntimeSignalNormalizeRequest>(
+                        request.params,
+                    )
+                    .map_err(|error| ProviderDriverError::RequestFailed {
+                        provider: "ace".to_string(),
+                        method: "ace.runtime_signal.normalize".to_string(),
+                        message: error.to_string(),
+                    })?;
+                let emit = normalize.emit;
+                let signal =
+                    normalize_provider_runtime_signal(normalize.input).ok_or_else(|| {
+                        ProviderDriverError::RequestFailed {
+                            provider: "ace".to_string(),
+                            method: "ace.runtime_signal.normalize".to_string(),
+                            message: "unsupported provider runtime signal method".to_string(),
+                        }
+                    })?;
+                if emit {
+                    self.event_tx
+                        .send(vec![ProviderEvent::RuntimeSignal {
+                            signal: Box::new(signal.clone()),
+                        }])
+                        .await
+                        .map_err(|_| ProviderDriverError::RequestFailed {
+                            provider: "ace".to_string(),
+                            method: "ace.runtime_signal.normalize".to_string(),
+                            message: "Ace native provider event queue is closed".to_string(),
+                        })?;
+                }
+                Ok(json!({
+                    "provider": "ace",
+                    "accepted": true,
+                    "signal": signal,
                     "emitted": emit,
                     "event_count": if emit { 1 } else { 0 },
                 }))
@@ -1081,6 +1135,91 @@ mod tests {
         assert_eq!(item.role.as_deref(), Some("reviewer"));
         assert_eq!(item.sender.as_deref(), Some("Reviewer"));
         assert_eq!(item.provider.provider, "future-provider");
+    }
+
+    #[tokio::test]
+    async fn native_provider_normalizes_runtime_signal_without_emitting() {
+        let provider = AceNativeProvider::new();
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.runtime_signal.normalize".to_string(),
+                params: json!({
+                    "provider": "future-provider",
+                    "method": "model/rerouted",
+                    "params": {
+                        "thread": { "id": "thread-1" },
+                        "turn": { "id": "turn-1" },
+                        "fromModel": "gpt-5",
+                        "toModel": "gpt-5-mini",
+                        "reason": "capacity"
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize runtime signal");
+
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["emitted"], false);
+        assert_eq!(response["event_count"], 0);
+        assert_eq!(response["signal"]["kind"], "model_rerouted");
+        assert_eq!(response["signal"]["thread_id"], "thread-1");
+        assert_eq!(response["signal"]["turn_id"], "turn-1");
+        assert_eq!(response["signal"]["from_model"], "gpt-5");
+        assert_eq!(response["signal"]["to_model"], "gpt-5-mini");
+        assert_eq!(
+            response["signal"]["provider"]["provider"],
+            "future-provider"
+        );
+        assert_eq!(
+            response["signal"]["provider"]["raw_payload"]["reason"],
+            "capacity"
+        );
+    }
+
+    #[tokio::test]
+    async fn native_provider_normalizes_and_emits_runtime_signal() {
+        let provider = AceNativeProvider::new();
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.runtime_signal.normalize".to_string(),
+                params: json!({
+                    "provider": "future-provider",
+                    "method": "thread/name/updated",
+                    "emit": true,
+                    "params": {
+                        "thread": {
+                            "id": "thread-1",
+                            "name": "Adapter parity"
+                        }
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize and emit runtime signal");
+
+        assert_eq!(response["emitted"], true);
+        assert_eq!(response["event_count"], 1);
+        assert_eq!(response["signal"]["kind"], "thread_lifecycle_changed");
+        assert_eq!(response["signal"]["name"], "Adapter parity");
+
+        let events = provider
+            .next_events()
+            .await
+            .expect("event poll")
+            .expect("runtime signal event");
+        let ProviderEvent::RuntimeSignal { signal } = &events[0] else {
+            panic!("expected runtime signal event");
+        };
+        assert_eq!(
+            signal.kind,
+            crate::provider::RuntimeSignalKind::ThreadLifecycleChanged
+        );
+        assert_eq!(signal.thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(signal.status.as_deref(), Some("renamed"));
+        assert_eq!(signal.name.as_deref(), Some("Adapter parity"));
+        assert_eq!(signal.provider.provider, "future-provider");
     }
 
     #[tokio::test]
