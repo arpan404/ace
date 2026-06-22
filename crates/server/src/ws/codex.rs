@@ -2013,6 +2013,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
 
         let provider_name = provider_kind.runtime_id().to_string();
         let response_provider = provider_name.clone();
+        let raw_event_mode = request.raw_event_mode;
         let mut receiver = self.provider_event_receiver(provider_kind);
         tokio::spawn(async move {
             loop {
@@ -2045,11 +2046,19 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     .map(|event| ProviderRuntimeEvent::from_provider_event(&provider_name, event))
                     .collect::<Vec<_>>();
                 let projection_deltas = projection_deltas_for_events(&runtime_events);
+                let raw_event_summaries = events
+                    .iter()
+                    .map(ProviderRuntimeRawEventSummary::from_event)
+                    .collect::<Vec<_>>();
                 let batch = ProviderRuntimeEventBatch {
                     provider: provider_name.clone(),
                     events: runtime_events,
                     projection_deltas,
-                    raw_events: events,
+                    raw_event_summaries,
+                    raw_events: match raw_event_mode {
+                        ProviderRuntimeRawEventMode::Compact => None,
+                        ProviderRuntimeRawEventMode::Full => Some(events),
+                    },
                 };
                 let response = WsServerResponse {
                     version: PROTOCOL_VERSION,
@@ -5300,7 +5309,10 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "provider-events-second",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
-                    "payload": { "provider": "codex" }
+                    "payload": {
+                        "provider": "codex",
+                        "raw_event_mode": "full"
+                    }
                 })
                 .to_string(),
                 Some(second_outbound_tx),
@@ -5338,8 +5350,10 @@ mod tests {
         };
         assert_eq!(topic, PROVIDER_RUNTIME_EVENT_TOPIC);
         assert_eq!(second_topic, PROVIDER_RUNTIME_EVENT_TOPIC);
-        assert_eq!(second_body, body);
         assert_eq!(body["provider"], "codex");
+        assert_eq!(second_body["provider"], "codex");
+        assert_eq!(second_body["events"], body["events"]);
+        assert_eq!(second_body["projection_deltas"], body["projection_deltas"]);
         assert_eq!(body["events"][0]["type"], "tool_completed");
         assert_eq!(
             body["events"][0]["tool"]["display"]["title"],
@@ -5386,8 +5400,17 @@ mod tests {
         assert_eq!(body["events"][4]["signal"]["kind"], "warning");
         assert_eq!(body["events"][6]["type"], "exited");
         assert_eq!(body["events"][6]["code"], 9);
-        assert_eq!(body["raw_events"][2]["type"], "raw_notification");
-        assert_eq!(body["raw_events"][2]["method"], "item/completed");
+        assert_eq!(body["raw_events"], Value::Null);
+        assert_eq!(
+            body["raw_event_summaries"][2]["event_type"],
+            "raw_notification"
+        );
+        assert_eq!(
+            body["raw_event_summaries"][2]["provider_method"],
+            "item/completed"
+        );
+        assert_eq!(second_body["raw_events"][2]["type"], "raw_notification");
+        assert_eq!(second_body["raw_events"][2]["method"], "item/completed");
 
         let pending_requests = state
             .dispatch_text(
@@ -5640,7 +5663,10 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "ace-provider-events",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
-                    "payload": { "provider": "ace" }
+                    "payload": {
+                        "provider": "ace",
+                        "raw_event_mode": "full"
+                    }
                 })
                 .to_string(),
                 Some(outbound_tx),
@@ -5753,7 +5779,10 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "ace-provider-server-requests",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
-                    "payload": { "provider": "ace" }
+                    "payload": {
+                        "provider": "ace",
+                        "raw_event_mode": "full"
+                    }
                 })
                 .to_string(),
                 Some(outbound_tx),
@@ -5848,7 +5877,10 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "ace-provider-thread-items",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
-                    "payload": { "provider": "ace" }
+                    "payload": {
+                        "provider": "ace",
+                        "raw_event_mode": "full"
+                    }
                 })
                 .to_string(),
                 Some(outbound_tx),
@@ -5940,7 +5972,10 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "ace-provider-runtime-signals",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
-                    "payload": { "provider": "ace" }
+                    "payload": {
+                        "provider": "ace",
+                        "raw_event_mode": "full"
+                    }
                 })
                 .to_string(),
                 Some(outbound_tx),

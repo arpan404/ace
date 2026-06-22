@@ -24,6 +24,8 @@ pub const PROVIDER_RUNTIME_EVENT_TOPIC: &str = "provider_runtime.event";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeSubscribeRequest {
     pub provider: Option<String>,
+    #[serde(default = "default_raw_event_mode")]
+    pub raw_event_mode: ProviderRuntimeRawEventMode,
 }
 
 fn default_recent_events_limit() -> usize {
@@ -34,9 +36,10 @@ fn default_raw_event_mode() -> ProviderRuntimeRawEventMode {
     ProviderRuntimeRawEventMode::Compact
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderRuntimeRawEventMode {
+    #[default]
     Compact,
     Full,
 }
@@ -644,7 +647,10 @@ pub struct ProviderRuntimeEventBatch {
     pub events: Vec<ProviderRuntimeEvent>,
     #[serde(default)]
     pub projection_deltas: Vec<ProviderRuntimeProjectionDelta>,
-    pub raw_events: Vec<ProviderEvent>,
+    #[serde(default)]
+    pub raw_event_summaries: Vec<ProviderRuntimeRawEventSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_events: Option<Vec<ProviderEvent>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1832,6 +1838,14 @@ mod tests {
         }))
         .expect("recent request");
         assert_eq!(request.raw_event_mode, ProviderRuntimeRawEventMode::Compact);
+        let subscribe = serde_json::from_value::<ProviderRuntimeSubscribeRequest>(json!({
+            "provider": "codex"
+        }))
+        .expect("subscribe request");
+        assert_eq!(
+            subscribe.raw_event_mode,
+            ProviderRuntimeRawEventMode::Compact
+        );
 
         let full_request = serde_json::from_value::<ProviderRuntimeRecentEventsRequest>(json!({
             "provider": "codex",
@@ -1840,6 +1854,15 @@ mod tests {
         .expect("recent full request");
         assert_eq!(
             full_request.raw_event_mode,
+            ProviderRuntimeRawEventMode::Full
+        );
+        let full_subscribe = serde_json::from_value::<ProviderRuntimeSubscribeRequest>(json!({
+            "provider": "codex",
+            "raw_event_mode": "full"
+        }))
+        .expect("subscribe full request");
+        assert_eq!(
+            full_subscribe.raw_event_mode,
             ProviderRuntimeRawEventMode::Full
         );
 
@@ -1869,11 +1892,35 @@ mod tests {
         );
 
         let full_record = ProviderRuntimeEventRecord {
-            raw_event: Some(event),
+            raw_event: Some(event.clone()),
             ..compact_record
         };
         let encoded = serde_json::to_value(&full_record).expect("full record");
         assert_eq!(encoded["raw_event"]["type"], "raw_notification");
+
+        let compact_batch = ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            events: vec![ProviderRuntimeEvent::from_provider_event(
+                "codex",
+                event.clone(),
+            )],
+            projection_deltas: Vec::new(),
+            raw_event_summaries: vec![ProviderRuntimeRawEventSummary::from_event(&event)],
+            raw_events: None,
+        };
+        let encoded = serde_json::to_value(&compact_batch).expect("compact batch");
+        assert!(encoded.get("raw_events").is_none());
+        assert_eq!(
+            encoded["raw_event_summaries"][0]["provider_method"],
+            "item/completed"
+        );
+
+        let full_batch = ProviderRuntimeEventBatch {
+            raw_events: Some(vec![event]),
+            ..compact_batch
+        };
+        let encoded = serde_json::to_value(&full_batch).expect("full batch");
+        assert_eq!(encoded["raw_events"][0]["type"], "raw_notification");
     }
 
     #[test]
