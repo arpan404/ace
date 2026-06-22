@@ -587,6 +587,7 @@ pub mod provider {
         HandoffUpdated,
         PlanImplementationUpdated,
         ApprovalRetryRecorded,
+        GoalUpdated,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1311,6 +1312,7 @@ pub mod provider {
                 RuntimeSignalKind::HandoffUpdated,
                 RuntimeSignalKind::PlanImplementationUpdated,
                 RuntimeSignalKind::ApprovalRetryRecorded,
+                RuntimeSignalKind::GoalUpdated,
             ],
             provider_event_types: vec![
                 "raw_notification".to_string(),

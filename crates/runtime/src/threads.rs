@@ -447,6 +447,15 @@ impl AgentRuntimeState {
         self.goals.insert(goal.thread_id.clone(), goal);
     }
 
+    pub fn apply_goal_update(&mut self, goal: GoalState) {
+        match goal.status {
+            GoalStatus::Paused if goal.objective.is_none() => self.pause_goal(&goal.thread_id),
+            GoalStatus::Active if goal.objective.is_none() => self.resume_goal(&goal.thread_id),
+            GoalStatus::Cleared => self.clear_goal(&goal.thread_id),
+            _ => self.upsert_goal(goal),
+        }
+    }
+
     pub fn pause_goal(&mut self, thread_id: &str) {
         if let Some(goal) = self.goals.get_mut(thread_id) {
             goal.status = GoalStatus::Paused;
@@ -655,6 +664,9 @@ impl AgentRuntimeState {
                 if let Some(retry) = approval_retry_from_signal(signal) {
                     self.record_approval_retry(retry);
                 }
+                if let Some(goal) = goal_update_from_signal(signal) {
+                    self.apply_goal_update(goal);
+                }
             }
             ProviderEvent::RawServerRequest { .. }
             | ProviderEvent::ServerRequest { .. }
@@ -860,6 +872,18 @@ fn approval_retry_from_signal(signal: &NormalizedRuntimeSignal) -> Option<Approv
     serde_json::from_value(value).ok()
 }
 
+fn goal_update_from_signal(signal: &NormalizedRuntimeSignal) -> Option<GoalState> {
+    if signal.kind != RuntimeSignalKind::GoalUpdated {
+        return None;
+    }
+    let value = signal
+        .metadata
+        .get("goal")
+        .cloned()
+        .unwrap_or_else(|| signal.metadata.clone());
+    serde_json::from_value(value).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1019,6 +1043,125 @@ mod tests {
             state.goal("thread-1").map(|goal| goal.status),
             Some(GoalStatus::Cleared)
         );
+    }
+
+    #[test]
+    fn applies_goal_update_runtime_signals() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::GoalUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: Some("finish adapter".to_string()),
+                    audio: None,
+                    status: Some("active".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "goal": {
+                            "thread_id": "thread-1",
+                            "status": "active",
+                            "objective": "finish adapter",
+                            "token_budget": 12000
+                        }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/goal/set".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::GoalUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("paused".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "goal": {
+                            "thread_id": "thread-1",
+                            "status": "paused"
+                        }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/goal/pause".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::GoalUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("cleared".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "goal": {
+                            "thread_id": "thread-1",
+                            "status": "cleared"
+                        }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/goal/clear".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+        ]);
+
+        let goal = state.goal("thread-1").expect("goal");
+        assert_eq!(goal.status, GoalStatus::Cleared);
+        assert_eq!(goal.objective.as_deref(), Some("finish adapter"));
+        assert_eq!(goal.token_budget, Some(12000));
     }
 
     #[test]

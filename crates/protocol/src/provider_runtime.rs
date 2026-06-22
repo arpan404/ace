@@ -1353,6 +1353,22 @@ fn projection_deltas_for_runtime_signal(
                 retry,
             }]
         }
+        RuntimeSignalKind::GoalUpdated => {
+            let Some(goal) = goal_state_from_runtime_signal(signal) else {
+                return Vec::new();
+            };
+            if goal.status == GoalStatus::Cleared {
+                return vec![ProviderRuntimeProjectionDelta::GoalCleared {
+                    provider: signal.provider.provider.clone(),
+                    thread_id: goal.thread_id,
+                }];
+            }
+            vec![ProviderRuntimeProjectionDelta::GoalUpdated {
+                provider: signal.provider.provider.clone(),
+                goal,
+                turn_id: signal.turn_id.clone(),
+            }]
+        }
     }
 }
 
@@ -1378,6 +1394,19 @@ fn goal_state_from_notification(value: &serde_json::Value) -> Option<GoalState> 
     })
 }
 
+fn goal_state_from_runtime_signal(signal: &NormalizedRuntimeSignal) -> Option<GoalState> {
+    let value = signal
+        .metadata
+        .get("goal")
+        .cloned()
+        .unwrap_or_else(|| signal.metadata.clone());
+    if let Ok(goal) = serde_json::from_value::<GoalState>(value.clone()) {
+        return Some(goal);
+    }
+    goal_state_from_notification(&serde_json::json!({ "goal": value }))
+        .or_else(|| goal_state_from_notification(&value))
+}
+
 fn goal_status(status: &str) -> GoalStatus {
     match status {
         "paused" => GoalStatus::Paused,
@@ -1385,6 +1414,7 @@ fn goal_status(status: &str) -> GoalStatus {
         "usageLimited" | "usage_limited" => GoalStatus::UsageLimited,
         "budgetLimited" | "budget_limited" => GoalStatus::BudgetLimited,
         "complete" => GoalStatus::Complete,
+        "cleared" => GoalStatus::Cleared,
         _ => GoalStatus::Active,
     }
 }
@@ -2644,6 +2674,82 @@ mod tests {
                     params: json!({ "threadId": "thread-1" }),
                 },
             ),
+            ProviderRuntimeEvent::from_provider_event(
+                "codex",
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::GoalUpdated,
+                        thread_id: Some("thread-2".to_string()),
+                        turn_id: Some("turn-2".to_string()),
+                        item_id: None,
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: None,
+                        audio: None,
+                        status: Some("paused".to_string()),
+                        name: None,
+                        active: None,
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata: json!({
+                            "goal": {
+                                "thread_id": "thread-2",
+                                "status": "paused"
+                            }
+                        }),
+                        provider: ProviderMetadata {
+                            provider: "codex".to_string(),
+                            method: Some("ace/goal/pause".to_string()),
+                            schema_version: None,
+                            raw_payload: json!({}),
+                        },
+                    }),
+                },
+            ),
+            ProviderRuntimeEvent::from_provider_event(
+                "codex",
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::GoalUpdated,
+                        thread_id: Some("thread-2".to_string()),
+                        turn_id: None,
+                        item_id: None,
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: None,
+                        audio: None,
+                        status: Some("cleared".to_string()),
+                        name: None,
+                        active: None,
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata: json!({
+                            "goal": {
+                                "thread_id": "thread-2",
+                                "status": "cleared"
+                            }
+                        }),
+                        provider: ProviderMetadata {
+                            provider: "codex".to_string(),
+                            method: Some("ace/goal/clear".to_string()),
+                            schema_version: None,
+                            raw_payload: json!({}),
+                        },
+                    }),
+                },
+            ),
         ];
         let deltas = projection_deltas_for_events(&events);
 
@@ -2666,6 +2772,24 @@ mod tests {
                 provider,
                 thread_id,
             } if provider == "codex" && thread_id == "thread-1"
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::GoalUpdated {
+                provider,
+                goal,
+                turn_id,
+            } if provider == "codex"
+                && goal.thread_id == "thread-2"
+                && goal.status == GoalStatus::Paused
+                && turn_id.as_deref() == Some("turn-2")
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::GoalCleared {
+                provider,
+                thread_id,
+            } if provider == "codex" && thread_id == "thread-2"
         )));
     }
 

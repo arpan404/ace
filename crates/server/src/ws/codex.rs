@@ -54,8 +54,8 @@ use ace_runtime::provider::{
     provider_adapter_profile, provider_contract_report,
 };
 use ace_runtime::threads::{
-    ApprovalRetryRecord, ExecutionLocation, HandoffPlan, HandoffStatus, PlanImplementationMode,
-    PlanImplementationRecord,
+    ApprovalRetryRecord, ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus,
+    PlanImplementationMode, PlanImplementationRecord,
 };
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
@@ -436,11 +436,21 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 Ok(response)
             }
             methods::CODEX_GOAL_SET => {
-                self.codex_json::<CodexGoalSetRequest, _, _, _>(
-                    payload,
-                    |service, request| async move { service.goal_set(request.params).await },
-                )
-                .await
+                let request = serde_json::from_value::<CodexGoalSetRequest>(payload)?;
+                let params = request.params;
+                let response = self.codex.goal_set(params.clone()).await?;
+                self.publish_codex_goal_signal(CodexGoalSignal {
+                    goal: GoalState {
+                        thread_id: params.thread_id,
+                        status: GoalStatus::Active,
+                        objective: Some(params.objective),
+                        token_budget: params.token_budget,
+                        tokens_used: None,
+                        time_used_seconds: None,
+                    },
+                    method: "ace/goal/set",
+                })?;
+                Ok(response)
             }
             methods::CODEX_GOAL_GET => {
                 self.codex_json::<CodexThreadIdRequest, _, _, _>(
@@ -450,25 +460,52 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .await
             }
             methods::CODEX_GOAL_CLEAR => {
-                self.codex_json::<CodexThreadIdRequest, _, _, _>(
-                    payload,
-                    |service, request| async move { service.goal_clear(request.thread_id).await },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadIdRequest>(payload)?;
+                let response = self.codex.goal_clear(request.thread_id.clone()).await?;
+                self.publish_codex_goal_signal(CodexGoalSignal {
+                    goal: GoalState {
+                        thread_id: request.thread_id,
+                        status: GoalStatus::Cleared,
+                        objective: None,
+                        token_budget: None,
+                        tokens_used: None,
+                        time_used_seconds: None,
+                    },
+                    method: "ace/goal/clear",
+                })?;
+                Ok(response)
             }
             methods::CODEX_GOAL_PAUSE => {
-                self.codex_json::<CodexThreadIdRequest, _, _, _>(
-                    payload,
-                    |service, request| async move { service.goal_pause(request.thread_id).await },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadIdRequest>(payload)?;
+                let response = self.codex.goal_pause(request.thread_id.clone()).await?;
+                self.publish_codex_goal_signal(CodexGoalSignal {
+                    goal: GoalState {
+                        thread_id: request.thread_id,
+                        status: GoalStatus::Paused,
+                        objective: None,
+                        token_budget: None,
+                        tokens_used: None,
+                        time_used_seconds: None,
+                    },
+                    method: "ace/goal/pause",
+                })?;
+                Ok(response)
             }
             methods::CODEX_GOAL_RESUME => {
-                self.codex_json::<CodexThreadIdRequest, _, _, _>(
-                    payload,
-                    |service, request| async move { service.goal_resume(request.thread_id).await },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadIdRequest>(payload)?;
+                let response = self.codex.goal_resume(request.thread_id.clone()).await?;
+                self.publish_codex_goal_signal(CodexGoalSignal {
+                    goal: GoalState {
+                        thread_id: request.thread_id,
+                        status: GoalStatus::Active,
+                        objective: None,
+                        token_budget: None,
+                        tokens_used: None,
+                        time_used_seconds: None,
+                    },
+                    method: "ace/goal/resume",
+                })?;
+                Ok(response)
             }
             methods::CODEX_SUBAGENTS_LIST => {
                 self.codex_json::<CodexThreadIdRequest, _, _, _>(
@@ -1361,6 +1398,50 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         )
     }
 
+    fn publish_codex_goal_signal(&self, signal: CodexGoalSignal) -> Result<(), WsDispatchError> {
+        let status = goal_status_key(signal.goal.status).to_string();
+        let thread_id = signal.goal.thread_id.clone();
+        let text = signal.goal.objective.clone();
+        let goal = serde_json::to_value(&signal.goal)?;
+        let metadata = json!({
+            "goal": goal,
+        });
+        let raw_payload = metadata.clone();
+        self.append_and_publish_provider_events(
+            ProviderKind::Codex,
+            vec![ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::GoalUpdated,
+                    thread_id: Some(thread_id),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text,
+                    audio: None,
+                    status: Some(status),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(signal.method.to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            }],
+        )
+    }
+
     pub(super) async fn subscribe_provider_runtime_events(
         &self,
         payload: Value,
@@ -1589,6 +1670,23 @@ struct CodexPlanImplementationSignal {
 struct CodexApprovalRetrySignal {
     retry: ApprovalRetryRecord,
     method: &'static str,
+}
+
+struct CodexGoalSignal {
+    goal: GoalState,
+    method: &'static str,
+}
+
+fn goal_status_key(status: GoalStatus) -> &'static str {
+    match status {
+        GoalStatus::Active => "active",
+        GoalStatus::Paused => "paused",
+        GoalStatus::Blocked => "blocked",
+        GoalStatus::UsageLimited => "usage_limited",
+        GoalStatus::BudgetLimited => "budget_limited",
+        GoalStatus::Complete => "complete",
+        GoalStatus::Cleared => "cleared",
+    }
 }
 
 fn extract_thread_id_from_value(value: &Value) -> Option<String> {
@@ -2997,6 +3095,78 @@ mod tests {
                 "thread/goal/clear:thread-1",
             ]
         );
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "goal-snapshot",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        let goals = body["providers"][0]["state"]["goals"]
+            .as_array()
+            .expect("goals");
+        assert_eq!(goals.len(), 1);
+        assert_eq!(goals[0]["thread_id"], "thread-1");
+        assert_eq!(goals[0]["status"], "cleared");
+        assert_eq!(goals[0]["objective"], "finish adapter");
+        assert_eq!(goals[0]["token_budget"], 12000);
+
+        let recent = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "goal-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": { "provider": "codex", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent: WsServerResponse = serde_json::from_str(&recent).expect("recent events");
+        let WsServerPayload::Result { body } = recent.payload else {
+            panic!("expected recent events result");
+        };
+        let records = body["records"].as_array().expect("records");
+        assert_eq!(records.len(), 4);
+        assert!(records.iter().all(|record| {
+            record["event"]["type"] == "runtime_signal"
+                && record["event"]["signal"]["kind"] == "goal_updated"
+        }));
+        assert_eq!(records[0]["event"]["signal"]["status"], "active");
+        assert_eq!(records[0]["event"]["signal"]["text"], "finish adapter");
+        assert_eq!(
+            records[0]["event"]["signal"]["provider"]["method"],
+            "ace/goal/set"
+        );
+        assert_eq!(records[0]["projection_deltas"][0]["type"], "goal_updated");
+        assert_eq!(
+            records[0]["projection_deltas"][0]["goal"]["objective"],
+            "finish adapter"
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["goal"]["token_budget"],
+            12000
+        );
+        assert_eq!(records[1]["event"]["signal"]["status"], "paused");
+        assert_eq!(records[1]["projection_deltas"][0]["type"], "goal_updated");
+        assert_eq!(
+            records[1]["projection_deltas"][0]["goal"]["status"],
+            "paused"
+        );
+        assert_eq!(records[2]["event"]["signal"]["status"], "active");
+        assert_eq!(records[2]["projection_deltas"][0]["type"], "goal_updated");
+        assert_eq!(records[3]["event"]["signal"]["status"], "cleared");
+        assert_eq!(records[3]["projection_deltas"][0]["type"], "goal_cleared");
+        assert_eq!(records[3]["projection_deltas"][0]["thread_id"], "thread-1");
     }
 
     #[tokio::test]
