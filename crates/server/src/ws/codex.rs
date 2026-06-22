@@ -2017,6 +2017,42 @@ mod tests {
                 "turn/start:fork-1",
             ]
         );
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "plan-impl-snapshot",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        let implementations = body["providers"][0]["state"]["plan_implementations"]
+            .as_array()
+            .expect("plan implementations");
+        assert_eq!(implementations.len(), 3);
+        assert_eq!(implementations[0]["mode"], "continue_in_thread");
+        assert_eq!(implementations[0]["parent_thread_id"], "thread-1");
+        assert_eq!(implementations[0]["target_thread_id"], "thread-1");
+        assert_eq!(implementations[0]["plan"]["markdown"], "1. Edit\n2. Test");
+        assert_eq!(implementations[0]["prompt"], "implement this plan");
+        assert_eq!(implementations[0]["model"], "gpt-5.5");
+        assert_eq!(implementations[0]["cwd"], "/tmp/repo");
+        assert_eq!(implementations[0]["approval_policy"]["mode"], "on-request");
+        assert_eq!(implementations[0]["approvals_reviewer"], "user");
+        assert_eq!(implementations[0]["provider_response"]["forked"], false);
+        assert_eq!(implementations[1]["mode"], "fork_for_implementation");
+        assert_eq!(implementations[1]["target_thread_id"], "fork-1");
+        assert_eq!(implementations[1]["provider_response"]["forked"], true);
+        assert_eq!(implementations[2]["mode"], "side_implementation");
+        assert_eq!(implementations[2]["target_thread_id"], "fork-1");
+        assert_eq!(implementations[2]["provider_response"]["ephemeral"], true);
     }
 
     #[tokio::test]

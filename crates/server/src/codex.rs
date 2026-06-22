@@ -15,7 +15,8 @@ use ace_runtime::{
     },
     threads::{
         AgentRuntimeSnapshot, AgentRuntimeState, ApprovalRetryRecord, ExecutionLocation, ForkPoint,
-        HandoffPlan, HandoffStatus, PlanSessionStatus, RuntimeStateError, SideChat, TurnMode,
+        HandoffPlan, HandoffStatus, PlanImplementationMode, PlanImplementationRecord,
+        PlanSessionStatus, RuntimeStateError, SideChat, TurnMode,
     },
 };
 use async_trait::async_trait;
@@ -740,8 +741,18 @@ impl CodexService {
         request: CodexPlanImplementation,
     ) -> std::result::Result<Value, CodexApiError> {
         let thread_id = request.thread_id.clone();
+        let record = plan_implementation_record(
+            &request,
+            thread_id.clone(),
+            PlanImplementationMode::ContinueInThread,
+            Value::Null,
+        );
         let response = self.backend.continue_plan_in_thread(request).await?;
-        self.state.lock().await.mark_plan_implementing(&thread_id);
+        let mut record = record;
+        record.provider_response = response.clone();
+        let mut state = self.state.lock().await;
+        state.mark_plan_implementing(&thread_id);
+        state.record_plan_implementation(record);
         Ok(response)
     }
 
@@ -750,13 +761,23 @@ impl CodexService {
         request: CodexPlanImplementation,
     ) -> std::result::Result<Value, CodexApiError> {
         let parent_thread_id = request.thread_id.clone();
-        let response = self.backend.fork_plan_for_implementation(request).await?;
+        let response = self
+            .backend
+            .fork_plan_for_implementation(request.clone())
+            .await?;
         if let Some(child_thread_id) = extract_thread_id(&response) {
-            self.state.lock().await.record_fork(ForkPoint {
+            let mut state = self.state.lock().await;
+            state.record_fork(ForkPoint {
                 parent_thread_id,
-                child_thread_id,
+                child_thread_id: child_thread_id.clone(),
                 turn_id: None,
             });
+            state.record_plan_implementation(plan_implementation_record(
+                &request,
+                child_thread_id,
+                PlanImplementationMode::ForkForImplementation,
+                response.clone(),
+            ));
         }
         Ok(response)
     }
@@ -766,7 +787,7 @@ impl CodexService {
         request: CodexPlanImplementation,
     ) -> std::result::Result<Value, CodexApiError> {
         let parent_thread_id = request.thread_id.clone();
-        let response = self.backend.side_implementation(request).await?;
+        let response = self.backend.side_implementation(request.clone()).await?;
         if let Some(child_thread_id) = extract_thread_id(&response) {
             let mut state = self.state.lock().await;
             state.record_fork(ForkPoint {
@@ -776,9 +797,15 @@ impl CodexService {
             });
             state.record_side_chat(SideChat {
                 parent_thread_id,
-                thread_id: child_thread_id,
+                thread_id: child_thread_id.clone(),
                 ephemeral: true,
             });
+            state.record_plan_implementation(plan_implementation_record(
+                &request,
+                child_thread_id,
+                PlanImplementationMode::SideImplementation,
+                response.clone(),
+            ));
         }
         Ok(response)
     }
@@ -1200,6 +1227,27 @@ fn extract_thread_id(response: &Value) -> Option<String> {
         .or_else(|| response.get("id"))
         .and_then(Value::as_str)
         .map(ToString::to_string)
+}
+
+fn plan_implementation_record(
+    request: &CodexPlanImplementation,
+    target_thread_id: String,
+    mode: PlanImplementationMode,
+    provider_response: Value,
+) -> PlanImplementationRecord {
+    PlanImplementationRecord {
+        parent_thread_id: request.thread_id.clone(),
+        target_thread_id,
+        mode,
+        prompt: request.prompt.clone(),
+        model: request.model.clone(),
+        cwd: request.cwd.clone(),
+        plan: request.plan.clone(),
+        sandbox_policy: request.sandbox_policy.clone().unwrap_or(Value::Null),
+        approval_policy: request.approval_policy.clone().unwrap_or(Value::Null),
+        approvals_reviewer: request.approvals_reviewer.clone(),
+        provider_response,
+    }
 }
 
 #[cfg(test)]

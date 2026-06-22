@@ -158,6 +158,36 @@ pub struct ApprovalRetryRecord {
     pub provider_response: Value,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanImplementationMode {
+    ContinueInThread,
+    ForkForImplementation,
+    SideImplementation,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlanImplementationRecord {
+    pub parent_thread_id: String,
+    pub target_thread_id: String,
+    pub mode: PlanImplementationMode,
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub plan: Value,
+    #[serde(default)]
+    pub sandbox_policy: Value,
+    #[serde(default)]
+    pub approval_policy: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approvals_reviewer: Option<String>,
+    #[serde(default)]
+    pub provider_response: Value,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentThread {
     pub thread_id: String,
@@ -181,6 +211,7 @@ pub struct AgentRuntimeState {
     subagents: HashMap<String, SubagentThread>,
     handoffs: Vec<HandoffPlan>,
     approval_retries: Vec<ApprovalRetryRecord>,
+    plan_implementations: Vec<PlanImplementationRecord>,
     review_threads: HashSet<String>,
 }
 
@@ -194,6 +225,7 @@ pub struct AgentRuntimeSnapshot {
     pub subagents: Vec<SubagentThread>,
     pub handoffs: Vec<HandoffPlan>,
     pub approval_retries: Vec<ApprovalRetryRecord>,
+    pub plan_implementations: Vec<PlanImplementationRecord>,
     pub review_threads: Vec<String>,
 }
 
@@ -230,6 +262,7 @@ impl AgentRuntimeState {
             subagents,
             handoffs: self.handoffs.clone(),
             approval_retries: self.approval_retries.clone(),
+            plan_implementations: self.plan_implementations.clone(),
             review_threads,
         }
     }
@@ -306,6 +339,15 @@ impl AgentRuntimeState {
     #[must_use]
     pub fn approval_retries(&self) -> &[ApprovalRetryRecord] {
         &self.approval_retries
+    }
+
+    pub fn record_plan_implementation(&mut self, implementation: PlanImplementationRecord) {
+        self.plan_implementations.push(implementation);
+    }
+
+    #[must_use]
+    pub fn plan_implementations(&self) -> &[PlanImplementationRecord] {
+        &self.plan_implementations
     }
 
     pub fn set_goal(
