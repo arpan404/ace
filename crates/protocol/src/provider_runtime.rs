@@ -685,6 +685,16 @@ pub enum ProviderRuntimeProjectionDelta {
         #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
         metadata: serde_json::Value,
     },
+    ProviderStateUpdated {
+        provider: String,
+        status: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        metadata: serde_json::Value,
+    },
     ActiveTurnChanged {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1162,6 +1172,18 @@ fn projection_deltas_for_runtime_signal(
                     metadata: signal.metadata.clone(),
                 },
             ]
+        }
+        RuntimeSignalKind::ProviderStateUpdated => {
+            vec![ProviderRuntimeProjectionDelta::ProviderStateUpdated {
+                provider: signal.provider.provider.clone(),
+                status: signal
+                    .status
+                    .clone()
+                    .unwrap_or_else(|| "provider_state_updated".to_string()),
+                message: signal.message.clone(),
+                name: signal.name.clone(),
+                metadata: signal.metadata.clone(),
+            }]
         }
     }
 }
@@ -2019,6 +2041,30 @@ mod tests {
                     provider: provider_metadata("serverRequest/resolved"),
                 }),
             },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ProviderStateUpdated,
+                    thread_id: None,
+                    turn_id: None,
+                    message: Some("Signed in".to_string()),
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("account_updated".to_string()),
+                    name: Some("work".to_string()),
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "account": "work", "email": "user@example.com" }),
+                    provider: provider_metadata("account/updated"),
+                }),
+            },
         ];
         let deltas = projection_deltas_for_events(&events);
 
@@ -2071,6 +2117,20 @@ mod tests {
                 status,
                 ..
             } if request_id.as_deref() == Some("req-1") && status.as_deref() == Some("approved")
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ProviderStateUpdated {
+                provider,
+                status,
+                message,
+                name,
+                metadata,
+            } if provider == "codex"
+                && status == "account_updated"
+                && message.as_deref() == Some("Signed in")
+                && name.as_deref() == Some("work")
+                && metadata["email"] == "user@example.com"
         )));
     }
 

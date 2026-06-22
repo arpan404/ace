@@ -190,6 +190,28 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
             ])
             .or_else(|| Some("resolved".to_string()));
         }
+        RuntimeSignalKind::ProviderStateUpdated => {
+            signal.status = first_string([
+                string_at(params, "status").as_deref(),
+                string_at(params, "state").as_deref(),
+                string_at(params, "event").as_deref(),
+                string_at(params, "type").as_deref(),
+            ])
+            .or_else(|| provider_state_status_from_method(method));
+            signal.message = first_string([
+                string_at(params, "message").as_deref(),
+                string_at(params, "text").as_deref(),
+                string_at(params, "description").as_deref(),
+                string_at(params, "error").as_deref(),
+            ]);
+            signal.name = first_string([
+                string_at(params, "name").as_deref(),
+                string_at(params, "title").as_deref(),
+                string_at(params, "app").as_deref(),
+                string_at(params, "account").as_deref(),
+                string_at(params, "query").as_deref(),
+            ]);
+        }
     }
     Some(signal)
 }
@@ -217,6 +239,32 @@ fn runtime_signal_kind(method: &str) -> Option<RuntimeSignalKind> {
         "turn/diff/updated" => Some(RuntimeSignalKind::TurnDiffUpdated),
         "process/exited" => Some(RuntimeSignalKind::ProcessExited),
         "serverRequest/resolved" => Some(RuntimeSignalKind::ServerRequestResolved),
+        "account/login/completed"
+        | "account/rateLimits/updated"
+        | "account/updated"
+        | "app/list/updated"
+        | "externalAgentConfig/import/completed"
+        | "fuzzyFileSearch/sessionCompleted"
+        | "fuzzyFileSearch/sessionUpdated"
+        | "remoteControl/status/changed"
+        | "windowsSandbox/setupCompleted" => Some(RuntimeSignalKind::ProviderStateUpdated),
+        _ => None,
+    }
+}
+
+fn provider_state_status_from_method(method: &str) -> Option<String> {
+    match method {
+        "account/login/completed" => Some("account_login_completed".to_string()),
+        "account/rateLimits/updated" => Some("account_rate_limits_updated".to_string()),
+        "account/updated" => Some("account_updated".to_string()),
+        "app/list/updated" => Some("app_list_updated".to_string()),
+        "externalAgentConfig/import/completed" => {
+            Some("external_agent_config_import_completed".to_string())
+        }
+        "fuzzyFileSearch/sessionCompleted" => Some("fuzzy_file_search_completed".to_string()),
+        "fuzzyFileSearch/sessionUpdated" => Some("fuzzy_file_search_updated".to_string()),
+        "remoteControl/status/changed" => Some("remote_control_status_changed".to_string()),
+        "windowsSandbox/setupCompleted" => Some("windows_sandbox_setup_completed".to_string()),
         _ => None,
     }
 }
@@ -1370,6 +1418,94 @@ mod tests {
             ace_runtime::provider::RuntimeSignalKind::RealtimeTranscriptDelta
         );
         assert_eq!(signal.text.as_deref(), Some("hello"));
+
+        let account = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "account/updated".to_string(),
+            params: json!({
+                "status": "signed_in",
+                "account": "work",
+                "email": "user@example.com"
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &account[0] else {
+            panic!("expected provider state signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::ProviderStateUpdated
+        );
+        assert_eq!(signal.status.as_deref(), Some("signed_in"));
+        assert_eq!(signal.name.as_deref(), Some("work"));
+        assert_eq!(signal.provider.method.as_deref(), Some("account/updated"));
+        assert_eq!(signal.provider.raw_payload["email"], "user@example.com");
+        assert!(matches!(account[1], ProviderEvent::RawNotification { .. }));
+    }
+
+    #[test]
+    fn normalizes_provider_state_notifications() {
+        let cases = [
+            (
+                "account/login/completed",
+                json!({ "message": "Signed in", "account": "chatgpt" }),
+                "account_login_completed",
+                Some("Signed in"),
+            ),
+            (
+                "app/list/updated",
+                json!({ "apps": [{ "id": "browser" }] }),
+                "app_list_updated",
+                None,
+            ),
+            (
+                "externalAgentConfig/import/completed",
+                json!({ "status": "imported", "name": "Codex" }),
+                "imported",
+                None,
+            ),
+            (
+                "fuzzyFileSearch/sessionUpdated",
+                json!({ "query": "main", "status": "searching" }),
+                "searching",
+                None,
+            ),
+            (
+                "fuzzyFileSearch/sessionCompleted",
+                json!({ "query": "main", "results": [] }),
+                "fuzzy_file_search_completed",
+                None,
+            ),
+            (
+                "remoteControl/status/changed",
+                json!({ "status": "connected" }),
+                "connected",
+                None,
+            ),
+            (
+                "windowsSandbox/setupCompleted",
+                json!({ "message": "Sandbox ready" }),
+                "windows_sandbox_setup_completed",
+                Some("Sandbox ready"),
+            ),
+        ];
+
+        for (method, params, status, message) in cases {
+            let events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+                method: method.to_string(),
+                params,
+            });
+            let ProviderEvent::RuntimeSignal { signal } = &events[0] else {
+                panic!("expected provider state signal for {method}");
+            };
+            assert_eq!(
+                signal.kind,
+                ace_runtime::provider::RuntimeSignalKind::ProviderStateUpdated,
+                "{method}"
+            );
+            assert_eq!(signal.status.as_deref(), Some(status), "{method}");
+            assert_eq!(signal.message.as_deref(), message, "{method}");
+            assert_eq!(signal.provider.method.as_deref(), Some(method));
+            assert!(matches!(events[1], ProviderEvent::RawNotification { .. }));
+        }
     }
 
     #[test]

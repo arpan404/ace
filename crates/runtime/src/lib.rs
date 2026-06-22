@@ -579,6 +579,7 @@ pub mod provider {
         TurnDiffUpdated,
         ProcessExited,
         ServerRequestResolved,
+        ProviderStateUpdated,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1293,6 +1294,7 @@ pub mod provider {
                 RuntimeSignalKind::TurnDiffUpdated,
                 RuntimeSignalKind::ProcessExited,
                 RuntimeSignalKind::ServerRequestResolved,
+                RuntimeSignalKind::ProviderStateUpdated,
             ],
             provider_event_types: vec![
                 "raw_notification".to_string(),
