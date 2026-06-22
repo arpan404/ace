@@ -41,10 +41,11 @@ use ace_protocol::{
         ProviderRuntimeRawEventSummary, ProviderRuntimeRecentEventsRequest,
         ProviderRuntimeRecentEventsResponse, ProviderRuntimeRequest,
         ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
-        ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
-        ProviderRuntimeSubscribeRequest, ProviderServerRequestAudit,
-        ProviderServerRequestDecisionRecord, ProviderServerRequestDecisionResponse,
-        ProviderServerRequestError, ProviderServerRequestRecord, ProviderServerRequestResult,
+        ProviderRuntimeStateSource, ProviderRuntimeStatusListRequest,
+        ProviderRuntimeStatusListResponse, ProviderRuntimeSubscribeRequest,
+        ProviderServerRequestAudit, ProviderServerRequestDecisionRecord,
+        ProviderServerRequestDecisionResponse, ProviderServerRequestError,
+        ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
         ProviderServerRequestsListResponse, projection_deltas_for_events,
     },
@@ -1023,6 +1024,19 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 let providers = self.provider_runtime_filter(request.provider, "state get")?;
                 let mut provider_states = Vec::with_capacity(providers.len());
                 for provider in providers {
+                    if request.source == ProviderRuntimeStateSource::Persisted {
+                        provider_states.push(ProviderRuntimeProviderState {
+                            provider,
+                            runtime_id: provider.runtime_id().to_string(),
+                            display_name: provider.display_name().to_string(),
+                            state: self
+                                .provider_events
+                                .lock()
+                                .expect("provider event log")
+                                .runtime_state_snapshot(Some(provider.runtime_id()))?,
+                        });
+                        continue;
+                    }
                     if !self.providers.has_state_source(provider) {
                         if requested_provider.is_some() {
                             return Err(WsDispatchError::BadRequest(format!(
@@ -3651,6 +3665,7 @@ mod tests {
     use ace_git::{
         CommandOutput, CommandRequest, GitClient, GitToolError, GithubCliClient, ProcessRunner,
     };
+    use ace_persistence::ProviderEventLogRepository;
     use ace_protocol::{
         PROTOCOL_VERSION,
         provider_runtime::PROVIDER_RUNTIME_EVENT_TOPIC,
@@ -3671,6 +3686,7 @@ mod tests {
         },
     };
     use async_trait::async_trait;
+    use rusqlite::Connection;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
 
@@ -7747,6 +7763,160 @@ mod tests {
         assert_eq!(
             body["providers"][0]["state"]["provider_states"][0]["name"],
             "Ace native provider"
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_returns_persisted_runtime_state_snapshot() {
+        let runner = Arc::new(FakeRunner);
+        let mut event_log =
+            ProviderEventLogRepository::from_connection(Connection::open_in_memory().expect("db"))
+                .expect("event log");
+        event_log
+            .append_batch(
+                "codex",
+                &[
+                    ProviderEvent::ThreadItem {
+                        item: Box::new(NormalizedThreadItem {
+                            kind: ThreadItemKind::AgentMessage,
+                            status: ThreadItemStatus::Updated,
+                            thread_id: Some("thread-1".to_string()),
+                            turn_id: Some("turn-1".to_string()),
+                            item_id: Some("item-1".to_string()),
+                            parent_thread_id: None,
+                            child_thread_id: None,
+                            sender: None,
+                            role: None,
+                            title: None,
+                            text: Some("draft".to_string()),
+                            status_text: None,
+                            model: None,
+                            target: None,
+                            url: None,
+                            files: None,
+                            diff: None,
+                            token_usage: None,
+                            plan_questions: None,
+                            plan_completion: None,
+                            metadata: json!({}),
+                            provider: ProviderMetadata {
+                                provider: "codex".to_string(),
+                                method: Some("item/agentMessage/delta".to_string()),
+                                schema_version: Some("test-v1".to_string()),
+                                raw_payload: json!({
+                                    "itemId": "item-1",
+                                    "text": "draft"
+                                }),
+                            },
+                        }),
+                    },
+                    ProviderEvent::ThreadItem {
+                        item: Box::new(NormalizedThreadItem {
+                            kind: ThreadItemKind::AgentMessage,
+                            status: ThreadItemStatus::Completed,
+                            thread_id: Some("thread-1".to_string()),
+                            turn_id: Some("turn-1".to_string()),
+                            item_id: Some("item-1".to_string()),
+                            parent_thread_id: None,
+                            child_thread_id: None,
+                            sender: None,
+                            role: None,
+                            title: None,
+                            text: Some("final".to_string()),
+                            status_text: None,
+                            model: None,
+                            target: None,
+                            url: None,
+                            files: None,
+                            diff: None,
+                            token_usage: None,
+                            plan_questions: None,
+                            plan_completion: None,
+                            metadata: json!({}),
+                            provider: ProviderMetadata {
+                                provider: "codex".to_string(),
+                                method: Some("item/completed".to_string()),
+                                schema_version: Some("test-v1".to_string()),
+                                raw_payload: json!({
+                                    "itemId": "item-1",
+                                    "text": "final"
+                                }),
+                            },
+                        }),
+                    },
+                    ProviderEvent::ThreadItem {
+                        item: Box::new(NormalizedThreadItem {
+                            kind: ThreadItemKind::Plan,
+                            status: ThreadItemStatus::Updated,
+                            thread_id: Some("thread-1".to_string()),
+                            turn_id: Some("turn-1".to_string()),
+                            item_id: Some("plan-1".to_string()),
+                            parent_thread_id: None,
+                            child_thread_id: None,
+                            sender: None,
+                            role: None,
+                            title: None,
+                            text: Some("Plan text".to_string()),
+                            status_text: None,
+                            model: None,
+                            target: None,
+                            url: None,
+                            files: None,
+                            diff: None,
+                            token_usage: None,
+                            plan_questions: Some(json!([{ "id": "repo" }])),
+                            plan_completion: Some("complete".to_string()),
+                            metadata: json!({}),
+                            provider: ProviderMetadata {
+                                provider: "codex".to_string(),
+                                method: Some("item/plan/delta".to_string()),
+                                schema_version: Some("test-v1".to_string()),
+                                raw_payload: json!({ "itemId": "plan-1" }),
+                            },
+                        }),
+                    },
+                ],
+            )
+            .expect("append events");
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_provider_event_log(event_log);
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-state-persisted",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": {
+                        "provider": "codex",
+                        "source": "persisted"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse =
+            serde_json::from_str(&snapshot).expect("persisted snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected persisted state result");
+        };
+
+        assert_eq!(body["providers"][0]["runtime_id"], "codex");
+        let snapshot_state = &body["providers"][0]["state"];
+        assert_eq!(snapshot_state["thread_items"].as_array().unwrap().len(), 2);
+        assert_eq!(snapshot_state["thread_items"][0]["item_id"], "item-1");
+        assert_eq!(snapshot_state["thread_items"][0]["text"], "final");
+        assert_eq!(
+            snapshot_state["thread_items"][0]["provider"]["raw_payload"]["text"],
+            "final"
+        );
+        assert_eq!(snapshot_state["plan_sessions"][0]["item_id"], "plan-1");
+        assert_eq!(
+            snapshot_state["plan_sessions"][0]["questions"][0]["id"],
+            "repo"
         );
     }
 

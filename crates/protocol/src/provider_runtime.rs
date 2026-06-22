@@ -474,6 +474,16 @@ pub struct ProviderRuntimeStatusListResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeStateGetRequest {
     pub provider: Option<String>,
+    #[serde(default)]
+    pub source: ProviderRuntimeStateSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderRuntimeStateSource {
+    #[default]
+    Live,
+    Persisted,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
