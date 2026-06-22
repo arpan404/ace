@@ -41,6 +41,7 @@ use ace_protocol::{
 };
 use ace_runtime::provider::{
     NormalizedServerRequest, NormalizedServerRequestDecision, ProviderEvent, ProviderRequest,
+    ace_provider_adapter_contract,
 };
 use ace_runtime::threads::ExecutionLocation;
 use ace_terminal::PtyAdapter;
@@ -522,6 +523,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
             methods::PROVIDER_RUNTIME_CONTRACT => {
                 Ok(serde_json::to_value(ProviderRuntimeContractReport {
+                    adapter_contract: ace_provider_adapter_contract(),
                     reports: self.providers.contract_reports(),
                 })?)
             }
@@ -2736,6 +2738,41 @@ mod tests {
         let WsServerPayload::Result { body } = contract.payload else {
             panic!("expected provider contract result");
         };
+        assert_eq!(body["adapter_contract"]["version"], 1);
+        assert_eq!(body["adapter_contract"]["websocket_first"], true);
+        assert!(
+            body["adapter_contract"]["required_capabilities"]
+                .as_array()
+                .expect("required capabilities")
+                .iter()
+                .any(
+                    |capability| capability["key"] == "provider.adapter_contract"
+                        && capability["required"] == true
+                )
+        );
+        let operations = body["adapter_contract"]["operations"]
+            .as_array()
+            .expect("adapter operations");
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "plan_fork_for_implementation"
+                && operation["support"] == "required"
+                && operation["provider_methods"]
+                    .as_array()
+                    .expect("provider methods")
+                    .contains(&json!("thread/fork"))
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "subagent_steer"
+                && operation["canonical_method"] == "subagent/steer"
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "handoff_to_location"
+                && operation["category"] == "handoff"
+                && operation["support"] == "required"
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "mcp_tool_call" && operation["support"] == "version_gated"
+        }));
         let reports = body["reports"].as_array().expect("contract reports");
         assert!(reports.iter().any(|report| {
             report["provider"] == "Ace"

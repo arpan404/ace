@@ -2,9 +2,9 @@ use ace_core::ProviderKind;
 use ace_runtime::{
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem,
-        ProviderContractReport, ProviderDescriptor, ProviderDriverStatus, ProviderEvent,
-        ProviderFeature, ProviderLifecycleAction, ProviderLifecycleResult, RuntimeSignalKind,
-        ThreadItemKind, ThreadItemStatus,
+        ProviderAdapterContract, ProviderContractReport, ProviderDescriptor, ProviderDriverStatus,
+        ProviderEvent, ProviderFeature, ProviderLifecycleAction, ProviderLifecycleResult,
+        RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
     },
     threads::AgentRuntimeSnapshot,
     tools::{SemanticToolCall, ToolRunStatus},
@@ -73,8 +73,9 @@ pub struct ProviderRuntimeProviderInfo {
     pub contract: ProviderContractReport,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRuntimeContractReport {
+    pub adapter_contract: ProviderAdapterContract,
     pub reports: Vec<ProviderContractReport>,
 }
 
