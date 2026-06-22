@@ -1,7 +1,7 @@
 use ace_core::ProviderKind;
 use ace_runtime::{
     host_tools::HostToolDescriptor,
-    models::ProviderModelCatalog,
+    models::{ProviderModelCatalog, ProviderModelProviderCapabilities},
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem,
         ProviderAdapterContract, ProviderAdapterInvocationKind, ProviderAdapterOperation,
@@ -525,6 +525,23 @@ pub struct ProviderRuntimeModelsListResponse {
     pub runtime_id: String,
     pub display_name: String,
     pub catalog: ProviderModelCatalog,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeModelProviderCapabilitiesReadRequest {
+    pub provider: String,
+    #[serde(default)]
+    pub params: serde_json::Value,
+    #[serde(default = "default_provider_request_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeModelProviderCapabilitiesReadResponse {
+    pub provider: ProviderKind,
+    pub runtime_id: String,
+    pub display_name: String,
+    pub capabilities: ProviderModelProviderCapabilities,
 }
 
 fn default_provider_lifecycle_grace_ms() -> u64 {

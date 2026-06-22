@@ -13,6 +13,22 @@ pub struct ProviderModelCatalog {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderModelProviderCapabilities {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub capabilities: ProviderModelCapabilities,
+    #[serde(default)]
+    pub models: Vec<ProviderModel>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, Value>,
+    pub raw_payload: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderModel {
     pub id: String,
     pub display_name: String,
@@ -61,6 +77,43 @@ pub fn normalize_provider_model_catalog(
     }
 }
 
+#[must_use]
+pub fn normalize_provider_model_provider_capabilities(
+    provider: impl Into<String>,
+    raw_payload: Value,
+) -> ProviderModelProviderCapabilities {
+    let provider = provider.into();
+    let model_provider = first_string(
+        &raw_payload,
+        &[
+            "provider",
+            "providerId",
+            "provider_id",
+            "modelProvider",
+            "model_provider",
+            "id",
+        ],
+    );
+    let display_name = first_string(
+        &raw_payload,
+        &["displayName", "display_name", "label", "title", "name"],
+    );
+    let capabilities = capabilities_from(&raw_payload);
+    let models = model_items(&raw_payload)
+        .into_iter()
+        .filter_map(|raw| normalize_model(&provider, raw))
+        .collect();
+    ProviderModelProviderCapabilities {
+        provider,
+        model_provider,
+        display_name,
+        capabilities,
+        models,
+        metadata: provider_capabilities_metadata(&raw_payload),
+        raw_payload,
+    }
+}
+
 fn normalize_model(default_provider: &str, raw: Value) -> Option<ProviderModel> {
     let id = first_string(
         &raw,
@@ -85,71 +138,7 @@ fn normalize_model(default_provider: &str, raw: Value) -> Option<ProviderModel> 
     )
     .or_else(|| Some(default_provider.to_string()));
     let family = first_string(&raw, &["family", "modelFamily", "model_family", "series"]);
-    let mut capabilities = ProviderModelCapabilities {
-        context_window: first_u64(
-            &raw,
-            &[
-                "contextWindow",
-                "context_window",
-                "contextLength",
-                "context_length",
-                "maxContextTokens",
-                "max_context_tokens",
-            ],
-        ),
-        max_output_tokens: first_u64(
-            &raw,
-            &[
-                "maxOutputTokens",
-                "max_output_tokens",
-                "outputTokenLimit",
-                "output_token_limit",
-            ],
-        ),
-        default_reasoning_effort: first_string(
-            &raw,
-            &[
-                "defaultReasoningEffort",
-                "default_reasoning_effort",
-                "reasoningEffort",
-                "reasoning_effort",
-            ],
-        ),
-        supports_reasoning: bool_or_capability(
-            &raw,
-            &["supportsReasoning", "reasoning", "reasoningSupported"],
-            &["reasoning"],
-        ),
-        supports_vision: bool_or_capability(
-            &raw,
-            &["supportsVision", "vision", "visionSupported"],
-            &["vision", "image", "images"],
-        ),
-        supports_tools: bool_or_capability(
-            &raw,
-            &["supportsTools", "tools", "toolUse", "tool_use"],
-            &["tools", "tool_use", "function_calling"],
-        ),
-        supports_parallel_tool_calls: bool_or_capability(
-            &raw,
-            &[
-                "supportsParallelToolCalls",
-                "parallelToolCalls",
-                "parallel_tool_calls",
-            ],
-            &["parallel_tool_calls"],
-        ),
-        supports_subagents: bool_or_capability(
-            &raw,
-            &["supportsSubagents", "subagents", "subAgents"],
-            &["subagents", "sub_agents"],
-        ),
-        supports_attachments: bool_or_capability(
-            &raw,
-            &["supportsAttachments", "attachments", "files"],
-            &["attachments", "files", "image", "images", "audio"],
-        ),
-    };
+    let mut capabilities = capabilities_from(&raw);
     if capabilities.supports_vision {
         capabilities.supports_attachments = true;
     }
@@ -163,6 +152,78 @@ fn normalize_model(default_provider: &str, raw: Value) -> Option<ProviderModel> 
         metadata: model_metadata(&raw),
         raw,
     })
+}
+
+fn capabilities_from(raw: &Value) -> ProviderModelCapabilities {
+    let mut capabilities = ProviderModelCapabilities {
+        context_window: first_u64(
+            raw,
+            &[
+                "contextWindow",
+                "context_window",
+                "contextLength",
+                "context_length",
+                "maxContextTokens",
+                "max_context_tokens",
+            ],
+        ),
+        max_output_tokens: first_u64(
+            raw,
+            &[
+                "maxOutputTokens",
+                "max_output_tokens",
+                "outputTokenLimit",
+                "output_token_limit",
+            ],
+        ),
+        default_reasoning_effort: first_string(
+            raw,
+            &[
+                "defaultReasoningEffort",
+                "default_reasoning_effort",
+                "reasoningEffort",
+                "reasoning_effort",
+            ],
+        ),
+        supports_reasoning: bool_or_capability(
+            raw,
+            &["supportsReasoning", "reasoning", "reasoningSupported"],
+            &["reasoning"],
+        ),
+        supports_vision: bool_or_capability(
+            raw,
+            &["supportsVision", "vision", "visionSupported"],
+            &["vision", "image", "images"],
+        ),
+        supports_tools: bool_or_capability(
+            raw,
+            &["supportsTools", "tools", "toolUse", "tool_use"],
+            &["tools", "tool_use", "function_calling"],
+        ),
+        supports_parallel_tool_calls: bool_or_capability(
+            raw,
+            &[
+                "supportsParallelToolCalls",
+                "parallelToolCalls",
+                "parallel_tool_calls",
+            ],
+            &["parallel_tool_calls"],
+        ),
+        supports_subagents: bool_or_capability(
+            raw,
+            &["supportsSubagents", "subagents", "subAgents"],
+            &["subagents", "sub_agents"],
+        ),
+        supports_attachments: bool_or_capability(
+            raw,
+            &["supportsAttachments", "attachments", "files"],
+            &["attachments", "files", "image", "images", "audio"],
+        ),
+    };
+    if capabilities.supports_vision {
+        capabilities.supports_attachments = true;
+    }
+    capabilities
 }
 
 fn model_items(raw: &Value) -> Vec<Value> {
@@ -209,6 +270,30 @@ fn model_metadata(raw: &Value) -> BTreeMap<String, Value> {
         ] {
             if let Some(value) = object.get(key) {
                 metadata.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+    metadata
+}
+
+fn provider_capabilities_metadata(raw: &Value) -> BTreeMap<String, Value> {
+    let mut metadata = BTreeMap::new();
+    if let Some(object) = raw.as_object() {
+        for (key, value) in object {
+            if !matches!(
+                key.as_str(),
+                "models"
+                    | "data"
+                    | "items"
+                    | "availableModels"
+                    | "available_models"
+                    | "capabilities"
+                    | "features"
+                    | "supportedFeatures"
+                    | "supported_features"
+                    | "limits"
+            ) {
+                metadata.insert(key.clone(), value.clone());
             }
         }
     }
@@ -388,5 +473,49 @@ mod tests {
         assert!(model.capabilities.supports_parallel_tool_calls);
         assert!(model.capabilities.supports_subagents);
         assert!(!model.capabilities.supports_attachments);
+    }
+
+    #[test]
+    fn normalizes_model_provider_capabilities_and_nested_models() {
+        let raw = json!({
+            "providerId": "openai",
+            "displayName": "OpenAI",
+            "capabilities": {
+                "reasoning": true,
+                "tool_use": true,
+                "parallel_tool_calls": true,
+                "subagents": true,
+                "attachments": true
+            },
+            "limits": {
+                "contextWindow": 256000,
+                "maxOutputTokens": 32000
+            },
+            "models": [
+                {
+                    "id": "gpt-5",
+                    "displayName": "GPT-5",
+                    "supportsVision": true
+                }
+            ],
+            "schemaVersion": 3
+        });
+
+        let normalized = normalize_provider_model_provider_capabilities("codex", raw.clone());
+
+        assert_eq!(normalized.provider, "codex");
+        assert_eq!(normalized.model_provider.as_deref(), Some("openai"));
+        assert_eq!(normalized.display_name.as_deref(), Some("OpenAI"));
+        assert_eq!(normalized.capabilities.context_window, Some(256000));
+        assert_eq!(normalized.capabilities.max_output_tokens, Some(32000));
+        assert!(normalized.capabilities.supports_reasoning);
+        assert!(normalized.capabilities.supports_tools);
+        assert!(normalized.capabilities.supports_parallel_tool_calls);
+        assert!(normalized.capabilities.supports_subagents);
+        assert!(normalized.capabilities.supports_attachments);
+        assert_eq!(normalized.models[0].id, "gpt-5");
+        assert!(normalized.models[0].capabilities.supports_vision);
+        assert_eq!(normalized.metadata["schemaVersion"], 3);
+        assert_eq!(normalized.raw_payload, raw);
     }
 }

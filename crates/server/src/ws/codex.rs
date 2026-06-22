@@ -31,17 +31,18 @@ use ace_protocol::{
         ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeEventRecord,
         ProviderRuntimeFeaturesListRequest, ProviderRuntimeFeaturesListResponse,
         ProviderRuntimeLifecycleRequest, ProviderRuntimeLifecycleResponse,
-        ProviderRuntimeModelsListRequest, ProviderRuntimeModelsListResponse,
-        ProviderRuntimeOperationGateResolution, ProviderRuntimeOperationGateStatus,
-        ProviderRuntimeOperationParams, ProviderRuntimeOperationRequest,
-        ProviderRuntimeOperationRequestMode, ProviderRuntimeOperationsListRequest,
-        ProviderRuntimeOperationsListResponse, ProviderRuntimeProviderFeatures,
-        ProviderRuntimeProviderInfo, ProviderRuntimeProviderOperation,
-        ProviderRuntimeProviderOperations, ProviderRuntimeProviderState,
-        ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList, ProviderRuntimeRawEventMode,
-        ProviderRuntimeRawEventSummary, ProviderRuntimeRecentEventsRequest,
-        ProviderRuntimeRecentEventsResponse, ProviderRuntimeRequest,
-        ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
+        ProviderRuntimeModelProviderCapabilitiesReadRequest,
+        ProviderRuntimeModelProviderCapabilitiesReadResponse, ProviderRuntimeModelsListRequest,
+        ProviderRuntimeModelsListResponse, ProviderRuntimeOperationGateResolution,
+        ProviderRuntimeOperationGateStatus, ProviderRuntimeOperationParams,
+        ProviderRuntimeOperationRequest, ProviderRuntimeOperationRequestMode,
+        ProviderRuntimeOperationsListRequest, ProviderRuntimeOperationsListResponse,
+        ProviderRuntimeProviderFeatures, ProviderRuntimeProviderInfo,
+        ProviderRuntimeProviderOperation, ProviderRuntimeProviderOperations,
+        ProviderRuntimeProviderState, ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
+        ProviderRuntimeRawEventMode, ProviderRuntimeRawEventSummary,
+        ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
+        ProviderRuntimeRequest, ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
         ProviderRuntimeStateSource, ProviderRuntimeStatusListRequest,
         ProviderRuntimeStatusListResponse, ProviderRuntimeSubscribeRequest,
         ProviderServerRequestAudit, ProviderServerRequestDecisionRecord,
@@ -60,7 +61,7 @@ use ace_runtime::{
     host_tools::{
         HostToolError, HostToolInvocation, HostToolResult, host_tool_invocation_from_server_request,
     },
-    models::normalize_provider_model_catalog,
+    models::{normalize_provider_model_catalog, normalize_provider_model_provider_capabilities},
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
         ProviderAdapterOperation, ProviderAdapterOperationGate, ProviderAdapterProfile,
@@ -1133,6 +1134,59 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     display_name: provider.display_name().to_string(),
                     catalog: normalize_provider_model_catalog(provider.runtime_id(), raw_models),
                 })?)
+            }
+            methods::PROVIDER_RUNTIME_MODEL_PROVIDER_CAPABILITIES_READ => {
+                let request = serde_json::from_value::<
+                    ProviderRuntimeModelProviderCapabilitiesReadRequest,
+                >(payload)?;
+                let provider =
+                    ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
+                        WsDispatchError::BadRequest(format!(
+                            "unknown provider `{}` for model provider capabilities read",
+                            request.provider
+                        ))
+                    })?;
+                let adapter_profile = self.providers.adapter_profile(provider).ok_or(
+                    ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider },
+                )?;
+                validate_provider_runtime_operation(
+                    ProviderAdapterOperation::ModelProviderCapabilitiesRead,
+                    &adapter_profile,
+                )?;
+                let raw_capabilities = if provider == ProviderKind::Codex {
+                    self.dispatch_codex_method(
+                        methods::CODEX_MODEL_PROVIDER_CAPABILITIES_READ,
+                        request.params,
+                    )
+                    .await?
+                } else {
+                    let method = resolve_provider_runtime_request_method(
+                        None,
+                        Some(ProviderAdapterOperation::ModelProviderCapabilitiesRead),
+                        &adapter_profile,
+                    )?;
+                    self.providers
+                        .request(
+                            provider,
+                            ProviderRequest {
+                                method,
+                                params: request.params,
+                                timeout: Duration::from_millis(request.timeout_ms),
+                            },
+                        )
+                        .await?
+                };
+                Ok(serde_json::to_value(
+                    ProviderRuntimeModelProviderCapabilitiesReadResponse {
+                        provider,
+                        runtime_id: provider.runtime_id().to_string(),
+                        display_name: provider.display_name().to_string(),
+                        capabilities: normalize_provider_model_provider_capabilities(
+                            provider.runtime_id(),
+                            raw_capabilities,
+                        ),
+                    },
+                )?)
             }
             methods::PROVIDER_RUNTIME_LIFECYCLE => {
                 let request = serde_json::from_value::<ProviderRuntimeLifecycleRequest>(payload)?;
@@ -8083,6 +8137,67 @@ mod tests {
                 .lock()
                 .expect("calls")
                 .contains(&"model/list".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_reads_normalized_model_provider_capabilities_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "model-provider-capabilities",
+                    "method": methods::PROVIDER_RUNTIME_MODEL_PROVIDER_CAPABILITIES_READ,
+                    "payload": {
+                        "provider": "codex",
+                        "params": { "provider": "openai" }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse =
+            serde_json::from_str(&response).expect("capabilities response");
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected capabilities result");
+        };
+
+        assert_eq!(body["runtime_id"], "codex");
+        assert_eq!(body["capabilities"]["provider"], "codex");
+        assert_eq!(body["capabilities"]["model_provider"], "openai");
+        assert_eq!(body["capabilities"]["display_name"], "OpenAI");
+        assert_eq!(
+            body["capabilities"]["capabilities"]["context_window"],
+            256000
+        );
+        assert_eq!(
+            body["capabilities"]["capabilities"]["max_output_tokens"],
+            32000
+        );
+        assert_eq!(
+            body["capabilities"]["capabilities"]["supports_parallel_tool_calls"],
+            true
+        );
+        assert_eq!(
+            body["capabilities"]["capabilities"]["supports_subagents"],
+            true
+        );
+        assert_eq!(body["capabilities"]["models"][0]["id"], "gpt-5");
+        assert_eq!(body["capabilities"]["raw_payload"]["schemaVersion"], 1);
+        assert!(
+            backend
+                .calls
+                .lock()
+                .expect("calls")
+                .contains(&"modelProvider/capabilities/read".to_string())
         );
     }
 

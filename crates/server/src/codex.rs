@@ -1808,6 +1808,35 @@ pub mod tests {
                     ]
                 }));
             }
+            if method == "modelProvider/capabilities/read" {
+                return Ok(serde_json::json!({
+                    "providerId": params
+                        .get("provider")
+                        .or_else(|| params.get("providerId"))
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!("openai")),
+                    "displayName": "OpenAI",
+                    "capabilities": {
+                        "reasoning": true,
+                        "tool_use": true,
+                        "parallel_tool_calls": true,
+                        "subagents": true,
+                        "attachments": true
+                    },
+                    "limits": {
+                        "contextWindow": 256000,
+                        "maxOutputTokens": 32000
+                    },
+                    "models": [
+                        {
+                            "id": "gpt-5",
+                            "displayName": "GPT-5",
+                            "supportsVision": true
+                        }
+                    ],
+                    "schemaVersion": 1
+                }));
+            }
             Ok(serde_json::json!({ "method": method }))
         }
 
