@@ -48,14 +48,15 @@ use ace_protocol::{
     ws::{WsServerPayload, WsServerResponse, methods},
 };
 use ace_runtime::provider::{
-    NormalizedServerRequest, NormalizedServerRequestDecision, ProviderAdapterInvocationKind,
-    ProviderAdapterOperation, ProviderAdapterProfile, ProviderEvent, ProviderRequest,
-    ace_provider_adapter_contract, provider_adapter_profile, provider_contract_report,
+    NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
+    ProviderAdapterInvocationKind, ProviderAdapterOperation, ProviderAdapterProfile, ProviderEvent,
+    ProviderMetadata, ProviderRequest, RuntimeSignalKind, ace_provider_adapter_contract,
+    provider_adapter_profile, provider_contract_report,
 };
 use ace_runtime::threads::{ExecutionLocation, HandoffPlan, HandoffStatus};
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast, mpsc};
 
@@ -142,87 +143,165 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 Ok(response)
             }
             methods::CODEX_THREAD_ARCHIVE => {
-                self.codex_json::<CodexThreadIdRequest, _, _, _>(
-                    payload,
-                    |service, request| async move { service.archive_thread(request.thread_id).await },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadIdRequest>(payload)?;
+                let response = self.codex.archive_thread(request.thread_id.clone()).await?;
+                self.publish_codex_thread_lifecycle_signal(CodexThreadLifecycleSignal {
+                    thread_id: request.thread_id,
+                    status: "archived",
+                    name: None,
+                    active: None,
+                    archived: Some(true),
+                    metadata: json!({
+                        "action": "archive",
+                        "provider_response": response.clone(),
+                    }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_THREAD_UNARCHIVE => {
-                self.codex_json::<CodexThreadIdRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service.unarchive_thread(request.thread_id).await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadIdRequest>(payload)?;
+                let response = self.codex.unarchive_thread(request.thread_id.clone()).await?;
+                self.publish_codex_thread_lifecycle_signal(CodexThreadLifecycleSignal {
+                    thread_id: request.thread_id,
+                    status: "unarchived",
+                    name: None,
+                    active: None,
+                    archived: Some(false),
+                    metadata: json!({
+                        "action": "unarchive",
+                        "provider_response": response.clone(),
+                    }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_THREAD_DELETE => {
-                self.codex_json::<CodexThreadIdRequest, _, _, _>(
-                    payload,
-                    |service, request| async move { service.delete_thread(request.thread_id).await },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadIdRequest>(payload)?;
+                let response = self.codex.delete_thread(request.thread_id.clone()).await?;
+                self.publish_codex_thread_lifecycle_signal(CodexThreadLifecycleSignal {
+                    thread_id: request.thread_id,
+                    status: "deleted",
+                    name: None,
+                    active: Some(false),
+                    archived: None,
+                    metadata: json!({
+                        "action": "delete",
+                        "provider_response": response.clone(),
+                    }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_THREAD_UNSUBSCRIBE => {
-                self.codex_json::<CodexThreadIdRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service.unsubscribe_thread(request.thread_id).await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadIdRequest>(payload)?;
+                let response = self.codex.unsubscribe_thread(request.thread_id.clone()).await?;
+                self.publish_codex_thread_lifecycle_signal(CodexThreadLifecycleSignal {
+                    thread_id: request.thread_id,
+                    status: "unsubscribed",
+                    name: None,
+                    active: Some(false),
+                    archived: None,
+                    metadata: json!({
+                        "action": "unsubscribe",
+                        "provider_response": response.clone(),
+                    }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_THREAD_SET_NAME => {
-                self.codex_json::<CodexThreadSetNameRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service
-                            .set_thread_name(request.thread_id, request.name)
-                            .await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadSetNameRequest>(payload)?;
+                let response = self
+                    .codex
+                    .set_thread_name(request.thread_id.clone(), request.name.clone())
+                    .await?;
+                self.publish_codex_thread_lifecycle_signal(CodexThreadLifecycleSignal {
+                    thread_id: request.thread_id,
+                    status: "renamed",
+                    name: Some(request.name),
+                    active: None,
+                    archived: None,
+                    metadata: json!({
+                        "action": "set_name",
+                        "provider_response": response.clone(),
+                    }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_THREAD_UPDATE_METADATA => {
-                self.codex_json::<CodexThreadUpdateMetadataRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service
-                            .update_thread_metadata(request.thread_id, request.metadata)
-                            .await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadUpdateMetadataRequest>(payload)?;
+                let response = self
+                    .codex
+                    .update_thread_metadata(request.thread_id.clone(), request.metadata.clone())
+                    .await?;
+                self.publish_codex_thread_lifecycle_signal(CodexThreadLifecycleSignal {
+                    thread_id: request.thread_id,
+                    status: "metadata_updated",
+                    name: None,
+                    active: None,
+                    archived: None,
+                    metadata: json!({
+                        "action": "update_metadata",
+                        "thread_metadata": request.metadata,
+                        "provider_response": response.clone(),
+                    }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_THREAD_COMPACT => {
-                self.codex_json::<CodexThreadIdRequest, _, _, _>(
-                    payload,
-                    |service, request| async move { service.compact_thread(request.thread_id).await },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadIdRequest>(payload)?;
+                let response = self.codex.compact_thread(request.thread_id.clone()).await?;
+                self.publish_codex_thread_lifecycle_signal(CodexThreadLifecycleSignal {
+                    thread_id: request.thread_id,
+                    status: "compacted",
+                    name: None,
+                    active: None,
+                    archived: None,
+                    metadata: json!({
+                        "action": "compact",
+                        "provider_response": response.clone(),
+                    }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_THREAD_ROLLBACK => {
-                self.codex_json::<CodexThreadRollbackRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service
-                            .rollback_thread(request.thread_id, request.turn_id)
-                            .await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadRollbackRequest>(payload)?;
+                let response = self
+                    .codex
+                    .rollback_thread(request.thread_id.clone(), request.turn_id.clone())
+                    .await?;
+                self.publish_codex_thread_lifecycle_signal(CodexThreadLifecycleSignal {
+                    thread_id: request.thread_id,
+                    status: "rolled_back",
+                    name: None,
+                    active: None,
+                    archived: None,
+                    metadata: json!({
+                        "action": "rollback",
+                        "turn_id": request.turn_id,
+                        "provider_response": response.clone(),
+                    }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_THREAD_INJECT_ITEMS => {
-                self.codex_json::<CodexThreadInjectItemsRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service
-                            .inject_thread_items(request.thread_id, request.items)
-                            .await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexThreadInjectItemsRequest>(payload)?;
+                let item_count = request.items.len();
+                let response = self
+                    .codex
+                    .inject_thread_items(request.thread_id.clone(), request.items.clone())
+                    .await?;
+                self.publish_codex_thread_lifecycle_signal(CodexThreadLifecycleSignal {
+                    thread_id: request.thread_id,
+                    status: "items_injected",
+                    name: None,
+                    active: None,
+                    archived: None,
+                    metadata: json!({
+                        "action": "inject_items",
+                        "item_count": item_count,
+                        "items": request.items,
+                        "provider_response": response.clone(),
+                    }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_TURN_START => {
                 self.codex_json::<CodexTurnStartRequest, _, _, _>(
@@ -980,6 +1059,53 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         Ok(())
     }
 
+    fn publish_codex_thread_lifecycle_signal(
+        &self,
+        signal: CodexThreadLifecycleSignal,
+    ) -> Result<(), WsDispatchError> {
+        let raw_payload = json!({
+            "threadId": signal.thread_id.clone(),
+            "status": signal.status,
+            "name": signal.name.clone(),
+            "active": signal.active,
+            "archived": signal.archived,
+            "metadata": signal.metadata.clone(),
+        });
+        self.append_and_publish_provider_events(
+            ProviderKind::Codex,
+            vec![ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadLifecycleChanged,
+                    thread_id: Some(signal.thread_id),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some(signal.status.to_string()),
+                    name: signal.name,
+                    active: signal.active,
+                    archived: signal.archived,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: signal.metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some("ace/thread_lifecycle".to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            }],
+        )
+    }
+
     pub(super) async fn subscribe_provider_runtime_events(
         &self,
         payload: Value,
@@ -1175,6 +1301,15 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         });
         receiver
     }
+}
+
+struct CodexThreadLifecycleSignal {
+    thread_id: String,
+    status: &'static str,
+    name: Option<String>,
+    active: Option<bool>,
+    archived: Option<bool>,
+    metadata: Value,
 }
 
 fn validate_provider_runtime_operation(
@@ -2805,6 +2940,42 @@ mod tests {
         assert_eq!(lifecycle[8]["item_count"], 1);
         assert_eq!(lifecycle[8]["request"]["items"][0]["text"], "accepted plan");
         assert_eq!(lifecycle[8]["provider_response"]["injected"], 1);
+
+        let recent = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "thread-lifecycle-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": { "provider": "codex", "limit": 20 }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent: WsServerResponse = serde_json::from_str(&recent).expect("recent events");
+        let WsServerPayload::Result { body } = recent.payload else {
+            panic!("expected recent events result");
+        };
+        let records = body["records"].as_array().expect("records");
+        assert_eq!(records.len(), 9);
+        assert!(records.iter().all(|record| {
+            record["event"]["type"] == "runtime_signal"
+                && record["event"]["signal"]["kind"] == "thread_lifecycle_changed"
+                && record["projection_deltas"][0]["type"] == "thread_lifecycle_changed"
+        }));
+        assert_eq!(records[0]["event"]["signal"]["status"], "archived");
+        assert_eq!(records[0]["projection_deltas"][0]["archived"], true);
+        assert_eq!(records[4]["event"]["signal"]["status"], "renamed");
+        assert_eq!(records[4]["projection_deltas"][0]["name"], "Adapter work");
+        assert_eq!(
+            records[5]["event"]["signal"]["metadata"]["thread_metadata"]["project"],
+            "ace"
+        );
+        assert_eq!(
+            records[7]["projection_deltas"][0]["metadata"]["turn_id"],
+            "turn-2"
+        );
+        assert_eq!(records[8]["event"]["signal"]["metadata"]["item_count"], 1);
     }
 
     #[tokio::test]
