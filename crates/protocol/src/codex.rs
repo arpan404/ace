@@ -1,7 +1,8 @@
 use ace_codex::{
-    CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent, CodexMethodDirection,
-    CodexMethodSpec, CodexMethodSupport, CodexPermissionPreset, CodexPlanImplementation,
-    CodexSubagentSteer, CodexSubagentThreadRequest, CodexThreadStart, CodexTurnStart,
+    CodexAdapterOperationCoverage, CodexGoalSet, CodexGuardianDeniedActionApproval,
+    CodexHandoffToAgent, CodexMethodDirection, CodexMethodSpec, CodexMethodSupport,
+    CodexPermissionPreset, CodexPlanImplementation, CodexSubagentSteer, CodexSubagentThreadRequest,
+    CodexThreadStart, CodexTurnStart,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -326,6 +327,9 @@ pub struct CodexCompatibilityInventoryResponse {
     pub methods: Vec<CodexCompatibilityMethod>,
     pub summary: CodexCompatibilityInventorySummary,
     pub raw_request_policy: CodexRawRequestPolicy,
+    #[serde(default)]
+    pub adapter_contract_coverage: Vec<CodexAdapterOperationCoverage>,
+    pub adapter_contract_coverage_summary: CodexAdapterContractCoverageSummary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -341,6 +345,15 @@ pub struct CodexCompatibilityInventorySummary {
     pub intentionally_deferred_methods: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct CodexAdapterContractCoverageSummary {
+    pub total_operations: usize,
+    pub covered_operations: usize,
+    pub missing_method_operations: usize,
+    pub support_mismatch_operations: usize,
+    pub fully_covered: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodexRawRequestPolicy {
     pub allowed_direction: CodexMethodDirection,
@@ -353,6 +366,14 @@ pub struct CodexRawRequestPolicy {
 impl CodexCompatibilityInventoryResponse {
     #[must_use]
     pub fn from_specs(specs: impl IntoIterator<Item = CodexMethodSpec>) -> Self {
+        Self::from_specs_and_adapter_coverage(specs, Vec::new())
+    }
+
+    #[must_use]
+    pub fn from_specs_and_adapter_coverage(
+        specs: impl IntoIterator<Item = CodexMethodSpec>,
+        adapter_contract_coverage: Vec<CodexAdapterOperationCoverage>,
+    ) -> Self {
         let mut summary = CodexCompatibilityInventorySummary::default();
         let methods = specs
             .into_iter()
@@ -394,7 +415,30 @@ impl CodexCompatibilityInventoryResponse {
                 rejects_unknown_methods: true,
                 rejects_non_client_request_directions: true,
             },
+            adapter_contract_coverage_summary: adapter_coverage_summary(&adapter_contract_coverage),
+            adapter_contract_coverage,
         }
+    }
+}
+
+fn adapter_coverage_summary(
+    coverage: &[CodexAdapterOperationCoverage],
+) -> CodexAdapterContractCoverageSummary {
+    CodexAdapterContractCoverageSummary {
+        total_operations: coverage.len(),
+        covered_operations: coverage
+            .iter()
+            .filter(|operation| operation.fully_covered)
+            .count(),
+        missing_method_operations: coverage
+            .iter()
+            .filter(|operation| !operation.missing_methods.is_empty())
+            .count(),
+        support_mismatch_operations: coverage
+            .iter()
+            .filter(|operation| !operation.support_mismatches.is_empty())
+            .count(),
+        fully_covered: coverage.iter().all(|operation| operation.fully_covered),
     }
 }
 
@@ -447,6 +491,17 @@ mod tests {
                 .raw_request_policy
                 .rejects_non_client_request_directions
         );
+        assert!(inventory.adapter_contract_coverage.is_empty());
+        assert_eq!(
+            inventory.adapter_contract_coverage_summary,
+            CodexAdapterContractCoverageSummary {
+                total_operations: 0,
+                covered_operations: 0,
+                missing_method_operations: 0,
+                support_mismatch_operations: 0,
+                fully_covered: true,
+            }
+        );
     }
 
     #[test]
@@ -475,5 +530,47 @@ mod tests {
         assert_eq!(inventory.summary.typed_supported_methods, 1);
         assert_eq!(inventory.summary.raw_supported_methods, 1);
         assert_eq!(inventory.summary.intentionally_deferred_methods, 1);
+    }
+
+    #[test]
+    fn compatibility_inventory_summarizes_adapter_contract_coverage() {
+        let contract = ace_runtime::provider::ace_provider_adapter_contract();
+        let coverage = ace_codex::codex_adapter_contract_coverage(&contract);
+        let inventory = CodexCompatibilityInventoryResponse::from_specs_and_adapter_coverage(
+            codex_method_inventory().iter().copied(),
+            coverage,
+        );
+
+        assert_eq!(
+            inventory.adapter_contract_coverage_summary.total_operations,
+            contract.operations.len()
+        );
+        assert_eq!(
+            inventory
+                .adapter_contract_coverage_summary
+                .covered_operations,
+            contract.operations.len()
+        );
+        assert_eq!(
+            inventory
+                .adapter_contract_coverage_summary
+                .missing_method_operations,
+            0
+        );
+        assert_eq!(
+            inventory
+                .adapter_contract_coverage_summary
+                .support_mismatch_operations,
+            0
+        );
+        assert!(inventory.adapter_contract_coverage_summary.fully_covered);
+        assert!(
+            inventory
+                .adapter_contract_coverage
+                .iter()
+                .any(|operation| operation.operation
+                    == ace_runtime::provider::ProviderAdapterOperation::PlanForkForImplementation
+                    && operation.fully_covered)
+        );
     }
 }

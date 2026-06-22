@@ -276,9 +276,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 Ok(response)
             }
             methods::CODEX_COMPATIBILITY_INVENTORY => {
+                let adapter_contract = ace_provider_adapter_contract();
                 Ok(serde_json::to_value(
-                    CodexCompatibilityInventoryResponse::from_specs(
+                    CodexCompatibilityInventoryResponse::from_specs_and_adapter_coverage(
                         ace_codex::codex_method_inventory().iter().copied(),
+                        ace_codex::codex_adapter_contract_coverage(&adapter_contract),
                     ),
                 )?)
             }
@@ -1676,6 +1678,41 @@ mod tests {
                 .as_array()
                 .expect("rejected supports")
                 .contains(&json!("intentionally_deferred"))
+        );
+        assert_eq!(
+            body["adapter_contract_coverage_summary"]["fully_covered"],
+            true
+        );
+        assert!(
+            body["adapter_contract_coverage_summary"]["total_operations"]
+                .as_u64()
+                .expect("coverage operations")
+                > 0
+        );
+        assert_eq!(
+            body["adapter_contract_coverage_summary"]["missing_method_operations"],
+            0
+        );
+        assert_eq!(
+            body["adapter_contract_coverage_summary"]["support_mismatch_operations"],
+            0
+        );
+        assert!(
+            body["adapter_contract_coverage"]
+                .as_array()
+                .expect("adapter contract coverage")
+                .iter()
+                .any(
+                    |operation| operation["operation"] == "plan_fork_for_implementation"
+                        && operation["fully_covered"] == true
+                        && operation["provider_methods"]
+                            .as_array()
+                            .expect("provider methods")
+                            .contains(&json!({
+                                "method": "thread/fork",
+                                "support": "typed_supported"
+                            }))
+                )
         );
 
         let retry = state
