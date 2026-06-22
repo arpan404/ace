@@ -293,6 +293,54 @@ impl ProviderEventLogRepository {
         Ok(records)
     }
 
+    pub fn after_sequence(
+        &self,
+        provider: Option<&str>,
+        sequence: i64,
+        limit: usize,
+    ) -> Result<Vec<ProviderEventRecord>, PersistenceError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let capped_limit = i64::try_from(limit.min(1_000)).unwrap_or(1_000);
+        let records = if let Some(provider) = provider {
+            let mut statement = self.connection.prepare(
+                "SELECT sequence, provider, event_json, created_at
+                 FROM provider_events
+                 WHERE provider = ?1 AND sequence > ?2
+                 ORDER BY sequence ASC
+                 LIMIT ?3",
+            )?;
+            statement
+                .query_map(params![provider, sequence, capped_limit], decode_record)?
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            let mut statement = self.connection.prepare(
+                "SELECT sequence, provider, event_json, created_at
+                 FROM provider_events
+                 WHERE sequence > ?1
+                 ORDER BY sequence ASC
+                 LIMIT ?2",
+            )?;
+            statement
+                .query_map(params![sequence, capped_limit], decode_record)?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        Ok(records)
+    }
+
+    pub fn recent_or_after_sequence(
+        &self,
+        provider: Option<&str>,
+        sequence: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<ProviderEventRecord>, PersistenceError> {
+        match sequence {
+            Some(sequence) => self.after_sequence(provider, sequence, limit),
+            None => self.recent(provider, limit),
+        }
+    }
+
     pub fn runtime_state_snapshot(
         &self,
         provider: Option<&str>,
@@ -466,7 +514,27 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].provider, "codex");
         assert_eq!(all[1].provider, "ace");
+        let after_first_codex = repo
+            .after_sequence(Some("codex"), first[0].sequence, 10)
+            .expect("after first codex");
+        assert_eq!(after_first_codex.len(), 1);
+        assert_eq!(after_first_codex[0].sequence, first[1].sequence);
+        let after_all = repo
+            .after_sequence(None, first[0].sequence, 10)
+            .expect("after first all");
+        assert_eq!(after_all.len(), 2);
+        assert_eq!(after_all[0].provider, "codex");
+        assert_eq!(after_all[1].provider, "ace");
+        let after_missing = repo
+            .recent_or_after_sequence(Some("codex"), Some(first[1].sequence), 10)
+            .expect("after last codex");
+        assert!(after_missing.is_empty());
         assert!(repo.recent(None, 0).expect("zero").is_empty());
+        assert!(
+            repo.after_sequence(None, first[0].sequence, 0)
+                .expect("zero after")
+                .is_empty()
+        );
     }
 
     #[test]

@@ -1102,7 +1102,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     .provider_events
                     .lock()
                     .expect("provider event log")
-                    .recent(request.provider.as_deref(), request.limit)?
+                    .recent_or_after_sequence(
+                        request.provider.as_deref(),
+                        request.from_sequence_exclusive,
+                        request.limit,
+                    )?
                     .into_iter()
                     .map(|record| {
                         let event = ProviderRuntimeEvent::from_provider_event(
@@ -5804,6 +5808,42 @@ mod tests {
         assert_eq!(
             records[2]["raw_event_summary"]["provider_method"],
             "item/completed"
+        );
+        let replay_cursor = records[1]["sequence"].as_i64().expect("replay cursor");
+        let replay_after_cursor = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-events-after-cursor",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": {
+                        "provider": "codex",
+                        "from_sequence_exclusive": replay_cursor,
+                        "limit": 3
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let replay_after_cursor: WsServerResponse =
+            serde_json::from_str(&replay_after_cursor).expect("cursor replay response");
+        let WsServerPayload::Result { body } = replay_after_cursor.payload else {
+            panic!("expected cursor replay result");
+        };
+        let replay_records = body["records"].as_array().expect("cursor replay records");
+        assert_eq!(replay_records.len(), 3);
+        assert!(
+            replay_records
+                .iter()
+                .all(|record| record["sequence"].as_i64().expect("sequence") > replay_cursor)
+        );
+        assert_eq!(
+            replay_records[0]["event"]["type"],
+            records[2]["event"]["type"]
+        );
+        assert_eq!(
+            replay_records[0]["projection_deltas"][0]["type"],
+            "raw_notification_observed"
         );
 
         let recent_full = state

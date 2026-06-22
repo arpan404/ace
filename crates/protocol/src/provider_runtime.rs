@@ -48,6 +48,8 @@ pub enum ProviderRuntimeRawEventMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderRuntimeRecentEventsRequest {
     pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_sequence_exclusive: Option<i64>,
     #[serde(default = "default_recent_events_limit")]
     pub limit: usize,
     #[serde(default = "default_raw_event_mode")]
