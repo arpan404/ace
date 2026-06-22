@@ -734,6 +734,10 @@ pub enum ProviderRuntimeProjectionDelta {
         diff: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         token_usage: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan_questions: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan_completion: Option<String>,
     },
     PlanUpdated {
         provider: String,
@@ -746,6 +750,10 @@ pub enum ProviderRuntimeProjectionDelta {
         status: ThreadItemStatus,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        questions: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        completion: Option<String>,
     },
     GoalUpdated {
         provider: String,
@@ -1234,6 +1242,8 @@ impl ProviderRuntimeEvent {
                         files: item.files.clone(),
                         diff: item.diff.clone(),
                         token_usage: item.token_usage.clone(),
+                        plan_questions: item.plan_questions.clone(),
+                        plan_completion: item.plan_completion.clone(),
                     });
                 }
                 if item.kind == ThreadItemKind::Plan {
@@ -1244,6 +1254,8 @@ impl ProviderRuntimeEvent {
                         item_id: item.item_id.clone(),
                         status: item.status,
                         text: item.text.clone(),
+                        questions: item.plan_questions.clone(),
+                        completion: item.plan_completion.clone(),
                     });
                 }
                 if matches!(
@@ -1411,6 +1423,8 @@ fn thread_item_has_details(item: &NormalizedThreadItem) -> bool {
         || item.files.is_some()
         || item.diff.is_some()
         || item.token_usage.is_some()
+        || item.plan_questions.is_some()
+        || item.plan_completion.is_some()
 }
 
 #[must_use]
@@ -2357,6 +2371,8 @@ mod tests {
                     files: None,
                     diff: None,
                     token_usage: None,
+                    plan_questions: None,
+                    plan_completion: None,
                     metadata: json!({ "phase": "planning" }),
                     provider: ProviderMetadata {
                         provider: "codex".to_string(),
@@ -2502,6 +2518,13 @@ mod tests {
                     files: None,
                     diff: None,
                     token_usage: None,
+                    plan_questions: Some(json!([
+                        {
+                            "id": "confirm",
+                            "question": "Implement now?"
+                        }
+                    ])),
+                    plan_completion: Some("complete".to_string()),
                     metadata: json!({}),
                     provider: ProviderMetadata {
                         provider: "codex".to_string(),
@@ -2534,11 +2557,17 @@ mod tests {
                 turn_id,
                 item_id,
                 text,
+                questions,
+                completion,
                 ..
             } if thread_id.as_deref() == Some("thread-1")
                 && turn_id.as_deref() == Some("turn-1")
                 && item_id.as_deref() == Some("plan-1")
                 && text.as_deref() == Some("Implement adapter")
+                && questions.as_ref().is_some_and(|questions| {
+                    questions[0]["question"] == "Implement now?"
+                })
+                && completion.as_deref() == Some("complete")
         )));
         assert!(deltas.iter().any(|delta| matches!(
             delta,
@@ -2574,6 +2603,8 @@ mod tests {
                 files: None,
                 diff: None,
                 token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
                 metadata: json!({}),
                 provider: provider_metadata("item/subAgentActivity/delta"),
             }),
@@ -2596,6 +2627,8 @@ mod tests {
                 files: None,
                 diff: None,
                 token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
                 metadata: json!({}),
                 provider: provider_metadata("item/completed"),
             }),
@@ -2618,6 +2651,8 @@ mod tests {
                 files: Some(json!(["src/main.rs"])),
                 diff: Some(json!("@@ -1 +1 @@")),
                 token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
                 metadata: json!({
                     "diff": "@@ -1 +1 @@",
                     "files": ["src/main.rs"]
@@ -2643,6 +2678,8 @@ mod tests {
                 files: None,
                 diff: None,
                 token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
                 metadata: json!({ "command": "cargo test" }),
                 provider: provider_metadata("item/commandExecution/outputDelta"),
             }),

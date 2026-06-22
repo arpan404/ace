@@ -688,6 +688,10 @@ pub mod provider {
         pub diff: Option<Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub token_usage: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub plan_questions: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub plan_completion: Option<String>,
         #[serde(default)]
         pub metadata: Value,
         pub provider: ProviderMetadata,

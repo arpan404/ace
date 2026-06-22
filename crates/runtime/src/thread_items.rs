@@ -75,6 +75,8 @@ pub fn normalize_provider_thread_item(
             .or_else(|| value_at(&input.params, "usage"))
             .or_else(|| value_at(item, "tokens"))
             .or_else(|| value_at(&input.params, "tokens")),
+        plan_questions: plan_questions_for_thread_item(kind, item, &input.params),
+        plan_completion: plan_completion_for_thread_item(kind, item, &input.params),
         metadata,
         provider: ProviderMetadata {
             provider: input.provider,
@@ -191,6 +193,11 @@ fn metadata_for_thread_item(item: &Value) -> Value {
         "files",
         "diff",
         "tokens",
+        "questions",
+        "question",
+        "completion",
+        "complete",
+        "completed",
     ] {
         if let Some(value) = item.get(key) {
             metadata.insert(key.to_string(), value.clone());
@@ -236,6 +243,56 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
 
 fn value_at(value: &Value, key: &str) -> Option<Value> {
     value.get(key).cloned()
+}
+
+fn plan_questions_for_thread_item(
+    kind: ThreadItemKind,
+    item: &Value,
+    params: &Value,
+) -> Option<Value> {
+    if kind != ThreadItemKind::Plan {
+        return None;
+    }
+    value_at(item, "questions")
+        .or_else(|| value_at(params, "questions"))
+        .or_else(|| value_at(item, "question"))
+        .or_else(|| value_at(params, "question"))
+        .or_else(|| {
+            item.get("input")
+                .and_then(|input| value_at(input, "questions"))
+        })
+        .or_else(|| {
+            item.get("input")
+                .and_then(|input| value_at(input, "question"))
+        })
+}
+
+fn plan_completion_for_thread_item(
+    kind: ThreadItemKind,
+    item: &Value,
+    params: &Value,
+) -> Option<String> {
+    if kind != ThreadItemKind::Plan {
+        return None;
+    }
+    string_at(item, "completion")
+        .or_else(|| string_at(params, "completion"))
+        .or_else(|| string_at(item, "completionStatus"))
+        .or_else(|| string_at(params, "completionStatus"))
+        .or_else(|| string_at(item, "completion_status"))
+        .or_else(|| string_at(params, "completion_status"))
+        .or_else(|| bool_at(item, "complete").map(plan_completion_from_bool))
+        .or_else(|| bool_at(params, "complete").map(plan_completion_from_bool))
+        .or_else(|| bool_at(item, "completed").map(plan_completion_from_bool))
+        .or_else(|| bool_at(params, "completed").map(plan_completion_from_bool))
+}
+
+fn bool_at(value: &Value, key: &str) -> Option<bool> {
+    value.get(key)?.as_bool()
+}
+
+fn plan_completion_from_bool(value: bool) -> String {
+    if value { "complete" } else { "incomplete" }.to_string()
 }
 
 #[cfg(test)]
@@ -401,5 +458,38 @@ mod tests {
             web_search.metadata["url"],
             "https://developers.openai.com/codex/app-server"
         );
+    }
+
+    #[test]
+    fn normalizes_plan_questions_and_completion() {
+        let item = normalize_provider_thread_item(ThreadItemNormalizationInput {
+            provider: "codex".to_string(),
+            method: "turn/plan/updated".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "plan-1",
+                "delta": "Need one choice",
+                "questions": [
+                    {
+                        "id": "repo",
+                        "question": "Which repository?",
+                        "options": ["ace", "docs"]
+                    }
+                ],
+                "completed": true
+            }),
+        })
+        .expect("plan update");
+
+        assert_eq!(item.kind, ThreadItemKind::Plan);
+        assert_eq!(item.status, ThreadItemStatus::Updated);
+        assert_eq!(item.text.as_deref(), Some("Need one choice"));
+        assert_eq!(
+            item.plan_questions.as_ref().expect("questions")[0]["question"],
+            "Which repository?"
+        );
+        assert_eq!(item.plan_completion.as_deref(), Some("complete"));
+        assert_eq!(item.provider.raw_payload["completed"], true);
     }
 }

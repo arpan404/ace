@@ -2378,6 +2378,8 @@ pub mod tests {
                 files: None,
                 diff: None,
                 token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
                 metadata: serde_json::json!({}),
                 provider: ace_runtime::provider::ProviderMetadata {
                     provider: "codex".to_string(),

@@ -5326,6 +5326,8 @@ mod tests {
                     files: Some(json!(["src/main.rs"])),
                     diff: Some(json!("@@ -1 +1 @@")),
                     token_usage: None,
+                    plan_questions: None,
+                    plan_completion: None,
                     metadata: json!({
                         "diff": "@@ -1 +1 @@",
                         "files": ["src/main.rs"]

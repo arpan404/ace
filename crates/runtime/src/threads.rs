@@ -1624,6 +1624,8 @@ mod tests {
                 files: None,
                 diff: None,
                 token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
                 metadata: json!({}),
                 provider: ProviderMetadata {
                     provider: "codex".to_string(),
@@ -1849,6 +1851,8 @@ mod tests {
                 files: None,
                 diff: None,
                 token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
                 metadata: json!({}),
                 provider: ProviderMetadata {
                     provider: "codex".to_string(),
@@ -2818,6 +2822,8 @@ mod tests {
                 files: None,
                 diff: None,
                 token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
                 metadata: json!({}),
                 provider: ProviderMetadata {
                     provider: "codex".to_string(),
@@ -2936,6 +2942,8 @@ mod tests {
                 files: None,
                 diff: None,
                 token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
                 metadata: json!({}),
                 provider: ProviderMetadata {
                     provider: "codex".to_string(),
