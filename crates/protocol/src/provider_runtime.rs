@@ -9,7 +9,7 @@ use ace_runtime::{
         ProviderAdapterRuntimeHook, ProviderAdapterRuntimeReport, ProviderContractReport,
         ProviderDescriptor, ProviderDriverStatus, ProviderEvent, ProviderFeature,
         ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
-        RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
+        RuntimeSignalKind, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     },
     threads::{
         AgentRuntimeSnapshot, ApprovalRetryRecord, ForkPoint, GoalState, GoalStatus, HandoffPlan,
@@ -466,6 +466,12 @@ pub enum ProviderServerRequestStatusFilter {
 pub struct ProviderServerRequestsListRequest {
     pub provider: Option<String>,
     pub status: Option<ProviderServerRequestStatusFilter>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ServerRequestKind>,
     #[serde(default = "default_server_requests_limit")]
     pub limit: usize,
 }
@@ -1822,6 +1828,33 @@ mod tests {
         }))
         .expect("string request id");
         assert_eq!(string.request_id, "request-alpha");
+    }
+
+    #[test]
+    fn server_request_list_filters_accept_thread_scope_and_kind() {
+        let request = serde_json::from_value::<ProviderServerRequestsListRequest>(json!({
+            "provider": "codex",
+            "status": "pending",
+            "thread_id": "thread-2",
+            "scope": "filesystem",
+            "kind": "file_change_approval",
+            "limit": 25
+        }))
+        .expect("list request");
+
+        assert_eq!(request.provider.as_deref(), Some("codex"));
+        assert_eq!(
+            request.status,
+            Some(ProviderServerRequestStatusFilter::Pending)
+        );
+        assert_eq!(request.thread_id.as_deref(), Some("thread-2"));
+        assert_eq!(request.scope.as_deref(), Some("filesystem"));
+        assert_eq!(request.kind, Some(ServerRequestKind::FileChangeApproval));
+        assert_eq!(request.limit, 25);
+
+        let encoded = serde_json::to_value(request).expect("encode request");
+        assert_eq!(encoded["kind"], "file_change_approval");
+        assert_eq!(encoded["thread_id"], "thread-2");
     }
 
     #[test]

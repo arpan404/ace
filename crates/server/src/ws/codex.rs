@@ -1105,8 +1105,14 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     .provider_events
                     .lock()
                     .expect("provider event log")
-                    .server_requests(request.provider.as_deref(), status, request.limit)?
+                    .server_requests(
+                        request.provider.as_deref(),
+                        status,
+                        provider_server_request_read_limit(&request),
+                    )?
                     .into_iter()
+                    .filter(|record| provider_server_request_matches_filters(record, &request))
+                    .take(request.limit)
                     .map(provider_server_request_record_to_protocol)
                     .collect();
                 Ok(serde_json::to_value(ProviderServerRequestsListResponse {
@@ -2524,6 +2530,42 @@ fn provider_server_request_record_to_protocol(
             }),
         created_at: record.created_at,
         resolved_at: record.resolved_at,
+    }
+}
+
+fn provider_server_request_matches_filters(
+    record: &ace_persistence::ProviderServerRequestRecord,
+    filter: &ProviderServerRequestsListRequest,
+) -> bool {
+    let Some(request) = record.request.as_ref() else {
+        return filter.thread_id.is_none() && filter.scope.is_none() && filter.kind.is_none();
+    };
+    if let Some(thread_id) = filter.thread_id.as_deref()
+        && request.thread_id.as_deref() != Some(thread_id)
+    {
+        return false;
+    }
+    if let Some(scope) = filter.scope.as_deref()
+        && request.scope.as_deref() != Some(scope)
+    {
+        return false;
+    }
+    if let Some(kind) = filter.kind
+        && request.kind != kind
+    {
+        return false;
+    }
+    true
+}
+
+fn provider_server_request_read_limit(filter: &ProviderServerRequestsListRequest) -> usize {
+    if filter.limit == 0 {
+        return 0;
+    }
+    if filter.thread_id.is_some() || filter.scope.is_some() || filter.kind.is_some() {
+        1_000
+    } else {
+        filter.limit
     }
 }
 
@@ -5026,6 +5068,171 @@ mod tests {
         };
         assert_eq!(body["subscribed"], true);
         assert_eq!(body["provider"], "ace");
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_filters_pending_server_requests_for_inactive_thread_routing() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+
+        let request = |request_id: &str,
+                       kind: ServerRequestKind,
+                       thread_id: &str,
+                       item_id: &str,
+                       scope: &str,
+                       method: &str,
+                       prompt: &str,
+                       metadata: Value| {
+            ProviderEvent::ServerRequest {
+                request: Box::new(NormalizedServerRequest {
+                    kind,
+                    request_id: request_id.to_string(),
+                    method: method.to_string(),
+                    thread_id: Some(thread_id.to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some(item_id.to_string()),
+                    scope: Some(scope.to_string()),
+                    title: Some("Approval".to_string()),
+                    prompt: Some(prompt.to_string()),
+                    selected_policy: Some("on-request".to_string()),
+                    metadata: metadata.clone(),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some(method.to_string()),
+                        schema_version: None,
+                        raw_payload: metadata,
+                    },
+                }),
+            }
+        };
+        state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .append_batch(
+                "codex",
+                &[
+                    request(
+                        "1",
+                        ServerRequestKind::CommandApproval,
+                        "thread-active",
+                        "cmd-1",
+                        "command",
+                        "command/approvalRequest",
+                        "Run active command?",
+                        json!({ "command": "cargo check" }),
+                    ),
+                    request(
+                        "2",
+                        ServerRequestKind::FileChangeApproval,
+                        "thread-inactive",
+                        "file-1",
+                        "filesystem",
+                        "fileChange/approvalRequest",
+                        "Apply inactive patch?",
+                        json!({ "path": "src/lib.rs" }),
+                    ),
+                    request(
+                        "3",
+                        ServerRequestKind::CommandApproval,
+                        "thread-other",
+                        "cmd-2",
+                        "command",
+                        "command/approvalRequest",
+                        "Run other command?",
+                        json!({ "command": "cargo test" }),
+                    ),
+                ],
+            )
+            .expect("append pending requests");
+
+        let inactive_file = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "pending-inactive-file",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUESTS_LIST,
+                    "payload": {
+                        "provider": "codex",
+                        "status": "pending",
+                        "thread_id": "thread-inactive",
+                        "scope": "filesystem",
+                        "kind": "file_change_approval",
+                        "limit": 1
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let inactive_file: WsServerResponse =
+            serde_json::from_str(&inactive_file).expect("inactive file response");
+        let WsServerPayload::Result { body } = inactive_file.payload else {
+            panic!("expected inactive file result");
+        };
+        let requests = body["requests"].as_array().expect("requests");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["request_id"], "2");
+        assert_eq!(requests[0]["request"]["thread_id"], "thread-inactive");
+        assert_eq!(requests[0]["request"]["kind"], "file_change_approval");
+        assert_eq!(requests[0]["request"]["scope"], "filesystem");
+
+        let command_requests = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "pending-command-requests",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUESTS_LIST,
+                    "payload": {
+                        "provider": "codex",
+                        "status": "pending",
+                        "scope": "command",
+                        "kind": "command_approval",
+                        "limit": 10
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let command_requests: WsServerResponse =
+            serde_json::from_str(&command_requests).expect("command requests response");
+        let WsServerPayload::Result { body } = command_requests.payload else {
+            panic!("expected command requests result");
+        };
+        let mut request_ids = body["requests"]
+            .as_array()
+            .expect("requests")
+            .iter()
+            .map(|request| request["request_id"].as_str().expect("request id"))
+            .collect::<Vec<_>>();
+        request_ids.sort_unstable();
+        assert_eq!(request_ids, vec!["1", "3"]);
+
+        let empty = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "pending-empty-thread",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUESTS_LIST,
+                    "payload": {
+                        "provider": "codex",
+                        "status": "pending",
+                        "thread_id": "missing-thread",
+                        "limit": 10
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let empty: WsServerResponse = serde_json::from_str(&empty).expect("empty response");
+        let WsServerPayload::Result { body } = empty.payload else {
+            panic!("expected empty result");
+        };
+        assert_eq!(body["requests"].as_array().expect("requests").len(), 0);
     }
 
     #[tokio::test]
