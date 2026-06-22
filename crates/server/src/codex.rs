@@ -6,7 +6,8 @@ use ace_codex::{
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::{
     provider::{
-        ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent, ProviderRequest,
+        ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent,
+        ProviderEventSource, ProviderRequest,
     },
     threads::{
         AgentRuntimeState, ExecutionLocation, ForkPoint, HandoffPlan, PlanSessionStatus,
@@ -864,6 +865,21 @@ impl ProviderDriver for CodexService {
             .map_err(|error| ProviderDriverError::RequestFailed {
                 provider: "codex".to_string(),
                 method: request.method,
+                message: error.to_string(),
+            })
+    }
+}
+
+#[async_trait]
+impl ProviderEventSource for CodexService {
+    async fn next_events(
+        &self,
+    ) -> std::result::Result<Option<Vec<ProviderEvent>>, ProviderDriverError> {
+        CodexService::next_events(self)
+            .await
+            .map_err(|error| ProviderDriverError::RequestFailed {
+                provider: "codex".to_string(),
+                method: "events/next".to_string(),
                 message: error.to_string(),
             })
     }

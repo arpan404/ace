@@ -1,4 +1,5 @@
 use crate::ws::{WsApiState, WsDispatchError};
+use ace_core::ProviderKind;
 use ace_git::ProcessRunner;
 use ace_protocol::{
     PROTOCOL_VERSION,
@@ -581,18 +582,27 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         outbound: Option<mpsc::Sender<String>>,
     ) -> Result<Value, WsDispatchError> {
         let request = serde_json::from_value::<ProviderRuntimeSubscribeRequest>(payload)?;
-        if !matches!(request.provider.as_deref(), None | Some("codex")) {
+        let Some(provider_kind) = provider_kind_from_runtime_name(request.provider.as_deref())
+        else {
             return Ok(serde_json::json!({ "subscribed": false }));
+        };
+        if !self.providers.has_event_source(provider_kind) {
+            return Ok(serde_json::json!({
+                "subscribed": false,
+                "provider": provider_runtime_name(provider_kind)
+            }));
         }
         let Some(outbound) = outbound else {
             return Ok(serde_json::json!({ "subscribed": false }));
         };
 
-        let codex = self.codex.clone();
+        let providers = self.providers.clone();
         let provider_events = Arc::clone(&self.provider_events);
+        let provider_name = provider_runtime_name(provider_kind).to_string();
+        let response_provider = provider_name.clone();
         tokio::spawn(async move {
             loop {
-                let events = match codex.next_events().await {
+                let events = match providers.next_events(provider_kind).await {
                     Ok(Some(events)) => events,
                     Ok(None) => break,
                     Err(error) => {
@@ -600,7 +610,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             version: PROTOCOL_VERSION,
                             request_id: String::new(),
                             payload: WsServerPayload::Error {
-                                code: error.code().to_string(),
+                                code: provider_runtime_error_code(&error).to_string(),
                                 message: error.to_string(),
                             },
                         };
@@ -617,7 +627,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 let append_result = provider_events
                     .lock()
                     .expect("provider event log")
-                    .append_batch("codex", &events);
+                    .append_batch(&provider_name, &events);
                 if let Err(error) = append_result {
                     let response = WsServerResponse {
                         version: PROTOCOL_VERSION,
@@ -634,11 +644,13 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     break;
                 }
                 let batch = ProviderRuntimeEventBatch {
-                    provider: "codex".to_string(),
+                    provider: provider_name.clone(),
                     events: events
                         .iter()
                         .cloned()
-                        .map(|event| ProviderRuntimeEvent::from_provider_event("codex", event))
+                        .map(|event| {
+                            ProviderRuntimeEvent::from_provider_event(&provider_name, event)
+                        })
                         .collect(),
                     raw_events: events,
                 };
@@ -659,7 +671,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 }
             }
         });
-        Ok(serde_json::json!({ "subscribed": true, "provider": "codex" }))
+        Ok(serde_json::json!({ "subscribed": true, "provider": response_provider }))
     }
 }
 
@@ -670,6 +682,36 @@ fn ensure_codex_provider(provider: &str) -> Result<(), crate::codex::CodexApiErr
         Err(crate::codex::CodexApiError::UnsupportedProvider(
             provider.to_string(),
         ))
+    }
+}
+
+fn provider_kind_from_runtime_name(provider: Option<&str>) -> Option<ProviderKind> {
+    match provider.unwrap_or("codex").trim() {
+        "codex" | "Codex" => Some(ProviderKind::Codex),
+        "ace" | "Ace" => Some(ProviderKind::Ace),
+        "claude" | "claude_code" | "claude-code" | "ClaudeCode" => Some(ProviderKind::ClaudeCode),
+        "cursor" | "Cursor" => Some(ProviderKind::Cursor),
+        _ => None,
+    }
+}
+
+fn provider_runtime_name(provider: ProviderKind) -> &'static str {
+    match provider {
+        ProviderKind::Codex => "codex",
+        ProviderKind::Ace => "ace",
+        ProviderKind::ClaudeCode => "claude_code",
+        ProviderKind::Cursor => "cursor",
+    }
+}
+
+fn provider_runtime_error_code(
+    error: &ace_runtime::provider::ProviderRuntimeError,
+) -> &'static str {
+    match error {
+        ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { .. } => {
+            "provider_unavailable"
+        }
+        ace_runtime::provider::ProviderRuntimeError::Driver(_) => "provider_request_failed",
     }
 }
 
@@ -1483,6 +1525,27 @@ mod tests {
         );
         assert_eq!(records[0]["raw_event"]["type"], "semantic_tool");
         assert_eq!(records[2]["raw_event"]["method"], "item/completed");
+
+        let (ace_outbound_tx, _ace_outbound_rx) = tokio::sync::mpsc::channel::<String>(1);
+        let unsupported = state
+            .dispatch_text_with_events(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-events-ace",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+                Some(ace_outbound_tx),
+            )
+            .await;
+        let unsupported: WsServerResponse =
+            serde_json::from_str(&unsupported).expect("unsupported response");
+        let WsServerPayload::Result { body } = unsupported.payload else {
+            panic!("expected unsupported provider event result");
+        };
+        assert_eq!(body["subscribed"], false);
+        assert_eq!(body["provider"], "ace");
     }
 
     #[tokio::test]

@@ -231,11 +231,18 @@ pub mod provider {
         async fn request(&self, request: ProviderRequest) -> Result<Value, ProviderDriverError>;
     }
 
+    #[async_trait]
+    pub trait ProviderEventSource: Send + Sync + 'static {
+        async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>, ProviderDriverError>;
+    }
+
     pub type DynProviderDriver = Arc<dyn ProviderDriver>;
+    pub type DynProviderEventSource = Arc<dyn ProviderEventSource>;
 
     #[derive(Default, Clone)]
     pub struct ProviderRegistry {
         drivers: HashMap<ProviderKind, DynProviderDriver>,
+        event_sources: HashMap<ProviderKind, DynProviderEventSource>,
     }
 
     #[must_use]
@@ -312,14 +319,37 @@ pub mod provider {
             self
         }
 
+        #[must_use]
+        pub fn with_event_source(
+            mut self,
+            provider: ProviderKind,
+            source: DynProviderEventSource,
+        ) -> Self {
+            self.register_event_source(provider, source);
+            self
+        }
+
         pub fn register(&mut self, driver: DynProviderDriver) {
             let kind = driver.descriptor().kind;
             self.drivers.insert(kind, driver);
         }
 
+        pub fn register_event_source(
+            &mut self,
+            provider: ProviderKind,
+            source: DynProviderEventSource,
+        ) {
+            self.event_sources.insert(provider, source);
+        }
+
         #[must_use]
         pub fn get(&self, kind: ProviderKind) -> Option<DynProviderDriver> {
             self.drivers.get(&kind).cloned()
+        }
+
+        #[must_use]
+        pub fn has_event_source(&self, kind: ProviderKind) -> bool {
+            self.event_sources.contains_key(&kind)
         }
 
         #[must_use]
@@ -350,6 +380,17 @@ pub mod provider {
                 .get(kind)
                 .ok_or(ProviderRuntimeError::ProviderUnavailable { provider: kind })?;
             driver.request(request).await.map_err(Into::into)
+        }
+
+        pub async fn next_events(
+            &self,
+            kind: ProviderKind,
+        ) -> Result<Option<Vec<ProviderEvent>>, ProviderRuntimeError> {
+            let source = self
+                .event_sources
+                .get(&kind)
+                .ok_or(ProviderRuntimeError::ProviderUnavailable { provider: kind })?;
+            source.next_events().await.map_err(Into::into)
         }
     }
 
@@ -395,6 +436,22 @@ pub mod provider {
             ) -> Result<Value, ProviderDriverError> {
                 self.requests.lock().expect("requests").push(request);
                 Ok(json!({ "ok": true }))
+            }
+        }
+
+        struct FakeProviderEventSource {
+            events: Mutex<Vec<ProviderEvent>>,
+        }
+
+        #[async_trait]
+        impl ProviderEventSource for FakeProviderEventSource {
+            async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>, ProviderDriverError> {
+                let mut events = self.events.lock().expect("events");
+                if events.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(std::mem::take(&mut events)))
+                }
             }
         }
 
@@ -529,6 +586,52 @@ pub mod provider {
                 )
                 .await
                 .expect_err("unregistered provider");
+
+            assert!(matches!(
+                error,
+                ProviderRuntimeError::ProviderUnavailable {
+                    provider: ProviderKind::Cursor
+                }
+            ));
+        }
+
+        #[tokio::test]
+        async fn registry_routes_provider_event_sources_by_kind() {
+            let source = Arc::new(FakeProviderEventSource {
+                events: Mutex::new(vec![ProviderEvent::StderrLine {
+                    line: "ready".to_string(),
+                }]),
+            });
+            let registry =
+                ProviderRegistry::new().with_event_source(ProviderKind::Codex, source.clone());
+
+            assert!(registry.has_event_source(ProviderKind::Codex));
+            let events = registry
+                .next_events(ProviderKind::Codex)
+                .await
+                .expect("events")
+                .expect("event batch");
+            assert_eq!(
+                events,
+                vec![ProviderEvent::StderrLine {
+                    line: "ready".to_string()
+                }]
+            );
+            assert!(
+                registry
+                    .next_events(ProviderKind::Codex)
+                    .await
+                    .expect("no events")
+                    .is_none()
+            );
+        }
+
+        #[tokio::test]
+        async fn registry_rejects_unregistered_provider_event_source() {
+            let error = ProviderRegistry::new()
+                .next_events(ProviderKind::Cursor)
+                .await
+                .expect_err("unregistered provider event source");
 
             assert!(matches!(
                 error,

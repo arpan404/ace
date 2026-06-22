@@ -81,7 +81,8 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
         let codex = Arc::new(CodexService::production());
         let providers = ProviderRegistry::new()
             .with_driver(Arc::new(AceNativeProvider::new()))
-            .with_driver(codex.clone());
+            .with_driver(codex.clone())
+            .with_event_source(ace_core::ProviderKind::Codex, codex.clone());
         let paths = AppPaths::resolve().expect("resolve app paths");
         std::fs::create_dir_all(&paths.state_dir).expect("create app state directory");
         Self {
@@ -110,7 +111,8 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
         let codex = Arc::new(CodexService::production());
         let providers = ProviderRegistry::new()
             .with_driver(Arc::new(AceNativeProvider::new()))
-            .with_driver(codex.clone());
+            .with_driver(codex.clone())
+            .with_event_source(ace_core::ProviderKind::Codex, codex.clone());
         Self {
             checkpoint: Arc::new(CheckpointService::production()),
             codex,
@@ -161,6 +163,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     pub fn with_codex_service(mut self, codex: CodexService) -> Self {
         let codex = Arc::new(codex);
         self.providers.register(codex.clone());
+        self.providers
+            .register_event_source(ace_core::ProviderKind::Codex, codex.clone());
         self.codex = codex;
         self
     }
