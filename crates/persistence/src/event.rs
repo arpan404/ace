@@ -3,7 +3,10 @@ use crate::{
     json::{decode_json, json},
     migration::{migrate, open_event_store},
 };
-use ace_runtime::provider::{NormalizedServerRequest, ProviderEvent};
+use ace_runtime::{
+    provider::{NormalizedServerRequest, ProviderEvent},
+    threads::{AgentRuntimeSnapshot, AgentRuntimeState},
+};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -289,6 +292,39 @@ impl ProviderEventLogRepository {
         records.reverse();
         Ok(records)
     }
+
+    pub fn runtime_state_snapshot(
+        &self,
+        provider: Option<&str>,
+    ) -> Result<AgentRuntimeSnapshot, PersistenceError> {
+        let mut state = AgentRuntimeState::default();
+        let mut statement = if provider.is_some() {
+            self.connection.prepare(
+                "SELECT sequence, provider, event_json, created_at
+                 FROM provider_events
+                 WHERE provider = ?1
+                 ORDER BY sequence ASC",
+            )?
+        } else {
+            self.connection.prepare(
+                "SELECT sequence, provider, event_json, created_at
+                 FROM provider_events
+                 ORDER BY sequence ASC",
+            )?
+        };
+        if let Some(provider) = provider {
+            let records = statement.query_map(params![provider], decode_record)?;
+            for record in records {
+                state.apply_provider_events(&[record?.event]);
+            }
+        } else {
+            let records = statement.query_map([], decode_record)?;
+            for record in records {
+                state.apply_provider_events(&[record?.event]);
+            }
+        }
+        Ok(state.snapshot())
+    }
 }
 
 fn collect_server_requests<I>(rows: I) -> Result<Vec<ProviderServerRequestRecord>, PersistenceError>
@@ -346,7 +382,8 @@ fn decode_server_request_record(
 mod tests {
     use super::*;
     use ace_runtime::provider::{
-        NormalizedServerRequest, ProviderEvent, ProviderMetadata, ServerRequestKind,
+        NormalizedServerRequest, NormalizedThreadItem, ProviderEvent, ProviderMetadata,
+        ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     };
 
     #[test]
@@ -389,6 +426,96 @@ mod tests {
         assert_eq!(all[0].provider, "codex");
         assert_eq!(all[1].provider, "ace");
         assert!(repo.recent(None, 0).expect("zero").is_empty());
+    }
+
+    #[test]
+    fn replays_provider_events_into_runtime_state_snapshot() {
+        let mut repo =
+            ProviderEventLogRepository::from_connection(Connection::open_in_memory().expect("db"))
+                .expect("repo");
+        repo.append_batch(
+            "codex",
+            &[
+                ProviderEvent::ThreadItem {
+                    item: Box::new(thread_item("item-1", "draft")),
+                },
+                ProviderEvent::ThreadItem {
+                    item: Box::new(thread_item("item-1", "final")),
+                },
+                ProviderEvent::ThreadItem {
+                    item: Box::new(NormalizedThreadItem {
+                        kind: ThreadItemKind::Plan,
+                        status: ThreadItemStatus::Updated,
+                        thread_id: Some("thread-1".to_string()),
+                        turn_id: Some("turn-1".to_string()),
+                        item_id: Some("plan-1".to_string()),
+                        parent_thread_id: None,
+                        child_thread_id: None,
+                        sender: None,
+                        role: None,
+                        title: None,
+                        text: Some("Plan text".to_string()),
+                        status_text: None,
+                        model: None,
+                        target: None,
+                        url: None,
+                        files: None,
+                        diff: None,
+                        token_usage: None,
+                        plan_questions: Some(serde_json::json!([{ "id": "choice" }])),
+                        plan_completion: Some("complete".to_string()),
+                        metadata: serde_json::json!({}),
+                        provider: ProviderMetadata {
+                            provider: "codex".to_string(),
+                            method: Some("item/plan/delta".to_string()),
+                            schema_version: None,
+                            raw_payload: serde_json::json!({ "plan": true }),
+                        },
+                    }),
+                },
+            ],
+        )
+        .expect("append codex");
+        repo.append_batch(
+            "other",
+            &[ProviderEvent::ThreadItem {
+                item: Box::new(NormalizedThreadItem {
+                    provider: ProviderMetadata {
+                        provider: "other".to_string(),
+                        method: Some("item/completed".to_string()),
+                        schema_version: None,
+                        raw_payload: serde_json::json!({ "ignored": false }),
+                    },
+                    ..thread_item("other-item", "other")
+                }),
+            }],
+        )
+        .expect("append other");
+
+        let codex = repo
+            .runtime_state_snapshot(Some("codex"))
+            .expect("codex snapshot");
+        assert_eq!(codex.thread_items.len(), 2);
+        assert_eq!(codex.thread_items[0].item_id.as_deref(), Some("item-1"));
+        assert_eq!(codex.thread_items[0].text.as_deref(), Some("final"));
+        assert_eq!(codex.thread_items[0].provider.raw_payload["text"], "final");
+        assert_eq!(codex.plan_sessions.len(), 1);
+        assert_eq!(codex.plan_sessions[0].item_id.as_deref(), Some("plan-1"));
+        assert_eq!(
+            codex.plan_sessions[0]
+                .questions
+                .as_ref()
+                .expect("questions")[0]["id"],
+            "choice"
+        );
+
+        let all = repo.runtime_state_snapshot(None).expect("all snapshot");
+        assert_eq!(all.thread_items.len(), 3);
+        assert!(
+            all.thread_items
+                .iter()
+                .any(|item| item.provider.provider == "other")
+        );
     }
 
     #[test]
@@ -494,5 +621,40 @@ mod tests {
         assert_eq!(decision.audit["decided_by"], "user");
         assert_eq!(decision.audit["source_thread_id"], "thread-1");
         assert!(resolved[0].resolved_at.is_some());
+    }
+
+    fn thread_item(item_id: &str, text: &str) -> NormalizedThreadItem {
+        NormalizedThreadItem {
+            kind: ThreadItemKind::AgentMessage,
+            status: ThreadItemStatus::Updated,
+            thread_id: Some("thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some(item_id.to_string()),
+            parent_thread_id: None,
+            child_thread_id: None,
+            sender: None,
+            role: None,
+            title: None,
+            text: Some(text.to_string()),
+            status_text: None,
+            model: None,
+            target: None,
+            url: None,
+            files: None,
+            diff: None,
+            token_usage: None,
+            plan_questions: None,
+            plan_completion: None,
+            metadata: serde_json::json!({}),
+            provider: ProviderMetadata {
+                provider: "codex".to_string(),
+                method: Some("item/agentMessage/delta".to_string()),
+                schema_version: Some("test-v1".to_string()),
+                raw_payload: serde_json::json!({
+                    "itemId": item_id,
+                    "text": text
+                }),
+            },
+        }
     }
 }
