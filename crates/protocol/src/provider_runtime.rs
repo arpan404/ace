@@ -1241,12 +1241,16 @@ impl ProviderRuntimeEvent {
                             turn_id: item.turn_id.clone(),
                             item_id: item.item_id.clone(),
                             status: item.status,
-                            diff: string_at(&item.metadata, &["diff"])
+                            diff: item
+                                .diff
+                                .as_ref()
+                                .and_then(|diff| diff.as_str().map(ToString::to_string))
+                                .or_else(|| string_at(&item.metadata, &["diff"]))
                                 .or_else(|| item.text.clone()),
                             files: item
-                                .metadata
-                                .get("files")
-                                .cloned()
+                                .files
+                                .clone()
+                                .or_else(|| item.metadata.get("files").cloned())
                                 .unwrap_or(serde_json::Value::Null),
                         });
                     }
@@ -2294,6 +2298,13 @@ mod tests {
                     role: None,
                     title: Some("Plan".to_string()),
                     text: Some("Inspect first".to_string()),
+                    status_text: None,
+                    model: None,
+                    target: None,
+                    url: None,
+                    files: None,
+                    diff: None,
+                    token_usage: None,
                     metadata: json!({ "phase": "planning" }),
                     provider: ProviderMetadata {
                         provider: "codex".to_string(),
@@ -2432,6 +2443,13 @@ mod tests {
                     role: None,
                     title: Some("Plan".to_string()),
                     text: Some("Implement adapter".to_string()),
+                    status_text: None,
+                    model: None,
+                    target: None,
+                    url: None,
+                    files: None,
+                    diff: None,
+                    token_usage: None,
                     metadata: json!({}),
                     provider: ProviderMetadata {
                         provider: "codex".to_string(),
@@ -2497,6 +2515,13 @@ mod tests {
                 role: Some("reviewer".to_string()),
                 title: Some("Reviewer started".to_string()),
                 text: None,
+                status_text: Some("started".to_string()),
+                model: None,
+                target: None,
+                url: None,
+                files: None,
+                diff: None,
+                token_usage: None,
                 metadata: json!({}),
                 provider: provider_metadata("item/subAgentActivity/delta"),
             }),
@@ -2512,6 +2537,13 @@ mod tests {
                 role: None,
                 title: Some("Entered review mode".to_string()),
                 text: None,
+                status_text: None,
+                model: None,
+                target: None,
+                url: None,
+                files: None,
+                diff: None,
+                token_usage: None,
                 metadata: json!({}),
                 provider: provider_metadata("item/completed"),
             }),
@@ -2527,6 +2559,13 @@ mod tests {
                 role: None,
                 title: Some("Edited src/main.rs".to_string()),
                 text: None,
+                status_text: None,
+                model: None,
+                target: Some("src/main.rs".to_string()),
+                url: None,
+                files: Some(json!(["src/main.rs"])),
+                diff: Some(json!("@@ -1 +1 @@")),
+                token_usage: None,
                 metadata: json!({
                     "diff": "@@ -1 +1 @@",
                     "files": ["src/main.rs"]
@@ -2545,6 +2584,13 @@ mod tests {
                 role: None,
                 title: Some("cargo test".to_string()),
                 text: Some("running 1 test\n".to_string()),
+                status_text: Some("running".to_string()),
+                model: None,
+                target: Some("cargo test".to_string()),
+                url: None,
+                files: None,
+                diff: None,
+                token_usage: None,
                 metadata: json!({ "command": "cargo test" }),
                 provider: provider_metadata("item/commandExecution/outputDelta"),
             }),

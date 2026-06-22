@@ -47,6 +47,34 @@ pub fn normalize_provider_thread_item(
             .or_else(|| string_at(item, "agent_role")),
         title,
         text,
+        status_text: string_at(item, "status")
+            .or_else(|| string_at(item, "state"))
+            .or_else(|| string_at(&input.params, "status"))
+            .or_else(|| string_at(&input.params, "state")),
+        model: string_at(item, "model")
+            .or_else(|| string_at(&input.params, "model"))
+            .or_else(|| string_at(item, "modelName"))
+            .or_else(|| string_at(&input.params, "modelName")),
+        target: string_at(item, "target")
+            .or_else(|| string_at(&input.params, "target"))
+            .or_else(|| string_at(item, "path"))
+            .or_else(|| string_at(&input.params, "path"))
+            .or_else(|| string_at(item, "command"))
+            .or_else(|| string_at(&input.params, "command")),
+        url: string_at(item, "url").or_else(|| string_at(&input.params, "url")),
+        files: value_at(item, "files").or_else(|| value_at(&input.params, "files")),
+        diff: value_at(item, "diff")
+            .or_else(|| value_at(&input.params, "diff"))
+            .or_else(|| value_at(item, "patch"))
+            .or_else(|| value_at(&input.params, "patch")),
+        token_usage: value_at(item, "tokenUsage")
+            .or_else(|| value_at(&input.params, "tokenUsage"))
+            .or_else(|| value_at(item, "token_usage"))
+            .or_else(|| value_at(&input.params, "token_usage"))
+            .or_else(|| value_at(item, "usage"))
+            .or_else(|| value_at(&input.params, "usage"))
+            .or_else(|| value_at(item, "tokens"))
+            .or_else(|| value_at(&input.params, "tokens")),
         metadata,
         provider: ProviderMetadata {
             provider: input.provider,
@@ -206,6 +234,10 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
     value.get(key)?.as_str().map(ToString::to_string)
 }
 
+fn value_at(value: &Value, key: &str) -> Option<Value> {
+    value.get(key).cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,5 +321,85 @@ mod tests {
         assert_eq!(subagent.child_thread_id.as_deref(), Some("child-thread"));
         assert_eq!(subagent.role.as_deref(), Some("reviewer"));
         assert_eq!(subagent.sender.as_deref(), Some("Reviewer"));
+        assert_eq!(subagent.status_text.as_deref(), Some("running"));
+    }
+
+    #[test]
+    fn normalizes_codex_item_detail_fields_without_parsing_raw_payloads() {
+        let command = normalize_provider_thread_item(ThreadItemNormalizationInput {
+            provider: "codex".to_string(),
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "cmd-1",
+                    "type": "commandExecution",
+                    "command": "cargo test --workspace",
+                    "status": "completed",
+                    "model": "gpt-5-codex",
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 20
+                    }
+                }
+            }),
+        })
+        .expect("command item");
+        assert_eq!(command.kind, ThreadItemKind::CommandExecution);
+        assert_eq!(command.target.as_deref(), Some("cargo test --workspace"));
+        assert_eq!(command.status_text.as_deref(), Some("completed"));
+        assert_eq!(command.model.as_deref(), Some("gpt-5-codex"));
+        assert_eq!(
+            command.token_usage.as_ref().expect("token usage")["output_tokens"],
+            20
+        );
+        assert_eq!(
+            command.provider.raw_payload["item"]["command"],
+            "cargo test --workspace"
+        );
+
+        let file_change = normalize_provider_thread_item(ThreadItemNormalizationInput {
+            provider: "codex".to_string(),
+            method: "item/fileChange/patchUpdated".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "file-1",
+                "path": "src/main.rs",
+                "files": ["src/main.rs"],
+                "patch": "@@ -1 +1 @@"
+            }),
+        })
+        .expect("file change item");
+        assert_eq!(file_change.kind, ThreadItemKind::FileChange);
+        assert_eq!(file_change.status, ThreadItemStatus::Updated);
+        assert_eq!(file_change.target.as_deref(), Some("src/main.rs"));
+        assert_eq!(file_change.files, Some(json!(["src/main.rs"])));
+        assert_eq!(file_change.diff, Some(json!("@@ -1 +1 @@")));
+
+        let web_search = normalize_provider_thread_item(ThreadItemNormalizationInput {
+            provider: "codex".to_string(),
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "item": {
+                    "id": "search-1",
+                    "type": "webSearch",
+                    "query": "Codex app-server",
+                    "url": "https://developers.openai.com/codex/app-server"
+                }
+            }),
+        })
+        .expect("web search item");
+        assert_eq!(web_search.kind, ThreadItemKind::WebSearch);
+        assert_eq!(
+            web_search.url.as_deref(),
+            Some("https://developers.openai.com/codex/app-server")
+        );
+        assert_eq!(
+            web_search.metadata["url"],
+            "https://developers.openai.com/codex/app-server"
+        );
     }
 }

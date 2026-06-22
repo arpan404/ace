@@ -674,6 +674,20 @@ pub mod provider {
         pub title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub status_text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub target: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub files: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub diff: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub token_usage: Option<Value>,
         #[serde(default)]
         pub metadata: Value,
         pub provider: ProviderMetadata,

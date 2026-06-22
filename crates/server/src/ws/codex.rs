@@ -5319,6 +5319,13 @@ mod tests {
                     role: None,
                     title: Some("Edited src/main.rs".to_string()),
                     text: None,
+                    status_text: None,
+                    model: None,
+                    target: Some("src/main.rs".to_string()),
+                    url: None,
+                    files: Some(json!(["src/main.rs"])),
+                    diff: Some(json!("@@ -1 +1 @@")),
+                    token_usage: None,
                     metadata: json!({
                         "diff": "@@ -1 +1 @@",
                         "files": ["src/main.rs"]
