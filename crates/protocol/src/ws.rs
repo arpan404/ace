@@ -94,6 +94,21 @@ pub mod methods {
         "codex.account.send_add_credits_nudge_email";
     pub const CODEX_WINDOWS_SANDBOX_READINESS: &str = "codex.windows_sandbox.readiness";
     pub const CODEX_WINDOWS_SANDBOX_SETUP_START: &str = "codex.windows_sandbox.setup_start";
+    pub const CODEX_CONFIG_READ: &str = "codex.config.read";
+    pub const CODEX_CONFIG_VALUE_WRITE: &str = "codex.config.value_write";
+    pub const CODEX_CONFIG_BATCH_WRITE: &str = "codex.config.batch_write";
+    pub const CODEX_CONFIG_MCP_SERVER_RELOAD: &str = "codex.config.mcp_server_reload";
+    pub const CODEX_EXPERIMENTAL_FEATURE_LIST: &str = "codex.experimental_feature.list";
+    pub const CODEX_EXPERIMENTAL_FEATURE_ENABLEMENT_SET: &str =
+        "codex.experimental_feature.enablement_set";
+    pub const CODEX_EXTERNAL_AGENT_CONFIG_DETECT: &str = "codex.external_agent_config.detect";
+    pub const CODEX_EXTERNAL_AGENT_CONFIG_IMPORT: &str = "codex.external_agent_config.import";
+    pub const CODEX_FEEDBACK_UPLOAD: &str = "codex.feedback.upload";
+    pub const CODEX_FUZZY_FILE_SEARCH: &str = "codex.fuzzy_file_search";
+    pub const CODEX_HOOKS_LIST: &str = "codex.hooks.list";
+    pub const CODEX_MARKETPLACE_ADD: &str = "codex.marketplace.add";
+    pub const CODEX_MARKETPLACE_REMOVE: &str = "codex.marketplace.remove";
+    pub const CODEX_MARKETPLACE_UPGRADE: &str = "codex.marketplace.upgrade";
     pub const CODEX_STDERR_TAIL: &str = "codex.stderr_tail";
     pub const CODEX_SHUTDOWN: &str = "codex.shutdown";
     pub const CODEX_RESTART: &str = "codex.restart";

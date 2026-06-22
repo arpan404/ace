@@ -1611,6 +1611,39 @@ fn codex_versioned_app_server_request(
         methods::CODEX_WINDOWS_SANDBOX_SETUP_START => {
             Some(("windowsSandbox/setupStart", raw_or_enveloped(payload)?))
         }
+        methods::CODEX_CONFIG_READ => Some(("config/read", raw_or_enveloped(payload)?)),
+        methods::CODEX_CONFIG_VALUE_WRITE => {
+            Some(("config/value/write", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_CONFIG_BATCH_WRITE => {
+            Some(("config/batchWrite", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_CONFIG_MCP_SERVER_RELOAD => {
+            Some(("config/mcpServer/reload", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_EXPERIMENTAL_FEATURE_LIST => {
+            Some(("experimentalFeature/list", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_EXPERIMENTAL_FEATURE_ENABLEMENT_SET => Some((
+            "experimentalFeature/enablement/set",
+            raw_or_enveloped(payload)?,
+        )),
+        methods::CODEX_EXTERNAL_AGENT_CONFIG_DETECT => {
+            Some(("externalAgentConfig/detect", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_EXTERNAL_AGENT_CONFIG_IMPORT => {
+            Some(("externalAgentConfig/import", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_FEEDBACK_UPLOAD => Some(("feedback/upload", raw_or_enveloped(payload)?)),
+        methods::CODEX_FUZZY_FILE_SEARCH => Some(("fuzzyFileSearch", raw_or_enveloped(payload)?)),
+        methods::CODEX_HOOKS_LIST => Some(("hooks/list", raw_or_enveloped(payload)?)),
+        methods::CODEX_MARKETPLACE_ADD => Some(("marketplace/add", raw_or_enveloped(payload)?)),
+        methods::CODEX_MARKETPLACE_REMOVE => {
+            Some(("marketplace/remove", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_MARKETPLACE_UPGRADE => {
+            Some(("marketplace/upgrade", raw_or_enveloped(payload)?))
+        }
         _ => None,
     };
     Ok(request)
@@ -4457,6 +4490,47 @@ mod tests {
                 methods::CODEX_WINDOWS_SANDBOX_SETUP_START,
                 json!({ "mode": "default" }),
             ),
+            (methods::CODEX_CONFIG_READ, json!({})),
+            (
+                methods::CODEX_CONFIG_VALUE_WRITE,
+                json!({ "key": "model", "value": "gpt-5" }),
+            ),
+            (
+                methods::CODEX_CONFIG_BATCH_WRITE,
+                json!({ "values": { "model": "gpt-5" } }),
+            ),
+            (
+                methods::CODEX_CONFIG_MCP_SERVER_RELOAD,
+                json!({ "server": "github" }),
+            ),
+            (methods::CODEX_EXPERIMENTAL_FEATURE_LIST, json!({})),
+            (
+                methods::CODEX_EXPERIMENTAL_FEATURE_ENABLEMENT_SET,
+                json!({ "feature": "plan_mode", "enabled": true }),
+            ),
+            (
+                methods::CODEX_EXTERNAL_AGENT_CONFIG_DETECT,
+                json!({ "cwd": "/tmp/repo" }),
+            ),
+            (
+                methods::CODEX_EXTERNAL_AGENT_CONFIG_IMPORT,
+                json!({ "agent": "codex" }),
+            ),
+            (methods::CODEX_FEEDBACK_UPLOAD, json!({ "kind": "bug" })),
+            (methods::CODEX_FUZZY_FILE_SEARCH, json!({ "query": "main" })),
+            (methods::CODEX_HOOKS_LIST, json!({})),
+            (
+                methods::CODEX_MARKETPLACE_ADD,
+                json!({ "plugin": "browser" }),
+            ),
+            (
+                methods::CODEX_MARKETPLACE_REMOVE,
+                json!({ "plugin": "browser" }),
+            ),
+            (
+                methods::CODEX_MARKETPLACE_UPGRADE,
+                json!({ "plugin": "browser" }),
+            ),
         ];
 
         for (index, (method, payload)) in calls.iter().enumerate() {
@@ -4514,6 +4588,20 @@ mod tests {
                 "account/sendAddCreditsNudgeEmail",
                 "windowsSandbox/readiness",
                 "windowsSandbox/setupStart",
+                "config/read",
+                "config/value/write",
+                "config/batchWrite",
+                "config/mcpServer/reload",
+                "experimentalFeature/list",
+                "experimentalFeature/enablement/set",
+                "externalAgentConfig/detect",
+                "externalAgentConfig/import",
+                "feedback/upload",
+                "fuzzyFileSearch",
+                "hooks/list",
+                "marketplace/add",
+                "marketplace/remove",
+                "marketplace/upgrade",
             ]
         );
 
@@ -4658,6 +4746,38 @@ mod tests {
         assert_eq!(method, "windowsSandbox/setupStart");
         assert_eq!(params["mode"], "default");
         assert_eq!(params["force"], true);
+    }
+
+    #[test]
+    fn codex_raw_config_marketplace_and_search_methods_preserve_payload_shape() {
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_CONFIG_VALUE_WRITE,
+            &json!({ "key": "model", "value": "gpt-5" }),
+        )
+        .expect("config value write")
+        .expect("config method");
+        assert_eq!(method, "config/value/write");
+        assert_eq!(params["key"], "model");
+        assert_eq!(params["value"], "gpt-5");
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_EXPERIMENTAL_FEATURE_ENABLEMENT_SET,
+            &json!({ "params": { "feature": "plan_mode", "enabled": true } }),
+        )
+        .expect("feature enablement")
+        .expect("feature method");
+        assert_eq!(method, "experimentalFeature/enablement/set");
+        assert_eq!(params["feature"], "plan_mode");
+        assert_eq!(params["enabled"], true);
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_FUZZY_FILE_SEARCH,
+            &json!({ "query": "main" }),
+        )
+        .expect("fuzzy file search")
+        .expect("search method");
+        assert_eq!(method, "fuzzyFileSearch");
+        assert_eq!(params["query"], "main");
     }
 
     #[tokio::test]

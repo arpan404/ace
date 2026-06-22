@@ -1212,6 +1212,63 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.raw_request("windowsSandbox/setupStart", params).await
     }
 
+    pub async fn config_read(&self, params: Value) -> Result<Value> {
+        self.raw_request("config/read", params).await
+    }
+
+    pub async fn config_value_write(&self, params: Value) -> Result<Value> {
+        self.raw_request("config/value/write", params).await
+    }
+
+    pub async fn config_batch_write(&self, params: Value) -> Result<Value> {
+        self.raw_request("config/batchWrite", params).await
+    }
+
+    pub async fn config_mcp_server_reload(&self, params: Value) -> Result<Value> {
+        self.raw_request("config/mcpServer/reload", params).await
+    }
+
+    pub async fn experimental_feature_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("experimentalFeature/list", params).await
+    }
+
+    pub async fn experimental_feature_enablement_set(&self, params: Value) -> Result<Value> {
+        self.raw_request("experimentalFeature/enablement/set", params)
+            .await
+    }
+
+    pub async fn external_agent_config_detect(&self, params: Value) -> Result<Value> {
+        self.raw_request("externalAgentConfig/detect", params).await
+    }
+
+    pub async fn external_agent_config_import(&self, params: Value) -> Result<Value> {
+        self.raw_request("externalAgentConfig/import", params).await
+    }
+
+    pub async fn feedback_upload(&self, params: Value) -> Result<Value> {
+        self.raw_request("feedback/upload", params).await
+    }
+
+    pub async fn fuzzy_file_search(&self, params: Value) -> Result<Value> {
+        self.raw_request("fuzzyFileSearch", params).await
+    }
+
+    pub async fn hooks_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("hooks/list", params).await
+    }
+
+    pub async fn marketplace_add(&self, params: Value) -> Result<Value> {
+        self.raw_request("marketplace/add", params).await
+    }
+
+    pub async fn marketplace_remove(&self, params: Value) -> Result<Value> {
+        self.raw_request("marketplace/remove", params).await
+    }
+
+    pub async fn marketplace_upgrade(&self, params: Value) -> Result<Value> {
+        self.raw_request("marketplace/upgrade", params).await
+    }
+
     pub async fn next_provider_events(&self) -> Option<Vec<ProviderEvent>> {
         self.transport
             .recv()
@@ -2047,6 +2104,90 @@ mod tests {
         );
         assert_eq!(requests[0].1["provider"], "chatgpt");
         assert_eq!(requests[8].1["mode"], "default");
+    }
+
+    #[tokio::test]
+    async fn config_marketplace_and_external_methods_use_documented_codex_calls() {
+        let fake = FakeTransport::default();
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        client.config_read(json!({})).await.expect("config read");
+        client
+            .config_value_write(json!({ "key": "model", "value": "gpt-5" }))
+            .await
+            .expect("config write");
+        client
+            .config_batch_write(json!({ "values": { "model": "gpt-5" } }))
+            .await
+            .expect("config batch");
+        client
+            .config_mcp_server_reload(json!({ "server": "github" }))
+            .await
+            .expect("mcp reload");
+        client
+            .experimental_feature_list(json!({}))
+            .await
+            .expect("feature list");
+        client
+            .experimental_feature_enablement_set(json!({ "feature": "plan_mode", "enabled": true }))
+            .await
+            .expect("feature enablement");
+        client
+            .external_agent_config_detect(json!({ "cwd": "/tmp/repo" }))
+            .await
+            .expect("external detect");
+        client
+            .external_agent_config_import(json!({ "agent": "codex" }))
+            .await
+            .expect("external import");
+        client
+            .feedback_upload(json!({ "kind": "bug" }))
+            .await
+            .expect("feedback upload");
+        client
+            .fuzzy_file_search(json!({ "query": "main" }))
+            .await
+            .expect("fuzzy search");
+        client.hooks_list(json!({})).await.expect("hooks list");
+        client
+            .marketplace_add(json!({ "plugin": "browser" }))
+            .await
+            .expect("marketplace add");
+        client
+            .marketplace_remove(json!({ "plugin": "browser" }))
+            .await
+            .expect("marketplace remove");
+        client
+            .marketplace_upgrade(json!({ "plugin": "browser" }))
+            .await
+            .expect("marketplace upgrade");
+
+        let requests = client.transport.requests.lock().expect("requests");
+        let methods = requests
+            .iter()
+            .map(|(method, _)| method.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            methods,
+            [
+                "config/read",
+                "config/value/write",
+                "config/batchWrite",
+                "config/mcpServer/reload",
+                "experimentalFeature/list",
+                "experimentalFeature/enablement/set",
+                "externalAgentConfig/detect",
+                "externalAgentConfig/import",
+                "feedback/upload",
+                "fuzzyFileSearch",
+                "hooks/list",
+                "marketplace/add",
+                "marketplace/remove",
+                "marketplace/upgrade",
+            ]
+        );
+        assert_eq!(requests[1].1["key"], "model");
+        assert_eq!(requests[9].1["query"], "main");
     }
 
     #[tokio::test]
