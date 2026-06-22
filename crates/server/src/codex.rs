@@ -1748,6 +1748,31 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn service_rejects_active_plan_state_when_provider_exits() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        service
+            .start_turn(CodexTurnStart::plan(
+                "thread-1",
+                "make a plan",
+                "gpt-5.5".to_string(),
+            ))
+            .await
+            .expect("plan turn");
+        backend.push_events(vec![ProviderEvent::Exited { code: Some(9) }]);
+        service.next_events().await.expect("exit event");
+
+        let snapshot = service.runtime_state_snapshot().await;
+        assert!(snapshot.active_turns.is_empty());
+        assert_eq!(snapshot.plan_sessions.len(), 1);
+        assert_eq!(
+            snapshot.plan_sessions[0].status,
+            PlanSessionStatus::Rejected
+        );
+    }
+
+    #[tokio::test]
     async fn service_records_fork_from_turn_and_side_chat_state() {
         let backend = Arc::new(FakeCodexBackend::default());
         let service = CodexService::new(backend.clone());

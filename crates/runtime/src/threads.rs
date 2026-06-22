@@ -361,6 +361,17 @@ impl AgentRuntimeState {
         }
     }
 
+    pub fn finish_all_active_turns(&mut self, plan_status: PlanSessionStatus) {
+        let active_turns = std::mem::take(&mut self.active_turns);
+        for turn in active_turns.into_values() {
+            if turn.mode == TurnMode::Plan
+                && let Some(plan) = self.plan_sessions.get_mut(&turn.thread_id)
+            {
+                plan.status = plan_status;
+            }
+        }
+    }
+
     pub fn mark_plan_implementing(&mut self, thread_id: &str) {
         if let Some(plan) = self.plan_sessions.get_mut(thread_id) {
             plan.status = PlanSessionStatus::Implementing;
@@ -429,7 +440,7 @@ impl AgentRuntimeState {
                 }
             }
             ProviderEvent::Exited { .. } => {
-                self.active_turns.clear();
+                self.finish_all_active_turns(PlanSessionStatus::Rejected);
             }
             ProviderEvent::RawServerRequest { .. }
             | ProviderEvent::ServerRequest { .. }
@@ -500,6 +511,30 @@ mod tests {
         assert_eq!(
             state.plan_session("thread-1").map(|plan| plan.status),
             Some(PlanSessionStatus::Completed)
+        );
+    }
+
+    #[test]
+    fn provider_exit_finishes_all_active_turns_and_rejects_active_plans() {
+        let mut state = AgentRuntimeState::default();
+        state
+            .begin_turn("plan-thread", Some("turn-1".to_string()), TurnMode::Plan)
+            .expect("plan turn");
+        state
+            .begin_turn(
+                "normal-thread",
+                Some("turn-2".to_string()),
+                TurnMode::Normal,
+            )
+            .expect("normal turn");
+
+        state.apply_provider_events(&[ProviderEvent::Exited { code: Some(1) }]);
+
+        assert!(state.active_turn("plan-thread").is_none());
+        assert!(state.active_turn("normal-thread").is_none());
+        assert_eq!(
+            state.plan_session("plan-thread").map(|plan| plan.status),
+            Some(PlanSessionStatus::Rejected)
         );
     }
 
