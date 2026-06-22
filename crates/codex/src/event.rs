@@ -225,8 +225,12 @@ fn normalize_codex_tool_notification(
         | "item/fileChange/outputDelta"
         | "item/fileChange/patchUpdated"
         | "item/mcpToolCall/progress"
+        | "item/dynamicToolCall/progress"
+        | "item/collabAgentToolCall/progress"
+        | "item/subAgentActivity/delta"
         | "command/exec/outputDelta"
         | "process/outputDelta" => ToolRunStatus::Updated,
+        "item/failed" => ToolRunStatus::Failed,
         "item/commandExecution/requestApproval"
         | "item/fileChange/requestApproval"
         | "item/permissions/requestApproval" => ToolRunStatus::ApprovalRequested,
@@ -237,6 +241,9 @@ fn normalize_codex_tool_notification(
     let item_type = string_at(item, "type")
         .or_else(|| item_type_from_method(method))
         .unwrap_or_else(|| method.to_string());
+    if !is_tool_item_type(&item_type) {
+        return None;
+    }
     let mut provider = ProviderToolMetadata::new();
     provider.provider = Some("codex".to_string());
     provider.method = Some(method.to_string());
@@ -257,6 +264,21 @@ fn normalize_codex_tool_notification(
         provider,
         item_type: Some(item_type),
     }))
+}
+
+fn is_tool_item_type(item_type: &str) -> bool {
+    matches!(
+        item_type,
+        "commandExecution"
+            | "fileChange"
+            | "mcpToolCall"
+            | "dynamicToolCall"
+            | "collabAgentToolCall"
+            | "subAgentActivity"
+            | "webSearch"
+            | "imageView"
+            | "imageGeneration"
+    )
 }
 
 fn transport_for_item(item_type: &str, provider: &ProviderToolMetadata) -> ToolTransport {
@@ -435,6 +457,97 @@ mod tests {
         };
         assert_eq!(tool.surface, ToolSurface::Terminal);
         assert_eq!(tool.display.title, "Ran `cargo test`");
+    }
+
+    #[test]
+    fn normalizes_failed_tool_items_without_semantic_non_tool_failures() {
+        let failed_tool = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/failed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "item-1",
+                    "type": "dynamicToolCall",
+                    "toolName": "ace_browser",
+                    "input": {
+                        "operation": "navigate_tab_url",
+                        "url": "http://localhost:5173"
+                    },
+                    "error": "navigation failed"
+                }
+            }),
+        });
+
+        let ProviderEvent::SemanticTool { tool } = &failed_tool[0] else {
+            panic!("expected failed semantic tool");
+        };
+        assert_eq!(tool.surface, ToolSurface::Browser);
+        assert_eq!(tool.action, ToolActionKind::BrowserNavigate);
+        assert_eq!(
+            tool.display.status,
+            ace_runtime::tools::ToolRunStatus::Failed
+        );
+        assert_eq!(
+            tool.display.title,
+            "Failed http://localhost:5173 in Browser"
+        );
+        assert_eq!(
+            tool.provider.raw_payload["item"]["error"],
+            "navigation failed"
+        );
+
+        let failed_message = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/failed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "item": {
+                    "id": "message-1",
+                    "type": "agentMessage",
+                    "text": "Could not respond"
+                }
+            }),
+        });
+        assert!(
+            failed_message
+                .iter()
+                .all(|event| !matches!(event, ProviderEvent::SemanticTool { .. }))
+        );
+        assert!(matches!(
+            failed_message[0],
+            ProviderEvent::ThreadItem { .. }
+        ));
+    }
+
+    #[test]
+    fn normalizes_dynamic_tool_progress_to_semantic_updates() {
+        let events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/dynamicToolCall/progress".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "item-1",
+                "item": {
+                    "id": "item-1",
+                    "type": "dynamicToolCall",
+                    "toolName": "ace_browser",
+                    "input": {
+                        "operation": "tab_dev_logs"
+                    }
+                }
+            }),
+        });
+
+        let ProviderEvent::SemanticTool { tool } = &events[0] else {
+            panic!("expected semantic update");
+        };
+        assert_eq!(tool.surface, ToolSurface::Browser);
+        assert_eq!(tool.action, ToolActionKind::BrowserConsole);
+        assert_eq!(
+            tool.display.status,
+            ace_runtime::tools::ToolRunStatus::Updated
+        );
+        assert_eq!(tool.display.title, "Reading Browser console logs");
     }
 
     #[test]
