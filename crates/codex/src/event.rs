@@ -1238,6 +1238,58 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_bridge_style_mcp_tool_names_to_semantic_actions() {
+        let browser_events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "item-browser",
+                    "type": "mcpToolCall",
+                    "serverName": "browser",
+                    "toolName": "mcp__browser__click",
+                    "input": {
+                        "selector": "button.primary"
+                    }
+                }
+            }),
+        });
+        let ProviderEvent::SemanticTool { tool } = &browser_events[0] else {
+            panic!("expected browser semantic tool");
+        };
+        assert_eq!(tool.surface, ToolSurface::Browser);
+        assert_eq!(tool.action, ToolActionKind::BrowserClick);
+        assert_eq!(tool.display.title, "Clicked button.primary in Browser");
+        assert!(!tool.display.title.contains("MCP"));
+
+        let computer_events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "item-computer",
+                    "type": "mcpToolCall",
+                    "serverName": "computer-use",
+                    "toolName": "set_value",
+                    "input": {
+                        "app": "TextEdit",
+                        "value": "hello"
+                    }
+                }
+            }),
+        });
+        let ProviderEvent::SemanticTool { tool } = &computer_events[0] else {
+            panic!("expected computer semantic tool");
+        };
+        assert_eq!(tool.surface, ToolSurface::Computer);
+        assert_eq!(tool.action, ToolActionKind::ComputerType);
+        assert_eq!(tool.display.title, "Typed into TextEdit on Computer");
+        assert!(!tool.display.title.contains("MCP"));
+    }
+
+    #[test]
     fn normalizes_computer_use_mcp_tool_names_as_desktop_actions() {
         let events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
             method: "item/completed".to_string(),

@@ -352,6 +352,10 @@ fn infer_surface_action(
 }
 
 fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolActionKind> {
+    let raw_op = first_string([Some(facts.op.as_str()), Some(facts.tool.as_str())])
+        .unwrap_or_default()
+        .to_lowercase();
+    let op = canonical_operation_name(&raw_op, &["mcp__browser__", "browser_", "browser."]);
     if transport != ToolTransport::BrowserBridge
         && !facts.haystack.contains("browser")
         && !facts.haystack.contains("playwright")
@@ -361,80 +365,97 @@ fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAct
         return None;
     }
 
-    let op = first_string([Some(facts.op.as_str()), Some(facts.tool.as_str())])
-        .unwrap_or_default()
-        .to_lowercase();
-    let action =
-        match op.as_str() {
-            "click"
-            | "cua_click"
-            | "dom_cua_click"
-            | "playwright_locator_click"
-            | "playwright_locator_dblclick"
-            | "cua_double_click"
-            | "dom_cua_double_click" => ToolActionKind::BrowserClick,
-            "fill"
-            | "type"
-            | "cua_type"
-            | "dom_cua_type"
-            | "dom_cua_fill"
-            | "playwright_locator_fill"
-            | "playwright_locator_type"
-            | "playwright_locator_press"
-            | "select_option" => ToolActionKind::BrowserType,
-            "open_url"
-            | "goto"
-            | "navigate"
-            | "navigate_tab_url"
-            | "back"
-            | "forward"
-            | "reload"
-            | "navigate_tab_back"
-            | "navigate_tab_forward"
-            | "navigate_tab_reload" => ToolActionKind::BrowserNavigate,
-            "screenshot" | "playwright_screenshot" | "cua_get_visible_screenshot" => {
-                ToolActionKind::BrowserScreenshot
-            }
-            "dom_snapshot"
-            | "playwright_dom_snapshot"
-            | "dom_cua_get_visible_dom"
-            | "playwright_locator_inner_text"
-            | "playwright_locator_text_content"
-            | "playwright_locator_get_attribute"
-            | "playwright_locator_is_visible"
-            | "playwright_locator_is_enabled"
-            | "playwright_locator_count" => ToolActionKind::BrowserInspect,
-            "tab_dev_logs" | "console_logs" | "browser_console" | "dev_logs"
-            | "read_console_logs" => ToolActionKind::BrowserLogs,
-            "list_tabs" | "selected_tab" | "get_tab" | "select_tab" | "switch_tab"
-            | "activate_tab" | "next_tab" | "previous_tab" | "create_tab" | "new_tab"
-            | "close_tab" => ToolActionKind::BrowserTab,
-            "set_viewport_size" | "resize_browser" | "get_viewport_size" => {
-                ToolActionKind::BrowserViewport
-            }
-            "get_browser_zoom" | "set_browser_zoom" | "reset_browser_zoom" | "zoom_browser" => {
-                ToolActionKind::BrowserZoom
-            }
-            _ if facts.haystack.contains("click") => ToolActionKind::BrowserClick,
-            _ if facts.haystack.contains("type") || facts.haystack.contains("fill") => {
-                ToolActionKind::BrowserType
-            }
-            _ if facts.haystack.contains("screenshot") => ToolActionKind::BrowserScreenshot,
-            _ if facts.haystack.contains("dev logs")
-                || facts.haystack.contains("console")
-                || facts.haystack.contains("log") =>
-            {
-                ToolActionKind::BrowserLogs
-            }
-            _ if facts.haystack.contains("zoom") => ToolActionKind::BrowserZoom,
-            _ if facts.haystack.contains("viewport") || facts.haystack.contains("resize") => {
-                ToolActionKind::BrowserViewport
-            }
-            _ if facts.haystack.contains("navigate") || facts.haystack.contains("url") => {
-                ToolActionKind::BrowserNavigate
-            }
-            _ => ToolActionKind::BrowserInspect,
-        };
+    let action = match op.as_str() {
+        "click"
+        | "locator_click"
+        | "cua_click"
+        | "dom_cua_click"
+        | "playwright_locator_click"
+        | "playwright_locator_dblclick"
+        | "dblclick"
+        | "double_click"
+        | "cua_double_click"
+        | "dom_cua_double_click" => ToolActionKind::BrowserClick,
+        "fill"
+        | "type"
+        | "press"
+        | "locator_fill"
+        | "locator_type"
+        | "locator_press"
+        | "locator_select_option"
+        | "cua_type"
+        | "dom_cua_type"
+        | "dom_cua_fill"
+        | "playwright_locator_fill"
+        | "playwright_locator_type"
+        | "playwright_locator_press"
+        | "playwright_locator_check"
+        | "playwright_locator_uncheck"
+        | "select_option" => ToolActionKind::BrowserType,
+        "open"
+        | "open_url"
+        | "browser_navigate"
+        | "goto"
+        | "navigate"
+        | "navigate_tab_url"
+        | "navigate_url"
+        | "back"
+        | "forward"
+        | "reload"
+        | "navigate_tab_back"
+        | "navigate_tab_forward"
+        | "navigate_tab_reload" => ToolActionKind::BrowserNavigate,
+        "screenshot"
+        | "take_screenshot"
+        | "browser_screenshot"
+        | "playwright_screenshot"
+        | "cua_get_visible_screenshot" => ToolActionKind::BrowserScreenshot,
+        "snapshot"
+        | "browser_snapshot"
+        | "dom_snapshot"
+        | "playwright_dom_snapshot"
+        | "dom_cua_get_visible_dom"
+        | "inspect"
+        | "evaluate"
+        | "playwright_evaluate"
+        | "playwright_locator_inner_text"
+        | "playwright_locator_text_content"
+        | "playwright_locator_get_attribute"
+        | "playwright_locator_is_visible"
+        | "playwright_locator_is_enabled"
+        | "playwright_locator_count" => ToolActionKind::BrowserInspect,
+        "tab_dev_logs" | "console_logs" | "get_console_logs" | "browser_console" | "dev_logs"
+        | "read_console_logs" => ToolActionKind::BrowserLogs,
+        "list_tabs" | "selected_tab" | "get_tab" | "select_tab" | "switch_tab" | "activate_tab"
+        | "next_tab" | "previous_tab" | "create_tab" | "new_tab" | "close_tab" => {
+            ToolActionKind::BrowserTab
+        }
+        "set_viewport_size" | "resize_browser" | "get_viewport_size" => {
+            ToolActionKind::BrowserViewport
+        }
+        "get_browser_zoom" | "set_browser_zoom" | "reset_browser_zoom" | "zoom_browser" => {
+            ToolActionKind::BrowserZoom
+        }
+        _ if facts.haystack.contains("click") => ToolActionKind::BrowserClick,
+        _ if facts.haystack.contains("type") || facts.haystack.contains("fill") => {
+            ToolActionKind::BrowserType
+        }
+        _ if facts.haystack.contains("screenshot") => ToolActionKind::BrowserScreenshot,
+        _ if facts.haystack.contains("dev logs")
+            || facts.haystack.contains("console")
+            || facts.haystack.contains("log") =>
+        {
+            ToolActionKind::BrowserLogs
+        }
+        _ if facts.haystack.contains("zoom") => ToolActionKind::BrowserZoom,
+        _ if facts.haystack.contains("viewport") || facts.haystack.contains("resize") => {
+            ToolActionKind::BrowserViewport
+        }
+        _ if facts.haystack.contains("navigate") || facts.haystack.contains("url") => {
+            ToolActionKind::BrowserNavigate
+        }
+        _ => ToolActionKind::BrowserInspect,
+    };
     Some(action)
 }
 
@@ -455,14 +476,27 @@ fn computer_action(
     {
         return None;
     }
-    let op = first_string([Some(facts.op.as_str()), Some(facts.tool.as_str())])
+    let raw_op = first_string([Some(facts.op.as_str()), Some(facts.tool.as_str())])
         .unwrap_or_default()
         .to_lowercase();
+    let op = canonical_operation_name(
+        &raw_op,
+        &[
+            "mcp__computer_use__",
+            "mcp__computer-use__",
+            "computer_use_",
+            "computer-use_",
+            "computer.",
+            "computer_",
+        ],
+    );
     let action = match op.as_str() {
-        "click" | "double_click" | "cua_click" | "cua_double_click" => {
+        "click" | "double_click" | "drag" | "cua_click" | "cua_double_click" => {
             ToolActionKind::ComputerClick
         }
-        "type" | "type_text" | "cua_type" | "fill" => ToolActionKind::ComputerType,
+        "type" | "type_text" | "set_value" | "select_text" | "cua_type" | "fill" => {
+            ToolActionKind::ComputerType
+        }
         "scroll" | "cua_scroll" => ToolActionKind::ComputerScroll,
         "key" | "keypress" | "key_press" | "cua_keypress" | "press_key" => {
             ToolActionKind::ComputerKey
@@ -470,9 +504,12 @@ fn computer_action(
         "screenshot" | "get_screenshot" | "cua_get_visible_screenshot" => {
             ToolActionKind::ComputerScreenshot
         }
-        "activate_app" | "open_app" | "select_window" | "get_app_state" | "list_apps" => {
-            ToolActionKind::ComputerApp
-        }
+        "activate_app"
+        | "open_app"
+        | "select_window"
+        | "get_app_state"
+        | "list_apps"
+        | "perform_secondary_action" => ToolActionKind::ComputerApp,
         _ if facts.haystack.contains("click") => ToolActionKind::ComputerClick,
         _ if facts.haystack.contains("type") => ToolActionKind::ComputerType,
         _ if facts.haystack.contains("scroll") => ToolActionKind::ComputerScroll,
@@ -489,8 +526,11 @@ fn is_computer_bridge_op(value: &str) -> bool {
             | "double_click"
             | "cua_click"
             | "cua_double_click"
+            | "drag"
             | "type"
             | "type_text"
+            | "set_value"
+            | "select_text"
             | "cua_type"
             | "scroll"
             | "cua_scroll"
@@ -507,6 +547,7 @@ fn is_computer_bridge_op(value: &str) -> bool {
             | "select_window"
             | "get_app_state"
             | "list_apps"
+            | "perform_secondary_action"
     )
 }
 
@@ -575,7 +616,12 @@ fn github_action(facts: &ToolFacts) -> Option<ToolActionKind> {
     {
         return None;
     }
-    if facts.haystack.contains("check")
+    if facts.haystack.contains("search")
+        || facts.haystack.contains("find")
+        || facts.haystack.contains("query")
+    {
+        Some(ToolActionKind::GithubSearch)
+    } else if facts.haystack.contains("check")
         || facts.haystack.contains("workflow")
         || facts.haystack.contains("action")
         || facts.haystack.contains("status")
@@ -583,11 +629,13 @@ fn github_action(facts: &ToolFacts) -> Option<ToolActionKind> {
         Some(ToolActionKind::GithubCheck)
     } else if facts.haystack.contains("commit") {
         Some(ToolActionKind::GithubCommit)
-    } else if facts.haystack.contains("issue") {
+    } else if facts.haystack.contains("issue") || facts.haystack.contains("issues") {
         Some(ToolActionKind::GithubIssue)
     } else if facts.haystack.contains("pull request")
         || facts.haystack.contains(" pr ")
         || facts.haystack.contains("pr list")
+        || facts.haystack.contains("prs")
+        || facts.haystack.contains("pulls")
     {
         Some(ToolActionKind::GithubPullRequest)
     } else {
@@ -693,9 +741,13 @@ fn browser_target(action: ToolActionKind, args: &Value) -> Option<ToolTarget> {
     }
     first_string([
         string_at_deep(args, "label").as_deref(),
+        string_at_deep(args, "ariaLabel").as_deref(),
+        string_at_deep(args, "aria_label").as_deref(),
+        string_at_deep(args, "placeholder").as_deref(),
         string_at_deep(args, "text").as_deref(),
         string_at_deep(args, "selector").as_deref(),
         string_at_deep(args, "locator").as_deref(),
+        string_at_deep(args, "element").as_deref(),
         string_at_deep(args, "node_id").as_deref(),
         string_at_deep(args, "element_index").as_deref(),
     ])
@@ -716,6 +768,7 @@ fn computer_target(args: &Value) -> Option<ToolTarget> {
         string_at_deep(args, "appName").as_deref(),
         string_at_deep(args, "window").as_deref(),
         string_at_deep(args, "element").as_deref(),
+        string_at_deep(args, "element_index").as_deref(),
         string_at_deep(args, "label").as_deref(),
     ])
     .map(|label| ToolTarget {
@@ -1081,6 +1134,22 @@ fn first_string<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Option
         .map(ToOwned::to_owned)
 }
 
+fn canonical_operation_name(value: &str, prefixes: &[&str]) -> String {
+    let mut normalized = value.trim().to_lowercase();
+    for separator in ["::", "__", "/", "."] {
+        if let Some((_, tail)) = normalized.rsplit_once(separator) {
+            normalized = tail.to_string();
+            break;
+        }
+    }
+    for prefix in prefixes {
+        if let Some(stripped) = normalized.strip_prefix(prefix) {
+            return stripped.to_string();
+        }
+    }
+    normalized
+}
+
 fn truncate(value: &str, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
         return value.to_string();
@@ -1203,6 +1272,51 @@ mod tests {
     }
 
     #[test]
+    fn browser_bridge_tool_name_variants_do_not_render_as_generic_mcp() {
+        let cases = [
+            (
+                "mcp__browser__click",
+                json!({ "selector": "button.save" }),
+                ToolActionKind::BrowserClick,
+                "Clicked button.save in Browser",
+            ),
+            (
+                "browser_navigate",
+                json!({ "url": "https://example.com/docs" }),
+                ToolActionKind::BrowserNavigate,
+                "Opened https://example.com/docs in Browser",
+            ),
+            (
+                "browser.snapshot",
+                json!({}),
+                ToolActionKind::BrowserInspect,
+                "Inspected Browser page",
+            ),
+            (
+                "browser_take_screenshot",
+                json!({}),
+                ToolActionKind::BrowserScreenshot,
+                "Captured Browser screenshot",
+            ),
+            (
+                "mcp__browser__get_console_logs",
+                json!({}),
+                ToolActionKind::BrowserLogs,
+                "Read Browser console logs",
+            ),
+        ];
+
+        for (tool, args, action, title) in cases {
+            let call =
+                normalize_tool_call(input(ToolTransport::Mcp, "mcpToolCall", tool, "", args));
+            assert_eq!(call.surface, ToolSurface::Browser);
+            assert_eq!(call.action, action);
+            assert_eq!(call.display.title, title);
+            assert!(!call.display.title.contains("MCP"));
+        }
+    }
+
+    #[test]
     fn browser_inspection_screenshot_console_viewport_and_zoom_are_distinct() {
         let cases = [
             (
@@ -1278,6 +1392,44 @@ mod tests {
         assert_eq!(keyed.surface, ToolSurface::Computer);
         assert_eq!(keyed.action, ToolActionKind::ComputerKey);
         assert_eq!(keyed.display.title, "Pressed key in Terminal on Computer");
+    }
+
+    #[test]
+    fn computer_use_bridge_tool_name_variants_render_as_desktop_actions() {
+        let cases = [
+            (
+                "mcp__computer-use__click",
+                json!({ "x": 10, "y": 20 }),
+                ToolActionKind::ComputerClick,
+                "Clicked 10,20 on Computer",
+            ),
+            (
+                "set_value",
+                json!({ "app": "Notes", "value": "Ship it" }),
+                ToolActionKind::ComputerType,
+                "Typed into Notes on Computer",
+            ),
+            (
+                "select_text",
+                json!({ "appName": "TextEdit", "text": "hello" }),
+                ToolActionKind::ComputerType,
+                "Typed into TextEdit on Computer",
+            ),
+            (
+                "perform_secondary_action",
+                json!({ "app": "Finder", "action": "Show menu" }),
+                ToolActionKind::ComputerApp,
+                "Ran Finder on Computer",
+            ),
+        ];
+
+        for (tool, args, action, title) in cases {
+            let call =
+                normalize_tool_call(input(ToolTransport::Mcp, "mcpToolCall", tool, "", args));
+            assert_eq!(call.surface, ToolSurface::Computer);
+            assert_eq!(call.action, action);
+            assert_eq!(call.display.title, title);
+        }
     }
 
     #[test]
