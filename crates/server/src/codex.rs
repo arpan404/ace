@@ -14,8 +14,8 @@ use ace_runtime::{
         ProviderServerRequestResponder,
     },
     threads::{
-        AgentRuntimeSnapshot, AgentRuntimeState, ExecutionLocation, ForkPoint, HandoffPlan,
-        HandoffStatus, PlanSessionStatus, RuntimeStateError, SideChat, TurnMode,
+        AgentRuntimeSnapshot, AgentRuntimeState, ApprovalRetryRecord, ExecutionLocation, ForkPoint,
+        HandoffPlan, HandoffStatus, PlanSessionStatus, RuntimeStateError, SideChat, TurnMode,
     },
 };
 use async_trait::async_trait;
@@ -841,7 +841,23 @@ impl CodexService {
         &self,
         request: CodexGuardianDeniedActionApproval,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.approve_guardian_denied_action(request).await?)
+        let response = self
+            .backend
+            .approve_guardian_denied_action(request.clone())
+            .await?;
+        self.state
+            .lock()
+            .await
+            .record_approval_retry(ApprovalRetryRecord {
+                thread_id: request.thread_id,
+                item_id: request.item_id,
+                action_id: request.action_id,
+                approved: request.approved,
+                reason: request.reason,
+                audit: request.audit,
+                provider_response: response.clone(),
+            });
+        Ok(response)
     }
 
     pub async fn goal_set(

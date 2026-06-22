@@ -2313,6 +2313,30 @@ mod tests {
         let retry: WsServerResponse = serde_json::from_str(&retry).expect("retry response");
         assert!(matches!(retry.payload, WsServerPayload::Result { .. }));
 
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "guardian-retry-snapshot",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        let retry_record = &body["providers"][0]["state"]["approval_retries"][0];
+        assert_eq!(retry_record["thread_id"], "thread-1");
+        assert_eq!(retry_record["item_id"], "item-1");
+        assert_eq!(retry_record["action_id"], "action-1");
+        assert_eq!(retry_record["approved"], true);
+        assert_eq!(retry_record["reason"], "retry after user approval");
+        assert_eq!(retry_record["audit"]["selected_policy"], "on-request");
+        assert_eq!(retry_record["provider_response"]["approved"], true);
+
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             [

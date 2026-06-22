@@ -143,6 +143,22 @@ pub struct HandoffPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApprovalRetryRecord {
+    pub thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
+    pub approved: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub audit: Value,
+    #[serde(default)]
+    pub provider_response: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentThread {
     pub thread_id: String,
     pub provider: String,
@@ -164,6 +180,7 @@ pub struct AgentRuntimeState {
     side_chats: HashMap<String, SideChat>,
     subagents: HashMap<String, SubagentThread>,
     handoffs: Vec<HandoffPlan>,
+    approval_retries: Vec<ApprovalRetryRecord>,
     review_threads: HashSet<String>,
 }
 
@@ -176,6 +193,7 @@ pub struct AgentRuntimeSnapshot {
     pub side_chats: Vec<SideChat>,
     pub subagents: Vec<SubagentThread>,
     pub handoffs: Vec<HandoffPlan>,
+    pub approval_retries: Vec<ApprovalRetryRecord>,
     pub review_threads: Vec<String>,
 }
 
@@ -211,6 +229,7 @@ impl AgentRuntimeState {
             side_chats,
             subagents,
             handoffs: self.handoffs.clone(),
+            approval_retries: self.approval_retries.clone(),
             review_threads,
         }
     }
@@ -278,6 +297,15 @@ impl AgentRuntimeState {
 
     pub fn record_handoff(&mut self, handoff: HandoffPlan) {
         self.handoffs.push(handoff);
+    }
+
+    pub fn record_approval_retry(&mut self, retry: ApprovalRetryRecord) {
+        self.approval_retries.push(retry);
+    }
+
+    #[must_use]
+    pub fn approval_retries(&self) -> &[ApprovalRetryRecord] {
+        &self.approval_retries
     }
 
     pub fn set_goal(
@@ -773,6 +801,21 @@ mod tests {
             handoff.metadata["handoff"]["worktree_branch"],
             "feature/task"
         );
+        state.record_approval_retry(ApprovalRetryRecord {
+            thread_id: "parent-1".to_string(),
+            item_id: Some("item-1".to_string()),
+            action_id: Some("action-1".to_string()),
+            approved: true,
+            reason: Some("retry after user approval".to_string()),
+            audit: json!({ "selected_policy": "on-request" }),
+            provider_response: json!({ "approved": true }),
+        });
+        let retry = &state.approval_retries()[0];
+        assert_eq!(retry.thread_id, "parent-1");
+        assert_eq!(retry.item_id.as_deref(), Some("item-1"));
+        assert_eq!(retry.action_id.as_deref(), Some("action-1"));
+        assert!(retry.approved);
+        assert_eq!(retry.audit["selected_policy"], "on-request");
         state.close_subagent("subagent-1");
         assert!(state.subagent("subagent-1").is_none());
     }
