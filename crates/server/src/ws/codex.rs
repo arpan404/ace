@@ -35,8 +35,8 @@ use ace_protocol::{
         ProviderRuntimeRequest, ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
         ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
         ProviderRuntimeSubscribeRequest, ProviderServerRequestAudit,
-        ProviderServerRequestDecisionRecord, ProviderServerRequestError,
-        ProviderServerRequestRecord, ProviderServerRequestResult,
+        ProviderServerRequestDecisionRecord, ProviderServerRequestDecisionResponse,
+        ProviderServerRequestError, ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
         ProviderServerRequestsListResponse, projection_deltas_for_events,
     },
@@ -800,6 +800,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         request.result.clone(),
                     )
                     .await?;
+                let audit = serde_json::to_value(&decision_context.audit)?;
+                let decision = ProviderServerRequestDecisionRecord {
+                    outcome: "result".to_string(),
+                    payload: request.result.clone(),
+                    audit: audit.clone(),
+                };
                 self.provider_events
                     .lock()
                     .expect("provider event log")
@@ -807,21 +813,29 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         &request.provider,
                         request.request_id.clone(),
                         request.result.clone(),
-                        serde_json::to_value(&decision_context.audit)?,
+                        audit.clone(),
                     )?;
                 self.append_and_publish_provider_events(
                     provider_kind,
                     vec![ProviderEvent::ServerRequestResolved {
-                        request_id: request.request_id,
+                        request_id: request.request_id.clone(),
                         decision: NormalizedServerRequestDecision {
-                            outcome: "result".to_string(),
-                            payload: request.result,
-                            audit: serde_json::to_value(decision_context.audit)?,
+                            outcome: decision.outcome.clone(),
+                            payload: decision.payload.clone(),
+                            audit,
                         },
-                        request: decision_context.request,
+                        request: decision_context.request.clone(),
                     }],
                 )?;
-                Ok(serde_json::json!({ "responded": true }))
+                Ok(serde_json::to_value(
+                    ProviderServerRequestDecisionResponse {
+                        responded: true,
+                        provider: request.provider,
+                        request_id: request.request_id,
+                        decision,
+                        request: decision_context.request,
+                    },
+                )?)
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_ERROR => {
                 let request = serde_json::from_value::<ProviderServerRequestError>(payload)?;
@@ -846,6 +860,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     )
                     .await?;
                 let error_payload = serde_json::to_value(request.error)?;
+                let audit = serde_json::to_value(&decision_context.audit)?;
+                let decision = ProviderServerRequestDecisionRecord {
+                    outcome: "error".to_string(),
+                    payload: error_payload.clone(),
+                    audit: audit.clone(),
+                };
                 self.provider_events
                     .lock()
                     .expect("provider event log")
@@ -853,21 +873,29 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         &request.provider,
                         request.request_id.clone(),
                         error_payload.clone(),
-                        serde_json::to_value(&decision_context.audit)?,
+                        audit.clone(),
                     )?;
                 self.append_and_publish_provider_events(
                     provider_kind,
                     vec![ProviderEvent::ServerRequestResolved {
-                        request_id: request.request_id,
+                        request_id: request.request_id.clone(),
                         decision: NormalizedServerRequestDecision {
-                            outcome: "error".to_string(),
-                            payload: error_payload,
-                            audit: serde_json::to_value(decision_context.audit)?,
+                            outcome: decision.outcome.clone(),
+                            payload: decision.payload.clone(),
+                            audit,
                         },
-                        request: decision_context.request,
+                        request: decision_context.request.clone(),
                     }],
                 )?;
-                Ok(serde_json::json!({ "responded": true }))
+                Ok(serde_json::to_value(
+                    ProviderServerRequestDecisionResponse {
+                        responded: true,
+                        provider: request.provider,
+                        request_id: request.request_id,
+                        decision,
+                        request: decision_context.request,
+                    },
+                )?)
             }
             _ => Err(WsDispatchError::UnknownMethod(method.to_string())),
         }
@@ -4231,7 +4259,22 @@ mod tests {
             )
             .await;
         let response: WsServerResponse = serde_json::from_str(&response).expect("response");
-        assert!(matches!(response.payload, WsServerPayload::Result { .. }));
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected approval result response");
+        };
+        assert_eq!(body["responded"], true);
+        assert_eq!(body["provider"], "codex");
+        assert_eq!(body["request_id"], "42");
+        assert_eq!(body["decision"]["outcome"], "result");
+        assert_eq!(body["decision"]["payload"]["approved"], true);
+        assert_eq!(body["decision"]["audit"]["scope"], "command");
+        assert_eq!(body["decision"]["audit"]["source_thread_id"], "thread-1");
+        assert_eq!(body["decision"]["audit"]["source_item_id"], "item-1");
+        assert_eq!(body["decision"]["audit"]["prompt"], "Run cargo test?");
+        assert_eq!(body["decision"]["audit"]["selected_policy"], "on-request");
+        assert_eq!(body["decision"]["audit"]["metadata"]["risk"], "low");
+        assert_eq!(body["request"]["request_id"], "42");
+        assert_eq!(body["request"]["prompt"], "Run cargo test?");
         assert_eq!(
             backend
                 .server_request_responses
@@ -4357,7 +4400,25 @@ mod tests {
             )
             .await;
         let response: WsServerResponse = serde_json::from_str(&response).expect("response");
-        assert!(matches!(response.payload, WsServerPayload::Result { .. }));
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected approval error response");
+        };
+        assert_eq!(body["responded"], true);
+        assert_eq!(body["provider"], "codex");
+        assert_eq!(body["request_id"], "43");
+        assert_eq!(body["decision"]["outcome"], "error");
+        assert_eq!(body["decision"]["payload"]["code"], -32001);
+        assert_eq!(body["decision"]["payload"]["message"], "denied");
+        assert_eq!(body["decision"]["audit"]["scope"], "filesystem");
+        assert_eq!(body["decision"]["audit"]["source_thread_id"], "thread-1");
+        assert_eq!(body["decision"]["audit"]["source_item_id"], "file-change-1");
+        assert_eq!(
+            body["decision"]["audit"]["prompt"],
+            "Write outside workspace?"
+        );
+        assert_eq!(body["decision"]["audit"]["selected_policy"], "strict");
+        assert_eq!(body["request"]["request_id"], "43");
+        assert_eq!(body["request"]["prompt"], "Write outside workspace?");
         assert_eq!(
             backend
                 .server_request_responses

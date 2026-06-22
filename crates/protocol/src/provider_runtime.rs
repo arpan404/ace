@@ -441,6 +441,16 @@ pub struct ProviderServerRequestDecisionRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderServerRequestDecisionResponse {
+    pub responded: bool,
+    pub provider: String,
+    pub request_id: String,
+    pub decision: ProviderServerRequestDecisionRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<Box<NormalizedServerRequest>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderServerRequestRecord {
     pub provider: String,
     pub request_id: String,
