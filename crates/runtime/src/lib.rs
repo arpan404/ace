@@ -223,11 +223,23 @@ pub mod provider {
         Deferred,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProviderAdapterOperationAvailability {
+        Available,
+        Optional,
+        VersionGated,
+        Deferred,
+    }
+
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct ProviderAdapterOperationProfile {
         pub operation: ProviderAdapterOperation,
         pub category: ProviderFeatureCategory,
         pub support: ProviderAdapterOperationSupport,
+        pub availability: ProviderAdapterOperationAvailability,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub availability_reason: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub canonical_method: Option<String>,
         #[serde(default)]
@@ -246,6 +258,8 @@ pub mod provider {
                 operation: spec.operation,
                 category: spec.category,
                 support: spec.support,
+                availability: provider_adapter_operation_availability(spec),
+                availability_reason: provider_adapter_operation_availability_reason(spec),
                 canonical_method: spec.canonical_method.clone(),
                 provider_methods: spec.provider_methods.clone(),
                 direct_invocation: invocation
@@ -1292,6 +1306,44 @@ pub mod provider {
     }
 
     #[must_use]
+    pub fn provider_adapter_operation_availability(
+        spec: &ProviderAdapterOperationSpec,
+    ) -> ProviderAdapterOperationAvailability {
+        match spec.support {
+            ProviderAdapterOperationSupport::Required => {
+                ProviderAdapterOperationAvailability::Available
+            }
+            ProviderAdapterOperationSupport::Optional => {
+                ProviderAdapterOperationAvailability::Optional
+            }
+            ProviderAdapterOperationSupport::VersionGated => {
+                ProviderAdapterOperationAvailability::VersionGated
+            }
+            ProviderAdapterOperationSupport::Deferred => {
+                ProviderAdapterOperationAvailability::Deferred
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn provider_adapter_operation_availability_reason(
+        spec: &ProviderAdapterOperationSpec,
+    ) -> Option<String> {
+        match spec.support {
+            ProviderAdapterOperationSupport::Required => None,
+            ProviderAdapterOperationSupport::Optional => {
+                Some("optional operation; provider may expose it when supported".to_string())
+            }
+            ProviderAdapterOperationSupport::VersionGated => Some(
+                "version-gated operation; verify installed provider support before use".to_string(),
+            ),
+            ProviderAdapterOperationSupport::Deferred => {
+                Some("intentionally deferred in the current adapter contract".to_string())
+            }
+        }
+    }
+
+    #[must_use]
     pub fn provider_adapter_operation_required_hooks(
         spec: &ProviderAdapterOperationSpec,
     ) -> Vec<ProviderAdapterRuntimeHook> {
@@ -1882,6 +1934,16 @@ pub mod provider {
                 operation.operation == ProviderAdapterOperation::ThreadRead
                     && operation.invocation == ProviderAdapterInvocationKind::DirectProviderMethod
                     && operation.direct_invocation
+                    && operation.availability == ProviderAdapterOperationAvailability::Available
+                    && operation.availability_reason.is_none()
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::RawRequest
+                    && operation.availability == ProviderAdapterOperationAvailability::Optional
+                    && operation
+                        .availability_reason
+                        .as_deref()
+                        .is_some_and(|reason| reason.contains("optional"))
             }));
             assert!(codex_profile.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::PlanForkForImplementation
@@ -1908,7 +1970,20 @@ pub mod provider {
             assert!(codex_profile.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::CloudHandoff
                     && operation.invocation == ProviderAdapterInvocationKind::Deferred
+                    && operation.availability == ProviderAdapterOperationAvailability::Deferred
+                    && operation
+                        .availability_reason
+                        .as_deref()
+                        .is_some_and(|reason| reason.contains("deferred"))
                     && operation.required_runtime_hooks.is_empty()
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::CommandExec
+                    && operation.availability == ProviderAdapterOperationAvailability::VersionGated
+                    && operation
+                        .availability_reason
+                        .as_deref()
+                        .is_some_and(|reason| reason.contains("version-gated"))
             }));
             assert_eq!(
                 codex_profile.direct_provider_method(ProviderAdapterOperation::ThreadRead),

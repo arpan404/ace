@@ -3,12 +3,12 @@ use ace_runtime::{
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem,
         ProviderAdapterContract, ProviderAdapterInvocationKind, ProviderAdapterOperation,
-        ProviderAdapterOperationProfile, ProviderAdapterOperationSpec,
-        ProviderAdapterOperationSupport, ProviderAdapterProfile, ProviderAdapterRuntimeHook,
-        ProviderAdapterRuntimeReport, ProviderContractReport, ProviderDescriptor,
-        ProviderDriverStatus, ProviderEvent, ProviderFeature, ProviderFeatureCategory,
-        ProviderLifecycleAction, ProviderLifecycleResult, RuntimeSignalKind, ThreadItemKind,
-        ThreadItemStatus,
+        ProviderAdapterOperationAvailability, ProviderAdapterOperationProfile,
+        ProviderAdapterOperationSpec, ProviderAdapterOperationSupport, ProviderAdapterProfile,
+        ProviderAdapterRuntimeHook, ProviderAdapterRuntimeReport, ProviderContractReport,
+        ProviderDescriptor, ProviderDriverStatus, ProviderEvent, ProviderFeature,
+        ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
+        RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
     },
     threads::AgentRuntimeSnapshot,
     tools::{SemanticToolCall, ToolRunStatus},
@@ -98,6 +98,9 @@ pub struct ProviderRuntimeProviderOperation {
     pub operation: ProviderAdapterOperation,
     pub category: ProviderFeatureCategory,
     pub support: ProviderAdapterOperationSupport,
+    pub availability: ProviderAdapterOperationAvailability,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub availability_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canonical_method: Option<String>,
     #[serde(default)]
@@ -119,6 +122,8 @@ impl ProviderRuntimeProviderOperation {
             operation: profile.operation,
             category: profile.category,
             support: profile.support,
+            availability: profile.availability,
+            availability_reason: profile.availability_reason,
             canonical_method: profile.canonical_method,
             provider_methods: profile.provider_methods,
             direct_invocation: profile.direct_invocation,
@@ -1063,6 +1068,11 @@ mod tests {
             direct.invocation,
             ProviderAdapterInvocationKind::DirectProviderMethod
         );
+        assert_eq!(
+            direct.availability,
+            ProviderAdapterOperationAvailability::Available
+        );
+        assert_eq!(direct.availability_reason, None);
         assert!(direct.direct_invocation);
         assert_eq!(direct.provider_methods, ["thread/read"]);
         assert!(direct.runtime_request.invokable);
@@ -1081,6 +1091,10 @@ mod tests {
             composite.invocation,
             ProviderAdapterInvocationKind::CompositeTypedApi
         );
+        assert_eq!(
+            composite.availability,
+            ProviderAdapterOperationAvailability::Available
+        );
         assert!(!composite.direct_invocation);
         assert_eq!(composite.category, ProviderFeatureCategory::Plans);
         assert!(!composite.runtime_request.invokable);
@@ -1093,6 +1107,10 @@ mod tests {
         assert_eq!(
             event_stream.invocation,
             ProviderAdapterInvocationKind::EventStream
+        );
+        assert_eq!(
+            event_stream.availability,
+            ProviderAdapterOperationAvailability::Available
         );
         assert!(!event_stream.direct_invocation);
         assert!(!event_stream.runtime_request.invokable);
@@ -1111,9 +1129,33 @@ mod tests {
             vec![ProviderAdapterRuntimeHook::ServerRequestResponder]
         );
 
+        let version_gated = operation(ProviderAdapterOperation::CommandExec);
+        assert_eq!(
+            version_gated.availability,
+            ProviderAdapterOperationAvailability::VersionGated
+        );
+        assert!(
+            version_gated
+                .availability_reason
+                .as_deref()
+                .expect("version gated reason")
+                .contains("version-gated")
+        );
+
         let deferred = operation(ProviderAdapterOperation::CloudHandoff);
         assert_eq!(deferred.invocation, ProviderAdapterInvocationKind::Deferred);
         assert_eq!(deferred.support, ProviderAdapterOperationSupport::Deferred);
+        assert_eq!(
+            deferred.availability,
+            ProviderAdapterOperationAvailability::Deferred
+        );
+        assert!(
+            deferred
+                .availability_reason
+                .as_deref()
+                .expect("deferred reason")
+                .contains("deferred")
+        );
         assert!(!deferred.runtime_request.invokable);
         assert_eq!(
             deferred.runtime_request.mode,

@@ -3464,6 +3464,8 @@ mod tests {
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "thread_read"
                 && operation["invocation"] == "direct_provider_method"
+                && operation["availability"] == "available"
+                && operation.get("availability_reason").is_none()
                 && operation["direct_invocation"] == true
                 && operation["provider_methods"] == json!(["thread/read"])
                 && operation["runtime_request"]["invokable"] == true
@@ -3473,6 +3475,7 @@ mod tests {
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "plan_fork_for_implementation"
                 && operation["invocation"] == "composite_typed_api"
+                && operation["availability"] == "available"
                 && operation["direct_invocation"] == false
                 && operation["runtime_request"]["invokable"] == true
                 && operation["runtime_request"]["mode"] == "adapter_operation"
@@ -3485,6 +3488,11 @@ mod tests {
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "command_exec"
                 && operation["support"] == "version_gated"
+                && operation["availability"] == "version_gated"
+                && operation["availability_reason"]
+                    .as_str()
+                    .expect("availability reason")
+                    .contains("version-gated")
                 && operation["runtime_request"]["invokable"] == true
                 && operation["runtime_request"]["mode"] == "adapter_operation"
                 && operation["runtime_request"]["params"] == "adapter_normalized"
@@ -3492,6 +3500,7 @@ mod tests {
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "provider_events"
                 && operation["invocation"] == "event_stream"
+                && operation["availability"] == "available"
                 && operation["direct_invocation"] == false
                 && operation["required_runtime_hooks"] == json!(["event_source"])
                 && operation["runtime_request"]["invokable"] == false
@@ -3510,6 +3519,11 @@ mod tests {
             operation["operation"] == "cloud_handoff"
                 && operation["invocation"] == "deferred"
                 && operation["support"] == "deferred"
+                && operation["availability"] == "deferred"
+                && operation["availability_reason"]
+                    .as_str()
+                    .expect("availability reason")
+                    .contains("deferred")
                 && operation["required_runtime_hooks"]
                     .as_array()
                     .expect("runtime hooks")
