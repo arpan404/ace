@@ -382,8 +382,9 @@ fn decode_server_request_record(
 mod tests {
     use super::*;
     use ace_runtime::provider::{
-        NormalizedServerRequest, NormalizedServerRequestDecision, NormalizedThreadItem,
-        ProviderEvent, ProviderMetadata, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+        NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
+        NormalizedThreadItem, ProviderEvent, ProviderMetadata, RuntimeSignalKind,
+        ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     };
     use ace_runtime::threads::ChildThreadRelationship;
     use ace_runtime::tools::{
@@ -519,6 +520,17 @@ mod tests {
                 ProviderEvent::SemanticTool {
                     tool: Box::new(terminal_output_tool("tool-1", "proc-1", "running tests\n")),
                 },
+                realtime_signal(
+                    RuntimeSignalKind::RealtimeTranscriptDelta,
+                    "turn-1",
+                    "hello ",
+                ),
+                realtime_signal(
+                    RuntimeSignalKind::RealtimeTranscriptDelta,
+                    "turn-1",
+                    "world",
+                ),
+                realtime_signal(RuntimeSignalKind::RealtimeAudioDelta, "turn-1", "audio-1"),
                 ProviderEvent::SemanticTool {
                     tool: Box::new(semantic_tool(
                         "tool-1",
@@ -611,6 +623,10 @@ mod tests {
             Some("proc-1")
         );
         assert_eq!(codex.terminal_outputs[0].text, "running tests\n");
+        assert_eq!(codex.realtime_transcripts.len(), 1);
+        assert_eq!(codex.realtime_transcripts[0].text, "hello world");
+        assert_eq!(codex.realtime_audio.len(), 1);
+        assert_eq!(codex.realtime_audio[0].chunks, vec!["audio-1".to_string()]);
 
         let all = repo.runtime_state_snapshot(None).expect("all snapshot");
         assert_eq!(all.thread_items.len(), 4);
@@ -828,5 +844,47 @@ mod tests {
             }
         });
         tool
+    }
+
+    fn realtime_signal(kind: RuntimeSignalKind, turn_id: &str, payload: &str) -> ProviderEvent {
+        let (method, text, audio) = match kind {
+            RuntimeSignalKind::RealtimeTranscriptDelta => {
+                ("realtime/transcriptDelta", Some(payload.to_string()), None)
+            }
+            RuntimeSignalKind::RealtimeAudioDelta => {
+                ("realtime/audioDelta", None, Some(payload.to_string()))
+            }
+            _ => ("realtime/unknown", None, None),
+        };
+        ProviderEvent::RuntimeSignal {
+            signal: Box::new(NormalizedRuntimeSignal {
+                kind,
+                thread_id: Some("thread-1".to_string()),
+                turn_id: Some(turn_id.to_string()),
+                item_id: None,
+                message: None,
+                from_model: None,
+                to_model: None,
+                reason: None,
+                text,
+                audio,
+                status: None,
+                name: None,
+                active: None,
+                archived: None,
+                diff: None,
+                files: None,
+                process_id: None,
+                exit_code: None,
+                request_id: None,
+                metadata: serde_json::json!({ "payload": payload }),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some(method.to_string()),
+                    schema_version: None,
+                    raw_payload: serde_json::json!({ "payload": payload }),
+                },
+            }),
+        }
     }
 }

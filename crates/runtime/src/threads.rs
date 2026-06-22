@@ -12,6 +12,9 @@ const MAX_THREAD_ITEM_RECORDS: usize = 4096;
 const MAX_TOOL_TIMELINE_RECORDS: usize = 2048;
 const MAX_TERMINAL_OUTPUT_RECORDS: usize = 256;
 const MAX_TERMINAL_OUTPUT_BYTES_PER_RECORD: usize = 64 * 1024;
+const MAX_REALTIME_STREAM_RECORDS: usize = 128;
+const MAX_REALTIME_TRANSCRIPT_BYTES_PER_RECORD: usize = 64 * 1024;
+const MAX_REALTIME_AUDIO_CHUNKS_PER_RECORD: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -397,6 +400,28 @@ pub struct TurnModerationRecord {
     pub metadata: Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RealtimeTranscriptRecord {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    pub text: String,
+    pub truncated_bytes: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RealtimeAudioRecord {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    pub chunks: Vec<String>,
+    pub truncated_chunks: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AutoApprovalReviewRecord {
     pub provider: String,
@@ -434,6 +459,7 @@ type RuntimeThreadTurnKey = (Option<String>, Option<String>);
 type AutoApprovalReviewKey = (Option<String>, Option<String>, Option<String>);
 type ApprovalKey = (String, String);
 type ChildThreadKey = (String, String, String, ChildThreadRelationship);
+type RealtimeStreamKey = (String, Option<String>, Option<String>);
 type TerminalOutputKey = (
     String,
     Option<String>,
@@ -516,6 +542,10 @@ pub struct AgentRuntimeState {
     model_reroutes: Vec<ModelRerouteRecord>,
     provider_states: HashMap<String, ProviderStateRecord>,
     realtime_sessions: HashMap<RuntimeThreadTurnKey, RealtimeSessionRecord>,
+    realtime_transcripts: HashMap<RealtimeStreamKey, RealtimeTranscriptRecord>,
+    realtime_transcript_order: VecDeque<RealtimeStreamKey>,
+    realtime_audio: HashMap<RealtimeStreamKey, RealtimeAudioRecord>,
+    realtime_audio_order: VecDeque<RealtimeStreamKey>,
     turn_moderation: HashMap<RuntimeThreadTurnKey, TurnModerationRecord>,
     auto_approval_reviews: HashMap<AutoApprovalReviewKey, AutoApprovalReviewRecord>,
     approvals: HashMap<ApprovalKey, ApprovalRecord>,
@@ -556,6 +586,8 @@ pub struct AgentRuntimeSnapshot {
     pub model_reroutes: Vec<ModelRerouteRecord>,
     pub provider_states: Vec<ProviderStateRecord>,
     pub realtime_sessions: Vec<RealtimeSessionRecord>,
+    pub realtime_transcripts: Vec<RealtimeTranscriptRecord>,
+    pub realtime_audio: Vec<RealtimeAudioRecord>,
     pub turn_moderation: Vec<TurnModerationRecord>,
     pub auto_approval_reviews: Vec<AutoApprovalReviewRecord>,
     pub approvals: Vec<ApprovalRecord>,
@@ -613,6 +645,9 @@ impl AgentRuntimeState {
                 .then_with(|| left.turn_id.cmp(&right.turn_id))
         });
 
+        let realtime_transcripts = self.realtime_transcripts_in_order();
+        let realtime_audio = self.realtime_audio_in_order();
+
         let mut turn_moderation = self.turn_moderation.values().cloned().collect::<Vec<_>>();
         turn_moderation.sort_by(|left, right| {
             left.thread_id
@@ -667,6 +702,8 @@ impl AgentRuntimeState {
             model_reroutes: self.model_reroutes.clone(),
             provider_states,
             realtime_sessions,
+            realtime_transcripts,
+            realtime_audio,
             turn_moderation,
             auto_approval_reviews,
             approvals,
@@ -1148,6 +1185,101 @@ impl AgentRuntimeState {
             (session.thread_id.clone(), session.turn_id.clone()),
             session,
         );
+    }
+
+    pub fn append_realtime_transcript(&mut self, signal: &NormalizedRuntimeSignal) {
+        let Some(delta) = signal.text.as_deref().filter(|text| !text.is_empty()) else {
+            return;
+        };
+        let key = (
+            signal.provider.provider.clone(),
+            signal.thread_id.clone(),
+            signal.turn_id.clone(),
+        );
+        let is_new = !self.realtime_transcripts.contains_key(&key);
+        let record = self
+            .realtime_transcripts
+            .entry(key.clone())
+            .or_insert_with(|| RealtimeTranscriptRecord {
+                provider: signal.provider.provider.clone(),
+                thread_id: signal.thread_id.clone(),
+                turn_id: signal.turn_id.clone(),
+                text: String::new(),
+                truncated_bytes: 0,
+            });
+        append_bounded_text(
+            &mut record.text,
+            &mut record.truncated_bytes,
+            delta,
+            MAX_REALTIME_TRANSCRIPT_BYTES_PER_RECORD,
+        );
+        if is_new {
+            self.realtime_transcript_order.push_back(key);
+            while self.realtime_transcript_order.len() > MAX_REALTIME_STREAM_RECORDS {
+                if let Some(oldest) = self.realtime_transcript_order.pop_front() {
+                    self.realtime_transcripts.remove(&oldest);
+                }
+            }
+        }
+    }
+
+    pub fn append_realtime_audio(&mut self, signal: &NormalizedRuntimeSignal) {
+        let Some(chunk) = signal.audio.as_ref().filter(|audio| !audio.is_empty()) else {
+            return;
+        };
+        let key = (
+            signal.provider.provider.clone(),
+            signal.thread_id.clone(),
+            signal.turn_id.clone(),
+        );
+        let is_new = !self.realtime_audio.contains_key(&key);
+        let record =
+            self.realtime_audio
+                .entry(key.clone())
+                .or_insert_with(|| RealtimeAudioRecord {
+                    provider: signal.provider.provider.clone(),
+                    thread_id: signal.thread_id.clone(),
+                    turn_id: signal.turn_id.clone(),
+                    chunks: Vec::new(),
+                    truncated_chunks: 0,
+                });
+        record.chunks.push(chunk.clone());
+        while record.chunks.len() > MAX_REALTIME_AUDIO_CHUNKS_PER_RECORD {
+            record.chunks.remove(0);
+            record.truncated_chunks = record.truncated_chunks.saturating_add(1);
+        }
+        if is_new {
+            self.realtime_audio_order.push_back(key);
+            while self.realtime_audio_order.len() > MAX_REALTIME_STREAM_RECORDS {
+                if let Some(oldest) = self.realtime_audio_order.pop_front() {
+                    self.realtime_audio.remove(&oldest);
+                }
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn realtime_transcripts(&self) -> Vec<RealtimeTranscriptRecord> {
+        self.realtime_transcripts_in_order()
+    }
+
+    fn realtime_transcripts_in_order(&self) -> Vec<RealtimeTranscriptRecord> {
+        self.realtime_transcript_order
+            .iter()
+            .filter_map(|key| self.realtime_transcripts.get(key).cloned())
+            .collect()
+    }
+
+    #[must_use]
+    pub fn realtime_audio(&self) -> Vec<RealtimeAudioRecord> {
+        self.realtime_audio_in_order()
+    }
+
+    fn realtime_audio_in_order(&self) -> Vec<RealtimeAudioRecord> {
+        self.realtime_audio_order
+            .iter()
+            .filter_map(|key| self.realtime_audio.get(key).cloned())
+            .collect()
     }
 
     pub fn upsert_turn_moderation(&mut self, moderation: TurnModerationRecord) {
@@ -1652,6 +1784,12 @@ impl AgentRuntimeState {
                 }
                 if let Some(session) = realtime_session_from_signal(signal) {
                     self.upsert_realtime_session(session);
+                }
+                if signal.kind == RuntimeSignalKind::RealtimeTranscriptDelta {
+                    self.append_realtime_transcript(signal);
+                }
+                if signal.kind == RuntimeSignalKind::RealtimeAudioDelta {
+                    self.append_realtime_audio(signal);
                 }
                 if let Some(moderation) = turn_moderation_from_signal(signal) {
                     self.upsert_turn_moderation(moderation);
@@ -2444,6 +2582,31 @@ mod tests {
         tool
     }
 
+    fn realtime_signal(kind: RuntimeSignalKind, turn_id: &str, payload: &str) -> ProviderEvent {
+        let mut signal = runtime_signal(
+            kind,
+            match kind {
+                RuntimeSignalKind::RealtimeTranscriptDelta => "realtime/transcriptDelta",
+                RuntimeSignalKind::RealtimeAudioDelta => "realtime/audioDelta",
+                _ => "realtime/unknown",
+            },
+        );
+        signal.thread_id = Some("thread-1".to_string());
+        signal.turn_id = Some(turn_id.to_string());
+        match kind {
+            RuntimeSignalKind::RealtimeTranscriptDelta => {
+                signal.text = Some(payload.to_string());
+            }
+            RuntimeSignalKind::RealtimeAudioDelta => {
+                signal.audio = Some(payload.to_string());
+            }
+            _ => {}
+        }
+        ProviderEvent::RuntimeSignal {
+            signal: Box::new(signal),
+        }
+    }
+
     #[test]
     fn tracks_active_turns_and_rejects_concurrent_starts() {
         let mut state = AgentRuntimeState::default();
@@ -2803,6 +2966,93 @@ mod tests {
                 .terminal_outputs
                 .iter()
                 .any(|output| output.item_id.as_deref() == Some(newest_item_id.as_str()))
+        );
+    }
+
+    #[test]
+    fn records_bounded_realtime_transcript_and_audio() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            realtime_signal(
+                RuntimeSignalKind::RealtimeTranscriptDelta,
+                "turn-1",
+                "hello ",
+            ),
+            realtime_signal(
+                RuntimeSignalKind::RealtimeTranscriptDelta,
+                "turn-1",
+                "world",
+            ),
+            realtime_signal(RuntimeSignalKind::RealtimeAudioDelta, "turn-1", "audio-1"),
+            realtime_signal(RuntimeSignalKind::RealtimeAudioDelta, "turn-1", "audio-2"),
+        ]);
+
+        let transcripts = state.realtime_transcripts();
+        assert_eq!(transcripts.len(), 1);
+        assert_eq!(transcripts[0].provider, "codex");
+        assert_eq!(transcripts[0].thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(transcripts[0].turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(transcripts[0].text, "hello world");
+        assert_eq!(transcripts[0].truncated_bytes, 0);
+
+        let audio = state.realtime_audio();
+        assert_eq!(audio.len(), 1);
+        assert_eq!(
+            audio[0].chunks,
+            vec!["audio-1".to_string(), "audio-2".to_string()]
+        );
+        assert_eq!(audio[0].truncated_chunks, 0);
+
+        let long_delta = "x".repeat(MAX_REALTIME_TRANSCRIPT_BYTES_PER_RECORD + 16);
+        state.apply_provider_events(&[realtime_signal(
+            RuntimeSignalKind::RealtimeTranscriptDelta,
+            "turn-1",
+            &long_delta,
+        )]);
+        let transcripts = state.realtime_transcripts();
+        assert_eq!(
+            transcripts[0].text.len(),
+            MAX_REALTIME_TRANSCRIPT_BYTES_PER_RECORD
+        );
+        assert!(transcripts[0].truncated_bytes >= 16);
+
+        for index in 0..=MAX_REALTIME_AUDIO_CHUNKS_PER_RECORD {
+            state.apply_provider_events(&[realtime_signal(
+                RuntimeSignalKind::RealtimeAudioDelta,
+                "turn-1",
+                &format!("audio-{index}"),
+            )]);
+        }
+        let audio = state.realtime_audio();
+        assert_eq!(audio[0].chunks.len(), MAX_REALTIME_AUDIO_CHUNKS_PER_RECORD);
+        assert!(audio[0].truncated_chunks > 0);
+        let newest_audio = format!("audio-{MAX_REALTIME_AUDIO_CHUNKS_PER_RECORD}");
+        assert!(audio[0].chunks.contains(&newest_audio));
+
+        for index in 0..=MAX_REALTIME_STREAM_RECORDS {
+            state.apply_provider_events(&[realtime_signal(
+                RuntimeSignalKind::RealtimeTranscriptDelta,
+                &format!("turn-stream-{index}"),
+                "delta",
+            )]);
+        }
+        let snapshot = state.snapshot();
+        assert_eq!(
+            snapshot.realtime_transcripts.len(),
+            MAX_REALTIME_STREAM_RECORDS
+        );
+        assert!(
+            snapshot
+                .realtime_transcripts
+                .iter()
+                .all(|record| record.turn_id.as_deref() != Some("turn-1"))
+        );
+        let newest_turn = format!("turn-stream-{MAX_REALTIME_STREAM_RECORDS}");
+        assert!(
+            snapshot
+                .realtime_transcripts
+                .iter()
+                .any(|record| record.turn_id.as_deref() == Some(newest_turn.as_str()))
         );
     }
 

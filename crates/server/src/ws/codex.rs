@@ -3677,8 +3677,9 @@ mod tests {
             HostToolRegistry, HostToolResult,
         },
         provider::{
-            NormalizedServerRequest, NormalizedServerRequestDecision, NormalizedThreadItem,
-            ProviderEvent, ProviderMetadata, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+            NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
+            NormalizedThreadItem, ProviderEvent, ProviderMetadata, RuntimeSignalKind,
+            ServerRequestKind, ThreadItemKind, ThreadItemStatus,
         },
         tools::{
             ProviderToolMetadata, ToolActionKind, ToolNormalizationInput, ToolRunStatus,
@@ -7961,6 +7962,96 @@ mod tests {
                     ProviderEvent::SemanticTool {
                         tool: Box::new(output_tool),
                     },
+                    ProviderEvent::RuntimeSignal {
+                        signal: Box::new(NormalizedRuntimeSignal {
+                            kind: RuntimeSignalKind::RealtimeTranscriptDelta,
+                            thread_id: Some("thread-1".to_string()),
+                            turn_id: Some("turn-1".to_string()),
+                            item_id: None,
+                            message: None,
+                            from_model: None,
+                            to_model: None,
+                            reason: None,
+                            text: Some("hello ".to_string()),
+                            audio: None,
+                            status: None,
+                            name: None,
+                            active: None,
+                            archived: None,
+                            diff: None,
+                            files: None,
+                            process_id: None,
+                            exit_code: None,
+                            request_id: None,
+                            metadata: json!({ "delta": "hello " }),
+                            provider: ProviderMetadata {
+                                provider: "codex".to_string(),
+                                method: Some("realtime/transcriptDelta".to_string()),
+                                schema_version: None,
+                                raw_payload: json!({ "delta": "hello " }),
+                            },
+                        }),
+                    },
+                    ProviderEvent::RuntimeSignal {
+                        signal: Box::new(NormalizedRuntimeSignal {
+                            kind: RuntimeSignalKind::RealtimeTranscriptDelta,
+                            thread_id: Some("thread-1".to_string()),
+                            turn_id: Some("turn-1".to_string()),
+                            item_id: None,
+                            message: None,
+                            from_model: None,
+                            to_model: None,
+                            reason: None,
+                            text: Some("world".to_string()),
+                            audio: None,
+                            status: None,
+                            name: None,
+                            active: None,
+                            archived: None,
+                            diff: None,
+                            files: None,
+                            process_id: None,
+                            exit_code: None,
+                            request_id: None,
+                            metadata: json!({ "delta": "world" }),
+                            provider: ProviderMetadata {
+                                provider: "codex".to_string(),
+                                method: Some("realtime/transcriptDelta".to_string()),
+                                schema_version: None,
+                                raw_payload: json!({ "delta": "world" }),
+                            },
+                        }),
+                    },
+                    ProviderEvent::RuntimeSignal {
+                        signal: Box::new(NormalizedRuntimeSignal {
+                            kind: RuntimeSignalKind::RealtimeAudioDelta,
+                            thread_id: Some("thread-1".to_string()),
+                            turn_id: Some("turn-1".to_string()),
+                            item_id: None,
+                            message: None,
+                            from_model: None,
+                            to_model: None,
+                            reason: None,
+                            text: None,
+                            audio: Some("audio-1".to_string()),
+                            status: None,
+                            name: None,
+                            active: None,
+                            archived: None,
+                            diff: None,
+                            files: None,
+                            process_id: None,
+                            exit_code: None,
+                            request_id: None,
+                            metadata: json!({ "audio": "audio-1" }),
+                            provider: ProviderMetadata {
+                                provider: "codex".to_string(),
+                                method: Some("realtime/audioDelta".to_string()),
+                                schema_version: None,
+                                raw_payload: json!({ "audio": "audio-1" }),
+                            },
+                        }),
+                    },
                     ProviderEvent::SemanticTool {
                         tool: Box::new(completed_tool),
                     },
@@ -8053,6 +8144,11 @@ mod tests {
             snapshot_state["terminal_outputs"][0]["text"],
             "running tests\n"
         );
+        assert_eq!(
+            snapshot_state["realtime_transcripts"][0]["text"],
+            "hello world"
+        );
+        assert_eq!(snapshot_state["realtime_audio"][0]["chunks"][0], "audio-1");
     }
 
     #[tokio::test]
