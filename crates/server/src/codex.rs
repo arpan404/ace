@@ -92,6 +92,39 @@ fn validate_codex_client_request_method(method: &str) -> std::result::Result<(),
     }
 }
 
+fn summarize_initialize_result(result: Value) -> Value {
+    let Some(object) = result.as_object() else {
+        return json!({ "payload_type": value_type_name(&result) });
+    };
+
+    let mut summary = serde_json::Map::new();
+    for key in [
+        "serverInfo",
+        "serverVersion",
+        "version",
+        "protocolVersion",
+        "capabilities",
+        "experimentalApi",
+    ] {
+        if let Some(value) = object.get(key) {
+            summary.insert(key.to_string(), value.clone());
+        }
+    }
+    summary.insert("top_level_keys".to_string(), json!(object.len()));
+    Value::Object(summary)
+}
+
+fn value_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
 #[async_trait]
 pub trait CodexBackend: Send + Sync {
     async fn status(&self) -> ProviderDriverStatus;
@@ -200,16 +233,25 @@ impl LiveCodexBackend {
 #[async_trait]
 impl CodexBackend for LiveCodexBackend {
     async fn status(&self) -> ProviderDriverStatus {
-        let (has_client, client_closed) = {
+        let (has_client, client_closed, client_initialized, initialize_result) = {
             let guard = self.client.lock().await;
-            let client_closed = guard.as_ref().is_some_and(CodexClient::is_closed);
-            (guard.is_some(), client_closed)
+            let client = guard.as_ref();
+            let client_closed = client.is_some_and(CodexClient::is_closed);
+            let client_initialized = client.is_some_and(CodexClient::is_initialized);
+            let initialize_result = client.and_then(CodexClient::initialize_result);
+            (
+                guard.is_some(),
+                client_closed,
+                client_initialized,
+                initialize_result,
+            )
         };
-        let initialized = has_client && !client_closed;
+        let initialized = has_client && client_initialized && !client_closed;
         let last_error = self.last_error.lock().await.clone();
         ProviderDriverStatus {
             health: match (initialized, client_closed, last_error.is_some()) {
                 (true, _, _) => ProviderRuntimeHealth::Running,
+                (false, false, false) if has_client => ProviderRuntimeHealth::Degraded,
                 (false, true, _) => ProviderRuntimeHealth::Degraded,
                 (false, false, true) => ProviderRuntimeHealth::Unavailable,
                 (false, false, false) => ProviderRuntimeHealth::Stopped,
@@ -225,7 +267,9 @@ impl CodexBackend for LiveCodexBackend {
                 "request_timeout_ms": self.config.request_timeout.as_millis() as u64,
                 "experimental_api": true,
                 "spawns_on_first_request": true,
-                "transport_closed": client_closed
+                "transport_closed": client_closed,
+                "handshake_initialized": client_initialized,
+                "initialize": initialize_result.map(summarize_initialize_result)
             }),
         }
     }
@@ -1616,6 +1660,25 @@ pub mod tests {
         );
         assert_eq!(status.metadata["request_timeout_ms"], 25);
         assert_eq!(status.metadata["spawns_on_first_request"], true);
+    }
+
+    #[test]
+    fn initialize_status_summary_keeps_handshake_metadata_bounded() {
+        let summary = summarize_initialize_result(json!({
+            "serverInfo": {
+                "name": "codex",
+                "version": "0.140.0"
+            },
+            "capabilities": {
+                "experimentalApi": true
+            },
+            "hugeRawField": "not copied into status metadata"
+        }));
+
+        assert_eq!(summary["serverInfo"]["name"], "codex");
+        assert_eq!(summary["capabilities"]["experimentalApi"], true);
+        assert_eq!(summary["top_level_keys"], 3);
+        assert!(summary.get("hugeRawField").is_none());
     }
 
     #[tokio::test]

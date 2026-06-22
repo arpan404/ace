@@ -13,7 +13,10 @@ use ace_runtime::provider::{
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex as StdMutex},
+    time::Duration,
+};
 
 pub const DEFAULT_CODEX_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -165,6 +168,7 @@ pub struct CodexProviderRequest {
 pub struct CodexClient<T: AppServerTransport> {
     transport: Arc<T>,
     timeout: Duration,
+    initialize_result: Arc<StdMutex<Option<Value>>>,
 }
 
 impl CodexClient<CodexStdioTransport> {
@@ -182,6 +186,7 @@ impl<T: AppServerTransport> CodexClient<T> {
         Self {
             transport: Arc::new(transport),
             timeout,
+            initialize_result: Arc::new(StdMutex::new(None)),
         }
     }
 
@@ -198,6 +203,10 @@ impl<T: AppServerTransport> CodexClient<T> {
             )
             .await?;
         self.transport.notify("initialized", json!({})).await?;
+        *self
+            .initialize_result
+            .lock()
+            .expect("initialize result lock poisoned") = Some(response.clone());
         Ok(response)
     }
 
@@ -581,6 +590,22 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.transport.is_closed()
     }
 
+    #[must_use]
+    pub fn is_initialized(&self) -> bool {
+        self.initialize_result
+            .lock()
+            .expect("initialize result lock poisoned")
+            .is_some()
+    }
+
+    #[must_use]
+    pub fn initialize_result(&self) -> Option<Value> {
+        self.initialize_result
+            .lock()
+            .expect("initialize result lock poisoned")
+            .clone()
+    }
+
     pub async fn respond_tool_result(&self, request_id: i64, result: Value) -> Result<()> {
         self.transport.respond_result(request_id, result).await
     }
@@ -723,6 +748,7 @@ mod tests {
             .expect("responses")
             .push_back(Ok(json!({ "platformFamily": "unix" })));
         let client = CodexClient::new(fake, Duration::from_secs(1));
+        assert!(!client.is_initialized());
 
         let response = client
             .initialize(CodexClientInfo {
@@ -733,6 +759,11 @@ mod tests {
             .await
             .expect("initialize");
         assert_eq!(response["platformFamily"], "unix");
+        assert!(client.is_initialized());
+        assert_eq!(
+            client.initialize_result().expect("initialize result"),
+            json!({ "platformFamily": "unix" })
+        );
 
         let requests = client.transport.requests.lock().expect("requests");
         assert_eq!(requests[0].0, "initialize");
