@@ -3469,13 +3469,27 @@ mod tests {
             operation["operation"] == "provider_events"
                 && operation["invocation"] == "event_stream"
                 && operation["direct_invocation"] == false
+                && operation["required_runtime_hooks"] == json!(["event_source"])
                 && operation["runtime_request"]["invokable"] == false
                 && operation["runtime_request"]["mode"] == "event_stream"
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "semantic_tools"
+                && operation["invocation"] == "event_stream"
+                && operation["required_runtime_hooks"] == json!(["event_source"])
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "server_request_respond"
+                && operation["required_runtime_hooks"] == json!(["server_request_responder"])
         }));
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "cloud_handoff"
                 && operation["invocation"] == "deferred"
                 && operation["support"] == "deferred"
+                && operation["required_runtime_hooks"]
+                    .as_array()
+                    .expect("runtime hooks")
+                    .is_empty()
                 && operation["runtime_request"]["invokable"] == false
                 && operation["runtime_request"]["mode"] == "deferred"
         }));

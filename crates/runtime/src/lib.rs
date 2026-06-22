@@ -209,6 +209,8 @@ pub mod provider {
         pub provider_methods: Vec<String>,
         pub invocation: ProviderAdapterInvocationKind,
         pub direct_invocation: bool,
+        #[serde(default)]
+        pub required_runtime_hooks: Vec<ProviderAdapterRuntimeHook>,
     }
 
     impl ProviderAdapterOperationProfile {
@@ -224,6 +226,7 @@ pub mod provider {
                 direct_invocation: invocation
                     == ProviderAdapterInvocationKind::DirectProviderMethod,
                 invocation,
+                required_runtime_hooks: provider_adapter_operation_required_hooks(spec),
             }
         }
     }
@@ -1248,6 +1251,25 @@ pub mod provider {
     }
 
     #[must_use]
+    pub fn provider_adapter_operation_required_hooks(
+        spec: &ProviderAdapterOperationSpec,
+    ) -> Vec<ProviderAdapterRuntimeHook> {
+        if spec.support == ProviderAdapterOperationSupport::Deferred {
+            return Vec::new();
+        }
+
+        match spec.operation {
+            ProviderAdapterOperation::ProviderEvents | ProviderAdapterOperation::SemanticTools => {
+                vec![ProviderAdapterRuntimeHook::EventSource]
+            }
+            ProviderAdapterOperation::ServerRequestRespond => {
+                vec![ProviderAdapterRuntimeHook::ServerRequestResponder]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    #[must_use]
     pub fn provider_adapter_profile(descriptor: &ProviderDescriptor) -> ProviderAdapterProfile {
         let contract = ace_provider_adapter_contract();
         ProviderAdapterProfile {
@@ -1274,16 +1296,7 @@ pub mod provider {
             .iter()
             .filter(|operation| operation.support == ProviderAdapterOperationSupport::Required)
             .filter_map(|operation| {
-                let required_hook = match operation.operation {
-                    ProviderAdapterOperation::ProviderEvents => {
-                        Some(ProviderAdapterRuntimeHook::EventSource)
-                    }
-                    ProviderAdapterOperation::ServerRequestRespond => {
-                        Some(ProviderAdapterRuntimeHook::ServerRequestResponder)
-                    }
-                    _ => None,
-                };
-                if required_hook == Some(hook) {
+                if operation.required_runtime_hooks.contains(&hook) {
                     Some(operation.operation)
                 } else {
                     None
@@ -1827,10 +1840,24 @@ pub mod provider {
             assert!(codex_profile.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::ProviderEvents
                     && operation.invocation == ProviderAdapterInvocationKind::EventStream
+                    && operation.required_runtime_hooks
+                        == vec![ProviderAdapterRuntimeHook::EventSource]
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::SemanticTools
+                    && operation.invocation == ProviderAdapterInvocationKind::EventStream
+                    && operation.required_runtime_hooks
+                        == vec![ProviderAdapterRuntimeHook::EventSource]
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::ServerRequestRespond
+                    && operation.required_runtime_hooks
+                        == vec![ProviderAdapterRuntimeHook::ServerRequestResponder]
             }));
             assert!(codex_profile.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::CloudHandoff
                     && operation.invocation == ProviderAdapterInvocationKind::Deferred
+                    && operation.required_runtime_hooks.is_empty()
             }));
             assert_eq!(
                 codex_profile.direct_provider_method(ProviderAdapterOperation::ThreadRead),
@@ -1862,7 +1889,11 @@ pub mod provider {
                 hook.hook == ProviderAdapterRuntimeHook::EventSource
                     && hook.required
                     && !hook.available
-                    && hook.operations == vec![ProviderAdapterOperation::ProviderEvents]
+                    && hook.operations
+                        == vec![
+                            ProviderAdapterOperation::ProviderEvents,
+                            ProviderAdapterOperation::SemanticTools,
+                        ]
             }));
         }
 

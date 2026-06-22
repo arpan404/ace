@@ -4,10 +4,11 @@ use ace_runtime::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem,
         ProviderAdapterContract, ProviderAdapterInvocationKind, ProviderAdapterOperation,
         ProviderAdapterOperationProfile, ProviderAdapterOperationSpec,
-        ProviderAdapterOperationSupport, ProviderAdapterProfile, ProviderAdapterRuntimeReport,
-        ProviderContractReport, ProviderDescriptor, ProviderDriverStatus, ProviderEvent,
-        ProviderFeature, ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
-        RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
+        ProviderAdapterOperationSupport, ProviderAdapterProfile, ProviderAdapterRuntimeHook,
+        ProviderAdapterRuntimeReport, ProviderContractReport, ProviderDescriptor,
+        ProviderDriverStatus, ProviderEvent, ProviderFeature, ProviderFeatureCategory,
+        ProviderLifecycleAction, ProviderLifecycleResult, RuntimeSignalKind, ThreadItemKind,
+        ThreadItemStatus,
     },
     threads::AgentRuntimeSnapshot,
     tools::{SemanticToolCall, ToolRunStatus},
@@ -103,6 +104,8 @@ pub struct ProviderRuntimeProviderOperation {
     pub provider_methods: Vec<String>,
     pub invocation: ProviderAdapterInvocationKind,
     pub direct_invocation: bool,
+    #[serde(default)]
+    pub required_runtime_hooks: Vec<ProviderAdapterRuntimeHook>,
     pub runtime_request: ProviderRuntimeOperationRequest,
 }
 
@@ -120,6 +123,7 @@ impl ProviderRuntimeProviderOperation {
             provider_methods: profile.provider_methods,
             direct_invocation: profile.direct_invocation,
             invocation: profile.invocation,
+            required_runtime_hooks: profile.required_runtime_hooks,
             runtime_request: ProviderRuntimeOperationRequest::from_invocation(profile.invocation),
         }
     }
@@ -1070,6 +1074,7 @@ mod tests {
             direct.runtime_request.params,
             Some(ProviderRuntimeOperationParams::ProviderNative)
         );
+        assert!(direct.required_runtime_hooks.is_empty());
 
         let composite = operation(ProviderAdapterOperation::PlanForkForImplementation);
         assert_eq!(
@@ -1095,6 +1100,16 @@ mod tests {
             event_stream.runtime_request.mode,
             ProviderRuntimeOperationRequestMode::EventStream
         );
+        assert_eq!(
+            event_stream.required_runtime_hooks,
+            vec![ProviderAdapterRuntimeHook::EventSource]
+        );
+
+        let server_request = operation(ProviderAdapterOperation::ServerRequestRespond);
+        assert_eq!(
+            server_request.required_runtime_hooks,
+            vec![ProviderAdapterRuntimeHook::ServerRequestResponder]
+        );
 
         let deferred = operation(ProviderAdapterOperation::CloudHandoff);
         assert_eq!(deferred.invocation, ProviderAdapterInvocationKind::Deferred);
@@ -1104,6 +1119,7 @@ mod tests {
             deferred.runtime_request.mode,
             ProviderRuntimeOperationRequestMode::Deferred
         );
+        assert!(deferred.required_runtime_hooks.is_empty());
     }
 
     #[test]
