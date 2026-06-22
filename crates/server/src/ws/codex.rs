@@ -22,15 +22,17 @@ use ace_protocol::{
     },
     git::GitWorktreeCreateRequest,
     provider_runtime::{
-        PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeContractReport, ProviderRuntimeEvent,
-        ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
-        ProviderRuntimeFeaturesListResponse, ProviderRuntimeLifecycleRequest,
-        ProviderRuntimeLifecycleResponse, ProviderRuntimeOperationParams,
-        ProviderRuntimeOperationRequest, ProviderRuntimeOperationRequestMode,
-        ProviderRuntimeOperationsListRequest, ProviderRuntimeOperationsListResponse,
-        ProviderRuntimeProviderFeatures, ProviderRuntimeProviderInfo,
-        ProviderRuntimeProviderOperation, ProviderRuntimeProviderOperations,
-        ProviderRuntimeProviderState, ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
+        PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeAdapterValidateRequest,
+        ProviderRuntimeAdapterValidateResponse, ProviderRuntimeContractReport,
+        ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeEventRecord,
+        ProviderRuntimeFeaturesListRequest, ProviderRuntimeFeaturesListResponse,
+        ProviderRuntimeLifecycleRequest, ProviderRuntimeLifecycleResponse,
+        ProviderRuntimeOperationParams, ProviderRuntimeOperationRequest,
+        ProviderRuntimeOperationRequestMode, ProviderRuntimeOperationsListRequest,
+        ProviderRuntimeOperationsListResponse, ProviderRuntimeProviderFeatures,
+        ProviderRuntimeProviderInfo, ProviderRuntimeProviderOperation,
+        ProviderRuntimeProviderOperations, ProviderRuntimeProviderState,
+        ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
         ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
         ProviderRuntimeRequest, ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
         ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
@@ -45,7 +47,7 @@ use ace_protocol::{
 use ace_runtime::provider::{
     NormalizedServerRequest, NormalizedServerRequestDecision, ProviderAdapterInvocationKind,
     ProviderAdapterOperation, ProviderAdapterProfile, ProviderEvent, ProviderRequest,
-    ace_provider_adapter_contract,
+    ace_provider_adapter_contract, provider_adapter_profile, provider_contract_report,
 };
 use ace_runtime::threads::ExecutionLocation;
 use ace_terminal::PtyAdapter;
@@ -532,6 +534,19 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     adapter_contract: ace_provider_adapter_contract(),
                     reports: self.providers.contract_reports(),
                 })?)
+            }
+            methods::PROVIDER_RUNTIME_ADAPTER_VALIDATE => {
+                let request =
+                    serde_json::from_value::<ProviderRuntimeAdapterValidateRequest>(payload)?;
+                let contract = provider_contract_report(&request.descriptor);
+                let adapter_profile = provider_adapter_profile(&request.descriptor);
+                Ok(serde_json::to_value(
+                    ProviderRuntimeAdapterValidateResponse {
+                        descriptor: request.descriptor,
+                        contract,
+                        adapter_profile,
+                    },
+                )?)
             }
             methods::PROVIDER_RUNTIME_OPERATIONS_LIST => {
                 let request =
@@ -3531,6 +3546,113 @@ mod tests {
                 && operation["runtime_request"]["invokable"] == false
                 && operation["runtime_request"]["mode"] == "deferred"
         }));
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_validates_adapter_descriptors_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+
+        let capabilities = ace_runtime::provider::ace_provider_contract_requirements()
+            .into_iter()
+            .map(|requirement| {
+                json!({
+                    "key": requirement.key,
+                    "version": requirement.min_version
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-adapter-validate",
+                    "method": methods::PROVIDER_RUNTIME_ADAPTER_VALIDATE,
+                    "payload": {
+                        "descriptor": {
+                            "kind": "ClaudeCode",
+                            "capabilities": capabilities
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse =
+            serde_json::from_str(&response).expect("validation response");
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected validation result");
+        };
+
+        assert_eq!(body["descriptor"]["kind"], "ClaudeCode");
+        assert_eq!(body["contract"]["satisfies_required"], true);
+        assert_eq!(body["contract"]["missing_required"], json!([]));
+        assert_eq!(body["adapter_profile"]["provider"], "ClaudeCode");
+        assert_eq!(
+            body["adapter_profile"]["raw_payload"]["large_payload_strategy"],
+            "store_once_reference_deltas"
+        );
+        assert!(
+            body["adapter_profile"]["operations"]
+                .as_array()
+                .expect("operations")
+                .iter()
+                .any(
+                    |operation| operation["operation"] == "server_request_respond"
+                        && operation["required_runtime_hooks"]
+                            == json!(["server_request_responder"])
+                )
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_validation_reports_missing_capabilities_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-adapter-validate-missing",
+                    "method": methods::PROVIDER_RUNTIME_ADAPTER_VALIDATE,
+                    "payload": {
+                        "descriptor": {
+                            "kind": "ClaudeCode",
+                            "capabilities": [
+                                { "key": "provider.adapter_contract", "version": 1 }
+                            ]
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse =
+            serde_json::from_str(&response).expect("validation response");
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected validation result");
+        };
+
+        assert_eq!(body["contract"]["satisfies_required"], false);
+        assert!(
+            body["contract"]["missing_required"]
+                .as_array()
+                .expect("missing required")
+                .contains(&json!("provider.semantic_tools"))
+        );
+        assert_eq!(body["adapter_profile"]["contract_report"], body["contract"]);
     }
 
     #[tokio::test]

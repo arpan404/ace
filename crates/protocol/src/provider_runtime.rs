@@ -88,6 +88,18 @@ pub struct ProviderRuntimeContractReport {
     pub reports: Vec<ProviderContractReport>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeAdapterValidateRequest {
+    pub descriptor: ProviderDescriptor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeAdapterValidateResponse {
+    pub descriptor: ProviderDescriptor,
+    pub contract: ProviderContractReport,
+    pub adapter_profile: ProviderAdapterProfile,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeOperationsListRequest {
     pub provider: Option<String>,
