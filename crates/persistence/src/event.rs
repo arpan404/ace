@@ -386,6 +386,10 @@ mod tests {
         ProviderEvent, ProviderMetadata, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     };
     use ace_runtime::threads::ChildThreadRelationship;
+    use ace_runtime::tools::{
+        ProviderToolMetadata, SemanticToolCall, ToolActionKind, ToolDisplay, ToolRunStatus,
+        ToolSurface, ToolTarget, ToolTargetKind, ToolTransport,
+    };
 
     #[test]
     fn appends_and_reads_recent_provider_events_in_sequence_order() {
@@ -505,6 +509,20 @@ mod tests {
                         },
                     }),
                 },
+                ProviderEvent::SemanticTool {
+                    tool: Box::new(semantic_tool(
+                        "tool-1",
+                        ToolRunStatus::Started,
+                        "Ran cargo test",
+                    )),
+                },
+                ProviderEvent::SemanticTool {
+                    tool: Box::new(semantic_tool(
+                        "tool-1",
+                        ToolRunStatus::Completed,
+                        "Completed cargo test",
+                    )),
+                },
                 ProviderEvent::ServerRequest {
                     request: Box::new(server_request("approval-1")),
                 },
@@ -573,6 +591,16 @@ mod tests {
             ChildThreadRelationship::Subagent
         );
         assert_eq!(codex.child_threads[0].role.as_deref(), Some("reviewer"));
+        assert_eq!(codex.tool_timeline.len(), 1);
+        assert_eq!(
+            codex.tool_timeline[0].provider.item_id.as_deref(),
+            Some("tool-1")
+        );
+        assert_eq!(
+            codex.tool_timeline[0].display.status,
+            ToolRunStatus::Completed
+        );
+        assert_eq!(codex.tool_timeline[0].display.title, "Completed cargo test");
 
         let all = repo.runtime_state_snapshot(None).expect("all snapshot");
         assert_eq!(all.thread_items.len(), 4);
@@ -741,6 +769,38 @@ mod tests {
                 method: Some("command/approvalRequest".to_string()),
                 schema_version: Some("test-v1".to_string()),
                 raw_payload: serde_json::json!({ "command": "cargo test" }),
+            },
+        }
+    }
+
+    fn semantic_tool(item_id: &str, status: ToolRunStatus, title: &str) -> SemanticToolCall {
+        SemanticToolCall {
+            transport: ToolTransport::Shell,
+            surface: ToolSurface::Terminal,
+            action: ToolActionKind::TerminalRun,
+            display: ToolDisplay {
+                title: title.to_string(),
+                summary: Some("cargo test".to_string()),
+                target: Some(ToolTarget {
+                    kind: ToolTargetKind::Command,
+                    label: "cargo test".to_string(),
+                }),
+                status,
+                icon_key: "terminal".to_string(),
+                technical_metadata: serde_json::json!({ "bounded": true }),
+            },
+            provider: ProviderToolMetadata {
+                provider: Some("codex".to_string()),
+                method: Some("command/exec".to_string()),
+                item_id: Some(item_id.to_string()),
+                turn_id: Some("turn-1".to_string()),
+                thread_id: Some("thread-1".to_string()),
+                server_name: None,
+                tool_name: Some("shell".to_string()),
+                operation: Some("exec".to_string()),
+                raw_args: serde_json::json!({ "command": "cargo test" }),
+                raw_result: serde_json::Value::Null,
+                raw_payload: serde_json::json!({ "itemId": item_id, "command": "cargo test" }),
             },
         }
     }

@@ -7816,6 +7816,27 @@ mod tests {
         let mut event_log =
             ProviderEventLogRepository::from_connection(Connection::open_in_memory().expect("db"))
                 .expect("event log");
+        let mut tool_provider = ProviderToolMetadata::new();
+        tool_provider.provider = Some("codex".to_string());
+        tool_provider.method = Some("command/exec".to_string());
+        tool_provider.item_id = Some("tool-1".to_string());
+        tool_provider.thread_id = Some("thread-1".to_string());
+        tool_provider.turn_id = Some("turn-1".to_string());
+        tool_provider.tool_name = Some("shell".to_string());
+        tool_provider.operation = Some("exec".to_string());
+        tool_provider.raw_args = json!({ "command": "cargo test" });
+        let started_tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::Shell,
+            status: ToolRunStatus::Started,
+            provider: tool_provider.clone(),
+            item_type: Some("commandExecution".to_string()),
+        });
+        let completed_tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::Shell,
+            status: ToolRunStatus::Completed,
+            provider: tool_provider,
+            item_type: Some("commandExecution".to_string()),
+        });
         event_log
             .append_batch(
                 "codex",
@@ -7919,6 +7940,12 @@ mod tests {
                             },
                         }),
                     },
+                    ProviderEvent::SemanticTool {
+                        tool: Box::new(started_tool),
+                    },
+                    ProviderEvent::SemanticTool {
+                        tool: Box::new(completed_tool),
+                    },
                     ProviderEvent::ServerRequest {
                         request: Box::new(normalized_approval_request("approval-1")),
                     },
@@ -7986,6 +8013,18 @@ mod tests {
         assert_eq!(
             snapshot_state["approvals"][0]["decision"]["audit"]["selected_policy"],
             "on-request"
+        );
+        assert_eq!(
+            snapshot_state["tool_timeline"][0]["provider"]["item_id"],
+            "tool-1"
+        );
+        assert_eq!(
+            snapshot_state["tool_timeline"][0]["display"]["status"],
+            "completed"
+        );
+        assert_eq!(
+            snapshot_state["tool_timeline"][0]["provider"]["raw_args"]["command"],
+            "cargo test"
         );
     }
 

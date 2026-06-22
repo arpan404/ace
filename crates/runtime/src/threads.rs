@@ -2,12 +2,14 @@ use crate::provider::{
     NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
     NormalizedThreadItem, ProviderEvent, RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
 };
+use crate::tools::SemanticToolCall;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use thiserror::Error;
 
 const MAX_THREAD_ITEM_RECORDS: usize = 4096;
+const MAX_TOOL_TIMELINE_RECORDS: usize = 2048;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -430,6 +432,27 @@ enum ThreadItemIdentity {
     Generated(u64),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ToolTimelineKey {
+    provider: String,
+    thread_id: Option<String>,
+    turn_id: Option<String>,
+    identity: ToolTimelineIdentity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum ToolTimelineIdentity {
+    ProviderItem(String),
+    Descriptor {
+        method: Option<String>,
+        server_name: Option<String>,
+        tool_name: Option<String>,
+        operation: Option<String>,
+        action: String,
+    },
+    Generated(u64),
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentThread {
     pub thread_id: String,
@@ -477,6 +500,12 @@ pub struct AgentRuntimeState {
     thread_item_order: VecDeque<ThreadItemKey>,
     #[serde(skip)]
     next_thread_item_sequence: u64,
+    #[serde(skip)]
+    tool_timeline: HashMap<ToolTimelineKey, SemanticToolCall>,
+    #[serde(skip)]
+    tool_timeline_order: VecDeque<ToolTimelineKey>,
+    #[serde(skip)]
+    next_tool_timeline_sequence: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -504,6 +533,8 @@ pub struct AgentRuntimeSnapshot {
     pub auto_approval_reviews: Vec<AutoApprovalReviewRecord>,
     pub approvals: Vec<ApprovalRecord>,
     pub review_threads: Vec<String>,
+    #[serde(default)]
+    pub tool_timeline: Vec<SemanticToolCall>,
     #[serde(default)]
     pub thread_items: Vec<NormalizedThreadItem>,
 }
@@ -584,6 +615,7 @@ impl AgentRuntimeState {
 
         let thread_items = self.thread_items_in_order();
         let child_threads = self.child_threads_from_items(&thread_items);
+        let tool_timeline = self.tool_timeline_in_order();
 
         AgentRuntimeSnapshot {
             threads,
@@ -609,6 +641,7 @@ impl AgentRuntimeState {
             auto_approval_reviews,
             approvals,
             review_threads,
+            tool_timeline,
             thread_items,
         }
     }
@@ -723,6 +756,11 @@ impl AgentRuntimeState {
     }
 
     #[must_use]
+    pub fn tool_timeline(&self) -> Vec<SemanticToolCall> {
+        self.tool_timeline_in_order()
+    }
+
+    #[must_use]
     pub fn child_threads(&self) -> Vec<ChildThreadRecord> {
         let thread_items = self.thread_items_in_order();
         self.child_threads_from_items(&thread_items)
@@ -732,6 +770,13 @@ impl AgentRuntimeState {
         self.thread_item_order
             .iter()
             .filter_map(|key| self.thread_items.get(key).cloned())
+            .collect()
+    }
+
+    fn tool_timeline_in_order(&self) -> Vec<SemanticToolCall> {
+        self.tool_timeline_order
+            .iter()
+            .filter_map(|key| self.tool_timeline.get(key).cloned())
             .collect()
     }
 
@@ -935,6 +980,20 @@ impl AgentRuntimeState {
         }
     }
 
+    pub fn upsert_tool_timeline(&mut self, tool: SemanticToolCall) {
+        let key = self.tool_timeline_key(&tool);
+        let is_new = !self.tool_timeline.contains_key(&key);
+        self.tool_timeline.insert(key.clone(), tool);
+        if is_new {
+            self.tool_timeline_order.push_back(key);
+            while self.tool_timeline_order.len() > MAX_TOOL_TIMELINE_RECORDS {
+                if let Some(oldest) = self.tool_timeline_order.pop_front() {
+                    self.tool_timeline.remove(&oldest);
+                }
+            }
+        }
+    }
+
     fn thread_item_key(&mut self, item: &NormalizedThreadItem) -> ThreadItemKey {
         let identity = item.item_id.as_ref().map_or_else(
             || {
@@ -948,6 +1007,43 @@ impl AgentRuntimeState {
             provider: item.provider.provider.clone(),
             thread_id: item.thread_id.clone(),
             turn_id: item.turn_id.clone(),
+            identity,
+        }
+    }
+
+    fn tool_timeline_key(&mut self, tool: &SemanticToolCall) -> ToolTimelineKey {
+        let provider = tool
+            .provider
+            .provider
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        let identity = tool.provider.item_id.as_ref().map_or_else(
+            || {
+                if tool.provider.method.is_some()
+                    || tool.provider.server_name.is_some()
+                    || tool.provider.tool_name.is_some()
+                    || tool.provider.operation.is_some()
+                {
+                    ToolTimelineIdentity::Descriptor {
+                        method: tool.provider.method.clone(),
+                        server_name: tool.provider.server_name.clone(),
+                        tool_name: tool.provider.tool_name.clone(),
+                        operation: tool.provider.operation.clone(),
+                        action: tool_action_key(tool),
+                    }
+                } else {
+                    let sequence = self.next_tool_timeline_sequence;
+                    self.next_tool_timeline_sequence =
+                        self.next_tool_timeline_sequence.saturating_add(1);
+                    ToolTimelineIdentity::Generated(sequence)
+                }
+            },
+            |item_id| ToolTimelineIdentity::ProviderItem(item_id.clone()),
+        );
+        ToolTimelineKey {
+            provider,
+            thread_id: tool.provider.thread_id.clone(),
+            turn_id: tool.provider.turn_id.clone(),
             identity,
         }
     }
@@ -1493,9 +1589,10 @@ impl AgentRuntimeState {
                     request.as_deref().cloned(),
                 );
             }
-            ProviderEvent::RawServerRequest { .. }
-            | ProviderEvent::SemanticTool { .. }
-            | ProviderEvent::StderrLine { .. } => {}
+            ProviderEvent::SemanticTool { tool } => {
+                self.upsert_tool_timeline((**tool).clone());
+            }
+            ProviderEvent::RawServerRequest { .. } | ProviderEvent::StderrLine { .. } => {}
         }
     }
 }
@@ -2013,6 +2110,10 @@ fn thread_item_status_key(status: ThreadItemStatus) -> &'static str {
     }
 }
 
+fn tool_action_key(tool: &SemanticToolCall) -> String {
+    format!("{:?}", tool.action)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2020,6 +2121,10 @@ mod tests {
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
         NormalizedThreadItem, ProviderMetadata, ServerRequestKind, ThreadItemKind,
         ThreadItemStatus,
+    };
+    use crate::tools::{
+        ProviderToolMetadata, ToolActionKind, ToolDisplay, ToolRunStatus, ToolSurface, ToolTarget,
+        ToolTargetKind, ToolTransport,
     };
     use serde_json::json;
 
@@ -2115,6 +2220,42 @@ mod tests {
                 method: Some("command/approvalRequest".to_string()),
                 schema_version: Some("test-v1".to_string()),
                 raw_payload: json!({ "command": "cargo test" }),
+            },
+        }
+    }
+
+    fn semantic_tool(
+        item_id: Option<&str>,
+        status: ToolRunStatus,
+        title: &str,
+    ) -> SemanticToolCall {
+        SemanticToolCall {
+            transport: ToolTransport::Shell,
+            surface: ToolSurface::Terminal,
+            action: ToolActionKind::TerminalRun,
+            display: ToolDisplay {
+                title: title.to_string(),
+                summary: Some("cargo test".to_string()),
+                target: Some(ToolTarget {
+                    kind: ToolTargetKind::Command,
+                    label: "cargo test".to_string(),
+                }),
+                status,
+                icon_key: "terminal".to_string(),
+                technical_metadata: json!({ "bounded": true }),
+            },
+            provider: ProviderToolMetadata {
+                provider: Some("codex".to_string()),
+                method: Some("command/exec".to_string()),
+                item_id: item_id.map(ToString::to_string),
+                turn_id: Some("turn-1".to_string()),
+                thread_id: Some("thread-1".to_string()),
+                server_name: None,
+                tool_name: Some("shell".to_string()),
+                operation: Some("exec".to_string()),
+                raw_args: json!({ "command": "cargo test" }),
+                raw_result: Value::Null,
+                raw_payload: json!({ "itemId": item_id, "command": "cargo test" }),
             },
         }
     }
@@ -2354,6 +2495,69 @@ mod tests {
         assert_eq!(decision.payload["approved"], true);
         assert_eq!(decision.audit["source_thread_id"], "thread-1");
         assert_eq!(decision.audit["selected_policy"], "on-request");
+    }
+
+    #[test]
+    fn records_semantic_tool_timeline_with_bounded_upserts() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            ProviderEvent::SemanticTool {
+                tool: Box::new(semantic_tool(
+                    Some("tool-1"),
+                    ToolRunStatus::Started,
+                    "Ran cargo test",
+                )),
+            },
+            ProviderEvent::SemanticTool {
+                tool: Box::new(semantic_tool(
+                    Some("tool-1"),
+                    ToolRunStatus::Completed,
+                    "Completed cargo test",
+                )),
+            },
+        ]);
+
+        let timeline = state.tool_timeline();
+        assert_eq!(timeline.len(), 1);
+        assert_eq!(timeline[0].provider.item_id.as_deref(), Some("tool-1"));
+        assert_eq!(timeline[0].display.status, ToolRunStatus::Completed);
+        assert_eq!(timeline[0].display.title, "Completed cargo test");
+        assert_eq!(timeline[0].provider.raw_args["command"], "cargo test");
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.tool_timeline, timeline);
+
+        for index in 0..=MAX_TOOL_TIMELINE_RECORDS {
+            let mut tool = semantic_tool(None, ToolRunStatus::Started, &format!("Tool {index}"));
+            tool.provider.method = None;
+            tool.provider.tool_name = None;
+            tool.provider.operation = None;
+            tool.provider.raw_payload = json!({ "index": index });
+            state.apply_provider_events(&[ProviderEvent::SemanticTool {
+                tool: Box::new(tool),
+            }]);
+        }
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.tool_timeline.len(), MAX_TOOL_TIMELINE_RECORDS);
+        assert!(
+            snapshot
+                .tool_timeline
+                .iter()
+                .all(|tool| tool.provider.item_id.as_deref() != Some("tool-1"))
+        );
+        assert!(
+            snapshot
+                .tool_timeline
+                .iter()
+                .all(|tool| tool.display.title != "Tool 0")
+        );
+        assert!(
+            snapshot
+                .tool_timeline
+                .iter()
+                .any(|tool| tool.display.title == format!("Tool {MAX_TOOL_TIMELINE_RECORDS}"))
+        );
     }
 
     #[test]
