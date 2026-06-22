@@ -51,7 +51,15 @@ pub struct PlanSession {
     pub thread_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
     pub status: PlanSessionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub questions: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -857,7 +865,11 @@ impl AgentRuntimeState {
                 PlanSession {
                     thread_id,
                     turn_id,
+                    item_id: None,
                     status: PlanSessionStatus::Active,
+                    text: None,
+                    questions: None,
+                    completion: None,
                 },
             );
         }
@@ -916,6 +928,40 @@ impl AgentRuntimeState {
         }
     }
 
+    fn upsert_plan_session_from_item(
+        &mut self,
+        thread_id: &str,
+        item: &crate::provider::NormalizedThreadItem,
+    ) {
+        let plan = self
+            .plan_sessions
+            .entry(thread_id.to_string())
+            .or_insert_with(|| PlanSession {
+                thread_id: thread_id.to_string(),
+                turn_id: item.turn_id.clone(),
+                item_id: item.item_id.clone(),
+                status: PlanSessionStatus::Active,
+                text: None,
+                questions: None,
+                completion: None,
+            });
+        if plan.turn_id.is_none() {
+            plan.turn_id = item.turn_id.clone();
+        }
+        if item.item_id.is_some() {
+            plan.item_id = item.item_id.clone();
+        }
+        if item.text.is_some() {
+            plan.text = item.text.clone();
+        }
+        if item.plan_questions.is_some() {
+            plan.questions = item.plan_questions.clone();
+        }
+        if item.plan_completion.is_some() {
+            plan.completion = item.plan_completion.clone();
+        }
+    }
+
     pub fn apply_provider_events(&mut self, events: &[ProviderEvent]) {
         for event in events {
             self.apply_provider_event(event);
@@ -951,13 +997,7 @@ impl AgentRuntimeState {
                 if item.kind == crate::provider::ThreadItemKind::Plan
                     && let Some(thread_id) = item.thread_id.as_deref()
                 {
-                    self.plan_sessions
-                        .entry(thread_id.to_string())
-                        .or_insert_with(|| PlanSession {
-                            thread_id: thread_id.to_string(),
-                            turn_id: item.turn_id.clone(),
-                            status: PlanSessionStatus::Active,
-                        });
+                    self.upsert_plan_session_from_item(thread_id, item);
                 }
                 if matches!(
                     item.kind,
@@ -1624,8 +1664,13 @@ mod tests {
                 files: None,
                 diff: None,
                 token_usage: None,
-                plan_questions: None,
-                plan_completion: None,
+                plan_questions: Some(json!([
+                    {
+                        "id": "repo",
+                        "question": "Which repository?"
+                    }
+                ])),
+                plan_completion: Some("complete".to_string()),
                 metadata: json!({}),
                 provider: ProviderMetadata {
                     provider: "codex".to_string(),
@@ -1638,7 +1683,24 @@ mod tests {
 
         let session = state.plan_session("thread-1").expect("plan session");
         assert_eq!(session.turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(session.item_id.as_deref(), Some("plan-1"));
         assert_eq!(session.status, PlanSessionStatus::Active);
+        assert_eq!(session.text.as_deref(), Some("Plan"));
+        assert_eq!(
+            session.questions.as_ref().expect("questions")[0]["question"],
+            "Which repository?"
+        );
+        assert_eq!(session.completion.as_deref(), Some("complete"));
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.plan_sessions[0].item_id.as_deref(), Some("plan-1"));
+        assert_eq!(
+            snapshot.plan_sessions[0]
+                .questions
+                .as_ref()
+                .expect("questions")[0]["id"],
+            "repo"
+        );
     }
 
     #[test]
