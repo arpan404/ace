@@ -643,6 +643,9 @@ impl AgentRuntimeState {
                 if let Some(action) = subagent_action_from_signal(signal) {
                     self.record_subagent_action(action);
                 }
+                if let Some(record) = thread_lifecycle_from_signal(signal) {
+                    self.record_thread_lifecycle(record);
+                }
             }
             ProviderEvent::RawServerRequest { .. }
             | ProviderEvent::ServerRequest { .. }
@@ -704,6 +707,80 @@ fn goal_status(status: &str) -> GoalStatus {
 
 fn u64_field(value: &Value, key: &str) -> Option<u64> {
     value.get(key).and_then(Value::as_u64)
+}
+
+fn thread_lifecycle_from_signal(signal: &NormalizedRuntimeSignal) -> Option<ThreadLifecycleRecord> {
+    if signal.kind != RuntimeSignalKind::ThreadLifecycleChanged {
+        return None;
+    }
+    let thread_id = signal.thread_id.clone()?;
+    let action = string_field(&signal.metadata, "action")
+        .as_deref()
+        .and_then(thread_lifecycle_action_kind)
+        .or_else(|| {
+            signal
+                .status
+                .as_deref()
+                .and_then(thread_lifecycle_action_kind)
+        })?;
+    Some(ThreadLifecycleRecord {
+        thread_id,
+        action,
+        turn_id: string_field(&signal.metadata, "turn_id")
+            .or_else(|| string_field(&signal.metadata, "turnId")),
+        name: signal.name.clone(),
+        item_count: u64_field(&signal.metadata, "item_count")
+            .or_else(|| u64_field(&signal.metadata, "itemCount"))
+            .and_then(|count| usize::try_from(count).ok()),
+        request: thread_lifecycle_request_from_signal(signal),
+        provider_response: signal
+            .metadata
+            .get("provider_response")
+            .cloned()
+            .unwrap_or(Value::Null),
+    })
+}
+
+fn thread_lifecycle_action_kind(action: &str) -> Option<ThreadLifecycleActionKind> {
+    match action {
+        "archive" | "archived" => Some(ThreadLifecycleActionKind::Archive),
+        "unarchive" | "unarchived" => Some(ThreadLifecycleActionKind::Unarchive),
+        "delete" | "deleted" => Some(ThreadLifecycleActionKind::Delete),
+        "unsubscribe" | "unsubscribed" => Some(ThreadLifecycleActionKind::Unsubscribe),
+        "set_name" | "renamed" => Some(ThreadLifecycleActionKind::SetName),
+        "update_metadata" | "metadata_updated" => Some(ThreadLifecycleActionKind::UpdateMetadata),
+        "compact" | "compacted" => Some(ThreadLifecycleActionKind::Compact),
+        "rollback" | "rolled_back" => Some(ThreadLifecycleActionKind::Rollback),
+        "inject_items" | "items_injected" => Some(ThreadLifecycleActionKind::InjectItems),
+        _ => None,
+    }
+}
+
+fn thread_lifecycle_request_from_signal(signal: &NormalizedRuntimeSignal) -> Value {
+    if let Some(request) = signal.metadata.get("request") {
+        return request.clone();
+    }
+    let mut request = serde_json::Map::new();
+    if let Some(name) = signal.name.clone() {
+        request.insert("name".to_string(), Value::String(name));
+    }
+    for key in [
+        "turn_id",
+        "turnId",
+        "item_count",
+        "itemCount",
+        "items",
+        "thread_metadata",
+        "metadata",
+    ] {
+        if key == "metadata" && signal.metadata.get("provider_response").is_some() {
+            continue;
+        }
+        if let Some(value) = signal.metadata.get(key) {
+            request.insert(key.to_string(), value.clone());
+        }
+    }
+    Value::Object(request)
 }
 
 fn subagent_action_from_signal(signal: &NormalizedRuntimeSignal) -> Option<SubagentActionRecord> {
@@ -1025,6 +1102,130 @@ mod tests {
         assert_eq!(actions[0].action, SubagentActionKind::Steer);
         assert_eq!(actions[0].prompt.as_deref(), Some("focus on tests"));
         assert_eq!(actions[0].provider_response["steered"], true);
+    }
+
+    #[test]
+    fn applies_thread_lifecycle_runtime_signals() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadLifecycleChanged,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("renamed".to_string()),
+                    name: Some("Adapter parity".to_string()),
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "action": "set_name",
+                        "provider_response": { "name": "Adapter parity" }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/thread_lifecycle".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadLifecycleChanged,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("rolled_back".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "action": "rollback",
+                        "turn_id": "turn-2",
+                        "provider_response": { "rolled_back": true }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/thread_lifecycle".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadLifecycleChanged,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("items_injected".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "action": "inject_items",
+                        "item_count": 2,
+                        "items": [{ "type": "userMessage" }, { "type": "agentMessage" }],
+                        "provider_response": { "injected": true }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/thread_lifecycle".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+        ]);
+
+        let lifecycle = state.thread_lifecycle();
+        assert_eq!(lifecycle.len(), 3);
+        assert_eq!(lifecycle[0].action, ThreadLifecycleActionKind::SetName);
+        assert_eq!(lifecycle[0].name.as_deref(), Some("Adapter parity"));
+        assert_eq!(lifecycle[0].request["name"], "Adapter parity");
+        assert_eq!(lifecycle[0].provider_response["name"], "Adapter parity");
+        assert_eq!(lifecycle[1].action, ThreadLifecycleActionKind::Rollback);
+        assert_eq!(lifecycle[1].turn_id.as_deref(), Some("turn-2"));
+        assert_eq!(lifecycle[1].request["turn_id"], "turn-2");
+        assert_eq!(lifecycle[1].provider_response["rolled_back"], true);
+        assert_eq!(lifecycle[2].action, ThreadLifecycleActionKind::InjectItems);
+        assert_eq!(lifecycle[2].item_count, Some(2));
+        assert_eq!(lifecycle[2].request["items"][1]["type"], "agentMessage");
+        assert_eq!(lifecycle[2].provider_response["injected"], true);
     }
 
     #[test]
