@@ -1595,5 +1595,88 @@ mod tests {
         assert_eq!(item.child_thread_id.as_deref(), Some("child-thread"));
         assert_eq!(item.role.as_deref(), Some("reviewer"));
         assert_eq!(item.sender.as_deref(), Some("Reviewer"));
+
+        let semantic = subagent
+            .iter()
+            .find_map(|event| match event {
+                ProviderEvent::SemanticTool { tool } => Some(tool.as_ref()),
+                _ => None,
+            })
+            .expect("semantic subagent tool");
+        assert_eq!(semantic.surface, ToolSurface::Subagent);
+        assert_eq!(semantic.action, ToolActionKind::SubagentSpawn);
+        assert_eq!(semantic.display.title, "Started subagent Reviewer");
+        assert_eq!(semantic.provider.raw_payload["threadId"], "parent-thread");
+    }
+
+    #[test]
+    fn normalizes_web_search_and_image_items_to_semantic_events() {
+        let web_search = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "search-1",
+                    "type": "webSearch",
+                    "query": "gpui rust app",
+                    "result": {
+                        "count": 3
+                    }
+                }
+            }),
+        });
+        let ProviderEvent::SemanticTool { tool } = &web_search[0] else {
+            panic!("expected semantic web search");
+        };
+        assert_eq!(tool.surface, ToolSurface::WebSearch);
+        assert_eq!(tool.action, ToolActionKind::WebSearch);
+        assert_eq!(tool.display.title, "Searched web for gpui rust app");
+        assert_eq!(tool.provider.raw_result["count"], 3);
+        assert_eq!(tool.provider.raw_payload["item"]["query"], "gpui rust app");
+
+        let generated = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "image-1",
+                    "type": "imageGeneration",
+                    "prompt": "semantic tool timeline screenshot"
+                }
+            }),
+        });
+        let ProviderEvent::SemanticTool { tool } = &generated[0] else {
+            panic!("expected semantic generated image");
+        };
+        assert_eq!(tool.surface, ToolSurface::Image);
+        assert_eq!(tool.action, ToolActionKind::ImageGenerate);
+        assert_eq!(
+            tool.display.title,
+            "Generated image semantic tool timeline screenshot"
+        );
+
+        let viewed = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "image-2",
+                    "type": "imageView",
+                    "url": "https://github.com/openai/codex/raw/main/screenshot.png"
+                }
+            }),
+        });
+        let ProviderEvent::SemanticTool { tool } = &viewed[0] else {
+            panic!("expected semantic viewed image");
+        };
+        assert_eq!(tool.surface, ToolSurface::Image);
+        assert_eq!(tool.action, ToolActionKind::ImageView);
+        assert_eq!(
+            tool.display.title,
+            "Viewed image https://github.com/openai/codex/raw/main/screenshot.png"
+        );
     }
 }

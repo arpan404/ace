@@ -882,6 +882,32 @@ fn infer_target(
         }),
         ToolSurface::Filesystem => file_target(args),
         ToolSurface::Github => github_target(action, args),
+        ToolSurface::WebSearch => first_string([
+            string_at_deep(args, "query").as_deref(),
+            string_at_deep(args, "searchQuery").as_deref(),
+            string_at_deep(args, "search_query").as_deref(),
+            string_at_deep(args, "text").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Text,
+            label,
+        }),
+        ToolSurface::Image => first_string([
+            string_at_deep(args, "prompt").as_deref(),
+            string_at_deep(args, "description").as_deref(),
+            string_at_deep(args, "url").as_deref(),
+            string_at_deep(args, "path").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: if label.starts_with("http://") || label.starts_with("https://") {
+                ToolTargetKind::Url
+            } else if label.contains('/') || label.contains('\\') {
+                ToolTargetKind::File
+            } else {
+                ToolTargetKind::Text
+            },
+            label,
+        }),
         ToolSurface::Subagent => first_string([
             string_at_deep(args, "agentName").as_deref(),
             string_at_deep(args, "agent_name").as_deref(),
@@ -1098,9 +1124,10 @@ fn display_for(
         (ToolSurface::Github, None) => format!("{verb} GitHub {noun}"),
         (ToolSurface::Subagent, Some(target)) => format!("{verb} subagent {target}"),
         (ToolSurface::Subagent, None) => format!("{verb} subagent"),
-        (ToolSurface::WebSearch, Some(target)) => format!("{verb} web search {target}"),
+        (ToolSurface::WebSearch, Some(target)) => format!("{verb} web for {target}"),
         (ToolSurface::WebSearch, None) => format!("{verb} web search"),
-        (ToolSurface::Image, _) => format!("{verb} image"),
+        (ToolSurface::Image, Some(target)) => format!("{verb} image {target}"),
+        (ToolSurface::Image, None) => format!("{verb} image"),
         (ToolSurface::Skill, Some(target)) => format!("{verb} skill {target}"),
         (ToolSurface::Skill, None) => format!("{verb} skills"),
         (ToolSurface::Plugin, Some(target)) => format!("{verb} plugin {target}"),
@@ -1985,7 +2012,32 @@ mod tests {
         ));
         assert_eq!(image.surface, ToolSurface::Image);
         assert_eq!(image.action, ToolActionKind::ImageGenerate);
-        assert_eq!(image.display.title, "Generated image");
+        assert_eq!(image.display.title, "Generated image diagram");
+
+        let web_search = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "webSearch",
+            "web_search",
+            "search",
+            json!({ "query": "rust gpui" }),
+        ));
+        assert_eq!(web_search.surface, ToolSurface::WebSearch);
+        assert_eq!(web_search.action, ToolActionKind::WebSearch);
+        assert_eq!(web_search.display.title, "Searched web for rust gpui");
+
+        let viewed_image = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "imageView",
+            "image_view",
+            "view",
+            json!({ "url": "https://example.com/image.png" }),
+        ));
+        assert_eq!(viewed_image.surface, ToolSurface::Image);
+        assert_eq!(viewed_image.action, ToolActionKind::ImageView);
+        assert_eq!(
+            viewed_image.display.title,
+            "Viewed image https://example.com/image.png"
+        );
     }
 
     #[test]
