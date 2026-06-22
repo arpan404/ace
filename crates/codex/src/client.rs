@@ -92,6 +92,15 @@ pub struct CodexTurnStart {
     pub collaboration_mode: Option<Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexTurnSteer {
+    pub thread_id: String,
+    pub expected_turn_id: String,
+    pub input: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_user_message_id: Option<String>,
+}
+
 impl CodexTurnStart {
     #[must_use]
     pub fn plan(thread_id: impl Into<String>, prompt: impl Into<String>, model: String) -> Self {
@@ -320,6 +329,19 @@ impl<T: AppServerTransport> CodexClient<T> {
     pub async fn start_turn(&self, request: CodexTurnStart) -> Result<Value> {
         self.raw_request("turn/start", serde_json::to_value(request)?)
             .await
+    }
+
+    pub async fn steer_turn(&self, request: CodexTurnSteer) -> Result<Value> {
+        self.raw_request(
+            "turn/steer",
+            json!({
+                "threadId": request.thread_id,
+                "expectedTurnId": request.expected_turn_id,
+                "input": request.input,
+                "clientUserMessageId": request.client_user_message_id,
+            }),
+        )
+        .await
     }
 
     pub async fn continue_plan_in_thread(&self, request: CodexPlanImplementation) -> Result<Value> {
@@ -818,6 +840,29 @@ mod tests {
             requests[0].1["collaboration_mode"]["settings"]["model"],
             "gpt-5.5"
         );
+    }
+
+    #[tokio::test]
+    async fn steers_active_turn_with_expected_turn_precondition() {
+        let fake = FakeTransport::default();
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        client
+            .steer_turn(CodexTurnSteer {
+                thread_id: "thread-1".to_string(),
+                expected_turn_id: "turn-1".to_string(),
+                input: vec![json!({ "type": "text", "text": "add tests too" })],
+                client_user_message_id: Some("user-message-1".to_string()),
+            })
+            .await
+            .expect("steer turn");
+
+        let requests = client.transport.requests.lock().expect("requests");
+        assert_eq!(requests[0].0, "turn/steer");
+        assert_eq!(requests[0].1["threadId"], "thread-1");
+        assert_eq!(requests[0].1["expectedTurnId"], "turn-1");
+        assert_eq!(requests[0].1["clientUserMessageId"], "user-message-1");
+        assert_eq!(requests[0].1["input"][0]["text"], "add tests too");
     }
 
     #[tokio::test]

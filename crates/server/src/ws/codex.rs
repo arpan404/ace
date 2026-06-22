@@ -18,7 +18,8 @@ use ace_protocol::{
         CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest, CodexThreadForkRequest,
         CodexThreadIdRequest, CodexThreadInjectItemsRequest, CodexThreadRollbackRequest,
         CodexThreadSetNameRequest, CodexThreadStartRequest, CodexThreadUpdateMetadataRequest,
-        CodexThreadsListRequest, CodexTurnStartRequest, CodexVersionedRequest,
+        CodexThreadsListRequest, CodexTurnStartRequest, CodexTurnSteerRequest,
+        CodexVersionedRequest,
     },
     git::GitWorktreeCreateRequest,
     provider_runtime::{
@@ -225,6 +226,13 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 self.codex_json::<CodexTurnStartRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.start_turn(request.params).await },
+                )
+                .await
+            }
+            methods::CODEX_TURN_STEER => {
+                self.codex_json::<CodexTurnSteerRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.steer_turn(request.params).await },
                 )
                 .await
             }
@@ -1202,6 +1210,7 @@ fn codex_ws_method_for_adapter_operation(
         ProviderAdapterOperation::ThreadRollback => methods::CODEX_THREAD_ROLLBACK,
         ProviderAdapterOperation::ThreadInjectItems => methods::CODEX_THREAD_INJECT_ITEMS,
         ProviderAdapterOperation::TurnStart => methods::CODEX_TURN_START,
+        ProviderAdapterOperation::TurnSteer => methods::CODEX_TURN_STEER,
         ProviderAdapterOperation::TurnInterrupt => methods::CODEX_TURN_INTERRUPT,
         ProviderAdapterOperation::PlanStart => methods::CODEX_TURN_PLAN_START,
         ProviderAdapterOperation::PlanContinueInThread => methods::CODEX_PLAN_CONTINUE_IN_THREAD,
@@ -1759,6 +1768,44 @@ mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["turn/start:thread-1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_codex_turn_steer_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-steer",
+                    "method": methods::CODEX_TURN_STEER,
+                    "payload": {
+                        "thread_id": "thread-1",
+                        "expected_turn_id": "turn-1",
+                        "input": [{ "type": "text", "text": "also update docs" }],
+                        "client_user_message_id": "user-message-1"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse = serde_json::from_str(&response).expect("response");
+        assert_eq!(response.version, PROTOCOL_VERSION);
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected turn steer result");
+        };
+        assert_eq!(body["turnId"], "turn-1");
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["turn/steer:thread-1:turn-1:1"]
         );
     }
 

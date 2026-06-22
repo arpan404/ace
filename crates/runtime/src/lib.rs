@@ -152,6 +152,7 @@ pub mod provider {
         ThreadRollback,
         ThreadInjectItems,
         TurnStart,
+        TurnSteer,
         TurnInterrupt,
         PlanStart,
         PlanContinueInThread,
@@ -845,6 +846,12 @@ pub mod provider {
                 Category::Turns,
                 Required,
                 Some("turn/start"),
+            ),
+            op(
+                Operation::TurnSteer,
+                Category::Turns,
+                Required,
+                Some("turn/steer"),
             ),
             op(
                 Operation::TurnInterrupt,

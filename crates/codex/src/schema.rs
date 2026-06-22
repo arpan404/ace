@@ -79,6 +79,7 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("thread/goal/set", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/goal/get", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/goal/clear", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("turn/steer", ClientRequest, TypedSupported),
     CodexMethodSpec::new("subagent/list", ClientRequest, TypedSupported),
     CodexMethodSpec::new("subagent/read", ClientRequest, TypedSupported),
     CodexMethodSpec::new("subagent/steer", ClientRequest, TypedSupported),
@@ -464,6 +465,10 @@ mod tests {
     fn inventory_covers_required_codex_parity_groups() {
         assert_eq!(
             classify_codex_method("thread/start", ClientRequest),
+            Some(TypedSupported)
+        );
+        assert_eq!(
+            classify_codex_method("turn/steer", ClientRequest),
             Some(TypedSupported)
         );
         assert_eq!(

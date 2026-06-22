@@ -20,6 +20,7 @@ pub mod methods {
     pub const CODEX_THREAD_ROLLBACK: &str = "codex.thread.rollback";
     pub const CODEX_THREAD_INJECT_ITEMS: &str = "codex.thread.inject_items";
     pub const CODEX_TURN_START: &str = "codex.turn.start";
+    pub const CODEX_TURN_STEER: &str = "codex.turn.steer";
     pub const CODEX_TURN_PLAN_START: &str = "codex.turn.plan_start";
     pub const CODEX_TURN_INTERRUPT: &str = "codex.turn.interrupt";
     pub const CODEX_PLAN_CONTINUE_IN_THREAD: &str = "codex.plan.continue_in_thread";

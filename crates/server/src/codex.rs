@@ -2,7 +2,7 @@ use ace_codex::{
     CodexClient, CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent,
     CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog, CodexPermissionPreset,
     CodexPlanImplementation, CodexStdioTransport, CodexSubagentSteer, CodexThreadStart,
-    CodexTurnPermissions, CodexTurnStart, Result, classify_codex_method,
+    CodexTurnPermissions, CodexTurnStart, CodexTurnSteer, Result, classify_codex_method,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::{
@@ -146,6 +146,7 @@ pub trait CodexBackend: Send + Sync {
     async fn rollback_thread(&self, thread_id: &str, turn_id: &str) -> Result<Value>;
     async fn inject_thread_items(&self, thread_id: &str, items: Vec<Value>) -> Result<Value>;
     async fn start_turn(&self, request: CodexTurnStart) -> Result<Value>;
+    async fn steer_turn(&self, request: CodexTurnSteer) -> Result<Value>;
     async fn continue_plan_in_thread(&self, request: CodexPlanImplementation) -> Result<Value>;
     async fn fork_plan_for_implementation(&self, request: CodexPlanImplementation)
     -> Result<Value>;
@@ -354,6 +355,10 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn start_turn(&self, request: CodexTurnStart) -> Result<Value> {
         self.client().await?.start_turn(request).await
+    }
+
+    async fn steer_turn(&self, request: CodexTurnSteer) -> Result<Value> {
+        self.client().await?.steer_turn(request).await
     }
 
     async fn continue_plan_in_thread(&self, request: CodexPlanImplementation) -> Result<Value> {
@@ -699,6 +704,13 @@ impl CodexService {
                 Err(error.into())
             }
         }
+    }
+
+    pub async fn steer_turn(
+        &self,
+        request: CodexTurnSteer,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.steer_turn(request).await?)
     }
 
     pub async fn continue_plan_in_thread(
@@ -1340,6 +1352,16 @@ pub mod tests {
             Ok(serde_json::json!({ "turn": { "id": "turn-1" } }))
         }
 
+        async fn steer_turn(&self, request: CodexTurnSteer) -> Result<Value> {
+            self.calls.lock().expect("calls").push(format!(
+                "turn/steer:{}:{}:{}",
+                request.thread_id,
+                request.expected_turn_id,
+                request.input.len()
+            ));
+            Ok(serde_json::json!({ "turnId": request.expected_turn_id }))
+        }
+
         async fn continue_plan_in_thread(&self, request: CodexPlanImplementation) -> Result<Value> {
             self.inject_thread_items(
                 &request.thread_id,
@@ -1711,6 +1733,28 @@ pub mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["turn/start:thread-1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_steers_active_turn_through_backend() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        let response = service
+            .steer_turn(CodexTurnSteer {
+                thread_id: "thread-1".to_string(),
+                expected_turn_id: "turn-1".to_string(),
+                input: vec![serde_json::json!({ "type": "text", "text": "also update docs" })],
+                client_user_message_id: None,
+            })
+            .await
+            .expect("steer turn");
+
+        assert_eq!(response["turnId"], "turn-1");
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["turn/steer:thread-1:turn-1:1"]
         );
     }
 

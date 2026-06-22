@@ -2,7 +2,7 @@ use ace_codex::{
     CodexAdapterOperationCoverage, CodexGoalSet, CodexGuardianDeniedActionApproval,
     CodexHandoffToAgent, CodexMethodDirection, CodexMethodSpec, CodexMethodSupport,
     CodexPermissionPreset, CodexPlanImplementation, CodexSubagentSteer, CodexSubagentThreadRequest,
-    CodexThreadStart, CodexTurnStart,
+    CodexThreadStart, CodexTurnStart, CodexTurnSteer,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -212,6 +212,12 @@ pub struct CodexThreadInjectItemsRequest {
 pub struct CodexTurnStartRequest {
     #[serde(flatten)]
     pub params: CodexTurnStart,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexTurnSteerRequest {
+    #[serde(flatten)]
+    pub params: CodexTurnSteer,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
