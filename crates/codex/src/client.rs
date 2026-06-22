@@ -7,7 +7,8 @@ use crate::{
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::provider::{
-    ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent, ProviderRequest,
+    ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent, ProviderFeature,
+    ProviderRequest,
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -659,6 +660,10 @@ impl<T: AppServerTransport + 'static> ProviderDriver for CodexAdapter<T> {
                 },
             ],
         }
+    }
+
+    fn features(&self) -> Vec<ProviderFeature> {
+        crate::codex_provider_features()
     }
 
     async fn request(

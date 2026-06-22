@@ -7,7 +7,7 @@ use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::{
     provider::{
         ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent,
-        ProviderEventSource, ProviderRequest, ProviderServerRequestResponder,
+        ProviderEventSource, ProviderFeature, ProviderRequest, ProviderServerRequestResponder,
     },
     threads::{
         AgentRuntimeState, ExecutionLocation, ForkPoint, HandoffPlan, PlanSessionStatus,
@@ -854,6 +854,10 @@ impl ProviderDriver for CodexService {
                 },
             ],
         }
+    }
+
+    fn features(&self) -> Vec<ProviderFeature> {
+        ace_codex::codex_provider_features()
     }
 
     async fn request(

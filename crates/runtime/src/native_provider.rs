@@ -1,5 +1,6 @@
 use crate::provider::{
-    ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderRequest,
+    ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderFeature,
+    ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport, ProviderRequest,
     ace_provider_contract_requirements,
 };
 use ace_core::{ProviderCapability, ProviderKind};
@@ -32,6 +33,65 @@ impl AceNativeProvider {
         }
         .with_contract_capabilities()
     }
+
+    #[must_use]
+    pub fn features_static() -> Vec<ProviderFeature> {
+        let capabilities = Self::descriptor_static().capabilities;
+        [
+            (
+                "ace.provider_contract",
+                "Ace provider contract",
+                ProviderFeatureCategory::Native,
+                "ace.contract",
+            ),
+            (
+                "ace.descriptor",
+                "Ace descriptor",
+                ProviderFeatureCategory::Native,
+                "ace.descriptor",
+            ),
+            (
+                "ace.capabilities",
+                "Ace capabilities",
+                ProviderFeatureCategory::Native,
+                "ace.capabilities",
+            ),
+            (
+                "provider.normalized_events",
+                "Normalized provider events",
+                ProviderFeatureCategory::Events,
+                "provider.events",
+            ),
+            (
+                "provider.semantic_tools",
+                "Semantic tool calls",
+                ProviderFeatureCategory::Tools,
+                "provider.tools",
+            ),
+            (
+                "provider.normalized_server_requests",
+                "Normalized server requests",
+                ProviderFeatureCategory::ServerRequests,
+                "provider.server_requests",
+            ),
+        ]
+        .into_iter()
+        .map(
+            |(key, display_name, category, provider_method)| ProviderFeature {
+                key: key.to_string(),
+                display_name: display_name.to_string(),
+                category,
+                support: ProviderFeatureSupport::Native,
+                direction: Some(ProviderFeatureDirection::Internal),
+                provider_method: Some(provider_method.to_string()),
+                capability: capabilities
+                    .iter()
+                    .find(|&capability| capability.key == key)
+                    .cloned(),
+            },
+        )
+        .collect()
+    }
 }
 
 trait WithContractCapabilities {
@@ -57,6 +117,10 @@ impl WithContractCapabilities for ProviderDescriptor {
 impl ProviderDriver for AceNativeProvider {
     fn descriptor(&self) -> ProviderDescriptor {
         Self::descriptor_static()
+    }
+
+    fn features(&self) -> Vec<ProviderFeature> {
+        Self::features_static()
     }
 
     async fn request(&self, request: ProviderRequest) -> Result<Value, ProviderDriverError> {
@@ -138,6 +202,11 @@ mod tests {
                 .iter()
                 .any(|capability| capability.key == "provider.normalized_server_requests")
         );
+        assert!(AceNativeProvider::features_static().iter().any(|feature| {
+            feature.key == "provider.semantic_tools"
+                && feature.category == ProviderFeatureCategory::Tools
+                && feature.support == ProviderFeatureSupport::Native
+        }));
     }
 
     #[tokio::test]

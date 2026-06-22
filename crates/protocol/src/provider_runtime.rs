@@ -2,7 +2,7 @@ use ace_core::ProviderKind;
 use ace_runtime::{
     provider::{
         NormalizedServerRequest, NormalizedThreadItem, ProviderContractReport, ProviderDescriptor,
-        ProviderEvent,
+        ProviderEvent, ProviderFeature,
     },
     tools::{SemanticToolCall, ToolRunStatus},
 };
@@ -71,6 +71,24 @@ pub struct ProviderRuntimeProviderInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderRuntimeContractReport {
     pub reports: Vec<ProviderContractReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ProviderRuntimeFeaturesListRequest {
+    pub provider: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeProviderFeatures {
+    pub provider: ProviderKind,
+    pub runtime_id: String,
+    pub display_name: String,
+    pub features: Vec<ProviderFeature>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeFeaturesListResponse {
+    pub providers: Vec<ProviderRuntimeProviderFeatures>,
 }
 
 fn default_provider_request_timeout_ms() -> u64 {

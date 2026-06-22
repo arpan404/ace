@@ -78,6 +78,64 @@ pub mod provider {
         pub missing_required: Vec<String>,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProviderFeatureDirection {
+        ClientRequest,
+        ClientNotification,
+        ServerNotification,
+        ServerRequest,
+        Internal,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProviderFeatureSupport {
+        Native,
+        Typed,
+        Raw,
+        VersionGated,
+        Deferred,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProviderFeatureCategory {
+        Threads,
+        Turns,
+        Plans,
+        Goals,
+        Subagents,
+        Handoff,
+        Permissions,
+        Tools,
+        Mcp,
+        Skills,
+        Plugins,
+        Apps,
+        Remote,
+        Cloud,
+        Events,
+        ServerRequests,
+        Diagnostics,
+        Native,
+        Unknown,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderFeature {
+        pub key: String,
+        pub display_name: String,
+        pub category: ProviderFeatureCategory,
+        pub support: ProviderFeatureSupport,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub direction: Option<ProviderFeatureDirection>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub provider_method: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub capability: Option<ProviderCapability>,
+    }
+
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct ProviderRequest {
         pub method: String,
@@ -228,6 +286,23 @@ pub mod provider {
     #[async_trait]
     pub trait ProviderDriver: Send + Sync + 'static {
         fn descriptor(&self) -> ProviderDescriptor;
+
+        fn features(&self) -> Vec<ProviderFeature> {
+            self.descriptor()
+                .capabilities
+                .into_iter()
+                .map(|capability| ProviderFeature {
+                    key: capability.key.clone(),
+                    display_name: capability.key.replace(['.', '_'], " "),
+                    category: ProviderFeatureCategory::Native,
+                    support: ProviderFeatureSupport::Native,
+                    direction: Some(ProviderFeatureDirection::Internal),
+                    provider_method: None,
+                    capability: Some(capability),
+                })
+                .collect()
+        }
+
         async fn request(&self, request: ProviderRequest) -> Result<Value, ProviderDriverError>;
     }
 
@@ -410,6 +485,11 @@ pub mod provider {
                 .iter()
                 .map(provider_contract_report)
                 .collect()
+        }
+
+        #[must_use]
+        pub fn features(&self, kind: ProviderKind) -> Option<Vec<ProviderFeature>> {
+            self.drivers.get(&kind).map(|driver| driver.features())
         }
 
         pub async fn request(

@@ -22,7 +22,7 @@ pub use permissions::{
 };
 pub use schema::{
     CODEX_METHOD_INVENTORY, CodexMethodDirection, CodexMethodSpec, CodexMethodSupport,
-    classify_codex_method, codex_method_inventory,
+    classify_codex_method, codex_method_inventory, codex_provider_features,
 };
 pub use transport::{
     AppServerTransport, CodexJsonRpcError, CodexResponse, CodexStdioTransport,

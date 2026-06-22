@@ -502,6 +502,8 @@ fn error_response(request_id: &str, code: &str, message: &str) -> String {
 enum WsDispatchError {
     #[error("unknown websocket method: {0}")]
     UnknownMethod(String),
+    #[error("bad websocket request: {0}")]
+    BadRequest(String),
     #[error("invalid websocket payload: {0}")]
     InvalidPayload(#[from] serde_json::Error),
     #[error("{0}")]
@@ -528,6 +530,7 @@ impl WsDispatchError {
     fn code(&self) -> &'static str {
         match self {
             Self::UnknownMethod(_) => "unknown_method",
+            Self::BadRequest(_) => "bad_request",
             Self::InvalidPayload(_) => "invalid_payload",
             Self::Github(_) => "github_error",
             Self::Git(_) => "git_error",

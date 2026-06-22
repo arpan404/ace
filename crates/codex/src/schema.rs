@@ -1,3 +1,6 @@
+use ace_runtime::provider::{
+    ProviderFeature, ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -179,6 +182,111 @@ pub fn classify_codex_method(
         .map(|spec| spec.support)
 }
 
+#[must_use]
+pub fn codex_provider_features() -> Vec<ProviderFeature> {
+    CODEX_METHOD_INVENTORY
+        .iter()
+        .map(|spec| ProviderFeature {
+            key: format!("codex.method.{}", spec.method.replace('/', ".")),
+            display_name: codex_method_display_name(spec.method),
+            category: codex_method_category(spec.method, spec.direction),
+            support: codex_method_support(spec.support),
+            direction: Some(codex_method_direction(spec.direction)),
+            provider_method: Some(spec.method.to_string()),
+            capability: None,
+        })
+        .collect()
+}
+
+fn codex_method_direction(direction: CodexMethodDirection) -> ProviderFeatureDirection {
+    match direction {
+        CodexMethodDirection::ClientRequest => ProviderFeatureDirection::ClientRequest,
+        CodexMethodDirection::ClientNotification => ProviderFeatureDirection::ClientNotification,
+        CodexMethodDirection::ServerNotification => ProviderFeatureDirection::ServerNotification,
+        CodexMethodDirection::ServerRequest => ProviderFeatureDirection::ServerRequest,
+    }
+}
+
+fn codex_method_support(support: CodexMethodSupport) -> ProviderFeatureSupport {
+    match support {
+        CodexMethodSupport::TypedSupported => ProviderFeatureSupport::Typed,
+        CodexMethodSupport::RawSupported => ProviderFeatureSupport::Raw,
+        CodexMethodSupport::VersionGated => ProviderFeatureSupport::VersionGated,
+        CodexMethodSupport::IntentionallyDeferred => ProviderFeatureSupport::Deferred,
+    }
+}
+
+fn codex_method_category(method: &str, direction: CodexMethodDirection) -> ProviderFeatureCategory {
+    if direction == CodexMethodDirection::ServerRequest {
+        return ProviderFeatureCategory::ServerRequests;
+    }
+    match method.split('/').next().unwrap_or_default() {
+        "thread" => {
+            if method.contains("handoff") {
+                ProviderFeatureCategory::Handoff
+            } else {
+                ProviderFeatureCategory::Threads
+            }
+        }
+        "turn" => {
+            if method.contains("/plan/") {
+                ProviderFeatureCategory::Plans
+            } else {
+                ProviderFeatureCategory::Turns
+            }
+        }
+        "goal" => ProviderFeatureCategory::Goals,
+        "subagent" => ProviderFeatureCategory::Subagents,
+        "review" => ProviderFeatureCategory::Tools,
+        "command" | "process" | "tool" | "dynamicTool" | "applyPatch" | "exec" => {
+            ProviderFeatureCategory::Tools
+        }
+        "mcp" => ProviderFeatureCategory::Mcp,
+        "skills" => ProviderFeatureCategory::Skills,
+        "plugins" => ProviderFeatureCategory::Plugins,
+        "apps" => ProviderFeatureCategory::Apps,
+        "remote" => {
+            if method.contains("handoff") {
+                ProviderFeatureCategory::Handoff
+            } else {
+                ProviderFeatureCategory::Remote
+            }
+        }
+        "cloud" => ProviderFeatureCategory::Cloud,
+        "configRequirements" | "permissionProfile" | "permission" => {
+            ProviderFeatureCategory::Permissions
+        }
+        "item" => {
+            if method.contains("/plan/") {
+                ProviderFeatureCategory::Plans
+            } else {
+                ProviderFeatureCategory::Events
+            }
+        }
+        "model" | "warning" | "realtime" => ProviderFeatureCategory::Events,
+        "account" | "attestation" => ProviderFeatureCategory::Diagnostics,
+        _ => ProviderFeatureCategory::Unknown,
+    }
+}
+
+fn codex_method_display_name(method: &str) -> String {
+    method
+        .split('/')
+        .map(|part| {
+            part.chars()
+                .enumerate()
+                .fold(String::new(), |mut label, (index, ch)| {
+                    if index > 0 && ch.is_uppercase() {
+                        label.push(' ');
+                    }
+                    label.push(ch);
+                    label
+                })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,5 +353,33 @@ mod tests {
                 "missing support class {support:?}"
             );
         }
+    }
+
+    #[test]
+    fn provider_features_preserve_method_support_and_categories() {
+        let features = codex_provider_features();
+        let plan = features
+            .iter()
+            .find(|feature| feature.provider_method.as_deref() == Some("turn/plan/updated"))
+            .expect("plan feature");
+        assert_eq!(plan.category, ProviderFeatureCategory::Plans);
+        assert_eq!(plan.support, ProviderFeatureSupport::Typed);
+        assert_eq!(
+            plan.direction,
+            Some(ProviderFeatureDirection::ServerNotification)
+        );
+
+        let remote = features
+            .iter()
+            .find(|feature| feature.provider_method.as_deref() == Some("remote/handoff"))
+            .expect("remote handoff feature");
+        assert_eq!(remote.category, ProviderFeatureCategory::Handoff);
+        assert_eq!(remote.support, ProviderFeatureSupport::VersionGated);
+
+        let cloud = features
+            .iter()
+            .find(|feature| feature.provider_method.as_deref() == Some("cloud/handoff"))
+            .expect("cloud handoff feature");
+        assert_eq!(cloud.support, ProviderFeatureSupport::Deferred);
     }
 }

@@ -71,6 +71,7 @@ pub mod methods {
     pub const PROVIDER_RUNTIME_EVENTS_RECENT: &str = "provider_runtime.events.recent";
     pub const PROVIDER_RUNTIME_PROVIDERS_LIST: &str = "provider_runtime.providers.list";
     pub const PROVIDER_RUNTIME_CONTRACT: &str = "provider_runtime.contract";
+    pub const PROVIDER_RUNTIME_FEATURES_LIST: &str = "provider_runtime.features.list";
     pub const PROVIDER_RUNTIME_REQUEST: &str = "provider_runtime.request";
     pub const PROVIDER_RUNTIME_SERVER_REQUESTS_LIST: &str = "provider_runtime.server_requests.list";
     pub const PROVIDER_RUNTIME_SERVER_REQUEST_RESULT: &str =

@@ -18,11 +18,13 @@ use ace_protocol::{
     git::GitWorktreeCreateRequest,
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeContractReport, ProviderRuntimeEvent,
-        ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeProviderInfo,
-        ProviderRuntimeProvidersList, ProviderRuntimeRecentEventsRequest,
-        ProviderRuntimeRecentEventsResponse, ProviderRuntimeRequest,
-        ProviderRuntimeSubscribeRequest, ProviderServerRequestDecisionRecord,
-        ProviderServerRequestError, ProviderServerRequestRecord, ProviderServerRequestResult,
+        ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
+        ProviderRuntimeFeaturesListResponse, ProviderRuntimeProviderFeatures,
+        ProviderRuntimeProviderInfo, ProviderRuntimeProvidersList,
+        ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
+        ProviderRuntimeRequest, ProviderRuntimeSubscribeRequest,
+        ProviderServerRequestDecisionRecord, ProviderServerRequestError,
+        ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
         ProviderServerRequestsListResponse,
     },
@@ -507,6 +509,44 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             methods::PROVIDER_RUNTIME_CONTRACT => {
                 Ok(serde_json::to_value(ProviderRuntimeContractReport {
                     reports: self.providers.contract_reports(),
+                })?)
+            }
+            methods::PROVIDER_RUNTIME_FEATURES_LIST => {
+                let request =
+                    serde_json::from_value::<ProviderRuntimeFeaturesListRequest>(payload)?;
+                let providers = match request.provider {
+                    Some(provider) => {
+                        let provider =
+                            ProviderKind::from_runtime_id(&provider).ok_or_else(|| {
+                                WsDispatchError::BadRequest(format!(
+                                    "unknown provider `{provider}` for runtime feature list"
+                                ))
+                            })?;
+                        vec![provider]
+                    }
+                    None => self
+                        .providers
+                        .descriptors()
+                        .into_iter()
+                        .map(|descriptor| descriptor.kind)
+                        .collect(),
+                };
+                let mut provider_features = Vec::with_capacity(providers.len());
+                for provider in providers {
+                    let features = self.providers.features(provider).ok_or(
+                        ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
+                            provider,
+                        },
+                    )?;
+                    provider_features.push(ProviderRuntimeProviderFeatures {
+                        provider,
+                        runtime_id: provider.runtime_id().to_string(),
+                        display_name: provider.display_name().to_string(),
+                        features,
+                    });
+                }
+                Ok(serde_json::to_value(ProviderRuntimeFeaturesListResponse {
+                    providers: provider_features,
                 })?)
             }
             methods::PROVIDER_RUNTIME_EVENTS_RECENT => {
@@ -1919,6 +1959,90 @@ mod tests {
                     .expect("missing")
                     .is_empty()
         }));
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_lists_provider_features() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+
+        let list = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-features",
+                    "method": methods::PROVIDER_RUNTIME_FEATURES_LIST,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let list: WsServerResponse = serde_json::from_str(&list).expect("features response");
+        let WsServerPayload::Result { body } = list.payload else {
+            panic!("expected provider feature list");
+        };
+
+        let providers = body["providers"].as_array().expect("providers");
+        let codex = providers
+            .iter()
+            .find(|provider| provider["runtime_id"] == "codex")
+            .expect("codex features");
+        assert!(
+            codex["features"]
+                .as_array()
+                .expect("codex feature list")
+                .iter()
+                .any(|feature| feature["provider_method"] == "remote/handoff"
+                    && feature["support"] == "version_gated"
+                    && feature["category"] == "handoff")
+        );
+        assert!(
+            codex["features"]
+                .as_array()
+                .expect("codex feature list")
+                .iter()
+                .any(|feature| feature["provider_method"] == "cloud/handoff"
+                    && feature["support"] == "deferred"
+                    && feature["category"] == "cloud")
+        );
+
+        let ace = providers
+            .iter()
+            .find(|provider| provider["runtime_id"] == "ace")
+            .expect("ace features");
+        assert!(
+            ace["features"]
+                .as_array()
+                .expect("ace feature list")
+                .iter()
+                .any(|feature| feature["key"] == "provider.semantic_tools"
+                    && feature["support"] == "native"
+                    && feature["category"] == "tools")
+        );
+
+        let codex_only = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-features",
+                    "method": methods::PROVIDER_RUNTIME_FEATURES_LIST,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let codex_only: WsServerResponse =
+            serde_json::from_str(&codex_only).expect("filtered features response");
+        let WsServerPayload::Result { body } = codex_only.payload else {
+            panic!("expected filtered provider feature list");
+        };
+        assert_eq!(body["providers"].as_array().expect("providers").len(), 1);
+        assert_eq!(body["providers"][0]["runtime_id"], "codex");
     }
 
     #[tokio::test]
