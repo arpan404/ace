@@ -629,7 +629,7 @@ mod tests {
         ws::{WsServerPayload, WsServerResponse, methods},
     };
     use ace_runtime::{
-        provider::ProviderEvent,
+        provider::{NormalizedServerRequest, ProviderEvent, ProviderMetadata, ServerRequestKind},
         tools::{
             ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
             normalize_tool_call,
@@ -1298,6 +1298,27 @@ mod tests {
             ProviderEvent::SemanticTool {
                 tool: Box::new(tool),
             },
+            ProviderEvent::ServerRequest {
+                request: Box::new(NormalizedServerRequest {
+                    kind: ServerRequestKind::CommandApproval,
+                    request_id: "42".to_string(),
+                    method: "command/approvalRequest".to_string(),
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("item-1".to_string()),
+                    scope: Some("command".to_string()),
+                    title: Some("Approve command execution".to_string()),
+                    prompt: Some("Run tests?".to_string()),
+                    selected_policy: Some("on-request".to_string()),
+                    metadata: json!({ "command": "cargo test" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("command/approvalRequest".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({ "command": "cargo test" }),
+                    },
+                }),
+            },
             ProviderEvent::RawNotification {
                 method: "item/completed".to_string(),
                 params: json!({ "item": { "id": "item-1" } }),
@@ -1342,8 +1363,11 @@ mod tests {
             body["events"][0]["tool"]["display"]["title"],
             "Clicked Deploy in Browser"
         );
-        assert_eq!(body["raw_events"][1]["type"], "raw_notification");
-        assert_eq!(body["raw_events"][1]["method"], "item/completed");
+        assert_eq!(body["events"][1]["type"], "server_request");
+        assert_eq!(body["events"][1]["request"]["kind"], "command_approval");
+        assert_eq!(body["events"][1]["request"]["prompt"], "Run tests?");
+        assert_eq!(body["raw_events"][2]["type"], "raw_notification");
+        assert_eq!(body["raw_events"][2]["method"], "item/completed");
     }
 
     #[tokio::test]

@@ -1,6 +1,6 @@
 use ace_core::ProviderKind;
 use ace_runtime::{
-    provider::{NormalizedThreadItem, ProviderDescriptor, ProviderEvent},
+    provider::{NormalizedServerRequest, NormalizedThreadItem, ProviderDescriptor, ProviderEvent},
     tools::{SemanticToolCall, ToolRunStatus},
 };
 use serde::{Deserialize, Serialize};
@@ -109,6 +109,9 @@ pub enum ProviderRuntimeEvent {
     ThreadItem {
         item: Box<NormalizedThreadItem>,
     },
+    ServerRequest {
+        request: Box<NormalizedServerRequest>,
+    },
     RawNotification {
         provider: String,
         method: String,
@@ -159,6 +162,7 @@ impl ProviderRuntimeEvent {
         match event {
             ProviderEvent::SemanticTool { tool } => Self::tool(*tool),
             ProviderEvent::ThreadItem { item } => Self::ThreadItem { item },
+            ProviderEvent::ServerRequest { request } => Self::ServerRequest { request },
             ProviderEvent::RawNotification { method, params } => Self::RawNotification {
                 provider: provider.to_string(),
                 method,
@@ -189,7 +193,7 @@ impl ProviderRuntimeEvent {
             | Self::ToolCompleted { tool }
             | Self::ToolFailed { tool, .. }
             | Self::ToolApprovalRequested { tool } => Some(tool.display.status),
-            Self::ThreadItem { .. } => None,
+            Self::ThreadItem { .. } | Self::ServerRequest { .. } => None,
             Self::RawNotification { .. }
             | Self::RawServerRequest { .. }
             | Self::StderrLine { .. }
@@ -201,7 +205,8 @@ impl ProviderRuntimeEvent {
 #[cfg(test)]
 mod tests {
     use ace_runtime::provider::{
-        NormalizedThreadItem, ProviderMetadata, ThreadItemKind, ThreadItemStatus,
+        NormalizedServerRequest, NormalizedThreadItem, ProviderMetadata, ServerRequestKind,
+        ThreadItemKind, ThreadItemStatus,
     };
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
@@ -271,6 +276,45 @@ mod tests {
         assert_eq!(
             encoded["item"]["provider"]["raw_payload"]["delta"],
             "Inspect first"
+        );
+    }
+
+    #[test]
+    fn provider_runtime_event_uses_normalized_server_request_shape() {
+        let event = ProviderRuntimeEvent::from_provider_event(
+            "codex",
+            ProviderEvent::ServerRequest {
+                request: Box::new(NormalizedServerRequest {
+                    kind: ServerRequestKind::CommandApproval,
+                    request_id: "42".to_string(),
+                    method: "command/approvalRequest".to_string(),
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("item-1".to_string()),
+                    scope: Some("command".to_string()),
+                    title: Some("Approve command execution".to_string()),
+                    prompt: Some("Run tests?".to_string()),
+                    selected_policy: Some("on-request".to_string()),
+                    metadata: json!({ "command": "cargo test" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("command/approvalRequest".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({ "command": "cargo test" }),
+                    },
+                }),
+            },
+        );
+        let encoded = serde_json::to_value(event).expect("encode");
+        assert_eq!(encoded["type"], "server_request");
+        assert_eq!(encoded["request"]["kind"], "command_approval");
+        assert_eq!(encoded["request"]["request_id"], "42");
+        assert_eq!(encoded["request"]["scope"], "command");
+        assert_eq!(encoded["request"]["prompt"], "Run tests?");
+        assert_eq!(encoded["request"]["metadata"]["command"], "cargo test");
+        assert_eq!(
+            encoded["request"]["provider"]["raw_payload"]["command"],
+            "cargo test"
         );
     }
 }

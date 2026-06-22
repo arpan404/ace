@@ -92,6 +92,22 @@ pub mod provider {
         Failed,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ServerRequestKind {
+        CommandApproval,
+        FileChangeApproval,
+        ToolUserInput,
+        McpElicitation,
+        PermissionApproval,
+        DynamicToolCall,
+        AccountTokenRefresh,
+        Attestation,
+        ApplyPatchApproval,
+        ExecApproval,
+        Unknown,
+    }
+
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct ProviderMetadata {
         pub provider: String,
@@ -131,6 +147,30 @@ pub mod provider {
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct NormalizedServerRequest {
+        pub kind: ServerRequestKind,
+        pub request_id: String,
+        pub method: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub item_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub scope: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub prompt: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub selected_policy: Option<String>,
+        #[serde(default)]
+        pub metadata: Value,
+        pub provider: ProviderMetadata,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     #[serde(tag = "type", rename_all = "snake_case")]
     pub enum ProviderEvent {
         RawNotification {
@@ -149,6 +189,9 @@ pub mod provider {
         },
         ThreadItem {
             item: Box<NormalizedThreadItem>,
+        },
+        ServerRequest {
+            request: Box<NormalizedServerRequest>,
         },
         StderrLine {
             line: String,

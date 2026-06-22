@@ -385,6 +385,7 @@ impl AgentRuntimeState {
                 self.active_turns.clear();
             }
             ProviderEvent::RawServerRequest { .. }
+            | ProviderEvent::ServerRequest { .. }
             | ProviderEvent::SemanticTool { .. }
             | ProviderEvent::StderrLine { .. } => {}
         }

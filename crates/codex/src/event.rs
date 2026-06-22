@@ -1,6 +1,7 @@
 use ace_runtime::{
     provider::{
-        NormalizedThreadItem, ProviderEvent, ProviderMetadata, ThreadItemKind, ThreadItemStatus,
+        NormalizedServerRequest, NormalizedThreadItem, ProviderEvent, ProviderMetadata,
+        ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     },
     tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
@@ -32,18 +33,143 @@ pub fn normalize_codex_inbound_event(event: &CodexInboundEvent) -> Vec<ProviderE
             });
             events
         }
-        CodexInboundEvent::ServerRequest { id, method, params } => {
-            vec![ProviderEvent::RawServerRequest {
+        CodexInboundEvent::ServerRequest { id, method, params } => vec![
+            ProviderEvent::ServerRequest {
+                request: Box::new(normalize_codex_server_request(*id, method, params)),
+            },
+            ProviderEvent::RawServerRequest {
                 id: id.to_string(),
                 method: method.clone(),
                 params: params.clone(),
-            }]
-        }
+            },
+        ],
         CodexInboundEvent::StderrLine(line) => {
             vec![ProviderEvent::StderrLine { line: line.clone() }]
         }
         CodexInboundEvent::ServerExited { .. } => vec![ProviderEvent::Exited],
     }
+}
+
+fn normalize_codex_server_request(
+    id: i64,
+    method: &str,
+    params: &Value,
+) -> NormalizedServerRequest {
+    let kind = server_request_kind(method);
+    NormalizedServerRequest {
+        kind,
+        request_id: id.to_string(),
+        method: method.to_string(),
+        thread_id: string_at(params, "threadId")
+            .or_else(|| string_at(params, "thread_id"))
+            .or_else(|| string_at(params, "conversationId")),
+        turn_id: string_at(params, "turnId").or_else(|| string_at(params, "turn_id")),
+        item_id: string_at(params, "itemId")
+            .or_else(|| string_at(params, "item_id"))
+            .or_else(|| string_at(params, "sourceItemId"))
+            .or_else(|| string_at(params, "source_item_id")),
+        scope: server_request_scope(kind, params),
+        title: Some(server_request_title(kind).to_string()),
+        prompt: server_request_prompt(params),
+        selected_policy: string_at(params, "approvalPolicy")
+            .or_else(|| string_at(params, "approval_policy"))
+            .or_else(|| string_at(params, "permissionPolicy"))
+            .or_else(|| string_at(params, "permission_policy")),
+        metadata: metadata_for_server_request(params),
+        provider: ProviderMetadata {
+            provider: "codex".to_string(),
+            method: Some(method.to_string()),
+            schema_version: string_at(params, "schemaVersion"),
+            raw_payload: params.clone(),
+        },
+    }
+}
+
+fn server_request_kind(method: &str) -> ServerRequestKind {
+    match method {
+        "command/approvalRequest" => ServerRequestKind::CommandApproval,
+        "fileChange/approvalRequest" => ServerRequestKind::FileChangeApproval,
+        "tool/userInputRequest" => ServerRequestKind::ToolUserInput,
+        "mcp/elicitation" => ServerRequestKind::McpElicitation,
+        "permission/approvalRequest" => ServerRequestKind::PermissionApproval,
+        "dynamicTool/call" => ServerRequestKind::DynamicToolCall,
+        "account/tokenRefresh" => ServerRequestKind::AccountTokenRefresh,
+        "attestation/request" => ServerRequestKind::Attestation,
+        "applyPatch/approvalRequest" => ServerRequestKind::ApplyPatchApproval,
+        "exec/approvalRequest" => ServerRequestKind::ExecApproval,
+        _ => ServerRequestKind::Unknown,
+    }
+}
+
+fn server_request_scope(kind: ServerRequestKind, params: &Value) -> Option<String> {
+    string_at(params, "scope").or_else(|| {
+        Some(
+            match kind {
+                ServerRequestKind::CommandApproval | ServerRequestKind::ExecApproval => "command",
+                ServerRequestKind::FileChangeApproval | ServerRequestKind::ApplyPatchApproval => {
+                    "filesystem"
+                }
+                ServerRequestKind::ToolUserInput | ServerRequestKind::DynamicToolCall => "tool",
+                ServerRequestKind::McpElicitation => "mcp",
+                ServerRequestKind::PermissionApproval => "permission",
+                ServerRequestKind::AccountTokenRefresh => "account",
+                ServerRequestKind::Attestation => "attestation",
+                ServerRequestKind::Unknown => return None,
+            }
+            .to_string(),
+        )
+    })
+}
+
+fn server_request_title(kind: ServerRequestKind) -> &'static str {
+    match kind {
+        ServerRequestKind::CommandApproval => "Approve command execution",
+        ServerRequestKind::FileChangeApproval => "Approve file changes",
+        ServerRequestKind::ToolUserInput => "Tool needs input",
+        ServerRequestKind::McpElicitation => "MCP server needs input",
+        ServerRequestKind::PermissionApproval => "Approve permission change",
+        ServerRequestKind::DynamicToolCall => "Run dynamic tool",
+        ServerRequestKind::AccountTokenRefresh => "Refresh account token",
+        ServerRequestKind::Attestation => "Provide attestation",
+        ServerRequestKind::ApplyPatchApproval => "Approve patch application",
+        ServerRequestKind::ExecApproval => "Approve command execution",
+        ServerRequestKind::Unknown => "Provider request",
+    }
+}
+
+fn server_request_prompt(params: &Value) -> Option<String> {
+    string_at(params, "prompt")
+        .or_else(|| string_at(params, "message"))
+        .or_else(|| string_at(params, "question"))
+        .or_else(|| string_at(params, "reason"))
+        .or_else(|| string_at(params, "description"))
+        .or_else(|| string_at(params, "command").map(|command| format!("Run `{command}`?")))
+}
+
+fn metadata_for_server_request(params: &Value) -> Value {
+    let mut metadata = serde_json::Map::new();
+    for key in [
+        "command",
+        "cwd",
+        "path",
+        "paths",
+        "files",
+        "diff",
+        "toolName",
+        "tool_name",
+        "serverName",
+        "server_name",
+        "operation",
+        "sandbox",
+        "sandboxPolicy",
+        "approvalPolicy",
+        "permissionPolicy",
+    ] {
+        if let Some(value) = params.get(key) {
+            metadata.insert(key.to_string(), value.clone());
+        }
+    }
+    Value::Object(metadata)
 }
 
 fn normalize_codex_thread_item_notification(
@@ -392,7 +518,7 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use ace_runtime::{
-        provider::{ProviderEvent, ThreadItemKind, ThreadItemStatus},
+        provider::{ProviderEvent, ServerRequestKind, ThreadItemKind, ThreadItemStatus},
         tools::{ToolActionKind, ToolSurface},
     };
     use serde_json::json;
@@ -564,6 +690,71 @@ mod tests {
         let exited =
             normalize_codex_inbound_event(&CodexInboundEvent::ServerExited { code: Some(0) });
         assert_eq!(exited, vec![ProviderEvent::Exited]);
+    }
+
+    #[test]
+    fn normalizes_codex_approval_server_request_and_preserves_raw_payload() {
+        let events = normalize_codex_inbound_event(&CodexInboundEvent::ServerRequest {
+            id: 42,
+            method: "command/approvalRequest".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "item-1",
+                "command": "cargo test --workspace",
+                "cwd": "/repo",
+                "prompt": "Run tests?",
+                "approvalPolicy": "on-request"
+            }),
+        });
+
+        let ProviderEvent::ServerRequest { request } = &events[0] else {
+            panic!("expected normalized server request");
+        };
+        assert_eq!(request.kind, ServerRequestKind::CommandApproval);
+        assert_eq!(request.request_id, "42");
+        assert_eq!(request.scope.as_deref(), Some("command"));
+        assert_eq!(request.title.as_deref(), Some("Approve command execution"));
+        assert_eq!(request.prompt.as_deref(), Some("Run tests?"));
+        assert_eq!(request.selected_policy.as_deref(), Some("on-request"));
+        assert_eq!(request.metadata["command"], "cargo test --workspace");
+        assert_eq!(request.provider.raw_payload["cwd"], "/repo");
+
+        let ProviderEvent::RawServerRequest { id, method, params } = &events[1] else {
+            panic!("expected raw server request");
+        };
+        assert_eq!(id, "42");
+        assert_eq!(method, "command/approvalRequest");
+        assert_eq!(params["command"], "cargo test --workspace");
+    }
+
+    #[test]
+    fn normalizes_mcp_elicitation_server_request() {
+        let events = normalize_codex_inbound_event(&CodexInboundEvent::ServerRequest {
+            id: 77,
+            method: "mcp/elicitation".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "serverName": "github",
+                "toolName": "create_issue",
+                "question": "Which repository?",
+                "schemaVersion": "2026-01-01"
+            }),
+        });
+
+        let ProviderEvent::ServerRequest { request } = &events[0] else {
+            panic!("expected normalized server request");
+        };
+        assert_eq!(request.kind, ServerRequestKind::McpElicitation);
+        assert_eq!(request.scope.as_deref(), Some("mcp"));
+        assert_eq!(request.title.as_deref(), Some("MCP server needs input"));
+        assert_eq!(request.prompt.as_deref(), Some("Which repository?"));
+        assert_eq!(
+            request.provider.schema_version.as_deref(),
+            Some("2026-01-01")
+        );
+        assert_eq!(request.metadata["serverName"], "github");
+        assert_eq!(request.metadata["toolName"], "create_issue");
     }
 
     #[test]
