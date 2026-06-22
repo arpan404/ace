@@ -8,7 +8,7 @@ use ace_runtime::{
     threads::AgentRuntimeSnapshot,
     tools::{SemanticToolCall, ToolRunStatus},
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 pub const PROVIDER_RUNTIME_EVENT_TOPIC: &str = "provider_runtime.event";
 
@@ -181,7 +181,8 @@ pub struct ProviderServerRequestAudit {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderServerRequestResult {
     pub provider: String,
-    pub request_id: i64,
+    #[serde(deserialize_with = "deserialize_server_request_id")]
+    pub request_id: String,
     #[serde(default)]
     pub result: serde_json::Value,
     #[serde(default)]
@@ -197,10 +198,56 @@ pub struct ProviderServerRequestErrorInfo {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderServerRequestError {
     pub provider: String,
-    pub request_id: i64,
+    #[serde(deserialize_with = "deserialize_server_request_id")]
+    pub request_id: String,
     pub error: ProviderServerRequestErrorInfo,
     #[serde(default)]
     pub audit: ProviderServerRequestAudit,
+}
+
+fn deserialize_server_request_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct ServerRequestIdVisitor;
+
+    impl serde::de::Visitor<'_> for ServerRequestIdVisitor {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a provider server request id as a string or integer")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(value.to_string())
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(value)
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(value.to_string())
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(value.to_string())
+        }
+    }
+
+    deserializer.deserialize_any(ServerRequestIdVisitor)
 }
 
 fn default_server_requests_limit() -> usize {
@@ -773,6 +820,25 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn server_request_response_ids_accept_numbers_and_strings() {
+        let numeric = serde_json::from_value::<ProviderServerRequestResult>(json!({
+            "provider": "codex",
+            "request_id": 42,
+            "result": { "approved": true }
+        }))
+        .expect("numeric request id");
+        assert_eq!(numeric.request_id, "42");
+
+        let string = serde_json::from_value::<ProviderServerRequestError>(json!({
+            "provider": "custom",
+            "request_id": "request-alpha",
+            "error": { "code": -32000, "message": "denied" }
+        }))
+        .expect("string request id");
+        assert_eq!(string.request_id, "request-alpha");
+    }
 
     #[test]
     fn provider_runtime_event_uses_semantic_tool_shape() {

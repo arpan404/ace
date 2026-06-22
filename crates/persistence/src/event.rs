@@ -237,6 +237,24 @@ impl ProviderEventLogRepository {
         }
     }
 
+    pub fn server_request(
+        &self,
+        provider: &str,
+        request_id: &str,
+    ) -> Result<Option<ProviderServerRequestRecord>, PersistenceError> {
+        let mut statement = self.connection.prepare(
+            "SELECT provider, request_id, request_json, status, decision_json, created_at, resolved_at
+             FROM provider_server_requests
+             WHERE provider = ?1 AND request_id = ?2
+             LIMIT 1",
+        )?;
+        let mut rows =
+            statement.query_map(params![provider, request_id], decode_server_request_record)?;
+        rows.next()
+            .map(|row| row.map_err(PersistenceError::from))
+            .transpose()
+    }
+
     pub fn recent(
         &self,
         provider: Option<&str>,
@@ -413,6 +431,19 @@ mod tests {
             .expect("pending");
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].request_id, "42");
+        let pending_by_id = repo
+            .server_request("codex", "42")
+            .expect("pending by id")
+            .expect("pending record");
+        assert_eq!(
+            pending_by_id
+                .request
+                .as_ref()
+                .expect("request")
+                .scope
+                .as_deref(),
+            Some("command")
+        );
         assert_eq!(
             pending[0]
                 .request

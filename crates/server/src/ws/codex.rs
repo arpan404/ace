@@ -31,14 +31,15 @@ use ace_protocol::{
         ProviderRuntimeRecentEventsResponse, ProviderRuntimeRequest,
         ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
         ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
-        ProviderRuntimeSubscribeRequest, ProviderServerRequestDecisionRecord,
-        ProviderServerRequestError, ProviderServerRequestRecord, ProviderServerRequestResult,
+        ProviderRuntimeSubscribeRequest, ProviderServerRequestAudit,
+        ProviderServerRequestDecisionRecord, ProviderServerRequestError,
+        ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
         ProviderServerRequestsListResponse, projection_deltas_for_events,
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
-use ace_runtime::provider::ProviderRequest;
+use ace_runtime::provider::{NormalizedServerRequest, ProviderRequest};
 use ace_runtime::threads::ExecutionLocation;
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
@@ -707,10 +708,15 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             request.provider
                         ))
                     })?;
+                let audit = self.enriched_server_request_audit(
+                    &request.provider,
+                    &request.request_id,
+                    request.audit,
+                )?;
                 self.providers
                     .respond_server_request_result(
                         provider_kind,
-                        request.request_id.to_string(),
+                        request.request_id.clone(),
                         request.result.clone(),
                     )
                     .await?;
@@ -721,7 +727,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         &request.provider,
                         request.request_id,
                         request.result,
-                        serde_json::to_value(request.audit)?,
+                        serde_json::to_value(audit)?,
                     )?;
                 Ok(serde_json::json!({ "responded": true }))
             }
@@ -734,10 +740,15 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             request.provider
                         ))
                     })?;
+                let audit = self.enriched_server_request_audit(
+                    &request.provider,
+                    &request.request_id,
+                    request.audit,
+                )?;
                 self.providers
                     .respond_server_request_error(
                         provider_kind,
-                        request.request_id.to_string(),
+                        request.request_id.clone(),
                         request.error.code,
                         request.error.message.clone(),
                     )
@@ -749,12 +760,27 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         &request.provider,
                         request.request_id,
                         serde_json::to_value(request.error)?,
-                        serde_json::to_value(request.audit)?,
+                        serde_json::to_value(audit)?,
                     )?;
                 Ok(serde_json::json!({ "responded": true }))
             }
             _ => Err(WsDispatchError::UnknownMethod(method.to_string())),
         }
+    }
+
+    fn enriched_server_request_audit(
+        &self,
+        provider: &str,
+        request_id: &str,
+        audit: ProviderServerRequestAudit,
+    ) -> Result<ProviderServerRequestAudit, WsDispatchError> {
+        let request = self
+            .provider_events
+            .lock()
+            .expect("provider event log")
+            .server_request(provider, request_id)?
+            .and_then(|record| record.request);
+        Ok(enrich_server_request_audit(audit, request.as_ref()))
     }
 
     pub(super) async fn subscribe_provider_runtime_events(
@@ -971,6 +997,61 @@ fn provider_server_request_record_to_protocol(
         created_at: record.created_at,
         resolved_at: record.resolved_at,
     }
+}
+
+fn enrich_server_request_audit(
+    mut audit: ProviderServerRequestAudit,
+    request: Option<&NormalizedServerRequest>,
+) -> ProviderServerRequestAudit {
+    let Some(request) = request else {
+        return audit;
+    };
+
+    if audit.scope.is_none() {
+        audit.scope.clone_from(&request.scope);
+    }
+    if audit.source_thread_id.is_none() {
+        audit.source_thread_id.clone_from(&request.thread_id);
+    }
+    if audit.source_item_id.is_none() {
+        audit.source_item_id.clone_from(&request.item_id);
+    }
+    if audit.prompt.is_none() {
+        audit.prompt.clone_from(&request.prompt);
+    }
+    if audit.selected_policy.is_none() {
+        audit.selected_policy.clone_from(&request.selected_policy);
+    }
+
+    let mut metadata = match audit.metadata {
+        Value::Object(map) => map,
+        Value::Null => serde_json::Map::new(),
+        value => {
+            let mut map = serde_json::Map::new();
+            map.insert("client_metadata".to_string(), value);
+            map
+        }
+    };
+    metadata
+        .entry("request_kind".to_string())
+        .or_insert_with(|| serde_json::json!(request.kind));
+    if let Some(turn_id) = &request.turn_id {
+        metadata
+            .entry("source_turn_id".to_string())
+            .or_insert_with(|| serde_json::json!(turn_id));
+    }
+    if let Some(method) = &request.provider.method {
+        metadata
+            .entry("provider_method".to_string())
+            .or_insert_with(|| serde_json::json!(method));
+    }
+    if !request.metadata.is_null() {
+        metadata
+            .entry("request_metadata".to_string())
+            .or_insert_with(|| request.metadata.clone());
+    }
+    audit.metadata = Value::Object(metadata);
+    audit
 }
 
 fn codex_versioned_app_server_request(
@@ -2759,6 +2840,36 @@ mod tests {
         )
         .with_codex_service(CodexService::new(backend.clone()));
 
+        state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .append_batch(
+                "codex",
+                &[ProviderEvent::ServerRequest {
+                    request: Box::new(NormalizedServerRequest {
+                        kind: ServerRequestKind::CommandApproval,
+                        request_id: "42".to_string(),
+                        method: "command/approvalRequest".to_string(),
+                        thread_id: Some("thread-1".to_string()),
+                        turn_id: Some("turn-1".to_string()),
+                        item_id: Some("item-1".to_string()),
+                        scope: Some("command".to_string()),
+                        title: Some("Approve command execution".to_string()),
+                        prompt: Some("Run cargo test?".to_string()),
+                        selected_policy: Some("on-request".to_string()),
+                        metadata: json!({ "command": "cargo test" }),
+                        provider: ProviderMetadata {
+                            provider: "codex".to_string(),
+                            method: Some("command/approvalRequest".to_string()),
+                            schema_version: None,
+                            raw_payload: json!({ "command": "cargo test" }),
+                        },
+                    }),
+                }],
+            )
+            .expect("append pending request");
+
         let response = state
             .dispatch_text(
                 &json!({
@@ -2770,11 +2881,6 @@ mod tests {
                         "request_id": 42,
                         "result": { "approved": true },
                         "audit": {
-                            "scope": "command",
-                            "source_thread_id": "thread-1",
-                            "source_item_id": "item-1",
-                            "prompt": "Run cargo test?",
-                            "selected_policy": "on-request",
                             "decided_by": "user",
                             "reason": "requested by user",
                             "metadata": { "risk": "low" }
@@ -2797,6 +2903,33 @@ mod tests {
                 result: json!({ "approved": true })
             }]
         );
+
+        let records = state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .server_requests(
+                Some("codex"),
+                Some(ProviderServerRequestStatus::Resolved),
+                10,
+            )
+            .expect("resolved requests");
+        assert_eq!(records.len(), 1);
+        let decision = records[0].decision.as_ref().expect("decision");
+        assert_eq!(decision.audit["scope"], "command");
+        assert_eq!(decision.audit["source_thread_id"], "thread-1");
+        assert_eq!(decision.audit["source_item_id"], "item-1");
+        assert_eq!(decision.audit["prompt"], "Run cargo test?");
+        assert_eq!(decision.audit["selected_policy"], "on-request");
+        assert_eq!(decision.audit["metadata"]["risk"], "low");
+        assert_eq!(
+            decision.audit["metadata"]["provider_method"],
+            "command/approvalRequest"
+        );
+        assert_eq!(
+            decision.audit["metadata"]["request_metadata"]["command"],
+            "cargo test"
+        );
     }
 
     #[tokio::test]
@@ -2808,6 +2941,36 @@ mod tests {
             GithubService::new(GithubCliClient::with_runner(runner)),
         )
         .with_codex_service(CodexService::new(backend.clone()));
+
+        state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .append_batch(
+                "codex",
+                &[ProviderEvent::ServerRequest {
+                    request: Box::new(NormalizedServerRequest {
+                        kind: ServerRequestKind::FileChangeApproval,
+                        request_id: "43".to_string(),
+                        method: "fileChange/approvalRequest".to_string(),
+                        thread_id: Some("thread-1".to_string()),
+                        turn_id: Some("turn-2".to_string()),
+                        item_id: Some("file-change-1".to_string()),
+                        scope: Some("filesystem".to_string()),
+                        title: Some("Approve file changes".to_string()),
+                        prompt: Some("Write outside workspace?".to_string()),
+                        selected_policy: Some("strict".to_string()),
+                        metadata: json!({ "path": "/tmp/outside.txt" }),
+                        provider: ProviderMetadata {
+                            provider: "codex".to_string(),
+                            method: Some("fileChange/approvalRequest".to_string()),
+                            schema_version: None,
+                            raw_payload: json!({ "path": "/tmp/outside.txt" }),
+                        },
+                    }),
+                }],
+            )
+            .expect("append pending request");
 
         let response = state
             .dispatch_text(
@@ -2823,9 +2986,6 @@ mod tests {
                             "message": "denied"
                         },
                         "audit": {
-                            "scope": "filesystem",
-                            "source_thread_id": "thread-1",
-                            "selected_policy": "strict",
                             "decided_by": "user",
                             "reason": "outside workspace"
                         }
@@ -2847,6 +3007,32 @@ mod tests {
                 code: -32001,
                 message: "denied".to_string()
             }]
+        );
+        let records = state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .server_requests(
+                Some("codex"),
+                Some(ProviderServerRequestStatus::Resolved),
+                10,
+            )
+            .expect("resolved requests");
+        assert_eq!(records.len(), 1);
+        let decision = records[0].decision.as_ref().expect("decision");
+        assert_eq!(decision.outcome, "error");
+        assert_eq!(decision.audit["scope"], "filesystem");
+        assert_eq!(decision.audit["source_thread_id"], "thread-1");
+        assert_eq!(decision.audit["source_item_id"], "file-change-1");
+        assert_eq!(decision.audit["prompt"], "Write outside workspace?");
+        assert_eq!(decision.audit["selected_policy"], "strict");
+        assert_eq!(
+            decision.audit["metadata"]["provider_method"],
+            "fileChange/approvalRequest"
+        );
+        assert_eq!(
+            decision.audit["metadata"]["request_metadata"]["path"],
+            "/tmp/outside.txt"
         );
     }
 
