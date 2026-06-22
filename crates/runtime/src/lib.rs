@@ -265,6 +265,21 @@ pub mod provider {
         pub provider_methods: Vec<String>,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProviderAdapterOperationGateKind {
+        OptionalProviderMethod,
+        VersionGatedProviderMethod,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderAdapterOperationGate {
+        pub kind: ProviderAdapterOperationGateKind,
+        #[serde(default)]
+        pub provider_methods: Vec<String>,
+        pub reason: String,
+    }
+
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct ProviderAdapterOperationPolicy {
         pub read_only: bool,
@@ -305,6 +320,8 @@ pub mod provider {
         pub availability: ProviderAdapterOperationAvailability,
         pub policy: ProviderAdapterOperationPolicy,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub runtime_gate: Option<ProviderAdapterOperationGate>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub availability_reason: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub canonical_method: Option<String>,
@@ -326,6 +343,7 @@ pub mod provider {
                 support: spec.support,
                 availability: provider_adapter_operation_availability(spec),
                 policy: spec.policy.clone(),
+                runtime_gate: provider_adapter_operation_gate(spec),
                 availability_reason: provider_adapter_operation_availability_reason(spec),
                 canonical_method: spec.canonical_method.clone(),
                 provider_methods: spec.provider_methods.clone(),
@@ -1783,7 +1801,7 @@ pub mod provider {
     #[must_use]
     pub fn ace_provider_adapter_contract() -> ProviderAdapterContract {
         ProviderAdapterContract {
-            version: 2,
+            version: 3,
             websocket_first: true,
             raw_payload_policy: "preserve_provider_payloads".to_string(),
             raw_payload: ace_provider_raw_payload_policy(),
@@ -2051,6 +2069,30 @@ pub mod provider {
             ProviderAdapterOperationSupport::Deferred => {
                 Some("intentionally deferred in the current adapter contract".to_string())
             }
+        }
+    }
+
+    #[must_use]
+    pub fn provider_adapter_operation_gate(
+        spec: &ProviderAdapterOperationSpec,
+    ) -> Option<ProviderAdapterOperationGate> {
+        match spec.support {
+            ProviderAdapterOperationSupport::Required | ProviderAdapterOperationSupport::Deferred => {
+                None
+            }
+            ProviderAdapterOperationSupport::Optional => Some(ProviderAdapterOperationGate {
+                kind: ProviderAdapterOperationGateKind::OptionalProviderMethod,
+                provider_methods: spec.provider_methods.clone(),
+                reason: "optional provider method; check installed provider support before showing as guaranteed"
+                    .to_string(),
+            }),
+            ProviderAdapterOperationSupport::VersionGated => Some(ProviderAdapterOperationGate {
+                kind: ProviderAdapterOperationGateKind::VersionGatedProviderMethod,
+                provider_methods: spec.provider_methods.clone(),
+                reason:
+                    "version-gated provider method; check installed provider support before invoking"
+                        .to_string(),
+            }),
         }
     }
 
@@ -2668,7 +2710,7 @@ pub mod provider {
                 .iter()
                 .find(|profile| profile.provider == ProviderKind::Codex)
                 .expect("codex profile");
-            assert_eq!(codex_profile.contract_version, 2);
+            assert_eq!(codex_profile.contract_version, 3);
             assert!(codex_profile.websocket_first);
             assert_eq!(
                 codex_profile.raw_payload.retention,
@@ -2700,6 +2742,9 @@ pub mod provider {
                     && operation.availability == ProviderAdapterOperationAvailability::Optional
                     && !operation.policy.read_only
                     && operation.policy.approval_boundary
+                    && operation.runtime_gate.as_ref().is_some_and(|gate| {
+                        gate.kind == ProviderAdapterOperationGateKind::OptionalProviderMethod
+                    })
                     && operation
                         .availability_reason
                         .as_deref()
@@ -2743,6 +2788,10 @@ pub mod provider {
                     && operation.policy.mutates_workspace
                     && operation.policy.external_side_effects
                     && operation.policy.approval_boundary
+                    && operation.runtime_gate.as_ref().is_some_and(|gate| {
+                        gate.kind == ProviderAdapterOperationGateKind::VersionGatedProviderMethod
+                            && gate.provider_methods == vec!["command/exec".to_string()]
+                    })
                     && operation
                         .availability_reason
                         .as_deref()
@@ -2777,6 +2826,10 @@ pub mod provider {
                     && !operation.policy.read_only
                     && operation.policy.mutates_provider_state
                     && operation.policy.external_side_effects
+                    && operation.runtime_gate.as_ref().is_some_and(|gate| {
+                        gate.kind == ProviderAdapterOperationGateKind::VersionGatedProviderMethod
+                            && gate.provider_methods == vec!["skills/install".to_string()]
+                    })
             }));
             let expected_version_gated_contracts = [
                 (
@@ -3066,6 +3119,7 @@ pub mod provider {
                     support: ProviderAdapterOperationSupport::Required,
                     availability: ProviderAdapterOperationAvailability::Available,
                     policy: provider_adapter_operation_policy(ProviderAdapterOperation::ThreadRead),
+                    runtime_gate: None,
                     availability_reason: None,
                     canonical_method: Some("thread/read".to_string()),
                     provider_methods: Vec::new(),
@@ -3090,7 +3144,7 @@ pub mod provider {
         fn adapter_contract_lists_required_normalized_surfaces() {
             let contract = ace_provider_adapter_contract();
 
-            assert_eq!(contract.version, 2);
+            assert_eq!(contract.version, 3);
             assert!(contract.websocket_first);
             assert_eq!(contract.raw_payload_policy, "preserve_provider_payloads");
             assert_eq!(

@@ -6303,7 +6303,7 @@ mod tests {
         assert_eq!(codex_runtime["supports_server_request_responses"], true);
         assert_eq!(codex_runtime["contract"]["satisfies_required"], true);
         assert_eq!(codex_runtime["adapter_profile"]["provider"], "Codex");
-        assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 2);
+        assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 3);
         assert_eq!(codex_runtime["adapter_profile"]["websocket_first"], true);
         assert_eq!(
             codex_runtime["adapter_runtime"]["satisfies_required_hooks"],
@@ -6753,7 +6753,7 @@ mod tests {
         let WsServerPayload::Result { body } = contract.payload else {
             panic!("expected provider contract result");
         };
-        assert_eq!(body["adapter_contract"]["version"], 2);
+        assert_eq!(body["adapter_contract"]["version"], 3);
         assert_eq!(body["adapter_contract"]["websocket_first"], true);
         assert_eq!(
             body["adapter_contract"]["raw_payload"]["retention"],
@@ -6856,7 +6856,7 @@ mod tests {
         let WsServerPayload::Result { body } = list.payload else {
             panic!("expected provider operation list");
         };
-        assert_eq!(body["adapter_contract"]["version"], 2);
+        assert_eq!(body["adapter_contract"]["version"], 3);
         assert_eq!(
             body["providers"][0]["adapter_runtime"]["satisfies_required_hooks"],
             true
@@ -6912,6 +6912,8 @@ mod tests {
             operation["operation"] == "command_exec"
                 && operation["support"] == "version_gated"
                 && operation["availability"] == "version_gated"
+                && operation["runtime_gate"]["kind"] == "version_gated_provider_method"
+                && operation["runtime_gate"]["provider_methods"] == json!(["command/exec"])
                 && operation["availability_reason"]
                     .as_str()
                     .expect("availability reason")
@@ -6924,6 +6926,8 @@ mod tests {
             operation["operation"] == "thread_shell_command"
                 && operation["support"] == "version_gated"
                 && operation["availability"] == "version_gated"
+                && operation["runtime_gate"]["kind"] == "version_gated_provider_method"
+                && operation["runtime_gate"]["provider_methods"] == json!(["thread/shellCommand"])
                 && operation["availability_reason"]
                     .as_str()
                     .expect("availability reason")
@@ -7029,6 +7033,9 @@ mod tests {
                         && entry["category"] == category
                         && entry["support"] == support
                         && entry["availability"] == availability
+                        && entry
+                            .get("runtime_gate")
+                            .is_some_and(|gate| gate["provider_methods"] == json!([method]))
                         && entry["invocation"] == "direct_provider_method"
                         && entry["provider_methods"] == json!([method])
                         && entry["runtime_request"]["invokable"] == true

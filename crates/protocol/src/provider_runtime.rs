@@ -4,13 +4,13 @@ use ace_runtime::{
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem,
         ProviderAdapterContract, ProviderAdapterInvocationKind, ProviderAdapterOperation,
-        ProviderAdapterOperationAvailability, ProviderAdapterOperationPolicy,
-        ProviderAdapterOperationProfile, ProviderAdapterOperationSpec,
-        ProviderAdapterOperationSupport, ProviderAdapterProfile, ProviderAdapterRuntimeHook,
-        ProviderAdapterRuntimeReport, ProviderContractReport, ProviderDescriptor,
-        ProviderDriverStatus, ProviderEvent, ProviderFeature, ProviderFeatureCategory,
-        ProviderLifecycleAction, ProviderLifecycleResult, RuntimeSignalKind, ServerRequestKind,
-        ThreadItemKind, ThreadItemStatus,
+        ProviderAdapterOperationAvailability, ProviderAdapterOperationGate,
+        ProviderAdapterOperationPolicy, ProviderAdapterOperationProfile,
+        ProviderAdapterOperationSpec, ProviderAdapterOperationSupport, ProviderAdapterProfile,
+        ProviderAdapterRuntimeHook, ProviderAdapterRuntimeReport, ProviderContractReport,
+        ProviderDescriptor, ProviderDriverStatus, ProviderEvent, ProviderFeature,
+        ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
+        RuntimeSignalKind, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     },
     threads::{
         AgentRuntimeSnapshot, ApprovalRetryRecord, ForkPoint, GoalState, GoalStatus, HandoffPlan,
@@ -248,6 +248,8 @@ pub struct ProviderRuntimeProviderOperation {
     pub availability: ProviderAdapterOperationAvailability,
     pub policy: ProviderAdapterOperationPolicy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_gate: Option<ProviderAdapterOperationGate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub availability_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canonical_method: Option<String>,
@@ -272,6 +274,7 @@ impl ProviderRuntimeProviderOperation {
             support: profile.support,
             availability: profile.availability,
             policy: profile.policy,
+            runtime_gate: profile.runtime_gate,
             availability_reason: profile.availability_reason,
             canonical_method: profile.canonical_method,
             provider_methods: profile.provider_methods,
