@@ -39,7 +39,9 @@ use ace_protocol::{
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
-use ace_runtime::provider::{NormalizedServerRequest, ProviderRequest};
+use ace_runtime::provider::{
+    NormalizedServerRequest, NormalizedServerRequestDecision, ProviderEvent, ProviderRequest,
+};
 use ace_runtime::threads::ExecutionLocation;
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
@@ -708,7 +710,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             request.provider
                         ))
                     })?;
-                let audit = self.enriched_server_request_audit(
+                let decision_context = self.server_request_decision_context(
                     &request.provider,
                     &request.request_id,
                     request.audit,
@@ -725,10 +727,22 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     .expect("provider event log")
                     .record_server_request_result(
                         &request.provider,
-                        request.request_id,
-                        request.result,
-                        serde_json::to_value(audit)?,
+                        request.request_id.clone(),
+                        request.result.clone(),
+                        serde_json::to_value(&decision_context.audit)?,
                     )?;
+                self.append_and_publish_provider_events(
+                    provider_kind,
+                    vec![ProviderEvent::ServerRequestResolved {
+                        request_id: request.request_id,
+                        decision: NormalizedServerRequestDecision {
+                            outcome: "result".to_string(),
+                            payload: request.result,
+                            audit: serde_json::to_value(decision_context.audit)?,
+                        },
+                        request: decision_context.request,
+                    }],
+                )?;
                 Ok(serde_json::json!({ "responded": true }))
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_ERROR => {
@@ -740,7 +754,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             request.provider
                         ))
                     })?;
-                let audit = self.enriched_server_request_audit(
+                let decision_context = self.server_request_decision_context(
                     &request.provider,
                     &request.request_id,
                     request.audit,
@@ -753,34 +767,76 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         request.error.message.clone(),
                     )
                     .await?;
+                let error_payload = serde_json::to_value(request.error)?;
                 self.provider_events
                     .lock()
                     .expect("provider event log")
                     .record_server_request_error(
                         &request.provider,
-                        request.request_id,
-                        serde_json::to_value(request.error)?,
-                        serde_json::to_value(audit)?,
+                        request.request_id.clone(),
+                        error_payload.clone(),
+                        serde_json::to_value(&decision_context.audit)?,
                     )?;
+                self.append_and_publish_provider_events(
+                    provider_kind,
+                    vec![ProviderEvent::ServerRequestResolved {
+                        request_id: request.request_id,
+                        decision: NormalizedServerRequestDecision {
+                            outcome: "error".to_string(),
+                            payload: error_payload,
+                            audit: serde_json::to_value(decision_context.audit)?,
+                        },
+                        request: decision_context.request,
+                    }],
+                )?;
                 Ok(serde_json::json!({ "responded": true }))
             }
             _ => Err(WsDispatchError::UnknownMethod(method.to_string())),
         }
     }
 
-    fn enriched_server_request_audit(
+    fn server_request_decision_context(
         &self,
         provider: &str,
         request_id: &str,
         audit: ProviderServerRequestAudit,
-    ) -> Result<ProviderServerRequestAudit, WsDispatchError> {
+    ) -> Result<ServerRequestDecisionContext, WsDispatchError> {
         let request = self
             .provider_events
             .lock()
             .expect("provider event log")
             .server_request(provider, request_id)?
             .and_then(|record| record.request);
-        Ok(enrich_server_request_audit(audit, request.as_ref()))
+        let audit = enrich_server_request_audit(audit, request.as_ref());
+        Ok(ServerRequestDecisionContext {
+            request: request.map(Box::new),
+            audit,
+        })
+    }
+
+    fn append_and_publish_provider_events(
+        &self,
+        provider_kind: ProviderKind,
+        events: Vec<ProviderEvent>,
+    ) -> Result<(), WsDispatchError> {
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        let provider_name = provider_kind.runtime_id().to_string();
+        self.provider_events
+            .lock()
+            .expect("provider event log")
+            .append_batch(&provider_name, &events)?;
+        if let Some(sender) = self
+            .provider_event_streams
+            .lock()
+            .expect("provider event streams")
+            .get(&provider_kind)
+        {
+            let _ = sender.send(ProviderEventStreamMessage::Events(events));
+        }
+        Ok(())
     }
 
     pub(super) async fn subscribe_provider_runtime_events(
@@ -974,6 +1030,11 @@ fn provider_runtime_error_code(
         }
         ace_runtime::provider::ProviderRuntimeError::Driver(_) => "provider_request_failed",
     }
+}
+
+struct ServerRequestDecisionContext {
+    request: Option<Box<NormalizedServerRequest>>,
+    audit: ProviderServerRequestAudit,
 }
 
 fn provider_server_request_record_to_protocol(
@@ -2115,7 +2176,7 @@ mod tests {
             panic!("expected recent provider event result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 5);
+        assert_eq!(records.len(), 6);
         assert_eq!(records[0]["provider"], "codex");
         assert_eq!(records[0]["event"]["type"], "tool_completed");
         assert_eq!(
@@ -2165,6 +2226,21 @@ mod tests {
         assert_eq!(
             records[4]["projection_deltas"][1]["message"],
             "Context is almost full"
+        );
+        assert_eq!(records[5]["event"]["type"], "server_request_resolved");
+        assert_eq!(records[5]["event"]["request_id"], "42");
+        assert_eq!(records[5]["event"]["decision"]["outcome"], "result");
+        assert_eq!(
+            records[5]["projection_deltas"][0]["type"],
+            "approval_resolved"
+        );
+        assert_eq!(
+            records[5]["projection_deltas"][0]["decision"]["payload"]["approved"],
+            true
+        );
+        assert_eq!(
+            records[5]["projection_deltas"][0]["request"]["prompt"],
+            "Run tests?"
         );
 
         let (ace_outbound_tx, _ace_outbound_rx) = tokio::sync::mpsc::channel::<String>(1);
@@ -2870,6 +2946,13 @@ mod tests {
             )
             .expect("append pending request");
 
+        let (provider_sender, mut provider_receiver) = broadcast::channel(8);
+        state
+            .provider_event_streams
+            .lock()
+            .expect("provider event streams")
+            .insert(ProviderKind::Codex, provider_sender);
+
         let response = state
             .dispatch_text(
                 &json!({
@@ -2902,6 +2985,28 @@ mod tests {
                 request_id: 42,
                 result: json!({ "approved": true })
             }]
+        );
+        let ProviderEventStreamMessage::Events(pushed_events) =
+            provider_receiver.recv().await.expect("provider event push")
+        else {
+            panic!("expected pushed provider events");
+        };
+        assert_eq!(pushed_events.len(), 1);
+        let ProviderEvent::ServerRequestResolved {
+            request_id,
+            decision,
+            request,
+        } = &pushed_events[0]
+        else {
+            panic!("expected server request resolved event");
+        };
+        assert_eq!(request_id, "42");
+        assert_eq!(decision.outcome, "result");
+        assert_eq!(decision.payload["approved"], true);
+        assert_eq!(decision.audit["source_thread_id"], "thread-1");
+        assert_eq!(
+            request.as_ref().expect("request").prompt.as_deref(),
+            Some("Run cargo test?")
         );
 
         let records = state

@@ -312,6 +312,13 @@ pub enum ProviderRuntimeProjectionDelta {
     ApprovalUpsert {
         request: Box<NormalizedServerRequest>,
     },
+    ApprovalResolved {
+        provider: String,
+        request_id: String,
+        decision: ProviderServerRequestDecisionRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request: Option<Box<NormalizedServerRequest>>,
+    },
     ThreadItemUpsert {
         item: Box<NormalizedThreadItem>,
     },
@@ -459,6 +466,13 @@ pub enum ProviderRuntimeEvent {
     ServerRequest {
         request: Box<NormalizedServerRequest>,
     },
+    ServerRequestResolved {
+        provider: String,
+        request_id: String,
+        decision: ProviderServerRequestDecisionRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request: Option<Box<NormalizedServerRequest>>,
+    },
     RawNotification {
         provider: String,
         method: String,
@@ -510,6 +524,20 @@ impl ProviderRuntimeEvent {
             ProviderEvent::SemanticTool { tool } => Self::tool(*tool),
             ProviderEvent::ThreadItem { item } => Self::ThreadItem { item },
             ProviderEvent::ServerRequest { request } => Self::ServerRequest { request },
+            ProviderEvent::ServerRequestResolved {
+                request_id,
+                decision,
+                request,
+            } => Self::ServerRequestResolved {
+                provider: provider.to_string(),
+                request_id,
+                decision: ProviderServerRequestDecisionRecord {
+                    outcome: decision.outcome,
+                    payload: decision.payload,
+                    audit: decision.audit,
+                },
+                request,
+            },
             ProviderEvent::RawNotification { method, params } => Self::RawNotification {
                 provider: provider.to_string(),
                 method,
@@ -540,7 +568,9 @@ impl ProviderRuntimeEvent {
             | Self::ToolCompleted { tool }
             | Self::ToolFailed { tool, .. }
             | Self::ToolApprovalRequested { tool } => Some(tool.display.status),
-            Self::ThreadItem { .. } | Self::ServerRequest { .. } => None,
+            Self::ThreadItem { .. }
+            | Self::ServerRequest { .. }
+            | Self::ServerRequestResolved { .. } => None,
             Self::RawNotification { .. }
             | Self::RawServerRequest { .. }
             | Self::StderrLine { .. }
@@ -635,6 +665,19 @@ impl ProviderRuntimeEvent {
             }
             Self::ServerRequest { request } => {
                 vec![ProviderRuntimeProjectionDelta::ApprovalUpsert {
+                    request: request.clone(),
+                }]
+            }
+            Self::ServerRequestResolved {
+                provider,
+                request_id,
+                decision,
+                request,
+            } => {
+                vec![ProviderRuntimeProjectionDelta::ApprovalResolved {
+                    provider: provider.clone(),
+                    request_id: request_id.clone(),
+                    decision: decision.clone(),
                     request: request.clone(),
                 }]
             }
@@ -810,8 +853,8 @@ fn turn_id_from_params(value: &serde_json::Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use ace_runtime::provider::{
-        NormalizedServerRequest, NormalizedThreadItem, ProviderMetadata, ServerRequestKind,
-        ThreadItemKind, ThreadItemStatus,
+        NormalizedServerRequest, NormalizedServerRequestDecision, NormalizedThreadItem,
+        ProviderMetadata, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     };
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
@@ -938,6 +981,66 @@ mod tests {
         assert_eq!(encoded["request"]["metadata"]["command"], "cargo test");
         assert_eq!(
             encoded["request"]["provider"]["raw_payload"]["command"],
+            "cargo test"
+        );
+    }
+
+    #[test]
+    fn provider_runtime_event_projects_server_request_resolution() {
+        let request = NormalizedServerRequest {
+            kind: ServerRequestKind::CommandApproval,
+            request_id: "42".to_string(),
+            method: "command/approvalRequest".to_string(),
+            thread_id: Some("thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some("item-1".to_string()),
+            scope: Some("command".to_string()),
+            title: Some("Approve command execution".to_string()),
+            prompt: Some("Run tests?".to_string()),
+            selected_policy: Some("on-request".to_string()),
+            metadata: json!({ "command": "cargo test" }),
+            provider: ProviderMetadata {
+                provider: "codex".to_string(),
+                method: Some("command/approvalRequest".to_string()),
+                schema_version: None,
+                raw_payload: json!({ "command": "cargo test" }),
+            },
+        };
+        let event = ProviderRuntimeEvent::from_provider_event(
+            "codex",
+            ProviderEvent::ServerRequestResolved {
+                request_id: "42".to_string(),
+                decision: NormalizedServerRequestDecision {
+                    outcome: "result".to_string(),
+                    payload: json!({ "approved": true }),
+                    audit: json!({
+                        "scope": "command",
+                        "source_thread_id": "thread-1",
+                        "decided_by": "user"
+                    }),
+                },
+                request: Some(Box::new(request)),
+            },
+        );
+        let encoded = serde_json::to_value(&event).expect("encode event");
+        assert_eq!(encoded["type"], "server_request_resolved");
+        assert_eq!(encoded["provider"], "codex");
+        assert_eq!(encoded["request_id"], "42");
+        assert_eq!(encoded["decision"]["outcome"], "result");
+        assert_eq!(encoded["decision"]["payload"]["approved"], true);
+        assert_eq!(encoded["request"]["prompt"], "Run tests?");
+
+        let deltas = event.projection_deltas();
+        let encoded_delta = serde_json::to_value(&deltas[0]).expect("encode delta");
+        assert_eq!(encoded_delta["type"], "approval_resolved");
+        assert_eq!(encoded_delta["provider"], "codex");
+        assert_eq!(encoded_delta["request_id"], "42");
+        assert_eq!(
+            encoded_delta["decision"]["audit"]["source_thread_id"],
+            "thread-1"
+        );
+        assert_eq!(
+            encoded_delta["request"]["metadata"]["command"],
             "cargo test"
         );
     }

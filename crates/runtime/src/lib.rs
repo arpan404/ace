@@ -297,6 +297,15 @@ pub mod provider {
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct NormalizedServerRequestDecision {
+        pub outcome: String,
+        #[serde(default)]
+        pub payload: Value,
+        #[serde(default)]
+        pub audit: Value,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     #[serde(tag = "type", rename_all = "snake_case")]
     pub enum ProviderEvent {
         RawNotification {
@@ -318,6 +327,12 @@ pub mod provider {
         },
         ServerRequest {
             request: Box<NormalizedServerRequest>,
+        },
+        ServerRequestResolved {
+            request_id: String,
+            decision: NormalizedServerRequestDecision,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            request: Option<Box<NormalizedServerRequest>>,
         },
         StderrLine {
             line: String,
