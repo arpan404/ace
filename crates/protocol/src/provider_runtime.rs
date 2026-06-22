@@ -261,6 +261,49 @@ pub enum ProviderRuntimeProjectionDelta {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
     },
+    ChildThreadUpsert {
+        provider: String,
+        parent_thread_id: String,
+        child_thread_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nickname: Option<String>,
+        status: ThreadItemStatus,
+    },
+    ReviewModeChanged {
+        provider: String,
+        thread_id: String,
+        active: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item_id: Option<String>,
+    },
+    DiffUpdated {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item_id: Option<String>,
+        status: ThreadItemStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        diff: Option<String>,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        files: serde_json::Value,
+    },
+    TerminalOutputAppended {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item_id: Option<String>,
+        text: String,
+    },
     ActiveTurnChanged {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -423,6 +466,65 @@ impl ProviderRuntimeEvent {
                         status: item.status,
                         text: item.text.clone(),
                     });
+                }
+                if matches!(
+                    item.kind,
+                    ThreadItemKind::SubAgentActivity | ThreadItemKind::CollabAgentToolCall
+                ) && let (Some(parent_thread_id), Some(child_thread_id)) = (
+                    item.parent_thread_id
+                        .as_deref()
+                        .or(item.thread_id.as_deref()),
+                    item.child_thread_id.as_deref(),
+                ) {
+                    deltas.push(ProviderRuntimeProjectionDelta::ChildThreadUpsert {
+                        provider: item.provider.provider.clone(),
+                        parent_thread_id: parent_thread_id.to_string(),
+                        child_thread_id: child_thread_id.to_string(),
+                        item_id: item.item_id.clone(),
+                        role: item.role.clone(),
+                        nickname: item.sender.clone(),
+                        status: item.status,
+                    });
+                }
+                match item.kind {
+                    ThreadItemKind::EnteredReviewMode | ThreadItemKind::ExitedReviewMode => {
+                        if let Some(thread_id) = item.thread_id.as_deref() {
+                            deltas.push(ProviderRuntimeProjectionDelta::ReviewModeChanged {
+                                provider: item.provider.provider.clone(),
+                                thread_id: thread_id.to_string(),
+                                active: item.kind == ThreadItemKind::EnteredReviewMode,
+                                item_id: item.item_id.clone(),
+                            });
+                        }
+                    }
+                    ThreadItemKind::FileChange => {
+                        deltas.push(ProviderRuntimeProjectionDelta::DiffUpdated {
+                            provider: item.provider.provider.clone(),
+                            thread_id: item.thread_id.clone(),
+                            turn_id: item.turn_id.clone(),
+                            item_id: item.item_id.clone(),
+                            status: item.status,
+                            diff: string_at(&item.metadata, &["diff"])
+                                .or_else(|| item.text.clone()),
+                            files: item
+                                .metadata
+                                .get("files")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null),
+                        });
+                    }
+                    ThreadItemKind::CommandExecution => {
+                        if let Some(text) = item.text.clone().filter(|text| !text.is_empty()) {
+                            deltas.push(ProviderRuntimeProjectionDelta::TerminalOutputAppended {
+                                provider: item.provider.provider.clone(),
+                                thread_id: item.thread_id.clone(),
+                                turn_id: item.turn_id.clone(),
+                                item_id: item.item_id.clone(),
+                                text,
+                            });
+                        }
+                    }
+                    _ => {}
                 }
                 deltas
             }
@@ -701,5 +803,136 @@ mod tests {
             } if thread_id.as_deref() == Some("thread-1")
                 && turn_id.as_deref() == Some("turn-1")
         )));
+    }
+
+    #[test]
+    fn provider_runtime_events_project_child_review_diff_and_terminal_state() {
+        let events = vec![
+            thread_item_event(NormalizedThreadItem {
+                kind: ThreadItemKind::SubAgentActivity,
+                status: ThreadItemStatus::Started,
+                thread_id: Some("parent-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("subagent-item-1".to_string()),
+                parent_thread_id: Some("parent-1".to_string()),
+                child_thread_id: Some("child-1".to_string()),
+                sender: Some("Reviewer".to_string()),
+                role: Some("reviewer".to_string()),
+                title: Some("Reviewer started".to_string()),
+                text: None,
+                metadata: json!({}),
+                provider: provider_metadata("item/subAgentActivity/delta"),
+            }),
+            thread_item_event(NormalizedThreadItem {
+                kind: ThreadItemKind::EnteredReviewMode,
+                status: ThreadItemStatus::Completed,
+                thread_id: Some("parent-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("review-1".to_string()),
+                parent_thread_id: None,
+                child_thread_id: None,
+                sender: None,
+                role: None,
+                title: Some("Entered review mode".to_string()),
+                text: None,
+                metadata: json!({}),
+                provider: provider_metadata("item/completed"),
+            }),
+            thread_item_event(NormalizedThreadItem {
+                kind: ThreadItemKind::FileChange,
+                status: ThreadItemStatus::Updated,
+                thread_id: Some("parent-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("file-1".to_string()),
+                parent_thread_id: None,
+                child_thread_id: None,
+                sender: None,
+                role: None,
+                title: Some("Edited src/main.rs".to_string()),
+                text: None,
+                metadata: json!({
+                    "diff": "@@ -1 +1 @@",
+                    "files": ["src/main.rs"]
+                }),
+                provider: provider_metadata("item/fileChange/patchUpdated"),
+            }),
+            thread_item_event(NormalizedThreadItem {
+                kind: ThreadItemKind::CommandExecution,
+                status: ThreadItemStatus::Updated,
+                thread_id: Some("parent-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("cmd-1".to_string()),
+                parent_thread_id: None,
+                child_thread_id: None,
+                sender: None,
+                role: None,
+                title: Some("cargo test".to_string()),
+                text: Some("running 1 test\n".to_string()),
+                metadata: json!({ "command": "cargo test" }),
+                provider: provider_metadata("item/commandExecution/outputDelta"),
+            }),
+        ];
+
+        let deltas = projection_deltas_for_events(&events);
+
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ChildThreadUpsert {
+                parent_thread_id,
+                child_thread_id,
+                role,
+                nickname,
+                ..
+            } if parent_thread_id == "parent-1"
+                && child_thread_id == "child-1"
+                && role.as_deref() == Some("reviewer")
+                && nickname.as_deref() == Some("Reviewer")
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ReviewModeChanged {
+                thread_id,
+                active: true,
+                item_id,
+                ..
+            } if thread_id == "parent-1" && item_id.as_deref() == Some("review-1")
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::DiffUpdated {
+                item_id,
+                diff,
+                files,
+                ..
+            } if item_id.as_deref() == Some("file-1")
+                && diff.as_deref() == Some("@@ -1 +1 @@")
+                && files == &json!(["src/main.rs"])
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::TerminalOutputAppended {
+                item_id,
+                text,
+                ..
+            } if item_id.as_deref() == Some("cmd-1") && text == "running 1 test\n"
+        )));
+    }
+
+    fn thread_item_event(item: NormalizedThreadItem) -> ProviderRuntimeEvent {
+        ProviderRuntimeEvent::from_provider_event(
+            "codex",
+            ProviderEvent::ThreadItem {
+                item: Box::new(item),
+            },
+        )
+    }
+
+    fn provider_metadata(method: &str) -> ProviderMetadata {
+        ProviderMetadata {
+            provider: "codex".to_string(),
+            method: Some(method.to_string()),
+            schema_version: None,
+            raw_payload: json!({}),
+        }
     }
 }

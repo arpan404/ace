@@ -982,7 +982,10 @@ mod tests {
         ws::{WsServerPayload, WsServerResponse, methods},
     };
     use ace_runtime::{
-        provider::{NormalizedServerRequest, ProviderEvent, ProviderMetadata, ServerRequestKind},
+        provider::{
+            NormalizedServerRequest, NormalizedThreadItem, ProviderEvent, ProviderMetadata,
+            ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+        },
         tools::{
             ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
             normalize_tool_call,
@@ -1676,6 +1679,36 @@ mod tests {
                 method: "item/completed".to_string(),
                 params: json!({ "item": { "id": "item-1" } }),
             },
+            ProviderEvent::ThreadItem {
+                item: Box::new(NormalizedThreadItem {
+                    kind: ThreadItemKind::FileChange,
+                    status: ThreadItemStatus::Updated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("file-1".to_string()),
+                    parent_thread_id: None,
+                    child_thread_id: None,
+                    sender: None,
+                    role: None,
+                    title: Some("Edited src/main.rs".to_string()),
+                    text: None,
+                    metadata: json!({
+                        "diff": "@@ -1 +1 @@",
+                        "files": ["src/main.rs"]
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("item/fileChange/patchUpdated".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({
+                            "item": {
+                                "type": "fileChange",
+                                "id": "file-1"
+                            }
+                        }),
+                    },
+                }),
+            },
         ]);
 
         let runner = Arc::new(FakeRunner);
@@ -1768,6 +1801,13 @@ mod tests {
             "raw_notification_observed"
         );
         assert_eq!(body["projection_deltas"][2]["method"], "item/completed");
+        assert_eq!(body["projection_deltas"][3]["type"], "thread_item_upsert");
+        assert_eq!(body["projection_deltas"][4]["type"], "diff_updated");
+        assert_eq!(
+            body["projection_deltas"][4]["files"],
+            json!(["src/main.rs"])
+        );
+        assert_eq!(body["projection_deltas"][4]["diff"], "@@ -1 +1 @@");
         assert_eq!(body["raw_events"][2]["type"], "raw_notification");
         assert_eq!(body["raw_events"][2]["method"], "item/completed");
 
@@ -1864,7 +1904,7 @@ mod tests {
             panic!("expected recent provider event result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 3);
+        assert_eq!(records.len(), 4);
         assert_eq!(records[0]["provider"], "codex");
         assert_eq!(records[0]["event"]["type"], "tool_completed");
         assert_eq!(
@@ -1897,6 +1937,15 @@ mod tests {
             "item/completed"
         );
         assert_eq!(records[2]["raw_event"]["method"], "item/completed");
+        assert_eq!(
+            records[3]["projection_deltas"][0]["type"],
+            "thread_item_upsert"
+        );
+        assert_eq!(records[3]["projection_deltas"][1]["type"], "diff_updated");
+        assert_eq!(
+            records[3]["projection_deltas"][1]["files"],
+            json!(["src/main.rs"])
+        );
 
         let (ace_outbound_tx, _ace_outbound_rx) = tokio::sync::mpsc::channel::<String>(1);
         let unsupported = state
