@@ -267,6 +267,90 @@ pub struct ProcessExitRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeWarningRecord {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    pub message: String,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelRerouteRecord {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderStateRecord {
+    pub provider: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RealtimeSessionRecord {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TurnModerationRecord {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    pub status: String,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutoApprovalReviewRecord {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+type RuntimeThreadTurnKey = (Option<String>, Option<String>);
+type AutoApprovalReviewKey = (Option<String>, Option<String>, Option<String>);
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentThread {
     pub thread_id: String,
     pub provider: String,
@@ -299,6 +383,12 @@ pub struct AgentRuntimeState {
     subagent_actions: Vec<SubagentActionRecord>,
     turn_diffs: HashMap<(String, Option<String>), TurnDiffRecord>,
     process_exits: Vec<ProcessExitRecord>,
+    warnings: Vec<RuntimeWarningRecord>,
+    model_reroutes: Vec<ModelRerouteRecord>,
+    provider_states: HashMap<String, ProviderStateRecord>,
+    realtime_sessions: HashMap<RuntimeThreadTurnKey, RealtimeSessionRecord>,
+    turn_moderation: HashMap<RuntimeThreadTurnKey, TurnModerationRecord>,
+    auto_approval_reviews: HashMap<AutoApprovalReviewKey, AutoApprovalReviewRecord>,
     review_threads: HashSet<String>,
 }
 
@@ -318,6 +408,12 @@ pub struct AgentRuntimeSnapshot {
     pub subagent_actions: Vec<SubagentActionRecord>,
     pub turn_diffs: Vec<TurnDiffRecord>,
     pub process_exits: Vec<ProcessExitRecord>,
+    pub warnings: Vec<RuntimeWarningRecord>,
+    pub model_reroutes: Vec<ModelRerouteRecord>,
+    pub provider_states: Vec<ProviderStateRecord>,
+    pub realtime_sessions: Vec<RealtimeSessionRecord>,
+    pub turn_moderation: Vec<TurnModerationRecord>,
+    pub auto_approval_reviews: Vec<AutoApprovalReviewRecord>,
     pub review_threads: Vec<String>,
 }
 
@@ -356,6 +452,35 @@ impl AgentRuntimeState {
                 .then_with(|| left.turn_id.cmp(&right.turn_id))
         });
 
+        let mut provider_states = self.provider_states.values().cloned().collect::<Vec<_>>();
+        provider_states.sort_by(|left, right| left.provider.cmp(&right.provider));
+
+        let mut realtime_sessions = self.realtime_sessions.values().cloned().collect::<Vec<_>>();
+        realtime_sessions.sort_by(|left, right| {
+            left.thread_id
+                .cmp(&right.thread_id)
+                .then_with(|| left.turn_id.cmp(&right.turn_id))
+        });
+
+        let mut turn_moderation = self.turn_moderation.values().cloned().collect::<Vec<_>>();
+        turn_moderation.sort_by(|left, right| {
+            left.thread_id
+                .cmp(&right.thread_id)
+                .then_with(|| left.turn_id.cmp(&right.turn_id))
+        });
+
+        let mut auto_approval_reviews = self
+            .auto_approval_reviews
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        auto_approval_reviews.sort_by(|left, right| {
+            left.thread_id
+                .cmp(&right.thread_id)
+                .then_with(|| left.turn_id.cmp(&right.turn_id))
+                .then_with(|| left.item_id.cmp(&right.item_id))
+        });
+
         let mut review_threads = self.review_threads.iter().cloned().collect::<Vec<_>>();
         review_threads.sort();
 
@@ -374,6 +499,12 @@ impl AgentRuntimeState {
             subagent_actions: self.subagent_actions.clone(),
             turn_diffs,
             process_exits: self.process_exits.clone(),
+            warnings: self.warnings.clone(),
+            model_reroutes: self.model_reroutes.clone(),
+            provider_states,
+            realtime_sessions,
+            turn_moderation,
+            auto_approval_reviews,
             review_threads,
         }
     }
@@ -535,6 +666,43 @@ impl AgentRuntimeState {
         self.process_exits.push(process);
     }
 
+    pub fn record_warning(&mut self, warning: RuntimeWarningRecord) {
+        self.warnings.push(warning);
+    }
+
+    pub fn record_model_reroute(&mut self, reroute: ModelRerouteRecord) {
+        self.model_reroutes.push(reroute);
+    }
+
+    pub fn upsert_provider_state(&mut self, state: ProviderStateRecord) {
+        self.provider_states.insert(state.provider.clone(), state);
+    }
+
+    pub fn upsert_realtime_session(&mut self, session: RealtimeSessionRecord) {
+        self.realtime_sessions.insert(
+            (session.thread_id.clone(), session.turn_id.clone()),
+            session,
+        );
+    }
+
+    pub fn upsert_turn_moderation(&mut self, moderation: TurnModerationRecord) {
+        self.turn_moderation.insert(
+            (moderation.thread_id.clone(), moderation.turn_id.clone()),
+            moderation,
+        );
+    }
+
+    pub fn upsert_auto_approval_review(&mut self, review: AutoApprovalReviewRecord) {
+        self.auto_approval_reviews.insert(
+            (
+                review.thread_id.clone(),
+                review.turn_id.clone(),
+                review.item_id.clone(),
+            ),
+            review,
+        );
+    }
+
     #[must_use]
     pub fn subagent_actions(&self) -> &[SubagentActionRecord] {
         &self.subagent_actions
@@ -554,6 +722,16 @@ impl AgentRuntimeState {
     #[must_use]
     pub fn process_exits(&self) -> &[ProcessExitRecord] {
         &self.process_exits
+    }
+
+    #[must_use]
+    pub fn warnings(&self) -> &[RuntimeWarningRecord] {
+        &self.warnings
+    }
+
+    #[must_use]
+    pub fn model_reroutes(&self) -> &[ModelRerouteRecord] {
+        &self.model_reroutes
     }
 
     pub fn record_handoff(&mut self, handoff: HandoffPlan) {
@@ -843,6 +1021,24 @@ impl AgentRuntimeState {
                 if let Some(process) = process_exit_from_signal(signal) {
                     self.record_process_exit(process);
                 }
+                if let Some(warning) = warning_from_signal(signal) {
+                    self.record_warning(warning);
+                }
+                if let Some(reroute) = model_reroute_from_signal(signal) {
+                    self.record_model_reroute(reroute);
+                }
+                if let Some(provider_state) = provider_state_from_signal(signal) {
+                    self.upsert_provider_state(provider_state);
+                }
+                if let Some(session) = realtime_session_from_signal(signal) {
+                    self.upsert_realtime_session(session);
+                }
+                if let Some(moderation) = turn_moderation_from_signal(signal) {
+                    self.upsert_turn_moderation(moderation);
+                }
+                if let Some(review) = auto_approval_review_from_signal(signal) {
+                    self.upsert_auto_approval_review(review);
+                }
                 self.apply_thread_details_signal(signal);
                 self.apply_turn_lifecycle_signal(signal);
                 self.apply_review_mode_signal(signal);
@@ -1116,6 +1312,102 @@ fn process_exit_from_signal(signal: &NormalizedRuntimeSignal) -> Option<ProcessE
     })
 }
 
+fn warning_from_signal(signal: &NormalizedRuntimeSignal) -> Option<RuntimeWarningRecord> {
+    if signal.kind != RuntimeSignalKind::Warning {
+        return None;
+    }
+    Some(RuntimeWarningRecord {
+        provider: signal.provider.provider.clone(),
+        thread_id: signal.thread_id.clone(),
+        turn_id: signal.turn_id.clone(),
+        message: signal.message.clone()?,
+        metadata: signal.metadata.clone(),
+    })
+}
+
+fn model_reroute_from_signal(signal: &NormalizedRuntimeSignal) -> Option<ModelRerouteRecord> {
+    if signal.kind != RuntimeSignalKind::ModelRerouted {
+        return None;
+    }
+    Some(ModelRerouteRecord {
+        provider: signal.provider.provider.clone(),
+        thread_id: signal.thread_id.clone(),
+        turn_id: signal.turn_id.clone(),
+        from_model: signal.from_model.clone(),
+        to_model: signal.to_model.clone(),
+        reason: signal.reason.clone(),
+    })
+}
+
+fn provider_state_from_signal(signal: &NormalizedRuntimeSignal) -> Option<ProviderStateRecord> {
+    if signal.kind != RuntimeSignalKind::ProviderStateUpdated {
+        return None;
+    }
+    Some(ProviderStateRecord {
+        provider: signal.provider.provider.clone(),
+        status: signal
+            .status
+            .clone()
+            .unwrap_or_else(|| "provider_state_updated".to_string()),
+        message: signal.message.clone(),
+        name: signal.name.clone(),
+        metadata: signal.metadata.clone(),
+    })
+}
+
+fn realtime_session_from_signal(signal: &NormalizedRuntimeSignal) -> Option<RealtimeSessionRecord> {
+    if signal.kind != RuntimeSignalKind::RealtimeSessionUpdated {
+        return None;
+    }
+    Some(RealtimeSessionRecord {
+        provider: signal.provider.provider.clone(),
+        thread_id: signal.thread_id.clone(),
+        turn_id: signal.turn_id.clone(),
+        status: signal
+            .status
+            .clone()
+            .unwrap_or_else(|| "realtime_session_updated".to_string()),
+        message: signal.message.clone(),
+        metadata: signal.metadata.clone(),
+    })
+}
+
+fn turn_moderation_from_signal(signal: &NormalizedRuntimeSignal) -> Option<TurnModerationRecord> {
+    if signal.kind != RuntimeSignalKind::TurnModerationUpdated {
+        return None;
+    }
+    Some(TurnModerationRecord {
+        provider: signal.provider.provider.clone(),
+        thread_id: signal.thread_id.clone(),
+        turn_id: signal.turn_id.clone(),
+        status: signal
+            .status
+            .clone()
+            .unwrap_or_else(|| "moderation_metadata_updated".to_string()),
+        metadata: signal.metadata.clone(),
+    })
+}
+
+fn auto_approval_review_from_signal(
+    signal: &NormalizedRuntimeSignal,
+) -> Option<AutoApprovalReviewRecord> {
+    if signal.kind != RuntimeSignalKind::AutoApprovalReviewUpdated {
+        return None;
+    }
+    Some(AutoApprovalReviewRecord {
+        provider: signal.provider.provider.clone(),
+        thread_id: signal.thread_id.clone(),
+        turn_id: signal.turn_id.clone(),
+        item_id: signal.item_id.clone(),
+        status: signal
+            .status
+            .clone()
+            .unwrap_or_else(|| "auto_approval_review_updated".to_string()),
+        message: signal.message.clone(),
+        metadata: signal.metadata.clone(),
+    })
+}
+
 impl AgentRuntimeState {
     fn apply_thread_details_signal(&mut self, signal: &NormalizedRuntimeSignal) {
         let Some(thread_id) = signal.thread_id.as_deref() else {
@@ -1224,6 +1516,37 @@ mod tests {
         ThreadItemStatus,
     };
     use serde_json::json;
+
+    fn runtime_signal(kind: RuntimeSignalKind, method: &str) -> NormalizedRuntimeSignal {
+        NormalizedRuntimeSignal {
+            kind,
+            thread_id: None,
+            turn_id: None,
+            item_id: None,
+            message: None,
+            from_model: None,
+            to_model: None,
+            reason: None,
+            text: None,
+            audio: None,
+            status: None,
+            name: None,
+            active: None,
+            archived: None,
+            diff: None,
+            files: None,
+            process_id: None,
+            exit_code: None,
+            request_id: None,
+            metadata: json!({}),
+            provider: ProviderMetadata {
+                provider: "codex".to_string(),
+                method: Some(method.to_string()),
+                schema_version: None,
+                raw_payload: json!({}),
+            },
+        }
+    }
 
     #[test]
     fn tracks_active_turns_and_rejects_concurrent_starts() {
@@ -2217,6 +2540,154 @@ mod tests {
         let snapshot = state.snapshot();
         assert_eq!(snapshot.turn_diffs[0].diff.as_deref(), Some("@@ -2 +2 @@"));
         assert_eq!(snapshot.process_exits[0].metadata["exitCode"], 2);
+    }
+
+    #[test]
+    fn applies_runtime_status_and_review_runtime_signals() {
+        let mut warning = runtime_signal(RuntimeSignalKind::Warning, "warning");
+        warning.thread_id = Some("thread-1".to_string());
+        warning.turn_id = Some("turn-1".to_string());
+        warning.message = Some("sandbox warning".to_string());
+        warning.metadata = json!({ "severity": "warning" });
+
+        let mut reroute = runtime_signal(RuntimeSignalKind::ModelRerouted, "model/rerouted");
+        reroute.thread_id = Some("thread-1".to_string());
+        reroute.turn_id = Some("turn-1".to_string());
+        reroute.from_model = Some("gpt-5".to_string());
+        reroute.to_model = Some("gpt-5.5".to_string());
+        reroute.reason = Some("capacity".to_string());
+
+        let mut provider_state =
+            runtime_signal(RuntimeSignalKind::ProviderStateUpdated, "account/updated");
+        provider_state.status = Some("account_updated".to_string());
+        provider_state.message = Some("Signed in".to_string());
+        provider_state.name = Some("work".to_string());
+        provider_state.metadata = json!({ "email": "user@example.com" });
+
+        let mut realtime_initial = runtime_signal(
+            RuntimeSignalKind::RealtimeSessionUpdated,
+            "thread/realtime/started",
+        );
+        realtime_initial.thread_id = Some("thread-1".to_string());
+        realtime_initial.turn_id = Some("turn-1".to_string());
+        realtime_initial.status = Some("started".to_string());
+
+        let mut realtime_error = runtime_signal(
+            RuntimeSignalKind::RealtimeSessionUpdated,
+            "thread/realtime/error",
+        );
+        realtime_error.thread_id = Some("thread-1".to_string());
+        realtime_error.turn_id = Some("turn-1".to_string());
+        realtime_error.status = Some("error".to_string());
+        realtime_error.message = Some("Realtime failed".to_string());
+        realtime_error.metadata = json!({ "error": "Realtime failed" });
+
+        let mut moderation_initial = runtime_signal(
+            RuntimeSignalKind::TurnModerationUpdated,
+            "turn/moderationMetadata",
+        );
+        moderation_initial.thread_id = Some("thread-1".to_string());
+        moderation_initial.turn_id = Some("turn-1".to_string());
+        moderation_initial.status = Some("checking".to_string());
+        moderation_initial.metadata = json!({ "blocked": false });
+
+        let mut moderation_done = runtime_signal(
+            RuntimeSignalKind::TurnModerationUpdated,
+            "turn/moderationMetadata",
+        );
+        moderation_done.thread_id = Some("thread-1".to_string());
+        moderation_done.turn_id = Some("turn-1".to_string());
+        moderation_done.status = Some("passed".to_string());
+        moderation_done.metadata = json!({ "blocked": false, "result": "ok" });
+
+        let mut auto_review_started = runtime_signal(
+            RuntimeSignalKind::AutoApprovalReviewUpdated,
+            "item/autoApprovalReview/started",
+        );
+        auto_review_started.thread_id = Some("thread-1".to_string());
+        auto_review_started.turn_id = Some("turn-1".to_string());
+        auto_review_started.item_id = Some("review-1".to_string());
+        auto_review_started.status = Some("started".to_string());
+        auto_review_started.message = Some("reviewing command".to_string());
+
+        let mut auto_review_completed = runtime_signal(
+            RuntimeSignalKind::AutoApprovalReviewUpdated,
+            "item/autoApprovalReview/completed",
+        );
+        auto_review_completed.thread_id = Some("thread-1".to_string());
+        auto_review_completed.turn_id = Some("turn-1".to_string());
+        auto_review_completed.item_id = Some("review-1".to_string());
+        auto_review_completed.status = Some("completed".to_string());
+        auto_review_completed.message = Some("approved command".to_string());
+        auto_review_completed.metadata = json!({ "approved": true });
+
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(warning),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(reroute),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(provider_state),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(realtime_initial),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(realtime_error),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(moderation_initial),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(moderation_done),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(auto_review_started),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(auto_review_completed),
+            },
+        ]);
+
+        assert_eq!(state.warnings().len(), 1);
+        assert_eq!(state.warnings()[0].message, "sandbox warning");
+        assert_eq!(state.warnings()[0].metadata["severity"], "warning");
+        assert_eq!(state.model_reroutes().len(), 1);
+        assert_eq!(
+            state.model_reroutes()[0].from_model.as_deref(),
+            Some("gpt-5")
+        );
+        assert_eq!(
+            state.model_reroutes()[0].to_model.as_deref(),
+            Some("gpt-5.5")
+        );
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.provider_states.len(), 1);
+        assert_eq!(snapshot.provider_states[0].status, "account_updated");
+        assert_eq!(
+            snapshot.provider_states[0].metadata["email"],
+            "user@example.com"
+        );
+        assert_eq!(snapshot.realtime_sessions.len(), 1);
+        assert_eq!(snapshot.realtime_sessions[0].status, "error");
+        assert_eq!(
+            snapshot.realtime_sessions[0].message.as_deref(),
+            Some("Realtime failed")
+        );
+        assert_eq!(snapshot.turn_moderation.len(), 1);
+        assert_eq!(snapshot.turn_moderation[0].status, "passed");
+        assert_eq!(snapshot.turn_moderation[0].metadata["result"], "ok");
+        assert_eq!(snapshot.auto_approval_reviews.len(), 1);
+        assert_eq!(snapshot.auto_approval_reviews[0].status, "completed");
+        assert_eq!(
+            snapshot.auto_approval_reviews[0].message.as_deref(),
+            Some("approved command")
+        );
+        assert_eq!(snapshot.auto_approval_reviews[0].metadata["approved"], true);
     }
 
     #[test]
