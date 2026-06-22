@@ -273,13 +273,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 Ok(response)
             }
             methods::CODEX_COMPATIBILITY_INVENTORY => {
-                Ok(serde_json::to_value(CodexCompatibilityInventoryResponse {
-                    methods: ace_codex::codex_method_inventory()
-                        .iter()
-                        .copied()
-                        .map(Into::into)
-                        .collect(),
-                })?)
+                Ok(serde_json::to_value(
+                    CodexCompatibilityInventoryResponse::from_specs(
+                        ace_codex::codex_method_inventory().iter().copied(),
+                    ),
+                )?)
             }
             methods::CODEX_PERMISSION_PROFILES_LIST => {
                 let response = self.codex.permission_profile_list().await?;
@@ -1529,6 +1527,45 @@ mod tests {
                 .iter()
                 .any(|method| method["method"] == "thread/start"
                     && method["support"] == "typed_supported")
+        );
+        assert!(
+            body["summary"]["total_methods"]
+                .as_u64()
+                .expect("total methods")
+                > 0
+        );
+        assert!(
+            body["summary"]["client_request_methods"]
+                .as_u64()
+                .expect("client methods")
+                > 0
+        );
+        assert!(
+            body["summary"]["intentionally_deferred_methods"]
+                .as_u64()
+                .expect("deferred methods")
+                > 0
+        );
+        assert_eq!(
+            body["raw_request_policy"]["allowed_direction"],
+            "client_request"
+        );
+        assert_eq!(body["raw_request_policy"]["rejects_unknown_methods"], true);
+        assert_eq!(
+            body["raw_request_policy"]["rejects_non_client_request_directions"],
+            true
+        );
+        assert!(
+            body["raw_request_policy"]["allowed_supports"]
+                .as_array()
+                .expect("allowed supports")
+                .contains(&json!("version_gated"))
+        );
+        assert!(
+            body["raw_request_policy"]["rejected_supports"]
+                .as_array()
+                .expect("rejected supports")
+                .contains(&json!("intentionally_deferred"))
         );
 
         let retry = state

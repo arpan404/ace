@@ -324,8 +324,156 @@ impl From<CodexMethodSpec> for CodexCompatibilityMethod {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodexCompatibilityInventoryResponse {
     pub methods: Vec<CodexCompatibilityMethod>,
+    pub summary: CodexCompatibilityInventorySummary,
+    pub raw_request_policy: CodexRawRequestPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct CodexCompatibilityInventorySummary {
+    pub total_methods: usize,
+    pub client_request_methods: usize,
+    pub client_notification_methods: usize,
+    pub server_notification_methods: usize,
+    pub server_request_methods: usize,
+    pub typed_supported_methods: usize,
+    pub raw_supported_methods: usize,
+    pub version_gated_methods: usize,
+    pub intentionally_deferred_methods: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexRawRequestPolicy {
+    pub allowed_direction: CodexMethodDirection,
+    pub allowed_supports: Vec<CodexMethodSupport>,
+    pub rejected_supports: Vec<CodexMethodSupport>,
+    pub rejects_unknown_methods: bool,
+    pub rejects_non_client_request_directions: bool,
+}
+
+impl CodexCompatibilityInventoryResponse {
+    #[must_use]
+    pub fn from_specs(specs: impl IntoIterator<Item = CodexMethodSpec>) -> Self {
+        let mut summary = CodexCompatibilityInventorySummary::default();
+        let methods = specs
+            .into_iter()
+            .map(|spec| {
+                summary.total_methods += 1;
+                match spec.direction {
+                    CodexMethodDirection::ClientRequest => summary.client_request_methods += 1,
+                    CodexMethodDirection::ClientNotification => {
+                        summary.client_notification_methods += 1;
+                    }
+                    CodexMethodDirection::ServerNotification => {
+                        summary.server_notification_methods += 1;
+                    }
+                    CodexMethodDirection::ServerRequest => summary.server_request_methods += 1,
+                }
+                match spec.support {
+                    CodexMethodSupport::TypedSupported => summary.typed_supported_methods += 1,
+                    CodexMethodSupport::RawSupported => summary.raw_supported_methods += 1,
+                    CodexMethodSupport::VersionGated => summary.version_gated_methods += 1,
+                    CodexMethodSupport::IntentionallyDeferred => {
+                        summary.intentionally_deferred_methods += 1;
+                    }
+                }
+                spec.into()
+            })
+            .collect();
+
+        Self {
+            methods,
+            summary,
+            raw_request_policy: CodexRawRequestPolicy {
+                allowed_direction: CodexMethodDirection::ClientRequest,
+                allowed_supports: vec![
+                    CodexMethodSupport::TypedSupported,
+                    CodexMethodSupport::RawSupported,
+                    CodexMethodSupport::VersionGated,
+                ],
+                rejected_supports: vec![CodexMethodSupport::IntentionallyDeferred],
+                rejects_unknown_methods: true,
+                rejects_non_client_request_directions: true,
+            },
+        }
+    }
 }
 
 fn default_shutdown_grace_ms() -> u64 {
     1_000
+}
+
+#[cfg(test)]
+mod tests {
+    use ace_codex::{
+        CodexMethodDirection, CodexMethodSpec, CodexMethodSupport, codex_method_inventory,
+    };
+
+    use super::*;
+
+    #[test]
+    fn compatibility_inventory_summarizes_methods_and_raw_request_policy() {
+        let inventory = CodexCompatibilityInventoryResponse::from_specs(
+            codex_method_inventory().iter().copied(),
+        );
+
+        assert_eq!(
+            inventory.summary.total_methods,
+            codex_method_inventory().len()
+        );
+        assert!(inventory.summary.client_request_methods > 0);
+        assert!(inventory.summary.server_notification_methods > 0);
+        assert!(inventory.summary.server_request_methods > 0);
+        assert!(inventory.summary.version_gated_methods > 0);
+        assert!(inventory.summary.intentionally_deferred_methods > 0);
+        assert_eq!(
+            inventory.raw_request_policy.allowed_direction,
+            CodexMethodDirection::ClientRequest
+        );
+        assert!(
+            inventory
+                .raw_request_policy
+                .allowed_supports
+                .contains(&CodexMethodSupport::VersionGated)
+        );
+        assert!(
+            inventory
+                .raw_request_policy
+                .rejected_supports
+                .contains(&CodexMethodSupport::IntentionallyDeferred)
+        );
+        assert!(inventory.raw_request_policy.rejects_unknown_methods);
+        assert!(
+            inventory
+                .raw_request_policy
+                .rejects_non_client_request_directions
+        );
+    }
+
+    #[test]
+    fn compatibility_inventory_counts_custom_specs() {
+        let inventory = CodexCompatibilityInventoryResponse::from_specs([
+            CodexMethodSpec::new(
+                "thread/start",
+                CodexMethodDirection::ClientRequest,
+                CodexMethodSupport::TypedSupported,
+            ),
+            CodexMethodSpec::new(
+                "warning",
+                CodexMethodDirection::ServerNotification,
+                CodexMethodSupport::RawSupported,
+            ),
+            CodexMethodSpec::new(
+                "cloud/handoff",
+                CodexMethodDirection::ClientRequest,
+                CodexMethodSupport::IntentionallyDeferred,
+            ),
+        ]);
+
+        assert_eq!(inventory.summary.total_methods, 3);
+        assert_eq!(inventory.summary.client_request_methods, 2);
+        assert_eq!(inventory.summary.server_notification_methods, 1);
+        assert_eq!(inventory.summary.typed_supported_methods, 1);
+        assert_eq!(inventory.summary.raw_supported_methods, 1);
+        assert_eq!(inventory.summary.intentionally_deferred_methods, 1);
+    }
 }
