@@ -4,9 +4,9 @@ use ace_runtime::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem,
         ProviderAdapterContract, ProviderAdapterInvocationKind, ProviderAdapterOperation,
         ProviderAdapterOperationProfile, ProviderAdapterOperationSpec,
-        ProviderAdapterOperationSupport, ProviderAdapterProfile, ProviderContractReport,
-        ProviderDescriptor, ProviderDriverStatus, ProviderEvent, ProviderFeature,
-        ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
+        ProviderAdapterOperationSupport, ProviderAdapterProfile, ProviderAdapterRuntimeReport,
+        ProviderContractReport, ProviderDescriptor, ProviderDriverStatus, ProviderEvent,
+        ProviderFeature, ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
         RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
     },
     threads::AgentRuntimeSnapshot,
@@ -78,6 +78,7 @@ pub struct ProviderRuntimeProviderInfo {
     pub supports_server_request_responses: bool,
     pub contract: ProviderContractReport,
     pub adapter_profile: ProviderAdapterProfile,
+    pub adapter_runtime: ProviderAdapterRuntimeReport,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -128,6 +129,7 @@ pub struct ProviderRuntimeProviderOperations {
     pub runtime_id: String,
     pub display_name: String,
     pub adapter_profile: ProviderAdapterProfile,
+    pub adapter_runtime: ProviderAdapterRuntimeReport,
     pub operations: Vec<ProviderRuntimeProviderOperation>,
 }
 
@@ -170,6 +172,7 @@ pub struct ProviderRuntimeProviderStatus {
     pub supports_server_request_responses: bool,
     pub contract: ProviderContractReport,
     pub adapter_profile: ProviderAdapterProfile,
+    pub adapter_runtime: ProviderAdapterRuntimeReport,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

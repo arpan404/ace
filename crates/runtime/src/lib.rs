@@ -263,6 +263,30 @@ pub mod provider {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case")]
+    pub enum ProviderAdapterRuntimeHook {
+        EventSource,
+        ServerRequestResponder,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderAdapterRuntimeHookStatus {
+        pub hook: ProviderAdapterRuntimeHook,
+        pub required: bool,
+        pub available: bool,
+        #[serde(default)]
+        pub operations: Vec<ProviderAdapterOperation>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderAdapterRuntimeReport {
+        pub provider: ProviderKind,
+        pub satisfies_required_hooks: bool,
+        pub hooks: Vec<ProviderAdapterRuntimeHookStatus>,
+        pub missing_required_hooks: Vec<ProviderAdapterRuntimeHook>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
     pub enum ProviderFeatureDirection {
         ClientRequest,
         ClientNotification,
@@ -1241,6 +1265,33 @@ pub mod provider {
         }
     }
 
+    fn required_hook_operations(
+        profile: &ProviderAdapterProfile,
+        hook: ProviderAdapterRuntimeHook,
+    ) -> Vec<ProviderAdapterOperation> {
+        profile
+            .operations
+            .iter()
+            .filter(|operation| operation.support == ProviderAdapterOperationSupport::Required)
+            .filter_map(|operation| {
+                let required_hook = match operation.operation {
+                    ProviderAdapterOperation::ProviderEvents => {
+                        Some(ProviderAdapterRuntimeHook::EventSource)
+                    }
+                    ProviderAdapterOperation::ServerRequestRespond => {
+                        Some(ProviderAdapterRuntimeHook::ServerRequestResponder)
+                    }
+                    _ => None,
+                };
+                if required_hook == Some(hook) {
+                    Some(operation.operation)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     impl ProviderRegistry {
         #[must_use]
         pub fn new() -> Self {
@@ -1344,6 +1395,58 @@ pub mod provider {
             self.drivers
                 .get(&kind)
                 .map(|driver| driver.adapter_profile())
+        }
+
+        #[must_use]
+        pub fn adapter_runtime_report(
+            &self,
+            kind: ProviderKind,
+        ) -> Option<ProviderAdapterRuntimeReport> {
+            let profile = self.adapter_profile(kind)?;
+            let event_operations =
+                required_hook_operations(&profile, ProviderAdapterRuntimeHook::EventSource);
+            let server_request_operations = required_hook_operations(
+                &profile,
+                ProviderAdapterRuntimeHook::ServerRequestResponder,
+            );
+            let event_available = self.has_event_source(kind);
+            let responder_available = self.has_server_request_responder(kind);
+            let hooks = vec![
+                ProviderAdapterRuntimeHookStatus {
+                    hook: ProviderAdapterRuntimeHook::EventSource,
+                    required: !event_operations.is_empty(),
+                    available: event_available,
+                    operations: event_operations,
+                },
+                ProviderAdapterRuntimeHookStatus {
+                    hook: ProviderAdapterRuntimeHook::ServerRequestResponder,
+                    required: !server_request_operations.is_empty(),
+                    available: responder_available,
+                    operations: server_request_operations,
+                },
+            ];
+            let missing_required_hooks = hooks
+                .iter()
+                .filter(|hook| hook.required && !hook.available)
+                .map(|hook| hook.hook)
+                .collect::<Vec<_>>();
+            Some(ProviderAdapterRuntimeReport {
+                provider: kind,
+                satisfies_required_hooks: missing_required_hooks.is_empty(),
+                hooks,
+                missing_required_hooks,
+            })
+        }
+
+        #[must_use]
+        pub fn adapter_runtime_reports(&self) -> Vec<ProviderAdapterRuntimeReport> {
+            let mut reports = self
+                .drivers
+                .keys()
+                .filter_map(|provider| self.adapter_runtime_report(*provider))
+                .collect::<Vec<_>>();
+            reports.sort_by_key(|report| report.provider);
+            reports
         }
 
         #[must_use]
@@ -1744,6 +1847,64 @@ pub mod provider {
                     .direct_provider_method(ProviderAdapterOperation::PlanForkForImplementation),
                 None
             );
+            let codex_runtime = registry
+                .adapter_runtime_report(ProviderKind::Codex)
+                .expect("codex runtime wiring");
+            assert!(!codex_runtime.satisfies_required_hooks);
+            assert_eq!(
+                codex_runtime.missing_required_hooks,
+                vec![
+                    ProviderAdapterRuntimeHook::EventSource,
+                    ProviderAdapterRuntimeHook::ServerRequestResponder,
+                ]
+            );
+            assert!(codex_runtime.hooks.iter().any(|hook| {
+                hook.hook == ProviderAdapterRuntimeHook::EventSource
+                    && hook.required
+                    && !hook.available
+                    && hook.operations == vec![ProviderAdapterOperation::ProviderEvents]
+            }));
+        }
+
+        #[test]
+        fn registry_reports_satisfied_provider_adapter_runtime_hooks() {
+            let codex = Arc::new(FakeProviderDriver {
+                descriptor: ProviderDescriptor {
+                    kind: ProviderKind::Codex,
+                    capabilities: ace_provider_contract_requirements()
+                        .into_iter()
+                        .filter(|requirement| requirement.required)
+                        .map(|requirement| ProviderCapability {
+                            key: requirement.key,
+                            version: requirement.min_version,
+                        })
+                        .collect(),
+                },
+                requests: Mutex::new(Vec::new()),
+            });
+            let source = Arc::new(FakeProviderEventSource {
+                events: Mutex::new(Vec::new()),
+            });
+            let responder = Arc::new(FakeServerRequestResponder {
+                decisions: Mutex::new(Vec::new()),
+            });
+            let registry = ProviderRegistry::new()
+                .with_driver(codex)
+                .with_event_source(ProviderKind::Codex, source)
+                .with_server_request_responder(ProviderKind::Codex, responder);
+
+            let report = registry
+                .adapter_runtime_report(ProviderKind::Codex)
+                .expect("codex runtime wiring");
+            assert!(report.satisfies_required_hooks);
+            assert!(report.missing_required_hooks.is_empty());
+            assert!(report.hooks.iter().any(|hook| {
+                hook.hook == ProviderAdapterRuntimeHook::ServerRequestResponder
+                    && hook.required
+                    && hook.available
+                    && hook.operations == vec![ProviderAdapterOperation::ServerRequestRespond]
+            }));
+            assert_eq!(registry.adapter_runtime_reports().len(), 1);
         }
 
         #[test]

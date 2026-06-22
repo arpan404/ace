@@ -545,6 +545,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                                 provider,
                             },
                         )?;
+                        let adapter_runtime =
+                            self.providers.adapter_runtime_report(provider).ok_or(
+                                ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
+                                    provider,
+                                },
+                            )?;
                         Ok(ProviderRuntimeProviderOperations {
                             provider,
                             runtime_id: provider.runtime_id().to_string(),
@@ -556,6 +562,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                                 .map(ProviderRuntimeProviderOperation::from_profile)
                                 .collect(),
                             adapter_profile,
+                            adapter_runtime,
                         })
                     })
                     .collect::<Result<Vec<_>, ace_runtime::provider::ProviderRuntimeError>>()?;
@@ -614,6 +621,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             .has_server_request_responder(provider),
                         contract: ace_runtime::provider::provider_contract_report(&descriptor),
                         adapter_profile: self.providers.adapter_profile(provider).ok_or(
+                            ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
+                                provider,
+                            },
+                        )?,
+                        adapter_runtime: self.providers.adapter_runtime_report(provider).ok_or(
                             ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
                                 provider,
                             },
@@ -990,6 +1002,15 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             .providers
             .adapter_profile(provider)
             .unwrap_or_else(|| ace_runtime::provider::provider_adapter_profile(&descriptor));
+        let adapter_runtime = self
+            .providers
+            .adapter_runtime_report(provider)
+            .unwrap_or_else(|| ace_runtime::provider::ProviderAdapterRuntimeReport {
+                provider,
+                satisfies_required_hooks: false,
+                hooks: Vec::new(),
+                missing_required_hooks: Vec::new(),
+            });
         ProviderRuntimeProviderInfo {
             provider,
             runtime_id: provider.runtime_id().to_string(),
@@ -1000,6 +1021,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .has_server_request_responder(provider),
             contract: ace_runtime::provider::provider_contract_report(&descriptor),
             adapter_profile,
+            adapter_runtime,
             descriptor,
         }
     }
@@ -2676,6 +2698,16 @@ mod tests {
         assert_eq!(codex_runtime["adapter_profile"]["provider"], "Codex");
         assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 1);
         assert_eq!(codex_runtime["adapter_profile"]["websocket_first"], true);
+        assert_eq!(
+            codex_runtime["adapter_runtime"]["satisfies_required_hooks"],
+            true
+        );
+        assert!(
+            codex_runtime["adapter_runtime"]["missing_required_hooks"]
+                .as_array()
+                .expect("missing required hooks")
+                .is_empty()
+        );
         assert!(
             codex_runtime["adapter_profile"]["operations"]
                 .as_array()
@@ -2699,6 +2731,16 @@ mod tests {
         assert_eq!(
             ace_runtime["adapter_profile"]["contract_report"]["satisfies_required"],
             true
+        );
+        assert_eq!(
+            ace_runtime["adapter_runtime"]["satisfies_required_hooks"],
+            false
+        );
+        assert!(
+            ace_runtime["adapter_runtime"]["missing_required_hooks"]
+                .as_array()
+                .expect("ace missing hooks")
+                .contains(&json!("event_source"))
         );
 
         let routed = state
@@ -3078,6 +3120,10 @@ mod tests {
             panic!("expected provider operation list");
         };
         assert_eq!(body["adapter_contract"]["version"], 1);
+        assert_eq!(
+            body["providers"][0]["adapter_runtime"]["satisfies_required_hooks"],
+            true
+        );
 
         let providers = body["providers"].as_array().expect("providers");
         assert_eq!(providers.len(), 1);
@@ -3285,6 +3331,7 @@ mod tests {
                 .any(|operation| operation["operation"] == "provider_events"
                     && operation["invocation"] == "event_stream")
         );
+        assert_eq!(codex["adapter_runtime"]["satisfies_required_hooks"], true);
 
         let ace = providers
             .iter()
@@ -3300,6 +3347,7 @@ mod tests {
             ace["adapter_profile"]["contract_report"]["satisfies_required"],
             true
         );
+        assert_eq!(ace["adapter_runtime"]["satisfies_required_hooks"], false);
 
         let ace_only = state
             .dispatch_text(
