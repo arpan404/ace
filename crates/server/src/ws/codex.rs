@@ -66,10 +66,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
 
         match method {
             methods::CODEX_RAW_REQUEST => {
-                self.codex_json::<CodexRawRequest, _, _, _>(payload, |service, request| async move {
-                    service.raw_request(request.method, request.params).await
-                })
-                .await
+                let request = serde_json::from_value::<CodexRawRequest>(payload)?;
+                let params = user_initiated_codex_params(&request.method, request.params)?;
+                self.codex
+                    .raw_request(request.method, params)
+                    .await
+                    .map_err(Into::into)
             }
             methods::CODEX_THREAD_START => {
                 self.codex_json::<CodexThreadStartRequest, _, _, _>(
@@ -658,7 +660,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 })?)
             }
             methods::PROVIDER_RUNTIME_REQUEST => {
-                let request = serde_json::from_value::<ProviderRuntimeRequest>(payload)?;
+                let mut request = serde_json::from_value::<ProviderRuntimeRequest>(payload)?;
                 let provider =
                     ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
                         WsDispatchError::BadRequest(format!(
@@ -666,6 +668,9 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             request.provider
                         ))
                     })?;
+                if provider == ProviderKind::Codex {
+                    request.params = user_initiated_codex_params(&request.method, request.params)?;
+                }
                 let response = self
                     .providers
                     .request(
@@ -1227,19 +1232,44 @@ where
         payload.clone()
     };
 
-    let user_initiated = bool_at(payload, "userInitiated")
-        .or_else(|| bool_at(payload, "user_initiated"))
-        .or_else(|| bool_at(&params, "userInitiated"))
-        .or_else(|| bool_at(&params, "user_initiated"))
-        .unwrap_or(false);
-    if !user_initiated {
-        return Err(WsDispatchError::BadRequest(
-            "Codex shell/process methods require explicit userInitiated: true".to_string(),
-        ));
-    }
-
+    require_user_initiated(payload, &params)?;
     strip_user_initiated_marker(&mut params);
     Ok(serde_json::to_value(serde_json::from_value::<T>(params)?)?)
+}
+
+fn user_initiated_codex_params(method: &str, mut params: Value) -> Result<Value, WsDispatchError> {
+    if codex_shell_process_method(method) {
+        require_user_initiated(&Value::Null, &params)?;
+        strip_user_initiated_marker(&mut params);
+    }
+    Ok(params)
+}
+
+fn codex_shell_process_method(method: &str) -> bool {
+    matches!(
+        method,
+        "command/exec"
+            | "command/writeStdin"
+            | "command/resize"
+            | "command/terminate"
+            | "process/list"
+            | "process/clean"
+    )
+}
+
+fn require_user_initiated(payload: &Value, params: &Value) -> Result<(), WsDispatchError> {
+    let user_initiated = bool_at(payload, "userInitiated")
+        .or_else(|| bool_at(payload, "user_initiated"))
+        .or_else(|| bool_at(params, "userInitiated"))
+        .or_else(|| bool_at(params, "user_initiated"))
+        .unwrap_or(false);
+    if user_initiated {
+        Ok(())
+    } else {
+        Err(WsDispatchError::BadRequest(
+            "Codex shell/process methods require explicit userInitiated: true".to_string(),
+        ))
+    }
 }
 
 fn bool_at(value: &Value, key: &str) -> Option<bool> {
@@ -2524,6 +2554,64 @@ mod tests {
             ["thread/read"]
         );
 
+        let command_without_marker = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-command-missing-marker",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "method": "command/exec",
+                        "params": { "command": "cargo test" },
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let command_without_marker: WsServerResponse =
+            serde_json::from_str(&command_without_marker).expect("provider command marker error");
+        let WsServerPayload::Error { code, message } = command_without_marker.payload else {
+            panic!("expected provider command marker error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("userInitiated: true"));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["thread/read"]
+        );
+
+        let command_with_marker = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-command-with-marker",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "method": "command/exec",
+                        "params": {
+                            "userInitiated": true,
+                            "command": "cargo test"
+                        },
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let command_with_marker: WsServerResponse =
+            serde_json::from_str(&command_with_marker).expect("provider command response");
+        assert!(matches!(
+            command_with_marker.payload,
+            WsServerPayload::Result { .. }
+        ));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["thread/read", "command/exec"]
+        );
+
         let deferred_codex = state
             .dispatch_text(
                 &json!({
@@ -2573,7 +2661,7 @@ mod tests {
         assert!(message.contains("unknown Codex client request method"));
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
-            ["thread/read"]
+            ["thread/read", "command/exec"]
         );
 
         let ace = state
@@ -3231,6 +3319,28 @@ mod tests {
         assert_eq!(method, "process/clean");
         assert_eq!(params["threadId"], "thread-1");
         assert!(params.get("userInitiated").is_none());
+
+        let missing_raw_marker =
+            user_initiated_codex_params("command/exec", json!({ "command": "cargo test" }))
+                .expect_err("missing raw user initiation");
+        assert!(matches!(
+            missing_raw_marker,
+            WsDispatchError::BadRequest(ref message)
+                if message.contains("userInitiated: true")
+        ));
+
+        let raw_params = user_initiated_codex_params(
+            "command/exec",
+            json!({ "userInitiated": true, "command": "cargo test" }),
+        )
+        .expect("raw user initiated command");
+        assert_eq!(raw_params["command"], "cargo test");
+        assert!(raw_params.get("userInitiated").is_none());
+
+        let normal_params =
+            user_initiated_codex_params("thread/read", json!({ "threadId": "thread-1" }))
+                .expect("non-shell request does not require marker");
+        assert_eq!(normal_params["threadId"], "thread-1");
     }
 
     #[tokio::test]
@@ -3259,6 +3369,60 @@ mod tests {
             .await;
         let allowed: WsServerResponse = serde_json::from_str(&allowed).expect("allowed raw");
         assert!(matches!(allowed.payload, WsServerPayload::Result { .. }));
+
+        let command_without_marker = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "raw-command-missing-marker",
+                    "method": methods::CODEX_RAW_REQUEST,
+                    "payload": {
+                        "method": "command/exec",
+                        "params": { "command": "cargo test" }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let command_without_marker: WsServerResponse =
+            serde_json::from_str(&command_without_marker).expect("raw command missing marker");
+        let WsServerPayload::Error { code, message } = command_without_marker.payload else {
+            panic!("expected raw command marker error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("userInitiated: true"));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["remote/connectionList"]
+        );
+
+        let command_with_marker = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "raw-command-with-marker",
+                    "method": methods::CODEX_RAW_REQUEST,
+                    "payload": {
+                        "method": "command/exec",
+                        "params": {
+                            "userInitiated": true,
+                            "command": "cargo test"
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let command_with_marker: WsServerResponse =
+            serde_json::from_str(&command_with_marker).expect("raw command with marker");
+        assert!(matches!(
+            command_with_marker.payload,
+            WsServerPayload::Result { .. }
+        ));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["remote/connectionList", "command/exec"]
+        );
 
         let deferred = state
             .dispatch_text(
@@ -3304,7 +3468,7 @@ mod tests {
         assert!(message.contains("mcp/elicitation"));
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
-            ["remote/connectionList"]
+            ["remote/connectionList", "command/exec"]
         );
     }
 
