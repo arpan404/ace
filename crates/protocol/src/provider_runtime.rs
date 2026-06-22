@@ -33,6 +33,8 @@ pub struct ProviderRuntimeEventRecord {
     pub provider: String,
     pub created_at: String,
     pub event: ProviderRuntimeEvent,
+    #[serde(default)]
+    pub projection_deltas: Vec<ProviderRuntimeProjectionDelta>,
     pub raw_event: ProviderEvent,
 }
 

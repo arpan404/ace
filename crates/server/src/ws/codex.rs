@@ -608,6 +608,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             sequence: record.sequence,
                             provider: record.provider,
                             created_at: record.created_at,
+                            projection_deltas: event.projection_deltas(),
                             event,
                             raw_event: record.event,
                         }
@@ -1870,7 +1871,31 @@ mod tests {
             records[0]["event"]["tool"]["display"]["title"],
             "Clicked Deploy in Browser"
         );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["type"],
+            "tool_timeline_upsert"
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["tool"]["display"]["title"],
+            "Clicked Deploy in Browser"
+        );
         assert_eq!(records[0]["raw_event"]["type"], "semantic_tool");
+        assert_eq!(
+            records[1]["projection_deltas"][0]["type"],
+            "approval_upsert"
+        );
+        assert_eq!(
+            records[1]["projection_deltas"][0]["request"]["request_id"],
+            "42"
+        );
+        assert_eq!(
+            records[2]["projection_deltas"][0]["type"],
+            "raw_notification_observed"
+        );
+        assert_eq!(
+            records[2]["projection_deltas"][0]["method"],
+            "item/completed"
+        );
         assert_eq!(records[2]["raw_event"]["method"], "item/completed");
 
         let (ace_outbound_tx, _ace_outbound_rx) = tokio::sync::mpsc::channel::<String>(1);
