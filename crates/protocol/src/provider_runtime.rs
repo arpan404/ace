@@ -731,6 +731,16 @@ pub enum ProviderRuntimeProjectionDelta {
         #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
         metadata: serde_json::Value,
     },
+    SubagentActionRecorded {
+        provider: String,
+        parent_thread_id: String,
+        subagent_thread_id: String,
+        action: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        metadata: serde_json::Value,
+    },
     ActiveTurnChanged {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1257,6 +1267,31 @@ fn projection_deltas_for_runtime_signal(
                     .clone()
                     .unwrap_or_else(|| "auto_approval_review_updated".to_string()),
                 message: signal.message.clone(),
+                metadata: signal.metadata.clone(),
+            }]
+        }
+        RuntimeSignalKind::SubagentAction => {
+            let Some(parent_thread_id) = signal.thread_id.clone() else {
+                return Vec::new();
+            };
+            let Some(subagent_thread_id) = signal
+                .metadata
+                .get("subagent_thread_id")
+                .or_else(|| signal.metadata.get("subagentThreadId"))
+                .and_then(serde_json::Value::as_str)
+                .map(ToString::to_string)
+            else {
+                return Vec::new();
+            };
+            vec![ProviderRuntimeProjectionDelta::SubagentActionRecorded {
+                provider: signal.provider.provider.clone(),
+                parent_thread_id,
+                subagent_thread_id,
+                action: signal
+                    .status
+                    .clone()
+                    .unwrap_or_else(|| "subagent_action".to_string()),
+                prompt: signal.text.clone(),
                 metadata: signal.metadata.clone(),
             }]
         }
@@ -2013,6 +2048,34 @@ mod tests {
                     provider: provider_metadata("item/autoApprovalReview/completed"),
                 }),
             },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::SubagentAction,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: Some("focus on tests".to_string()),
+                    audio: None,
+                    status: Some("steer".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "subagent_thread_id": "subagent-1",
+                        "provider_response": { "steered": true }
+                    }),
+                    provider: provider_metadata("subagent/steer"),
+                }),
+            },
         ];
         let deltas = projection_deltas_for_events(&events);
 
@@ -2110,6 +2173,21 @@ mod tests {
                 && status == "approved"
                 && message.as_deref() == Some("Command approved")
                 && metadata["decision"] == "approved"
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::SubagentActionRecorded {
+                parent_thread_id,
+                subagent_thread_id,
+                action,
+                prompt,
+                metadata,
+                ..
+            } if parent_thread_id == "thread-1"
+                && subagent_thread_id == "subagent-1"
+                && action == "steer"
+                && prompt.as_deref() == Some("focus on tests")
+                && metadata["provider_response"]["steered"] == true
         )));
         assert!(deltas.iter().all(|delta| !matches!(
             delta,

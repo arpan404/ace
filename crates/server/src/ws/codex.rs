@@ -461,39 +461,53 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .await
             }
             methods::CODEX_SUBAGENT_STEER => {
-                self.codex_json::<CodexSubagentSteerRequest, _, _, _>(
-                    payload,
-                    |service, request| async move { service.subagent_steer(request.params).await },
-                )
-                .await
+                let request = serde_json::from_value::<CodexSubagentSteerRequest>(payload)?;
+                let params = request.params;
+                let response = self.codex.subagent_steer(params.clone()).await?;
+                self.publish_codex_subagent_action_signal(CodexSubagentActionSignal {
+                    parent_thread_id: params.thread_id,
+                    subagent_thread_id: params.subagent_thread_id,
+                    action: "steer",
+                    prompt: Some(params.prompt),
+                    metadata: json!({ "provider_response": response.clone() }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_SUBAGENT_STOP => {
-                self.codex_json::<CodexSubagentThreadRpcRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service
-                            .subagent_stop(
-                                request.params.thread_id,
-                                request.params.subagent_thread_id,
-                            )
-                            .await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexSubagentThreadRpcRequest>(payload)?;
+                let response = self
+                    .codex
+                    .subagent_stop(
+                        request.params.thread_id.clone(),
+                        request.params.subagent_thread_id.clone(),
+                    )
+                    .await?;
+                self.publish_codex_subagent_action_signal(CodexSubagentActionSignal {
+                    parent_thread_id: request.params.thread_id,
+                    subagent_thread_id: request.params.subagent_thread_id,
+                    action: "stop",
+                    prompt: None,
+                    metadata: json!({ "provider_response": response.clone() }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_SUBAGENT_CLOSE => {
-                self.codex_json::<CodexSubagentThreadRpcRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service
-                            .subagent_close(
-                                request.params.thread_id,
-                                request.params.subagent_thread_id,
-                            )
-                            .await
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<CodexSubagentThreadRpcRequest>(payload)?;
+                let response = self
+                    .codex
+                    .subagent_close(
+                        request.params.thread_id.clone(),
+                        request.params.subagent_thread_id.clone(),
+                    )
+                    .await?;
+                self.publish_codex_subagent_action_signal(CodexSubagentActionSignal {
+                    parent_thread_id: request.params.thread_id,
+                    subagent_thread_id: request.params.subagent_thread_id,
+                    action: "close",
+                    prompt: None,
+                    metadata: json!({ "provider_response": response.clone() }),
+                })?;
+                Ok(response)
             }
             methods::CODEX_HANDOFF_TO_AGENT => {
                 self.codex_json::<CodexHandoffToAgentRequest, _, _, _>(
@@ -1106,6 +1120,56 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         )
     }
 
+    fn publish_codex_subagent_action_signal(
+        &self,
+        signal: CodexSubagentActionSignal,
+    ) -> Result<(), WsDispatchError> {
+        let metadata = json!({
+            "subagent_thread_id": signal.subagent_thread_id.clone(),
+            "provider_response": signal.metadata.get("provider_response").cloned().unwrap_or(Value::Null),
+        });
+        let raw_payload = json!({
+            "threadId": signal.parent_thread_id.clone(),
+            "subagentThreadId": signal.subagent_thread_id.clone(),
+            "action": signal.action,
+            "prompt": signal.prompt.clone(),
+            "metadata": metadata.clone(),
+        });
+        self.append_and_publish_provider_events(
+            ProviderKind::Codex,
+            vec![ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::SubagentAction,
+                    thread_id: Some(signal.parent_thread_id),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: signal.prompt,
+                    audio: None,
+                    status: Some(signal.action.to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(format!("ace/subagent/{}", signal.action)),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            }],
+        )
+    }
+
     pub(super) async fn subscribe_provider_runtime_events(
         &self,
         payload: Value,
@@ -1309,6 +1373,14 @@ struct CodexThreadLifecycleSignal {
     name: Option<String>,
     active: Option<bool>,
     archived: Option<bool>,
+    metadata: Value,
+}
+
+struct CodexSubagentActionSignal {
+    parent_thread_id: String,
+    subagent_thread_id: String,
+    action: &'static str,
+    prompt: Option<String>,
     metadata: Value,
 }
 
@@ -2693,6 +2765,54 @@ mod tests {
         assert_eq!(subagent_actions[1]["provider_response"]["stopped"], true);
         assert_eq!(subagent_actions[2]["action"], "close");
         assert_eq!(subagent_actions[2]["provider_response"]["closed"], true);
+
+        let recent = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "subagent-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": { "provider": "codex", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent: WsServerResponse = serde_json::from_str(&recent).expect("recent events");
+        let WsServerPayload::Result { body } = recent.payload else {
+            panic!("expected recent events result");
+        };
+        let records = body["records"].as_array().expect("records");
+        assert_eq!(records.len(), 3);
+        assert!(records.iter().all(|record| {
+            record["event"]["type"] == "runtime_signal"
+                && record["event"]["signal"]["kind"] == "subagent_action"
+                && record["projection_deltas"][0]["type"] == "subagent_action_recorded"
+        }));
+        assert_eq!(records[0]["event"]["signal"]["status"], "steer");
+        assert_eq!(records[0]["event"]["signal"]["text"], "focus on tests");
+        assert_eq!(
+            records[0]["projection_deltas"][0]["subagent_thread_id"],
+            "subagent-1"
+        );
+        assert_eq!(records[0]["projection_deltas"][0]["action"], "steer");
+        assert_eq!(
+            records[0]["projection_deltas"][0]["prompt"],
+            "focus on tests"
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["metadata"]["provider_response"]["steered"],
+            true
+        );
+        assert_eq!(records[1]["projection_deltas"][0]["action"], "stop");
+        assert_eq!(
+            records[1]["projection_deltas"][0]["metadata"]["provider_response"]["stopped"],
+            true
+        );
+        assert_eq!(records[2]["projection_deltas"][0]["action"], "close");
+        assert_eq!(
+            records[2]["projection_deltas"][0]["metadata"]["provider_response"]["closed"],
+            true
+        );
     }
 
     #[tokio::test]

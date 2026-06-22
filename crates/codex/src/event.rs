@@ -262,6 +262,7 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
                 string_at(params, "reason").as_deref(),
             ]);
         }
+        RuntimeSignalKind::SubagentAction => {}
     }
     Some(signal)
 }
