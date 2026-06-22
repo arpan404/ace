@@ -2,9 +2,10 @@ use ace_core::ProviderKind;
 use ace_runtime::{
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem,
-        ProviderAdapterContract, ProviderContractReport, ProviderDescriptor, ProviderDriverStatus,
-        ProviderEvent, ProviderFeature, ProviderLifecycleAction, ProviderLifecycleResult,
-        RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
+        ProviderAdapterContract, ProviderAdapterOperation, ProviderContractReport,
+        ProviderDescriptor, ProviderDriverStatus, ProviderEvent, ProviderFeature,
+        ProviderLifecycleAction, ProviderLifecycleResult, RuntimeSignalKind, ThreadItemKind,
+        ThreadItemStatus,
     },
     threads::AgentRuntimeSnapshot,
     tools::{SemanticToolCall, ToolRunStatus},
@@ -48,7 +49,10 @@ pub struct ProviderRuntimeRecentEventsResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRuntimeRequest {
     pub provider: String,
-    pub method: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<ProviderAdapterOperation>,
     #[serde(default)]
     pub params: serde_json::Value,
     #[serde(default = "default_provider_request_timeout_ms")]
@@ -836,8 +840,8 @@ fn nested_string_at(
 mod tests {
     use ace_runtime::provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
-        NormalizedThreadItem, ProviderMetadata, RuntimeSignalKind, ServerRequestKind,
-        ThreadItemKind, ThreadItemStatus,
+        NormalizedThreadItem, ProviderAdapterOperation, ProviderMetadata, RuntimeSignalKind,
+        ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     };
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
@@ -846,6 +850,30 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn provider_runtime_request_accepts_method_or_adapter_operation() {
+        let by_method = serde_json::from_value::<ProviderRuntimeRequest>(json!({
+            "provider": "codex",
+            "method": "thread/read",
+            "params": { "threadId": "thread-1" }
+        }))
+        .expect("method request");
+        assert_eq!(by_method.method.as_deref(), Some("thread/read"));
+        assert_eq!(by_method.operation, None);
+
+        let by_operation = serde_json::from_value::<ProviderRuntimeRequest>(json!({
+            "provider": "codex",
+            "operation": "thread_read",
+            "params": { "threadId": "thread-1" }
+        }))
+        .expect("operation request");
+        assert_eq!(by_operation.method, None);
+        assert_eq!(
+            by_operation.operation,
+            Some(ProviderAdapterOperation::ThreadRead)
+        );
+    }
 
     #[test]
     fn server_request_response_ids_accept_numbers_and_strings() {

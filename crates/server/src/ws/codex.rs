@@ -40,8 +40,8 @@ use ace_protocol::{
     ws::{WsServerPayload, WsServerResponse, methods},
 };
 use ace_runtime::provider::{
-    NormalizedServerRequest, NormalizedServerRequestDecision, ProviderEvent, ProviderRequest,
-    ace_provider_adapter_contract,
+    NormalizedServerRequest, NormalizedServerRequestDecision, ProviderAdapterOperation,
+    ProviderAdapterOperationSupport, ProviderEvent, ProviderRequest, ace_provider_adapter_contract,
 };
 use ace_runtime::threads::ExecutionLocation;
 use ace_terminal::PtyAdapter;
@@ -672,15 +672,17 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             request.provider
                         ))
                     })?;
+                let method =
+                    resolve_provider_runtime_request_method(request.method, request.operation)?;
                 if provider == ProviderKind::Codex {
-                    request.params = user_initiated_codex_params(&request.method, request.params)?;
+                    request.params = user_initiated_codex_params(&method, request.params)?;
                 }
                 let response = self
                     .providers
                     .request(
                         provider,
                         ProviderRequest {
-                            method: request.method,
+                            method,
                             params: request.params,
                             timeout: Duration::from_millis(request.timeout_ms),
                         },
@@ -1212,6 +1214,53 @@ fn codex_versioned_app_server_request(
         _ => None,
     };
     Ok(request)
+}
+
+fn resolve_provider_runtime_request_method(
+    method: Option<String>,
+    operation: Option<ProviderAdapterOperation>,
+) -> Result<String, WsDispatchError> {
+    if let Some(method) = method {
+        return Ok(method);
+    }
+
+    let operation = operation.ok_or_else(|| {
+        WsDispatchError::BadRequest(
+            "provider runtime request requires either `method` or `operation`".to_string(),
+        )
+    })?;
+    let contract = ace_provider_adapter_contract();
+    let operation_spec = contract
+        .operations
+        .iter()
+        .find(|spec| spec.operation == operation)
+        .ok_or_else(|| {
+            WsDispatchError::BadRequest(format!(
+                "unknown provider adapter operation `{operation:?}`"
+            ))
+        })?;
+
+    match operation_spec.support {
+        ProviderAdapterOperationSupport::Deferred => {
+            return Err(WsDispatchError::BadRequest(format!(
+                "provider adapter operation `{operation:?}` is intentionally deferred"
+            )));
+        }
+        ProviderAdapterOperationSupport::Required
+        | ProviderAdapterOperationSupport::Optional
+        | ProviderAdapterOperationSupport::VersionGated => {}
+    }
+
+    match operation_spec.provider_methods.as_slice() {
+        [method] => Ok(method.clone()),
+        [] => Err(WsDispatchError::BadRequest(format!(
+            "provider adapter operation `{operation:?}` has no direct provider method; use its typed API"
+        ))),
+        methods => Err(WsDispatchError::BadRequest(format!(
+            "provider adapter operation `{operation:?}` maps to composite provider methods {}; use its typed API",
+            methods.join("+")
+        ))),
+    }
 }
 
 fn typed_or_enveloped<T>(payload: &Value) -> Result<Value, WsDispatchError>
@@ -2600,6 +2649,81 @@ mod tests {
             ["thread/read"]
         );
 
+        let routed_operation = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-operation-request",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "operation": "thread_read",
+                        "params": { "threadId": "thread-2" },
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let routed_operation: WsServerResponse =
+            serde_json::from_str(&routed_operation).expect("operation response");
+        assert!(matches!(
+            routed_operation.payload,
+            WsServerPayload::Result { .. }
+        ));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["thread/read", "thread/read"]
+        );
+
+        let composite_operation = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-composite-operation",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "operation": "plan_fork_for_implementation",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let composite_operation: WsServerResponse =
+            serde_json::from_str(&composite_operation).expect("composite operation response");
+        let WsServerPayload::Error { code, message } = composite_operation.payload else {
+            panic!("expected composite operation error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("composite provider methods"));
+
+        let deferred_operation = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-deferred-operation",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "operation": "cloud_handoff",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let deferred_operation: WsServerResponse =
+            serde_json::from_str(&deferred_operation).expect("deferred operation response");
+        let WsServerPayload::Error { code, message } = deferred_operation.payload else {
+            panic!("expected deferred operation error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("intentionally deferred"));
+
         let command_without_marker = state
             .dispatch_text(
                 &json!({
@@ -2625,7 +2749,7 @@ mod tests {
         assert!(message.contains("userInitiated: true"));
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
-            ["thread/read"]
+            ["thread/read", "thread/read"]
         );
 
         let command_with_marker = state
@@ -2655,7 +2779,7 @@ mod tests {
         ));
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
-            ["thread/read", "command/exec"]
+            ["thread/read", "thread/read", "command/exec"]
         );
 
         let deferred_codex = state
@@ -2707,7 +2831,7 @@ mod tests {
         assert!(message.contains("unknown Codex client request method"));
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
-            ["thread/read", "command/exec"]
+            ["thread/read", "thread/read", "command/exec"]
         );
 
         let ace = state
