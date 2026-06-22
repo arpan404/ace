@@ -188,7 +188,8 @@ impl ProviderDriver for AceNativeProvider {
                         "transport": "websocket",
                         "websocket_first": contract.websocket_first,
                         "events": contract.provider_event_types,
-                        "raw_payload_policy": contract.raw_payload_policy
+                        "raw_payload_policy": contract.raw_payload_policy,
+                        "raw_payload": contract.raw_payload
                     },
                     "adapter_contract": contract,
                     "provider_requirements": {
@@ -299,6 +300,18 @@ mod tests {
         assert_eq!(
             response["runtime"]["raw_payload_policy"],
             "preserve_provider_payloads"
+        );
+        assert_eq!(
+            response["runtime"]["raw_payload"]["retention"],
+            "preserve_provider_payloads"
+        );
+        assert_eq!(
+            response["runtime"]["raw_payload"]["large_payload_strategy"],
+            "store_once_reference_deltas"
+        );
+        assert_eq!(
+            response["runtime"]["raw_payload"]["inspector_only_by_default"],
+            true
         );
         assert!(
             response["runtime"]["events"]

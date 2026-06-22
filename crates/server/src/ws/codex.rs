@@ -3349,6 +3349,30 @@ mod tests {
         };
         assert_eq!(body["adapter_contract"]["version"], 1);
         assert_eq!(body["adapter_contract"]["websocket_first"], true);
+        assert_eq!(
+            body["adapter_contract"]["raw_payload"]["retention"],
+            "preserve_provider_payloads"
+        );
+        assert_eq!(
+            body["adapter_contract"]["raw_payload"]["preserve_provider_method"],
+            true
+        );
+        assert_eq!(
+            body["adapter_contract"]["raw_payload"]["preserve_provider_ids"],
+            true
+        );
+        assert_eq!(
+            body["adapter_contract"]["raw_payload"]["preserve_raw_args"],
+            true
+        );
+        assert_eq!(
+            body["adapter_contract"]["raw_payload"]["preserve_raw_result"],
+            true
+        );
+        assert_eq!(
+            body["adapter_contract"]["raw_payload"]["large_payload_strategy"],
+            "store_once_reference_deltas"
+        );
         assert!(
             body["adapter_contract"]["required_capabilities"]
                 .as_array()

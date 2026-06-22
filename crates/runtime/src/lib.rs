@@ -86,6 +86,7 @@ pub mod provider {
         pub version: u32,
         pub websocket_first: bool,
         pub raw_payload_policy: String,
+        pub raw_payload: ProviderRawPayloadPolicy,
         pub required_capabilities: Vec<ProviderContractRequirement>,
         pub operations: Vec<ProviderAdapterOperationSpec>,
         pub normalized_thread_item_kinds: Vec<ThreadItemKind>,
@@ -95,6 +96,30 @@ pub mod provider {
         pub tool_transports: Vec<ToolTransport>,
         pub tool_surfaces: Vec<ToolSurface>,
         pub execution_locations: Vec<ExecutionLocation>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProviderRawPayloadRetention {
+        PreserveProviderPayloads,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProviderLargePayloadStrategy {
+        StoreOnceReferenceDeltas,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderRawPayloadPolicy {
+        pub retention: ProviderRawPayloadRetention,
+        pub preserve_provider_method: bool,
+        pub preserve_provider_ids: bool,
+        pub preserve_schema_version: bool,
+        pub preserve_raw_args: bool,
+        pub preserve_raw_result: bool,
+        pub inspector_only_by_default: bool,
+        pub large_payload_strategy: ProviderLargePayloadStrategy,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -239,6 +264,7 @@ pub mod provider {
         pub contract_version: u32,
         pub websocket_first: bool,
         pub raw_payload_policy: String,
+        pub raw_payload: ProviderRawPayloadPolicy,
         pub operations: Vec<ProviderAdapterOperationProfile>,
     }
 
@@ -1108,6 +1134,7 @@ pub mod provider {
             version: 1,
             websocket_first: true,
             raw_payload_policy: "preserve_provider_payloads".to_string(),
+            raw_payload: ace_provider_raw_payload_policy(),
             required_capabilities: ace_provider_contract_requirements(),
             operations: ace_provider_adapter_operations(),
             normalized_thread_item_kinds: vec![
@@ -1191,6 +1218,20 @@ pub mod provider {
                 ExecutionLocation::RemoteHost,
                 ExecutionLocation::Cloud,
             ],
+        }
+    }
+
+    #[must_use]
+    pub fn ace_provider_raw_payload_policy() -> ProviderRawPayloadPolicy {
+        ProviderRawPayloadPolicy {
+            retention: ProviderRawPayloadRetention::PreserveProviderPayloads,
+            preserve_provider_method: true,
+            preserve_provider_ids: true,
+            preserve_schema_version: true,
+            preserve_raw_args: true,
+            preserve_raw_result: true,
+            inspector_only_by_default: true,
+            large_payload_strategy: ProviderLargePayloadStrategy::StoreOnceReferenceDeltas,
         }
     }
 
@@ -1279,6 +1320,7 @@ pub mod provider {
             contract_version: contract.version,
             websocket_first: contract.websocket_first,
             raw_payload_policy: contract.raw_payload_policy,
+            raw_payload: contract.raw_payload,
             operations: contract
                 .operations
                 .iter()
@@ -1818,6 +1860,15 @@ pub mod provider {
                 .expect("codex profile");
             assert_eq!(codex_profile.contract_version, 1);
             assert!(codex_profile.websocket_first);
+            assert_eq!(
+                codex_profile.raw_payload.retention,
+                ProviderRawPayloadRetention::PreserveProviderPayloads
+            );
+            assert!(codex_profile.raw_payload.preserve_provider_ids);
+            assert_eq!(
+                codex_profile.raw_payload.large_payload_strategy,
+                ProviderLargePayloadStrategy::StoreOnceReferenceDeltas
+            );
             assert!(codex_profile.contract_report.satisfies_required);
             assert!(
                 registry
@@ -1945,6 +1996,19 @@ pub mod provider {
             assert_eq!(contract.version, 1);
             assert!(contract.websocket_first);
             assert_eq!(contract.raw_payload_policy, "preserve_provider_payloads");
+            assert_eq!(
+                contract.raw_payload,
+                ProviderRawPayloadPolicy {
+                    retention: ProviderRawPayloadRetention::PreserveProviderPayloads,
+                    preserve_provider_method: true,
+                    preserve_provider_ids: true,
+                    preserve_schema_version: true,
+                    preserve_raw_args: true,
+                    preserve_raw_result: true,
+                    inspector_only_by_default: true,
+                    large_payload_strategy: ProviderLargePayloadStrategy::StoreOnceReferenceDeltas,
+                }
+            );
             assert!(
                 contract
                     .required_capabilities
