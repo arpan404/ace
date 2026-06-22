@@ -188,6 +188,36 @@ pub struct PlanImplementationRecord {
     pub provider_response: Value,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadLifecycleActionKind {
+    Archive,
+    Unarchive,
+    Delete,
+    Unsubscribe,
+    SetName,
+    UpdateMetadata,
+    Compact,
+    Rollback,
+    InjectItems,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThreadLifecycleRecord {
+    pub thread_id: String,
+    pub action: ThreadLifecycleActionKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_count: Option<usize>,
+    #[serde(default)]
+    pub request: Value,
+    #[serde(default)]
+    pub provider_response: Value,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentThread {
     pub thread_id: String,
@@ -212,6 +242,7 @@ pub struct AgentRuntimeState {
     handoffs: Vec<HandoffPlan>,
     approval_retries: Vec<ApprovalRetryRecord>,
     plan_implementations: Vec<PlanImplementationRecord>,
+    thread_lifecycle: Vec<ThreadLifecycleRecord>,
     review_threads: HashSet<String>,
 }
 
@@ -226,6 +257,7 @@ pub struct AgentRuntimeSnapshot {
     pub handoffs: Vec<HandoffPlan>,
     pub approval_retries: Vec<ApprovalRetryRecord>,
     pub plan_implementations: Vec<PlanImplementationRecord>,
+    pub thread_lifecycle: Vec<ThreadLifecycleRecord>,
     pub review_threads: Vec<String>,
 }
 
@@ -263,6 +295,7 @@ impl AgentRuntimeState {
             handoffs: self.handoffs.clone(),
             approval_retries: self.approval_retries.clone(),
             plan_implementations: self.plan_implementations.clone(),
+            thread_lifecycle: self.thread_lifecycle.clone(),
             review_threads,
         }
     }
@@ -348,6 +381,15 @@ impl AgentRuntimeState {
     #[must_use]
     pub fn plan_implementations(&self) -> &[PlanImplementationRecord] {
         &self.plan_implementations
+    }
+
+    pub fn record_thread_lifecycle(&mut self, record: ThreadLifecycleRecord) {
+        self.thread_lifecycle.push(record);
+    }
+
+    #[must_use]
+    pub fn thread_lifecycle(&self) -> &[ThreadLifecycleRecord] {
+        &self.thread_lifecycle
     }
 
     pub fn set_goal(
@@ -860,6 +902,38 @@ mod tests {
         assert_eq!(retry.audit["selected_policy"], "on-request");
         state.close_subagent("subagent-1");
         assert!(state.subagent("subagent-1").is_none());
+    }
+
+    #[test]
+    fn records_thread_lifecycle_actions_with_raw_payloads() {
+        let mut state = AgentRuntimeState::default();
+        state.record_thread_lifecycle(ThreadLifecycleRecord {
+            thread_id: "thread-1".to_string(),
+            action: ThreadLifecycleActionKind::SetName,
+            turn_id: None,
+            name: Some("Adapter work".to_string()),
+            item_count: None,
+            request: json!({ "name": "Adapter work" }),
+            provider_response: json!({ "name": "Adapter work" }),
+        });
+        state.record_thread_lifecycle(ThreadLifecycleRecord {
+            thread_id: "thread-1".to_string(),
+            action: ThreadLifecycleActionKind::Rollback,
+            turn_id: Some("turn-2".to_string()),
+            name: None,
+            item_count: None,
+            request: json!({ "turn_id": "turn-2" }),
+            provider_response: json!({ "rolled_back": true }),
+        });
+
+        let lifecycle = state.thread_lifecycle();
+        assert_eq!(lifecycle.len(), 2);
+        assert_eq!(lifecycle[0].action, ThreadLifecycleActionKind::SetName);
+        assert_eq!(lifecycle[0].name.as_deref(), Some("Adapter work"));
+        assert_eq!(lifecycle[0].provider_response["name"], "Adapter work");
+        assert_eq!(lifecycle[1].action, ThreadLifecycleActionKind::Rollback);
+        assert_eq!(lifecycle[1].turn_id.as_deref(), Some("turn-2"));
+        assert_eq!(lifecycle[1].request["turn_id"], "turn-2");
     }
 
     #[test]

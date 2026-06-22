@@ -16,7 +16,8 @@ use ace_runtime::{
     threads::{
         AgentRuntimeSnapshot, AgentRuntimeState, ApprovalRetryRecord, ExecutionLocation, ForkPoint,
         HandoffPlan, HandoffStatus, PlanImplementationMode, PlanImplementationRecord,
-        PlanSessionStatus, RuntimeStateError, SideChat, TurnMode,
+        PlanSessionStatus, RuntimeStateError, SideChat, ThreadLifecycleActionKind,
+        ThreadLifecycleRecord, TurnMode,
     },
 };
 use async_trait::async_trait;
@@ -636,28 +637,60 @@ impl CodexService {
         &self,
         thread_id: String,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.archive_thread(&thread_id).await?)
+        let response = self.backend.archive_thread(&thread_id).await?;
+        self.record_thread_lifecycle(thread_lifecycle_record(
+            thread_id,
+            ThreadLifecycleActionKind::Archive,
+            Value::Null,
+            response.clone(),
+        ))
+        .await;
+        Ok(response)
     }
 
     pub async fn unarchive_thread(
         &self,
         thread_id: String,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.unarchive_thread(&thread_id).await?)
+        let response = self.backend.unarchive_thread(&thread_id).await?;
+        self.record_thread_lifecycle(thread_lifecycle_record(
+            thread_id,
+            ThreadLifecycleActionKind::Unarchive,
+            Value::Null,
+            response.clone(),
+        ))
+        .await;
+        Ok(response)
     }
 
     pub async fn delete_thread(
         &self,
         thread_id: String,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.delete_thread(&thread_id).await?)
+        let response = self.backend.delete_thread(&thread_id).await?;
+        self.record_thread_lifecycle(thread_lifecycle_record(
+            thread_id,
+            ThreadLifecycleActionKind::Delete,
+            Value::Null,
+            response.clone(),
+        ))
+        .await;
+        Ok(response)
     }
 
     pub async fn unsubscribe_thread(
         &self,
         thread_id: String,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.unsubscribe_thread(&thread_id).await?)
+        let response = self.backend.unsubscribe_thread(&thread_id).await?;
+        self.record_thread_lifecycle(thread_lifecycle_record(
+            thread_id,
+            ThreadLifecycleActionKind::Unsubscribe,
+            Value::Null,
+            response.clone(),
+        ))
+        .await;
+        Ok(response)
     }
 
     pub async fn set_thread_name(
@@ -665,7 +698,20 @@ impl CodexService {
         thread_id: String,
         name: String,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.set_thread_name(&thread_id, &name).await?)
+        let response = self.backend.set_thread_name(&thread_id, &name).await?;
+        let mut record = thread_lifecycle_record(
+            thread_id,
+            ThreadLifecycleActionKind::SetName,
+            json!({ "name": name }),
+            response.clone(),
+        );
+        record.name = record
+            .request
+            .get("name")
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+        self.record_thread_lifecycle(record).await;
+        Ok(response)
     }
 
     pub async fn update_thread_metadata(
@@ -673,17 +719,33 @@ impl CodexService {
         thread_id: String,
         metadata: Value,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self
+        let response = self
             .backend
-            .update_thread_metadata(&thread_id, metadata)
-            .await?)
+            .update_thread_metadata(&thread_id, metadata.clone())
+            .await?;
+        self.record_thread_lifecycle(thread_lifecycle_record(
+            thread_id,
+            ThreadLifecycleActionKind::UpdateMetadata,
+            json!({ "metadata": metadata }),
+            response.clone(),
+        ))
+        .await;
+        Ok(response)
     }
 
     pub async fn compact_thread(
         &self,
         thread_id: String,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.compact_thread(&thread_id).await?)
+        let response = self.backend.compact_thread(&thread_id).await?;
+        self.record_thread_lifecycle(thread_lifecycle_record(
+            thread_id,
+            ThreadLifecycleActionKind::Compact,
+            Value::Null,
+            response.clone(),
+        ))
+        .await;
+        Ok(response)
     }
 
     pub async fn rollback_thread(
@@ -691,7 +753,20 @@ impl CodexService {
         thread_id: String,
         turn_id: String,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.rollback_thread(&thread_id, &turn_id).await?)
+        let response = self.backend.rollback_thread(&thread_id, &turn_id).await?;
+        let mut record = thread_lifecycle_record(
+            thread_id,
+            ThreadLifecycleActionKind::Rollback,
+            json!({ "turn_id": turn_id }),
+            response.clone(),
+        );
+        record.turn_id = record
+            .request
+            .get("turn_id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+        self.record_thread_lifecycle(record).await;
+        Ok(response)
     }
 
     pub async fn inject_thread_items(
@@ -699,7 +774,20 @@ impl CodexService {
         thread_id: String,
         items: Vec<Value>,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.inject_thread_items(&thread_id, items).await?)
+        let item_count = items.len();
+        let response = self
+            .backend
+            .inject_thread_items(&thread_id, items.clone())
+            .await?;
+        let mut record = thread_lifecycle_record(
+            thread_id,
+            ThreadLifecycleActionKind::InjectItems,
+            json!({ "items": items }),
+            response.clone(),
+        );
+        record.item_count = Some(item_count);
+        self.record_thread_lifecycle(record).await;
+        Ok(response)
     }
 
     pub async fn start_turn(
@@ -828,6 +916,10 @@ impl CodexService {
 
     pub async fn runtime_state_snapshot(&self) -> AgentRuntimeSnapshot {
         self.state.lock().await.snapshot()
+    }
+
+    async fn record_thread_lifecycle(&self, record: ThreadLifecycleRecord) {
+        self.state.lock().await.record_thread_lifecycle(record);
     }
 
     pub async fn config_requirements_read(&self) -> std::result::Result<Value, CodexApiError> {
@@ -1246,6 +1338,23 @@ fn plan_implementation_record(
         sandbox_policy: request.sandbox_policy.clone().unwrap_or(Value::Null),
         approval_policy: request.approval_policy.clone().unwrap_or(Value::Null),
         approvals_reviewer: request.approvals_reviewer.clone(),
+        provider_response,
+    }
+}
+
+fn thread_lifecycle_record(
+    thread_id: String,
+    action: ThreadLifecycleActionKind,
+    request: Value,
+    provider_response: Value,
+) -> ThreadLifecycleRecord {
+    ThreadLifecycleRecord {
+        thread_id,
+        action,
+        turn_id: None,
+        name: None,
+        item_count: None,
+        request,
         provider_response,
     }
 }

@@ -2741,6 +2741,41 @@ mod tests {
                 "thread/inject_items:thread-1:1",
             ]
         );
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "thread-lifecycle-snapshot",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        let lifecycle = body["providers"][0]["state"]["thread_lifecycle"]
+            .as_array()
+            .expect("thread lifecycle");
+        assert_eq!(lifecycle.len(), 9);
+        assert_eq!(lifecycle[0]["action"], "archive");
+        assert_eq!(lifecycle[0]["thread_id"], "thread-1");
+        assert_eq!(lifecycle[0]["provider_response"]["archived"], true);
+        assert_eq!(lifecycle[4]["action"], "set_name");
+        assert_eq!(lifecycle[4]["name"], "Adapter work");
+        assert_eq!(lifecycle[4]["request"]["name"], "Adapter work");
+        assert_eq!(lifecycle[5]["action"], "update_metadata");
+        assert_eq!(lifecycle[5]["request"]["metadata"]["project"], "ace");
+        assert_eq!(lifecycle[7]["action"], "rollback");
+        assert_eq!(lifecycle[7]["turn_id"], "turn-2");
+        assert_eq!(lifecycle[7]["provider_response"]["rolled_back"], true);
+        assert_eq!(lifecycle[8]["action"], "inject_items");
+        assert_eq!(lifecycle[8]["item_count"], 1);
+        assert_eq!(lifecycle[8]["request"]["items"][0]["text"], "accepted plan");
+        assert_eq!(lifecycle[8]["provider_response"]["injected"], 1);
     }
 
     #[tokio::test]
