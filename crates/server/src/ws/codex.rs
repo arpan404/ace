@@ -70,7 +70,13 @@ use ace_runtime::{
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    path::{Component, Path, PathBuf},
+    process::Command,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::{broadcast, mpsc};
 
 impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
@@ -821,6 +827,9 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
 
         let worktree_path = worktree.path.to_string_lossy().to_string();
         let repo_root = worktree.repo_root.to_string_lossy().to_string();
+        let transfer = transfer_handoff_files(Path::new(&request.repo_path), &worktree.path)?;
+        let transfer_status = transfer.status.clone();
+        let transferred_files = transfer.files.clone();
         let metadata = serde_json::json!({
             "execution_location": "worktree",
             "handoff": {
@@ -828,6 +837,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 "worktree_path": worktree_path,
                 "worktree_branch": worktree.branch,
                 "repo_root": repo_root,
+                "transfer_status": transfer_status,
+                "transferred_files": transferred_files,
             }
         });
         self.codex
@@ -844,7 +855,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             start_point: request.start_point.clone(),
             checkpoint_ref: None,
             remote_host: None,
-            transfer_status: Some("metadata_updated".to_string()),
+            transfer_status: Some(transfer.status),
             interrupted_active_turn: Some(interrupted_active_turn),
             metadata: metadata.clone(),
         };
@@ -2768,6 +2779,207 @@ fn enrich_server_request_audit(
     audit
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HandoffTransferSummary {
+    status: String,
+    files: Vec<String>,
+}
+
+fn transfer_handoff_files(
+    source_repo: &Path,
+    destination_worktree: &Path,
+) -> Result<HandoffTransferSummary, WsDispatchError> {
+    if !source_repo.exists() {
+        return Ok(HandoffTransferSummary {
+            status: "source_unavailable".to_string(),
+            files: Vec::new(),
+        });
+    }
+    if !destination_worktree.exists() {
+        return Ok(HandoffTransferSummary {
+            status: "destination_unavailable".to_string(),
+            files: Vec::new(),
+        });
+    }
+
+    let source_root = source_repo
+        .canonicalize()
+        .map_err(|error| handoff_transfer_error("canonicalize source repository", error))?;
+    let destination_root = destination_worktree
+        .canonicalize()
+        .map_err(|error| handoff_transfer_error("canonicalize destination worktree", error))?;
+
+    let mut paths = changed_handoff_paths(&source_root)?;
+    paths.extend(worktreeinclude_paths(&source_root)?);
+    let mut copied = Vec::new();
+    for relative in paths {
+        if relative.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        }) {
+            continue;
+        }
+        if relative.components().any(|component| {
+            component
+                .as_os_str()
+                .to_str()
+                .is_some_and(|part| part == ".git")
+        }) {
+            continue;
+        }
+        let source = source_root.join(&relative);
+        if !source.exists() {
+            continue;
+        }
+        copy_handoff_path(&source_root, &destination_root, &relative)?;
+        copied.push(relative.to_string_lossy().to_string());
+    }
+
+    Ok(HandoffTransferSummary {
+        status: if copied.is_empty() {
+            "no_files".to_string()
+        } else {
+            "files_transferred".to_string()
+        },
+        files: copied,
+    })
+}
+
+fn changed_handoff_paths(source_root: &Path) -> Result<BTreeSet<PathBuf>, WsDispatchError> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain", "-z"])
+        .current_dir(source_root)
+        .output()
+        .map_err(|error| handoff_transfer_error("run git status", error))?;
+    if !output.status.success() {
+        return Err(WsDispatchError::BadRequest(format!(
+            "handoff file transfer failed to read git status: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(parse_porcelain_status_paths(&output.stdout))
+}
+
+fn parse_porcelain_status_paths(raw: &[u8]) -> BTreeSet<PathBuf> {
+    let mut paths = BTreeSet::new();
+    let mut fields = raw
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty());
+    while let Some(record) = fields.next() {
+        if record.len() < 4 {
+            continue;
+        }
+        let status = &record[..2];
+        let path = String::from_utf8_lossy(&record[3..]).to_string();
+        if (status[0] == b'D' && status[1] == b' ') || (status[0] == b' ' && status[1] == b'D') {
+            continue;
+        }
+        if status[0] == b'R' || status[0] == b'C' {
+            if let Some(new_path) = fields.next() {
+                paths.insert(PathBuf::from(String::from_utf8_lossy(new_path).to_string()));
+            }
+        } else {
+            paths.insert(PathBuf::from(path));
+        }
+    }
+    paths
+}
+
+fn worktreeinclude_paths(source_root: &Path) -> Result<BTreeSet<PathBuf>, WsDispatchError> {
+    let include_path = source_root.join(".worktreeinclude");
+    if !include_path.exists() {
+        return Ok(BTreeSet::new());
+    }
+    let contents = std::fs::read_to_string(&include_path)
+        .map_err(|error| handoff_transfer_error("read .worktreeinclude", error))?;
+    Ok(contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(PathBuf::from)
+        .collect())
+}
+
+fn copy_handoff_path(
+    source_root: &Path,
+    destination_root: &Path,
+    relative: &Path,
+) -> Result<(), WsDispatchError> {
+    let source = source_root.join(relative);
+    let destination = destination_root.join(relative);
+    ensure_handoff_path_inside(source_root, &source, "source")?;
+    if source.is_dir() {
+        copy_handoff_directory(source_root, destination_root, relative)
+    } else {
+        copy_handoff_file(destination_root, &source, &destination)
+    }
+}
+
+fn copy_handoff_directory(
+    source_root: &Path,
+    destination_root: &Path,
+    relative: &Path,
+) -> Result<(), WsDispatchError> {
+    let source_dir = source_root.join(relative);
+    for entry in std::fs::read_dir(&source_dir)
+        .map_err(|error| handoff_transfer_error("read handoff directory", error))?
+    {
+        let entry = entry.map_err(|error| handoff_transfer_error("read handoff entry", error))?;
+        let child_name = entry.file_name();
+        if child_name.to_str() == Some(".git") {
+            continue;
+        }
+        copy_handoff_path(source_root, destination_root, &relative.join(child_name))?;
+    }
+    Ok(())
+}
+
+fn copy_handoff_file(
+    destination_root: &Path,
+    source: &Path,
+    destination: &Path,
+) -> Result<(), WsDispatchError> {
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| handoff_transfer_error("create handoff destination", error))?;
+    }
+    ensure_handoff_path_inside(destination_root, destination, "destination")?;
+    std::fs::copy(source, destination)
+        .map_err(|error| handoff_transfer_error("copy handoff file", error))?;
+    Ok(())
+}
+
+fn ensure_handoff_path_inside(
+    root: &Path,
+    path: &Path,
+    label: &str,
+) -> Result<(), WsDispatchError> {
+    let candidate = if path.exists() {
+        path.canonicalize()
+            .map_err(|error| handoff_transfer_error("canonicalize handoff path", error))?
+    } else {
+        path.parent()
+            .unwrap_or(root)
+            .canonicalize()
+            .map_err(|error| handoff_transfer_error("canonicalize handoff parent", error))?
+            .join(path.file_name().unwrap_or_default())
+    };
+    if !candidate.starts_with(root) {
+        return Err(WsDispatchError::BadRequest(format!(
+            "unsafe handoff {label} path `{}` outside `{}`",
+            candidate.display(),
+            root.display()
+        )));
+    }
+    Ok(())
+}
+
+fn handoff_transfer_error(action: &str, error: std::io::Error) -> WsDispatchError {
+    WsDispatchError::BadRequest(format!("handoff file transfer failed to {action}: {error}"))
+}
+
 fn codex_versioned_app_server_request(
     ws_method: &str,
     payload: &Value,
@@ -3490,6 +3702,72 @@ mod tests {
             stdout: stdout.as_ref().to_vec(),
             stderr: Vec::new(),
         }
+    }
+
+    fn run_git(cwd: &std::path::Path, args: impl IntoIterator<Item = &'static str>) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn parses_handoff_porcelain_paths() {
+        let paths = parse_porcelain_status_paths(
+            b" M src/lib.rs\0?? notes.txt\0D  deleted.txt\0R  old.rs\0new.rs\0",
+        );
+
+        assert!(paths.contains(std::path::Path::new("src/lib.rs")));
+        assert!(paths.contains(std::path::Path::new("notes.txt")));
+        assert!(paths.contains(std::path::Path::new("new.rs")));
+        assert!(!paths.contains(std::path::Path::new("deleted.txt")));
+        assert!(!paths.contains(std::path::Path::new("old.rs")));
+    }
+
+    #[test]
+    fn handoff_transfer_copies_changed_untracked_and_worktreeinclude_files() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("source");
+        let destination = temp.path().join("destination");
+        std::fs::create_dir_all(source.join("src")).expect("source dirs");
+        std::fs::create_dir_all(source.join("secrets")).expect("secret dirs");
+        std::fs::create_dir_all(&destination).expect("destination dir");
+        run_git(temp.path(), ["init", "-b", "main", "source"]);
+        run_git(&source, ["config", "user.email", "ace@example.test"]);
+        run_git(&source, ["config", "user.name", "Ace Test"]);
+        std::fs::write(source.join("src/lib.rs"), "pub fn old() {}\n").expect("write tracked");
+        run_git(&source, ["add", "src/lib.rs"]);
+        run_git(&source, ["commit", "-m", "initial"]);
+
+        std::fs::write(source.join("src/lib.rs"), "pub fn new() {}\n").expect("modify tracked");
+        std::fs::write(source.join("notes.txt"), "handoff notes\n").expect("write untracked");
+        std::fs::write(source.join(".gitignore"), "secrets/\n").expect("write gitignore");
+        std::fs::write(source.join(".worktreeinclude"), "secrets/token.txt\n").expect("include");
+        std::fs::write(source.join("secrets/token.txt"), "secret\n").expect("write ignored");
+
+        let summary = transfer_handoff_files(&source, &destination).expect("transfer");
+        assert_eq!(summary.status, "files_transferred");
+        assert!(summary.files.contains(&"src/lib.rs".to_string()));
+        assert!(summary.files.contains(&"notes.txt".to_string()));
+        assert!(summary.files.contains(&"secrets/token.txt".to_string()));
+        assert_eq!(
+            std::fs::read_to_string(destination.join("src/lib.rs")).expect("read tracked"),
+            "pub fn new() {}\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(destination.join("notes.txt")).expect("read untracked"),
+            "handoff notes\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(destination.join("secrets/token.txt")).expect("read ignored"),
+            "secret\n"
+        );
     }
 
     #[tokio::test]
@@ -4640,7 +4918,7 @@ mod tests {
         assert_eq!(handoff["branch"], "feature/task-2");
         assert_eq!(handoff["repo_root"], "/repo");
         assert_eq!(handoff["start_point"], "main");
-        assert_eq!(handoff["transfer_status"], "metadata_updated");
+        assert_eq!(handoff["transfer_status"], "source_unavailable");
         assert_eq!(handoff["interrupted_active_turn"], true);
 
         let recent = state
