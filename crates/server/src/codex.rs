@@ -910,6 +910,16 @@ impl CodexService {
         Ok(response)
     }
 
+    pub async fn review_start(
+        &self,
+        thread_id: String,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        let response = self.backend.raw_request("review/start", params).await?;
+        self.state.lock().await.set_review_mode(&thread_id, true);
+        Ok(response)
+    }
+
     pub async fn has_active_turn(&self, thread_id: &str) -> bool {
         self.state.lock().await.active_turn(thread_id).is_some()
     }

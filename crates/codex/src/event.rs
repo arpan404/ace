@@ -263,6 +263,7 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
                 string_at(params, "reason").as_deref(),
             ]);
         }
+        RuntimeSignalKind::ReviewModeUpdated => {}
         RuntimeSignalKind::SubagentAction => {}
         RuntimeSignalKind::HandoffUpdated => {}
         RuntimeSignalKind::PlanImplementationUpdated => {}

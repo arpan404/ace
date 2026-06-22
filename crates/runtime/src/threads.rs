@@ -375,6 +375,14 @@ impl AgentRuntimeState {
         self.side_chats.remove(thread_id);
     }
 
+    pub fn set_review_mode(&mut self, thread_id: &str, active: bool) {
+        if active {
+            self.review_threads.insert(thread_id.to_string());
+        } else {
+            self.review_threads.remove(thread_id);
+        }
+    }
+
     pub fn record_subagent(&mut self, subagent: SubagentThread) {
         self.subagents.insert(subagent.thread_id.clone(), subagent);
     }
@@ -637,12 +645,12 @@ impl AgentRuntimeState {
                 if item.kind == crate::provider::ThreadItemKind::EnteredReviewMode
                     && let Some(thread_id) = item.thread_id.as_deref()
                 {
-                    self.review_threads.insert(thread_id.to_string());
+                    self.set_review_mode(thread_id, true);
                 }
                 if item.kind == crate::provider::ThreadItemKind::ExitedReviewMode
                     && let Some(thread_id) = item.thread_id.as_deref()
                 {
-                    self.review_threads.remove(thread_id);
+                    self.set_review_mode(thread_id, false);
                 }
             }
             ProviderEvent::Exited { .. } => {
@@ -674,6 +682,7 @@ impl AgentRuntimeState {
                     self.record_side_chat(side_chat);
                 }
                 self.apply_turn_lifecycle_signal(signal);
+                self.apply_review_mode_signal(signal);
             }
             ProviderEvent::RawServerRequest { .. }
             | ProviderEvent::ServerRequest { .. }
@@ -948,6 +957,31 @@ fn turn_mode_from_key(mode: &str) -> TurnMode {
     match mode {
         "plan" => TurnMode::Plan,
         _ => TurnMode::Normal,
+    }
+}
+
+impl AgentRuntimeState {
+    fn apply_review_mode_signal(&mut self, signal: &NormalizedRuntimeSignal) {
+        if signal.kind != RuntimeSignalKind::ReviewModeUpdated {
+            return;
+        }
+        let Some(thread_id) = signal.thread_id.as_deref() else {
+            return;
+        };
+        let active = signal
+            .active
+            .or_else(|| signal.status.as_deref().and_then(review_active_from_status));
+        if let Some(active) = active {
+            self.set_review_mode(thread_id, active);
+        }
+    }
+}
+
+fn review_active_from_status(status: &str) -> Option<bool> {
+    match status {
+        "entered" | "started" | "active" => Some(true),
+        "exited" | "completed" | "inactive" => Some(false),
+        _ => None,
     }
 }
 
@@ -2069,5 +2103,106 @@ mod tests {
             state.plan_session("plan-thread").map(|plan| plan.status),
             Some(PlanSessionStatus::Rejected)
         );
+    }
+
+    #[test]
+    fn applies_review_mode_runtime_signals() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ReviewModeUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("entered".to_string()),
+                    name: None,
+                    active: Some(true),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "detached": true }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/review/start".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ReviewModeUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("exited".to_string()),
+                    name: None,
+                    active: Some(false),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({}),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/review/exit".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+        ]);
+
+        assert!(!state.is_reviewing("thread-1"));
+
+        state.apply_provider_events(&[ProviderEvent::RuntimeSignal {
+            signal: Box::new(NormalizedRuntimeSignal {
+                kind: RuntimeSignalKind::ReviewModeUpdated,
+                thread_id: Some("thread-1".to_string()),
+                turn_id: None,
+                item_id: None,
+                message: None,
+                from_model: None,
+                to_model: None,
+                reason: None,
+                text: None,
+                audio: None,
+                status: Some("entered".to_string()),
+                name: None,
+                active: Some(true),
+                archived: None,
+                diff: None,
+                files: None,
+                process_id: None,
+                exit_code: None,
+                request_id: None,
+                metadata: json!({}),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("ace/review/start".to_string()),
+                    schema_version: None,
+                    raw_payload: json!({}),
+                },
+            }),
+        }]);
+        assert!(state.is_reviewing("thread-1"));
     }
 }

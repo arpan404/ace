@@ -69,6 +69,24 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         method: &str,
         payload: Value,
     ) -> Result<Value, WsDispatchError> {
+        if method == methods::CODEX_REVIEW_START {
+            let request = serde_json::from_value::<CodexReviewStartRequest>(payload)?;
+            let params = serde_json::to_value(&request)?;
+            let response = self
+                .codex
+                .review_start(request.thread_id.clone(), params.clone())
+                .await?;
+            self.publish_codex_review_mode_signal(CodexReviewModeSignal {
+                thread_id: request.thread_id,
+                active: true,
+                status: "entered",
+                request: params,
+                provider_response: response.clone(),
+                method: "ace/review/start",
+            })?;
+            return Ok(response);
+        }
+
         if let Some((codex_method, params)) = codex_versioned_app_server_request(method, &payload)?
         {
             return self
@@ -1324,6 +1342,50 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         )
     }
 
+    fn publish_codex_review_mode_signal(
+        &self,
+        signal: CodexReviewModeSignal,
+    ) -> Result<(), WsDispatchError> {
+        let metadata = json!({
+            "request": signal.request,
+            "provider_response": signal.provider_response,
+        });
+        let raw_payload = metadata.clone();
+        self.append_and_publish_provider_events(
+            ProviderKind::Codex,
+            vec![ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ReviewModeUpdated,
+                    thread_id: Some(signal.thread_id),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some(signal.status.to_string()),
+                    name: None,
+                    active: Some(signal.active),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(signal.method.to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            }],
+        )
+    }
+
     fn publish_codex_subagent_action_signal(
         &self,
         signal: CodexSubagentActionSignal,
@@ -1858,6 +1920,15 @@ struct CodexTurnLifecycleSignal {
     action: &'static str,
     active: bool,
     mode: TurnMode,
+    request: Value,
+    provider_response: Value,
+    method: &'static str,
+}
+
+struct CodexReviewModeSignal {
+    thread_id: String,
+    active: bool,
+    status: &'static str,
     request: Value,
     provider_response: Value,
     method: &'static str,
@@ -6025,6 +6096,57 @@ mod tests {
                 "marketplace/upgrade",
             ]
         );
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "review-snapshot",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        let review_threads = body["providers"][0]["state"]["review_threads"]
+            .as_array()
+            .expect("review threads");
+        assert_eq!(review_threads, &[json!("thread-1")]);
+
+        let recent = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "review-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": { "provider": "codex", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent: WsServerResponse = serde_json::from_str(&recent).expect("recent events");
+        let WsServerPayload::Result { body } = recent.payload else {
+            panic!("expected recent events result");
+        };
+        let records = body["records"].as_array().expect("records");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["event"]["signal"]["kind"], "review_mode_updated");
+        assert_eq!(records[0]["event"]["signal"]["status"], "entered");
+        assert_eq!(records[0]["event"]["signal"]["active"], true);
+        assert_eq!(
+            records[0]["event"]["signal"]["metadata"]["request"]["detached"],
+            true
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][0]["type"],
+            "review_mode_changed"
+        );
+        assert_eq!(records[0]["projection_deltas"][0]["thread_id"], "thread-1");
+        assert_eq!(records[0]["projection_deltas"][0]["active"], true);
 
         let invalid = state
             .dispatch_text(

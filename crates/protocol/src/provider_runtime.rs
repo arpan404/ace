@@ -1311,6 +1311,27 @@ fn projection_deltas_for_runtime_signal(
                 metadata: signal.metadata.clone(),
             }]
         }
+        RuntimeSignalKind::ReviewModeUpdated => {
+            let Some(thread_id) = signal.thread_id.clone() else {
+                return Vec::new();
+            };
+            let active = signal.active.or_else(|| {
+                signal
+                    .status
+                    .as_deref()
+                    .and_then(review_active_from_signal_status)
+            });
+            active
+                .map(|active| {
+                    vec![ProviderRuntimeProjectionDelta::ReviewModeChanged {
+                        provider: signal.provider.provider.clone(),
+                        thread_id,
+                        active,
+                        item_id: signal.item_id.clone(),
+                    }]
+                })
+                .unwrap_or_default()
+        }
         RuntimeSignalKind::SubagentAction => {
             let Some(parent_thread_id) = signal.thread_id.clone() else {
                 return Vec::new();
@@ -1450,6 +1471,14 @@ fn active_turn_for_signal_status(status: &str) -> Option<bool> {
     match status {
         "started" | "started_streaming" => Some(true),
         "completed" | "failed" | "interrupted" | "cancelled" => Some(false),
+        _ => None,
+    }
+}
+
+fn review_active_from_signal_status(status: &str) -> Option<bool> {
+    match status {
+        "entered" | "started" | "active" => Some(true),
+        "exited" | "completed" | "inactive" => Some(false),
         _ => None,
     }
 }
@@ -2258,6 +2287,93 @@ mod tests {
             } if provider == "codex"
                 && thread_id.as_deref() == Some("thread-1")
                 && turn_id.as_deref() == Some("turn-1")
+        )));
+    }
+
+    #[test]
+    fn provider_runtime_events_project_review_mode_signals() {
+        let events = [
+            ProviderRuntimeEvent::from_provider_event(
+                "codex",
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::ReviewModeUpdated,
+                        thread_id: Some("thread-1".to_string()),
+                        turn_id: None,
+                        item_id: Some("review-1".to_string()),
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: None,
+                        audio: None,
+                        status: Some("entered".to_string()),
+                        name: None,
+                        active: Some(true),
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata: json!({ "detached": true }),
+                        provider: provider_metadata("ace/review/start"),
+                    }),
+                },
+            ),
+            ProviderRuntimeEvent::from_provider_event(
+                "codex",
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::ReviewModeUpdated,
+                        thread_id: Some("thread-1".to_string()),
+                        turn_id: None,
+                        item_id: Some("review-1".to_string()),
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: None,
+                        audio: None,
+                        status: Some("exited".to_string()),
+                        name: None,
+                        active: Some(false),
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata: json!({}),
+                        provider: provider_metadata("ace/review/exit"),
+                    }),
+                },
+            ),
+        ];
+
+        let deltas = projection_deltas_for_events(&events);
+
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ReviewModeChanged {
+                provider,
+                thread_id,
+                active: true,
+                item_id,
+            } if provider == "codex"
+                && thread_id == "thread-1"
+                && item_id.as_deref() == Some("review-1")
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ReviewModeChanged {
+                provider,
+                thread_id,
+                active: false,
+                item_id,
+            } if provider == "codex"
+                && thread_id == "thread-1"
+                && item_id.as_deref() == Some("review-1")
         )));
     }
 
