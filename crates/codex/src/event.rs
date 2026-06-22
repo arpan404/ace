@@ -38,16 +38,24 @@ pub fn normalize_codex_inbound_event(event: &CodexInboundEvent) -> Vec<ProviderE
             });
             events
         }
-        CodexInboundEvent::ServerRequest { id, method, params } => vec![
-            ProviderEvent::ServerRequest {
-                request: Box::new(normalize_codex_server_request(*id, method, params)),
-            },
-            ProviderEvent::RawServerRequest {
-                id: id.to_string(),
-                method: method.clone(),
-                params: params.clone(),
-            },
-        ],
+        CodexInboundEvent::ServerRequest { id, method, params } => {
+            let mut events = vec![
+                ProviderEvent::ServerRequest {
+                    request: Box::new(normalize_codex_server_request(*id, method, params)),
+                },
+                ProviderEvent::RawServerRequest {
+                    id: id.to_string(),
+                    method: method.clone(),
+                    params: params.clone(),
+                },
+            ];
+            if let Some(tool) = normalize_codex_server_request_tool(*id, method, params) {
+                events.push(ProviderEvent::SemanticTool {
+                    tool: Box::new(tool),
+                });
+            }
+            events
+        }
         CodexInboundEvent::StderrLine(line) => {
             vec![ProviderEvent::StderrLine { line: line.clone() }]
         }
@@ -540,6 +548,140 @@ fn normalize_codex_tool_notification(
         provider,
         item_type: Some(item_type),
     }))
+}
+
+fn normalize_codex_server_request_tool(
+    id: i64,
+    method: &str,
+    params: &Value,
+) -> Option<ace_runtime::tools::SemanticToolCall> {
+    let kind = server_request_kind(method);
+    let item_type = tool_item_type_for_server_request(kind)?;
+    let mut provider = ProviderToolMetadata::new();
+    provider.provider = Some("codex".to_string());
+    provider.method = Some(method.to_string());
+    provider.thread_id = string_at(params, "threadId")
+        .or_else(|| string_at(params, "thread_id"))
+        .or_else(|| nested_string_at(params, "/thread", &["id", "threadId", "thread_id"]));
+    provider.turn_id = string_at(params, "turnId").or_else(|| string_at(params, "turn_id"));
+    provider.item_id = string_at(params, "itemId")
+        .or_else(|| string_at(params, "item_id"))
+        .or_else(|| string_at(params, "sourceItemId"))
+        .or_else(|| string_at(params, "source_item_id"))
+        .or_else(|| string_at(params, "toolCallId"))
+        .or_else(|| string_at(params, "tool_call_id"))
+        .or_else(|| Some(id.to_string()));
+    provider.server_name = string_at_deep(params, "serverName")
+        .or_else(|| string_at_deep(params, "server_name"))
+        .or_else(|| string_at_deep(params, "server"))
+        .or_else(|| string_at_deep(params, "mcpServer"));
+    provider.tool_name = tool_name_for_server_request(kind, params);
+    provider.operation = operation_for_server_request(kind, params);
+    provider.raw_args = args_for_server_request(params);
+    provider.raw_result = params.get("result").cloned().unwrap_or(Value::Null);
+    provider.raw_payload = params.clone();
+
+    Some(normalize_tool_call(ToolNormalizationInput {
+        transport: transport_for_server_request(kind, &provider),
+        status: ToolRunStatus::ApprovalRequested,
+        provider,
+        item_type: Some(item_type.to_string()),
+    }))
+}
+
+fn tool_item_type_for_server_request(kind: ServerRequestKind) -> Option<&'static str> {
+    match kind {
+        ServerRequestKind::CommandApproval | ServerRequestKind::ExecApproval => {
+            Some("commandExecution")
+        }
+        ServerRequestKind::FileChangeApproval | ServerRequestKind::ApplyPatchApproval => {
+            Some("fileChange")
+        }
+        ServerRequestKind::McpElicitation | ServerRequestKind::ToolUserInput => Some("mcpToolCall"),
+        ServerRequestKind::DynamicToolCall => Some("dynamicToolCall"),
+        ServerRequestKind::Unknown
+        | ServerRequestKind::PermissionApproval
+        | ServerRequestKind::AccountTokenRefresh
+        | ServerRequestKind::Attestation => None,
+    }
+}
+
+fn tool_name_for_server_request(kind: ServerRequestKind, params: &Value) -> Option<String> {
+    string_at_deep(params, "toolName")
+        .or_else(|| string_at_deep(params, "tool_name"))
+        .or_else(|| string_at_deep(params, "tool"))
+        .or_else(|| string_at_deep(params, "function"))
+        .or_else(|| string_at_deep(params, "name"))
+        .or_else(|| match kind {
+            ServerRequestKind::CommandApproval | ServerRequestKind::ExecApproval => {
+                Some("shell".to_string())
+            }
+            ServerRequestKind::FileChangeApproval | ServerRequestKind::ApplyPatchApproval => {
+                Some("apply_patch".to_string())
+            }
+            ServerRequestKind::McpElicitation | ServerRequestKind::ToolUserInput => {
+                Some("mcp".to_string())
+            }
+            _ => None,
+        })
+}
+
+fn operation_for_server_request(kind: ServerRequestKind, params: &Value) -> Option<String> {
+    string_at_deep(params, "operation")
+        .or_else(|| string_at_deep(params, "action"))
+        .or_else(|| string_at_deep(params, "action_type"))
+        .or_else(|| match kind {
+            ServerRequestKind::CommandApproval | ServerRequestKind::ExecApproval => {
+                Some("run".to_string())
+            }
+            ServerRequestKind::FileChangeApproval | ServerRequestKind::ApplyPatchApproval => {
+                Some("apply_patch".to_string())
+            }
+            ServerRequestKind::McpElicitation => Some("elicitation".to_string()),
+            ServerRequestKind::ToolUserInput => Some("user_input".to_string()),
+            _ => None,
+        })
+}
+
+fn args_for_server_request(params: &Value) -> Value {
+    params
+        .get("input")
+        .or_else(|| params.get("arguments"))
+        .or_else(|| params.get("args"))
+        .cloned()
+        .unwrap_or_else(|| params.clone())
+}
+
+fn transport_for_server_request(
+    kind: ServerRequestKind,
+    provider: &ProviderToolMetadata,
+) -> ToolTransport {
+    let label = [
+        provider.tool_name.as_deref().unwrap_or_default(),
+        provider.server_name.as_deref().unwrap_or_default(),
+        provider.operation.as_deref().unwrap_or_default(),
+    ]
+    .join(" ")
+    .to_lowercase();
+    if label.contains("ace_browser") || label.contains("browser") || label.contains("playwright") {
+        ToolTransport::BrowserBridge
+    } else if label.contains("computer") || label.contains("desktop") {
+        ToolTransport::ComputerBridge
+    } else {
+        match kind {
+            ServerRequestKind::CommandApproval | ServerRequestKind::ExecApproval => {
+                ToolTransport::Shell
+            }
+            ServerRequestKind::FileChangeApproval | ServerRequestKind::ApplyPatchApproval => {
+                ToolTransport::Filesystem
+            }
+            ServerRequestKind::McpElicitation | ServerRequestKind::ToolUserInput => {
+                ToolTransport::Mcp
+            }
+            ServerRequestKind::DynamicToolCall => ToolTransport::CodexDynamic,
+            _ => ToolTransport::CodexBuiltin,
+        }
+    }
 }
 
 fn is_tool_item_type(item_type: &str) -> bool {
@@ -1212,6 +1354,97 @@ mod tests {
             };
             assert_eq!(&request.provider.raw_payload, params);
         }
+    }
+
+    #[test]
+    fn server_request_dynamic_tool_emits_semantic_browser_approval() {
+        let raw = json!({
+            "thread": { "id": "thread-1" },
+            "turnId": "turn-1",
+            "toolCallId": "tool-1",
+            "toolName": "ace_browser",
+            "arguments": {
+                "operation": "navigate_tab_url",
+                "url": "http://localhost:5173"
+            },
+            "prompt": "Open this page?"
+        });
+        let events = normalize_codex_inbound_event(&CodexInboundEvent::ServerRequest {
+            id: 42,
+            method: "dynamicTool/call".to_string(),
+            params: raw.clone(),
+        });
+
+        assert!(matches!(events[0], ProviderEvent::ServerRequest { .. }));
+        assert!(matches!(events[1], ProviderEvent::RawServerRequest { .. }));
+        let ProviderEvent::SemanticTool { tool } = &events[2] else {
+            panic!("expected semantic tool approval");
+        };
+        assert_eq!(tool.surface, ToolSurface::Browser);
+        assert_eq!(tool.action, ToolActionKind::BrowserNavigate);
+        assert_eq!(
+            tool.display.status,
+            ace_runtime::tools::ToolRunStatus::ApprovalRequested
+        );
+        assert_eq!(
+            tool.display.title,
+            "Opening http://localhost:5173 in Browser"
+        );
+        assert_eq!(tool.provider.raw_payload, raw);
+        assert_eq!(tool.provider.item_id.as_deref(), Some("tool-1"));
+    }
+
+    #[test]
+    fn server_request_mcp_elicitation_falls_back_to_named_external_tool() {
+        let events = normalize_codex_inbound_event(&CodexInboundEvent::ServerRequest {
+            id: 43,
+            method: "mcp/elicitation".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "serverName": "linear",
+                "toolName": "choose_issue",
+                "input": {
+                    "options": ["ACE-1", "ACE-2"]
+                },
+                "question": "Which issue?"
+            }),
+        });
+
+        let ProviderEvent::SemanticTool { tool } = &events[2] else {
+            panic!("expected semantic tool approval");
+        };
+        assert_eq!(tool.surface, ToolSurface::GenericMcp);
+        assert_eq!(tool.action, ToolActionKind::ToolRun);
+        assert_eq!(tool.display.title, "Running linear.choose_issue tool");
+        assert!(!tool.display.title.contains("MCP tool"));
+        assert_eq!(tool.provider.server_name.as_deref(), Some("linear"));
+        assert_eq!(tool.provider.tool_name.as_deref(), Some("choose_issue"));
+    }
+
+    #[test]
+    fn server_request_command_approval_emits_terminal_tool_approval() {
+        let events = normalize_codex_inbound_event(&CodexInboundEvent::ServerRequest {
+            id: 44,
+            method: "command/approvalRequest".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "itemId": "cmd-1",
+                "command": "cargo test -p ace-codex",
+                "cwd": "/repo",
+                "message": "Approve command?"
+            }),
+        });
+
+        let ProviderEvent::SemanticTool { tool } = &events[2] else {
+            panic!("expected semantic tool approval");
+        };
+        assert_eq!(tool.surface, ToolSurface::Terminal);
+        assert_eq!(tool.action, ToolActionKind::TerminalRun);
+        assert_eq!(tool.display.title, "Running `cargo test -p ace-codex`");
+        assert_eq!(
+            tool.display.status,
+            ace_runtime::tools::ToolRunStatus::ApprovalRequested
+        );
     }
 
     #[test]
