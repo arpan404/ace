@@ -3,6 +3,9 @@ use ace_runtime::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem, ProviderEvent,
         ProviderMetadata, RuntimeSignalKind, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     },
+    server_requests::{
+        ServerRequestNormalizationInput, normalize_provider_server_request, server_request_kind,
+    },
     tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
         normalize_tool_call,
@@ -402,188 +405,12 @@ fn normalize_codex_server_request(
     method: &str,
     params: &Value,
 ) -> NormalizedServerRequest {
-    let kind = server_request_kind(method);
-    NormalizedServerRequest {
-        kind,
+    normalize_provider_server_request(ServerRequestNormalizationInput {
+        provider: "codex".to_string(),
         request_id: id.to_string(),
         method: method.to_string(),
-        thread_id: string_at(params, "threadId")
-            .or_else(|| string_at(params, "thread_id"))
-            .or_else(|| string_at(params, "conversationId"))
-            .or_else(|| string_at(params, "conversation_id"))
-            .or_else(|| nested_string_at(params, "/thread", &["id", "threadId", "thread_id"])),
-        turn_id: string_at(params, "turnId").or_else(|| string_at(params, "turn_id")),
-        item_id: string_at(params, "itemId")
-            .or_else(|| string_at(params, "item_id"))
-            .or_else(|| string_at(params, "sourceItemId"))
-            .or_else(|| string_at(params, "source_item_id"))
-            .or_else(|| string_at(params, "toolCallId"))
-            .or_else(|| string_at(params, "tool_call_id")),
-        scope: server_request_scope(kind, params),
-        title: Some(server_request_title(kind).to_string()),
-        prompt: server_request_prompt(params),
-        selected_policy: string_at(params, "approvalPolicy")
-            .or_else(|| string_at(params, "approval_policy"))
-            .or_else(|| string_at(params, "permissionPolicy"))
-            .or_else(|| string_at(params, "permission_policy")),
-        metadata: metadata_for_server_request(params),
-        provider: ProviderMetadata {
-            provider: "codex".to_string(),
-            method: Some(method.to_string()),
-            schema_version: string_at(params, "schemaVersion"),
-            raw_payload: params.clone(),
-        },
-    }
-}
-
-fn server_request_kind(method: &str) -> ServerRequestKind {
-    match method {
-        "item/commandExecution/requestApproval" | "command/approvalRequest" => {
-            ServerRequestKind::CommandApproval
-        }
-        "item/fileChange/requestApproval" | "fileChange/approvalRequest" => {
-            ServerRequestKind::FileChangeApproval
-        }
-        "item/tool/requestUserInput" | "tool/userInputRequest" => ServerRequestKind::ToolUserInput,
-        "mcpServer/elicitation/request" | "mcp/elicitation" => ServerRequestKind::McpElicitation,
-        "item/permissions/requestApproval" | "permission/approvalRequest" => {
-            ServerRequestKind::PermissionApproval
-        }
-        "item/tool/call" | "dynamicTool/call" => ServerRequestKind::DynamicToolCall,
-        "account/chatgptAuthTokens/refresh" | "account/tokenRefresh" => {
-            ServerRequestKind::AccountTokenRefresh
-        }
-        "attestation/generate" | "attestation/request" => ServerRequestKind::Attestation,
-        "applyPatchApproval" | "applyPatch/approvalRequest" => {
-            ServerRequestKind::ApplyPatchApproval
-        }
-        "execCommandApproval" | "exec/approvalRequest" => ServerRequestKind::ExecApproval,
-        _ => ServerRequestKind::Unknown,
-    }
-}
-
-fn server_request_scope(kind: ServerRequestKind, params: &Value) -> Option<String> {
-    string_at(params, "scope").or_else(|| {
-        Some(
-            match kind {
-                ServerRequestKind::CommandApproval | ServerRequestKind::ExecApproval => "command",
-                ServerRequestKind::FileChangeApproval | ServerRequestKind::ApplyPatchApproval => {
-                    "filesystem"
-                }
-                ServerRequestKind::ToolUserInput | ServerRequestKind::DynamicToolCall => "tool",
-                ServerRequestKind::McpElicitation => "mcp",
-                ServerRequestKind::PermissionApproval => "permission",
-                ServerRequestKind::AccountTokenRefresh => "account",
-                ServerRequestKind::Attestation => "attestation",
-                ServerRequestKind::Unknown => return None,
-            }
-            .to_string(),
-        )
+        params: params.clone(),
     })
-}
-
-fn server_request_title(kind: ServerRequestKind) -> &'static str {
-    match kind {
-        ServerRequestKind::CommandApproval => "Approve command execution",
-        ServerRequestKind::FileChangeApproval => "Approve file changes",
-        ServerRequestKind::ToolUserInput => "Tool needs input",
-        ServerRequestKind::McpElicitation => "MCP server needs input",
-        ServerRequestKind::PermissionApproval => "Approve permission change",
-        ServerRequestKind::DynamicToolCall => "Run dynamic tool",
-        ServerRequestKind::AccountTokenRefresh => "Refresh account token",
-        ServerRequestKind::Attestation => "Provide attestation",
-        ServerRequestKind::ApplyPatchApproval => "Approve patch application",
-        ServerRequestKind::ExecApproval => "Approve command execution",
-        ServerRequestKind::Unknown => "Provider request",
-    }
-}
-
-fn server_request_prompt(params: &Value) -> Option<String> {
-    string_at(params, "prompt")
-        .or_else(|| string_at(params, "message"))
-        .or_else(|| string_at(params, "question"))
-        .or_else(|| string_at(params, "userPrompt"))
-        .or_else(|| string_at(params, "user_prompt"))
-        .or_else(|| string_at(params, "reason"))
-        .or_else(|| string_at(params, "description"))
-        .or_else(|| string_at(params, "instructions"))
-        .or_else(|| string_at(params, "command").map(|command| format!("Run `{command}`?")))
-        .or_else(|| {
-            first_string([
-                string_at(params, "toolName").as_deref(),
-                string_at(params, "tool_name").as_deref(),
-                string_at(params, "name").as_deref(),
-            ])
-            .map(|tool| format!("Run `{tool}`?"))
-        })
-}
-
-fn metadata_for_server_request(params: &Value) -> Value {
-    let mut metadata = serde_json::Map::new();
-    for key in [
-        "requestId",
-        "request_id",
-        "threadId",
-        "thread_id",
-        "turnId",
-        "turn_id",
-        "itemId",
-        "item_id",
-        "sourceItemId",
-        "source_item_id",
-        "toolCallId",
-        "tool_call_id",
-        "command",
-        "argv",
-        "args",
-        "arguments",
-        "input",
-        "result",
-        "cwd",
-        "env",
-        "path",
-        "paths",
-        "uri",
-        "files",
-        "diff",
-        "patch",
-        "toolName",
-        "tool_name",
-        "tool",
-        "name",
-        "serverName",
-        "server_name",
-        "server",
-        "operation",
-        "action",
-        "sandbox",
-        "sandboxPolicy",
-        "sandbox_policy",
-        "permission",
-        "permissions",
-        "permissionPolicy",
-        "permission_policy",
-        "approvalPolicy",
-        "approval_policy",
-        "approvalsReviewer",
-        "approvals_reviewer",
-        "account",
-        "accountId",
-        "account_id",
-        "attestation",
-        "challenge",
-        "resource",
-        "schema",
-        "choices",
-        "options",
-        "timeoutMs",
-        "timeout_ms",
-    ] {
-        if let Some(value) = params.get(key) {
-            metadata.insert(key.to_string(), value.clone());
-        }
-    }
-    Value::Object(metadata)
 }
 
 fn normalize_codex_thread_item_notification(

@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 
 pub mod host_tools;
 pub mod native_provider;
+pub mod server_requests;
 pub mod threads;
 pub mod tools;
 
