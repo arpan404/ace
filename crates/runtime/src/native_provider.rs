@@ -1,4 +1,7 @@
-use crate::provider::{ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderRequest};
+use crate::provider::{
+    ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderRequest,
+    ace_provider_contract_requirements,
+};
 use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -25,20 +28,28 @@ impl AceNativeProvider {
                     key: "ace.websocket_first".to_string(),
                     version: 1,
                 },
-                ProviderCapability {
-                    key: "provider.normalized_events".to_string(),
-                    version: 1,
-                },
-                ProviderCapability {
-                    key: "provider.semantic_tools".to_string(),
-                    version: 1,
-                },
-                ProviderCapability {
-                    key: "provider.normalized_server_requests".to_string(),
-                    version: 1,
-                },
             ],
         }
+        .with_contract_capabilities()
+    }
+}
+
+trait WithContractCapabilities {
+    fn with_contract_capabilities(self) -> Self;
+}
+
+impl WithContractCapabilities for ProviderDescriptor {
+    fn with_contract_capabilities(mut self) -> Self {
+        self.capabilities.extend(
+            ace_provider_contract_requirements()
+                .into_iter()
+                .filter(|requirement| requirement.required)
+                .map(|requirement| ProviderCapability {
+                    key: requirement.key,
+                    version: requirement.min_version,
+                }),
+        );
+        self
     }
 }
 
@@ -84,6 +95,7 @@ impl ProviderDriver for AceNativeProvider {
                     "raw_payload_policy": "preserve_provider_payloads"
                 },
                 "provider_requirements": {
+                    "capabilities": ace_provider_contract_requirements(),
                     "events": "emit normalized ProviderEvent values",
                     "tools": "map provider tool calls to SemanticToolCall when possible",
                     "server_requests": "map provider host requests to NormalizedServerRequest",

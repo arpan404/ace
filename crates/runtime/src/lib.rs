@@ -54,6 +54,31 @@ pub mod provider {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderContractRequirement {
+        pub key: String,
+        pub min_version: u32,
+        pub required: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderContractRequirementStatus {
+        pub key: String,
+        pub min_version: u32,
+        pub required: bool,
+        pub available_version: Option<u32>,
+        pub satisfied: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderContractReport {
+        pub provider: ProviderKind,
+        pub satisfies_required: bool,
+        pub requirements: Vec<ProviderContractRequirementStatus>,
+        pub capabilities: Vec<ProviderCapability>,
+        pub missing_required: Vec<String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct ProviderRequest {
         pub method: String,
         #[serde(default)]
@@ -213,6 +238,68 @@ pub mod provider {
         drivers: HashMap<ProviderKind, DynProviderDriver>,
     }
 
+    #[must_use]
+    pub fn ace_provider_contract_requirements() -> Vec<ProviderContractRequirement> {
+        vec![
+            ProviderContractRequirement {
+                key: "provider.normalized_events".to_string(),
+                min_version: 1,
+                required: true,
+            },
+            ProviderContractRequirement {
+                key: "provider.semantic_tools".to_string(),
+                min_version: 1,
+                required: true,
+            },
+            ProviderContractRequirement {
+                key: "provider.normalized_server_requests".to_string(),
+                min_version: 1,
+                required: true,
+            },
+            ProviderContractRequirement {
+                key: "provider.runtime.raw_request".to_string(),
+                min_version: 1,
+                required: false,
+            },
+        ]
+    }
+
+    #[must_use]
+    pub fn provider_contract_report(descriptor: &ProviderDescriptor) -> ProviderContractReport {
+        let requirements = ace_provider_contract_requirements()
+            .into_iter()
+            .map(|requirement| {
+                let available_version = descriptor
+                    .capabilities
+                    .iter()
+                    .find(|capability| capability.key == requirement.key)
+                    .map(|capability| capability.version);
+                let satisfied = available_version
+                    .map(|version| version >= requirement.min_version)
+                    .unwrap_or(false);
+                ProviderContractRequirementStatus {
+                    key: requirement.key,
+                    min_version: requirement.min_version,
+                    required: requirement.required,
+                    available_version,
+                    satisfied,
+                }
+            })
+            .collect::<Vec<_>>();
+        let missing_required = requirements
+            .iter()
+            .filter(|requirement| requirement.required && !requirement.satisfied)
+            .map(|requirement| requirement.key.clone())
+            .collect::<Vec<_>>();
+        ProviderContractReport {
+            provider: descriptor.kind,
+            satisfies_required: missing_required.is_empty(),
+            requirements,
+            capabilities: descriptor.capabilities.clone(),
+            missing_required,
+        }
+    }
+
     impl ProviderRegistry {
         #[must_use]
         pub fn new() -> Self {
@@ -244,6 +331,14 @@ pub mod provider {
                 .collect::<Vec<_>>();
             descriptors.sort_by_key(|descriptor| descriptor.kind);
             descriptors
+        }
+
+        #[must_use]
+        pub fn contract_reports(&self) -> Vec<ProviderContractReport> {
+            self.descriptors()
+                .iter()
+                .map(provider_contract_report)
+                .collect()
         }
 
         pub async fn request(
@@ -366,6 +461,59 @@ pub mod provider {
             let descriptors = registry.descriptors();
             assert_eq!(descriptors[0].kind, ProviderKind::Codex);
             assert_eq!(descriptors[1].kind, ProviderKind::ClaudeCode);
+        }
+
+        #[test]
+        fn contract_report_marks_missing_required_capabilities() {
+            let descriptor = ProviderDescriptor {
+                kind: ProviderKind::ClaudeCode,
+                capabilities: vec![ProviderCapability {
+                    key: "provider.semantic_tools".to_string(),
+                    version: 1,
+                }],
+            };
+
+            let report = provider_contract_report(&descriptor);
+            assert!(!report.satisfies_required);
+            assert_eq!(
+                report.missing_required,
+                vec![
+                    "provider.normalized_events".to_string(),
+                    "provider.normalized_server_requests".to_string(),
+                ]
+            );
+            assert!(
+                report
+                    .requirements
+                    .iter()
+                    .any(|requirement| requirement.key == "provider.semantic_tools"
+                        && requirement.satisfied)
+            );
+        }
+
+        #[test]
+        fn registry_reports_provider_contract_statuses() {
+            let driver = Arc::new(FakeProviderDriver {
+                descriptor: ProviderDescriptor {
+                    kind: ProviderKind::Ace,
+                    capabilities: ace_provider_contract_requirements()
+                        .into_iter()
+                        .filter(|requirement| requirement.required)
+                        .map(|requirement| ProviderCapability {
+                            key: requirement.key,
+                            version: requirement.min_version,
+                        })
+                        .collect(),
+                },
+                requests: Mutex::new(Vec::new()),
+            });
+            let registry = ProviderRegistry::new().with_driver(driver);
+
+            let reports = registry.contract_reports();
+            assert_eq!(reports.len(), 1);
+            assert_eq!(reports[0].provider, ProviderKind::Ace);
+            assert!(reports[0].satisfies_required);
+            assert!(reports[0].missing_required.is_empty());
         }
 
         #[tokio::test]

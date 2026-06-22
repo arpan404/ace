@@ -69,6 +69,7 @@ pub mod methods {
     pub const CODEX_RESTART: &str = "codex.restart";
     pub const PROVIDER_RUNTIME_EVENTS_SUBSCRIBE: &str = "provider_runtime.events.subscribe";
     pub const PROVIDER_RUNTIME_PROVIDERS_LIST: &str = "provider_runtime.providers.list";
+    pub const PROVIDER_RUNTIME_CONTRACT: &str = "provider_runtime.contract";
     pub const PROVIDER_RUNTIME_REQUEST: &str = "provider_runtime.request";
     pub const PROVIDER_RUNTIME_SERVER_REQUEST_RESULT: &str =
         "provider_runtime.server_request.result";

@@ -15,9 +15,9 @@ use ace_protocol::{
     },
     git::GitWorktreeCreateRequest,
     provider_runtime::{
-        PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
-        ProviderRuntimeProvidersList, ProviderRuntimeRequest, ProviderRuntimeSubscribeRequest,
-        ProviderServerRequestError, ProviderServerRequestResult,
+        PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeContractReport, ProviderRuntimeEvent,
+        ProviderRuntimeEventBatch, ProviderRuntimeProvidersList, ProviderRuntimeRequest,
+        ProviderRuntimeSubscribeRequest, ProviderServerRequestError, ProviderServerRequestResult,
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
@@ -490,6 +490,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             methods::PROVIDER_RUNTIME_PROVIDERS_LIST => {
                 Ok(serde_json::to_value(ProviderRuntimeProvidersList {
                     providers: self.providers.descriptors(),
+                })?)
+            }
+            methods::PROVIDER_RUNTIME_CONTRACT => {
+                Ok(serde_json::to_value(ProviderRuntimeContractReport {
+                    reports: self.providers.contract_reports(),
                 })?)
             }
             methods::PROVIDER_RUNTIME_REQUEST => {
@@ -1497,6 +1502,40 @@ mod tests {
             body["provider_requirements"]["tools"],
             "map provider tool calls to SemanticToolCall when possible"
         );
+
+        let contract = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-contract",
+                    "method": methods::PROVIDER_RUNTIME_CONTRACT,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let contract: WsServerResponse =
+            serde_json::from_str(&contract).expect("contract response");
+        let WsServerPayload::Result { body } = contract.payload else {
+            panic!("expected provider contract result");
+        };
+        let reports = body["reports"].as_array().expect("contract reports");
+        assert!(reports.iter().any(|report| {
+            report["provider"] == "Ace"
+                && report["satisfies_required"] == true
+                && report["missing_required"]
+                    .as_array()
+                    .expect("missing")
+                    .is_empty()
+        }));
+        assert!(reports.iter().any(|report| {
+            report["provider"] == "Codex"
+                && report["satisfies_required"] == true
+                && report["missing_required"]
+                    .as_array()
+                    .expect("missing")
+                    .is_empty()
+        }));
     }
 
     #[tokio::test]

@@ -649,6 +649,14 @@ impl<T: AppServerTransport + 'static> ProviderDriver for CodexAdapter<T> {
                     key: "provider.semantic_tools".to_string(),
                     version: 1,
                 },
+                ProviderCapability {
+                    key: "provider.normalized_events".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
+                    key: "provider.normalized_server_requests".to_string(),
+                    version: 1,
+                },
             ],
         }
     }

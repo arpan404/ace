@@ -1,6 +1,9 @@
 use ace_core::ProviderKind;
 use ace_runtime::{
-    provider::{NormalizedServerRequest, NormalizedThreadItem, ProviderDescriptor, ProviderEvent},
+    provider::{
+        NormalizedServerRequest, NormalizedThreadItem, ProviderContractReport, ProviderDescriptor,
+        ProviderEvent,
+    },
     tools::{SemanticToolCall, ToolRunStatus},
 };
 use serde::{Deserialize, Serialize};
@@ -25,6 +28,11 @@ pub struct ProviderRuntimeRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderRuntimeProvidersList {
     pub providers: Vec<ProviderDescriptor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeContractReport {
+    pub reports: Vec<ProviderContractReport>,
 }
 
 fn default_provider_request_timeout_ms() -> u64 {

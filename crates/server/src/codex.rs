@@ -840,6 +840,14 @@ impl ProviderDriver for CodexService {
                     version: 1,
                 },
                 ProviderCapability {
+                    key: "provider.normalized_events".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
+                    key: "provider.normalized_server_requests".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
                     key: "provider.runtime.raw_request".to_string(),
                     version: 1,
                 },
