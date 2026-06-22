@@ -15,6 +15,7 @@ use crate::editor::{EditorApiError, EditorService};
 use crate::git::{GitApiError, GitService};
 use crate::github::{GithubApiError, GithubService};
 use crate::project::{ProjectApiError, ProjectService};
+use ace_core::ProviderKind;
 use ace_git::{GitClient, GithubCliClient, ProcessRunner, TokioProcessRunner};
 use ace_persistence::{PersistenceError, ProviderEventLogRepository};
 use ace_platform::AppPaths;
@@ -24,7 +25,7 @@ use ace_protocol::{
 };
 use ace_runtime::{
     native_provider::AceNativeProvider,
-    provider::{ProviderRegistry, ProviderRuntimeError},
+    provider::{ProviderEvent, ProviderRegistry, ProviderRuntimeError},
 };
 use ace_terminal::{PortablePtyAdapter, PtyAdapter, TerminalError, TerminalManager};
 use axum::{
@@ -41,17 +42,20 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::{
+    collections::HashMap,
     future::Future,
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 pub struct WsApiState<R: ProcessRunner = TokioProcessRunner, A: PtyAdapter = PortablePtyAdapter> {
     checkpoint: Arc<CheckpointService<TokioProcessRunner>>,
     codex: Arc<CodexService>,
     providers: ProviderRegistry,
     provider_events: Arc<Mutex<ProviderEventLogRepository>>,
+    provider_event_streams:
+        Arc<Mutex<HashMap<ProviderKind, broadcast::Sender<ProviderEventStreamMessage>>>>,
     git: Arc<GitService<R>>,
     github: Arc<GithubService<R>>,
     project: Arc<ProjectService>,
@@ -66,6 +70,7 @@ impl<R: ProcessRunner, A: PtyAdapter> Clone for WsApiState<R, A> {
             codex: Arc::clone(&self.codex),
             providers: self.providers.clone(),
             provider_events: Arc::clone(&self.provider_events),
+            provider_event_streams: Arc::clone(&self.provider_event_streams),
             git: Arc::clone(&self.git),
             github: Arc::clone(&self.github),
             project: Arc::clone(&self.project),
@@ -93,6 +98,7 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
                 ProviderEventLogRepository::open(paths.state_dir.join("provider-events.sqlite3"))
                     .expect("initialize provider event log"),
             )),
+            provider_event_streams: Arc::new(Mutex::new(HashMap::new())),
             git: Arc::new(GitService::new_with_github(
                 GitClient::new(),
                 GithubCliClient::new(),
@@ -123,6 +129,7 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
                 )
                 .expect("initialize provider event log"),
             )),
+            provider_event_streams: Arc::new(Mutex::new(HashMap::new())),
             git: Arc::new(git),
             github: Arc::new(github),
             project: Arc::new(
@@ -143,6 +150,7 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
             codex: self.codex,
             providers: self.providers,
             provider_events: self.provider_events,
+            provider_event_streams: self.provider_event_streams,
             git: self.git,
             github: self.github,
             project: self.project,
@@ -172,6 +180,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     #[must_use]
     pub fn with_provider_event_log(mut self, event_log: ProviderEventLogRepository) -> Self {
         self.provider_events = Arc::new(Mutex::new(event_log));
+        self.provider_event_streams = Arc::new(Mutex::new(HashMap::new()));
         self
     }
 
@@ -186,6 +195,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         self.editor = Arc::new(editor);
         self
     }
+}
+
+#[derive(Debug, Clone)]
+pub(super) enum ProviderEventStreamMessage {
+    Events(Vec<ProviderEvent>),
+    Error { code: String, message: String },
 }
 
 pub fn router() -> Router {

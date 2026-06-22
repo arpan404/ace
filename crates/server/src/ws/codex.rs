@@ -1,4 +1,4 @@
-use crate::ws::{WsApiState, WsDispatchError};
+use crate::ws::{ProviderEventStreamMessage, WsApiState, WsDispatchError};
 use ace_core::ProviderKind;
 use ace_git::ProcessRunner;
 use ace_protocol::{
@@ -29,7 +29,7 @@ use ace_runtime::threads::ExecutionLocation;
 use ace_terminal::PtyAdapter;
 use serde_json::Value;
 use std::{sync::Arc, time::Duration};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     pub(super) async fn dispatch_codex_method(
@@ -596,23 +596,23 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             return Ok(serde_json::json!({ "subscribed": false }));
         };
 
-        let providers = self.providers.clone();
-        let provider_events = Arc::clone(&self.provider_events);
         let provider_name = provider_runtime_name(provider_kind).to_string();
         let response_provider = provider_name.clone();
+        let mut receiver = self.provider_event_receiver(provider_kind);
         tokio::spawn(async move {
             loop {
-                let events = match providers.next_events(provider_kind).await {
-                    Ok(Some(events)) => events,
-                    Ok(None) => break,
-                    Err(error) => {
+                let message = match receiver.recv().await {
+                    Ok(message) => message,
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                };
+                let events = match message {
+                    ProviderEventStreamMessage::Events(events) => events,
+                    ProviderEventStreamMessage::Error { code, message } => {
                         let response = WsServerResponse {
                             version: PROTOCOL_VERSION,
                             request_id: String::new(),
-                            payload: WsServerPayload::Error {
-                                code: provider_runtime_error_code(&error).to_string(),
-                                message: error.to_string(),
-                            },
+                            payload: WsServerPayload::Error { code, message },
                         };
                         let Ok(text) = serde_json::to_string(&response) else {
                             break;
@@ -623,25 +623,6 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 };
                 if events.is_empty() {
                     continue;
-                }
-                let append_result = provider_events
-                    .lock()
-                    .expect("provider event log")
-                    .append_batch(&provider_name, &events);
-                if let Err(error) = append_result {
-                    let response = WsServerResponse {
-                        version: PROTOCOL_VERSION,
-                        request_id: String::new(),
-                        payload: WsServerPayload::Error {
-                            code: "persistence_error".to_string(),
-                            message: error.to_string(),
-                        },
-                    };
-                    let Ok(text) = serde_json::to_string(&response) else {
-                        break;
-                    };
-                    let _ = outbound.send(text).await;
-                    break;
                 }
                 let batch = ProviderRuntimeEventBatch {
                     provider: provider_name.clone(),
@@ -672,6 +653,63 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
         });
         Ok(serde_json::json!({ "subscribed": true, "provider": response_provider }))
+    }
+
+    fn provider_event_receiver(
+        &self,
+        provider_kind: ProviderKind,
+    ) -> broadcast::Receiver<ProviderEventStreamMessage> {
+        let mut streams = self
+            .provider_event_streams
+            .lock()
+            .expect("provider event streams");
+        if let Some(sender) = streams.get(&provider_kind) {
+            return sender.subscribe();
+        }
+
+        let (sender, receiver) = broadcast::channel(1024);
+        streams.insert(provider_kind, sender.clone());
+        drop(streams);
+
+        let providers = self.providers.clone();
+        let provider_events = Arc::clone(&self.provider_events);
+        let provider_streams = Arc::clone(&self.provider_event_streams);
+        let provider_name = provider_runtime_name(provider_kind).to_string();
+        tokio::spawn(async move {
+            loop {
+                let events = match providers.next_events(provider_kind).await {
+                    Ok(Some(events)) => events,
+                    Ok(None) => break,
+                    Err(error) => {
+                        let _ = sender.send(ProviderEventStreamMessage::Error {
+                            code: provider_runtime_error_code(&error).to_string(),
+                            message: error.to_string(),
+                        });
+                        break;
+                    }
+                };
+                if events.is_empty() {
+                    continue;
+                }
+                let append_result = provider_events
+                    .lock()
+                    .expect("provider event log")
+                    .append_batch(&provider_name, &events);
+                if let Err(error) = append_result {
+                    let _ = sender.send(ProviderEventStreamMessage::Error {
+                        code: "persistence_error".to_string(),
+                        message: error.to_string(),
+                    });
+                    break;
+                }
+                let _ = sender.send(ProviderEventStreamMessage::Events(events));
+            }
+            provider_streams
+                .lock()
+                .expect("provider event streams")
+                .remove(&provider_kind);
+        });
+        receiver
     }
 }
 
@@ -1462,32 +1500,69 @@ mod tests {
             GithubService::new(GithubCliClient::with_runner(runner)),
         )
         .with_codex_service(CodexService::new(backend));
-        let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::channel::<String>(8);
+        let (first_outbound_tx, mut first_outbound_rx) = tokio::sync::mpsc::channel::<String>(8);
+        let (second_outbound_tx, mut second_outbound_rx) = tokio::sync::mpsc::channel::<String>(8);
 
         let subscribe = state
             .dispatch_text_with_events(
                 &json!({
                     "version": PROTOCOL_VERSION,
-                    "request_id": "provider-events",
+                    "request_id": "provider-events-first",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
                     "payload": { "provider": "codex" }
                 })
                 .to_string(),
-                Some(outbound_tx),
+                Some(first_outbound_tx),
             )
             .await;
         let subscribe: WsServerResponse = serde_json::from_str(&subscribe).expect("subscribe");
         assert!(matches!(subscribe.payload, WsServerPayload::Result { .. }));
 
-        let pushed = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
-            .await
-            .expect("provider runtime event timeout")
-            .expect("provider runtime event");
+        let second_subscribe = state
+            .dispatch_text_with_events(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-events-second",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+                Some(second_outbound_tx),
+            )
+            .await;
+        let second_subscribe: WsServerResponse =
+            serde_json::from_str(&second_subscribe).expect("second subscribe");
+        assert!(matches!(
+            second_subscribe.payload,
+            WsServerPayload::Result { .. }
+        ));
+
+        let pushed =
+            tokio::time::timeout(std::time::Duration::from_secs(1), first_outbound_rx.recv())
+                .await
+                .expect("provider runtime event timeout")
+                .expect("provider runtime event");
+        let second_pushed =
+            tokio::time::timeout(std::time::Duration::from_secs(1), second_outbound_rx.recv())
+                .await
+                .expect("second provider runtime event timeout")
+                .expect("second provider runtime event");
         let pushed: WsServerResponse = serde_json::from_str(&pushed).expect("pushed response");
+        let second_pushed: WsServerResponse =
+            serde_json::from_str(&second_pushed).expect("second pushed response");
         let WsServerPayload::Event { topic, body } = pushed.payload else {
             panic!("expected websocket event");
         };
+        let WsServerPayload::Event {
+            topic: second_topic,
+            body: second_body,
+        } = second_pushed.payload
+        else {
+            panic!("expected second websocket event");
+        };
         assert_eq!(topic, PROVIDER_RUNTIME_EVENT_TOPIC);
+        assert_eq!(second_topic, PROVIDER_RUNTIME_EVENT_TOPIC);
+        assert_eq!(second_body, body);
         assert_eq!(body["provider"], "codex");
         assert_eq!(body["events"][0]["type"], "tool_completed");
         assert_eq!(
