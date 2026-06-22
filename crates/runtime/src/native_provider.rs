@@ -1,7 +1,7 @@
 use crate::provider::{
     ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderFeature,
     ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport, ProviderRequest,
-    ace_provider_contract_requirements,
+    ProviderRuntimeHealth, ace_provider_contract_requirements,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
@@ -123,6 +123,21 @@ impl ProviderDriver for AceNativeProvider {
         Self::features_static()
     }
 
+    async fn status(&self) -> crate::provider::ProviderDriverStatus {
+        crate::provider::ProviderDriverStatus {
+            health: ProviderRuntimeHealth::Ready,
+            transport: Some("in_process".to_string()),
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            initialized: true,
+            last_error: None,
+            metadata: json!({
+                "runtime": "ace",
+                "adapter_contract": 1,
+                "websocket_first": true
+            }),
+        }
+    }
+
     async fn request(&self, request: ProviderRequest) -> Result<Value, ProviderDriverError> {
         match request.method.as_str() {
             "ace.ping" => Ok(json!({
@@ -227,5 +242,16 @@ mod tests {
             response["provider_requirements"]["server_requests"],
             "map provider host requests to NormalizedServerRequest"
         );
+    }
+
+    #[tokio::test]
+    async fn native_provider_reports_ready_status() {
+        let provider = AceNativeProvider::new();
+        let status = provider.status().await;
+
+        assert_eq!(status.health, ProviderRuntimeHealth::Ready);
+        assert_eq!(status.transport.as_deref(), Some("in_process"));
+        assert!(status.initialized);
+        assert_eq!(status.metadata["websocket_first"], true);
     }
 }

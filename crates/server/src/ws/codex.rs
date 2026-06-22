@@ -20,9 +20,10 @@ use ace_protocol::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeContractReport, ProviderRuntimeEvent,
         ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
         ProviderRuntimeFeaturesListResponse, ProviderRuntimeProviderFeatures,
-        ProviderRuntimeProviderInfo, ProviderRuntimeProvidersList,
+        ProviderRuntimeProviderInfo, ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
         ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
-        ProviderRuntimeRequest, ProviderRuntimeSubscribeRequest,
+        ProviderRuntimeRequest, ProviderRuntimeStatusListRequest,
+        ProviderRuntimeStatusListResponse, ProviderRuntimeSubscribeRequest,
         ProviderServerRequestDecisionRecord, ProviderServerRequestError,
         ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
@@ -514,23 +515,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             methods::PROVIDER_RUNTIME_FEATURES_LIST => {
                 let request =
                     serde_json::from_value::<ProviderRuntimeFeaturesListRequest>(payload)?;
-                let providers = match request.provider {
-                    Some(provider) => {
-                        let provider =
-                            ProviderKind::from_runtime_id(&provider).ok_or_else(|| {
-                                WsDispatchError::BadRequest(format!(
-                                    "unknown provider `{provider}` for runtime feature list"
-                                ))
-                            })?;
-                        vec![provider]
-                    }
-                    None => self
-                        .providers
-                        .descriptors()
-                        .into_iter()
-                        .map(|descriptor| descriptor.kind)
-                        .collect(),
-                };
+                let providers = self.provider_runtime_filter(request.provider, "feature list")?;
                 let mut provider_features = Vec::with_capacity(providers.len());
                 for provider in providers {
                     let features = self.providers.features(provider).ok_or(
@@ -547,6 +532,37 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 }
                 Ok(serde_json::to_value(ProviderRuntimeFeaturesListResponse {
                     providers: provider_features,
+                })?)
+            }
+            methods::PROVIDER_RUNTIME_STATUS_LIST => {
+                let request = serde_json::from_value::<ProviderRuntimeStatusListRequest>(payload)?;
+                let providers = self.provider_runtime_filter(request.provider, "status list")?;
+                let mut provider_statuses = Vec::with_capacity(providers.len());
+                for provider in providers {
+                    let descriptor = self
+                        .providers
+                        .get(provider)
+                        .ok_or(
+                            ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
+                                provider,
+                            },
+                        )?
+                        .descriptor();
+                    let status = self.providers.status(provider).await?;
+                    provider_statuses.push(ProviderRuntimeProviderStatus {
+                        provider,
+                        runtime_id: provider.runtime_id().to_string(),
+                        display_name: provider.display_name().to_string(),
+                        status,
+                        supports_events: self.providers.has_event_source(provider),
+                        supports_server_request_responses: self
+                            .providers
+                            .has_server_request_responder(provider),
+                        contract: ace_runtime::provider::provider_contract_report(&descriptor),
+                    });
+                }
+                Ok(serde_json::to_value(ProviderRuntimeStatusListResponse {
+                    providers: provider_statuses,
                 })?)
             }
             methods::PROVIDER_RUNTIME_EVENTS_RECENT => {
@@ -769,6 +785,29 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .has_server_request_responder(provider),
             contract: ace_runtime::provider::provider_contract_report(&descriptor),
             descriptor,
+        }
+    }
+
+    fn provider_runtime_filter(
+        &self,
+        provider: Option<String>,
+        label: &str,
+    ) -> Result<Vec<ProviderKind>, WsDispatchError> {
+        match provider {
+            Some(provider) => {
+                let provider = ProviderKind::from_runtime_id(&provider).ok_or_else(|| {
+                    WsDispatchError::BadRequest(format!(
+                        "unknown provider `{provider}` for runtime {label}"
+                    ))
+                })?;
+                Ok(vec![provider])
+            }
+            None => Ok(self
+                .providers
+                .descriptors()
+                .into_iter()
+                .map(|descriptor| descriptor.kind)
+                .collect()),
         }
     }
 
@@ -2043,6 +2082,74 @@ mod tests {
         };
         assert_eq!(body["providers"].as_array().expect("providers").len(), 1);
         assert_eq!(body["providers"][0]["runtime_id"], "codex");
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_lists_provider_statuses() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+
+        let statuses = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-statuses",
+                    "method": methods::PROVIDER_RUNTIME_STATUS_LIST,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let statuses: WsServerResponse =
+            serde_json::from_str(&statuses).expect("statuses response");
+        let WsServerPayload::Result { body } = statuses.payload else {
+            panic!("expected provider status list");
+        };
+        let providers = body["providers"].as_array().expect("providers");
+        let codex = providers
+            .iter()
+            .find(|provider| provider["runtime_id"] == "codex")
+            .expect("codex status");
+        assert_eq!(codex["status"]["health"], "running");
+        assert_eq!(codex["status"]["transport"], "fake_stdio");
+        assert_eq!(codex["status"]["version"], "fake-codex-1");
+        assert_eq!(codex["status"]["initialized"], true);
+        assert_eq!(codex["supports_events"], true);
+        assert_eq!(codex["supports_server_request_responses"], true);
+
+        let ace = providers
+            .iter()
+            .find(|provider| provider["runtime_id"] == "ace")
+            .expect("ace status");
+        assert_eq!(ace["status"]["health"], "ready");
+        assert_eq!(ace["status"]["transport"], "in_process");
+        assert_eq!(ace["status"]["initialized"], true);
+        assert_eq!(ace["supports_events"], false);
+        assert_eq!(ace["supports_server_request_responses"], false);
+
+        let ace_only = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-status",
+                    "method": methods::PROVIDER_RUNTIME_STATUS_LIST,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+            )
+            .await;
+        let ace_only: WsServerResponse =
+            serde_json::from_str(&ace_only).expect("filtered status response");
+        let WsServerPayload::Result { body } = ace_only.payload else {
+            panic!("expected filtered provider status list");
+        };
+        assert_eq!(body["providers"].as_array().expect("providers").len(), 1);
+        assert_eq!(body["providers"][0]["runtime_id"], "ace");
     }
 
     #[tokio::test]

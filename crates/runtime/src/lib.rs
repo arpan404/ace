@@ -136,6 +136,32 @@ pub mod provider {
         pub capability: Option<ProviderCapability>,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProviderRuntimeHealth {
+        Ready,
+        Starting,
+        Running,
+        Stopped,
+        Unavailable,
+        Degraded,
+        Unknown,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub struct ProviderDriverStatus {
+        pub health: ProviderRuntimeHealth,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub transport: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub version: Option<String>,
+        pub initialized: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub last_error: Option<String>,
+        #[serde(default)]
+        pub metadata: Value,
+    }
+
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct ProviderRequest {
         pub method: String,
@@ -301,6 +327,17 @@ pub mod provider {
                     capability: Some(capability),
                 })
                 .collect()
+        }
+
+        async fn status(&self) -> ProviderDriverStatus {
+            ProviderDriverStatus {
+                health: ProviderRuntimeHealth::Ready,
+                transport: None,
+                version: None,
+                initialized: true,
+                last_error: None,
+                metadata: Value::Null,
+            }
         }
 
         async fn request(&self, request: ProviderRequest) -> Result<Value, ProviderDriverError>;
@@ -490,6 +527,16 @@ pub mod provider {
         #[must_use]
         pub fn features(&self, kind: ProviderKind) -> Option<Vec<ProviderFeature>> {
             self.drivers.get(&kind).map(|driver| driver.features())
+        }
+
+        pub async fn status(
+            &self,
+            kind: ProviderKind,
+        ) -> Result<ProviderDriverStatus, ProviderRuntimeError> {
+            let driver = self
+                .get(kind)
+                .ok_or(ProviderRuntimeError::ProviderUnavailable { provider: kind })?;
+            Ok(driver.status().await)
         }
 
         pub async fn request(
@@ -774,6 +821,29 @@ pub mod provider {
             assert_eq!(reports[0].provider, ProviderKind::Ace);
             assert!(reports[0].satisfies_required);
             assert!(reports[0].missing_required.is_empty());
+        }
+
+        #[tokio::test]
+        async fn registry_reports_provider_status() {
+            let driver = Arc::new(FakeProviderDriver {
+                descriptor: ProviderDescriptor {
+                    kind: ProviderKind::Codex,
+                    capabilities: vec![ProviderCapability {
+                        key: "provider.normalized_events".to_string(),
+                        version: 1,
+                    }],
+                },
+                requests: Mutex::new(Vec::new()),
+            });
+            let registry = ProviderRegistry::new().with_driver(driver);
+
+            let status = registry
+                .status(ProviderKind::Codex)
+                .await
+                .expect("provider status");
+
+            assert_eq!(status.health, ProviderRuntimeHealth::Ready);
+            assert!(status.initialized);
         }
 
         #[tokio::test]

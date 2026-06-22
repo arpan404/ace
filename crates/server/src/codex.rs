@@ -6,8 +6,9 @@ use ace_codex::{
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::{
     provider::{
-        ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent,
-        ProviderEventSource, ProviderFeature, ProviderRequest, ProviderServerRequestResponder,
+        ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderDriverStatus,
+        ProviderEvent, ProviderEventSource, ProviderFeature, ProviderRequest,
+        ProviderRuntimeHealth, ProviderServerRequestResponder,
     },
     threads::{
         AgentRuntimeState, ExecutionLocation, ForkPoint, HandoffPlan, PlanSessionStatus,
@@ -15,7 +16,7 @@ use ace_runtime::{
     },
 };
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -68,6 +69,7 @@ impl From<RuntimeStateError> for CodexApiError {
 
 #[async_trait]
 pub trait CodexBackend: Send + Sync {
+    async fn status(&self) -> ProviderDriverStatus;
     async fn raw_request(&self, method: &str, params: Value) -> Result<Value>;
     async fn start_thread(&self, request: CodexThreadStart) -> Result<Value>;
     async fn resume_thread(&self, thread_id: &str) -> Result<Value>;
@@ -150,6 +152,27 @@ impl LiveCodexBackend {
 
 #[async_trait]
 impl CodexBackend for LiveCodexBackend {
+    async fn status(&self) -> ProviderDriverStatus {
+        let initialized = self.client.lock().await.is_some();
+        ProviderDriverStatus {
+            health: if initialized {
+                ProviderRuntimeHealth::Running
+            } else {
+                ProviderRuntimeHealth::Stopped
+            },
+            transport: Some("stdio".to_string()),
+            version: None,
+            initialized,
+            last_error: None,
+            metadata: json!({
+                "command": self.config.command,
+                "args": self.config.args,
+                "experimental_api": true,
+                "spawns_on_first_request": true
+            }),
+        }
+    }
+
     async fn raw_request(&self, method: &str, params: Value) -> Result<Value> {
         self.client().await?.raw_request(method, params).await
     }
@@ -860,6 +883,10 @@ impl ProviderDriver for CodexService {
         ace_codex::codex_provider_features()
     }
 
+    async fn status(&self) -> ProviderDriverStatus {
+        self.backend.status().await
+    }
+
     async fn request(
         &self,
         request: ProviderRequest,
@@ -992,6 +1019,20 @@ pub mod tests {
 
     #[async_trait]
     impl CodexBackend for FakeCodexBackend {
+        async fn status(&self) -> ProviderDriverStatus {
+            ProviderDriverStatus {
+                health: ProviderRuntimeHealth::Running,
+                transport: Some("fake_stdio".to_string()),
+                version: Some("fake-codex-1".to_string()),
+                initialized: true,
+                last_error: None,
+                metadata: serde_json::json!({
+                    "fake": true,
+                    "queued_event_batches": self.events.lock().expect("events").len()
+                }),
+            }
+        }
+
         async fn raw_request(&self, method: &str, _params: Value) -> Result<Value> {
             self.calls.lock().expect("calls").push(method.to_string());
             Ok(serde_json::json!({ "method": method }))
