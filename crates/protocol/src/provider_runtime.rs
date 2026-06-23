@@ -1160,7 +1160,53 @@ pub struct ProviderServerRequestsListResponse {
     pub effective_limit: usize,
     pub read_limit: usize,
     pub max_limit: usize,
+    pub summary: ProviderServerRequestsSummary,
     pub requests: Vec<ProviderServerRequestRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ProviderServerRequestsSummary {
+    pub total: usize,
+    pub pending: usize,
+    pub resolved: usize,
+    #[serde(default)]
+    pub by_provider: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_kind: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_scope: Vec<ProviderRuntimeOperationCount>,
+}
+
+impl ProviderServerRequestsSummary {
+    #[must_use]
+    pub fn from_records(records: &[ProviderServerRequestRecord]) -> Self {
+        let mut by_provider = BTreeMap::new();
+        let mut by_kind = BTreeMap::new();
+        let mut by_scope = BTreeMap::new();
+        let mut summary = Self {
+            total: records.len(),
+            ..Self::default()
+        };
+
+        for record in records {
+            increment_count(&mut by_provider, record.provider.clone());
+            match record.status {
+                ProviderServerRequestStatusFilter::Pending => summary.pending += 1,
+                ProviderServerRequestStatusFilter::Resolved => summary.resolved += 1,
+            }
+            if let Some(request) = &record.request {
+                increment_count(&mut by_kind, enum_key(&request.kind));
+                if let Some(scope) = &request.scope {
+                    increment_count(&mut by_scope, scope.clone());
+                }
+            }
+        }
+
+        summary.by_provider = operation_counts(by_provider);
+        summary.by_kind = operation_counts(by_kind);
+        summary.by_scope = operation_counts(by_scope);
+        summary
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3116,12 +3162,41 @@ mod tests {
         assert_eq!(encoded["kind"], "file_change_approval");
         assert_eq!(encoded["thread_id"], "thread-2");
 
+        let records = vec![ProviderServerRequestRecord {
+            provider: "codex".to_string(),
+            request_id: "approval-1".to_string(),
+            request: Some(NormalizedServerRequest {
+                kind: ServerRequestKind::FileChangeApproval,
+                request_id: "approval-1".to_string(),
+                method: "fileChange/approvalRequest".to_string(),
+                thread_id: Some("thread-2".to_string()),
+                turn_id: None,
+                item_id: None,
+                scope: Some("filesystem".to_string()),
+                title: Some("Approve file changes".to_string()),
+                prompt: Some("Apply patch?".to_string()),
+                selected_policy: Some("on-request".to_string()),
+                detail: Default::default(),
+                metadata: json!({ "path": "src/lib.rs" }),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("fileChange/approvalRequest".to_string()),
+                    schema_version: None,
+                    raw_payload: json!({ "path": "src/lib.rs" }),
+                },
+            }),
+            status: ProviderServerRequestStatusFilter::Pending,
+            decision: None,
+            created_at: "2026-06-24T00:00:00Z".to_string(),
+            resolved_at: None,
+        }];
         let response = ProviderServerRequestsListResponse {
             requested_limit: usize::MAX,
             effective_limit: capped_provider_server_requests_limit(usize::MAX),
             read_limit: PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT,
             max_limit: PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT,
-            requests: Vec::new(),
+            summary: ProviderServerRequestsSummary::from_records(&records),
+            requests: records,
         };
         let encoded = serde_json::to_value(response).expect("encode response");
         assert_eq!(encoded["requested_limit"], usize::MAX);
@@ -3137,6 +3212,15 @@ mod tests {
             encoded["max_limit"],
             PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
         );
+        assert_eq!(encoded["summary"]["total"], 1);
+        assert_eq!(encoded["summary"]["pending"], 1);
+        assert_eq!(encoded["summary"]["resolved"], 0);
+        assert_eq!(encoded["summary"]["by_provider"][0]["key"], "codex");
+        assert_eq!(
+            encoded["summary"]["by_kind"][0]["key"],
+            "file_change_approval"
+        );
+        assert_eq!(encoded["summary"]["by_scope"][0]["key"], "filesystem");
     }
 
     #[test]

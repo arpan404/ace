@@ -59,8 +59,9 @@ use ace_protocol::{
         ProviderServerRequestDecisionResponse, ProviderServerRequestError,
         ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
-        ProviderServerRequestsListResponse, capped_provider_runtime_events_limit,
-        capped_provider_server_requests_limit, projection_deltas_for_events,
+        ProviderServerRequestsListResponse, ProviderServerRequestsSummary,
+        capped_provider_runtime_events_limit, capped_provider_server_requests_limit,
+        projection_deltas_for_events,
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
@@ -1476,12 +1477,14 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     .filter(|record| provider_server_request_matches_filters(record, &request))
                     .take(effective_limit)
                     .map(provider_server_request_record_to_protocol)
-                    .collect();
+                    .collect::<Vec<_>>();
+                let summary = ProviderServerRequestsSummary::from_records(&requests);
                 Ok(serde_json::to_value(ProviderServerRequestsListResponse {
                     requested_limit: request.limit,
                     effective_limit,
                     read_limit,
                     max_limit: PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT,
+                    summary,
                     requests,
                 })?)
             }
@@ -9142,6 +9145,21 @@ mod tests {
         assert_eq!(requests[0]["request"]["thread_id"], "thread-inactive");
         assert_eq!(requests[0]["request"]["kind"], "file_change_approval");
         assert_eq!(requests[0]["request"]["scope"], "filesystem");
+        assert_eq!(body["summary"]["total"], 1);
+        assert_eq!(body["summary"]["pending"], 1);
+        assert_eq!(body["summary"]["resolved"], 0);
+        assert_eq!(
+            body["summary"]["by_provider"],
+            json!([{ "key": "codex", "count": 1 }])
+        );
+        assert_eq!(
+            body["summary"]["by_kind"],
+            json!([{ "key": "file_change_approval", "count": 1 }])
+        );
+        assert_eq!(
+            body["summary"]["by_scope"],
+            json!([{ "key": "filesystem", "count": 1 }])
+        );
 
         let command_requests = state
             .dispatch_text(
@@ -9212,6 +9230,23 @@ mod tests {
             PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
         );
         assert_eq!(body["requests"].as_array().expect("requests").len(), 3);
+        assert_eq!(body["summary"]["total"], 3);
+        assert_eq!(body["summary"]["pending"], 3);
+        assert_eq!(body["summary"]["resolved"], 0);
+        assert_eq!(
+            body["summary"]["by_kind"],
+            json!([
+                { "key": "command_approval", "count": 2 },
+                { "key": "file_change_approval", "count": 1 }
+            ])
+        );
+        assert_eq!(
+            body["summary"]["by_scope"],
+            json!([
+                { "key": "command", "count": 2 },
+                { "key": "filesystem", "count": 1 }
+            ])
+        );
 
         let empty = state
             .dispatch_text(
@@ -9234,6 +9269,9 @@ mod tests {
             panic!("expected empty result");
         };
         assert_eq!(body["requests"].as_array().expect("requests").len(), 0);
+        assert_eq!(body["summary"]["total"], 0);
+        assert_eq!(body["summary"]["pending"], 0);
+        assert_eq!(body["summary"]["resolved"], 0);
     }
 
     #[tokio::test]
