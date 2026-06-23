@@ -20,7 +20,7 @@ use ace_runtime::{
         ForkPoint, GoalState, GoalStatus, HandoffPlan, HandoffStatus, PlanImplementationRecord,
         RemoteConnectionRecord, SideChat,
     },
-    tools::{SemanticToolCall, ToolRunStatus},
+    tools::{SemanticToolCall, ToolActionKind, ToolRunStatus, ToolSurface},
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1386,6 +1386,86 @@ pub struct ProviderServerRequestError {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderHostToolsListResponse {
     pub tools: Vec<HostToolDescriptor>,
+    #[serde(default)]
+    pub bridges: Vec<ProviderHostToolBridgeSummary>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderHostToolBridgeStatus {
+    Connected,
+    Unavailable,
+    Missing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderHostToolBridgeSummary {
+    pub surface: ToolSurface,
+    pub status: ProviderHostToolBridgeStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub descriptor_name: Option<String>,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub actions: Vec<ToolActionKind>,
+    #[serde(default)]
+    pub capability_keys: Vec<String>,
+}
+
+impl ProviderHostToolBridgeSummary {
+    #[must_use]
+    pub fn from_host_tools(tools: &[HostToolDescriptor]) -> Vec<Self> {
+        [ToolSurface::Browser, ToolSurface::Computer]
+            .into_iter()
+            .map(|surface| Self::from_surface(tools, surface))
+            .collect()
+    }
+
+    #[must_use]
+    pub fn from_surface(tools: &[HostToolDescriptor], surface: ToolSurface) -> Self {
+        let descriptor = tools
+            .iter()
+            .find(|tool| tool.surface == surface && is_bridge_descriptor(tool));
+        let Some(descriptor) = descriptor else {
+            return Self {
+                surface,
+                status: ProviderHostToolBridgeStatus::Missing,
+                descriptor_name: None,
+                aliases: Vec::new(),
+                actions: Vec::new(),
+                capability_keys: Vec::new(),
+            };
+        };
+        let capability_keys = descriptor
+            .capabilities
+            .iter()
+            .map(|capability| capability.key.clone())
+            .collect::<Vec<_>>();
+        let status = if capability_keys
+            .iter()
+            .any(|key| key == "host_tool.bridge.status.unavailable")
+        {
+            ProviderHostToolBridgeStatus::Unavailable
+        } else {
+            ProviderHostToolBridgeStatus::Connected
+        };
+        Self {
+            surface,
+            status,
+            descriptor_name: Some(descriptor.name.clone()),
+            aliases: descriptor.aliases.clone(),
+            actions: descriptor.actions.clone(),
+            capability_keys,
+        }
+    }
+}
+
+fn is_bridge_descriptor(tool: &HostToolDescriptor) -> bool {
+    tool.name.ends_with(".bridge")
+        || tool
+            .capabilities
+            .iter()
+            .any(|capability| capability.key.starts_with("host_tool.bridge.status."))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

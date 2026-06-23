@@ -43,13 +43,13 @@ use ace_protocol::{
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE,
         PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT, PROVIDER_RUNTIME_MAX_REQUEST_RESOLVE_BATCH_SIZE,
-        PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT, ProviderHostToolInvokeServerRequest,
-        ProviderHostToolsListResponse, ProviderRuntimeAdapterValidateRequest,
-        ProviderRuntimeAdapterValidateResponse, ProviderRuntimeContractReport,
-        ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeEventRecord,
-        ProviderRuntimeFeaturesListRequest, ProviderRuntimeFeaturesListResponse,
-        ProviderRuntimeLifecycleRequest, ProviderRuntimeLifecycleResponse,
-        ProviderRuntimeModelProviderCapabilitiesReadRequest,
+        PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT, ProviderHostToolBridgeSummary,
+        ProviderHostToolInvokeServerRequest, ProviderHostToolsListResponse,
+        ProviderRuntimeAdapterValidateRequest, ProviderRuntimeAdapterValidateResponse,
+        ProviderRuntimeContractReport, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
+        ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
+        ProviderRuntimeFeaturesListResponse, ProviderRuntimeLifecycleRequest,
+        ProviderRuntimeLifecycleResponse, ProviderRuntimeModelProviderCapabilitiesReadRequest,
         ProviderRuntimeModelProviderCapabilitiesReadResponse, ProviderRuntimeModelsListRequest,
         ProviderRuntimeModelsListResponse, ProviderRuntimeOperationGateResolution,
         ProviderRuntimeOperationGateStatus, ProviderRuntimeOperationParams,
@@ -1527,8 +1527,10 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 })?)
             }
             methods::PROVIDER_RUNTIME_HOST_TOOLS_LIST => {
+                let tools = self.host_tools.descriptors();
                 Ok(serde_json::to_value(ProviderHostToolsListResponse {
-                    tools: self.host_tools.descriptors(),
+                    bridges: ProviderHostToolBridgeSummary::from_host_tools(&tools),
+                    tools,
                 })?)
             }
             methods::PROVIDER_RUNTIME_HOST_TOOL_INVOKE_SERVER_REQUEST => {
@@ -15101,6 +15103,26 @@ mod tests {
             panic!("expected default host tools list result");
         };
         let tools = body["tools"].as_array().expect("tools");
+        let bridges = body["bridges"].as_array().expect("bridge summaries");
+        let browser_summary = bridges
+            .iter()
+            .find(|bridge| bridge["surface"] == "browser")
+            .expect("browser bridge summary");
+        assert_eq!(browser_summary["status"], "unavailable");
+        assert_eq!(browser_summary["descriptor_name"], "browser.bridge");
+        assert!(
+            browser_summary["capability_keys"]
+                .as_array()
+                .expect("browser capability keys")
+                .contains(&json!("host_tool.bridge.status.unavailable"))
+        );
+        let computer_summary = bridges
+            .iter()
+            .find(|bridge| bridge["surface"] == "computer")
+            .expect("computer bridge summary");
+        assert_eq!(computer_summary["status"], "unavailable");
+        assert_eq!(computer_summary["descriptor_name"], "computer.bridge");
+
         let browser = tools
             .iter()
             .find(|tool| tool["name"] == "browser.bridge")
@@ -15147,6 +15169,88 @@ mod tests {
         assert!(computer_operations.contains(&json!("click")));
         assert!(computer_operations.contains(&json!("press_key")));
         assert!(computer_operations.contains(&json!("app_state")));
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_lists_attached_bridge_status_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner);
+        let mut descriptor = HostToolDescriptor::new(
+            "browser.bridge",
+            ToolTransport::BrowserBridge,
+            ToolSurface::Browser,
+        );
+        descriptor.aliases = vec!["ace_browser".to_string()];
+        descriptor.actions = vec![
+            ToolActionKind::BrowserClick,
+            ToolActionKind::BrowserScreenshot,
+        ];
+        descriptor.capabilities = vec![ProviderCapability {
+            key: "host_tool.bridge.status.connected".to_string(),
+            version: 1,
+        }];
+        let mut host_tools = HostToolRegistry::with_default_bridge_contracts();
+        host_tools
+            .replace(Arc::new(RecordingHostTool {
+                descriptor,
+                invocations: Mutex::new(Vec::new()),
+                result: json!({ "ok": true }),
+                error: None,
+            }))
+            .expect("attach browser bridge");
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_host_tools(host_tools);
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "attached-host-tools-list",
+                    "method": methods::PROVIDER_RUNTIME_HOST_TOOLS_LIST,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse =
+            serde_json::from_str(&response).expect("attached host tools list response");
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected attached host tools list result");
+        };
+        let bridges = body["bridges"].as_array().expect("bridge summaries");
+        let browser = bridges
+            .iter()
+            .find(|bridge| bridge["surface"] == "browser")
+            .expect("browser bridge summary");
+        assert_eq!(browser["status"], "connected");
+        assert_eq!(browser["descriptor_name"], "browser.bridge");
+        assert!(
+            browser["capability_keys"]
+                .as_array()
+                .expect("browser capability keys")
+                .contains(&json!("host_tool.bridge.status.connected"))
+        );
+        assert!(
+            !browser["capability_keys"]
+                .as_array()
+                .expect("browser capability keys")
+                .contains(&json!("host_tool.bridge.status.unavailable"))
+        );
+        assert!(
+            browser["actions"]
+                .as_array()
+                .expect("browser actions")
+                .contains(&json!("browser.click"))
+        );
+
+        let computer = bridges
+            .iter()
+            .find(|bridge| bridge["surface"] == "computer")
+            .expect("computer bridge summary");
+        assert_eq!(computer["status"], "unavailable");
+        assert_eq!(computer["descriptor_name"], "computer.bridge");
     }
 
     #[tokio::test]
