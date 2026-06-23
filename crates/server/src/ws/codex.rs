@@ -7787,6 +7787,34 @@ mod tests {
             body["projection_deltas"][0]["tool"]["display"]["title"],
             "Clicked Deploy in Browser"
         );
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-semantic-tool-state",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        assert_eq!(
+            body["providers"][0]["state"]["tool_timeline"][0]["display"]["title"],
+            "Clicked Deploy in Browser"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["tool_timeline"][0]["provider"]["raw_payload"],
+            json!({ "providerSpecificEnvelope": true })
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["provider_states"][0]["provider"],
+            "ace"
+        );
     }
 
     #[tokio::test]
