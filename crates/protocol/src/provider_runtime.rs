@@ -16,8 +16,9 @@ use ace_runtime::{
         ThreadItemStatus,
     },
     threads::{
-        AgentRuntimeSnapshot, ApprovalRetryRecord, ExecutionLocation, ForkPoint, GoalState,
-        GoalStatus, HandoffPlan, PlanImplementationRecord, RemoteConnectionRecord, SideChat,
+        AgentRuntimeSnapshot, ApprovalRetryRecord, ChildThreadRelationship, ExecutionLocation,
+        ForkPoint, GoalState, GoalStatus, HandoffPlan, HandoffStatus, PlanImplementationRecord,
+        RemoteConnectionRecord, SideChat,
     },
     tools::{SemanticToolCall, ToolRunStatus},
 };
@@ -1703,6 +1704,9 @@ pub enum ProviderRuntimeProjectionDelta {
         provider: String,
         parent_thread_id: String,
         child_thread_id: String,
+        relationship: ChildThreadRelationship,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         item_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1710,6 +1714,14 @@ pub enum ProviderRuntimeProjectionDelta {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         nickname: Option<String>,
         status: ThreadItemStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status_text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        execution_location: Option<ExecutionLocation>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ephemeral: Option<bool>,
+        #[serde(default, skip_serializing_if = "box_json_value_is_null")]
+        metadata: Box<serde_json::Value>,
     },
     ReviewModeChanged {
         provider: String,
@@ -2158,21 +2170,34 @@ impl ProviderRuntimeEvent {
                 }
                 if matches!(
                     item.kind,
-                    ThreadItemKind::SubAgentActivity | ThreadItemKind::CollabAgentToolCall
+                    ThreadItemKind::SubAgentActivity
+                        | ThreadItemKind::CollabAgentToolCall
+                        | ThreadItemKind::EnteredReviewMode
                 ) && let (Some(parent_thread_id), Some(child_thread_id)) = (
                     item.parent_thread_id
                         .as_deref()
                         .or(item.thread_id.as_deref()),
                     item.child_thread_id.as_deref(),
                 ) {
+                    let relationship = if item.kind == ThreadItemKind::EnteredReviewMode {
+                        ChildThreadRelationship::Review
+                    } else {
+                        ChildThreadRelationship::Subagent
+                    };
                     deltas.push(ProviderRuntimeProjectionDelta::ChildThreadUpsert {
                         provider: item.provider.provider.clone(),
                         parent_thread_id: parent_thread_id.to_string(),
                         child_thread_id: child_thread_id.to_string(),
+                        relationship,
+                        turn_id: item.turn_id.clone(),
                         item_id: item.item_id.clone(),
                         role: item.role.clone(),
                         nickname: item.sender.clone(),
                         status: item.status,
+                        status_text: item.status_text.clone(),
+                        execution_location: None,
+                        ephemeral: None,
+                        metadata: Box::new(item.metadata.clone()),
                     });
                 }
                 match item.kind {
@@ -2410,6 +2435,16 @@ fn tool_status_to_thread_item_status(status: ToolRunStatus) -> ThreadItemStatus 
         ToolRunStatus::Updated | ToolRunStatus::ApprovalRequested => ThreadItemStatus::Updated,
         ToolRunStatus::Completed => ThreadItemStatus::Completed,
         ToolRunStatus::Failed => ThreadItemStatus::Failed,
+    }
+}
+
+fn thread_item_status_from_handoff_status(status: HandoffStatus) -> ThreadItemStatus {
+    match status {
+        HandoffStatus::Requested | HandoffStatus::Interrupted | HandoffStatus::Transferring => {
+            ThreadItemStatus::Updated
+        }
+        HandoffStatus::Completed => ThreadItemStatus::Completed,
+        HandoffStatus::Failed => ThreadItemStatus::Failed,
     }
 }
 
@@ -2682,10 +2717,31 @@ fn projection_deltas_for_runtime_signal(
             let Ok(handoff) = serde_json::from_value::<HandoffPlan>(value) else {
                 return Vec::new();
             };
-            vec![ProviderRuntimeProjectionDelta::HandoffUpdated {
+            let mut deltas = vec![ProviderRuntimeProjectionDelta::HandoffUpdated {
                 provider: signal.provider.provider.clone(),
-                handoff,
-            }]
+                handoff: handoff.clone(),
+            }];
+            if let Some(child_thread_id) = handoff.target_thread_id.clone() {
+                deltas.push(ProviderRuntimeProjectionDelta::ChildThreadUpsert {
+                    provider: signal.provider.provider.clone(),
+                    parent_thread_id: handoff.source_thread_id.clone(),
+                    child_thread_id,
+                    relationship: ChildThreadRelationship::Handoff,
+                    turn_id: signal.turn_id.clone(),
+                    item_id: signal.item_id.clone(),
+                    role: Some("handoff".to_string()),
+                    nickname: None,
+                    status: thread_item_status_from_handoff_status(handoff.status),
+                    status_text: handoff
+                        .transfer_status
+                        .clone()
+                        .or_else(|| signal.status.clone()),
+                    execution_location: Some(handoff.target_location),
+                    ephemeral: None,
+                    metadata: Box::new(handoff.metadata.clone()),
+                });
+            }
+            deltas
         }
         RuntimeSignalKind::PlanImplementationUpdated => {
             let value = signal
@@ -2743,12 +2799,18 @@ fn projection_deltas_for_runtime_signal(
                 },
                 ProviderRuntimeProjectionDelta::ChildThreadUpsert {
                     provider: signal.provider.provider.clone(),
-                    parent_thread_id: fork.parent_thread_id,
-                    child_thread_id: fork.child_thread_id,
+                    parent_thread_id: fork.parent_thread_id.clone(),
+                    child_thread_id: fork.child_thread_id.clone(),
+                    relationship: ChildThreadRelationship::Fork,
+                    turn_id: fork.turn_id.clone().or_else(|| signal.turn_id.clone()),
                     item_id: signal.item_id.clone(),
                     role: None,
                     nickname: None,
                     status: ThreadItemStatus::Completed,
+                    status_text: signal.status.clone(),
+                    execution_location: None,
+                    ephemeral: None,
+                    metadata: Box::new(signal.metadata.clone()),
                 },
             ]
         }
@@ -2763,12 +2825,18 @@ fn projection_deltas_for_runtime_signal(
                 },
                 ProviderRuntimeProjectionDelta::ChildThreadUpsert {
                     provider: signal.provider.provider.clone(),
-                    parent_thread_id: side_chat.parent_thread_id,
-                    child_thread_id: side_chat.thread_id,
+                    parent_thread_id: side_chat.parent_thread_id.clone(),
+                    child_thread_id: side_chat.thread_id.clone(),
+                    relationship: ChildThreadRelationship::SideChat,
+                    turn_id: signal.turn_id.clone(),
                     item_id: signal.item_id.clone(),
                     role: Some("side_chat".to_string()),
                     nickname: None,
                     status: ThreadItemStatus::Completed,
+                    status_text: signal.status.clone(),
+                    execution_location: None,
+                    ephemeral: Some(side_chat.ephemeral),
+                    metadata: Box::new(signal.metadata.clone()),
                 },
             ]
         }
@@ -3838,7 +3906,7 @@ mod tests {
                 status: Some("running".to_string()),
                 execution_location: Some(ExecutionLocation::Worktree),
                 ephemeral: Some(false),
-                metadata: json!({}),
+                metadata: json!({ "status": "started" }),
             }],
             active_turns: vec![Turn {
                 thread_id: "thread-1".to_string(),
@@ -4495,7 +4563,7 @@ mod tests {
                 token_usage: None,
                 plan_questions: None,
                 plan_completion: None,
-                metadata: json!({}),
+                metadata: json!({ "status": "started" }),
                 provider: provider_metadata("item/subAgentActivity/delta"),
             }),
             thread_item_event(NormalizedThreadItem {
@@ -4590,11 +4658,19 @@ mod tests {
             ProviderRuntimeProjectionDelta::ChildThreadUpsert {
                 parent_thread_id,
                 child_thread_id,
+                relationship,
+                turn_id,
+                status_text,
+                metadata,
                 role,
                 nickname,
                 ..
             } if parent_thread_id == "parent-1"
                 && child_thread_id == "child-1"
+                && *relationship == ChildThreadRelationship::Subagent
+                && turn_id.as_deref() == Some("turn-1")
+                && status_text.as_deref() == Some("started")
+                && metadata["status"] == "started"
                 && role.as_deref() == Some("reviewer")
                 && nickname.as_deref() == Some("Reviewer")
         )));
@@ -4781,12 +4857,20 @@ mod tests {
                 provider,
                 parent_thread_id,
                 child_thread_id,
+                relationship,
+                turn_id,
                 role,
+                status_text,
+                metadata,
                 ..
             } if provider == "codex"
                 && parent_thread_id == "parent-1"
                 && child_thread_id == "child-1"
+                && *relationship == ChildThreadRelationship::Fork
+                && turn_id.as_deref() == Some("turn-2")
                 && role.is_none()
+                && status_text.as_deref() == Some("created")
+                && metadata["fork"]["child_thread_id"] == "child-1"
         )));
         assert!(deltas.iter().any(|delta| matches!(
             delta,
@@ -4794,12 +4878,22 @@ mod tests {
                 provider,
                 parent_thread_id,
                 child_thread_id,
+                relationship,
+                turn_id,
                 role,
+                status_text,
+                ephemeral,
+                metadata,
                 ..
             } if provider == "codex"
                 && parent_thread_id == "parent-1"
                 && child_thread_id == "child-1"
+                && *relationship == ChildThreadRelationship::SideChat
+                && turn_id.as_deref() == Some("turn-2")
                 && role.as_deref() == Some("side_chat")
+                && status_text.as_deref() == Some("created")
+                && *ephemeral == Some(true)
+                && metadata["side_chat"]["ephemeral"] == true
         )));
     }
 
@@ -5209,7 +5303,7 @@ mod tests {
                             "source_thread_id": "thread-1",
                             "target_location": "worktree",
                             "status": "completed",
-                            "target_thread_id": "thread-1",
+                            "target_thread_id": "thread-2",
                             "repo_root": "/repo",
                             "worktree_path": "/worktrees/repo-feature",
                             "branch": "feature/task",
@@ -5417,6 +5511,29 @@ mod tests {
                     && handoff.status == ace_runtime::threads::HandoffStatus::Completed
                     && handoff.branch.as_deref() == Some("feature/task")
                     && handoff.interrupted_active_turn == Some(true)
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ChildThreadUpsert {
+                provider,
+                parent_thread_id,
+                child_thread_id,
+                relationship,
+                role,
+                status,
+                status_text,
+                execution_location,
+                metadata,
+                ..
+            } if provider == "codex"
+                && parent_thread_id == "thread-1"
+                && child_thread_id == "thread-2"
+                && *relationship == ChildThreadRelationship::Handoff
+                && role.as_deref() == Some("handoff")
+                && *status == ThreadItemStatus::Completed
+                && status_text.as_deref() == Some("metadata_updated")
+                && *execution_location == Some(ExecutionLocation::Worktree)
+                && metadata["handoff"]["worktree_branch"] == "feature/task"
         )));
         assert!(deltas.iter().any(|delta| matches!(
             delta,
