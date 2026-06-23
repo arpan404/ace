@@ -2268,6 +2268,9 @@ pub mod provider {
                 ToolSurface::WebSearch,
                 ToolSurface::Image,
                 ToolSurface::Subagent,
+                ToolSurface::Plan,
+                ToolSurface::Handoff,
+                ToolSurface::Review,
                 ToolSurface::Skill,
                 ToolSurface::Plugin,
                 ToolSurface::App,
@@ -2316,6 +2319,12 @@ pub mod provider {
                 ToolActionKind::SubagentSpawn,
                 ToolActionKind::SubagentSteer,
                 ToolActionKind::SubagentStop,
+                ToolActionKind::PlanContinue,
+                ToolActionKind::PlanFork,
+                ToolActionKind::PlanSideImplementation,
+                ToolActionKind::HandoffAgent,
+                ToolActionKind::HandoffLocation,
+                ToolActionKind::ReviewStart,
                 ToolActionKind::SkillList,
                 ToolActionKind::SkillRead,
                 ToolActionKind::SkillInstall,
@@ -3768,11 +3777,34 @@ pub mod provider {
                     .tool_surfaces
                     .contains(&crate::tools::ToolSurface::Browser)
             );
+            for surface in [
+                crate::tools::ToolSurface::Plan,
+                crate::tools::ToolSurface::Handoff,
+                crate::tools::ToolSurface::Review,
+            ] {
+                assert!(
+                    contract.tool_surfaces.contains(&surface),
+                    "contract should advertise {surface:?} semantic tool surface"
+                );
+            }
             assert!(
                 contract
                     .tool_action_kinds
                     .contains(&crate::tools::ToolActionKind::BrowserZoom)
             );
+            for action in [
+                crate::tools::ToolActionKind::PlanContinue,
+                crate::tools::ToolActionKind::PlanFork,
+                crate::tools::ToolActionKind::PlanSideImplementation,
+                crate::tools::ToolActionKind::HandoffAgent,
+                crate::tools::ToolActionKind::HandoffLocation,
+                crate::tools::ToolActionKind::ReviewStart,
+            ] {
+                assert!(
+                    contract.tool_action_kinds.contains(&action),
+                    "contract should advertise {action:?} semantic tool action"
+                );
+            }
             assert!(
                 contract
                     .tool_action_kinds
