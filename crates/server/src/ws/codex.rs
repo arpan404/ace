@@ -8099,6 +8099,34 @@ mod tests {
             body["projection_deltas"][0]["item"]["provider"]["provider"],
             "future-provider"
         );
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-thread-item-state",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        assert_eq!(
+            body["providers"][0]["state"]["thread_items"][0]["kind"],
+            "agentMessage"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["thread_items"][0]["text"],
+            "Working on it"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["thread_items"][0]["provider"]["provider"],
+            "future-provider"
+        );
     }
 
     #[tokio::test]
@@ -8199,6 +8227,34 @@ mod tests {
         );
         assert_eq!(body["projection_deltas"][0]["thread_id"], "thread-1");
         assert_eq!(body["projection_deltas"][0]["name"], "Adapter parity");
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-runtime-signal-state",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        assert_eq!(
+            body["providers"][0]["state"]["thread_lifecycle"][0]["thread_id"],
+            "thread-1"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["thread_lifecycle"][0]["name"],
+            "Adapter parity"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["threads"][0]["name"],
+            "Adapter parity"
+        );
     }
 
     #[tokio::test]
