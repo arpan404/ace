@@ -6,21 +6,24 @@ use ace_persistence::{ProviderEventRecord, ProviderServerRequestStatus};
 use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
-        CodexAppConfigWriteRequest, CodexCommandExecRequest, CodexCommandProcessRequest,
-        CodexCommandResizeRequest, CodexCommandWriteStdinRequest,
-        CodexCompatibilityInventoryResponse, CodexFsCopyRequest, CodexFsPathRequest,
-        CodexFsReadDirectoryRequest, CodexFsReadFileRequest, CodexFsWriteFileRequest,
-        CodexGoalSetRequest, CodexGuardianDeniedActionApprovalRequest, CodexHandoffLocation,
-        CodexHandoffToAgentRequest, CodexHandoffToLocationRequest, CodexHandoffToLocationResponse,
-        CodexMarketplaceRequest, CodexMcpOauthLoginRequest, CodexMcpResourceReadRequest,
-        CodexMcpStatusRequest, CodexMcpToolCallRequest, CodexModelListRequest,
-        CodexModelProviderCapabilitiesReadRequest, CodexNamedQueryRequest,
+        CodexAppConfigWriteRequest, CodexBackgroundTerminalCleanRequest,
+        CodexBackgroundTerminalListRequest, CodexBackgroundTerminalTerminateRequest,
+        CodexCommandExecRequest, CodexCommandProcessRequest, CodexCommandResizeRequest,
+        CodexCommandWriteStdinRequest, CodexCompatibilityInventoryResponse, CodexFsCopyRequest,
+        CodexFsPathRequest, CodexFsReadDirectoryRequest, CodexFsReadFileRequest,
+        CodexFsWriteFileRequest, CodexGoalSetRequest, CodexGuardianDeniedActionApprovalRequest,
+        CodexHandoffLocation, CodexHandoffToAgentRequest, CodexHandoffToLocationRequest,
+        CodexHandoffToLocationResponse, CodexMarketplaceRequest, CodexMcpOauthLoginRequest,
+        CodexMcpResourceReadRequest, CodexMcpStatusRequest, CodexMcpToolCallRequest,
+        CodexModelListRequest, CodexModelProviderCapabilitiesReadRequest, CodexNamedQueryRequest,
         CodexPermissionPresetRequest, CodexPlanImplementationRequest, CodexPlanTurnStartRequest,
         CodexPluginRequest, CodexPluginShareRequest, CodexPluginShareSaveRequest,
-        CodexPluginShareUpdateTargetsRequest, CodexProcessCleanRequest, CodexProcessListRequest,
-        CodexRawRequest, CodexRemoteHandoffRequest, CodexReviewStartRequest, CodexShutdownRequest,
-        CodexSkillRequest, CodexSkillsConfigWriteRequest, CodexSkillsExtraRootsSetRequest,
-        CodexStderrTailResponse, CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest,
+        CodexPluginShareUpdateTargetsRequest, CodexProcessCleanRequest, CodexProcessKillRequest,
+        CodexProcessListRequest, CodexProcessResizePtyRequest, CodexProcessSpawnRequest,
+        CodexProcessWriteStdinRequest, CodexRawRequest, CodexRemoteHandoffRequest,
+        CodexReviewStartRequest, CodexShutdownRequest, CodexSkillRequest,
+        CodexSkillsConfigWriteRequest, CodexSkillsExtraRootsSetRequest, CodexStderrTailResponse,
+        CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest,
         CodexThreadElicitationCountRequest, CodexThreadForkRequest, CodexThreadIdRequest,
         CodexThreadInjectItemsRequest, CodexThreadMemoryModeSetRequest,
         CodexThreadRealtimeAppendAudioRequest, CodexThreadRealtimeAppendSpeechRequest,
@@ -4616,31 +4619,33 @@ fn codex_versioned_app_server_request(
             "process/clean",
             user_initiated_typed_or_enveloped::<CodexProcessCleanRequest>(payload)?,
         )),
-        methods::CODEX_PROCESS_SPAWN => {
-            Some(("process/spawn", user_initiated_raw_or_enveloped(payload)?))
-        }
+        methods::CODEX_PROCESS_SPAWN => Some((
+            "process/spawn",
+            user_initiated_typed_or_enveloped::<CodexProcessSpawnRequest>(payload)?,
+        )),
         methods::CODEX_PROCESS_WRITE_STDIN => Some((
             "process/writeStdin",
-            user_initiated_raw_or_enveloped(payload)?,
+            user_initiated_typed_or_enveloped::<CodexProcessWriteStdinRequest>(payload)?,
         )),
         methods::CODEX_PROCESS_RESIZE_PTY => Some((
             "process/resizePty",
-            user_initiated_raw_or_enveloped(payload)?,
+            user_initiated_typed_or_enveloped::<CodexProcessResizePtyRequest>(payload)?,
         )),
-        methods::CODEX_PROCESS_KILL => {
-            Some(("process/kill", user_initiated_raw_or_enveloped(payload)?))
-        }
+        methods::CODEX_PROCESS_KILL => Some((
+            "process/kill",
+            user_initiated_typed_or_enveloped::<CodexProcessKillRequest>(payload)?,
+        )),
         methods::CODEX_THREAD_BACKGROUND_TERMINALS_LIST => Some((
             "thread/backgroundTerminals/list",
-            user_initiated_raw_or_enveloped(payload)?,
+            user_initiated_typed_or_enveloped::<CodexBackgroundTerminalListRequest>(payload)?,
         )),
         methods::CODEX_THREAD_BACKGROUND_TERMINALS_CLEAN => Some((
             "thread/backgroundTerminals/clean",
-            user_initiated_raw_or_enveloped(payload)?,
+            user_initiated_typed_or_enveloped::<CodexBackgroundTerminalCleanRequest>(payload)?,
         )),
         methods::CODEX_THREAD_BACKGROUND_TERMINALS_TERMINATE => Some((
             "thread/backgroundTerminals/terminate",
-            user_initiated_raw_or_enveloped(payload)?,
+            user_initiated_typed_or_enveloped::<CodexBackgroundTerminalTerminateRequest>(payload)?,
         )),
         methods::CODEX_FS_READ_FILE => Some((
             "fs/readFile",
@@ -13953,23 +13958,69 @@ mod tests {
             &json!({
                 "userInitiated": true,
                 "command": "npm run dev",
-                "cwd": "/tmp/repo"
+                "cwd": "/tmp/repo",
+                "thread_id": "thread-1",
+                "pty": true
             }),
         )
         .expect("user initiated process spawn")
         .expect("process spawn method");
         assert_eq!(method, "process/spawn");
         assert_eq!(params["command"], "npm run dev");
+        assert_eq!(params["cwd"], "/tmp/repo");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["pty"], true);
+        assert!(params.get("thread_id").is_none());
         assert!(params.get("userInitiated").is_none());
 
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_PROCESS_WRITE_STDIN,
-            &json!({ "userInitiated": true, "processId": "p1", "stdin": "q" }),
+            &json!({
+                "userInitiated": true,
+                "process_id": "p1",
+                "stdin": "q",
+                "flush": true
+            }),
         )
         .expect("user initiated process stdin")
         .expect("process stdin method");
         assert_eq!(method, "process/writeStdin");
         assert_eq!(params["processId"], "p1");
+        assert_eq!(params["stdin"], "q");
+        assert_eq!(params["flush"], true);
+        assert!(params.get("process_id").is_none());
+        assert!(params.get("userInitiated").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_PROCESS_RESIZE_PTY,
+            &json!({
+                "userInitiated": true,
+                "process_id": "p1",
+                "cols": 100,
+                "rows": 30,
+                "source": "split"
+            }),
+        )
+        .expect("user initiated process pty resize")
+        .expect("process pty resize method");
+        assert_eq!(method, "process/resizePty");
+        assert_eq!(params["processId"], "p1");
+        assert_eq!(params["cols"], 100);
+        assert_eq!(params["rows"], 30);
+        assert_eq!(params["source"], "split");
+        assert!(params.get("process_id").is_none());
+        assert!(params.get("userInitiated").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_PROCESS_KILL,
+            &json!({ "userInitiated": true, "process_id": "p1", "signal": "TERM" }),
+        )
+        .expect("user initiated process kill")
+        .expect("process kill method");
+        assert_eq!(method, "process/kill");
+        assert_eq!(params["processId"], "p1");
+        assert_eq!(params["signal"], "TERM");
+        assert!(params.get("process_id").is_none());
         assert!(params.get("userInitiated").is_none());
 
         let (method, params) = codex_versioned_app_server_request(
@@ -13986,6 +14037,18 @@ mod tests {
         .expect("background terminal terminate method");
         assert_eq!(method, "thread/backgroundTerminals/terminate");
         assert_eq!(params["terminalId"], "term-1");
+        assert!(params.get("userInitiated").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_BACKGROUND_TERMINALS_LIST,
+            &json!({ "userInitiated": true, "thread_id": "thread-1", "includeExited": true }),
+        )
+        .expect("user initiated background terminal list")
+        .expect("background terminal list method");
+        assert_eq!(method, "thread/backgroundTerminals/list");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["includeExited"], true);
+        assert!(params.get("thread_id").is_none());
         assert!(params.get("userInitiated").is_none());
 
         let missing_process_marker = codex_versioned_app_server_request(
