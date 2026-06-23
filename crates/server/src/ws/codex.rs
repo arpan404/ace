@@ -1,7 +1,7 @@
 use crate::ws::{ProviderEventStreamMessage, WsApiState, WsDispatchError};
 use ace_core::ProviderKind;
 use ace_git::ProcessRunner;
-use ace_persistence::ProviderServerRequestStatus;
+use ace_persistence::{ProviderEventRecord, ProviderServerRequestStatus};
 use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
@@ -2288,11 +2288,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             Vec::new()
         };
         tokio::spawn(async move {
-            let mut replay_records = replay_records;
-            while !replay_records.is_empty() {
-                let chunk_len =
-                    usize::min(replay_records.len(), PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE);
-                let replay_chunk = replay_records.drain(..chunk_len).collect::<Vec<_>>();
+            for replay_chunk in provider_event_record_chunks(replay_records) {
                 let replay_watermark = replay_chunk.last().map(|record| record.sequence);
                 let replay_events = replay_chunk
                     .into_iter()
@@ -2510,6 +2506,32 @@ fn provider_event_chunks(events: Vec<ProviderEvent>) -> Vec<Vec<ProviderEvent>> 
     let mut events = events.into_iter();
     loop {
         let chunk = events
+            .by_ref()
+            .take(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
+            .collect::<Vec<_>>();
+        if chunk.is_empty() {
+            break;
+        }
+        chunks.push(chunk);
+    }
+    chunks
+}
+
+fn provider_event_record_chunks(
+    records: Vec<ProviderEventRecord>,
+) -> Vec<Vec<ProviderEventRecord>> {
+    if records.len() <= PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE {
+        return vec![records];
+    }
+
+    let mut chunks = Vec::with_capacity(
+        records
+            .len()
+            .div_ceil(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE),
+    );
+    let mut records = records.into_iter();
+    loop {
+        let chunk = records
             .by_ref()
             .take(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
             .collect::<Vec<_>>();
