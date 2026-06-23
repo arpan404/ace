@@ -309,6 +309,7 @@ impl ProviderDriver for AceNativeProvider {
     }
 
     async fn status(&self) -> crate::provider::ProviderDriverStatus {
+        let contract = ace_provider_adapter_contract();
         crate::provider::ProviderDriverStatus {
             health: ProviderRuntimeHealth::Ready,
             transport: Some("in_process".to_string()),
@@ -317,7 +318,7 @@ impl ProviderDriver for AceNativeProvider {
             last_error: None,
             metadata: json!({
                 "runtime": "ace",
-                "adapter_contract": 1,
+                "adapter_contract": contract.version,
                 "websocket_first": true
             }),
         }
@@ -729,6 +730,7 @@ impl ProviderServerRequestResponder for AceNativeProvider {
 impl ProviderStateSource for AceNativeProvider {
     async fn runtime_state_snapshot(&self) -> Result<AgentRuntimeSnapshot, ProviderDriverError> {
         let pending_server_requests = self.pending_server_requests.lock().await.len();
+        let contract = ace_provider_adapter_contract();
         Ok(AgentRuntimeSnapshot {
             provider_states: vec![ProviderStateRecord {
                 provider: "ace".to_string(),
@@ -737,7 +739,7 @@ impl ProviderStateSource for AceNativeProvider {
                 name: Some("Ace native provider".to_string()),
                 metadata: json!({
                     "runtime": "in_process",
-                    "adapter_contract": 1,
+                    "adapter_contract": contract.version,
                     "pending_server_requests": pending_server_requests,
                     "websocket_first": true,
                 }),
@@ -873,6 +875,30 @@ mod tests {
         assert_eq!(
             response["provider_requirements"]["server_requests"],
             "map provider host requests to NormalizedServerRequest"
+        );
+    }
+
+    #[tokio::test]
+    async fn native_provider_status_and_snapshot_report_current_contract_version() {
+        let provider = AceNativeProvider::new();
+        let contract = ace_provider_adapter_contract();
+
+        let status = provider.status().await;
+        assert_eq!(status.metadata["adapter_contract"], contract.version);
+        assert_eq!(status.metadata["websocket_first"], true);
+
+        let snapshot = provider
+            .runtime_state_snapshot()
+            .await
+            .expect("runtime state snapshot");
+        assert_eq!(snapshot.provider_states.len(), 1);
+        assert_eq!(
+            snapshot.provider_states[0].metadata["adapter_contract"],
+            contract.version
+        );
+        assert_eq!(
+            snapshot.provider_states[0].metadata["runtime"],
+            "in_process"
         );
     }
 
