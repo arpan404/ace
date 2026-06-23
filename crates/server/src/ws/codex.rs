@@ -1325,6 +1325,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     (provider, request.method.as_ref(), request.operation)
                 {
                     validate_provider_runtime_operation(operation, &adapter_profile)?;
+                    let status = self.providers.status(provider).await.ok();
+                    validate_codex_runtime_operation_gate(
+                        operation,
+                        &adapter_profile,
+                        status.as_ref(),
+                    )?;
                     if let Some(method) = codex_ws_method_for_adapter_operation(operation)? {
                         return self.dispatch_codex_method(method, request.params).await;
                     }
@@ -3293,16 +3299,15 @@ fn provider_runtime_operations_for_provider(
         .iter()
         .cloned()
         .map(|profile| {
-            let operation = profile.operation;
-            let runtime_request = if provider == ProviderKind::Codex {
-                codex_runtime_request_for_operation(operation)
-            } else {
-                provider_native_runtime_request_for_profile(&profile, status)
-            };
             let gate_resolution = profile
                 .runtime_gate
                 .as_ref()
                 .map(|gate| resolve_provider_operation_gate(gate, status));
+            let runtime_request = if provider == ProviderKind::Codex {
+                codex_runtime_request_for_profile(&profile, gate_resolution.as_ref())
+            } else {
+                provider_native_runtime_request_for_profile(&profile, status)
+            };
             ProviderRuntimeProviderOperation::from_profile(profile)
                 .with_runtime_request(runtime_request)
                 .with_runtime_gate_resolution(gate_resolution)
@@ -3455,10 +3460,20 @@ fn method_set_from_value(value: &Value) -> Option<BTreeSet<String>> {
     (!methods.is_empty()).then_some(methods)
 }
 
-fn codex_runtime_request_for_operation(
-    operation: ProviderAdapterOperation,
+fn codex_runtime_request_for_profile(
+    profile: &ProviderAdapterOperationProfile,
+    gate_resolution: Option<&ProviderRuntimeOperationGateResolution>,
 ) -> ProviderRuntimeOperationRequest {
-    match codex_ws_method_for_adapter_operation(operation) {
+    if let Some(resolution) = gate_resolution
+        && resolution.status != ProviderRuntimeOperationGateStatus::Available
+    {
+        return ProviderRuntimeOperationRequest::unavailable(
+            ProviderRuntimeOperationRequestMode::AdapterOperation,
+            resolution.reason.clone(),
+        );
+    }
+
+    match codex_ws_method_for_adapter_operation(profile.operation) {
         Ok(Some(_)) => ProviderRuntimeOperationRequest::operation(
             ProviderRuntimeOperationParams::AdapterNormalized,
         ),
@@ -3466,7 +3481,7 @@ fn codex_runtime_request_for_operation(
             ProviderRuntimeOperationRequestMode::TypedApi,
             "use the dedicated provider runtime websocket method for this operation",
         ),
-        Err(_) => match operation {
+        Err(_) => match profile.operation {
             ProviderAdapterOperation::ProviderEvents
             | ProviderAdapterOperation::ToolEventNormalize
             | ProviderAdapterOperation::ServerRequestNormalize
@@ -3497,6 +3512,31 @@ fn codex_runtime_request_for_operation(
             ),
         },
     }
+}
+
+fn validate_codex_runtime_operation_gate(
+    operation: ProviderAdapterOperation,
+    adapter_profile: &ProviderAdapterProfile,
+    status: Option<&ProviderDriverStatus>,
+) -> Result<(), WsDispatchError> {
+    let Some(profile) = adapter_profile.operation(operation) else {
+        return Err(WsDispatchError::BadRequest(format!(
+            "provider `{}` does not declare adapter operation `{operation:?}`",
+            adapter_profile.provider.runtime_id()
+        )));
+    };
+    let Some(gate) = profile.runtime_gate.as_ref() else {
+        return Ok(());
+    };
+    let resolution = resolve_provider_operation_gate(gate, status);
+    if resolution.status == ProviderRuntimeOperationGateStatus::Available {
+        return Ok(());
+    }
+    Err(WsDispatchError::BadRequest(format!(
+        "provider `{}` adapter operation `{operation:?}` is unavailable: {}",
+        adapter_profile.provider.runtime_id(),
+        resolution.reason
+    )))
 }
 
 fn provider_runtime_error_code(
@@ -9380,9 +9420,11 @@ mod tests {
                     .expect("availability reason")
                     .contains("version-gated")
                 && operation["provider_methods"] == json!(["thread/shellCommand"])
-                && operation["runtime_request"]["invokable"] == true
+                && operation["runtime_request"]["invokable"] == false
                 && operation["runtime_request"]["mode"] == "adapter_operation"
-                && operation["runtime_request"]["params"] == "adapter_normalized"
+                && operation["runtime_request"]["reason"]
+                    .as_str()
+                    .is_some_and(|reason| reason.contains("missing from the installed provider"))
         }));
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "fs_read_file"
@@ -9633,6 +9675,34 @@ mod tests {
                 && operation["runtime_request"]["invokable"] == false
                 && operation["runtime_request"]["mode"] == "deferred"
         }));
+
+        let gated_request = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "missing-gated-codex-operation",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "operation": "thread_shell_command",
+                        "params": {
+                            "userInitiated": true,
+                            "command": "pwd"
+                        },
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let gated_request: WsServerResponse =
+            serde_json::from_str(&gated_request).expect("gated operation response");
+        let WsServerPayload::Error { code, message } = gated_request.payload else {
+            panic!("expected gated operation error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("ThreadShellCommand"));
+        assert!(message.contains("missing from the installed provider"));
     }
 
     #[tokio::test]
