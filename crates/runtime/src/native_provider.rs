@@ -28,6 +28,7 @@ const ACE_NATIVE_CLIENT_REQUEST_METHODS: &[&str] = &[
     "ace.ping",
     "ace.descriptor",
     "ace.capabilities",
+    "ace.methods.list",
     "ace.events.emit",
     "ace.semantic_tool.emit",
     "ace.semantic_tool.normalize",
@@ -43,6 +44,16 @@ const ACE_NATIVE_CLIENT_REQUEST_METHODS: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdapterValidationRequest {
     pub descriptor: ProviderDescriptor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeProviderMethodsListResponse {
+    pub provider: String,
+    pub methods: Vec<String>,
+    pub adapter_contract_version: u32,
+    pub websocket_first: bool,
+    pub event_queue_capacity: usize,
+    pub max_event_batch_size: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -207,6 +218,12 @@ impl AceNativeProvider {
                 "Ace capabilities",
                 ProviderFeatureCategory::Native,
                 "ace.capabilities",
+            ),
+            (
+                "ace.methods",
+                "Ace native method inventory",
+                ProviderFeatureCategory::Native,
+                "ace.methods.list",
             ),
             (
                 "ace.adapter_validation",
@@ -397,6 +414,25 @@ impl ProviderDriver for AceNativeProvider {
                 "provider": "ace",
                 "capabilities": self.descriptor().capabilities,
             })),
+            "ace.methods.list" => {
+                let contract = ace_provider_adapter_contract();
+                Ok(serde_json::to_value(NativeProviderMethodsListResponse {
+                    provider: "ace".to_string(),
+                    methods: Self::supported_client_request_methods_static()
+                        .iter()
+                        .map(|method| (*method).to_string())
+                        .collect(),
+                    adapter_contract_version: contract.version,
+                    websocket_first: contract.websocket_first,
+                    event_queue_capacity: ACE_NATIVE_EVENT_QUEUE_CAPACITY,
+                    max_event_batch_size: ACE_NATIVE_MAX_EVENT_BATCH_SIZE,
+                })
+                .map_err(|error| ProviderDriverError::RequestFailed {
+                    provider: "ace".to_string(),
+                    method: request.method.clone(),
+                    message: error.to_string(),
+                })?)
+            }
             "ace.events.emit" => {
                 let emit =
                     serde_json::from_value::<NativeProviderEventsEmitRequest>(request.params)
@@ -1081,6 +1117,55 @@ mod tests {
         assert_eq!(status.transport.as_deref(), Some("in_process"));
         assert!(status.initialized);
         assert_eq!(status.metadata["websocket_first"], true);
+    }
+
+    #[tokio::test]
+    async fn native_provider_lists_supported_methods_for_adapter_discovery() {
+        let provider = AceNativeProvider::new();
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.methods.list".to_string(),
+                params: Value::Null,
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("method list");
+
+        let methods = response["methods"]
+            .as_array()
+            .expect("methods")
+            .iter()
+            .map(|value| value.as_str().expect("method").to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(response["provider"], "ace");
+        let expected_methods = AceNativeProvider::supported_client_request_methods_static()
+            .iter()
+            .map(|method| (*method).to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(methods, expected_methods);
+        assert!(methods.contains(&"ace.methods.list".to_string()));
+        assert!(methods.contains(&"ace.server_request.normalize".to_string()));
+        assert!(methods.contains(&"ace.runtime_signal.normalize".to_string()));
+        assert_eq!(
+            response["adapter_contract_version"],
+            ace_provider_adapter_contract().version
+        );
+        assert_eq!(response["websocket_first"], true);
+        assert_eq!(
+            response["event_queue_capacity"],
+            ACE_NATIVE_EVENT_QUEUE_CAPACITY
+        );
+        assert_eq!(
+            response["max_event_batch_size"],
+            ACE_NATIVE_MAX_EVENT_BATCH_SIZE
+        );
+
+        let features = AceNativeProvider::features_static();
+        assert!(features.iter().any(|feature| {
+            feature.key == "ace.methods"
+                && feature.provider_method.as_deref() == Some("ace.methods.list")
+        }));
     }
 
     #[tokio::test]
