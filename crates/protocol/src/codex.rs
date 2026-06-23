@@ -839,6 +839,11 @@ pub struct CodexCompatibilityInventorySummary {
     pub raw_supported_methods: usize,
     pub version_gated_methods: usize,
     pub intentionally_deferred_methods: usize,
+    pub typed_api_invocations: usize,
+    pub raw_request_invocations: usize,
+    pub server_notification_invocations: usize,
+    pub server_request_response_invocations: usize,
+    pub deferred_invocations: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -893,7 +898,21 @@ impl CodexCompatibilityInventoryResponse {
                         summary.intentionally_deferred_methods += 1;
                     }
                 }
-                spec.into()
+                let method = CodexCompatibilityMethod::from(spec);
+                match method.invocation {
+                    CodexCompatibilityInvocation::TypedApi => summary.typed_api_invocations += 1,
+                    CodexCompatibilityInvocation::RawRequest => {
+                        summary.raw_request_invocations += 1;
+                    }
+                    CodexCompatibilityInvocation::ServerNotification => {
+                        summary.server_notification_invocations += 1;
+                    }
+                    CodexCompatibilityInvocation::ServerRequestResponse => {
+                        summary.server_request_response_invocations += 1;
+                    }
+                    CodexCompatibilityInvocation::Deferred => summary.deferred_invocations += 1,
+                }
+                method
             })
             .collect();
 
@@ -1017,6 +1036,19 @@ mod tests {
         assert!(inventory.summary.server_request_methods > 0);
         assert!(inventory.summary.version_gated_methods > 0);
         assert!(inventory.summary.intentionally_deferred_methods > 0);
+        assert!(inventory.summary.typed_api_invocations > 0);
+        assert!(inventory.summary.raw_request_invocations > 0);
+        assert!(inventory.summary.server_notification_invocations > 0);
+        assert!(inventory.summary.server_request_response_invocations > 0);
+        assert!(inventory.summary.deferred_invocations > 0);
+        assert_eq!(
+            inventory.summary.typed_api_invocations
+                + inventory.summary.raw_request_invocations
+                + inventory.summary.server_notification_invocations
+                + inventory.summary.server_request_response_invocations
+                + inventory.summary.deferred_invocations,
+            inventory.summary.total_methods
+        );
         assert_eq!(
             inventory.raw_request_policy.allowed_direction,
             CodexMethodDirection::ClientRequest
@@ -1140,6 +1172,11 @@ mod tests {
         assert_eq!(inventory.summary.typed_supported_methods, 1);
         assert_eq!(inventory.summary.raw_supported_methods, 1);
         assert_eq!(inventory.summary.intentionally_deferred_methods, 1);
+        assert_eq!(inventory.summary.typed_api_invocations, 1);
+        assert_eq!(inventory.summary.raw_request_invocations, 0);
+        assert_eq!(inventory.summary.server_notification_invocations, 1);
+        assert_eq!(inventory.summary.server_request_response_invocations, 0);
+        assert_eq!(inventory.summary.deferred_invocations, 1);
     }
 
     #[test]

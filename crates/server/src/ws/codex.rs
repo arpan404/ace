@@ -6573,6 +6573,36 @@ mod tests {
                 .expect("deferred methods")
                 > 0
         );
+        assert!(
+            body["summary"]["typed_api_invocations"]
+                .as_u64()
+                .expect("typed api invocations")
+                > 0
+        );
+        assert!(
+            body["summary"]["raw_request_invocations"]
+                .as_u64()
+                .expect("raw request invocations")
+                > 0
+        );
+        assert!(
+            body["summary"]["server_notification_invocations"]
+                .as_u64()
+                .expect("server notification invocations")
+                > 0
+        );
+        assert!(
+            body["summary"]["server_request_response_invocations"]
+                .as_u64()
+                .expect("server request response invocations")
+                > 0
+        );
+        assert!(
+            body["summary"]["deferred_invocations"]
+                .as_u64()
+                .expect("deferred invocations")
+                > 0
+        );
         assert_eq!(
             body["raw_request_policy"]["allowed_direction"],
             "client_request"
