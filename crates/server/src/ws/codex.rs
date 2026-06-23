@@ -26,13 +26,13 @@ use ace_protocol::{
     },
     git::GitWorktreeCreateRequest,
     provider_runtime::{
-        PROVIDER_RUNTIME_EVENT_TOPIC, ProviderHostToolInvokeServerRequest,
-        ProviderHostToolsListResponse, ProviderRuntimeAdapterValidateRequest,
-        ProviderRuntimeAdapterValidateResponse, ProviderRuntimeContractReport,
-        ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeEventRecord,
-        ProviderRuntimeFeaturesListRequest, ProviderRuntimeFeaturesListResponse,
-        ProviderRuntimeLifecycleRequest, ProviderRuntimeLifecycleResponse,
-        ProviderRuntimeModelProviderCapabilitiesReadRequest,
+        PROVIDER_RUNTIME_EVENT_TOPIC, PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT,
+        ProviderHostToolInvokeServerRequest, ProviderHostToolsListResponse,
+        ProviderRuntimeAdapterValidateRequest, ProviderRuntimeAdapterValidateResponse,
+        ProviderRuntimeContractReport, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
+        ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
+        ProviderRuntimeFeaturesListResponse, ProviderRuntimeLifecycleRequest,
+        ProviderRuntimeLifecycleResponse, ProviderRuntimeModelProviderCapabilitiesReadRequest,
         ProviderRuntimeModelProviderCapabilitiesReadResponse, ProviderRuntimeModelsListRequest,
         ProviderRuntimeModelsListResponse, ProviderRuntimeOperationGateResolution,
         ProviderRuntimeOperationGateStatus, ProviderRuntimeOperationParams,
@@ -50,7 +50,8 @@ use ace_protocol::{
         ProviderServerRequestDecisionResponse, ProviderServerRequestError,
         ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
-        ProviderServerRequestsListResponse, projection_deltas_for_events,
+        ProviderServerRequestsListResponse, capped_provider_runtime_events_limit,
+        projection_deltas_for_events,
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
@@ -1219,6 +1220,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             methods::PROVIDER_RUNTIME_EVENTS_RECENT => {
                 let request =
                     serde_json::from_value::<ProviderRuntimeRecentEventsRequest>(payload)?;
+                let effective_limit = capped_provider_runtime_events_limit(request.limit);
                 let records = self
                     .provider_events
                     .lock()
@@ -1226,7 +1228,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     .recent_or_after_sequence(
                         request.provider.as_deref(),
                         request.from_sequence_exclusive,
-                        request.limit,
+                        effective_limit,
                     )?
                     .into_iter()
                     .map(|record| {
@@ -1251,6 +1253,9 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     })
                     .collect();
                 Ok(serde_json::to_value(ProviderRuntimeRecentEventsResponse {
+                    requested_limit: request.limit,
+                    effective_limit,
+                    max_limit: PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT,
                     records,
                 })?)
             }
@@ -2261,6 +2266,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         let provider_name = provider_kind.runtime_id().to_string();
         let response_provider = provider_name.clone();
         let raw_event_mode = request.raw_event_mode;
+        let requested_replay_limit = request.replay_limit;
+        let effective_replay_limit = capped_provider_runtime_events_limit(requested_replay_limit);
         let mut receiver = self.provider_event_receiver(provider_kind);
         let replay_records = if request.from_sequence_exclusive.is_some() {
             self.provider_events
@@ -2269,7 +2276,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .recent_or_after_sequence(
                     Some(provider_kind.runtime_id()),
                     request.from_sequence_exclusive,
-                    request.replay_limit,
+                    effective_replay_limit,
                 )?
         } else {
             Vec::new()
@@ -2349,7 +2356,13 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 }
             }
         });
-        Ok(serde_json::json!({ "subscribed": true, "provider": response_provider }))
+        Ok(serde_json::json!({
+            "subscribed": true,
+            "provider": response_provider,
+            "requested_replay_limit": requested_replay_limit,
+            "effective_replay_limit": effective_replay_limit,
+            "max_replay_limit": PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT
+        }))
     }
 
     fn provider_runtime_info(
@@ -6590,7 +6603,16 @@ mod tests {
             )
             .await;
         let subscribe: WsServerResponse = serde_json::from_str(&subscribe).expect("subscribe");
-        assert!(matches!(subscribe.payload, WsServerPayload::Result { .. }));
+        let WsServerPayload::Result { body } = subscribe.payload else {
+            panic!("expected subscribe result");
+        };
+        assert_eq!(body["subscribed"], true);
+        assert_eq!(body["requested_replay_limit"], 100);
+        assert_eq!(body["effective_replay_limit"], 100);
+        assert_eq!(
+            body["max_replay_limit"],
+            PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT
+        );
 
         let second_subscribe = state
             .dispatch_text_with_events(
@@ -6827,6 +6849,9 @@ mod tests {
         let WsServerPayload::Result { body } = recent.payload else {
             panic!("expected recent provider event result");
         };
+        assert_eq!(body["requested_limit"], 10);
+        assert_eq!(body["effective_limit"], 10);
+        assert_eq!(body["max_limit"], PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT);
         let records = body["records"].as_array().expect("records");
         assert_eq!(records.len(), 8);
         assert_eq!(records[0]["provider"], "codex");
@@ -6873,6 +6898,34 @@ mod tests {
             records[2]["raw_event_summary"]["provider_method"],
             "item/completed"
         );
+        let recent_capped = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-events-recent-capped",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": {
+                        "provider": "codex",
+                        "limit": PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT + 10
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent_capped: WsServerResponse =
+            serde_json::from_str(&recent_capped).expect("recent capped response");
+        let WsServerPayload::Result { body } = recent_capped.payload else {
+            panic!("expected capped recent provider event result");
+        };
+        assert_eq!(
+            body["requested_limit"],
+            PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT + 10
+        );
+        assert_eq!(
+            body["effective_limit"],
+            PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT
+        );
+        assert_eq!(body["records"].as_array().expect("records").len(), 8);
         let replay_cursor = records[1]["sequence"].as_i64().expect("replay cursor");
         let replay_after_cursor = state
             .dispatch_text(
@@ -7009,10 +7062,16 @@ mod tests {
             .await;
         let replay_subscription: WsServerResponse =
             serde_json::from_str(&replay_subscription).expect("replay subscription response");
-        assert!(matches!(
-            replay_subscription.payload,
-            WsServerPayload::Result { .. }
-        ));
+        let WsServerPayload::Result { body } = replay_subscription.payload else {
+            panic!("expected replay subscription result");
+        };
+        assert_eq!(body["subscribed"], true);
+        assert_eq!(body["requested_replay_limit"], 3);
+        assert_eq!(body["effective_replay_limit"], 3);
+        assert_eq!(
+            body["max_replay_limit"],
+            PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT
+        );
         let replay_pushed =
             tokio::time::timeout(std::time::Duration::from_secs(1), replay_outbound_rx.recv())
                 .await

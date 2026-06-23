@@ -22,6 +22,7 @@ use ace_runtime::{
 use serde::{Deserialize, Deserializer, Serialize};
 
 pub const PROVIDER_RUNTIME_EVENT_TOPIC: &str = "provider_runtime.event";
+pub const PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT: usize = 1_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeSubscribeRequest {
@@ -36,6 +37,11 @@ pub struct ProviderRuntimeSubscribeRequest {
 
 fn default_recent_events_limit() -> usize {
     100
+}
+
+#[must_use]
+pub fn capped_provider_runtime_events_limit(limit: usize) -> usize {
+    usize::min(limit, PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT)
 }
 
 fn default_raw_event_mode() -> ProviderRuntimeRawEventMode {
@@ -188,6 +194,9 @@ pub struct ProviderRuntimeEventRecord {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRuntimeRecentEventsResponse {
+    pub requested_limit: usize,
+    pub effective_limit: usize,
+    pub max_limit: usize,
     pub records: Vec<ProviderRuntimeEventRecord>,
 }
 
@@ -2107,6 +2116,11 @@ mod tests {
         }))
         .expect("recent request");
         assert_eq!(request.raw_event_mode, ProviderRuntimeRawEventMode::Compact);
+        assert_eq!(request.limit, default_recent_events_limit());
+        assert_eq!(
+            capped_provider_runtime_events_limit(usize::MAX),
+            PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT
+        );
         let subscribe = serde_json::from_value::<ProviderRuntimeSubscribeRequest>(json!({
             "provider": "codex"
         }))
@@ -2115,6 +2129,7 @@ mod tests {
             subscribe.raw_event_mode,
             ProviderRuntimeRawEventMode::Compact
         );
+        assert_eq!(subscribe.replay_limit, default_recent_events_limit());
 
         let full_request = serde_json::from_value::<ProviderRuntimeRecentEventsRequest>(json!({
             "provider": "codex",
@@ -2192,6 +2207,27 @@ mod tests {
         };
         let encoded = serde_json::to_value(&full_batch).expect("full batch");
         assert_eq!(encoded["raw_events"][0]["type"], "raw_notification");
+
+        let response = ProviderRuntimeRecentEventsResponse {
+            requested_limit: usize::MAX,
+            effective_limit: capped_provider_runtime_events_limit(usize::MAX),
+            max_limit: PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT,
+            records: vec![full_record],
+        };
+        let encoded = serde_json::to_value(&response).expect("recent response");
+        assert_eq!(encoded["requested_limit"], usize::MAX);
+        assert_eq!(
+            encoded["effective_limit"],
+            PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT
+        );
+        assert_eq!(
+            encoded["max_limit"],
+            PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT
+        );
+        assert_eq!(
+            encoded["records"][0]["raw_event"]["type"],
+            "raw_notification"
+        );
     }
 
     #[test]
