@@ -46,27 +46,27 @@ impl CodexMethodSpec {
 }
 
 use CodexMethodDirection::{ClientNotification, ClientRequest, ServerNotification, ServerRequest};
-use CodexMethodSupport::{IntentionallyDeferred, RawSupported, TypedSupported, VersionGated};
+use CodexMethodSupport::{IntentionallyDeferred, TypedSupported, VersionGated};
 
 pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("initialize", ClientRequest, TypedSupported),
     CodexMethodSpec::new("initialized", ClientNotification, TypedSupported),
-    CodexMethodSpec::new("account/login/cancel", ClientRequest, RawSupported),
-    CodexMethodSpec::new("account/login/start", ClientRequest, RawSupported),
-    CodexMethodSpec::new("account/logout", ClientRequest, RawSupported),
+    CodexMethodSpec::new("account/login/cancel", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("account/login/start", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("account/logout", ClientRequest, TypedSupported),
     CodexMethodSpec::new(
         "account/rateLimitResetCredit/consume",
         ClientRequest,
-        RawSupported,
+        TypedSupported,
     ),
-    CodexMethodSpec::new("account/rateLimits/read", ClientRequest, RawSupported),
-    CodexMethodSpec::new("account/read", ClientRequest, RawSupported),
+    CodexMethodSpec::new("account/rateLimits/read", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("account/read", ClientRequest, TypedSupported),
     CodexMethodSpec::new(
         "account/sendAddCreditsNudgeEmail",
         ClientRequest,
-        RawSupported,
+        TypedSupported,
     ),
-    CodexMethodSpec::new("account/usage/read", ClientRequest, RawSupported),
+    CodexMethodSpec::new("account/usage/read", ClientRequest, TypedSupported),
     CodexMethodSpec::new("app/list", ClientRequest, VersionGated),
     CodexMethodSpec::new("collaborationMode/list", ClientRequest, VersionGated),
     CodexMethodSpec::new("config/batchWrite", ClientRequest, TypedSupported),
@@ -211,8 +211,8 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("thread/settings/update", ClientRequest, VersionGated),
     CodexMethodSpec::new("thread/turns/items/list", ClientRequest, VersionGated),
     CodexMethodSpec::new("thread/turns/list", ClientRequest, VersionGated),
-    CodexMethodSpec::new("windowsSandbox/readiness", ClientRequest, RawSupported),
-    CodexMethodSpec::new("windowsSandbox/setupStart", ClientRequest, RawSupported),
+    CodexMethodSpec::new("windowsSandbox/readiness", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("windowsSandbox/setupStart", ClientRequest, TypedSupported),
     CodexMethodSpec::new("cloud/threadStart", ClientRequest, IntentionallyDeferred),
     CodexMethodSpec::new("cloud/handoff", ClientRequest, IntentionallyDeferred),
     CodexMethodSpec::new(
@@ -1297,13 +1297,8 @@ mod tests {
     }
 
     #[test]
-    fn inventory_keeps_all_support_classes_represented() {
-        for support in [
-            TypedSupported,
-            RawSupported,
-            VersionGated,
-            IntentionallyDeferred,
-        ] {
+    fn inventory_keeps_required_support_classes_represented_without_raw_client_requests() {
+        for support in [TypedSupported, VersionGated, IntentionallyDeferred] {
             assert!(
                 CODEX_METHOD_INVENTORY
                     .iter()
@@ -1311,6 +1306,13 @@ mod tests {
                 "missing support class {support:?}"
             );
         }
+        assert!(
+            CODEX_METHOD_INVENTORY
+                .iter()
+                .filter(|spec| spec.direction == ClientRequest)
+                .all(|spec| spec.support != CodexMethodSupport::RawSupported),
+            "client requests should use typed, version-gated, or deferred contracts"
+        );
     }
 
     #[test]

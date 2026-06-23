@@ -6,7 +6,7 @@ use ace_persistence::{ProviderEventRecord, ProviderServerRequestStatus};
 use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
-        CodexAppConfigWriteRequest, CodexBackgroundTerminalCleanRequest,
+        CodexAccountRequest, CodexAppConfigWriteRequest, CodexBackgroundTerminalCleanRequest,
         CodexBackgroundTerminalListRequest, CodexBackgroundTerminalTerminateRequest,
         CodexCommandExecRequest, CodexCommandProcessRequest, CodexCommandResizeRequest,
         CodexCommandWriteStdinRequest, CodexCompatibilityInventoryResponse,
@@ -37,7 +37,7 @@ use ace_protocol::{
         CodexThreadSettingsUpdateRequest, CodexThreadStartRequest,
         CodexThreadTurnsItemsListRequest, CodexThreadTurnsListRequest,
         CodexThreadUpdateMetadataRequest, CodexThreadsListRequest, CodexTurnStartRequest,
-        CodexTurnSteerRequest, CodexVersionedRequest,
+        CodexTurnSteerRequest, CodexVersionedRequest, CodexWindowsSandboxRequest,
     },
     git::GitWorktreeCreateRequest,
     provider_runtime::{
@@ -4779,34 +4779,46 @@ fn codex_versioned_app_server_request(
             "remote/handoff",
             typed_or_enveloped::<CodexRemoteHandoffRequest>(payload)?,
         )),
-        methods::CODEX_ACCOUNT_LOGIN_START => {
-            Some(("account/login/start", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_ACCOUNT_LOGIN_CANCEL => {
-            Some(("account/login/cancel", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_ACCOUNT_LOGOUT => Some(("account/logout", raw_or_enveloped(payload)?)),
-        methods::CODEX_ACCOUNT_READ => Some(("account/read", raw_or_enveloped(payload)?)),
+        methods::CODEX_ACCOUNT_LOGIN_START => Some((
+            "account/login/start",
+            typed_or_enveloped::<CodexAccountRequest>(payload)?,
+        )),
+        methods::CODEX_ACCOUNT_LOGIN_CANCEL => Some((
+            "account/login/cancel",
+            typed_or_enveloped::<CodexAccountRequest>(payload)?,
+        )),
+        methods::CODEX_ACCOUNT_LOGOUT => Some((
+            "account/logout",
+            typed_or_enveloped::<CodexAccountRequest>(payload)?,
+        )),
+        methods::CODEX_ACCOUNT_READ => Some((
+            "account/read",
+            typed_or_enveloped::<CodexAccountRequest>(payload)?,
+        )),
         methods::CODEX_ACCOUNT_RATE_LIMIT_RESET_CREDIT_CONSUME => Some((
             "account/rateLimitResetCredit/consume",
-            raw_or_enveloped(payload)?,
+            typed_or_enveloped::<CodexAccountRequest>(payload)?,
         )),
-        methods::CODEX_ACCOUNT_RATE_LIMITS_READ => {
-            Some(("account/rateLimits/read", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_ACCOUNT_USAGE_READ => {
-            Some(("account/usage/read", raw_or_enveloped(payload)?))
-        }
+        methods::CODEX_ACCOUNT_RATE_LIMITS_READ => Some((
+            "account/rateLimits/read",
+            typed_or_enveloped::<CodexAccountRequest>(payload)?,
+        )),
+        methods::CODEX_ACCOUNT_USAGE_READ => Some((
+            "account/usage/read",
+            typed_or_enveloped::<CodexAccountRequest>(payload)?,
+        )),
         methods::CODEX_ACCOUNT_SEND_ADD_CREDITS_NUDGE_EMAIL => Some((
             "account/sendAddCreditsNudgeEmail",
-            raw_or_enveloped(payload)?,
+            typed_or_enveloped::<CodexAccountRequest>(payload)?,
         )),
-        methods::CODEX_WINDOWS_SANDBOX_READINESS => {
-            Some(("windowsSandbox/readiness", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_WINDOWS_SANDBOX_SETUP_START => {
-            Some(("windowsSandbox/setupStart", raw_or_enveloped(payload)?))
-        }
+        methods::CODEX_WINDOWS_SANDBOX_READINESS => Some((
+            "windowsSandbox/readiness",
+            typed_or_enveloped::<CodexWindowsSandboxRequest>(payload)?,
+        )),
+        methods::CODEX_WINDOWS_SANDBOX_SETUP_START => Some((
+            "windowsSandbox/setupStart",
+            typed_or_enveloped::<CodexWindowsSandboxRequest>(payload)?,
+        )),
         methods::CODEX_CONFIG_READ => Some((
             "config/read",
             typed_or_enveloped::<CodexConfigReadRequest>(payload)?,
@@ -14489,36 +14501,65 @@ mod tests {
     }
 
     #[test]
-    fn codex_raw_account_and_windows_methods_preserve_payload_shape() {
+    fn codex_account_and_windows_methods_use_typed_contracts_without_dropping_extra_fields() {
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_ACCOUNT_LOGIN_START,
-            &json!({ "provider": "chatgpt", "scopes": ["openid"] }),
+            &json!({
+                "provider": "chatgpt",
+                "scopes": ["openid"],
+                "redirectUri": "http://localhost/callback"
+            }),
         )
         .expect("account login start")
         .expect("account method");
         assert_eq!(method, "account/login/start");
         assert_eq!(params["provider"], "chatgpt");
         assert_eq!(params["scopes"][0], "openid");
+        assert_eq!(params["redirectUri"], "http://localhost/callback");
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_ACCOUNT_LOGIN_CANCEL,
+            &json!({ "flow_id": "flow-1", "reason": "user_cancelled" }),
+        )
+        .expect("account login cancel")
+        .expect("account method");
+        assert_eq!(method, "account/login/cancel");
+        assert_eq!(params["flowId"], "flow-1");
+        assert_eq!(params["reason"], "user_cancelled");
+        assert!(params.get("flow_id").is_none());
 
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_ACCOUNT_RATE_LIMIT_RESET_CREDIT_CONSUME,
-            &json!({ "params": { "accountId": "acct-1", "source": "banner" } }),
+            &json!({ "params": { "account_id": "acct-1", "source": "banner", "dryRun": true } }),
         )
         .expect("rate-limit reset credit consume")
         .expect("account method");
         assert_eq!(method, "account/rateLimitResetCredit/consume");
         assert_eq!(params["accountId"], "acct-1");
         assert_eq!(params["source"], "banner");
+        assert_eq!(params["dryRun"], true);
+        assert!(params.get("account_id").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_ACCOUNT_USAGE_READ,
+            &json!({ "accountId": "acct-1", "period": "month" }),
+        )
+        .expect("account usage read")
+        .expect("account method");
+        assert_eq!(method, "account/usage/read");
+        assert_eq!(params["accountId"], "acct-1");
+        assert_eq!(params["period"], "month");
 
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_WINDOWS_SANDBOX_SETUP_START,
-            &json!({ "params": { "mode": "default", "force": true } }),
+            &json!({ "params": { "mode": "default", "force": true, "diagnostics": true } }),
         )
         .expect("windows setup")
         .expect("windows method");
         assert_eq!(method, "windowsSandbox/setupStart");
         assert_eq!(params["mode"], "default");
         assert_eq!(params["force"], true);
+        assert_eq!(params["diagnostics"], true);
     }
 
     #[test]
