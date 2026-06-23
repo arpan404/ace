@@ -1596,7 +1596,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 let decision = ProviderServerRequestDecisionRecord {
                     outcome: "result".to_string(),
                     payload: result.output.clone(),
-                    audit: audit_value.clone(),
+                    audit: audit.clone(),
                 };
                 self.provider_events
                     .lock()
@@ -1655,14 +1655,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         request.result.clone(),
                     )
                     .await?;
-                let audit = serde_json::to_value(audit_with_default_decider(
-                    decision_context.audit,
-                    "user",
-                ))?;
+                let audit = audit_with_default_decider(decision_context.audit, "user");
+                let audit_value = serde_json::to_value(&audit)?;
                 let decision = ProviderServerRequestDecisionRecord {
                     outcome: "result".to_string(),
                     payload: request.result.clone(),
-                    audit: audit.clone(),
+                    audit,
                 };
                 self.provider_events
                     .lock()
@@ -1671,14 +1669,14 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         &request.provider,
                         request.request_id.clone(),
                         request.result.clone(),
-                        audit.clone(),
+                        audit_value.clone(),
                     )?;
                 let events = vec![ProviderEvent::ServerRequestResolved {
                     request_id: request.request_id.clone(),
                     decision: NormalizedServerRequestDecision {
                         outcome: decision.outcome.clone(),
                         payload: decision.payload.clone(),
-                        audit,
+                        audit: audit_value,
                     },
                     request: decision_context.request.clone(),
                 }];
@@ -1716,14 +1714,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     )
                     .await?;
                 let error_payload = serde_json::to_value(request.error)?;
-                let audit = serde_json::to_value(audit_with_default_decider(
-                    decision_context.audit,
-                    "user",
-                ))?;
+                let audit = audit_with_default_decider(decision_context.audit, "user");
+                let audit_value = serde_json::to_value(&audit)?;
                 let decision = ProviderServerRequestDecisionRecord {
                     outcome: "error".to_string(),
                     payload: error_payload.clone(),
-                    audit: audit.clone(),
+                    audit,
                 };
                 self.provider_events
                     .lock()
@@ -1732,14 +1728,14 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         &request.provider,
                         request.request_id.clone(),
                         error_payload.clone(),
-                        audit.clone(),
+                        audit_value.clone(),
                     )?;
                 let events = vec![ProviderEvent::ServerRequestResolved {
                     request_id: request.request_id.clone(),
                     decision: NormalizedServerRequestDecision {
                         outcome: decision.outcome.clone(),
                         payload: decision.payload.clone(),
-                        audit,
+                        audit: audit_value,
                     },
                     request: decision_context.request.clone(),
                 }];
@@ -1852,7 +1848,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         let decision = ProviderServerRequestDecisionRecord {
             outcome: "error".to_string(),
             payload: error_payload.clone(),
-            audit: audit_value.clone(),
+            audit: audit.clone(),
         };
         self.provider_events
             .lock()
@@ -4165,11 +4161,21 @@ fn provider_server_request_record_to_protocol(
             .map(|decision| ProviderServerRequestDecisionRecord {
                 outcome: decision.outcome,
                 payload: decision.payload,
-                audit: decision.audit,
+                audit: provider_server_request_audit_from_value(decision.audit),
             }),
         created_at: record.created_at,
         resolved_at: record.resolved_at,
     }
+}
+
+fn provider_server_request_audit_from_value(value: Value) -> ProviderServerRequestAudit {
+    if value.is_null() {
+        return ProviderServerRequestAudit::default();
+    }
+    serde_json::from_value(value.clone()).unwrap_or_else(|_| ProviderServerRequestAudit {
+        metadata: value,
+        ..ProviderServerRequestAudit::default()
+    })
 }
 
 fn provider_server_request_matches_filters(

@@ -1344,6 +1344,18 @@ pub struct ProviderServerRequestAudit {
     pub metadata: serde_json::Value,
 }
 
+fn provider_server_request_audit_from_value(
+    value: serde_json::Value,
+) -> ProviderServerRequestAudit {
+    if value.is_null() {
+        return ProviderServerRequestAudit::default();
+    }
+    serde_json::from_value(value.clone()).unwrap_or_else(|_| ProviderServerRequestAudit {
+        metadata: value,
+        ..ProviderServerRequestAudit::default()
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderServerRequestResult {
     pub provider: String,
@@ -1466,7 +1478,7 @@ pub struct ProviderServerRequestDecisionRecord {
     #[serde(default)]
     pub payload: serde_json::Value,
     #[serde(default)]
-    pub audit: serde_json::Value,
+    pub audit: ProviderServerRequestAudit,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1550,12 +1562,8 @@ impl ProviderServerRequestsSummary {
             }
             if let Some(decision) = &record.decision {
                 increment_count(&mut by_decision_outcome, decision.outcome.clone());
-                if let Some(decider) = decision
-                    .audit
-                    .get("decided_by")
-                    .and_then(serde_json::Value::as_str)
-                {
-                    increment_count(&mut by_decider, decider.to_string());
+                if let Some(decider) = &decision.audit.decided_by {
+                    increment_count(&mut by_decider, decider.clone());
                 }
             }
         }
@@ -1581,9 +1589,7 @@ fn selected_policy_for_server_request_record(
             record
                 .decision
                 .as_ref()
-                .and_then(|decision| decision.audit.get("selected_policy"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
+                .and_then(|decision| decision.audit.selected_policy.clone())
         })
 }
 
@@ -2001,7 +2007,7 @@ pub enum ProviderRuntimeEvent {
     ServerRequestResolved {
         provider: String,
         request_id: String,
-        decision: ProviderServerRequestDecisionRecord,
+        decision: Box<ProviderServerRequestDecisionRecord>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         request: Option<Box<NormalizedServerRequest>>,
     },
@@ -2077,11 +2083,11 @@ impl ProviderRuntimeEvent {
             } => Self::ServerRequestResolved {
                 provider: provider.to_string(),
                 request_id,
-                decision: ProviderServerRequestDecisionRecord {
+                decision: Box::new(ProviderServerRequestDecisionRecord {
                     outcome: decision.outcome,
                     payload: decision.payload,
-                    audit: decision.audit,
-                },
+                    audit: provider_server_request_audit_from_value(decision.audit),
+                }),
                 request,
             },
             ProviderEvent::RuntimeSignal { signal } => Self::RuntimeSignal { signal },
@@ -2272,7 +2278,7 @@ impl ProviderRuntimeEvent {
                 vec![ProviderRuntimeProjectionDelta::ApprovalResolved {
                     provider: provider.clone(),
                     request_id: request_id.clone(),
-                    decision: decision.clone(),
+                    decision: decision.as_ref().clone(),
                     request: request.clone(),
                 }]
             }
@@ -3848,10 +3854,11 @@ mod tests {
                 decision: Some(ProviderServerRequestDecisionRecord {
                     outcome: "result".to_string(),
                     payload: json!({ "approved": true }),
-                    audit: json!({
-                        "selected_policy": "on-request",
-                        "decided_by": "user"
-                    }),
+                    audit: ProviderServerRequestAudit {
+                        selected_policy: Some("on-request".to_string()),
+                        decided_by: Some("user".to_string()),
+                        ..ProviderServerRequestAudit::default()
+                    },
                 }),
                 created_at: "2026-06-24T00:01:00Z".to_string(),
                 resolved_at: Some("2026-06-24T00:02:00Z".to_string()),
@@ -3864,10 +3871,11 @@ mod tests {
                 decision: Some(ProviderServerRequestDecisionRecord {
                     outcome: "error".to_string(),
                     payload: json!({ "message": "auto-review denied" }),
-                    audit: json!({
-                        "selected_policy": "auto-review",
-                        "decided_by": "auto_review"
-                    }),
+                    audit: ProviderServerRequestAudit {
+                        selected_policy: Some("auto-review".to_string()),
+                        decided_by: Some("auto_review".to_string()),
+                        ..ProviderServerRequestAudit::default()
+                    },
                 }),
                 created_at: "2026-06-24T00:03:00Z".to_string(),
                 resolved_at: Some("2026-06-24T00:04:00Z".to_string()),
