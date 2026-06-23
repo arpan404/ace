@@ -13,7 +13,7 @@ use ace_runtime::{
         NormalizedServerRequestDecision, ProviderDescriptor, ProviderDriver, ProviderDriverError,
         ProviderDriverStatus, ProviderEvent, ProviderEventSource, ProviderFeature,
         ProviderLifecycleAction, ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
-        ProviderServerRequestResponder, ProviderStateSource,
+        ProviderServerRequestResponder, ProviderStateSource, ace_provider_adapter_contract,
     },
     server_requests::KNOWN_SERVER_REQUEST_METHODS,
     threads::{
@@ -235,6 +235,35 @@ fn codex_classified_method_metadata() -> Value {
         "deferred_client_request_methods": deferred_client_requests,
         "server_notification_methods": server_notifications,
         "server_request_methods": server_requests,
+    })
+}
+
+fn codex_method_discovery_response(status: &ProviderDriverStatus) -> Value {
+    let installed = installed_codex_client_request_methods(&status.metadata);
+    let (installed_source, installed_methods) = installed
+        .map(|(source, methods)| (Some(source), Some(methods.into_iter().collect::<Vec<_>>())))
+        .unwrap_or((None, None));
+    let inventory = codex_classified_method_metadata();
+    let methods = inventory
+        .get("client_request_methods")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let contract = ace_provider_adapter_contract();
+
+    json!({
+        "provider": "codex",
+        "methods": methods,
+        "method_inventory": inventory,
+        "installed_client_request_methods": installed_methods,
+        "installed_client_request_methods_source": installed_source,
+        "adapter_contract_version": contract.version,
+        "websocket_first": contract.websocket_first,
+        "status": {
+            "health": status.health,
+            "transport": status.transport,
+            "version": status.version,
+            "initialized": status.initialized,
+        }
     })
 }
 
@@ -1522,6 +1551,10 @@ impl ProviderDriver for CodexService {
         &self,
         request: ProviderRequest,
     ) -> std::result::Result<Value, ProviderDriverError> {
+        if request.method == "codex.methods.list" {
+            let status = self.backend.status().await;
+            return Ok(codex_method_discovery_response(&status));
+        }
         self.raw_request(request.method.clone(), request.params)
             .await
             .map_err(|error| ProviderDriverError::RequestFailed {
@@ -2523,6 +2556,58 @@ pub mod tests {
             backend.calls.lock().expect("calls").as_slice(),
             ["remote/handoff"]
         );
+    }
+
+    #[tokio::test]
+    async fn provider_request_lists_codex_methods_without_raw_app_server_call() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        *backend
+            .supported_client_request_methods
+            .lock()
+            .expect("supported client request methods") =
+            Some(vec!["thread/read".to_string(), "command/exec".to_string()]);
+        let service = CodexService::new(backend.clone());
+
+        let response = service
+            .request(ProviderRequest {
+                method: "codex.methods.list".to_string(),
+                params: Value::Null,
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("method discovery");
+
+        assert_eq!(response["provider"], "codex");
+        assert_eq!(response["adapter_contract_version"], 8);
+        assert_eq!(response["websocket_first"], true);
+        assert_eq!(
+            response["installed_client_request_methods_source"],
+            "supported_client_request_methods"
+        );
+        assert_eq!(
+            response["installed_client_request_methods"],
+            json!(["command/exec", "thread/read"])
+        );
+        assert!(
+            response["methods"]
+                .as_array()
+                .expect("methods")
+                .contains(&json!("thread/start"))
+        );
+        assert!(
+            response["method_inventory"]["version_gated_client_request_methods"]
+                .as_array()
+                .expect("version-gated methods")
+                .contains(&json!("command/exec"))
+        );
+        assert!(
+            response["method_inventory"]["deferred_client_request_methods"]
+                .as_array()
+                .expect("deferred methods")
+                .contains(&json!("cloud/handoff"))
+        );
+        assert_eq!(response["status"]["initialized"], true);
+        assert!(backend.calls.lock().expect("calls").is_empty());
     }
 
     #[tokio::test]

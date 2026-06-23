@@ -4644,10 +4644,16 @@ fn resolve_provider_runtime_request_method(
             )))
         }
         ProviderAdapterRequestResolution::TypedApi
-            if adapter_profile.provider == ProviderKind::Ace
-                && operation == ProviderAdapterOperation::ProviderMethodsList =>
+            if operation == ProviderAdapterOperation::ProviderMethodsList =>
         {
-            Ok("ace.methods.list".to_string())
+            match adapter_profile.provider {
+                ProviderKind::Ace => Ok("ace.methods.list".to_string()),
+                ProviderKind::Codex => Ok("codex.methods.list".to_string()),
+                provider => Err(WsDispatchError::BadRequest(format!(
+                    "provider `{}` does not expose provider method discovery through provider_runtime.request",
+                    provider.runtime_id()
+                ))),
+            }
         }
         ProviderAdapterRequestResolution::TypedApi => Err(WsDispatchError::BadRequest(format!(
             "provider `{}` adapter operation `{operation:?}` has no direct provider method; use its typed API",
@@ -8992,6 +8998,47 @@ mod tests {
                 .expect("ace methods")
                 .contains(&json!("ace.methods.list"))
         );
+
+        let codex_methods = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-provider-methods-operation",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "operation": "provider_methods_list",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let codex_methods: WsServerResponse =
+            serde_json::from_str(&codex_methods).expect("codex method list response");
+        let WsServerPayload::Result { body } = codex_methods.payload else {
+            panic!("expected codex method list result");
+        };
+        assert_eq!(body["provider"], "codex");
+        assert_eq!(body["adapter_contract_version"], 8);
+        assert_eq!(
+            body["installed_client_request_methods_source"],
+            "supported_client_request_methods"
+        );
+        assert!(
+            body["methods"]
+                .as_array()
+                .expect("codex methods")
+                .contains(&json!("thread/start"))
+        );
+        assert!(
+            body["method_inventory"]["version_gated_client_request_methods"]
+                .as_array()
+                .expect("version-gated methods")
+                .contains(&json!("command/exec"))
+        );
+        assert!(backend.calls.lock().expect("calls").is_empty());
 
         let routed = state
             .dispatch_text(
