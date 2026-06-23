@@ -4685,6 +4685,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_codex_plan_turn_over_ws_when_thread_has_active_turn() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let first = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-plan-1",
+                    "method": methods::CODEX_TURN_PLAN_START,
+                    "payload": {
+                        "thread_id": "thread-1",
+                        "prompt": "plan it",
+                        "model": "gpt-5.5"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let first: WsServerResponse = serde_json::from_str(&first).expect("first response");
+        assert!(matches!(first.payload, WsServerPayload::Result { .. }));
+
+        let second = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-plan-2",
+                    "method": methods::CODEX_TURN_PLAN_START,
+                    "payload": {
+                        "thread_id": "thread-1",
+                        "prompt": "plan again",
+                        "model": "gpt-5.5"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let second: WsServerResponse = serde_json::from_str(&second).expect("second response");
+        assert!(matches!(
+            second.payload,
+            WsServerPayload::Error {
+                ref code,
+                ref message,
+            } if code == "turn_already_active"
+                && message.contains("thread `thread-1` already has an active turn")
+        ));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["turn/start:thread-1"]
+        );
+    }
+
+    #[tokio::test]
     async fn dispatches_codex_plan_implementation_actions_over_ws_rpc() {
         let backend = Arc::new(FakeCodexBackend::default());
         let runner = Arc::new(FakeRunner);
@@ -4952,6 +5010,105 @@ mod tests {
             "child_thread_upsert"
         );
         assert_eq!(records[2]["projection_deltas"][1]["role"], "side_chat");
+    }
+
+    #[tokio::test]
+    async fn rejects_codex_side_chat_over_ws_from_side_chat_or_review_mode() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let side_chat = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "side-chat",
+                    "method": methods::CODEX_SIDE_CHAT_START,
+                    "payload": {
+                        "thread_id": "thread-1"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let side_chat: WsServerResponse =
+            serde_json::from_str(&side_chat).expect("side chat response");
+        assert!(matches!(side_chat.payload, WsServerPayload::Result { .. }));
+
+        let nested = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "nested-side-chat",
+                    "method": methods::CODEX_SIDE_CHAT_START,
+                    "payload": {
+                        "thread_id": "fork-1"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let nested: WsServerResponse = serde_json::from_str(&nested).expect("nested response");
+        assert!(matches!(
+            nested.payload,
+            WsServerPayload::Error {
+                ref code,
+                ref message,
+            } if code == "nested_side_chat"
+                && message.contains("cannot create a side chat from side chat `fork-1`")
+        ));
+
+        let review = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "review-start",
+                    "method": methods::CODEX_REVIEW_START,
+                    "payload": {
+                        "thread_id": "review-thread",
+                        "detached": true
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let review: WsServerResponse = serde_json::from_str(&review).expect("review response");
+        assert!(matches!(review.payload, WsServerPayload::Result { .. }));
+
+        let review_side_chat = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "review-side-chat",
+                    "method": methods::CODEX_SIDE_CHAT_START,
+                    "payload": {
+                        "thread_id": "review-thread"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let review_side_chat: WsServerResponse =
+            serde_json::from_str(&review_side_chat).expect("review side chat response");
+        assert!(matches!(
+            review_side_chat.payload,
+            WsServerPayload::Error {
+                ref code,
+                ref message,
+            } if code == "review_mode_side_chat"
+                && message.contains(
+                    "cannot create a side chat while thread `review-thread` is in review mode"
+                )
+        ));
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["thread/fork:thread-1:true", "review/start:review-thread"]
+        );
     }
 
     #[tokio::test]
