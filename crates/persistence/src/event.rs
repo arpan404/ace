@@ -3,6 +3,9 @@ use crate::{
     json::{decode_json, json},
     migration::{migrate, open_event_store},
 };
+use ace_protocol::provider_runtime::{
+    ProviderRuntimeEvent, ProviderRuntimeProjectionDelta, projection_deltas_for_events,
+};
 use ace_runtime::{
     provider::{NormalizedServerRequest, ProviderEvent},
     threads::{AgentRuntimeSnapshot, AgentRuntimeState},
@@ -16,6 +19,7 @@ pub struct ProviderEventRecord {
     pub sequence: i64,
     pub provider: String,
     pub event: ProviderEvent,
+    pub projection_deltas: Vec<ProviderRuntimeProjectionDelta>,
     pub created_at: String,
 }
 
@@ -86,8 +90,8 @@ impl ProviderEventLogRepository {
         let mut records = Vec::with_capacity(events.len());
         {
             let mut statement = transaction.prepare(
-                "INSERT INTO provider_events(provider, event_json)
-                 VALUES (?1, ?2)
+                "INSERT INTO provider_events(provider, event_json, projection_deltas_json)
+                 VALUES (?1, ?2, ?3)
                  RETURNING sequence, created_at",
             )?;
             let mut server_request_statement = transaction.prepare(
@@ -108,10 +112,11 @@ impl ProviderEventLogRepository {
                    resolved_at = excluded.resolved_at",
             )?;
             for event in events {
-                let (sequence, created_at) = statement
-                    .query_row(params![provider, json(event)?], |row| {
-                        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-                    })?;
+                let projection_deltas = projection_deltas_for_provider_event(provider, event);
+                let (sequence, created_at) = statement.query_row(
+                    params![provider, json(event)?, json(&projection_deltas)?],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+                )?;
                 if let ProviderEvent::ServerRequest { request } = event {
                     server_request_statement.execute(params![
                         provider,
@@ -139,6 +144,7 @@ impl ProviderEventLogRepository {
                     sequence,
                     provider: provider.to_string(),
                     event: event.clone(),
+                    projection_deltas,
                     created_at,
                 });
             }
@@ -296,7 +302,7 @@ impl ProviderEventLogRepository {
         let capped_limit = i64::try_from(limit.min(1_000)).unwrap_or(1_000);
         let mut records = if let Some(provider) = provider {
             let mut statement = self.connection.prepare(
-                "SELECT sequence, provider, event_json, created_at
+                "SELECT sequence, provider, event_json, projection_deltas_json, created_at
                  FROM provider_events
                  WHERE provider = ?1
                  ORDER BY sequence DESC
@@ -307,7 +313,7 @@ impl ProviderEventLogRepository {
                 .collect::<Result<Vec<_>, _>>()?
         } else {
             let mut statement = self.connection.prepare(
-                "SELECT sequence, provider, event_json, created_at
+                "SELECT sequence, provider, event_json, projection_deltas_json, created_at
                  FROM provider_events
                  ORDER BY sequence DESC
                  LIMIT ?1",
@@ -332,7 +338,7 @@ impl ProviderEventLogRepository {
         let capped_limit = i64::try_from(limit.min(1_000)).unwrap_or(1_000);
         let records = if let Some(provider) = provider {
             let mut statement = self.connection.prepare(
-                "SELECT sequence, provider, event_json, created_at
+                "SELECT sequence, provider, event_json, projection_deltas_json, created_at
                  FROM provider_events
                  WHERE provider = ?1 AND sequence > ?2
                  ORDER BY sequence ASC
@@ -343,7 +349,7 @@ impl ProviderEventLogRepository {
                 .collect::<Result<Vec<_>, _>>()?
         } else {
             let mut statement = self.connection.prepare(
-                "SELECT sequence, provider, event_json, created_at
+                "SELECT sequence, provider, event_json, projection_deltas_json, created_at
                  FROM provider_events
                  WHERE sequence > ?1
                  ORDER BY sequence ASC
@@ -375,14 +381,14 @@ impl ProviderEventLogRepository {
         let mut state = AgentRuntimeState::default();
         let mut statement = if provider.is_some() {
             self.connection.prepare(
-                "SELECT sequence, provider, event_json, created_at
+                "SELECT sequence, provider, event_json, projection_deltas_json, created_at
                  FROM provider_events
                  WHERE provider = ?1
                  ORDER BY sequence ASC",
             )?
         } else {
             self.connection.prepare(
-                "SELECT sequence, provider, event_json, created_at
+                "SELECT sequence, provider, event_json, projection_deltas_json, created_at
                  FROM provider_events
                  ORDER BY sequence ASC",
             )?
@@ -439,8 +445,21 @@ fn decode_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderEventRecor
         sequence: row.get(0)?,
         provider: row.get(1)?,
         event: decode_json::<ProviderEvent>(row.get::<_, String>(2)?)?,
-        created_at: row.get(3)?,
+        projection_deltas: decode_json::<Vec<ProviderRuntimeProjectionDelta>>(
+            row.get::<_, String>(3)?,
+        )?,
+        created_at: row.get(4)?,
     })
+}
+
+fn projection_deltas_for_provider_event(
+    provider: &str,
+    event: &ProviderEvent,
+) -> Vec<ProviderRuntimeProjectionDelta> {
+    projection_deltas_for_events(&[ProviderRuntimeEvent::from_provider_event(
+        provider,
+        event.clone(),
+    )])
 }
 
 fn decode_server_request_record(
@@ -523,6 +542,10 @@ mod tests {
         assert_eq!(codex.len(), 2);
         assert_eq!(codex[0].sequence, first[0].sequence);
         assert_eq!(codex[1].sequence, first[1].sequence);
+        let first_delta = serde_json::to_value(&codex[0].projection_deltas[0]).expect("delta");
+        let second_delta = serde_json::to_value(&codex[1].projection_deltas[0]).expect("delta");
+        assert_eq!(first_delta["type"], "stderr_appended");
+        assert_eq!(second_delta["type"], "raw_notification_observed");
         assert!(repo.has_provider_events("codex").expect("codex events"));
         assert!(repo.has_provider_events("ace").expect("ace events"));
         assert!(!repo.has_provider_events("missing").expect("missing events"));
@@ -562,6 +585,45 @@ mod tests {
                 .expect("zero after")
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn migrates_old_provider_events_and_persists_projection_deltas_for_new_events() {
+        let connection = Connection::open_in_memory().expect("db");
+        connection
+            .execute_batch(
+                "
+                CREATE TABLE provider_events (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    provider TEXT NOT NULL,
+                    event_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                );
+                INSERT INTO provider_events(provider, event_json)
+                VALUES ('codex', '{\"type\":\"stderr_line\",\"line\":\"old\"}');
+                ",
+            )
+            .expect("old schema");
+        let mut repo = ProviderEventLogRepository::from_connection(connection).expect("repo");
+        let migrated = repo.recent(Some("codex"), 10).expect("migrated events");
+        assert_eq!(migrated.len(), 1);
+        assert!(
+            migrated[0].projection_deltas.is_empty(),
+            "old rows should get a bounded empty default without replay migration work"
+        );
+
+        repo.append_batch(
+            "codex",
+            &[ProviderEvent::StderrLine {
+                line: "new".to_string(),
+            }],
+        )
+        .expect("append");
+        let records = repo.recent(Some("codex"), 10).expect("events");
+        assert_eq!(records.len(), 2);
+        let delta = serde_json::to_value(&records[1].projection_deltas[0]).expect("delta");
+        assert_eq!(delta["type"], "stderr_appended");
+        assert_eq!(delta["line"], "new");
     }
 
     #[test]

@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 ace-core.workspace = true
+ace-protocol.workspace = true
 ace-runtime.workspace = true
 rusqlite.workspace = true
 serde.workspace = true

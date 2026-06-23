@@ -1365,7 +1365,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             sequence: record.sequence,
                             provider: record.provider,
                             created_at: record.created_at,
-                            projection_deltas: event.projection_deltas(),
+                            projection_deltas: record.projection_deltas,
                             event,
                             raw_event_summary: ProviderRuntimeRawEventSummary::from_event(
                                 &record.event,

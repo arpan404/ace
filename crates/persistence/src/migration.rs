@@ -43,6 +43,7 @@ pub fn migrate(connection: &Connection) -> Result<(), PersistenceError> {
             sequence INTEGER PRIMARY KEY AUTOINCREMENT,
             provider TEXT NOT NULL,
             event_json TEXT NOT NULL,
+            projection_deltas_json TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         );
         CREATE INDEX IF NOT EXISTS idx_provider_events_provider_sequence
@@ -62,5 +63,29 @@ pub fn migrate(connection: &Connection) -> Result<(), PersistenceError> {
         ON provider_server_requests(provider, status, created_at);
         ",
     )?;
+    ensure_column(
+        connection,
+        "provider_events",
+        "projection_deltas_json",
+        "ALTER TABLE provider_events ADD COLUMN projection_deltas_json TEXT NOT NULL DEFAULT '[]'",
+    )?;
+    Ok(())
+}
+
+fn ensure_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    alter_sql: &str,
+) -> Result<(), PersistenceError> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let existing: String = row.get(1)?;
+        if existing == column {
+            return Ok(());
+        }
+    }
+    connection.execute_batch(alter_sql)?;
     Ok(())
 }
