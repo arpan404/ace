@@ -3938,6 +3938,9 @@ fn codex_versioned_tool_transport(codex_method: &str) -> Option<ToolTransport> {
         | "marketplace/upgrade" => Some(ToolTransport::CodexBuiltin),
         "app/list"
         | "apps/configWrite"
+        | "collaborationMode/list"
+        | "environment/add"
+        | "memory/reset"
         | "remoteControl/client/list"
         | "remoteControl/client/revoke"
         | "remoteControl/disable"
@@ -4036,6 +4039,9 @@ fn codex_versioned_tool_operation(codex_method: &str) -> String {
         "marketplace/upgrade" => "marketplace_upgrade",
         "app/list" => "app_list",
         "apps/configWrite" => "apps_config_write",
+        "collaborationMode/list" => "collaboration_mode_list",
+        "environment/add" => "environment_add",
+        "memory/reset" => "memory_reset",
         _ => codex_method,
     }
     .to_string()
@@ -4094,6 +4100,9 @@ fn codex_versioned_tool_item_type(codex_method: &str) -> &'static str {
         | "marketplace/upgrade" => "plugin",
         "app/list"
         | "apps/configWrite"
+        | "collaborationMode/list"
+        | "environment/add"
+        | "memory/reset"
         | "remoteControl/client/list"
         | "remoteControl/client/revoke"
         | "remoteControl/disable"
@@ -9926,6 +9935,21 @@ mod tests {
                 json!({ "query": "provider adapter" }),
             ),
             (
+                "codex-collaboration-mode",
+                methods::CODEX_COLLABORATION_MODE_LIST,
+                json!({}),
+            ),
+            (
+                "codex-environment-add",
+                methods::CODEX_ENVIRONMENT_ADD,
+                json!({ "name": "local" }),
+            ),
+            (
+                "codex-memory-reset",
+                methods::CODEX_MEMORY_RESET,
+                json!({ "scope": "thread" }),
+            ),
+            (
                 "codex-remote-pairing",
                 methods::CODEX_REMOTE_CONTROL_PAIRING_START,
                 json!({ "clientName": "mobile" }),
@@ -9982,7 +10006,7 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "semantic-tool-events",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
-                    "payload": { "provider": "codex", "limit": 22 }
+                    "payload": { "provider": "codex", "limit": 28 }
                 })
                 .to_string(),
             )
@@ -9992,7 +10016,7 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 22);
+        assert_eq!(records.len(), 28);
 
         let file_completed = records
             .iter()
@@ -10026,6 +10050,57 @@ mod tests {
         assert_eq!(
             search_completed["event"]["tool"]["provider"]["raw_payload"]["provider_method"],
             "fuzzyFileSearch/sessionStart"
+        );
+
+        let collaboration_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["provider"]["raw_payload"]["provider_method"]
+                        == "collaborationMode/list"
+            })
+            .expect("completed collaboration mode event");
+        assert_eq!(collaboration_completed["event"]["tool"]["surface"], "app");
+        assert_eq!(
+            collaboration_completed["event"]["tool"]["action"],
+            "app.list"
+        );
+        assert_eq!(
+            collaboration_completed["event"]["tool"]["display"]["title"],
+            "Listed apps"
+        );
+
+        let environment_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["provider"]["raw_payload"]["provider_method"]
+                        == "environment/add"
+            })
+            .expect("completed environment event");
+        assert_eq!(environment_completed["event"]["tool"]["surface"], "app");
+        assert_eq!(
+            environment_completed["event"]["tool"]["action"],
+            "app.configure"
+        );
+        assert_eq!(
+            environment_completed["event"]["tool"]["display"]["title"],
+            "Configured app local"
+        );
+
+        let memory_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["provider"]["raw_payload"]["provider_method"]
+                        == "memory/reset"
+            })
+            .expect("completed memory event");
+        assert_eq!(memory_completed["event"]["tool"]["surface"], "app");
+        assert_eq!(memory_completed["event"]["tool"]["action"], "app.configure");
+        assert_eq!(
+            memory_completed["event"]["tool"]["display"]["title"],
+            "Configured apps"
         );
 
         let remote_completed = records

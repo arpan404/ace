@@ -911,6 +911,18 @@ fn app_action(facts: &ToolFacts) -> Option<ToolActionKind> {
         && !facts.haystack.contains("apps")
         && !facts.haystack.contains("app connector")
         && !facts.haystack.contains("remotecontrol")
+        && !facts.haystack.contains("collaborationmode")
+        && !facts.haystack.contains("collaboration mode")
+        && !facts.haystack.contains("collaborationmode.list")
+        && !facts.haystack.contains("collaborationmode list")
+        && !facts.haystack.contains("environment/add")
+        && !facts.haystack.contains("environment_add")
+        && !facts.haystack.contains("environment.add")
+        && !facts.haystack.contains("environment add")
+        && !facts.haystack.contains("memory/reset")
+        && !facts.haystack.contains("memory_reset")
+        && !facts.haystack.contains("memory.reset")
+        && !facts.haystack.contains("memory reset")
     {
         return None;
     }
@@ -920,6 +932,14 @@ fn app_action(facts: &ToolFacts) -> Option<ToolActionKind> {
         || facts.haystack.contains("enable")
         || facts.haystack.contains("disable")
         || facts.haystack.contains("revoke")
+        || facts.haystack.contains("environment/add")
+        || facts.haystack.contains("environment_add")
+        || facts.haystack.contains("environment.add")
+        || facts.haystack.contains("environment add")
+        || facts.haystack.contains("memory/reset")
+        || facts.haystack.contains("memory_reset")
+        || facts.haystack.contains("memory.reset")
+        || facts.haystack.contains("memory reset")
     {
         Some(ToolActionKind::AppConfigure)
     } else {
