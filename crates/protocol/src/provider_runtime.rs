@@ -256,6 +256,8 @@ pub struct ProviderRuntimeRequestResolveResponse {
     pub operation: Option<ProviderAdapterOperation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typed_ws_method: Option<String>,
     pub runtime_request: ProviderRuntimeOperationRequest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operation_profile: Option<ProviderRuntimeProviderOperation>,
@@ -422,6 +424,8 @@ pub struct ProviderRuntimeProviderOperation {
     pub direct_invocation: bool,
     #[serde(default)]
     pub required_runtime_hooks: Vec<ProviderAdapterRuntimeHook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typed_ws_method: Option<String>,
     pub runtime_request: ProviderRuntimeOperationRequest,
 }
 
@@ -445,6 +449,7 @@ impl ProviderRuntimeProviderOperation {
             direct_invocation: profile.direct_invocation,
             invocation: profile.invocation,
             required_runtime_hooks: profile.required_runtime_hooks,
+            typed_ws_method: None,
             runtime_request: ProviderRuntimeOperationRequest::from_invocation(profile.invocation),
         }
     }
@@ -464,6 +469,12 @@ impl ProviderRuntimeProviderOperation {
         resolution: Option<ProviderRuntimeOperationGateResolution>,
     ) -> Self {
         self.runtime_gate_resolution = resolution;
+        self
+    }
+
+    #[must_use]
+    pub fn with_typed_ws_method(mut self, method: Option<String>) -> Self {
+        self.typed_ws_method = method;
         self
     }
 }
@@ -2530,6 +2541,7 @@ mod tests {
             requested_method: None,
             operation: Some(ProviderAdapterOperation::ThreadRead),
             provider_method: Some("thread/read".to_string()),
+            typed_ws_method: None,
             runtime_request: ProviderRuntimeOperationRequest::operation(
                 ProviderRuntimeOperationParams::AdapterNormalized,
             ),

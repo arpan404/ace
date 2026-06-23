@@ -3461,6 +3461,27 @@ fn codex_ws_method_for_adapter_operation(
     Ok(Some(method))
 }
 
+fn ace_ws_method_for_adapter_operation(
+    operation: ProviderAdapterOperation,
+) -> Result<Option<&'static str>, WsDispatchError> {
+    let method = match operation {
+        ProviderAdapterOperation::RuntimeStatus => methods::PROVIDER_RUNTIME_STATUS_LIST,
+        ProviderAdapterOperation::RuntimeLifecycle => methods::PROVIDER_RUNTIME_LIFECYCLE,
+        ProviderAdapterOperation::ProviderMethodsList => methods::PROVIDER_RUNTIME_REQUEST,
+        ProviderAdapterOperation::ProviderEvents => methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+        ProviderAdapterOperation::ServerRequestRespond => {
+            methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT
+        }
+        ProviderAdapterOperation::ToolEventNormalize
+        | ProviderAdapterOperation::ServerRequestNormalize
+        | ProviderAdapterOperation::ThreadItemNormalize
+        | ProviderAdapterOperation::RuntimeSignalNormalize
+        | ProviderAdapterOperation::SemanticTools => methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+        _ => return Ok(None),
+    };
+    Ok(Some(method))
+}
+
 fn provider_runtime_operations_for_provider(
     provider: ProviderKind,
     adapter_profile: &ProviderAdapterProfile,
@@ -3481,6 +3502,12 @@ fn resolve_provider_runtime_request_result(
     adapter_profile: &ProviderAdapterProfile,
     status: Option<&ProviderDriverStatus>,
 ) -> Result<ProviderRuntimeRequestResolveResponse, WsDispatchError> {
+    let typed_ws_method = operation.and_then(|operation| {
+        provider_runtime_typed_ws_method(provider, operation)
+            .ok()
+            .flatten()
+            .map(str::to_string)
+    });
     let operation_profile = operation
         .map(|operation| {
             provider_runtime_operation_for_provider(provider, operation, adapter_profile, status)
@@ -3541,6 +3568,7 @@ fn resolve_provider_runtime_request_result(
         requested_method,
         operation,
         provider_method,
+        typed_ws_method,
         runtime_request,
         operation_profile,
     })
@@ -3571,6 +3599,11 @@ fn provider_runtime_operation_from_profile(
     profile: ProviderAdapterOperationProfile,
     status: Option<&ProviderDriverStatus>,
 ) -> ProviderRuntimeProviderOperation {
+    let operation = profile.operation;
+    let typed_ws_method = provider_runtime_typed_ws_method(provider, operation)
+        .ok()
+        .flatten()
+        .map(str::to_string);
     let gate_resolution = profile
         .runtime_gate
         .as_ref()
@@ -3583,6 +3616,18 @@ fn provider_runtime_operation_from_profile(
     ProviderRuntimeProviderOperation::from_profile(profile)
         .with_runtime_request(runtime_request)
         .with_runtime_gate_resolution(gate_resolution)
+        .with_typed_ws_method(typed_ws_method)
+}
+
+fn provider_runtime_typed_ws_method(
+    provider: ProviderKind,
+    operation: ProviderAdapterOperation,
+) -> Result<Option<&'static str>, WsDispatchError> {
+    match provider {
+        ProviderKind::Codex => codex_ws_method_for_adapter_operation(operation),
+        ProviderKind::Ace => ace_ws_method_for_adapter_operation(operation),
+        _ => Ok(None),
+    }
 }
 
 fn provider_slash_commands(
@@ -9507,10 +9552,15 @@ mod tests {
         assert_eq!(body["runtime_id"], "codex");
         assert_eq!(body["operation"], "thread_read");
         assert_eq!(body["provider_method"], "thread/read");
+        assert_eq!(body["typed_ws_method"], methods::CODEX_THREAD_READ);
         assert_eq!(body["runtime_request"]["invokable"], true);
         assert_eq!(body["runtime_request"]["mode"], "adapter_operation");
         assert_eq!(body["runtime_request"]["params"], "adapter_normalized");
         assert_eq!(body["operation_profile"]["operation"], "thread_read");
+        assert_eq!(
+            body["operation_profile"]["typed_ws_method"],
+            methods::CODEX_THREAD_READ
+        );
 
         let resolved_raw_method = state
             .dispatch_text(
@@ -9635,6 +9685,10 @@ mod tests {
         let responses = body["responses"].as_array().expect("batch responses");
         assert_eq!(responses[0]["request_id"], "thread-read");
         assert_eq!(responses[0]["resolution"]["provider_method"], "thread/read");
+        assert_eq!(
+            responses[0]["resolution"]["typed_ws_method"],
+            methods::CODEX_THREAD_READ
+        );
         assert_eq!(
             responses[0]["resolution"]["runtime_request"]["mode"],
             "adapter_operation"
@@ -10305,6 +10359,7 @@ mod tests {
                 && operation["invocation"] == "direct_provider_method"
                 && operation["availability"] == "available"
                 && operation.get("availability_reason").is_none()
+                && operation["typed_ws_method"] == methods::CODEX_THREAD_READ
                 && operation["direct_invocation"] == true
                 && operation["provider_methods"] == json!(["thread/read"])
                 && operation["policy"]["read_only"] == true
@@ -10332,6 +10387,7 @@ mod tests {
             operation["operation"] == "plan_fork_for_implementation"
                 && operation["invocation"] == "composite_typed_api"
                 && operation["availability"] == "available"
+                && operation["typed_ws_method"] == methods::CODEX_PLAN_FORK_FOR_IMPLEMENTATION
                 && operation["direct_invocation"] == false
                 && operation["runtime_request"]["invokable"] == true
                 && operation["runtime_request"]["mode"] == "adapter_operation"
@@ -10685,9 +10741,14 @@ mod tests {
             .as_array()
             .expect("operations");
         assert!(operations.iter().any(|operation| {
+            operation["operation"] == "runtime_status"
+                && operation["typed_ws_method"] == methods::PROVIDER_RUNTIME_STATUS_LIST
+        }));
+        assert!(operations.iter().any(|operation| {
             operation["operation"] == "thread_read"
                 && operation["invocation"] == "direct_provider_method"
                 && operation["provider_methods"] == json!(["thread/read"])
+                && operation.get("typed_ws_method").is_none()
                 && operation["runtime_request"]["invokable"] == false
                 && operation["runtime_request"]["mode"] == "provider_method"
                 && operation["runtime_request"]["reason"]
