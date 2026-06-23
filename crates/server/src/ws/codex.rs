@@ -119,7 +119,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 &params,
                 None,
                 ToolRunStatus::Started,
-            )?;
+            )
+            .await?;
             let response = match codex_method {
                 "remote/connectionList" => self
                     .codex
@@ -150,7 +151,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         &params,
                         Some(&response),
                         ToolRunStatus::Completed,
-                    )?;
+                    )
+                    .await?;
                     Ok(response)
                 }
                 Err(error) => {
@@ -163,7 +165,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         &params,
                         Some(&error_payload),
                         ToolRunStatus::Failed,
-                    )?;
+                    )
+                    .await?;
                     Err(error)
                 }
             };
@@ -180,7 +183,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     &params,
                     None,
                     ToolRunStatus::Started,
-                )?;
+                )
+                .await?;
                 let response = self
                     .codex
                     .raw_request(codex_method.clone(), params.clone())
@@ -194,7 +198,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             &params,
                             Some(&response),
                             ToolRunStatus::Completed,
-                        )?;
+                        )
+                        .await?;
                         Ok(response)
                     }
                     Err(error) => {
@@ -207,7 +212,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             &params,
                             Some(&error_payload),
                             ToolRunStatus::Failed,
-                        )?;
+                        )
+                        .await?;
                         Err(error)
                     }
                 }
@@ -1328,7 +1334,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         &request.params,
                         None,
                         ToolRunStatus::Started,
-                    )?;
+                    )
+                    .await?;
                 }
                 let response = self
                     .providers
@@ -1350,7 +1357,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                                 &request.params,
                                 Some(&response),
                                 ToolRunStatus::Completed,
-                            )?;
+                            )
+                            .await?;
                         }
                         Ok(response)
                     }
@@ -1365,7 +1373,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                                 &request.params,
                                 Some(&error_payload),
                                 ToolRunStatus::Failed,
-                            )?;
+                            )
+                            .await?;
                         }
                         Err(error.into())
                     }
@@ -1785,7 +1794,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         Ok(())
     }
 
-    fn publish_codex_versioned_tool_event(
+    async fn publish_codex_versioned_tool_event(
         &self,
         ws_method: &str,
         codex_method: &str,
@@ -1802,12 +1811,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         ) else {
             return Ok(());
         };
-        self.append_and_publish_provider_events(
-            ProviderKind::Codex,
-            vec![ProviderEvent::SemanticTool {
-                tool: Box::new(tool),
-            }],
-        )
+        let events = vec![ProviderEvent::SemanticTool {
+            tool: Box::new(tool),
+        }];
+        self.codex.apply_provider_events(&events).await;
+        self.append_and_publish_provider_events(ProviderKind::Codex, events)
     }
 
     fn publish_codex_thread_lifecycle_signal(
@@ -11825,6 +11833,30 @@ mod tests {
         assert_eq!(command_tools[0].display.title, "Running `cargo test`");
         assert_eq!(command_tools[1].display.status, ToolRunStatus::Completed);
         assert_eq!(command_tools[1].display.title, "Ran `cargo test`");
+
+        let live_state = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "raw-command-live-state",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let live_state: WsServerResponse =
+            serde_json::from_str(&live_state).expect("live state response");
+        let WsServerPayload::Result { body } = live_state.payload else {
+            panic!("expected live state result");
+        };
+        let tool_timeline = body["providers"][0]["state"]["tool_timeline"]
+            .as_array()
+            .expect("tool timeline");
+        assert_eq!(tool_timeline.len(), 1);
+        assert_eq!(tool_timeline[0]["provider"]["method"], "command/exec");
+        assert_eq!(tool_timeline[0]["display"]["status"], "completed");
+        assert_eq!(tool_timeline[0]["display"]["title"], "Ran `cargo test`");
 
         let deferred = state
             .dispatch_text(

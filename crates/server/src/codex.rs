@@ -1042,6 +1042,10 @@ impl CodexService {
         self.state.lock().await.snapshot()
     }
 
+    pub async fn apply_provider_events(&self, events: &[ProviderEvent]) {
+        self.state.lock().await.apply_provider_events(events);
+    }
+
     async fn record_thread_lifecycle(&self, record: ThreadLifecycleRecord) {
         self.state.lock().await.record_thread_lifecycle(record);
     }
