@@ -1589,6 +1589,10 @@ pub enum ProviderRuntimeProjectionDelta {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         item_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         status_text: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
@@ -1608,6 +1612,8 @@ pub enum ProviderRuntimeProjectionDelta {
         plan_questions: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         plan_completion: Option<String>,
+        #[serde(default, skip_serializing_if = "box_json_value_is_null")]
+        metadata: Box<serde_json::Value>,
     },
     PlanUpdated {
         provider: String,
@@ -2069,6 +2075,8 @@ impl ProviderRuntimeEvent {
                         thread_id: item.thread_id.clone(),
                         turn_id: item.turn_id.clone(),
                         item_id: item.item_id.clone(),
+                        title: item.title.clone(),
+                        text: item.text.clone(),
                         status_text: item.status_text.clone(),
                         model: item.model.clone(),
                         target: item.target.clone(),
@@ -2079,6 +2087,7 @@ impl ProviderRuntimeEvent {
                         token_usage: item.token_usage.clone(),
                         plan_questions: item.plan_questions.clone(),
                         plan_completion: item.plan_completion.clone(),
+                        metadata: Box::new(item.metadata.clone()),
                     });
                 }
                 if item.kind == ThreadItemKind::Plan {
@@ -2251,7 +2260,9 @@ impl ProviderRuntimeEvent {
 }
 
 fn thread_item_has_details(item: &NormalizedThreadItem) -> bool {
-    item.status_text.is_some()
+    item.title.is_some()
+        || item.text.is_some()
+        || item.status_text.is_some()
         || item.model.is_some()
         || item.target.is_some()
         || item.url.is_some()
@@ -2261,6 +2272,19 @@ fn thread_item_has_details(item: &NormalizedThreadItem) -> bool {
         || item.token_usage.is_some()
         || item.plan_questions.is_some()
         || item.plan_completion.is_some()
+        || has_meaningful_metadata(&item.metadata)
+}
+
+fn has_meaningful_metadata(metadata: &serde_json::Value) -> bool {
+    match metadata {
+        serde_json::Value::Null => false,
+        serde_json::Value::Object(object) => !object.is_empty(),
+        _ => true,
+    }
+}
+
+fn box_json_value_is_null(value: &serde_json::Value) -> bool {
+    value.is_null()
 }
 
 #[must_use]
@@ -4477,6 +4501,7 @@ mod tests {
         let encoded_file_details = serde_json::to_value(file_details).expect("encode details");
         assert_eq!(encoded_file_details["type"], "thread_item_details_updated");
         assert_eq!(encoded_file_details["kind"], "fileChange");
+        assert_eq!(encoded_file_details["title"], "Edited src/main.rs");
         assert_eq!(encoded_file_details["target"], "src/main.rs");
         assert_eq!(encoded_file_details["files"], json!(["src/main.rs"]));
         assert_eq!(
@@ -4484,17 +4509,24 @@ mod tests {
             "codex://attachment/diff-context.png"
         );
         assert_eq!(encoded_file_details["diff"], "@@ -1 +1 @@");
+        assert_eq!(encoded_file_details["metadata"]["diff"], "@@ -1 +1 @@");
         assert!(deltas.iter().any(|delta| matches!(
             delta,
             ProviderRuntimeProjectionDelta::ThreadItemDetailsUpdated {
                 kind: ThreadItemKind::CommandExecution,
                 item_id,
+                title,
+                text,
                 status_text,
                 target,
+                metadata,
                 ..
             } if item_id.as_deref() == Some("cmd-1")
+                && title.as_deref() == Some("cargo test")
+                && text.as_deref() == Some("running 1 test\n")
                 && status_text.as_deref() == Some("running")
                 && target.as_deref() == Some("cargo test")
+                && metadata["command"] == "cargo test"
         )));
         assert!(deltas.iter().any(|delta| matches!(
             delta,
