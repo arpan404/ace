@@ -1,4 +1,6 @@
-use crate::provider::{NormalizedServerRequest, ProviderMetadata, ServerRequestKind};
+use crate::provider::{
+    NormalizedServerRequest, ProviderMetadata, ServerRequestDetail, ServerRequestKind,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -42,6 +44,7 @@ pub fn normalize_provider_server_request(
             .or_else(|| string_at(&request.params, "approval_policy"))
             .or_else(|| string_at(&request.params, "permissionPolicy"))
             .or_else(|| string_at(&request.params, "permission_policy")),
+        detail: server_request_detail(&request.params),
         metadata: metadata_for_server_request(&request.params),
         provider: ProviderMetadata {
             provider: request.provider,
@@ -76,6 +79,54 @@ pub fn server_request_kind(method: &str) -> ServerRequestKind {
         }
         "execCommandApproval" | "exec/approvalRequest" => ServerRequestKind::ExecApproval,
         _ => ServerRequestKind::Unknown,
+    }
+}
+
+fn server_request_detail(params: &Value) -> ServerRequestDetail {
+    ServerRequestDetail {
+        command: string_at(params, "command")
+            .or_else(|| string_at(params, "cmd"))
+            .or_else(|| nested_string_at(params, "/command", &["text", "command", "cmd"])),
+        argv: string_vec_at(params, "argv")
+            .or_else(|| string_vec_at(params, "args"))
+            .or_else(|| nested_string_vec_at(params, "/command", &["argv", "args"])),
+        cwd: string_at(params, "cwd")
+            .or_else(|| string_at(params, "workingDirectory"))
+            .or_else(|| string_at(params, "working_directory")),
+        path: string_at(params, "path")
+            .or_else(|| string_at(params, "file"))
+            .or_else(|| string_at(params, "uri")),
+        paths: string_vec_at(params, "paths")
+            .or_else(|| string_vec_at(params, "files"))
+            .or_else(|| string_at(params, "path").map(|path| vec![path])),
+        diff: value_at(params, "diff"),
+        patch: value_at(params, "patch"),
+        tool_name: string_at(params, "toolName")
+            .or_else(|| string_at(params, "tool_name"))
+            .or_else(|| nested_string_at(params, "/tool", &["name", "toolName", "tool_name"]))
+            .or_else(|| string_at(params, "name")),
+        server_name: string_at(params, "serverName")
+            .or_else(|| string_at(params, "server_name"))
+            .or_else(|| {
+                nested_string_at(params, "/server", &["name", "serverName", "server_name"])
+            }),
+        operation: string_at(params, "operation").or_else(|| string_at(params, "action")),
+        permission: string_at(params, "permission")
+            .or_else(|| string_at(params, "permissionPolicy"))
+            .or_else(|| string_at(params, "permission_policy"))
+            .or_else(|| string_at(params, "sandbox"))
+            .or_else(|| nested_string_at(params, "/sandboxPolicy", &["mode"]))
+            .or_else(|| nested_string_at(params, "/sandbox_policy", &["mode"])),
+        resource: string_at(params, "resource")
+            .or_else(|| string_at(params, "uri"))
+            .or_else(|| string_at(params, "account"))
+            .or_else(|| string_at(params, "accountId"))
+            .or_else(|| string_at(params, "account_id")),
+        choices: value_at(params, "choices").or_else(|| value_at(params, "options")),
+        schema: value_at(params, "schema"),
+        arguments: value_at(params, "arguments")
+            .or_else(|| value_at(params, "args"))
+            .or_else(|| value_at(params, "input")),
     }
 }
 
@@ -207,9 +258,28 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
     value.get(key)?.as_str().map(ToString::to_string)
 }
 
+fn value_at(value: &Value, key: &str) -> Option<Value> {
+    value.get(key).cloned()
+}
+
+fn string_vec_at(value: &Value, key: &str) -> Option<Vec<String>> {
+    let values = value.get(key)?.as_array()?;
+    let strings = values
+        .iter()
+        .filter_map(Value::as_str)
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    (!strings.is_empty()).then_some(strings)
+}
+
 fn nested_string_at(value: &Value, pointer: &str, keys: &[&str]) -> Option<String> {
     let nested = value.pointer(pointer)?;
     keys.iter().find_map(|key| string_at(nested, key))
+}
+
+fn nested_string_vec_at(value: &Value, pointer: &str, keys: &[&str]) -> Option<Vec<String>> {
+    let nested = value.pointer(pointer)?;
+    keys.iter().find_map(|key| string_vec_at(nested, key))
 }
 
 fn first_string<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Option<String> {
@@ -252,7 +322,74 @@ mod tests {
             request.provider.raw_payload["command"],
             "cargo test --workspace"
         );
+        assert_eq!(
+            request.detail.command.as_deref(),
+            Some("cargo test --workspace")
+        );
         assert_eq!(request.metadata["command"], "cargo test --workspace");
+    }
+
+    #[test]
+    fn extracts_typed_details_for_interactive_and_permission_requests() {
+        let tool_request = normalize_provider_server_request(ServerRequestNormalizationInput {
+            provider: "codex".to_string(),
+            request_id: "tool-req".to_string(),
+            method: "tool/userInputRequest".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "toolCallId": "tool-1",
+                "serverName": "browser",
+                "toolName": "navigate_tab_url",
+                "operation": "navigate",
+                "question": "Which tab?",
+                "choices": ["current", "new"],
+                "schema": { "type": "object" }
+            }),
+        });
+
+        assert_eq!(tool_request.kind, ServerRequestKind::ToolUserInput);
+        assert_eq!(tool_request.detail.server_name.as_deref(), Some("browser"));
+        assert_eq!(
+            tool_request.detail.tool_name.as_deref(),
+            Some("navigate_tab_url")
+        );
+        assert_eq!(tool_request.detail.operation.as_deref(), Some("navigate"));
+        assert_eq!(
+            tool_request.detail.choices.as_ref().expect("choices")[0],
+            "current"
+        );
+        assert_eq!(
+            tool_request.detail.schema.as_ref().expect("schema")["type"],
+            "object"
+        );
+        assert_eq!(tool_request.provider.raw_payload["choices"][1], "new");
+
+        let permission_request =
+            normalize_provider_server_request(ServerRequestNormalizationInput {
+                provider: "codex".to_string(),
+                request_id: "permission-req".to_string(),
+                method: "permission/approvalRequest".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "permissionPolicy": "workspace-write",
+                    "sandboxPolicy": { "mode": "workspace-write" },
+                    "approvalPolicy": "on-request",
+                    "message": "Allow writes?"
+                }),
+            });
+
+        assert_eq!(
+            permission_request.detail.permission.as_deref(),
+            Some("workspace-write")
+        );
+        assert_eq!(
+            permission_request.selected_policy.as_deref(),
+            Some("on-request")
+        );
+        assert_eq!(
+            permission_request.provider.raw_payload["sandboxPolicy"]["mode"],
+            "workspace-write"
+        );
     }
 
     #[test]

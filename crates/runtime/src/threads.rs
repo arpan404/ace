@@ -2910,6 +2910,7 @@ mod tests {
             title: Some("Approve command".to_string()),
             prompt: Some("Run cargo test?".to_string()),
             selected_policy: Some("on-request".to_string()),
+            detail: Default::default(),
             metadata: json!({ "command": "cargo test" }),
             provider: ProviderMetadata {
                 provider: "codex".to_string(),

@@ -721,8 +721,44 @@ pub mod provider {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub selected_policy: Option<String>,
         #[serde(default)]
+        pub detail: ServerRequestDetail,
+        #[serde(default)]
         pub metadata: Value,
         pub provider: ProviderMetadata,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+    pub struct ServerRequestDetail {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub command: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub argv: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub cwd: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub paths: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub diff: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub patch: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub tool_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub server_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub operation: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub permission: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub resource: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub choices: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub schema: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub arguments: Option<Value>,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

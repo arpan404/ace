@@ -3957,7 +3957,7 @@ mod tests {
         provider::{
             NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
             NormalizedThreadItem, ProviderEvent, ProviderMetadata, RuntimeSignalKind,
-            ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+            ServerRequestDetail, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
         },
         tools::{
             ProviderToolMetadata, ToolActionKind, ToolNormalizationInput, ToolRunStatus,
@@ -3996,6 +3996,10 @@ mod tests {
             title: Some("Approve command".to_string()),
             prompt: Some("Run cargo test?".to_string()),
             selected_policy: Some("on-request".to_string()),
+            detail: ServerRequestDetail {
+                command: Some("cargo test".to_string()),
+                ..Default::default()
+            },
             metadata: json!({ "command": "cargo test" }),
             provider: ProviderMetadata {
                 provider: "codex".to_string(),
@@ -4052,6 +4056,15 @@ mod tests {
                 title: Some("Run dynamic tool".to_string()),
                 prompt: Some("Open local app?".to_string()),
                 selected_policy: Some("user".to_string()),
+                detail: ServerRequestDetail {
+                    tool_name: Some("ace_browser".to_string()),
+                    operation: Some("navigate_tab_url".to_string()),
+                    arguments: Some(json!({
+                        "operation": "navigate_tab_url",
+                        "url": "http://localhost:5173"
+                    })),
+                    ..Default::default()
+                },
                 metadata: json!({
                     "toolName": "ace_browser",
                     "arguments": {
@@ -5616,6 +5629,10 @@ mod tests {
                     title: Some("Approve command execution".to_string()),
                     prompt: Some("Run tests?".to_string()),
                     selected_policy: Some("on-request".to_string()),
+                    detail: ServerRequestDetail {
+                        command: Some("cargo test".to_string()),
+                        ..Default::default()
+                    },
                     metadata: json!({ "command": "cargo test" }),
                     provider: ProviderMetadata {
                         provider: "codex".to_string(),
@@ -5898,6 +5915,10 @@ mod tests {
         assert_eq!(body["requests"][0]["request_id"], "42");
         assert_eq!(body["requests"][0]["status"], "pending");
         assert_eq!(body["requests"][0]["request"]["prompt"], "Run tests?");
+        assert_eq!(
+            body["requests"][0]["request"]["detail"]["command"],
+            "cargo test"
+        );
 
         let approval_result = state
             .dispatch_text(
@@ -6493,6 +6514,8 @@ mod tests {
         assert_eq!(body["request"]["scope"], "filesystem");
         assert_eq!(body["request"]["prompt"], "Approve edit?");
         assert_eq!(body["request"]["provider"]["provider"], "future-provider");
+        assert_eq!(body["request"]["detail"]["path"], "src/lib.rs");
+        assert_eq!(body["request"]["detail"]["diff"], "@@ -1 +1 @@");
 
         let pushed = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
             .await
@@ -6507,6 +6530,7 @@ mod tests {
         assert_eq!(body["events"][0]["type"], "server_request");
         assert_eq!(body["events"][0]["request"]["kind"], "file_change_approval");
         assert_eq!(body["events"][0]["request"]["request_id"], "approval-1");
+        assert_eq!(body["events"][0]["request"]["detail"]["path"], "src/lib.rs");
         assert_eq!(
             body["events"][0]["request"]["provider"]["raw_payload"]["diff"],
             "@@ -1 +1 @@"
@@ -6744,6 +6768,7 @@ mod tests {
                     title: Some("Approval".to_string()),
                     prompt: Some(prompt.to_string()),
                     selected_policy: Some("on-request".to_string()),
+                    detail: Default::default(),
                     metadata: metadata.clone(),
                     provider: ProviderMetadata {
                         provider: "codex".to_string(),
@@ -10057,6 +10082,10 @@ mod tests {
                         title: Some("Approve command execution".to_string()),
                         prompt: Some("Run cargo test?".to_string()),
                         selected_policy: Some("on-request".to_string()),
+                        detail: ServerRequestDetail {
+                            command: Some("cargo test".to_string()),
+                            ..Default::default()
+                        },
                         metadata: json!({ "command": "cargo test" }),
                         provider: ProviderMetadata {
                             provider: "codex".to_string(),
@@ -10206,6 +10235,11 @@ mod tests {
                         title: Some("Approve file changes".to_string()),
                         prompt: Some("Write outside workspace?".to_string()),
                         selected_policy: Some("strict".to_string()),
+                        detail: ServerRequestDetail {
+                            path: Some("/tmp/outside.txt".to_string()),
+                            paths: Some(vec!["/tmp/outside.txt".to_string()]),
+                            ..Default::default()
+                        },
                         metadata: json!({ "path": "/tmp/outside.txt" }),
                         provider: ProviderMetadata {
                             provider: "codex".to_string(),

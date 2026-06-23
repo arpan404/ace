@@ -506,6 +506,7 @@ mod tests {
             scope: Some("tool".to_string()),
             title: None,
             selected_policy: None,
+            detail: Default::default(),
             metadata,
             provider: ProviderMetadata {
                 provider: "codex".to_string(),
