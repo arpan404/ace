@@ -7818,6 +7818,135 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_runtime_emits_ace_native_event_batches_over_ws() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+        let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::channel::<String>(8);
+
+        let subscribe = state
+            .dispatch_text_with_events(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-generic-events-subscribe",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                    "payload": {
+                        "provider": "ace",
+                        "raw_event_mode": "full"
+                    }
+                })
+                .to_string(),
+                Some(outbound_tx),
+            )
+            .await;
+        let subscribe: WsServerResponse = serde_json::from_str(&subscribe).expect("subscribe");
+        let WsServerPayload::Result { body } = subscribe.payload else {
+            panic!("expected subscribe result");
+        };
+        assert_eq!(body["subscribed"], true);
+
+        let emit = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-generic-events-emit",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "ace",
+                        "method": "ace.events.emit",
+                        "params": {
+                            "events": [
+                                {
+                                    "type": "raw_notification",
+                                    "method": "thread/goal/updated",
+                                    "params": {
+                                        "threadId": "thread-1",
+                                        "goal": {
+                                            "threadId": "thread-1",
+                                            "objective": "finish provider adapter",
+                                            "status": "active",
+                                            "tokenBudget": 4096,
+                                            "tokensUsed": 512,
+                                            "timeUsedSeconds": 9
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let emit: WsServerResponse = serde_json::from_str(&emit).expect("emit response");
+        let WsServerPayload::Result { body } = emit.payload else {
+            panic!("expected emit result");
+        };
+        assert_eq!(body["accepted"], true);
+        assert_eq!(body["event_count"], 1);
+
+        let pushed = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .expect("ace generic provider event timeout")
+            .expect("ace generic provider event");
+        let pushed: WsServerResponse = serde_json::from_str(&pushed).expect("pushed response");
+        let WsServerPayload::Event { topic, body } = pushed.payload else {
+            panic!("expected websocket event");
+        };
+        assert_eq!(topic, PROVIDER_RUNTIME_EVENT_TOPIC);
+        assert_eq!(body["provider"], "ace");
+        assert_eq!(body["events"][0]["type"], "raw_notification");
+        assert_eq!(body["events"][0]["method"], "thread/goal/updated");
+        assert_eq!(body["raw_events"][0]["type"], "raw_notification");
+        assert_eq!(
+            body["raw_events"][0]["params"]["goal"]["objective"],
+            "finish provider adapter"
+        );
+        let projection_deltas = body["projection_deltas"]
+            .as_array()
+            .expect("projection deltas");
+        assert!(projection_deltas.iter().any(|delta| {
+            delta["type"] == "raw_notification_observed" && delta["method"] == "thread/goal/updated"
+        }));
+        assert!(projection_deltas.iter().any(|delta| {
+            delta["type"] == "goal_updated"
+                && delta["goal"]["objective"] == "finish provider adapter"
+        }));
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-generic-events-state",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        assert_eq!(
+            body["providers"][0]["state"]["goals"][0]["objective"],
+            "finish provider adapter"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["goals"][0]["token_budget"],
+            4096
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["goals"][0]["tokens_used"],
+            512
+        );
+    }
+
+    #[tokio::test]
     async fn provider_runtime_normalizes_ace_native_server_requests_over_ws() {
         let backend = Arc::new(FakeCodexBackend::default());
         let runner = Arc::new(FakeRunner);
