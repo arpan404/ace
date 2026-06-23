@@ -439,6 +439,7 @@ fn operation_for_action(action: ToolActionKind) -> &'static str {
         ToolActionKind::SubagentSpawn => "subagent_spawn",
         ToolActionKind::SubagentSteer => "subagent_steer",
         ToolActionKind::SubagentStop => "subagent_stop",
+        ToolActionKind::SubagentClose => "subagent_close",
         ToolActionKind::PlanContinue => "plan_continue",
         ToolActionKind::PlanFork => "plan_fork",
         ToolActionKind::PlanSideImplementation => "plan_side_implementation",

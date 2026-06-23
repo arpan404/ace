@@ -2020,7 +2020,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         provider.provider = Some(ProviderKind::Codex.runtime_id().to_string());
         provider.method = Some(format!("ace/subagent/{}", signal.action));
         provider.thread_id = Some(signal.parent_thread_id.clone());
-        provider.item_id = Some(signal.subagent_thread_id.clone());
+        provider.item_id = Some(format!("{}:{}", signal.subagent_thread_id, signal.action));
         provider.tool_name = Some("subagent".to_string());
         provider.operation = Some(format!("subagent_{}", signal.action));
         provider.raw_args = raw_payload.clone();
@@ -2892,7 +2892,11 @@ fn semantic_tool_for_codex_plan_implementation(
     provider.provider = Some(ProviderKind::Codex.runtime_id().to_string());
     provider.method = Some(signal.method.to_string());
     provider.thread_id = Some(signal.implementation.parent_thread_id.clone());
-    provider.item_id = Some(signal.implementation.target_thread_id.clone());
+    provider.item_id = Some(format!(
+        "{}:{}",
+        signal.implementation.target_thread_id,
+        plan_implementation_mode_key(signal.implementation.mode)
+    ));
     provider.tool_name = Some("plan".to_string());
     provider.operation = Some(plan_implementation_mode_key(signal.implementation.mode));
     provider.raw_args = raw_args;
@@ -5265,6 +5269,19 @@ mod tests {
         assert_eq!(implementations[2]["mode"], "side_implementation");
         assert_eq!(implementations[2]["target_thread_id"], "fork-1");
         assert_eq!(implementations[2]["provider_response"]["ephemeral"], true);
+        let tool_timeline = body["providers"][0]["state"]["tool_timeline"]
+            .as_array()
+            .expect("tool timeline");
+        for action in ["plan.continue", "plan.fork", "plan.side_implementation"] {
+            assert!(
+                tool_timeline.iter().any(|tool| {
+                    tool["surface"] == "plan"
+                        && tool["action"] == action
+                        && tool["display"]["status"] == "completed"
+                }),
+                "missing completed tool timeline action {action}"
+            );
+        }
 
         let recent = state
             .dispatch_text(
@@ -6121,6 +6138,22 @@ mod tests {
         assert_eq!(subagent_actions[1]["provider_response"]["stopped"], true);
         assert_eq!(subagent_actions[2]["action"], "close");
         assert_eq!(subagent_actions[2]["provider_response"]["closed"], true);
+        let tool_timeline = body["providers"][0]["state"]["tool_timeline"]
+            .as_array()
+            .expect("tool timeline");
+        for action in [
+            "subagent.steer",
+            "subagent.stop",
+            "subagent.close",
+            "handoff.agent",
+        ] {
+            assert!(
+                tool_timeline.iter().any(|tool| {
+                    tool["display"]["status"] == "completed" && tool["action"] == action
+                }),
+                "missing completed tool timeline action {action}"
+            );
+        }
 
         let recent = state
             .dispatch_text(
@@ -6185,10 +6218,10 @@ mod tests {
             records[4]["projection_deltas"][0]["metadata"]["provider_response"]["closed"],
             true
         );
-        assert_eq!(records[5]["event"]["tool"]["action"], "subagent.stop");
+        assert_eq!(records[5]["event"]["tool"]["action"], "subagent.close");
         assert_eq!(
             records[5]["event"]["tool"]["display"]["title"],
-            "Stopped subagent subagent-1"
+            "Closed subagent subagent-1"
         );
         assert_eq!(records[6]["event"]["signal"]["kind"], "handoff_updated");
         assert_eq!(

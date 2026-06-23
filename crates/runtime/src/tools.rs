@@ -127,6 +127,8 @@ pub enum ToolActionKind {
     SubagentSteer,
     #[serde(rename = "subagent.stop")]
     SubagentStop,
+    #[serde(rename = "subagent.close")]
+    SubagentClose,
     #[serde(rename = "plan.continue")]
     PlanContinue,
     #[serde(rename = "plan.fork")]
@@ -541,10 +543,9 @@ fn infer_surface_action(
     {
         let action = if facts.haystack.contains("steer") || facts.haystack.contains("message") {
             ToolActionKind::SubagentSteer
-        } else if facts.haystack.contains("stop")
-            || facts.haystack.contains("close")
-            || facts.haystack.contains("terminate")
-        {
+        } else if facts.haystack.contains("close") {
+            ToolActionKind::SubagentClose
+        } else if facts.haystack.contains("stop") || facts.haystack.contains("terminate") {
             ToolActionKind::SubagentStop
         } else {
             ToolActionKind::SubagentSpawn
@@ -1050,6 +1051,8 @@ fn infer_target(
             string_at_deep(args, "agent_name").as_deref(),
             string_at_deep(args, "name").as_deref(),
             string_at_deep(args, "agentRole").as_deref(),
+            string_at_deep(args, "subagentThreadId").as_deref(),
+            string_at_deep(args, "subagent_thread_id").as_deref(),
         ])
         .map(|label| ToolTarget {
             kind: ToolTargetKind::Agent,
@@ -1477,6 +1480,7 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 ToolActionKind::SubagentSpawn => "Starting",
                 ToolActionKind::SubagentSteer => "Steering",
                 ToolActionKind::SubagentStop => "Stopping",
+                ToolActionKind::SubagentClose => "Closing",
                 ToolActionKind::PlanContinue => "Continuing",
                 ToolActionKind::PlanFork => "Forking",
                 ToolActionKind::PlanSideImplementation => "Starting",
@@ -1529,6 +1533,7 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             ToolActionKind::SubagentSpawn => "Started",
             ToolActionKind::SubagentSteer => "Steered",
             ToolActionKind::SubagentStop => "Stopped",
+            ToolActionKind::SubagentClose => "Closed",
             ToolActionKind::PlanContinue => "Continued",
             ToolActionKind::PlanFork => "Forked",
             ToolActionKind::PlanSideImplementation => "Started",
@@ -2376,6 +2381,17 @@ mod tests {
         ));
         assert_eq!(subagent.surface, ToolSurface::Subagent);
         assert_eq!(subagent.display.title, "Started subagent reviewer");
+
+        let close_subagent = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "subagent",
+            "subagent",
+            "subagent_close",
+            json!({ "subagentThreadId": "subagent-1" }),
+        ));
+        assert_eq!(close_subagent.surface, ToolSurface::Subagent);
+        assert_eq!(close_subagent.action, ToolActionKind::SubagentClose);
+        assert_eq!(close_subagent.display.title, "Closed subagent subagent-1");
 
         let plan = normalize_tool_call(input(
             ToolTransport::CodexBuiltin,
