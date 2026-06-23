@@ -436,6 +436,8 @@ pub struct ProviderRuntimeProviderOperation {
     pub direct_invocation: bool,
     #[serde(default)]
     pub required_runtime_hooks: Vec<ProviderAdapterRuntimeHook>,
+    #[serde(default)]
+    pub missing_runtime_hooks: Vec<ProviderAdapterRuntimeHook>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typed_ws_method: Option<String>,
     pub runtime_request: ProviderRuntimeOperationRequest,
@@ -461,9 +463,19 @@ impl ProviderRuntimeProviderOperation {
             direct_invocation: profile.direct_invocation,
             invocation: profile.invocation,
             required_runtime_hooks: profile.required_runtime_hooks,
+            missing_runtime_hooks: Vec::new(),
             typed_ws_method: None,
             runtime_request: ProviderRuntimeOperationRequest::from_invocation(profile.invocation),
         }
+    }
+
+    #[must_use]
+    pub fn with_missing_runtime_hooks(
+        mut self,
+        missing_hooks: Vec<ProviderAdapterRuntimeHook>,
+    ) -> Self {
+        self.missing_runtime_hooks = missing_hooks;
+        self
     }
 
     #[must_use]
@@ -639,6 +651,8 @@ pub struct ProviderRuntimeOperationSummary {
     #[serde(default)]
     pub missing_provider_methods: Vec<String>,
     #[serde(default)]
+    pub missing_runtime_hooks: Vec<String>,
+    #[serde(default)]
     pub by_category: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
     pub by_support: Vec<ProviderRuntimeOperationCount>,
@@ -656,6 +670,7 @@ impl ProviderRuntimeOperationSummary {
         let mut by_availability = BTreeMap::new();
         let mut by_request_mode = BTreeMap::new();
         let mut missing_provider_methods = BTreeSet::new();
+        let mut missing_runtime_hooks = BTreeSet::new();
         let mut summary = Self {
             total: operations.len(),
             ..Self::default()
@@ -690,10 +705,12 @@ impl ProviderRuntimeOperationSummary {
                 missing_provider_methods
                     .extend(resolution.missing_provider_methods.iter().cloned());
             }
+            missing_runtime_hooks.extend(operation.missing_runtime_hooks.iter().map(enum_key));
         }
 
         summary.unavailable = summary.total.saturating_sub(summary.invokable);
         summary.missing_provider_methods = missing_provider_methods.into_iter().collect();
+        summary.missing_runtime_hooks = missing_runtime_hooks.into_iter().collect();
         summary.by_category = operation_counts(by_category);
         summary.by_support = operation_counts(by_support);
         summary.by_availability = operation_counts(by_availability);
@@ -3156,6 +3173,8 @@ mod tests {
             ProviderRuntimeOperationRequestMode::AdapterOperation,
             "missing provider method",
         );
+        unavailable_gated.missing_runtime_hooks =
+            vec![ProviderAdapterRuntimeHook::HostToolRegistry];
 
         let event_stream = operation(ProviderAdapterOperation::ProviderEvents);
         let summary = ProviderRuntimeOperationSummary::from_operations(&[
@@ -3180,6 +3199,7 @@ mod tests {
         assert_eq!(summary.gate_unavailable, 1);
         assert_eq!(summary.gate_unknown, 0);
         assert_eq!(summary.missing_provider_methods, ["thread/shellCommand"]);
+        assert_eq!(summary.missing_runtime_hooks, ["host_tool_registry"]);
         assert_eq!(count(&summary.by_category, "threads"), 1);
         assert_eq!(count(&summary.by_category, "tools"), 1);
         assert_eq!(count(&summary.by_category, "events"), 1);

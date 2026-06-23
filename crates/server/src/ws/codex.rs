@@ -1028,6 +1028,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     let operations = provider_runtime_operations_for_provider(
                         provider,
                         &adapter_profile,
+                        &adapter_runtime,
                         status.as_ref(),
                     );
                     let summary = ProviderRuntimeOperationSummary::from_operations(&operations);
@@ -1388,6 +1389,16 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 let adapter_profile = self.providers.adapter_profile(provider).ok_or(
                     ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider },
                 )?;
+                let adapter_runtime = self.providers.adapter_runtime_report(provider).ok_or(
+                    ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider },
+                )?;
+                if let Some(operation) = request.operation {
+                    validate_provider_runtime_operation_hooks(
+                        operation,
+                        &adapter_profile,
+                        &adapter_runtime,
+                    )?;
+                }
                 if let (ProviderKind::Codex, None, Some(operation)) =
                     (provider, request.method.as_ref(), request.operation)
                 {
@@ -2643,6 +2654,10 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             .providers
             .adapter_profile(provider)
             .ok_or(ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider })?;
+        let adapter_runtime = self
+            .providers
+            .adapter_runtime_report(provider)
+            .ok_or(ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider })?;
         let status = self.providers.status(provider).await.ok();
 
         Ok(serde_json::to_value(
@@ -2651,6 +2666,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 request.method,
                 request.operation,
                 &adapter_profile,
+                &adapter_runtime,
                 status.as_ref(),
             )?,
         )?)
@@ -2677,6 +2693,10 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             .providers
             .adapter_profile(provider)
             .ok_or(ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider })?;
+        let adapter_runtime = self
+            .providers
+            .adapter_runtime_report(provider)
+            .ok_or(ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider })?;
         let status = self.providers.status(provider).await.ok();
         let mut responses = Vec::with_capacity(request.requests.len());
 
@@ -2688,6 +2708,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     item.method,
                     item.operation,
                     &adapter_profile,
+                    &adapter_runtime,
                     status.as_ref(),
                 )?,
             });
@@ -3495,13 +3516,16 @@ fn ace_ws_method_for_adapter_operation(
 fn provider_runtime_operations_for_provider(
     provider: ProviderKind,
     adapter_profile: &ProviderAdapterProfile,
+    adapter_runtime: &ace_runtime::provider::ProviderAdapterRuntimeReport,
     status: Option<&ProviderDriverStatus>,
 ) -> Vec<ProviderRuntimeProviderOperation> {
     adapter_profile
         .operations
         .iter()
         .cloned()
-        .map(|profile| provider_runtime_operation_from_profile(provider, profile, status))
+        .map(|profile| {
+            provider_runtime_operation_from_profile(provider, profile, adapter_runtime, status)
+        })
         .collect()
 }
 
@@ -3510,6 +3534,7 @@ fn resolve_provider_runtime_request_result(
     method: Option<String>,
     operation: Option<ProviderAdapterOperation>,
     adapter_profile: &ProviderAdapterProfile,
+    adapter_runtime: &ace_runtime::provider::ProviderAdapterRuntimeReport,
     status: Option<&ProviderDriverStatus>,
 ) -> Result<ProviderRuntimeRequestResolveResponse, WsDispatchError> {
     let typed_ws_method = operation.and_then(|operation| {
@@ -3520,7 +3545,13 @@ fn resolve_provider_runtime_request_result(
     });
     let operation_profile = operation
         .map(|operation| {
-            provider_runtime_operation_for_provider(provider, operation, adapter_profile, status)
+            provider_runtime_operation_for_provider(
+                provider,
+                operation,
+                adapter_profile,
+                adapter_runtime,
+                status,
+            )
         })
         .transpose()?;
     let requested_method = method.clone();
@@ -3588,6 +3619,7 @@ fn provider_runtime_operation_for_provider(
     provider: ProviderKind,
     operation: ProviderAdapterOperation,
     adapter_profile: &ProviderAdapterProfile,
+    adapter_runtime: &ace_runtime::provider::ProviderAdapterRuntimeReport,
     status: Option<&ProviderDriverStatus>,
 ) -> Result<ProviderRuntimeProviderOperation, WsDispatchError> {
     let profile = adapter_profile
@@ -3600,16 +3632,21 @@ fn provider_runtime_operation_for_provider(
             ))
         })?;
     Ok(provider_runtime_operation_from_profile(
-        provider, profile, status,
+        provider,
+        profile,
+        adapter_runtime,
+        status,
     ))
 }
 
 fn provider_runtime_operation_from_profile(
     provider: ProviderKind,
     profile: ProviderAdapterOperationProfile,
+    adapter_runtime: &ace_runtime::provider::ProviderAdapterRuntimeReport,
     status: Option<&ProviderDriverStatus>,
 ) -> ProviderRuntimeProviderOperation {
     let operation = profile.operation;
+    let missing_runtime_hooks = missing_provider_runtime_hooks(&profile, adapter_runtime);
     let typed_ws_method = provider_runtime_typed_ws_method(provider, operation)
         .ok()
         .flatten()
@@ -3619,11 +3656,21 @@ fn provider_runtime_operation_from_profile(
         .as_ref()
         .map(|gate| resolve_provider_operation_gate(gate, status));
     let runtime_request = if provider == ProviderKind::Codex {
-        codex_runtime_request_for_profile(&profile, gate_resolution.as_ref())
+        codex_runtime_request_for_profile(
+            &profile,
+            gate_resolution.as_ref(),
+            &missing_runtime_hooks,
+        )
     } else {
-        provider_native_runtime_request_for_profile(provider, &profile, status)
+        provider_native_runtime_request_for_profile(
+            provider,
+            &profile,
+            status,
+            &missing_runtime_hooks,
+        )
     };
     ProviderRuntimeProviderOperation::from_profile(profile)
+        .with_missing_runtime_hooks(missing_runtime_hooks)
         .with_runtime_request(runtime_request)
         .with_runtime_gate_resolution(gate_resolution)
         .with_typed_ws_method(typed_ws_method)
@@ -3767,7 +3814,15 @@ fn provider_native_runtime_request_for_profile(
     provider: ProviderKind,
     profile: &ProviderAdapterOperationProfile,
     status: Option<&ProviderDriverStatus>,
+    missing_runtime_hooks: &[ace_runtime::provider::ProviderAdapterRuntimeHook],
 ) -> ProviderRuntimeOperationRequest {
+    if !missing_runtime_hooks.is_empty() {
+        return ProviderRuntimeOperationRequest::unavailable(
+            ProviderRuntimeOperationRequestMode::AdapterOperation,
+            missing_runtime_hooks_reason(missing_runtime_hooks),
+        );
+    }
+
     if profile.operation == ProviderAdapterOperation::ProviderMethodsList {
         return match provider_methods_list_method(provider, status) {
             Ok(_method) => ProviderRuntimeOperationRequest::provider_method(
@@ -3858,7 +3913,15 @@ fn method_set_from_value(value: &Value) -> Option<BTreeSet<String>> {
 fn codex_runtime_request_for_profile(
     profile: &ProviderAdapterOperationProfile,
     gate_resolution: Option<&ProviderRuntimeOperationGateResolution>,
+    missing_runtime_hooks: &[ace_runtime::provider::ProviderAdapterRuntimeHook],
 ) -> ProviderRuntimeOperationRequest {
+    if !missing_runtime_hooks.is_empty() {
+        return ProviderRuntimeOperationRequest::unavailable(
+            ProviderRuntimeOperationRequestMode::AdapterOperation,
+            missing_runtime_hooks_reason(missing_runtime_hooks),
+        );
+    }
+
     if let Some(resolution) = gate_resolution
         && resolution.status != ProviderRuntimeOperationGateStatus::Available
     {
@@ -3907,6 +3970,61 @@ fn codex_runtime_request_for_profile(
             ),
         },
     }
+}
+
+fn missing_provider_runtime_hooks(
+    profile: &ProviderAdapterOperationProfile,
+    adapter_runtime: &ace_runtime::provider::ProviderAdapterRuntimeReport,
+) -> Vec<ace_runtime::provider::ProviderAdapterRuntimeHook> {
+    profile
+        .required_runtime_hooks
+        .iter()
+        .copied()
+        .filter(|hook| {
+            !adapter_runtime
+                .hooks
+                .iter()
+                .any(|status| status.hook == *hook && status.available)
+        })
+        .collect()
+}
+
+fn validate_provider_runtime_operation_hooks(
+    operation: ProviderAdapterOperation,
+    adapter_profile: &ProviderAdapterProfile,
+    adapter_runtime: &ace_runtime::provider::ProviderAdapterRuntimeReport,
+) -> Result<(), WsDispatchError> {
+    let Some(profile) = adapter_profile.operation(operation) else {
+        return Err(WsDispatchError::BadRequest(format!(
+            "provider `{}` does not declare adapter operation `{operation:?}`",
+            adapter_profile.provider.runtime_id()
+        )));
+    };
+    let missing_hooks = missing_provider_runtime_hooks(profile, adapter_runtime);
+    if missing_hooks.is_empty() {
+        return Ok(());
+    }
+    Err(WsDispatchError::BadRequest(format!(
+        "provider `{}` adapter operation `{operation:?}` is unavailable: {}",
+        adapter_profile.provider.runtime_id(),
+        missing_runtime_hooks_reason(&missing_hooks)
+    )))
+}
+
+fn missing_runtime_hooks_reason(
+    hooks: &[ace_runtime::provider::ProviderAdapterRuntimeHook],
+) -> String {
+    let hooks = hooks
+        .iter()
+        .map(|hook| {
+            serde_json::to_value(hook)
+                .ok()
+                .and_then(|value| value.as_str().map(ToString::to_string))
+                .unwrap_or_else(|| format!("{hook:?}"))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("missing required provider runtime hook(s): {hooks}")
 }
 
 fn validate_codex_runtime_operation_gate(
@@ -10461,6 +10579,12 @@ mod tests {
                 .expect("missing methods")
                 .contains(&json!("thread/shellCommand"))
         );
+        assert!(
+            summary["missing_runtime_hooks"]
+                .as_array()
+                .expect("missing runtime hooks")
+                .is_empty()
+        );
         assert!(summary_count("by_category", "skills") > 0);
         assert!(summary_count("by_category", "plugins") > 0);
         assert!(summary_count("by_support", "version_gated") > 0);
@@ -10734,6 +10858,7 @@ mod tests {
                 && operation["availability"] == "available"
                 && operation["direct_invocation"] == false
                 && operation["required_runtime_hooks"] == json!(["event_source"])
+                && operation["missing_runtime_hooks"] == json!([])
                 && operation["runtime_request"]["invokable"] == false
                 && operation["runtime_request"]["mode"] == "event_stream"
         }));
@@ -10754,6 +10879,7 @@ mod tests {
                             .expect("provider methods")
                             .is_empty()
                         && operation["required_runtime_hooks"] == json!(["event_source"])
+                        && operation["missing_runtime_hooks"] == json!([])
                         && operation["runtime_request"]["invokable"] == false
                         && operation["runtime_request"]["mode"] == "event_stream"
                 }),
@@ -10775,6 +10901,7 @@ mod tests {
                 && operation["support"] == "required"
                 && operation["availability"] == "available"
                 && operation["required_runtime_hooks"] == json!(["host_tool_registry"])
+                && operation["missing_runtime_hooks"] == json!([])
                 && operation["policy"]["external_side_effects"] == true
                 && operation["policy"]["approval_boundary"] == true
                 && operation["runtime_request"]["invokable"] == false
@@ -10915,6 +11042,56 @@ mod tests {
         };
         assert_eq!(body["provider"], "ace");
         assert_eq!(body["adapter_contract"]["version"], 9);
+    }
+
+    #[test]
+    fn provider_runtime_operation_reports_missing_runtime_hooks() {
+        let contract = ace_runtime::provider::ace_provider_adapter_contract();
+        let profile = contract
+            .operations
+            .iter()
+            .find(|operation| {
+                operation.operation == ProviderAdapterOperation::BrowserBridgeContract
+            })
+            .map(ProviderAdapterOperationProfile::from_spec)
+            .expect("browser bridge operation");
+        let adapter_runtime = ace_runtime::provider::ProviderAdapterRuntimeReport {
+            provider: ProviderKind::Codex,
+            satisfies_required_hooks: false,
+            hooks: Vec::new(),
+            feature_families: Vec::new(),
+            missing_required_hooks: vec![
+                ace_runtime::provider::ProviderAdapterRuntimeHook::HostToolRegistry,
+            ],
+        };
+
+        let operation = provider_runtime_operation_from_profile(
+            ProviderKind::Codex,
+            profile,
+            &adapter_runtime,
+            None,
+        );
+
+        assert_eq!(
+            operation.required_runtime_hooks,
+            vec![ace_runtime::provider::ProviderAdapterRuntimeHook::HostToolRegistry]
+        );
+        assert_eq!(
+            operation.missing_runtime_hooks,
+            vec![ace_runtime::provider::ProviderAdapterRuntimeHook::HostToolRegistry]
+        );
+        assert!(!operation.runtime_request.invokable);
+        assert_eq!(
+            operation.runtime_request.mode,
+            ProviderRuntimeOperationRequestMode::AdapterOperation
+        );
+        assert!(
+            operation
+                .runtime_request
+                .reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("host_tool_registry"))
+        );
     }
 
     #[tokio::test]
