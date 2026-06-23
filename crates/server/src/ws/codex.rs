@@ -1322,19 +1322,54 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 )?;
                 if provider == ProviderKind::Codex {
                     request.params = user_initiated_codex_params(&method, request.params)?;
+                    self.publish_codex_versioned_tool_event(
+                        methods::PROVIDER_RUNTIME_REQUEST,
+                        &method,
+                        &request.params,
+                        None,
+                        ToolRunStatus::Started,
+                    )?;
                 }
                 let response = self
                     .providers
                     .request(
                         provider,
                         ProviderRequest {
-                            method,
-                            params: request.params,
+                            method: method.clone(),
+                            params: request.params.clone(),
                             timeout: Duration::from_millis(request.timeout_ms),
                         },
                     )
-                    .await?;
-                Ok(response)
+                    .await;
+                match response {
+                    Ok(response) => {
+                        if provider == ProviderKind::Codex {
+                            self.publish_codex_versioned_tool_event(
+                                methods::PROVIDER_RUNTIME_REQUEST,
+                                &method,
+                                &request.params,
+                                Some(&response),
+                                ToolRunStatus::Completed,
+                            )?;
+                        }
+                        Ok(response)
+                    }
+                    Err(error) => {
+                        if provider == ProviderKind::Codex {
+                            let error_payload = json!({
+                                "message": error.to_string(),
+                            });
+                            self.publish_codex_versioned_tool_event(
+                                methods::PROVIDER_RUNTIME_REQUEST,
+                                &method,
+                                &request.params,
+                                Some(&error_payload),
+                                ToolRunStatus::Failed,
+                            )?;
+                        }
+                        Err(error.into())
+                    }
+                }
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUESTS_LIST => {
                 let request = serde_json::from_value::<ProviderServerRequestsListRequest>(payload)?;
@@ -8595,6 +8630,32 @@ mod tests {
                 "command/exec"
             ]
         );
+        let recent = state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .recent(Some("codex"), 20)
+            .expect("recent events");
+        let command_tools = recent
+            .iter()
+            .filter_map(|record| match &record.event {
+                ProviderEvent::SemanticTool { tool }
+                    if tool.provider.method.as_deref() == Some("command/exec") =>
+                {
+                    Some(tool.as_ref())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(command_tools.len(), 4);
+        assert_eq!(command_tools[0].display.status, ToolRunStatus::Started);
+        assert_eq!(command_tools[0].display.title, "Running `cargo test`");
+        assert_eq!(command_tools[1].display.status, ToolRunStatus::Completed);
+        assert_eq!(command_tools[1].display.title, "Ran `cargo test`");
+        assert_eq!(command_tools[2].display.status, ToolRunStatus::Started);
+        assert_eq!(command_tools[2].display.title, "Running `cargo check`");
+        assert_eq!(command_tools[3].display.status, ToolRunStatus::Completed);
+        assert_eq!(command_tools[3].display.title, "Ran `cargo check`");
 
         let deferred_codex = state
             .dispatch_text(
