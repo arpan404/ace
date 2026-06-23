@@ -1693,22 +1693,25 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         }
 
         let provider_name = provider_kind.runtime_id().to_string();
-        let records = self
-            .provider_events
-            .lock()
-            .expect("provider event log")
-            .append_batch(&provider_name, &events)?;
-        let last_persisted_sequence = records.last().map(|record| record.sequence);
-        if let Some(sender) = self
+        let sender = self
             .provider_event_streams
             .lock()
             .expect("provider event streams")
             .get(&provider_kind)
-        {
-            let _ = sender.send(ProviderEventStreamMessage::Events {
-                events,
-                last_persisted_sequence,
-            });
+            .cloned();
+        for events in provider_event_chunks(events) {
+            let records = self
+                .provider_events
+                .lock()
+                .expect("provider event log")
+                .append_batch(&provider_name, &events)?;
+            let last_persisted_sequence = records.last().map(|record| record.sequence);
+            if let Some(sender) = sender.as_ref() {
+                let _ = sender.send(ProviderEventStreamMessage::Events {
+                    events,
+                    last_persisted_sequence,
+                });
+            }
         }
         Ok(())
     }
@@ -7230,6 +7233,77 @@ mod tests {
         assert_eq!(
             second["events"][0]["params"]["itemId"],
             format!("item-{}", PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_splits_large_direct_event_publishes() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+        let events = (0..=PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
+            .map(|index| ProviderEvent::RawNotification {
+                method: "item/completed".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "itemId": format!("item-{index}")
+                }),
+            })
+            .collect::<Vec<_>>();
+
+        let (provider_sender, mut provider_receiver) = broadcast::channel(4);
+        state
+            .provider_event_streams
+            .lock()
+            .expect("provider event streams")
+            .insert(ProviderKind::Codex, provider_sender);
+
+        state
+            .append_and_publish_provider_events(ProviderKind::Codex, events)
+            .expect("append and publish");
+
+        let ProviderEventStreamMessage::Events {
+            events: first,
+            last_persisted_sequence: first_sequence,
+        } = provider_receiver.recv().await.expect("first direct batch")
+        else {
+            panic!("expected first direct event batch");
+        };
+        let ProviderEventStreamMessage::Events {
+            events: second,
+            last_persisted_sequence: second_sequence,
+        } = provider_receiver.recv().await.expect("second direct batch")
+        else {
+            panic!("expected second direct event batch");
+        };
+
+        assert_eq!(first.len(), PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE);
+        assert_eq!(second.len(), 1);
+        assert_eq!(
+            first_sequence,
+            Some(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE as i64)
+        );
+        assert_eq!(
+            second_sequence,
+            Some(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE as i64 + 1)
+        );
+        assert_eq!(
+            state
+                .provider_events
+                .lock()
+                .expect("provider events")
+                .recent_or_after_sequence(
+                    Some("codex"),
+                    None,
+                    PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE + 1,
+                )
+                .expect("recent events")
+                .len(),
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE + 1
         );
     }
 
