@@ -21,6 +21,9 @@ use ace_protocol::{
         CodexSkillRequest, CodexSkillsConfigWriteRequest, CodexSkillsExtraRootsSetRequest,
         CodexStderrTailResponse, CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest,
         CodexThreadForkRequest, CodexThreadIdRequest, CodexThreadInjectItemsRequest,
+        CodexThreadRealtimeAppendAudioRequest, CodexThreadRealtimeAppendSpeechRequest,
+        CodexThreadRealtimeAppendTextRequest, CodexThreadRealtimeListVoicesRequest,
+        CodexThreadRealtimeStartRequest, CodexThreadRealtimeStopRequest,
         CodexThreadRollbackRequest, CodexThreadSearchRequest, CodexThreadSetNameRequest,
         CodexThreadStartRequest, CodexThreadTurnsItemsListRequest, CodexThreadTurnsListRequest,
         CodexThreadUpdateMetadataRequest, CodexThreadsListRequest, CodexTurnStartRequest,
@@ -4860,24 +4863,30 @@ fn codex_versioned_app_server_request(
         methods::CODEX_THREAD_MEMORY_MODE_SET => {
             Some(("thread/memoryMode/set", raw_or_enveloped(payload)?))
         }
-        methods::CODEX_THREAD_REALTIME_APPEND_AUDIO => {
-            Some(("thread/realtime/appendAudio", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_THREAD_REALTIME_APPEND_SPEECH => {
-            Some(("thread/realtime/appendSpeech", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_THREAD_REALTIME_APPEND_TEXT => {
-            Some(("thread/realtime/appendText", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_THREAD_REALTIME_LIST_VOICES => {
-            Some(("thread/realtime/listVoices", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_THREAD_REALTIME_START => {
-            Some(("thread/realtime/start", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_THREAD_REALTIME_STOP => {
-            Some(("thread/realtime/stop", raw_or_enveloped(payload)?))
-        }
+        methods::CODEX_THREAD_REALTIME_APPEND_AUDIO => Some((
+            "thread/realtime/appendAudio",
+            typed_or_enveloped::<CodexThreadRealtimeAppendAudioRequest>(payload)?,
+        )),
+        methods::CODEX_THREAD_REALTIME_APPEND_SPEECH => Some((
+            "thread/realtime/appendSpeech",
+            typed_or_enveloped::<CodexThreadRealtimeAppendSpeechRequest>(payload)?,
+        )),
+        methods::CODEX_THREAD_REALTIME_APPEND_TEXT => Some((
+            "thread/realtime/appendText",
+            typed_or_enveloped::<CodexThreadRealtimeAppendTextRequest>(payload)?,
+        )),
+        methods::CODEX_THREAD_REALTIME_LIST_VOICES => Some((
+            "thread/realtime/listVoices",
+            typed_or_enveloped::<CodexThreadRealtimeListVoicesRequest>(payload)?,
+        )),
+        methods::CODEX_THREAD_REALTIME_START => Some((
+            "thread/realtime/start",
+            typed_or_enveloped::<CodexThreadRealtimeStartRequest>(payload)?,
+        )),
+        methods::CODEX_THREAD_REALTIME_STOP => Some((
+            "thread/realtime/stop",
+            typed_or_enveloped::<CodexThreadRealtimeStopRequest>(payload)?,
+        )),
         methods::CODEX_THREAD_SEARCH => Some((
             "thread/search",
             typed_or_enveloped::<CodexThreadSearchRequest>(payload)?,
@@ -14044,6 +14053,89 @@ mod tests {
         assert_eq!(params["itemTypes"][0], "commandExecution");
         assert!(params.get("thread_id").is_none());
         assert!(params.get("turn_id").is_none());
+    }
+
+    #[test]
+    fn codex_realtime_methods_use_typed_contracts_without_dropping_extra_fields() {
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_REALTIME_START,
+            &json!({
+                "thread_id": "thread-1",
+                "voice": "alloy",
+                "sessionOptions": { "vad": true }
+            }),
+        )
+        .expect("typed realtime start request")
+        .expect("realtime start method");
+        assert_eq!(method, "thread/realtime/start");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["voice"], "alloy");
+        assert_eq!(params["sessionOptions"]["vad"], true);
+        assert!(params.get("thread_id").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_REALTIME_APPEND_AUDIO,
+            &json!({
+                "params": {
+                    "thread_id": "thread-1",
+                    "audio": { "base64": "AAAA" },
+                    "mime_type": "audio/wav",
+                    "sampleRate": 24000
+                }
+            }),
+        )
+        .expect("typed realtime audio request")
+        .expect("realtime append audio method");
+        assert_eq!(method, "thread/realtime/appendAudio");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["audio"]["base64"], "AAAA");
+        assert_eq!(params["mimeType"], "audio/wav");
+        assert_eq!(params["sampleRate"], 24000);
+        assert!(params.get("thread_id").is_none());
+        assert!(params.get("mime_type").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_REALTIME_APPEND_TEXT,
+            &json!({ "thread_id": "thread-1", "text": "hello", "commit": true }),
+        )
+        .expect("typed realtime text request")
+        .expect("realtime append text method");
+        assert_eq!(method, "thread/realtime/appendText");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["text"], "hello");
+        assert_eq!(params["commit"], true);
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_REALTIME_APPEND_SPEECH,
+            &json!({ "thread_id": "thread-1", "text": "speak", "voice": "verse" }),
+        )
+        .expect("typed realtime speech request")
+        .expect("realtime append speech method");
+        assert_eq!(method, "thread/realtime/appendSpeech");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["text"], "speak");
+        assert_eq!(params["voice"], "verse");
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_REALTIME_LIST_VOICES,
+            &json!({ "thread_id": "thread-1", "locale": "en-US", "includePreview": true }),
+        )
+        .expect("typed realtime voice list request")
+        .expect("realtime voice list method");
+        assert_eq!(method, "thread/realtime/listVoices");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["locale"], "en-US");
+        assert_eq!(params["includePreview"], true);
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_REALTIME_STOP,
+            &json!({ "thread_id": "thread-1", "reason": "user" }),
+        )
+        .expect("typed realtime stop request")
+        .expect("realtime stop method");
+        assert_eq!(method, "thread/realtime/stop");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["reason"], "user");
     }
 
     #[test]
