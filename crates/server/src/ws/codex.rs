@@ -2288,13 +2288,17 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             Vec::new()
         };
         tokio::spawn(async move {
-            let replay_watermark = replay_records.last().map(|record| record.sequence);
-            let replay_events = replay_records
-                .into_iter()
-                .map(|record| record.event)
-                .collect::<Vec<_>>();
-            if !replay_events.is_empty()
-                && send_provider_runtime_event_batch(
+            let mut replay_records = replay_records;
+            while !replay_records.is_empty() {
+                let chunk_len =
+                    usize::min(replay_records.len(), PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE);
+                let replay_chunk = replay_records.drain(..chunk_len).collect::<Vec<_>>();
+                let replay_watermark = replay_chunk.last().map(|record| record.sequence);
+                let replay_events = replay_chunk
+                    .into_iter()
+                    .map(|record| record.event)
+                    .collect::<Vec<_>>();
+                if send_provider_runtime_event_batch(
                     &outbound,
                     &provider_name,
                     replay_events,
@@ -2303,8 +2307,9 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 )
                 .await
                 .is_err()
-            {
-                return;
+                {
+                    return;
+                }
             }
             loop {
                 let message = match receiver.recv().await {
@@ -7303,6 +7308,105 @@ mod tests {
                 )
                 .expect("recent events")
                 .len(),
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE + 1
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_splits_large_replay_batches() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+        let events = (0..=PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
+            .map(|index| ProviderEvent::RawNotification {
+                method: "item/completed".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "itemId": format!("item-{index}")
+                }),
+            })
+            .collect::<Vec<_>>();
+        state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .append_batch("codex", &events)
+            .expect("append replay events");
+        let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::channel::<String>(4);
+
+        let subscribe = state
+            .dispatch_text_with_events(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-events-large-replay",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                    "payload": {
+                        "provider": "codex",
+                        "from_sequence_exclusive": 0,
+                        "replay_limit": PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE + 1,
+                        "raw_event_mode": "full"
+                    }
+                })
+                .to_string(),
+                Some(outbound_tx),
+            )
+            .await;
+        let subscribe: WsServerResponse = serde_json::from_str(&subscribe).expect("subscribe");
+        let WsServerPayload::Result { body } = subscribe.payload else {
+            panic!("expected subscribe result");
+        };
+        assert_eq!(body["subscribed"], true);
+        assert_eq!(
+            body["effective_replay_limit"],
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE + 1
+        );
+
+        let first = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .expect("first replay batch timeout")
+            .expect("first replay batch");
+        let second = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .expect("second replay batch timeout")
+            .expect("second replay batch");
+        let first: WsServerResponse = serde_json::from_str(&first).expect("first response");
+        let second: WsServerResponse = serde_json::from_str(&second).expect("second response");
+        let WsServerPayload::Event { body: first, .. } = first.payload else {
+            panic!("expected first replay event batch");
+        };
+        let WsServerPayload::Event { body: second, .. } = second.payload else {
+            panic!("expected second replay event batch");
+        };
+
+        assert_eq!(
+            first["events"].as_array().expect("first events").len(),
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE
+        );
+        assert_eq!(second["events"].as_array().expect("second events").len(), 1);
+        assert_eq!(
+            first["raw_events"]
+                .as_array()
+                .expect("first raw events")
+                .len(),
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE
+        );
+        assert_eq!(
+            second["raw_events"]
+                .as_array()
+                .expect("second raw events")
+                .len(),
+            1
+        );
+        assert_eq!(
+            first["last_persisted_sequence"],
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE
+        );
+        assert_eq!(
+            second["last_persisted_sequence"],
             PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE + 1
         );
     }
