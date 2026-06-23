@@ -26,7 +26,7 @@ use ace_runtime::{
 };
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -50,6 +50,10 @@ pub enum CodexApiError {
     DeferredMethod(String),
     #[error("unknown Codex client request method `{0}`")]
     UnknownClientMethod(String),
+    #[error(
+        "Codex client request method `{method}` is not advertised by the installed app-server: {reason}"
+    )]
+    ClientMethodUnavailable { method: String, reason: String },
     #[error("Codex permission preset `{preset}` is unavailable: {reason}")]
     PermissionPresetUnavailable { preset: String, reason: String },
 }
@@ -70,6 +74,7 @@ impl CodexApiError {
             Self::UnsupportedExecutionLocation(_) => "unsupported_execution_location",
             Self::DeferredMethod(_) => "codex_deferred_method",
             Self::UnknownClientMethod(_) => "codex_unknown_client_method",
+            Self::ClientMethodUnavailable { .. } => "codex_client_method_unavailable",
             Self::PermissionPresetUnavailable { .. } => "codex_permission_preset_unavailable",
         }
     }
@@ -85,18 +90,87 @@ impl From<RuntimeStateError> for CodexApiError {
     }
 }
 
-fn validate_codex_client_request_method(method: &str) -> std::result::Result<(), CodexApiError> {
+fn validate_codex_client_request_method(
+    method: &str,
+) -> std::result::Result<CodexMethodSupport, CodexApiError> {
     match classify_codex_method(method, CodexMethodDirection::ClientRequest) {
         Some(CodexMethodSupport::IntentionallyDeferred) => {
             Err(CodexApiError::DeferredMethod(method.to_string()))
         }
         Some(
-            CodexMethodSupport::TypedSupported
+            support @ (CodexMethodSupport::TypedSupported
             | CodexMethodSupport::RawSupported
-            | CodexMethodSupport::VersionGated,
-        ) => Ok(()),
+            | CodexMethodSupport::VersionGated),
+        ) => Ok(support),
         None => Err(CodexApiError::UnknownClientMethod(method.to_string())),
     }
+}
+
+fn validate_installed_codex_client_request_method(
+    method: &str,
+    support: CodexMethodSupport,
+    status: &ProviderDriverStatus,
+) -> std::result::Result<(), CodexApiError> {
+    if support != CodexMethodSupport::VersionGated {
+        return Ok(());
+    }
+    let Some((source, methods)) = installed_codex_client_request_methods(&status.metadata) else {
+        return Ok(());
+    };
+    if methods.contains(method) {
+        return Ok(());
+    }
+    Err(CodexApiError::ClientMethodUnavailable {
+        method: method.to_string(),
+        reason: format!(
+            "provider status `{source}` did not include version-gated method `{method}`"
+        ),
+    })
+}
+
+fn installed_codex_client_request_methods(metadata: &Value) -> Option<(String, BTreeSet<String>)> {
+    [
+        (
+            "supported_client_request_methods",
+            "/supported_client_request_methods",
+        ),
+        (
+            "installed_client_request_methods",
+            "/installed_client_request_methods",
+        ),
+        ("client_request_methods", "/client_request_methods"),
+        (
+            "schema.client_request_methods",
+            "/schema/client_request_methods",
+        ),
+        (
+            "schema.clientRequestMethods",
+            "/schema/clientRequestMethods",
+        ),
+        ("methods.client_request", "/methods/client_request"),
+        ("methods.clientRequest", "/methods/clientRequest"),
+    ]
+    .into_iter()
+    .find_map(|(source, pointer)| {
+        let methods = method_set_from_status_metadata(metadata.pointer(pointer)?)?;
+        Some((source.to_string(), methods))
+    })
+}
+
+fn method_set_from_status_metadata(value: &Value) -> Option<BTreeSet<String>> {
+    let methods = value
+        .as_array()?
+        .iter()
+        .filter_map(|entry| {
+            entry.as_str().map(ToString::to_string).or_else(|| {
+                entry
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+            })
+        })
+        .collect::<BTreeSet<_>>();
+    (!methods.is_empty()).then_some(methods)
 }
 
 fn summarize_initialize_result(result: Value) -> Value {
@@ -606,7 +680,9 @@ impl CodexService {
         method: String,
         params: Value,
     ) -> std::result::Result<Value, CodexApiError> {
-        validate_codex_client_request_method(&method)?;
+        let support = validate_codex_client_request_method(&method)?;
+        let status = self.backend.status().await;
+        validate_installed_codex_client_request_method(&method, support, &status)?;
         Ok(self.backend.raw_request(&method, params).await?)
     }
 
@@ -2405,6 +2481,24 @@ pub mod tests {
             .expect("version-gated raw request");
         assert_eq!(allowed["status"], "completed");
         assert_eq!(allowed["threadId"], "thread-1");
+
+        *backend
+            .supported_client_request_methods
+            .lock()
+            .expect("supported client request methods") = Some(vec!["thread/read".to_string()]);
+        let unavailable = service
+            .raw_request(
+                "remote/handoff".to_string(),
+                json!({ "threadId": "thread-1" }),
+            )
+            .await
+            .expect_err("missing installed version-gated method");
+        assert!(matches!(
+            unavailable,
+            CodexApiError::ClientMethodUnavailable { ref method, .. }
+                if method == "remote/handoff"
+        ));
+        assert_eq!(unavailable.code(), "codex_client_method_unavailable");
 
         let deferred = service
             .raw_request("cloud/handoff".to_string(), json!({}))

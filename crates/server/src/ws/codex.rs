@@ -12306,6 +12306,37 @@ mod tests {
         assert_eq!(tool_timeline[0]["display"]["status"], "completed");
         assert_eq!(tool_timeline[0]["display"]["title"], "Ran `cargo test`");
 
+        *backend
+            .supported_client_request_methods
+            .lock()
+            .expect("supported client request methods") =
+            Some(vec!["remote/connectionList".to_string()]);
+        let unavailable = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "raw-version-gated-unavailable",
+                    "method": methods::CODEX_RAW_REQUEST,
+                    "payload": {
+                        "method": "remote/handoff",
+                        "params": { "threadId": "thread-1" }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let unavailable: WsServerResponse =
+            serde_json::from_str(&unavailable).expect("unavailable raw");
+        let WsServerPayload::Error { code, message } = unavailable.payload else {
+            panic!("expected unavailable raw error");
+        };
+        assert_eq!(code, "codex_client_method_unavailable");
+        assert!(message.contains("remote/handoff"));
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            ["remote/connectionList", "command/exec"]
+        );
+
         let deferred = state
             .dispatch_text(
                 &json!({
