@@ -1463,9 +1463,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         invocation.semantic_tool(descriptor.as_ref(), ToolRunStatus::Started),
                     ),
                 }];
-                self.apply_codex_live_provider_events(provider_kind, &events)
-                    .await;
-                self.append_and_publish_provider_events(provider_kind, events)?;
+                self.apply_append_and_publish_provider_events(provider_kind, events)
+                    .await?;
                 let result = match self.host_tools.invoke_invocation(invocation.clone()).await {
                     Ok(result) => result,
                     Err(error) => {
@@ -1520,9 +1519,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         request: decision_context.request.clone(),
                     },
                 ];
-                self.apply_codex_live_provider_events(provider_kind, &events)
-                    .await;
-                self.append_and_publish_provider_events(provider_kind, events)?;
+                self.apply_append_and_publish_provider_events(provider_kind, events)
+                    .await?;
                 Ok(serde_json::to_value(
                     ProviderServerRequestDecisionResponse {
                         responded: true,
@@ -1578,9 +1576,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     },
                     request: decision_context.request.clone(),
                 }];
-                self.apply_codex_live_provider_events(provider_kind, &events)
-                    .await;
-                self.append_and_publish_provider_events(provider_kind, events)?;
+                self.apply_append_and_publish_provider_events(provider_kind, events)
+                    .await?;
                 Ok(serde_json::to_value(
                     ProviderServerRequestDecisionResponse {
                         responded: true,
@@ -1638,9 +1635,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     },
                     request: decision_context.request.clone(),
                 }];
-                self.apply_codex_live_provider_events(provider_kind, &events)
-                    .await;
-                self.append_and_publish_provider_events(provider_kind, events)?;
+                self.apply_append_and_publish_provider_events(provider_kind, events)
+                    .await?;
                 Ok(serde_json::to_value(
                     ProviderServerRequestDecisionResponse {
                         responded: true,
@@ -1748,9 +1744,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             },
             request: decision_context.request.clone(),
         });
-        self.apply_codex_live_provider_events(provider_kind, &events)
-            .await;
-        self.append_and_publish_provider_events(provider_kind, events)?;
+        self.apply_append_and_publish_provider_events(provider_kind, events)
+            .await?;
         Ok(serde_json::to_value(
             ProviderServerRequestDecisionResponse {
                 responded: true,
@@ -1793,6 +1788,16 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
         }
         Ok(())
+    }
+
+    async fn apply_append_and_publish_provider_events(
+        &self,
+        provider_kind: ProviderKind,
+        events: Vec<ProviderEvent>,
+    ) -> Result<(), WsDispatchError> {
+        self.apply_codex_live_provider_events(provider_kind, &events)
+            .await;
+        self.append_and_publish_provider_events(provider_kind, events)
     }
 
     async fn apply_codex_live_provider_events(
@@ -12129,9 +12134,11 @@ mod tests {
                 result: json!({ "opened": true })
             }]
         );
-        let invocations = host_tool.invocations.lock().expect("invocations");
-        assert_eq!(invocations.len(), 1);
-        assert_eq!(invocations[0].arguments["url"], "http://localhost:5173");
+        {
+            let invocations = host_tool.invocations.lock().expect("invocations");
+            assert_eq!(invocations.len(), 1);
+            assert_eq!(invocations[0].arguments["url"], "http://localhost:5173");
+        }
 
         let resolved = state
             .provider_events
@@ -12189,6 +12196,39 @@ mod tests {
         assert_eq!(
             completed_tool.provider.raw_payload["toolName"],
             "ace_browser"
+        );
+
+        let live_state = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "host-tool-live-state",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let live_state: WsServerResponse =
+            serde_json::from_str(&live_state).expect("host tool live state response");
+        let WsServerPayload::Result { body } = live_state.payload else {
+            panic!("expected host tool live state result");
+        };
+        let state_body = &body["providers"][0]["state"];
+        let tool_timeline = state_body["tool_timeline"]
+            .as_array()
+            .expect("tool timeline");
+        assert_eq!(tool_timeline.len(), 1);
+        assert_eq!(tool_timeline[0]["display"]["status"], "completed");
+        assert_eq!(
+            tool_timeline[0]["display"]["title"],
+            "Opened http://localhost:5173 in Browser"
+        );
+        assert_eq!(state_body["approvals"][0]["request_id"], "42");
+        assert_eq!(state_body["approvals"][0]["status"], "resolved");
+        assert_eq!(
+            state_body["approvals"][0]["decision"]["payload"]["opened"],
+            true
         );
     }
 
