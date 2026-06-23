@@ -12466,6 +12466,32 @@ mod tests {
                 .as_i64()
                 .is_some_and(|sequence| sequence > 0)
         );
+        let summary = &body["providers"][0]["summary"];
+        assert_eq!(summary["active_turns"], 1);
+        assert_eq!(summary["active_plan_sessions"], 0);
+        assert_eq!(summary["child_threads"], 3);
+        assert_eq!(summary["ephemeral_child_threads"], 1);
+        assert_eq!(summary["persistent_child_threads"], 0);
+        assert_eq!(summary["side_chats"], 1);
+        assert_eq!(summary["ephemeral_side_chats"], 1);
+        assert_eq!(summary["persistent_side_chats"], 0);
+        assert_eq!(summary["handoffs"], 1);
+        assert_eq!(
+            summary["by_active_turn_mode"],
+            json!([{ "key": "normal", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_child_relationship"],
+            json!([
+                { "key": "fork", "count": 1 },
+                { "key": "handoff", "count": 1 },
+                { "key": "side_chat", "count": 1 }
+            ])
+        );
+        assert_eq!(
+            summary["by_handoff_location"],
+            json!([{ "key": "local", "count": 1 }])
+        );
         let snapshot_state = &body["providers"][0]["state"];
         assert_eq!(snapshot_state["active_turns"][0]["thread_id"], "thread-1");
         assert_eq!(snapshot_state["active_turns"][0]["turn_id"], "turn-1");

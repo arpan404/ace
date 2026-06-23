@@ -1146,12 +1146,22 @@ pub struct ProviderRuntimeStateSummary {
     pub archived_threads: usize,
     pub active_turns: usize,
     pub plan_sessions: usize,
+    pub active_plan_sessions: usize,
+    pub completed_plan_sessions: usize,
+    pub rejected_plan_sessions: usize,
+    pub implementing_plan_sessions: usize,
     pub goals: usize,
     pub child_threads: usize,
+    pub active_child_threads: usize,
+    pub ephemeral_child_threads: usize,
+    pub persistent_child_threads: usize,
     pub fork_points: usize,
     pub side_chats: usize,
+    pub ephemeral_side_chats: usize,
+    pub persistent_side_chats: usize,
     pub subagents: usize,
     pub handoffs: usize,
+    pub interrupted_handoffs: usize,
     pub approval_retries: usize,
     pub plan_implementations: usize,
     pub thread_lifecycle: usize,
@@ -1185,7 +1195,13 @@ pub struct ProviderRuntimeStateSummary {
     #[serde(default)]
     pub by_handoff_status: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
+    pub by_handoff_location: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
     pub by_child_relationship: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_child_status: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_plan_implementation_mode: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
     pub by_thread_item_kind: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
@@ -1208,7 +1224,10 @@ impl ProviderRuntimeStateSummary {
         let mut by_plan_status = BTreeMap::new();
         let mut by_goal_status = BTreeMap::new();
         let mut by_handoff_status = BTreeMap::new();
+        let mut by_handoff_location = BTreeMap::new();
         let mut by_child_relationship = BTreeMap::new();
+        let mut by_child_status = BTreeMap::new();
+        let mut by_plan_implementation_mode = BTreeMap::new();
         let mut by_thread_item_kind = BTreeMap::new();
         let mut by_thread_item_status = BTreeMap::new();
         let mut by_tool_status = BTreeMap::new();
@@ -1235,6 +1254,11 @@ impl ProviderRuntimeStateSummary {
             side_chats: snapshot.side_chats.len(),
             subagents: snapshot.subagents.len(),
             handoffs: snapshot.handoffs.len(),
+            interrupted_handoffs: snapshot
+                .handoffs
+                .iter()
+                .filter(|handoff| handoff.interrupted_active_turn == Some(true))
+                .count(),
             approval_retries: snapshot.approval_retries.len(),
             plan_implementations: snapshot.plan_implementations.len(),
             thread_lifecycle: snapshot.thread_lifecycle.len(),
@@ -1269,15 +1293,58 @@ impl ProviderRuntimeStateSummary {
         }
         for plan in &snapshot.plan_sessions {
             increment_count(&mut by_plan_status, enum_key(&plan.status));
+            match plan.status {
+                ace_runtime::threads::PlanSessionStatus::Active => {
+                    summary.active_plan_sessions += 1;
+                }
+                ace_runtime::threads::PlanSessionStatus::Completed => {
+                    summary.completed_plan_sessions += 1;
+                }
+                ace_runtime::threads::PlanSessionStatus::Rejected => {
+                    summary.rejected_plan_sessions += 1;
+                }
+                ace_runtime::threads::PlanSessionStatus::Implementing => {
+                    summary.implementing_plan_sessions += 1;
+                }
+            }
         }
         for goal in &snapshot.goals {
             increment_count(&mut by_goal_status, enum_key(&goal.status));
         }
         for handoff in &snapshot.handoffs {
             increment_count(&mut by_handoff_status, enum_key(&handoff.status));
+            increment_count(&mut by_handoff_location, enum_key(&handoff.target_location));
         }
         for child in &snapshot.child_threads {
             increment_count(&mut by_child_relationship, enum_key(&child.relationship));
+            if let Some(status) = child.status.as_deref() {
+                increment_count(&mut by_child_status, status.to_string());
+            }
+            match child.ephemeral {
+                Some(true) => summary.ephemeral_child_threads += 1,
+                Some(false) => summary.persistent_child_threads += 1,
+                None => {}
+            }
+            if child
+                .status
+                .as_deref()
+                .is_some_and(|status| matches!(status, "active" | "running" | "started"))
+            {
+                summary.active_child_threads += 1;
+            }
+        }
+        for side_chat in &snapshot.side_chats {
+            if side_chat.ephemeral {
+                summary.ephemeral_side_chats += 1;
+            } else {
+                summary.persistent_side_chats += 1;
+            }
+        }
+        for implementation in &snapshot.plan_implementations {
+            increment_count(
+                &mut by_plan_implementation_mode,
+                enum_key(&implementation.mode),
+            );
         }
         for item in &snapshot.thread_items {
             increment_count(&mut by_thread_item_kind, enum_key(&item.kind));
@@ -1305,7 +1372,10 @@ impl ProviderRuntimeStateSummary {
         summary.by_plan_status = operation_counts(by_plan_status);
         summary.by_goal_status = operation_counts(by_goal_status);
         summary.by_handoff_status = operation_counts(by_handoff_status);
+        summary.by_handoff_location = operation_counts(by_handoff_location);
         summary.by_child_relationship = operation_counts(by_child_relationship);
+        summary.by_child_status = operation_counts(by_child_status);
+        summary.by_plan_implementation_mode = operation_counts(by_plan_implementation_mode);
         summary.by_thread_item_kind = operation_counts(by_thread_item_kind);
         summary.by_thread_item_status = operation_counts(by_thread_item_status);
         summary.by_tool_status = operation_counts(by_tool_status);
@@ -3305,9 +3375,10 @@ mod tests {
     };
     use ace_runtime::threads::{
         AgentRuntimeSnapshot, AgentThread, ChildThreadRecord, ChildThreadRelationship,
-        ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus, PlanSession,
-        PlanSessionStatus, SubagentActionKind, SubagentActionRecord, ThreadLifecycleActionKind,
-        ThreadLifecycleRecord, Turn, TurnMode,
+        ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus,
+        PlanImplementationMode, PlanImplementationRecord, PlanSession, PlanSessionStatus,
+        SubagentActionKind, SubagentActionRecord, ThreadLifecycleActionKind, ThreadLifecycleRecord,
+        Turn, TurnMode,
     };
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
@@ -4270,6 +4341,20 @@ mod tests {
                 prompt: Some("Focus on tests".to_string()),
                 provider_response: json!({}),
             }],
+            plan_implementations: vec![PlanImplementationRecord {
+                parent_thread_id: "thread-1".to_string(),
+                target_thread_id: "child-1".to_string(),
+                mode: PlanImplementationMode::ForkForImplementation,
+                prompt: "Implement this plan".to_string(),
+                model: Some("gpt-5".to_string()),
+                reasoning_effort: Some("high".to_string()),
+                cwd: Some("/repo".to_string()),
+                plan: json!({ "item_id": "plan-1" }),
+                sandbox_policy: json!({ "mode": "workspace-write" }),
+                approval_policy: json!({ "mode": "on-request" }),
+                approvals_reviewer: Some("user".to_string()),
+                provider_response: json!({ "forked": true }),
+            }],
             tool_timeline: vec![tool],
             thread_items: vec![
                 NormalizedThreadItem {
@@ -4338,6 +4423,18 @@ mod tests {
         assert_eq!(summary.active_threads, 1);
         assert_eq!(summary.archived_threads, 1);
         assert_eq!(summary.active_turns, 1);
+        assert_eq!(summary.active_plan_sessions, 0);
+        assert_eq!(summary.completed_plan_sessions, 0);
+        assert_eq!(summary.rejected_plan_sessions, 0);
+        assert_eq!(summary.implementing_plan_sessions, 1);
+        assert_eq!(summary.child_threads, 1);
+        assert_eq!(summary.active_child_threads, 1);
+        assert_eq!(summary.ephemeral_child_threads, 0);
+        assert_eq!(summary.persistent_child_threads, 1);
+        assert_eq!(summary.ephemeral_side_chats, 0);
+        assert_eq!(summary.persistent_side_chats, 0);
+        assert_eq!(summary.interrupted_handoffs, 1);
+        assert_eq!(summary.plan_implementations, 1);
         assert_eq!(summary.thread_lifecycle, 1);
         assert_eq!(summary.subagent_actions, 1);
         assert_eq!(count(&summary.by_execution_location, "local"), 1);
@@ -4346,7 +4443,16 @@ mod tests {
         assert_eq!(count(&summary.by_plan_status, "implementing"), 1);
         assert_eq!(count(&summary.by_goal_status, "paused"), 1);
         assert_eq!(count(&summary.by_handoff_status, "transferring"), 1);
+        assert_eq!(count(&summary.by_handoff_location, "worktree"), 1);
         assert_eq!(count(&summary.by_child_relationship, "subagent"), 1);
+        assert_eq!(count(&summary.by_child_status, "running"), 1);
+        assert_eq!(
+            count(
+                &summary.by_plan_implementation_mode,
+                "fork_for_implementation"
+            ),
+            1
+        );
         assert_eq!(count(&summary.by_thread_item_kind, "plan"), 1);
         assert_eq!(count(&summary.by_thread_item_kind, "commandExecution"), 1);
         assert_eq!(count(&summary.by_thread_item_status, "updated"), 1);
