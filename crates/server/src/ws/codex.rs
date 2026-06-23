@@ -14195,6 +14195,64 @@ mod tests {
     }
 
     #[test]
+    fn codex_filesystem_methods_use_typed_contracts_without_dropping_extra_fields() {
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_FS_COPY,
+            &json!({
+                "from_path": "src/lib.rs",
+                "to_path": "src/lib.copy.rs",
+                "overwrite": true,
+                "preserveMode": true
+            }),
+        )
+        .expect("typed fs copy request")
+        .expect("fs copy method");
+        assert_eq!(method, "fs/copy");
+        assert_eq!(params["fromPath"], "src/lib.rs");
+        assert_eq!(params["toPath"], "src/lib.copy.rs");
+        assert_eq!(params["overwrite"], true);
+        assert_eq!(params["preserveMode"], true);
+        assert!(params.get("from_path").is_none());
+        assert!(params.get("to_path").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_FS_WRITE_FILE,
+            &json!({
+                "params": {
+                    "path": "README.md",
+                    "contents": "hello",
+                    "encoding": "utf-8",
+                    "overwrite": false,
+                    "createParents": true
+                }
+            }),
+        )
+        .expect("typed fs write request")
+        .expect("fs write method");
+        assert_eq!(method, "fs/writeFile");
+        assert_eq!(params["path"], "README.md");
+        assert_eq!(params["contents"], "hello");
+        assert_eq!(params["encoding"], "utf-8");
+        assert_eq!(params["overwrite"], false);
+        assert_eq!(params["createParents"], true);
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_FS_READ_DIRECTORY,
+            &json!({
+                "path": "crates",
+                "recursive": true,
+                "includeHidden": false
+            }),
+        )
+        .expect("typed fs read directory request")
+        .expect("fs read directory method");
+        assert_eq!(method, "fs/readDirectory");
+        assert_eq!(params["path"], "crates");
+        assert_eq!(params["recursive"], true);
+        assert_eq!(params["includeHidden"], false);
+    }
+
+    #[test]
     fn codex_raw_plugin_share_methods_preserve_payload_shape() {
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_PLUGIN_SHARE_SAVE,

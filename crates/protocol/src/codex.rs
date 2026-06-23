@@ -257,21 +257,25 @@ pub struct CodexMcpToolCallRequest {
     pub arguments: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexFsPathRequest {
     pub path: String,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexFsReadFileRequest {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encoding: Option<String>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexFsWriteFileRequest {
     pub path: String,
@@ -280,17 +284,21 @@ pub struct CodexFsWriteFileRequest {
     pub encoding: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overwrite: Option<bool>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexFsReadDirectoryRequest {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recursive: Option<bool>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexFsCopyRequest {
     #[serde(alias = "from_path")]
@@ -299,6 +307,8 @@ pub struct CodexFsCopyRequest {
     pub to_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overwrite: Option<bool>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 pub type CodexNamedQueryRequest = CodexNamedQuery;
