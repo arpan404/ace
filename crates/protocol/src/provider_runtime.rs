@@ -1510,6 +1510,12 @@ pub struct ProviderServerRequestsSummary {
     pub by_kind: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
     pub by_scope: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_selected_policy: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_decision_outcome: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_decider: Vec<ProviderRuntimeOperationCount>,
 }
 
 impl ProviderServerRequestsSummary {
@@ -1518,6 +1524,9 @@ impl ProviderServerRequestsSummary {
         let mut by_provider = BTreeMap::new();
         let mut by_kind = BTreeMap::new();
         let mut by_scope = BTreeMap::new();
+        let mut by_selected_policy = BTreeMap::new();
+        let mut by_decision_outcome = BTreeMap::new();
+        let mut by_decider = BTreeMap::new();
         let mut summary = Self {
             total: records.len(),
             ..Self::default()
@@ -1535,13 +1544,46 @@ impl ProviderServerRequestsSummary {
                     increment_count(&mut by_scope, scope.clone());
                 }
             }
+            if let Some(policy) = selected_policy_for_server_request_record(record) {
+                increment_count(&mut by_selected_policy, policy);
+            }
+            if let Some(decision) = &record.decision {
+                increment_count(&mut by_decision_outcome, decision.outcome.clone());
+                if let Some(decider) = decision
+                    .audit
+                    .get("decided_by")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    increment_count(&mut by_decider, decider.to_string());
+                }
+            }
         }
 
         summary.by_provider = operation_counts(by_provider);
         summary.by_kind = operation_counts(by_kind);
         summary.by_scope = operation_counts(by_scope);
+        summary.by_selected_policy = operation_counts(by_selected_policy);
+        summary.by_decision_outcome = operation_counts(by_decision_outcome);
+        summary.by_decider = operation_counts(by_decider);
         summary
     }
+}
+
+fn selected_policy_for_server_request_record(
+    record: &ProviderServerRequestRecord,
+) -> Option<String> {
+    record
+        .request
+        .as_ref()
+        .and_then(|request| request.selected_policy.clone())
+        .or_else(|| {
+            record
+                .decision
+                .as_ref()
+                .and_then(|decision| decision.audit.get("selected_policy"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3593,34 +3635,87 @@ mod tests {
         assert_eq!(encoded["kind"], "file_change_approval");
         assert_eq!(encoded["thread_id"], "thread-2");
 
-        let records = vec![ProviderServerRequestRecord {
-            provider: "codex".to_string(),
-            request_id: "approval-1".to_string(),
-            request: Some(NormalizedServerRequest {
-                kind: ServerRequestKind::FileChangeApproval,
+        let records = vec![
+            ProviderServerRequestRecord {
+                provider: "codex".to_string(),
                 request_id: "approval-1".to_string(),
-                method: "fileChange/approvalRequest".to_string(),
-                thread_id: Some("thread-2".to_string()),
-                turn_id: None,
-                item_id: None,
-                scope: Some("filesystem".to_string()),
-                title: Some("Approve file changes".to_string()),
-                prompt: Some("Apply patch?".to_string()),
-                selected_policy: Some("on-request".to_string()),
-                detail: Default::default(),
-                metadata: json!({ "path": "src/lib.rs" }),
-                provider: ProviderMetadata {
-                    provider: "codex".to_string(),
-                    method: Some("fileChange/approvalRequest".to_string()),
-                    schema_version: None,
-                    raw_payload: json!({ "path": "src/lib.rs" }),
-                },
-            }),
-            status: ProviderServerRequestStatusFilter::Pending,
-            decision: None,
-            created_at: "2026-06-24T00:00:00Z".to_string(),
-            resolved_at: None,
-        }];
+                request: Some(NormalizedServerRequest {
+                    kind: ServerRequestKind::FileChangeApproval,
+                    request_id: "approval-1".to_string(),
+                    method: "fileChange/approvalRequest".to_string(),
+                    thread_id: Some("thread-2".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    scope: Some("filesystem".to_string()),
+                    title: Some("Approve file changes".to_string()),
+                    prompt: Some("Apply patch?".to_string()),
+                    selected_policy: Some("on-request".to_string()),
+                    detail: Default::default(),
+                    metadata: json!({ "path": "src/lib.rs" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("fileChange/approvalRequest".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({ "path": "src/lib.rs" }),
+                    },
+                }),
+                status: ProviderServerRequestStatusFilter::Pending,
+                decision: None,
+                created_at: "2026-06-24T00:00:00Z".to_string(),
+                resolved_at: None,
+            },
+            ProviderServerRequestRecord {
+                provider: "codex".to_string(),
+                request_id: "approval-2".to_string(),
+                request: Some(NormalizedServerRequest {
+                    kind: ServerRequestKind::CommandApproval,
+                    request_id: "approval-2".to_string(),
+                    method: "command/approvalRequest".to_string(),
+                    thread_id: Some("thread-2".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("item-1".to_string()),
+                    scope: Some("command".to_string()),
+                    title: Some("Approve command".to_string()),
+                    prompt: Some("Run tests?".to_string()),
+                    selected_policy: Some("on-request".to_string()),
+                    detail: Default::default(),
+                    metadata: json!({ "command": "cargo test" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("command/approvalRequest".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({ "command": "cargo test" }),
+                    },
+                }),
+                status: ProviderServerRequestStatusFilter::Resolved,
+                decision: Some(ProviderServerRequestDecisionRecord {
+                    outcome: "result".to_string(),
+                    payload: json!({ "approved": true }),
+                    audit: json!({
+                        "selected_policy": "on-request",
+                        "decided_by": "user"
+                    }),
+                }),
+                created_at: "2026-06-24T00:01:00Z".to_string(),
+                resolved_at: Some("2026-06-24T00:02:00Z".to_string()),
+            },
+            ProviderServerRequestRecord {
+                provider: "codex".to_string(),
+                request_id: "approval-3".to_string(),
+                request: None,
+                status: ProviderServerRequestStatusFilter::Resolved,
+                decision: Some(ProviderServerRequestDecisionRecord {
+                    outcome: "error".to_string(),
+                    payload: json!({ "message": "auto-review denied" }),
+                    audit: json!({
+                        "selected_policy": "auto-review",
+                        "decided_by": "auto_review"
+                    }),
+                }),
+                created_at: "2026-06-24T00:03:00Z".to_string(),
+                resolved_at: Some("2026-06-24T00:04:00Z".to_string()),
+            },
+        ];
         let response = ProviderServerRequestsListResponse {
             requested_limit: usize::MAX,
             effective_limit: capped_provider_server_requests_limit(usize::MAX),
@@ -3643,15 +3738,36 @@ mod tests {
             encoded["max_limit"],
             PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
         );
-        assert_eq!(encoded["summary"]["total"], 1);
+        assert_eq!(encoded["summary"]["total"], 3);
         assert_eq!(encoded["summary"]["pending"], 1);
-        assert_eq!(encoded["summary"]["resolved"], 0);
+        assert_eq!(encoded["summary"]["resolved"], 2);
         assert_eq!(encoded["summary"]["by_provider"][0]["key"], "codex");
+        assert_eq!(encoded["summary"]["by_kind"][0]["key"], "command_approval");
+        assert_eq!(encoded["summary"]["by_kind"][0]["count"], 1);
         assert_eq!(
-            encoded["summary"]["by_kind"][0]["key"],
+            encoded["summary"]["by_kind"][1]["key"],
             "file_change_approval"
         );
-        assert_eq!(encoded["summary"]["by_scope"][0]["key"], "filesystem");
+        assert_eq!(encoded["summary"]["by_scope"][0]["key"], "command");
+        assert_eq!(encoded["summary"]["by_scope"][1]["key"], "filesystem");
+        assert_eq!(
+            encoded["summary"]["by_selected_policy"][0]["key"],
+            "auto-review"
+        );
+        assert_eq!(encoded["summary"]["by_selected_policy"][0]["count"], 1);
+        assert_eq!(
+            encoded["summary"]["by_selected_policy"][1]["key"],
+            "on-request"
+        );
+        assert_eq!(encoded["summary"]["by_selected_policy"][1]["count"], 2);
+        assert_eq!(encoded["summary"]["by_decision_outcome"][0]["key"], "error");
+        assert_eq!(encoded["summary"]["by_decision_outcome"][0]["count"], 1);
+        assert_eq!(
+            encoded["summary"]["by_decision_outcome"][1]["key"],
+            "result"
+        );
+        assert_eq!(encoded["summary"]["by_decider"][0]["key"], "auto_review");
+        assert_eq!(encoded["summary"]["by_decider"][1]["key"], "user");
     }
 
     #[test]
