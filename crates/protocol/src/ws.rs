@@ -167,6 +167,7 @@ pub mod methods {
     pub const PROVIDER_RUNTIME_MODELS_LIST: &str = "provider_runtime.models.list";
     pub const PROVIDER_RUNTIME_MODEL_PROVIDER_CAPABILITIES_READ: &str =
         "provider_runtime.model_provider.capabilities.read";
+    pub const PROVIDER_RUNTIME_SLASH_COMMANDS_LIST: &str = "provider_runtime.slash_commands.list";
     pub const PROVIDER_RUNTIME_LIFECYCLE: &str = "provider_runtime.lifecycle";
     pub const PROVIDER_RUNTIME_REQUEST: &str = "provider_runtime.request";
     pub const PROVIDER_RUNTIME_SERVER_REQUESTS_LIST: &str = "provider_runtime.server_requests.list";

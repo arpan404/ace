@@ -1,4 +1,5 @@
 use ace_core::ProviderKind;
+use ace_provider_commands::ProviderSlashCommand;
 use ace_runtime::{
     host_tools::HostToolDescriptor,
     models::{ProviderModelCatalog, ProviderModelProviderCapabilities},
@@ -558,6 +559,25 @@ pub struct ProviderRuntimeModelProviderCapabilitiesReadResponse {
     pub runtime_id: String,
     pub display_name: String,
     pub capabilities: ProviderModelProviderCapabilities,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ProviderRuntimeSlashCommandsListRequest {
+    pub provider: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeProviderSlashCommands {
+    pub provider: ProviderKind,
+    pub runtime_id: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub commands: Vec<ProviderSlashCommand>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeSlashCommandsListResponse {
+    pub providers: Vec<ProviderRuntimeProviderSlashCommands>,
 }
 
 fn default_provider_lifecycle_grace_ms() -> u64 {

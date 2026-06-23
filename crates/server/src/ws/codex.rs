@@ -41,10 +41,12 @@ use ace_protocol::{
         ProviderRuntimeOperationsListRequest, ProviderRuntimeOperationsListResponse,
         ProviderRuntimeProviderFeatures, ProviderRuntimeProviderInfo,
         ProviderRuntimeProviderOperation, ProviderRuntimeProviderOperations,
-        ProviderRuntimeProviderState, ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
-        ProviderRuntimeRawEventMode, ProviderRuntimeRawEventSummary,
-        ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
-        ProviderRuntimeRequest, ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
+        ProviderRuntimeProviderSlashCommands, ProviderRuntimeProviderState,
+        ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList, ProviderRuntimeRawEventMode,
+        ProviderRuntimeRawEventSummary, ProviderRuntimeRecentEventsRequest,
+        ProviderRuntimeRecentEventsResponse, ProviderRuntimeRequest,
+        ProviderRuntimeSlashCommandsListRequest, ProviderRuntimeSlashCommandsListResponse,
+        ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
         ProviderRuntimeStateSource, ProviderRuntimeStatusListRequest,
         ProviderRuntimeStatusListResponse, ProviderRuntimeSubscribeRequest,
         ProviderServerRequestAudit, ProviderServerRequestDecisionRecord,
@@ -56,6 +58,7 @@ use ace_protocol::{
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
+use ace_provider_commands::provider_fallback_slash_commands;
 use ace_runtime::threads::{
     ApprovalRetryRecord, ExecutionLocation, ForkPoint, GoalState, GoalStatus, HandoffPlan,
     HandoffStatus, PlanImplementationMode, PlanImplementationRecord, SideChat, TurnMode,
@@ -1242,6 +1245,24 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             raw_capabilities,
                         ),
                     },
+                )?)
+            }
+            methods::PROVIDER_RUNTIME_SLASH_COMMANDS_LIST => {
+                let request =
+                    serde_json::from_value::<ProviderRuntimeSlashCommandsListRequest>(payload)?;
+                let providers =
+                    self.provider_runtime_filter(request.provider, "slash command list")?;
+                let providers = providers
+                    .into_iter()
+                    .map(|provider| ProviderRuntimeProviderSlashCommands {
+                        provider,
+                        runtime_id: provider.runtime_id().to_string(),
+                        display_name: provider.display_name().to_string(),
+                        commands: provider_fallback_slash_commands(Some(provider)),
+                    })
+                    .collect();
+                Ok(serde_json::to_value(
+                    ProviderRuntimeSlashCommandsListResponse { providers },
                 )?)
             }
             methods::PROVIDER_RUNTIME_LIFECYCLE => {
@@ -10307,6 +10328,84 @@ mod tests {
             serde_json::from_str(&codex_only).expect("filtered features response");
         let WsServerPayload::Result { body } = codex_only.payload else {
             panic!("expected filtered provider feature list");
+        };
+        assert_eq!(body["providers"].as_array().expect("providers").len(), 1);
+        assert_eq!(body["providers"][0]["runtime_id"], "codex");
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_lists_provider_slash_commands_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-slash-commands",
+                    "method": methods::PROVIDER_RUNTIME_SLASH_COMMANDS_LIST,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse =
+            serde_json::from_str(&response).expect("slash command response");
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected slash command list");
+        };
+
+        let providers = body["providers"].as_array().expect("providers");
+        let codex = providers
+            .iter()
+            .find(|provider| provider["runtime_id"] == "codex")
+            .expect("codex commands");
+        for expected in [
+            "plugins", "apps", "mcp", "plan", "fork", "side", "review", "ps",
+        ] {
+            assert!(
+                codex["commands"]
+                    .as_array()
+                    .expect("codex commands")
+                    .iter()
+                    .any(|command| command["name"] == expected && command["kind"] == "provider"),
+                "missing Codex command {expected}"
+            );
+        }
+        assert!(
+            codex["commands"]
+                .as_array()
+                .expect("codex commands")
+                .iter()
+                .any(|command| command["name"] == "plan" && command["input_hint"] == "<prompt>")
+        );
+
+        let ace = providers
+            .iter()
+            .find(|provider| provider["runtime_id"] == "ace")
+            .expect("ace commands");
+        assert!(ace["commands"].as_array().expect("ace commands").is_empty());
+
+        let filtered = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "codex-slash-commands",
+                    "method": methods::PROVIDER_RUNTIME_SLASH_COMMANDS_LIST,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let filtered: WsServerResponse =
+            serde_json::from_str(&filtered).expect("filtered slash command response");
+        let WsServerPayload::Result { body } = filtered.payload else {
+            panic!("expected filtered slash command list");
         };
         assert_eq!(body["providers"].as_array().expect("providers").len(), 1);
         assert_eq!(body["providers"][0]["runtime_id"], "codex");

@@ -141,10 +141,19 @@ dependencies = [
  "ace-core",
  "ace-lsp",
  "ace-project",
+ "ace-provider-commands",
  "ace-runtime",
  "ace-workspace",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "ace-provider-commands"
+version = "0.1.0"
+dependencies = [
+ "ace-core",
+ "serde",
 ]
 
 [[package]]
@@ -174,6 +183,7 @@ dependencies = [
  "ace-process",
  "ace-project",
  "ace-protocol",
+ "ace-provider-commands",
  "ace-runtime",
  "ace-terminal",
  "ace-workspace",

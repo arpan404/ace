@@ -4671,6 +4671,16 @@ mod tests {
         plugin_state.name = Some("browser".to_string());
         plugin_state.metadata = json!({ "surface": "plugin", "source": "plugin_marketplace" });
 
+        let mut app_state =
+            runtime_signal(RuntimeSignalKind::ProviderStateUpdated, "app/list/updated");
+        app_state.status = Some("ready".to_string());
+        app_state.name = Some("browser".to_string());
+        app_state.metadata = json!({
+            "surface": "app",
+            "connector": "openai-bundled/browser",
+            "configured": true
+        });
+
         let mut realtime_initial = runtime_signal(
             RuntimeSignalKind::RealtimeSessionUpdated,
             "thread/realtime/started",
@@ -4749,6 +4759,9 @@ mod tests {
                 signal: Box::new(plugin_state),
             },
             ProviderEvent::RuntimeSignal {
+                signal: Box::new(app_state),
+            },
+            ProviderEvent::RuntimeSignal {
                 signal: Box::new(realtime_initial),
             },
             ProviderEvent::RuntimeSignal {
@@ -4782,7 +4795,7 @@ mod tests {
         );
 
         let snapshot = state.snapshot();
-        assert_eq!(snapshot.provider_states.len(), 3);
+        assert_eq!(snapshot.provider_states.len(), 4);
         let account_state = snapshot
             .provider_states
             .iter()
@@ -4808,6 +4821,16 @@ mod tests {
         assert_eq!(plugin_state.name.as_deref(), Some("browser"));
         assert_eq!(plugin_state.status, "installed");
         assert_eq!(plugin_state.metadata["source"], "plugin_marketplace");
+
+        let app_state = snapshot
+            .provider_states
+            .iter()
+            .find(|state| state.metadata["surface"] == "app")
+            .expect("app state");
+        assert_eq!(app_state.name.as_deref(), Some("browser"));
+        assert_eq!(app_state.status, "ready");
+        assert_eq!(app_state.metadata["connector"], "openai-bundled/browser");
+        assert_eq!(app_state.metadata["configured"], true);
 
         assert_eq!(snapshot.realtime_sessions.len(), 1);
         assert_eq!(snapshot.realtime_sessions[0].status, "error");

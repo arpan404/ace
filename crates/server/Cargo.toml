@@ -15,6 +15,7 @@ ace-lsp.workspace = true
 ace-persistence.workspace = true
 ace-platform.workspace = true
 ace-process.workspace = true
+ace-provider-commands.workspace = true
 ace-project.workspace = true
 ace-protocol.workspace = true
 ace-runtime.workspace = true

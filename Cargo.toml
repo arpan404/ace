@@ -10,6 +10,7 @@ members = [
   "crates/persistence",
   "crates/platform",
   "crates/process",
+  "crates/provider_commands",
   "crates/project",
   "crates/protocol",
   "crates/runtime",
@@ -34,6 +35,7 @@ ace-lsp = { path = "crates/lsp" }
 ace-persistence = { path = "crates/persistence" }
 ace-platform = { path = "crates/platform" }
 ace-process = { path = "crates/process" }
+ace-provider-commands = { path = "crates/provider_commands" }
 ace-project = { path = "crates/project" }
 ace-protocol = { path = "crates/protocol" }
 ace-runtime = { path = "crates/runtime" }
