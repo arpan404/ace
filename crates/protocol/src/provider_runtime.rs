@@ -23,6 +23,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 pub const PROVIDER_RUNTIME_EVENT_TOPIC: &str = "provider_runtime.event";
 pub const PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT: usize = 1_000;
+pub const PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT: usize = 1_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeSubscribeRequest {
@@ -694,6 +695,11 @@ fn default_server_requests_limit() -> usize {
     100
 }
 
+#[must_use]
+pub fn capped_provider_server_requests_limit(limit: usize) -> usize {
+    usize::min(limit, PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderServerRequestStatusFilter {
@@ -747,6 +753,10 @@ pub struct ProviderServerRequestRecord {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderServerRequestsListResponse {
+    pub requested_limit: usize,
+    pub effective_limit: usize,
+    pub read_limit: usize,
+    pub max_limit: usize,
     pub requests: Vec<ProviderServerRequestRecord>,
 }
 
@@ -2431,10 +2441,36 @@ mod tests {
         assert_eq!(request.scope.as_deref(), Some("filesystem"));
         assert_eq!(request.kind, Some(ServerRequestKind::FileChangeApproval));
         assert_eq!(request.limit, 25);
+        assert_eq!(
+            capped_provider_server_requests_limit(usize::MAX),
+            PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
+        );
 
         let encoded = serde_json::to_value(request).expect("encode request");
         assert_eq!(encoded["kind"], "file_change_approval");
         assert_eq!(encoded["thread_id"], "thread-2");
+
+        let response = ProviderServerRequestsListResponse {
+            requested_limit: usize::MAX,
+            effective_limit: capped_provider_server_requests_limit(usize::MAX),
+            read_limit: PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT,
+            max_limit: PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT,
+            requests: Vec::new(),
+        };
+        let encoded = serde_json::to_value(response).expect("encode response");
+        assert_eq!(encoded["requested_limit"], usize::MAX);
+        assert_eq!(
+            encoded["effective_limit"],
+            PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
+        );
+        assert_eq!(
+            encoded["read_limit"],
+            PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
+        );
+        assert_eq!(
+            encoded["max_limit"],
+            PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
+        );
     }
 
     #[test]

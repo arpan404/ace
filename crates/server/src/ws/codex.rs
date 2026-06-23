@@ -27,12 +27,13 @@ use ace_protocol::{
     git::GitWorktreeCreateRequest,
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT,
-        ProviderHostToolInvokeServerRequest, ProviderHostToolsListResponse,
-        ProviderRuntimeAdapterValidateRequest, ProviderRuntimeAdapterValidateResponse,
-        ProviderRuntimeContractReport, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
-        ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
-        ProviderRuntimeFeaturesListResponse, ProviderRuntimeLifecycleRequest,
-        ProviderRuntimeLifecycleResponse, ProviderRuntimeModelProviderCapabilitiesReadRequest,
+        PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT, ProviderHostToolInvokeServerRequest,
+        ProviderHostToolsListResponse, ProviderRuntimeAdapterValidateRequest,
+        ProviderRuntimeAdapterValidateResponse, ProviderRuntimeContractReport,
+        ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeEventRecord,
+        ProviderRuntimeFeaturesListRequest, ProviderRuntimeFeaturesListResponse,
+        ProviderRuntimeLifecycleRequest, ProviderRuntimeLifecycleResponse,
+        ProviderRuntimeModelProviderCapabilitiesReadRequest,
         ProviderRuntimeModelProviderCapabilitiesReadResponse, ProviderRuntimeModelsListRequest,
         ProviderRuntimeModelsListResponse, ProviderRuntimeOperationGateResolution,
         ProviderRuntimeOperationGateStatus, ProviderRuntimeOperationParams,
@@ -51,7 +52,7 @@ use ace_protocol::{
         ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
         ProviderServerRequestsListResponse, capped_provider_runtime_events_limit,
-        projection_deltas_for_events,
+        capped_provider_server_requests_limit, projection_deltas_for_events,
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
@@ -1303,6 +1304,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUESTS_LIST => {
                 let request = serde_json::from_value::<ProviderServerRequestsListRequest>(payload)?;
+                let effective_limit = capped_provider_server_requests_limit(request.limit);
+                let read_limit = provider_server_request_read_limit(&request, effective_limit);
                 let status = request.status.map(|status| match status {
                     ProviderServerRequestStatusFilter::Pending => {
                         ProviderServerRequestStatus::Pending
@@ -1315,17 +1318,17 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     .provider_events
                     .lock()
                     .expect("provider event log")
-                    .server_requests(
-                        request.provider.as_deref(),
-                        status,
-                        provider_server_request_read_limit(&request),
-                    )?
+                    .server_requests(request.provider.as_deref(), status, read_limit)?
                     .into_iter()
                     .filter(|record| provider_server_request_matches_filters(record, &request))
-                    .take(request.limit)
+                    .take(effective_limit)
                     .map(provider_server_request_record_to_protocol)
                     .collect();
                 Ok(serde_json::to_value(ProviderServerRequestsListResponse {
+                    requested_limit: request.limit,
+                    effective_limit,
+                    read_limit,
+                    max_limit: PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT,
                     requests,
                 })?)
             }
@@ -3402,14 +3405,17 @@ fn provider_server_request_matches_filters(
     true
 }
 
-fn provider_server_request_read_limit(filter: &ProviderServerRequestsListRequest) -> usize {
-    if filter.limit == 0 {
+fn provider_server_request_read_limit(
+    filter: &ProviderServerRequestsListRequest,
+    effective_limit: usize,
+) -> usize {
+    if effective_limit == 0 {
         return 0;
     }
     if filter.thread_id.is_some() || filter.scope.is_some() || filter.kind.is_some() {
-        1_000
+        PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
     } else {
-        filter.limit
+        effective_limit
     }
 }
 
@@ -7738,6 +7744,16 @@ mod tests {
         let WsServerPayload::Result { body } = inactive_file.payload else {
             panic!("expected inactive file result");
         };
+        assert_eq!(body["requested_limit"], 1);
+        assert_eq!(body["effective_limit"], 1);
+        assert_eq!(
+            body["read_limit"],
+            PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
+        );
+        assert_eq!(
+            body["max_limit"],
+            PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
+        );
         let requests = body["requests"].as_array().expect("requests");
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0]["request_id"], "2");
@@ -7767,6 +7783,12 @@ mod tests {
         let WsServerPayload::Result { body } = command_requests.payload else {
             panic!("expected command requests result");
         };
+        assert_eq!(body["requested_limit"], 10);
+        assert_eq!(body["effective_limit"], 10);
+        assert_eq!(
+            body["read_limit"],
+            PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
+        );
         let mut request_ids = body["requests"]
             .as_array()
             .expect("requests")
@@ -7775,6 +7797,39 @@ mod tests {
             .collect::<Vec<_>>();
         request_ids.sort_unstable();
         assert_eq!(request_ids, vec!["1", "3"]);
+
+        let capped = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "pending-capped",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUESTS_LIST,
+                    "payload": {
+                        "provider": "codex",
+                        "status": "pending",
+                        "limit": PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT + 10
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let capped: WsServerResponse = serde_json::from_str(&capped).expect("capped response");
+        let WsServerPayload::Result { body } = capped.payload else {
+            panic!("expected capped result");
+        };
+        assert_eq!(
+            body["requested_limit"],
+            PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT + 10
+        );
+        assert_eq!(
+            body["effective_limit"],
+            PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
+        );
+        assert_eq!(
+            body["read_limit"],
+            PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT
+        );
+        assert_eq!(body["requests"].as_array().expect("requests").len(), 3);
 
         let empty = state
             .dispatch_text(
