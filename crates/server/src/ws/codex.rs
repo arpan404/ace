@@ -1549,13 +1549,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT => {
                 let request = serde_json::from_value::<ProviderServerRequestResult>(payload)?;
-                let provider_kind =
-                    ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
-                        WsDispatchError::UnknownMethod(format!(
-                            "unknown provider `{}` for server request result",
-                            request.provider
-                        ))
-                    })?;
+                let provider_kind = ProviderKind::from_runtime_id(&request.provider).ok_or(
+                    ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
+                        provider: ProviderKind::Ace,
+                    },
+                )?;
+                self.providers.status(provider_kind).await?;
                 let decision_context = self.server_request_decision_context(
                     &request.provider,
                     &request.request_id,
@@ -1606,13 +1605,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_ERROR => {
                 let request = serde_json::from_value::<ProviderServerRequestError>(payload)?;
-                let provider_kind =
-                    ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
-                        WsDispatchError::UnknownMethod(format!(
-                            "unknown provider `{}` for server request error",
-                            request.provider
-                        ))
-                    })?;
+                let provider_kind = ProviderKind::from_runtime_id(&request.provider).ok_or(
+                    ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
+                        provider: ProviderKind::Ace,
+                    },
+                )?;
+                self.providers.status(provider_kind).await?;
                 let decision_context = self.server_request_decision_context(
                     &request.provider,
                     &request.request_id,
@@ -4392,6 +4390,7 @@ fn codex_versioned_tool_transport(codex_method: &str) -> Option<ToolTransport> {
         "thread/realtime/appendAudio"
         | "thread/realtime/appendSpeech"
         | "thread/realtime/appendText"
+        | "thread/realtime/listVoices"
         | "thread/realtime/start"
         | "thread/realtime/stop" => Some(ToolTransport::Process),
         "mcpServerStatus/list"
@@ -4486,6 +4485,7 @@ fn codex_versioned_tool_operation(codex_method: &str) -> String {
         "thread/realtime/appendAudio" => "realtime_append_audio",
         "thread/realtime/appendSpeech" => "realtime_append_speech",
         "thread/realtime/appendText" => "realtime_append_text",
+        "thread/realtime/listVoices" => "realtime_list_voices",
         "thread/realtime/start" => "realtime_start",
         "thread/realtime/stop" => "realtime_stop",
         "remoteControl/client/list" => "remote_control_client_list",
@@ -4554,6 +4554,7 @@ fn codex_versioned_tool_item_type(codex_method: &str) -> &'static str {
         "thread/realtime/appendAudio"
         | "thread/realtime/appendSpeech"
         | "thread/realtime/appendText"
+        | "thread/realtime/listVoices"
         | "thread/realtime/start"
         | "thread/realtime/stop" => "realtime",
         "mcpServerStatus/list"
@@ -8814,6 +8815,10 @@ mod tests {
     #[tokio::test]
     async fn provider_runtime_lists_and_routes_registered_providers() {
         let backend = Arc::new(FakeCodexBackend::default());
+        *backend
+            .supported_client_request_methods
+            .lock()
+            .expect("supported methods") = Some(vec!["command/exec".to_string()]);
         let runner = Arc::new(FakeRunner);
         let state = WsApiState::new_services(
             GitService::new(GitClient::with_runner(runner.clone())),
@@ -11647,6 +11652,11 @@ mod tests {
                 methods::CODEX_THREAD_REALTIME_APPEND_TEXT,
                 json!({ "threadId": "thread-1", "text": "hello" }),
             ),
+            (
+                "codex-realtime-voices",
+                methods::CODEX_THREAD_REALTIME_LIST_VOICES,
+                json!({}),
+            ),
             ("codex-skills-list", methods::CODEX_SKILLS_LIST, json!({})),
             (
                 "codex-skill-read",
@@ -11707,7 +11717,7 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "semantic-tool-events",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
-                    "payload": { "provider": "codex", "limit": 38 }
+                    "payload": { "provider": "codex", "limit": 40 }
                 })
                 .to_string(),
             )
@@ -11717,7 +11727,7 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 38);
+        assert_eq!(records.len(), 40);
 
         let file_completed = records
             .iter()
@@ -11827,10 +11837,32 @@ mod tests {
                         == "thread/realtime/appendText"
             })
             .expect("completed realtime event");
-        assert_eq!(realtime_completed["event"]["tool"]["surface"], "terminal");
+        assert_eq!(realtime_completed["event"]["tool"]["surface"], "realtime");
+        assert_eq!(
+            realtime_completed["event"]["tool"]["action"],
+            "realtime.append_text"
+        );
         assert_eq!(
             realtime_completed["event"]["tool"]["display"]["title"],
-            "Wrote to terminal stdin"
+            "Appended realtime input thread-1"
+        );
+
+        let voices_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["provider"]["raw_payload"]["provider_method"]
+                        == "thread/realtime/listVoices"
+            })
+            .expect("completed realtime voices event");
+        assert_eq!(voices_completed["event"]["tool"]["surface"], "realtime");
+        assert_eq!(
+            voices_completed["event"]["tool"]["action"],
+            "realtime.list_voices"
+        );
+        assert_eq!(
+            voices_completed["event"]["tool"]["display"]["title"],
+            "Listed realtime voices"
         );
 
         let mcp_started = records

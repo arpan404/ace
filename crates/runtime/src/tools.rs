@@ -32,6 +32,7 @@ pub enum ToolSurface {
     Image,
     Subagent,
     Plan,
+    Realtime,
     Handoff,
     Review,
     Skill,
@@ -135,6 +136,18 @@ pub enum ToolActionKind {
     PlanFork,
     #[serde(rename = "plan.side_implementation")]
     PlanSideImplementation,
+    #[serde(rename = "realtime.start")]
+    RealtimeStart,
+    #[serde(rename = "realtime.stop")]
+    RealtimeStop,
+    #[serde(rename = "realtime.append_text")]
+    RealtimeAppendText,
+    #[serde(rename = "realtime.append_speech")]
+    RealtimeAppendSpeech,
+    #[serde(rename = "realtime.append_audio")]
+    RealtimeAppendAudio,
+    #[serde(rename = "realtime.list_voices")]
+    RealtimeListVoices,
     #[serde(rename = "handoff.agent")]
     HandoffAgent,
     #[serde(rename = "handoff.location")]
@@ -483,6 +496,9 @@ fn infer_surface_action(
     }
     if let Some(mapped) = computer_action(input.transport, facts, &input.provider.raw_args) {
         return (ToolSurface::Computer, mapped);
+    }
+    if let Some(mapped) = realtime_action(facts) {
+        return (ToolSurface::Realtime, mapped);
     }
     if let Some(mapped) = terminal_action(input.transport, facts, &input.provider.raw_args) {
         return (ToolSurface::Terminal, mapped);
@@ -844,6 +860,27 @@ fn terminal_action(
     }
 }
 
+fn realtime_action(facts: &ToolFacts) -> Option<ToolActionKind> {
+    if !facts.haystack.contains("realtime") && !facts.haystack.contains("real time") {
+        return None;
+    }
+    if facts.haystack.contains("list voices") || facts.haystack.contains("listvoices") {
+        Some(ToolActionKind::RealtimeListVoices)
+    } else if facts.haystack.contains("append audio") || facts.haystack.contains("appendaudio") {
+        Some(ToolActionKind::RealtimeAppendAudio)
+    } else if facts.haystack.contains("append speech") || facts.haystack.contains("appendspeech") {
+        Some(ToolActionKind::RealtimeAppendSpeech)
+    } else if facts.haystack.contains("append text") || facts.haystack.contains("appendtext") {
+        Some(ToolActionKind::RealtimeAppendText)
+    } else if facts.haystack.contains("start") {
+        Some(ToolActionKind::RealtimeStart)
+    } else if facts.haystack.contains("stop") {
+        Some(ToolActionKind::RealtimeStop)
+    } else {
+        Some(ToolActionKind::RealtimeStart)
+    }
+}
+
 fn file_action(haystack: &str) -> Option<ToolActionKind> {
     if haystack.contains("fuzzyfilesearch")
         || haystack.contains("file search")
@@ -1064,6 +1101,18 @@ fn infer_target(
             string_at_deep(args, "threadId").as_deref(),
             string_at_deep(args, "thread_id").as_deref(),
             string_at_deep(args, "prompt").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Text,
+            label,
+        }),
+        ToolSurface::Realtime => first_string([
+            string_at_deep(args, "voice").as_deref(),
+            string_at_deep(args, "voiceId").as_deref(),
+            string_at_deep(args, "voice_id").as_deref(),
+            string_at_deep(args, "threadId").as_deref(),
+            string_at_deep(args, "thread_id").as_deref(),
+            string_at_deep(args, "text").as_deref(),
         ])
         .map(|label| ToolTarget {
             kind: ToolTargetKind::Text,
@@ -1406,6 +1455,8 @@ fn display_for(
             ToolActionKind::PlanSideImplementation => format!("{verb} side implementation"),
             _ => format!("{verb} plan"),
         },
+        (ToolSurface::Realtime, Some(target)) => format!("{verb} {noun} {target}"),
+        (ToolSurface::Realtime, None) => format!("{verb} {noun}"),
         (ToolSurface::Handoff, Some(target)) => format!("{verb} to {target}"),
         (ToolSurface::Handoff, None) => format!("{verb} handoff"),
         (ToolSurface::Review, Some(target)) => format!("{verb} review for {target}"),
@@ -1484,6 +1535,12 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 ToolActionKind::PlanContinue => "Continuing",
                 ToolActionKind::PlanFork => "Forking",
                 ToolActionKind::PlanSideImplementation => "Starting",
+                ToolActionKind::RealtimeStart => "Starting",
+                ToolActionKind::RealtimeStop => "Stopping",
+                ToolActionKind::RealtimeAppendText
+                | ToolActionKind::RealtimeAppendSpeech
+                | ToolActionKind::RealtimeAppendAudio => "Appending",
+                ToolActionKind::RealtimeListVoices => "Listing",
                 ToolActionKind::HandoffAgent | ToolActionKind::HandoffLocation => "Handing off",
                 ToolActionKind::ReviewStart => "Starting",
                 ToolActionKind::SkillList
@@ -1537,6 +1594,12 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             ToolActionKind::PlanContinue => "Continued",
             ToolActionKind::PlanFork => "Forked",
             ToolActionKind::PlanSideImplementation => "Started",
+            ToolActionKind::RealtimeStart => "Started",
+            ToolActionKind::RealtimeStop => "Stopped",
+            ToolActionKind::RealtimeAppendText
+            | ToolActionKind::RealtimeAppendSpeech
+            | ToolActionKind::RealtimeAppendAudio => "Appended",
+            ToolActionKind::RealtimeListVoices => "Listed",
             ToolActionKind::HandoffAgent | ToolActionKind::HandoffLocation => "Handed off",
             ToolActionKind::ReviewStart => "Started",
             ToolActionKind::SkillList | ToolActionKind::PluginList | ToolActionKind::AppList => {
@@ -1600,6 +1663,12 @@ fn noun_for(action: ToolActionKind) -> &'static str {
         ToolActionKind::PlanContinue
         | ToolActionKind::PlanFork
         | ToolActionKind::PlanSideImplementation => "plan",
+        ToolActionKind::RealtimeStart | ToolActionKind::RealtimeStop => "realtime session",
+        ToolActionKind::RealtimeAppendText | ToolActionKind::RealtimeAppendSpeech => {
+            "realtime input"
+        }
+        ToolActionKind::RealtimeAppendAudio => "realtime audio",
+        ToolActionKind::RealtimeListVoices => "realtime voices",
         ToolActionKind::HandoffAgent | ToolActionKind::HandoffLocation => "handoff",
         ToolActionKind::ReviewStart => "review",
         _ => "tool",
@@ -1653,6 +1722,7 @@ fn icon_for(surface: ToolSurface, action: ToolActionKind) -> &'static str {
         ToolSurface::Image => "image",
         ToolSurface::Subagent => "bot",
         ToolSurface::Plan => "list-checks",
+        ToolSurface::Realtime => "waveform",
         ToolSurface::Handoff => "send",
         ToolSurface::Review => "search-check",
         ToolSurface::Skill => "sparkles",
@@ -2566,6 +2636,35 @@ mod tests {
         ));
         assert_eq!(terminate.action, ToolActionKind::TerminalTerminate);
         assert_eq!(terminate.display.title, "Stopped terminal term-1");
+    }
+
+    #[test]
+    fn realtime_process_calls_do_not_render_as_terminal_tools() {
+        let append_text = normalize_tool_call(input(
+            ToolTransport::Process,
+            "realtime",
+            "thread.realtime.appendText",
+            "realtime_append_text",
+            json!({ "threadId": "thread-1", "text": "hello" }),
+        ));
+        assert_eq!(append_text.surface, ToolSurface::Realtime);
+        assert_eq!(append_text.action, ToolActionKind::RealtimeAppendText);
+        assert_eq!(
+            append_text.display.title,
+            "Appended realtime input thread-1"
+        );
+        assert_eq!(append_text.display.icon_key, "waveform");
+
+        let list_voices = normalize_tool_call(input(
+            ToolTransport::Process,
+            "realtime",
+            "thread.realtime.listVoices",
+            "realtime_list_voices",
+            json!({}),
+        ));
+        assert_eq!(list_voices.surface, ToolSurface::Realtime);
+        assert_eq!(list_voices.action, ToolActionKind::RealtimeListVoices);
+        assert_eq!(list_voices.display.title, "Listed realtime voices");
     }
 
     #[test]

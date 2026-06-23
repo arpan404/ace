@@ -2066,6 +2066,7 @@ pub mod provider {
             | ProviderAdapterOperation::ThreadRealtimeAppendAudio
             | ProviderAdapterOperation::ThreadRealtimeAppendSpeech
             | ProviderAdapterOperation::ThreadRealtimeAppendText
+            | ProviderAdapterOperation::ThreadRealtimeListVoices
             | ProviderAdapterOperation::ThreadRealtimeStart
             | ProviderAdapterOperation::ThreadRealtimeStop
             | ProviderAdapterOperation::ThreadSettingsUpdate
@@ -2142,7 +2143,9 @@ pub mod provider {
             | ProviderAdapterOperation::ThreadRealtimeAppendAudio
             | ProviderAdapterOperation::ThreadRealtimeAppendSpeech
             | ProviderAdapterOperation::ThreadRealtimeAppendText
+            | ProviderAdapterOperation::ThreadRealtimeListVoices
             | ProviderAdapterOperation::ThreadRealtimeStart
+            | ProviderAdapterOperation::ThreadRealtimeStop
             | ProviderAdapterOperation::MarketplaceAdd
             | ProviderAdapterOperation::MarketplaceRemove
             | ProviderAdapterOperation::MarketplaceUpgrade
@@ -2297,6 +2300,7 @@ pub mod provider {
                 ToolSurface::Image,
                 ToolSurface::Subagent,
                 ToolSurface::Plan,
+                ToolSurface::Realtime,
                 ToolSurface::Handoff,
                 ToolSurface::Review,
                 ToolSurface::Skill,
@@ -2351,6 +2355,12 @@ pub mod provider {
                 ToolActionKind::PlanContinue,
                 ToolActionKind::PlanFork,
                 ToolActionKind::PlanSideImplementation,
+                ToolActionKind::RealtimeStart,
+                ToolActionKind::RealtimeStop,
+                ToolActionKind::RealtimeAppendText,
+                ToolActionKind::RealtimeAppendSpeech,
+                ToolActionKind::RealtimeAppendAudio,
+                ToolActionKind::RealtimeListVoices,
                 ToolActionKind::HandoffAgent,
                 ToolActionKind::HandoffLocation,
                 ToolActionKind::ReviewStart,
@@ -3558,16 +3568,25 @@ pub mod provider {
                     ProviderAdapterRuntimeHook::HostToolRegistry,
                 ]
             );
-            assert!(codex_runtime.hooks.iter().any(|hook| {
-                hook.hook == ProviderAdapterRuntimeHook::EventSource
-                    && hook.required
-                    && !hook.available
-                    && hook.operations
-                        == vec![
-                            ProviderAdapterOperation::ProviderEvents,
-                            ProviderAdapterOperation::SemanticTools,
-                        ]
-            }));
+            let event_source_hook = codex_runtime
+                .hooks
+                .iter()
+                .find(|hook| {
+                    hook.hook == ProviderAdapterRuntimeHook::EventSource
+                        && hook.required
+                        && !hook.available
+                })
+                .expect("missing event source hook");
+            assert!(
+                event_source_hook
+                    .operations
+                    .contains(&ProviderAdapterOperation::ProviderEvents)
+            );
+            assert!(
+                event_source_hook
+                    .operations
+                    .contains(&ProviderAdapterOperation::SemanticTools)
+            );
         }
 
         #[test]

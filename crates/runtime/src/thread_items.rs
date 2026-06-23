@@ -168,6 +168,7 @@ fn text_for_thread_item(method: &str, item: &Value, params: &Value) -> Option<St
             .or_else(|| string_at(params, "summary"))
             .or_else(|| string_at(item, "text"))
             .or_else(|| string_at(item, "content"))
+            .or_else(|| string_at(item, "prompt"))
             .or_else(|| string_at(item, "summary"))
             .or_else(|| string_at(item, "delta"));
     }
