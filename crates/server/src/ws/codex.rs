@@ -21,7 +21,8 @@ use ace_protocol::{
         CodexSkillRequest, CodexSkillsConfigWriteRequest, CodexSkillsExtraRootsSetRequest,
         CodexStderrTailResponse, CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest,
         CodexThreadForkRequest, CodexThreadIdRequest, CodexThreadInjectItemsRequest,
-        CodexThreadRollbackRequest, CodexThreadSetNameRequest, CodexThreadStartRequest,
+        CodexThreadRollbackRequest, CodexThreadSearchRequest, CodexThreadSetNameRequest,
+        CodexThreadStartRequest, CodexThreadTurnsItemsListRequest, CodexThreadTurnsListRequest,
         CodexThreadUpdateMetadataRequest, CodexThreadsListRequest, CodexTurnStartRequest,
         CodexTurnSteerRequest, CodexVersionedRequest,
     },
@@ -4877,14 +4878,21 @@ fn codex_versioned_app_server_request(
         methods::CODEX_THREAD_REALTIME_STOP => {
             Some(("thread/realtime/stop", raw_or_enveloped(payload)?))
         }
-        methods::CODEX_THREAD_SEARCH => Some(("thread/search", raw_or_enveloped(payload)?)),
+        methods::CODEX_THREAD_SEARCH => Some((
+            "thread/search",
+            typed_or_enveloped::<CodexThreadSearchRequest>(payload)?,
+        )),
         methods::CODEX_THREAD_SETTINGS_UPDATE => {
             Some(("thread/settings/update", raw_or_enveloped(payload)?))
         }
-        methods::CODEX_THREAD_TURNS_ITEMS_LIST => {
-            Some(("thread/turns/items/list", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_THREAD_TURNS_LIST => Some(("thread/turns/list", raw_or_enveloped(payload)?)),
+        methods::CODEX_THREAD_TURNS_ITEMS_LIST => Some((
+            "thread/turns/items/list",
+            typed_or_enveloped::<CodexThreadTurnsItemsListRequest>(payload)?,
+        )),
+        methods::CODEX_THREAD_TURNS_LIST => Some((
+            "thread/turns/list",
+            typed_or_enveloped::<CodexThreadTurnsListRequest>(payload)?,
+        )),
         methods::CODEX_MARKETPLACE_ADD => Some((
             "marketplace/add",
             typed_or_enveloped::<CodexMarketplaceRequest>(payload)?,
@@ -5258,7 +5266,8 @@ where
     T: DeserializeOwned + Serialize,
 {
     if payload.get("params").is_some() {
-        return Ok(serde_json::from_value::<CodexVersionedRequest>(payload.clone())?.params);
+        let params = serde_json::from_value::<CodexVersionedRequest>(payload.clone())?.params;
+        return Ok(serde_json::to_value(serde_json::from_value::<T>(params)?)?);
     }
     Ok(serde_json::to_value(serde_json::from_value::<T>(
         payload.clone(),
@@ -13120,6 +13129,10 @@ mod tests {
                 json!({ "threadId": "thread-1" }),
             ),
             (
+                methods::CODEX_THREAD_TURNS_ITEMS_LIST,
+                json!({ "threadId": "thread-1", "turnId": "turn-1" }),
+            ),
+            (
                 methods::CODEX_MARKETPLACE_ADD,
                 json!({ "plugin": "browser" }),
             ),
@@ -13230,6 +13243,7 @@ mod tests {
                 "thread/search",
                 "thread/settings/update",
                 "thread/turns/list",
+                "thread/turns/items/list",
                 "marketplace/add",
                 "marketplace/remove",
                 "marketplace/upgrade",
@@ -13972,6 +13986,64 @@ mod tests {
             user_initiated_codex_params("thread/read", json!({ "threadId": "thread-1" }))
                 .expect("non-shell request does not require marker");
         assert_eq!(normal_params["threadId"], "thread-1");
+    }
+
+    #[test]
+    fn codex_thread_history_methods_use_typed_contracts_without_dropping_extra_fields() {
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_SEARCH,
+            &json!({
+                "thread_id": "thread-1",
+                "query": "plan",
+                "limit": 20,
+                "includeArchived": true
+            }),
+        )
+        .expect("typed search request")
+        .expect("thread search method");
+        assert_eq!(method, "thread/search");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["query"], "plan");
+        assert_eq!(params["limit"], 20);
+        assert_eq!(params["includeArchived"], true);
+        assert!(params.get("thread_id").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_TURNS_LIST,
+            &json!({
+                "params": {
+                    "thread_id": "thread-1",
+                    "cursor": "cursor-1",
+                    "includeItems": false
+                }
+            }),
+        )
+        .expect("typed turns list request")
+        .expect("turns list method");
+        assert_eq!(method, "thread/turns/list");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["cursor"], "cursor-1");
+        assert_eq!(params["includeItems"], false);
+        assert!(params.get("thread_id").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_TURNS_ITEMS_LIST,
+            &json!({
+                "thread_id": "thread-1",
+                "turn_id": "turn-1",
+                "limit": 50,
+                "itemTypes": ["commandExecution", "fileChange"]
+            }),
+        )
+        .expect("typed turn item list request")
+        .expect("turn item list method");
+        assert_eq!(method, "thread/turns/items/list");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["turnId"], "turn-1");
+        assert_eq!(params["limit"], 50);
+        assert_eq!(params["itemTypes"][0], "commandExecution");
+        assert!(params.get("thread_id").is_none());
+        assert!(params.get("turn_id").is_none());
     }
 
     #[test]
