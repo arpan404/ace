@@ -9,7 +9,7 @@ use crate::provider::{
 use crate::runtime_signals::{RuntimeSignalNormalizationInput, normalize_provider_runtime_signal};
 use crate::server_requests::{ServerRequestNormalizationInput, normalize_provider_server_request};
 use crate::thread_items::{ThreadItemNormalizationInput, normalize_provider_thread_item};
-use crate::threads::{AgentRuntimeSnapshot, ProviderStateRecord};
+use crate::threads::{AgentRuntimeSnapshot, AgentRuntimeState, ProviderStateRecord};
 use crate::tools::{
     ProviderServerRequestToolNormalizationInput, ProviderToolEventNormalizationInput,
     SemanticToolCall, ToolNormalizationInput, normalize_provider_server_request_tool,
@@ -107,6 +107,7 @@ pub struct AceNativeProvider {
     event_tx: mpsc::Sender<Vec<ProviderEvent>>,
     event_rx: Mutex<mpsc::Receiver<Vec<ProviderEvent>>>,
     pending_server_requests: Mutex<HashMap<String, NormalizedServerRequest>>,
+    runtime_state: Mutex<AgentRuntimeState>,
 }
 
 impl AceNativeProvider {
@@ -117,6 +118,7 @@ impl AceNativeProvider {
             event_tx,
             event_rx: Mutex::new(event_rx),
             pending_server_requests: Mutex::new(HashMap::new()),
+            runtime_state: Mutex::new(AgentRuntimeState::default()),
         }
     }
 
@@ -137,6 +139,10 @@ impl AceNativeProvider {
             });
         }
         self.track_pending_server_requests(&events).await;
+        self.runtime_state
+            .lock()
+            .await
+            .apply_provider_events(&events);
         self.event_tx
             .send(events)
             .await
@@ -768,23 +774,25 @@ impl ProviderStateSource for AceNativeProvider {
     async fn runtime_state_snapshot(&self) -> Result<AgentRuntimeSnapshot, ProviderDriverError> {
         let pending_server_requests = self.pending_server_requests.lock().await.len();
         let contract = ace_provider_adapter_contract();
-        Ok(AgentRuntimeSnapshot {
-            provider_states: vec![ProviderStateRecord {
-                provider: "ace".to_string(),
-                status: "ready".to_string(),
-                message: None,
-                name: Some("Ace native provider".to_string()),
-                metadata: json!({
-                    "runtime": "in_process",
-                    "adapter_contract": contract.version,
-                    "pending_server_requests": pending_server_requests,
-                    "event_queue_capacity": ACE_NATIVE_EVENT_QUEUE_CAPACITY,
-                    "max_event_batch_size": ACE_NATIVE_MAX_EVENT_BATCH_SIZE,
-                    "websocket_first": true,
-                }),
-            }],
-            ..AgentRuntimeSnapshot::default()
-        })
+        let mut snapshot = self.runtime_state.lock().await.snapshot();
+        snapshot.provider_states.push(ProviderStateRecord {
+            provider: "ace".to_string(),
+            status: "ready".to_string(),
+            message: None,
+            name: Some("Ace native provider".to_string()),
+            metadata: json!({
+                "runtime": "in_process",
+                "adapter_contract": contract.version,
+                "pending_server_requests": pending_server_requests,
+                "event_queue_capacity": ACE_NATIVE_EVENT_QUEUE_CAPACITY,
+                "max_event_batch_size": ACE_NATIVE_MAX_EVENT_BATCH_SIZE,
+                "websocket_first": true,
+            }),
+        });
+        snapshot
+            .provider_states
+            .sort_by(|left, right| left.provider.cmp(&right.provider));
+        Ok(snapshot)
     }
 }
 
@@ -1207,6 +1215,18 @@ mod tests {
         };
         assert_eq!(tool.display.title, "Clicked #submit in Browser");
         assert_eq!(tool.provider.raw_args, json!({ "selector": "#submit" }));
+
+        let snapshot = provider
+            .runtime_state_snapshot()
+            .await
+            .expect("runtime state snapshot");
+        assert_eq!(snapshot.tool_timeline.len(), 1);
+        assert_eq!(
+            snapshot.tool_timeline[0].display.title,
+            "Clicked #submit in Browser"
+        );
+        assert_eq!(snapshot.tool_timeline[0].surface, ToolSurface::Browser);
+        assert_eq!(snapshot.provider_states[0].provider, "ace");
     }
 
     #[tokio::test]
@@ -1557,6 +1577,26 @@ mod tests {
             request.as_ref().expect("resolved request").request_id,
             "req-result"
         );
+
+        let snapshot = provider
+            .runtime_state_snapshot()
+            .await
+            .expect("runtime state snapshot");
+        assert_eq!(snapshot.approvals.len(), 1);
+        assert_eq!(snapshot.approvals[0].request_id, "req-result");
+        assert_eq!(
+            snapshot.approvals[0].status,
+            crate::threads::ApprovalStatus::Resolved
+        );
+        assert_eq!(
+            snapshot.approvals[0]
+                .decision
+                .as_ref()
+                .expect("approval decision")
+                .payload["choice"],
+            "eng"
+        );
+        assert_eq!(snapshot.provider_states[0].provider, "ace");
 
         let error = provider
             .respond_server_request_result("req-result".to_string(), json!({ "choice": "design" }))
