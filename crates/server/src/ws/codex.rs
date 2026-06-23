@@ -4382,6 +4382,14 @@ mod tests {
     }
 
     fn pending_codex_dynamic_tool_request() -> ProviderEvent {
+        pending_codex_dynamic_tool_request_for_tool("ace_browser")
+    }
+
+    fn pending_unknown_dynamic_tool_request() -> ProviderEvent {
+        pending_codex_dynamic_tool_request_for_tool("unknown_tool")
+    }
+
+    fn pending_codex_dynamic_tool_request_for_tool(tool_name: &str) -> ProviderEvent {
         ProviderEvent::ServerRequest {
             request: Box::new(NormalizedServerRequest {
                 kind: ServerRequestKind::DynamicToolCall,
@@ -4395,7 +4403,7 @@ mod tests {
                 prompt: Some("Open local app?".to_string()),
                 selected_policy: Some("user".to_string()),
                 detail: ServerRequestDetail {
-                    tool_name: Some("ace_browser".to_string()),
+                    tool_name: Some(tool_name.to_string()),
                     operation: Some("navigate_tab_url".to_string()),
                     arguments: Some(json!({
                         "operation": "navigate_tab_url",
@@ -4404,7 +4412,7 @@ mod tests {
                     ..Default::default()
                 },
                 metadata: json!({
-                    "toolName": "ace_browser",
+                    "toolName": tool_name,
                     "arguments": {
                         "operation": "navigate_tab_url",
                         "url": "http://localhost:5173"
@@ -4416,7 +4424,7 @@ mod tests {
                     schema_version: Some("2026-01-01".to_string()),
                     raw_payload: json!({
                         "toolCallId": "tool-1",
-                        "toolName": "ace_browser",
+                        "toolName": tool_name,
                         "arguments": {
                             "operation": "navigate_tab_url",
                             "url": "http://localhost:5173"
@@ -10942,6 +10950,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_runtime_lists_default_bridge_host_tools_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        );
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "default-host-tools-list",
+                    "method": methods::PROVIDER_RUNTIME_HOST_TOOLS_LIST,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse =
+            serde_json::from_str(&response).expect("default host tools list response");
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected default host tools list result");
+        };
+        let tools = body["tools"].as_array().expect("tools");
+        let browser = tools
+            .iter()
+            .find(|tool| tool["name"] == "browser.bridge")
+            .expect("browser bridge");
+        assert_eq!(browser["transport"], "browser_bridge");
+        assert_eq!(browser["surface"], "browser");
+        assert!(
+            browser["aliases"]
+                .as_array()
+                .expect("aliases")
+                .contains(&json!("ace_browser"))
+        );
+        assert!(
+            browser["capabilities"]
+                .as_array()
+                .expect("capabilities")
+                .contains(&json!({
+                    "key": "host_tool.bridge.status.unavailable",
+                    "version": 1
+                }))
+        );
+
+        let computer = tools
+            .iter()
+            .find(|tool| tool["name"] == "computer.bridge")
+            .expect("computer bridge");
+        assert_eq!(computer["transport"], "computer_bridge");
+        assert_eq!(computer["surface"], "computer");
+        assert!(
+            computer["aliases"]
+                .as_array()
+                .expect("aliases")
+                .contains(&json!("computer_use"))
+        );
+    }
+
+    #[tokio::test]
     async fn provider_runtime_invokes_host_tool_for_pending_codex_server_request() {
         let backend = Arc::new(FakeCodexBackend::default());
         let runner = Arc::new(FakeRunner);
@@ -11056,7 +11125,7 @@ mod tests {
             .provider_events
             .lock()
             .expect("provider events")
-            .append_batch("codex", &[pending_codex_dynamic_tool_request()])
+            .append_batch("codex", &[pending_unknown_dynamic_tool_request()])
             .expect("append server request");
 
         let response = state
@@ -11086,7 +11155,7 @@ mod tests {
             body["decision"]["payload"]["message"]
                 .as_str()
                 .expect("message")
-                .contains("ace_browser")
+                .contains("unknown_tool")
         );
         assert_eq!(
             body["decision"]["audit"]["metadata"]["host_tool"]["error"]["kind"],
@@ -11094,7 +11163,7 @@ mod tests {
         );
         assert_eq!(
             body["decision"]["audit"]["metadata"]["host_tool"]["invocation"]["tool_name"],
-            "ace_browser"
+            "unknown_tool"
         );
         assert_eq!(
             backend
@@ -11105,7 +11174,7 @@ mod tests {
             [ServerRequestResponse::Error {
                 request_id: 42,
                 code: -32012,
-                message: "host tool `ace_browser` is not registered".to_string()
+                message: "host tool `unknown_tool` is not registered".to_string()
             }]
         );
     }

@@ -113,9 +113,17 @@ impl HostToolInvocation {
         provider.thread_id = self.thread_id.clone();
         provider.server_name = self.server_name.clone();
         provider.tool_name = Some(self.tool_name.clone());
-        provider.operation = descriptor
-            .and_then(|descriptor| descriptor.actions.first())
-            .map(|action| operation_for_action(*action).to_string())
+        provider.operation = operation_from_arguments(&self.arguments)
+            .or_else(|| {
+                string_at_deep(&self.raw_payload, "operation")
+                    .or_else(|| string_at_deep(&self.raw_payload, "op"))
+                    .or_else(|| string_at_deep(&self.raw_payload, "action"))
+            })
+            .or_else(|| {
+                descriptor
+                    .and_then(|descriptor| descriptor.actions.first())
+                    .map(|action| operation_for_action(*action).to_string())
+            })
             .or_else(|| Some(self.tool_name.clone()));
         provider.raw_args = self.arguments.clone();
         provider.raw_payload = self.raw_payload.clone();
@@ -176,6 +184,25 @@ impl HostToolRegistry {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    #[must_use]
+    pub fn with_default_bridge_contracts() -> Self {
+        let mut registry = Self::new();
+        registry
+            .register_default_bridge_contracts()
+            .expect("default bridge host tool contracts are valid");
+        registry
+    }
+
+    pub fn register_default_bridge_contracts(&mut self) -> Result<(), HostToolError> {
+        self.register(Arc::new(UnavailableHostTool::new(
+            browser_bridge_descriptor(),
+        )))?;
+        self.register(Arc::new(UnavailableHostTool::new(
+            computer_bridge_descriptor(),
+        )))?;
+        Ok(())
     }
 
     pub fn register(&mut self, handler: DynHostToolHandler) -> Result<(), HostToolError> {
@@ -274,6 +301,35 @@ impl HostToolRegistry {
         let descriptor = handler.descriptor();
         enforce_argument_limit(&invocation.arguments, descriptor.max_argument_bytes)?;
         handler.invoke(invocation).await
+    }
+}
+
+struct UnavailableHostTool {
+    descriptor: HostToolDescriptor,
+}
+
+impl UnavailableHostTool {
+    fn new(descriptor: HostToolDescriptor) -> Self {
+        Self { descriptor }
+    }
+}
+
+#[async_trait]
+impl HostToolHandler for UnavailableHostTool {
+    fn descriptor(&self) -> HostToolDescriptor {
+        self.descriptor.clone()
+    }
+
+    async fn invoke(
+        &self,
+        _invocation: HostToolInvocation,
+    ) -> Result<HostToolResult, HostToolError> {
+        Err(HostToolError::Handler {
+            message: format!(
+                "{} bridge is not connected",
+                serde_name(self.descriptor.surface)
+            ),
+        })
     }
 }
 
@@ -399,6 +455,92 @@ fn operation_for_action(action: ToolActionKind) -> &'static str {
         ToolActionKind::AppConfigure => "app_configure",
         ToolActionKind::ToolRun => "tool",
     }
+}
+
+fn operation_from_arguments(arguments: &Value) -> Option<String> {
+    string_at_deep(arguments, "operation")
+        .or_else(|| string_at_deep(arguments, "op"))
+        .or_else(|| string_at_deep(arguments, "action"))
+}
+
+fn browser_bridge_descriptor() -> HostToolDescriptor {
+    let mut descriptor = HostToolDescriptor::new(
+        "browser.bridge",
+        ToolTransport::BrowserBridge,
+        ToolSurface::Browser,
+    );
+    descriptor.aliases = vec![
+        "ace_browser".to_string(),
+        "browser".to_string(),
+        "browser_use".to_string(),
+    ];
+    descriptor.actions = vec![
+        ToolActionKind::BrowserNavigate,
+        ToolActionKind::BrowserClick,
+        ToolActionKind::BrowserType,
+        ToolActionKind::BrowserScroll,
+        ToolActionKind::BrowserKey,
+        ToolActionKind::BrowserScreenshot,
+        ToolActionKind::BrowserInspect,
+        ToolActionKind::BrowserLogs,
+        ToolActionKind::BrowserConsole,
+        ToolActionKind::BrowserTab,
+        ToolActionKind::BrowserClipboard,
+        ToolActionKind::BrowserWait,
+        ToolActionKind::BrowserViewport,
+        ToolActionKind::BrowserZoom,
+    ];
+    descriptor.capabilities = vec![
+        ProviderCapability {
+            key: "host_tool.browser.tabs".to_string(),
+            version: 1,
+        },
+        ProviderCapability {
+            key: "host_tool.bridge.status.unavailable".to_string(),
+            version: 1,
+        },
+    ];
+    descriptor.description =
+        Some("App-owned Browser bridge contract; handler attaches from the UI process".to_string());
+    descriptor.requires_user_approval = true;
+    descriptor
+}
+
+fn computer_bridge_descriptor() -> HostToolDescriptor {
+    let mut descriptor = HostToolDescriptor::new(
+        "computer.bridge",
+        ToolTransport::ComputerBridge,
+        ToolSurface::Computer,
+    );
+    descriptor.aliases = vec![
+        "ace_computer".to_string(),
+        "computer".to_string(),
+        "computer_use".to_string(),
+        "computer-use".to_string(),
+    ];
+    descriptor.actions = vec![
+        ToolActionKind::ComputerClick,
+        ToolActionKind::ComputerType,
+        ToolActionKind::ComputerScroll,
+        ToolActionKind::ComputerKey,
+        ToolActionKind::ComputerScreenshot,
+        ToolActionKind::ComputerApp,
+    ];
+    descriptor.capabilities = vec![
+        ProviderCapability {
+            key: "host_tool.computer.accessibility".to_string(),
+            version: 1,
+        },
+        ProviderCapability {
+            key: "host_tool.bridge.status.unavailable".to_string(),
+            version: 1,
+        },
+    ];
+    descriptor.description = Some(
+        "App-owned Computer Use bridge contract; handler attaches from the UI process".to_string(),
+    );
+    descriptor.requires_user_approval = true;
+    descriptor
 }
 
 fn serde_name<T: Serialize>(value: T) -> String {
@@ -804,6 +946,98 @@ mod tests {
             invocations[0].descriptor_name.as_deref(),
             Some("browser.open")
         );
+    }
+
+    #[tokio::test]
+    async fn default_bridge_contracts_are_advertised_but_unavailable_until_attached() {
+        let registry = HostToolRegistry::with_default_bridge_contracts();
+        let descriptors = registry.descriptors();
+        assert_eq!(
+            descriptors
+                .iter()
+                .map(|descriptor| descriptor.name.as_str())
+                .collect::<Vec<_>>(),
+            ["browser.bridge", "computer.bridge"]
+        );
+
+        let browser = descriptors
+            .iter()
+            .find(|descriptor| descriptor.name == "browser.bridge")
+            .expect("browser descriptor");
+        assert_eq!(browser.transport, ToolTransport::BrowserBridge);
+        assert_eq!(browser.surface, ToolSurface::Browser);
+        assert!(browser.aliases.contains(&"ace_browser".to_string()));
+        assert!(browser.actions.contains(&ToolActionKind::BrowserClick));
+        assert!(browser.actions.contains(&ToolActionKind::BrowserNavigate));
+        assert!(
+            browser
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "host_tool.bridge.status.unavailable")
+        );
+
+        let computer = descriptors
+            .iter()
+            .find(|descriptor| descriptor.name == "computer.bridge")
+            .expect("computer descriptor");
+        assert_eq!(computer.transport, ToolTransport::ComputerBridge);
+        assert_eq!(computer.surface, ToolSurface::Computer);
+        assert!(computer.aliases.contains(&"computer_use".to_string()));
+        assert!(computer.actions.contains(&ToolActionKind::ComputerClick));
+        assert!(
+            computer
+                .actions
+                .contains(&ToolActionKind::ComputerScreenshot)
+        );
+
+        let error = registry
+            .invoke_server_request(
+                ProviderKind::Codex,
+                &request(
+                    ServerRequestKind::DynamicToolCall,
+                    json!({
+                        "toolName": "ace_browser",
+                        "arguments": {
+                            "operation": "cua_click",
+                            "label": "Deploy"
+                        }
+                    }),
+                ),
+            )
+            .await
+            .expect_err("bridge unavailable");
+        assert_eq!(
+            error,
+            HostToolError::Handler {
+                message: "browser bridge is not connected".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn invocation_prefers_provider_operation_over_default_descriptor_action() {
+        let registry = HostToolRegistry::with_default_bridge_contracts();
+        let (_, handler) = registry.resolve("ace_browser").expect("browser bridge");
+        let descriptor = handler.descriptor();
+        let invocation = HostToolInvocation {
+            request_id: "42".to_string(),
+            provider: ProviderKind::Codex,
+            descriptor_name: Some("browser.bridge".to_string()),
+            tool_name: "ace_browser".to_string(),
+            server_name: None,
+            thread_id: Some("thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some("tool-1".to_string()),
+            arguments: json!({
+                "operation": "cua_click",
+                "label": "Deploy"
+            }),
+            raw_payload: json!({ "toolName": "ace_browser" }),
+        };
+
+        let tool = invocation.semantic_tool(Some(&descriptor), ToolRunStatus::Completed);
+        assert_eq!(tool.action, ToolActionKind::BrowserClick);
+        assert_eq!(tool.display.title, "Clicked Deploy in Browser");
     }
 
     #[test]

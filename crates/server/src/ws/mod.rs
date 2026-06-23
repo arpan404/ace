@@ -103,7 +103,7 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
             checkpoint: Arc::new(CheckpointService::production()),
             codex,
             providers,
-            host_tools: Arc::new(HostToolRegistry::new()),
+            host_tools: Arc::new(HostToolRegistry::with_default_bridge_contracts()),
             provider_events: Arc::new(Mutex::new(
                 ProviderEventLogRepository::open(paths.state_dir.join("provider-events.sqlite3"))
                     .expect("initialize provider event log"),
@@ -139,7 +139,7 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
             checkpoint: Arc::new(CheckpointService::production()),
             codex,
             providers,
-            host_tools: Arc::new(HostToolRegistry::new()),
+            host_tools: Arc::new(HostToolRegistry::with_default_bridge_contracts()),
             provider_events: Arc::new(Mutex::new(
                 ProviderEventLogRepository::from_connection(
                     Connection::open_in_memory().expect("provider event log db"),
