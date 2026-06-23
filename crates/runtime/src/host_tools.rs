@@ -444,6 +444,7 @@ fn operation_for_action(action: ToolActionKind) -> &'static str {
         ToolActionKind::PlanSideImplementation => "plan_side_implementation",
         ToolActionKind::HandoffAgent => "handoff_agent",
         ToolActionKind::HandoffLocation => "handoff_location",
+        ToolActionKind::ReviewStart => "review_start",
         ToolActionKind::SkillList => "skill_list",
         ToolActionKind::SkillRead => "skill_read",
         ToolActionKind::SkillInstall => "skill_install",

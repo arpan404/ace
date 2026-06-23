@@ -33,6 +33,7 @@ pub enum ToolSurface {
     Subagent,
     Plan,
     Handoff,
+    Review,
     Skill,
     Plugin,
     App,
@@ -136,6 +137,8 @@ pub enum ToolActionKind {
     HandoffAgent,
     #[serde(rename = "handoff.location")]
     HandoffLocation,
+    #[serde(rename = "review.start")]
+    ReviewStart,
     #[serde(rename = "skill.list")]
     SkillList,
     #[serde(rename = "skill.read")]
@@ -528,6 +531,9 @@ fn infer_surface_action(
             ToolActionKind::HandoffLocation
         };
         return (ToolSurface::Handoff, action);
+    }
+    if facts.op.eq_ignore_ascii_case("review_start") || facts.haystack.contains("review start") {
+        return (ToolSurface::Review, ToolActionKind::ReviewStart);
     }
     if facts.haystack.contains("subagent")
         || facts.haystack.contains("collab agent")
@@ -1071,6 +1077,17 @@ fn infer_target(
             kind: ToolTargetKind::Unknown,
             label,
         }),
+        ToolSurface::Review => first_string([
+            string_at_deep(args, "threadId").as_deref(),
+            string_at_deep(args, "thread_id").as_deref(),
+            string_at_deep(args, "targetThreadId").as_deref(),
+            string_at_deep(args, "target_thread_id").as_deref(),
+            string_at_deep(args, "prompt").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Text,
+            label,
+        }),
         ToolSurface::Skill => first_string([
             string_at_deep(args, "skill").as_deref(),
             string_at_deep(args, "name").as_deref(),
@@ -1386,6 +1403,8 @@ fn display_for(
         },
         (ToolSurface::Handoff, Some(target)) => format!("{verb} to {target}"),
         (ToolSurface::Handoff, None) => format!("{verb} handoff"),
+        (ToolSurface::Review, Some(target)) => format!("{verb} review for {target}"),
+        (ToolSurface::Review, None) => format!("{verb} review"),
         (ToolSurface::WebSearch, Some(target)) => format!("{verb} web for {target}"),
         (ToolSurface::WebSearch, None) => format!("{verb} web search"),
         (ToolSurface::Image, Some(target)) => format!("{verb} image {target}"),
@@ -1460,6 +1479,7 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 ToolActionKind::PlanFork => "Forking",
                 ToolActionKind::PlanSideImplementation => "Starting",
                 ToolActionKind::HandoffAgent | ToolActionKind::HandoffLocation => "Handing off",
+                ToolActionKind::ReviewStart => "Starting",
                 ToolActionKind::SkillList
                 | ToolActionKind::PluginList
                 | ToolActionKind::AppList => "Listing",
@@ -1511,6 +1531,7 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             ToolActionKind::PlanFork => "Forked",
             ToolActionKind::PlanSideImplementation => "Started",
             ToolActionKind::HandoffAgent | ToolActionKind::HandoffLocation => "Handed off",
+            ToolActionKind::ReviewStart => "Started",
             ToolActionKind::SkillList | ToolActionKind::PluginList | ToolActionKind::AppList => {
                 "Listed"
             }
@@ -1573,6 +1594,7 @@ fn noun_for(action: ToolActionKind) -> &'static str {
         | ToolActionKind::PlanFork
         | ToolActionKind::PlanSideImplementation => "plan",
         ToolActionKind::HandoffAgent | ToolActionKind::HandoffLocation => "handoff",
+        ToolActionKind::ReviewStart => "review",
         _ => "tool",
     }
 }
@@ -1625,6 +1647,7 @@ fn icon_for(surface: ToolSurface, action: ToolActionKind) -> &'static str {
         ToolSurface::Subagent => "bot",
         ToolSurface::Plan => "list-checks",
         ToolSurface::Handoff => "send",
+        ToolSurface::Review => "search-check",
         ToolSurface::Skill => "sparkles",
         ToolSurface::Plugin => "plug",
         ToolSurface::App => "app-window",
@@ -2373,6 +2396,17 @@ mod tests {
         assert_eq!(handoff.surface, ToolSurface::Handoff);
         assert_eq!(handoff.action, ToolActionKind::HandoffLocation);
         assert_eq!(handoff.display.title, "Handed off to worktree");
+
+        let review = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "review",
+            "review",
+            "review_start",
+            json!({ "threadId": "thread-1" }),
+        ));
+        assert_eq!(review.surface, ToolSurface::Review);
+        assert_eq!(review.action, ToolActionKind::ReviewStart);
+        assert_eq!(review.display.title, "Started review for thread-1");
 
         let image = normalize_tool_call(input(
             ToolTransport::CodexBuiltin,

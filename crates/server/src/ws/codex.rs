@@ -1833,38 +1833,44 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             "provider_response": signal.provider_response,
         });
         let raw_payload = metadata.clone();
+        let semantic_tool = semantic_tool_for_codex_review(&signal, raw_payload.clone());
         self.append_and_publish_provider_events(
             ProviderKind::Codex,
-            vec![ProviderEvent::RuntimeSignal {
-                signal: Box::new(NormalizedRuntimeSignal {
-                    kind: RuntimeSignalKind::ReviewModeUpdated,
-                    thread_id: Some(signal.thread_id),
-                    turn_id: None,
-                    item_id: None,
-                    message: None,
-                    from_model: None,
-                    to_model: None,
-                    reason: None,
-                    text: None,
-                    audio: None,
-                    status: Some(signal.status.to_string()),
-                    name: None,
-                    active: Some(signal.active),
-                    archived: None,
-                    diff: None,
-                    files: None,
-                    process_id: None,
-                    exit_code: None,
-                    request_id: None,
-                    metadata,
-                    provider: ProviderMetadata {
-                        provider: ProviderKind::Codex.runtime_id().to_string(),
-                        method: Some(signal.method.to_string()),
-                        schema_version: None,
-                        raw_payload,
-                    },
-                }),
-            }],
+            vec![
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::ReviewModeUpdated,
+                        thread_id: Some(signal.thread_id),
+                        turn_id: None,
+                        item_id: None,
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: None,
+                        audio: None,
+                        status: Some(signal.status.to_string()),
+                        name: None,
+                        active: Some(signal.active),
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata,
+                        provider: ProviderMetadata {
+                            provider: ProviderKind::Codex.runtime_id().to_string(),
+                            method: Some(signal.method.to_string()),
+                            schema_version: None,
+                            raw_payload,
+                        },
+                    }),
+                },
+                ProviderEvent::SemanticTool {
+                    tool: Box::new(semantic_tool),
+                },
+            ],
         )
     }
 
@@ -2609,6 +2615,35 @@ struct CodexHandoffSignal {
 struct CodexPlanImplementationSignal {
     implementation: PlanImplementationRecord,
     method: &'static str,
+}
+
+fn semantic_tool_for_codex_review(
+    signal: &CodexReviewModeSignal,
+    raw_payload: Value,
+) -> SemanticToolCall {
+    let mut raw_args = signal.request.clone();
+    if let Value::Object(map) = &mut raw_args {
+        map.insert("threadId".to_string(), json!(signal.thread_id.as_str()));
+        map.insert("active".to_string(), json!(signal.active));
+        map.insert("status".to_string(), json!(signal.status));
+    }
+    let mut provider = ProviderToolMetadata::new();
+    provider.provider = Some(ProviderKind::Codex.runtime_id().to_string());
+    provider.method = Some(signal.method.to_string());
+    provider.thread_id = Some(signal.thread_id.clone());
+    provider.item_id = Some(signal.thread_id.clone());
+    provider.tool_name = Some("review".to_string());
+    provider.operation = Some("review_start".to_string());
+    provider.raw_args = raw_args;
+    provider.raw_result = signal.provider_response.clone();
+    provider.raw_payload = raw_payload;
+
+    normalize_tool_call(ToolNormalizationInput {
+        transport: ToolTransport::CodexBuiltin,
+        status: ToolRunStatus::Completed,
+        provider,
+        item_type: Some("review".to_string()),
+    })
 }
 
 fn semantic_tool_for_codex_handoff(
@@ -10315,6 +10350,26 @@ mod tests {
             "thread-1"
         );
         assert_eq!(review_record["projection_deltas"][0]["active"], true);
+        let review_tool = records
+            .iter()
+            .find(|record| {
+                record["event"]["type"] == "tool_completed"
+                    && record["event"]["tool"]["surface"] == "review"
+            })
+            .expect("review semantic tool event");
+        assert_eq!(review_tool["event"]["tool"]["action"], "review.start");
+        assert_eq!(
+            review_tool["event"]["tool"]["display"]["title"],
+            "Started review for thread-1"
+        );
+        assert_eq!(
+            review_tool["event"]["tool"]["provider"]["raw_args"]["detached"],
+            true
+        );
+        assert_eq!(
+            review_tool["event"]["tool"]["provider"]["raw_payload"]["provider_response"]["threadId"],
+            "thread-1"
+        );
 
         let invalid = state
             .dispatch_text(
