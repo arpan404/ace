@@ -224,6 +224,10 @@ pub fn normalize_provider_runtime_signal(
                 string_at(&input.params, "description").as_deref(),
                 string_at(&input.params, "reason").as_deref(),
             ]);
+            signal.request_id = first_string([
+                string_at(&input.params, "requestId").as_deref(),
+                string_at(&input.params, "request_id").as_deref(),
+            ]);
         }
         RuntimeSignalKind::ReviewModeUpdated
         | RuntimeSignalKind::SubagentAction

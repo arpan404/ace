@@ -653,6 +653,18 @@ pub struct AutoApprovalReviewRecord {
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided_by: Option<String>,
+    #[serde(default)]
+    pub retryable: bool,
     #[serde(default)]
     pub metadata: Value,
 }
@@ -2157,6 +2169,18 @@ fn string_field(value: &Value, key: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn bool_field(value: &Value, key: &str) -> Option<bool> {
+    value.get(key).and_then(Value::as_bool)
+}
+
+fn first_non_empty_string(values: impl IntoIterator<Item = Option<String>>) -> Option<String> {
+    values
+        .into_iter()
+        .flatten()
+        .map(|value| value.trim().to_string())
+        .find(|value| !value.is_empty())
+}
+
 fn goal_state_from_notification(value: &Value) -> Option<GoalState> {
     let goal = value.get("goal")?;
     let thread_id = string_field(goal, "threadId").or_else(|| string_field(value, "threadId"))?;
@@ -2614,18 +2638,69 @@ fn auto_approval_review_from_signal(
     if signal.kind != RuntimeSignalKind::AutoApprovalReviewUpdated {
         return None;
     }
+    let status = signal
+        .status
+        .clone()
+        .unwrap_or_else(|| "auto_approval_review_updated".to_string());
+    let decision = auto_approval_review_decision(Some(status.as_str()), &signal.metadata);
+    let action_id = string_field(&signal.metadata, "action_id")
+        .or_else(|| string_field(&signal.metadata, "actionId"));
+    let retryable = bool_field(&signal.metadata, "retryable").unwrap_or_else(|| {
+        action_id.is_some()
+            || decision
+                .as_deref()
+                .is_some_and(|decision| decision == "denied")
+    });
     Some(AutoApprovalReviewRecord {
         provider: signal.provider.provider.clone(),
         thread_id: signal.thread_id.clone(),
         turn_id: signal.turn_id.clone(),
         item_id: signal.item_id.clone(),
-        status: signal
-            .status
-            .clone()
-            .unwrap_or_else(|| "auto_approval_review_updated".to_string()),
+        status,
         message: signal.message.clone(),
+        decision,
+        request_id: signal
+            .request_id
+            .clone()
+            .or_else(|| string_field(&signal.metadata, "request_id"))
+            .or_else(|| string_field(&signal.metadata, "requestId")),
+        selected_policy: string_field(&signal.metadata, "selected_policy")
+            .or_else(|| string_field(&signal.metadata, "selectedPolicy"))
+            .or_else(|| string_field(&signal.metadata, "approval_policy"))
+            .or_else(|| string_field(&signal.metadata, "approvalPolicy")),
+        decided_by: string_field(&signal.metadata, "decided_by")
+            .or_else(|| string_field(&signal.metadata, "decidedBy")),
+        retryable,
+        action_id,
         metadata: signal.metadata.clone(),
     })
+}
+
+fn auto_approval_review_decision(status: Option<&str>, metadata: &Value) -> Option<String> {
+    first_non_empty_string([
+        string_field(metadata, "decision"),
+        string_field(metadata, "outcome"),
+        string_field(metadata, "result"),
+        status.map(str::to_string),
+    ])
+    .map(|decision| normalize_auto_approval_decision(&decision))
+}
+
+fn normalize_auto_approval_decision(decision: &str) -> String {
+    let normalized = decision.trim().to_ascii_lowercase().replace('-', "_");
+    if matches!(
+        normalized.as_str(),
+        "approved" | "allow" | "allowed" | "accepted" | "pass" | "passed"
+    ) {
+        "approved".to_string()
+    } else if matches!(
+        normalized.as_str(),
+        "denied" | "deny" | "rejected" | "reject" | "blocked" | "failed" | "disallowed"
+    ) {
+        "denied".to_string()
+    } else {
+        normalized
+    }
 }
 
 impl AgentRuntimeState {
@@ -4784,9 +4859,16 @@ mod tests {
         auto_review_completed.thread_id = Some("thread-1".to_string());
         auto_review_completed.turn_id = Some("turn-1".to_string());
         auto_review_completed.item_id = Some("review-1".to_string());
-        auto_review_completed.status = Some("completed".to_string());
-        auto_review_completed.message = Some("approved command".to_string());
-        auto_review_completed.metadata = json!({ "approved": true });
+        auto_review_completed.status = Some("denied".to_string());
+        auto_review_completed.message = Some("command needs approval".to_string());
+        auto_review_completed.request_id = Some("approval-1".to_string());
+        auto_review_completed.metadata = json!({
+            "decision": "denied",
+            "actionId": "action-1",
+            "requestId": "approval-1",
+            "selectedPolicy": "on-request",
+            "decidedBy": "auto_review"
+        });
 
         let mut state = AgentRuntimeState::default();
         state.apply_provider_events(&[
@@ -4892,12 +4974,32 @@ mod tests {
         assert_eq!(snapshot.turn_moderation[0].status, "passed");
         assert_eq!(snapshot.turn_moderation[0].metadata["result"], "ok");
         assert_eq!(snapshot.auto_approval_reviews.len(), 1);
-        assert_eq!(snapshot.auto_approval_reviews[0].status, "completed");
+        assert_eq!(snapshot.auto_approval_reviews[0].status, "denied");
         assert_eq!(
             snapshot.auto_approval_reviews[0].message.as_deref(),
-            Some("approved command")
+            Some("command needs approval")
         );
-        assert_eq!(snapshot.auto_approval_reviews[0].metadata["approved"], true);
+        assert_eq!(
+            snapshot.auto_approval_reviews[0].decision.as_deref(),
+            Some("denied")
+        );
+        assert!(snapshot.auto_approval_reviews[0].retryable);
+        assert_eq!(
+            snapshot.auto_approval_reviews[0].action_id.as_deref(),
+            Some("action-1")
+        );
+        assert_eq!(
+            snapshot.auto_approval_reviews[0].request_id.as_deref(),
+            Some("approval-1")
+        );
+        assert_eq!(
+            snapshot.auto_approval_reviews[0].selected_policy.as_deref(),
+            Some("on-request")
+        );
+        assert_eq!(
+            snapshot.auto_approval_reviews[0].decided_by.as_deref(),
+            Some("auto_review")
+        );
     }
 
     #[test]

@@ -1906,6 +1906,18 @@ pub enum ProviderRuntimeProjectionDelta {
         status: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         message: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        decision: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        action_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selected_policy: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        decided_by: Option<String>,
+        #[serde(default)]
+        retryable: bool,
         #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
         metadata: serde_json::Value,
     },
@@ -2649,16 +2661,42 @@ fn projection_deltas_for_runtime_signal(
             }]
         }
         RuntimeSignalKind::AutoApprovalReviewUpdated => {
+            let status = signal
+                .status
+                .clone()
+                .unwrap_or_else(|| "auto_approval_review_updated".to_string());
+            let decision = auto_approval_review_decision(Some(status.as_str()), &signal.metadata);
+            let action_id = string_at(&signal.metadata, &["action_id", "actionId"]);
+            let retryable = bool_at(&signal.metadata, &["retryable"]).unwrap_or_else(|| {
+                action_id.is_some()
+                    || decision
+                        .as_deref()
+                        .is_some_and(|decision| decision == "denied")
+            });
             vec![ProviderRuntimeProjectionDelta::AutoApprovalReviewUpdated {
                 provider: signal.provider.provider.clone(),
                 thread_id: signal.thread_id.clone(),
                 turn_id: signal.turn_id.clone(),
                 item_id: signal.item_id.clone(),
-                status: signal
-                    .status
-                    .clone()
-                    .unwrap_or_else(|| "auto_approval_review_updated".to_string()),
+                status,
                 message: signal.message.clone(),
+                decision,
+                action_id,
+                request_id: signal
+                    .request_id
+                    .clone()
+                    .or_else(|| string_at(&signal.metadata, &["request_id", "requestId"])),
+                selected_policy: string_at(
+                    &signal.metadata,
+                    &[
+                        "selected_policy",
+                        "selectedPolicy",
+                        "approval_policy",
+                        "approvalPolicy",
+                    ],
+                ),
+                decided_by: string_at(&signal.metadata, &["decided_by", "decidedBy"]),
+                retryable,
                 metadata: signal.metadata.clone(),
             }]
         }
@@ -2989,6 +3027,45 @@ fn string_at(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     keys.iter()
         .find_map(|key| value.get(*key).and_then(serde_json::Value::as_str))
         .map(ToString::to_string)
+}
+
+fn bool_at(value: &serde_json::Value, keys: &[&str]) -> Option<bool> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(serde_json::Value::as_bool))
+}
+
+fn auto_approval_review_decision(
+    status: Option<&str>,
+    metadata: &serde_json::Value,
+) -> Option<String> {
+    [
+        string_at(metadata, &["decision"]),
+        string_at(metadata, &["outcome"]),
+        string_at(metadata, &["result"]),
+        status.map(str::to_string),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|decision| decision.trim().to_string())
+    .find(|decision| !decision.is_empty())
+    .map(|decision| normalize_auto_approval_decision(&decision))
+}
+
+fn normalize_auto_approval_decision(decision: &str) -> String {
+    let normalized = decision.trim().to_ascii_lowercase().replace('-', "_");
+    if matches!(
+        normalized.as_str(),
+        "approved" | "allow" | "allowed" | "accepted" | "pass" | "passed"
+    ) {
+        "approved".to_string()
+    } else if matches!(
+        normalized.as_str(),
+        "denied" | "deny" | "rejected" | "reject" | "blocked" | "failed" | "disallowed"
+    ) {
+        "denied".to_string()
+    } else {
+        normalized
+    }
 }
 
 fn u64_at(value: &serde_json::Value, keys: &[&str]) -> Option<u64> {
@@ -5230,13 +5307,13 @@ mod tests {
                     thread_id: Some("thread-1".to_string()),
                     turn_id: Some("turn-1".to_string()),
                     item_id: Some("review-1".to_string()),
-                    message: Some("Command approved".to_string()),
+                    message: Some("Command needs approval".to_string()),
                     from_model: None,
                     to_model: None,
                     reason: None,
                     text: None,
                     audio: None,
-                    status: Some("approved".to_string()),
+                    status: Some("denied".to_string()),
                     name: None,
                     active: None,
                     archived: None,
@@ -5244,8 +5321,14 @@ mod tests {
                     files: None,
                     process_id: None,
                     exit_code: None,
-                    request_id: None,
-                    metadata: json!({ "decision": "approved" }),
+                    request_id: Some("approval-1".to_string()),
+                    metadata: json!({
+                        "decision": "denied",
+                        "actionId": "action-1",
+                        "requestId": "approval-1",
+                        "selectedPolicy": "on-request",
+                        "decidedBy": "auto_review"
+                    }),
                     provider: provider_metadata("item/autoApprovalReview/completed"),
                 }),
             },
@@ -5479,14 +5562,26 @@ mod tests {
                 item_id,
                 status,
                 message,
+                decision,
+                action_id,
+                request_id,
+                selected_policy,
+                decided_by,
+                retryable,
                 metadata,
                 ..
             } if thread_id.as_deref() == Some("thread-1")
                 && turn_id.as_deref() == Some("turn-1")
                 && item_id.as_deref() == Some("review-1")
-                && status == "approved"
-                && message.as_deref() == Some("Command approved")
-                && metadata["decision"] == "approved"
+                && status == "denied"
+                && message.as_deref() == Some("Command needs approval")
+                && decision.as_deref() == Some("denied")
+                && action_id.as_deref() == Some("action-1")
+                && request_id.as_deref() == Some("approval-1")
+                && selected_policy.as_deref() == Some("on-request")
+                && decided_by.as_deref() == Some("auto_review")
+                && *retryable
+                && metadata["decision"] == "denied"
         )));
         assert!(deltas.iter().any(|delta| matches!(
             delta,

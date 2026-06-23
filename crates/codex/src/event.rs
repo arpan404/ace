@@ -1067,8 +1067,12 @@ mod tests {
                 "threadId": "thread-1",
                 "turnId": "turn-1",
                 "item": { "id": "review-1" },
-                "status": "approved",
-                "reason": "command is within workspace"
+                "status": "denied",
+                "reason": "command needs approval",
+                "requestId": "approval-1",
+                "actionId": "action-1",
+                "selectedPolicy": "on-request",
+                "decidedBy": "auto_review"
             }),
         });
         let ProviderEvent::RuntimeSignal { signal } = &review_completed[0] else {
@@ -1078,12 +1082,12 @@ mod tests {
             signal.kind,
             ace_runtime::provider::RuntimeSignalKind::AutoApprovalReviewUpdated
         );
-        assert_eq!(signal.status.as_deref(), Some("approved"));
-        assert_eq!(
-            signal.message.as_deref(),
-            Some("command is within workspace")
-        );
+        assert_eq!(signal.status.as_deref(), Some("denied"));
+        assert_eq!(signal.message.as_deref(), Some("command needs approval"));
         assert_eq!(signal.item_id.as_deref(), Some("review-1"));
+        assert_eq!(signal.request_id.as_deref(), Some("approval-1"));
+        assert_eq!(signal.metadata["actionId"], "action-1");
+        assert_eq!(signal.metadata["selectedPolicy"], "on-request");
         assert!(matches!(
             review_completed[1],
             ProviderEvent::RawNotification { .. }
