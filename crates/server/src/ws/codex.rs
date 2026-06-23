@@ -2787,12 +2787,14 @@ fn codex_ws_method_for_adapter_operation(
         ProviderAdapterOperation::ConfigValueWrite => methods::CODEX_CONFIG_VALUE_WRITE,
         ProviderAdapterOperation::ConfigBatchWrite => methods::CODEX_CONFIG_BATCH_WRITE,
         ProviderAdapterOperation::ConfigMcpServerReload => methods::CODEX_CONFIG_MCP_SERVER_RELOAD,
+        ProviderAdapterOperation::CollaborationModeList => methods::CODEX_COLLABORATION_MODE_LIST,
         ProviderAdapterOperation::ExperimentalFeatureList => {
             methods::CODEX_EXPERIMENTAL_FEATURE_LIST
         }
         ProviderAdapterOperation::ExperimentalFeatureEnablementSet => {
             methods::CODEX_EXPERIMENTAL_FEATURE_ENABLEMENT_SET
         }
+        ProviderAdapterOperation::EnvironmentAdd => methods::CODEX_ENVIRONMENT_ADD,
         ProviderAdapterOperation::ExternalAgentConfigDetect => {
             methods::CODEX_EXTERNAL_AGENT_CONFIG_DETECT
         }
@@ -2853,6 +2855,7 @@ fn codex_ws_method_for_adapter_operation(
         ProviderAdapterOperation::ThreadSettingsUpdate => methods::CODEX_THREAD_SETTINGS_UPDATE,
         ProviderAdapterOperation::ThreadTurnsItemsList => methods::CODEX_THREAD_TURNS_ITEMS_LIST,
         ProviderAdapterOperation::ThreadTurnsList => methods::CODEX_THREAD_TURNS_LIST,
+        ProviderAdapterOperation::MemoryReset => methods::CODEX_MEMORY_RESET,
         ProviderAdapterOperation::MarketplaceAdd => methods::CODEX_MARKETPLACE_ADD,
         ProviderAdapterOperation::MarketplaceRemove => methods::CODEX_MARKETPLACE_REMOVE,
         ProviderAdapterOperation::MarketplaceUpgrade => methods::CODEX_MARKETPLACE_UPGRADE,
@@ -7864,9 +7867,12 @@ mod tests {
             "plugin/uninstall".to_string(),
             "plugin/share/save".to_string(),
             "account/read".to_string(),
+            "collaborationMode/list".to_string(),
             "config/value/write".to_string(),
+            "environment/add".to_string(),
             "fuzzyFileSearch".to_string(),
             "fuzzyFileSearch/sessionStart".to_string(),
+            "memory/reset".to_string(),
             "remoteControl/pairing/start".to_string(),
             "thread/realtime/appendAudio".to_string(),
             "thread/turns/items/list".to_string(),
@@ -8052,6 +8058,20 @@ mod tests {
                 "optional",
             ),
             (
+                "collaboration_mode_list",
+                "collaborationMode/list",
+                "events",
+                "version_gated",
+                "version_gated",
+            ),
+            (
+                "environment_add",
+                "environment/add",
+                "tools",
+                "version_gated",
+                "version_gated",
+            ),
+            (
                 "fuzzy_file_search",
                 "fuzzyFileSearch",
                 "search",
@@ -8062,6 +8082,13 @@ mod tests {
                 "fuzzy_file_search_session_start",
                 "fuzzyFileSearch/sessionStart",
                 "search",
+                "version_gated",
+                "version_gated",
+            ),
+            (
+                "memory_reset",
+                "memory/reset",
+                "tools",
                 "version_gated",
                 "version_gated",
             ),

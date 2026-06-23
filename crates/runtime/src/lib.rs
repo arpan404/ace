@@ -242,8 +242,10 @@ pub mod provider {
         ConfigValueWrite,
         ConfigBatchWrite,
         ConfigMcpServerReload,
+        CollaborationModeList,
         ExperimentalFeatureList,
         ExperimentalFeatureEnablementSet,
+        EnvironmentAdd,
         ExternalAgentConfigDetect,
         ExternalAgentConfigImport,
         FeedbackUpload,
@@ -272,6 +274,7 @@ pub mod provider {
         ThreadSettingsUpdate,
         ThreadTurnsItemsList,
         ThreadTurnsList,
+        MemoryReset,
         MarketplaceAdd,
         MarketplaceRemove,
         MarketplaceUpgrade,
@@ -1645,6 +1648,12 @@ pub mod provider {
                 Some("config/mcpServer/reload"),
             ),
             op(
+                Operation::CollaborationModeList,
+                Category::Events,
+                VersionGated,
+                Some("collaborationMode/list"),
+            ),
+            op(
                 Operation::ExperimentalFeatureList,
                 Category::Config,
                 Optional,
@@ -1655,6 +1664,12 @@ pub mod provider {
                 Category::Config,
                 Optional,
                 Some("experimentalFeature/enablement/set"),
+            ),
+            op(
+                Operation::EnvironmentAdd,
+                Category::Tools,
+                VersionGated,
+                Some("environment/add"),
             ),
             op(
                 Operation::ExternalAgentConfigDetect,
@@ -1825,6 +1840,12 @@ pub mod provider {
                 Some("thread/turns/list"),
             ),
             op(
+                Operation::MemoryReset,
+                Category::Tools,
+                VersionGated,
+                Some("memory/reset"),
+            ),
+            op(
                 Operation::MarketplaceAdd,
                 Category::Plugins,
                 Optional,
@@ -1989,6 +2010,7 @@ pub mod provider {
             | ProviderAdapterOperation::ConfigBatchWrite
             | ProviderAdapterOperation::ConfigMcpServerReload
             | ProviderAdapterOperation::ExperimentalFeatureEnablementSet
+            | ProviderAdapterOperation::EnvironmentAdd
             | ProviderAdapterOperation::ExternalAgentConfigImport
             | ProviderAdapterOperation::FeedbackUpload
             | ProviderAdapterOperation::FuzzyFileSearchSessionStart
@@ -2008,6 +2030,7 @@ pub mod provider {
             | ProviderAdapterOperation::ThreadRealtimeStart
             | ProviderAdapterOperation::ThreadRealtimeStop
             | ProviderAdapterOperation::ThreadSettingsUpdate
+            | ProviderAdapterOperation::MemoryReset
             | ProviderAdapterOperation::WindowsSandboxSetupStart
             | ProviderAdapterOperation::MarketplaceAdd
             | ProviderAdapterOperation::MarketplaceRemove
@@ -2071,6 +2094,8 @@ pub mod provider {
             | ProviderAdapterOperation::AccountRateLimitResetCreditConsume
             | ProviderAdapterOperation::AccountSendAddCreditsNudgeEmail
             | ProviderAdapterOperation::WindowsSandboxSetupStart
+            | ProviderAdapterOperation::EnvironmentAdd
+            | ProviderAdapterOperation::MemoryReset
             | ProviderAdapterOperation::RemoteControlClientRevoke
             | ProviderAdapterOperation::RemoteControlDisable
             | ProviderAdapterOperation::RemoteControlEnable
@@ -3207,6 +3232,21 @@ pub mod provider {
                     ProviderAdapterOperation::FuzzyFileSearchSessionStart,
                     "fuzzyFileSearch/sessionStart",
                     ProviderFeatureCategory::Search,
+                ),
+                (
+                    ProviderAdapterOperation::CollaborationModeList,
+                    "collaborationMode/list",
+                    ProviderFeatureCategory::Events,
+                ),
+                (
+                    ProviderAdapterOperation::EnvironmentAdd,
+                    "environment/add",
+                    ProviderFeatureCategory::Tools,
+                ),
+                (
+                    ProviderAdapterOperation::MemoryReset,
+                    "memory/reset",
+                    ProviderFeatureCategory::Tools,
                 ),
                 (
                     ProviderAdapterOperation::ThreadTurnsItemsList,
