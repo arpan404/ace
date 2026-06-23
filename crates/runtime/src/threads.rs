@@ -101,7 +101,7 @@ pub enum PermissionNetworkAccess {
 impl PermissionNetworkAccess {
     #[must_use]
     fn from_policy(policy: &Value) -> Self {
-        string_from_value_or_field(
+        bool_from_value_or_field(
             policy,
             &[
                 "networkAccess",
@@ -111,10 +111,29 @@ impl PermissionNetworkAccess {
                 "network_policy",
             ],
         )
-        .map(|value| match normalize_policy_key(&value).as_str() {
-            "restricted" | "disabled" | "off" | "false" => Self::Restricted,
-            "enabled" | "allow" | "allowed" | "on" | "true" => Self::Enabled,
-            _ => Self::Unknown,
+        .map(|enabled| {
+            if enabled {
+                Self::Enabled
+            } else {
+                Self::Restricted
+            }
+        })
+        .or_else(|| {
+            string_from_value_or_field(
+                policy,
+                &[
+                    "networkAccess",
+                    "network_access",
+                    "network",
+                    "networkPolicy",
+                    "network_policy",
+                ],
+            )
+            .map(|value| match normalize_policy_key(&value).as_str() {
+                "restricted" | "disabled" | "off" | "false" => Self::Restricted,
+                "enabled" | "allow" | "allowed" | "on" | "true" => Self::Enabled,
+                _ => Self::Unknown,
+            })
         })
         .unwrap_or(Self::Unknown)
     }
@@ -151,6 +170,13 @@ impl PermissionApprovalMode {
             "granular" => Self::Granular,
             _ => Self::Unknown,
         })
+        .or_else(|| {
+            policy
+                .get("granularApprovals")
+                .or_else(|| policy.get("granular_approvals"))
+                .is_some()
+                .then_some(Self::Granular)
+        })
         .unwrap_or(Self::Unknown)
     }
 }
@@ -180,6 +206,14 @@ fn string_from_value_or_field(value: &Value, fields: &[&str]) -> Option<String> 
             .iter()
             .find_map(|field| value.get(*field).and_then(Value::as_str))
             .map(ToString::to_string)
+    })
+}
+
+fn bool_from_value_or_field(value: &Value, fields: &[&str]) -> Option<bool> {
+    value.as_bool().or_else(|| {
+        fields
+            .iter()
+            .find_map(|field| value.get(*field).and_then(Value::as_bool))
     })
 }
 
@@ -3081,6 +3115,58 @@ mod tests {
         assert_eq!(policy.sandbox_policy["extraProviderField"], true);
         assert_eq!(policy.approval_policy["granularApprovals"], json!([]));
         assert_eq!(policy.approvals_reviewer.as_deref(), Some("auto_review"));
+    }
+
+    #[test]
+    fn normalizes_boolean_network_and_granular_approval_policies() {
+        let enabled_network = PermissionPolicy::from_raw(
+            json!({
+                "mode": "workspace-write",
+                "networkAccess": true,
+            }),
+            json!({
+                "granularApprovals": [
+                    { "category": "command" }
+                ]
+            }),
+            Some("user".to_string()),
+        );
+
+        assert_eq!(
+            enabled_network.sandbox_mode,
+            PermissionSandboxMode::WorkspaceWrite
+        );
+        assert_eq!(
+            enabled_network.network_access,
+            PermissionNetworkAccess::Enabled
+        );
+        assert_eq!(
+            enabled_network.approval_mode,
+            PermissionApprovalMode::Granular
+        );
+        assert_eq!(
+            enabled_network.approval_reviewer,
+            Some(PermissionApprovalReviewer::User)
+        );
+        assert_eq!(enabled_network.sandbox_policy["networkAccess"], true);
+
+        let restricted_network = PermissionPolicy::from_raw(
+            json!({
+                "mode": "read-only",
+                "networkAccess": false,
+            }),
+            json!("untrusted"),
+            None,
+        );
+
+        assert_eq!(
+            restricted_network.network_access,
+            PermissionNetworkAccess::Restricted
+        );
+        assert_eq!(
+            restricted_network.approval_mode,
+            PermissionApprovalMode::Untrusted
+        );
     }
 
     #[test]

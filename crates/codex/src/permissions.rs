@@ -368,6 +368,39 @@ mod tests {
     }
 
     #[test]
+    fn auto_review_preset_only_changes_reviewer_not_permission_scope() {
+        let auto = CodexPermissionPreset::Auto
+            .turn_permissions()
+            .normalized_policy();
+        let auto_review = CodexPermissionPreset::AutoReview
+            .turn_permissions()
+            .normalized_policy();
+
+        assert_eq!(auto.sandbox_mode, PermissionSandboxMode::WorkspaceWrite);
+        assert_eq!(
+            auto.sandbox_mode, auto_review.sandbox_mode,
+            "auto-review must not expand filesystem access"
+        );
+        assert_eq!(
+            auto.network_access, auto_review.network_access,
+            "auto-review must not expand network access"
+        );
+        assert_eq!(
+            auto.approval_mode, auto_review.approval_mode,
+            "auto-review changes who reviews approvals, not whether approvals exist"
+        );
+        assert_eq!(
+            auto.approval_reviewer,
+            Some(PermissionApprovalReviewer::User)
+        );
+        assert_eq!(
+            auto_review.approval_reviewer,
+            Some(PermissionApprovalReviewer::AutoReview)
+        );
+        assert!(!auto_review.allows_full_access_without_prompts());
+    }
+
+    #[test]
     fn permission_catalog_honors_managed_allow_and_deny_lists() {
         let requirements = json!({
             "allowedPermissionPresets": ["strict", "auto-review", "full_access"],
