@@ -1482,6 +1482,7 @@ fn display_for(
             }
         ),
     };
+    let technical_metadata = technical_metadata(input, facts, surface, action, target.as_ref());
 
     ToolDisplay {
         title,
@@ -1489,7 +1490,7 @@ fn display_for(
         target,
         status,
         icon_key: icon_for(surface, action).to_string(),
-        technical_metadata: technical_metadata(input, facts),
+        technical_metadata,
     }
 }
 
@@ -1675,7 +1676,13 @@ fn noun_for(action: ToolActionKind) -> &'static str {
     }
 }
 
-fn technical_metadata(input: &ToolNormalizationInput, facts: &ToolFacts) -> Value {
+fn technical_metadata(
+    input: &ToolNormalizationInput,
+    facts: &ToolFacts,
+    surface: ToolSurface,
+    action: ToolActionKind,
+    target: Option<&ToolTarget>,
+) -> Value {
     let mut metadata = serde_json::Map::new();
     metadata.insert(
         "transport".to_string(),
@@ -1707,7 +1714,98 @@ fn technical_metadata(input: &ToolNormalizationInput, facts: &ToolFacts) -> Valu
     if !facts.op.is_empty() {
         metadata.insert("operation".to_string(), Value::String(facts.op.clone()));
     }
+    if let Some(asset) = renderable_asset_metadata(input, surface, action, target) {
+        metadata.insert("renderable_asset".to_string(), asset);
+    }
     Value::Object(metadata)
+}
+
+fn renderable_asset_metadata(
+    input: &ToolNormalizationInput,
+    surface: ToolSurface,
+    action: ToolActionKind,
+    target: Option<&ToolTarget>,
+) -> Option<Value> {
+    let is_image_action = surface == ToolSurface::Image
+        || matches!(
+            action,
+            ToolActionKind::BrowserScreenshot | ToolActionKind::ComputerScreenshot
+        );
+    if !is_image_action {
+        return None;
+    }
+
+    let source = image_source(input).or_else(|| {
+        target.and_then(|target| match target.kind {
+            ToolTargetKind::Url | ToolTargetKind::File => Some(target.label.clone()),
+            _ => None,
+        })
+    })?;
+    let source_kind = renderable_source_kind(&source);
+    let github_proxy = is_github_proxyable_image_source(&source);
+    Some(serde_json::json!({
+        "kind": "image",
+        "source": source,
+        "source_kind": source_kind,
+        "proxy_required": github_proxy,
+        "proxy_method": if github_proxy { Some("github.image.proxy") } else { None::<&str> },
+    }))
+}
+
+fn image_source(input: &ToolNormalizationInput) -> Option<String> {
+    first_string([
+        string_at_deep(&input.provider.raw_result, "url").as_deref(),
+        string_at_deep(&input.provider.raw_result, "imageUrl").as_deref(),
+        string_at_deep(&input.provider.raw_result, "image_url").as_deref(),
+        string_at_deep(&input.provider.raw_result, "src").as_deref(),
+        string_at_deep(&input.provider.raw_result, "path").as_deref(),
+        string_at_deep(&input.provider.raw_result, "dataUrl").as_deref(),
+        string_at_deep(&input.provider.raw_result, "data_url").as_deref(),
+        nested_string_at(
+            &input.provider.raw_result,
+            "/image",
+            &["url", "src", "path"],
+        )
+        .as_deref(),
+        string_at_deep(&input.provider.raw_args, "url").as_deref(),
+        string_at_deep(&input.provider.raw_args, "imageUrl").as_deref(),
+        string_at_deep(&input.provider.raw_args, "image_url").as_deref(),
+        string_at_deep(&input.provider.raw_args, "src").as_deref(),
+        string_at_deep(&input.provider.raw_args, "path").as_deref(),
+        string_at_deep(&input.provider.raw_args, "dataUrl").as_deref(),
+        string_at_deep(&input.provider.raw_args, "data_url").as_deref(),
+        nested_string_at(&input.provider.raw_args, "/image", &["url", "src", "path"]).as_deref(),
+    ])
+}
+
+fn renderable_source_kind(source: &str) -> &'static str {
+    let lower = source.to_ascii_lowercase();
+    if lower.starts_with("data:image/") {
+        "data_url"
+    } else if lower.starts_with("http://") || lower.starts_with("https://") {
+        "url"
+    } else if lower.contains("://") {
+        "uri"
+    } else {
+        "file"
+    }
+}
+
+fn is_github_proxyable_image_source(source: &str) -> bool {
+    let lower = source.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return false;
+    }
+    let Some(path) = lower.split(['?', '#']).next() else {
+        return false;
+    };
+    let github_host = path.contains("githubusercontent.com/")
+        || path.contains("github.com/")
+        || path.contains("githubassets.com/");
+    let image_like = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]
+        .iter()
+        .any(|extension| path.ends_with(extension) || path.contains(&format!("{extension}/")));
+    github_host && image_like
 }
 
 fn icon_for(surface: ToolSurface, action: ToolActionKind) -> &'static str {
@@ -2530,6 +2628,56 @@ mod tests {
         assert_eq!(
             viewed_image.display.title,
             "Viewed image https://example.com/image.png"
+        );
+        assert_eq!(
+            viewed_image.display.technical_metadata["renderable_asset"],
+            json!({
+                "kind": "image",
+                "source": "https://example.com/image.png",
+                "source_kind": "url",
+                "proxy_required": false,
+                "proxy_method": null
+            })
+        );
+
+        let github_image = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "imageView",
+            "image_view",
+            "view",
+            json!({ "url": "https://private-user-images.githubusercontent.com/123/example.png?jwt=redacted" }),
+        ));
+        assert_eq!(github_image.surface, ToolSurface::Image);
+        assert_eq!(github_image.action, ToolActionKind::ImageView);
+        assert_eq!(
+            github_image.display.technical_metadata["renderable_asset"],
+            json!({
+                "kind": "image",
+                "source": "https://private-user-images.githubusercontent.com/123/example.png?jwt=redacted",
+                "source_kind": "url",
+                "proxy_required": true,
+                "proxy_method": "github.image.proxy"
+            })
+        );
+
+        let screenshot = normalize_tool_call(input(
+            ToolTransport::BrowserBridge,
+            "dynamicToolCall",
+            "ace_browser",
+            "screenshot",
+            json!({ "path": "/tmp/browser-shot.png" }),
+        ));
+        assert_eq!(screenshot.surface, ToolSurface::Browser);
+        assert_eq!(screenshot.action, ToolActionKind::BrowserScreenshot);
+        assert_eq!(
+            screenshot.display.technical_metadata["renderable_asset"],
+            json!({
+                "kind": "image",
+                "source": "/tmp/browser-shot.png",
+                "source_kind": "file",
+                "proxy_required": false,
+                "proxy_method": null
+            })
         );
     }
 
