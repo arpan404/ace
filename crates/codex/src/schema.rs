@@ -100,11 +100,11 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("marketplace/add", ClientRequest, RawSupported),
     CodexMethodSpec::new("marketplace/remove", ClientRequest, RawSupported),
     CodexMethodSpec::new("marketplace/upgrade", ClientRequest, RawSupported),
-    CodexMethodSpec::new("model/list", ClientRequest, RawSupported),
+    CodexMethodSpec::new("model/list", ClientRequest, TypedSupported),
     CodexMethodSpec::new(
         "modelProvider/capabilities/read",
         ClientRequest,
-        RawSupported,
+        TypedSupported,
     ),
     CodexMethodSpec::new("memory/reset", ClientRequest, VersionGated),
     CodexMethodSpec::new("mock/experimentalMethod", ClientRequest, VersionGated),
