@@ -10511,11 +10511,18 @@ mod tests {
                 methods::CODEX_THREAD_REALTIME_APPEND_TEXT,
                 json!({ "threadId": "thread-1", "text": "hello" }),
             ),
+            ("codex-skills-list", methods::CODEX_SKILLS_LIST, json!({})),
             (
                 "codex-skill-install",
                 methods::CODEX_SKILLS_INSTALL,
                 json!({ "skill": "rust" }),
             ),
+            (
+                "codex-plugins-installed",
+                methods::CODEX_PLUGINS_INSTALLED,
+                json!({}),
+            ),
+            ("codex-plugins-list", methods::CODEX_PLUGINS_LIST, json!({})),
             (
                 "codex-plugin-read",
                 methods::CODEX_PLUGINS_READ,
@@ -10531,6 +10538,7 @@ mod tests {
                 methods::CODEX_MARKETPLACE_UPGRADE,
                 json!({ "plugin": "browser" }),
             ),
+            ("codex-app-list", methods::CODEX_APPS_LIST, json!({})),
             (
                 "codex-app-config",
                 methods::CODEX_APPS_CONFIG_WRITE,
@@ -10558,7 +10566,7 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "semantic-tool-events",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
-                    "payload": { "provider": "codex", "limit": 28 }
+                    "payload": { "provider": "codex", "limit": 36 }
                 })
                 .to_string(),
             )
@@ -10568,7 +10576,7 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 28);
+        assert_eq!(records.len(), 36);
 
         let file_completed = records
             .iter()
@@ -10726,6 +10734,7 @@ mod tests {
             .find(|record| {
                 record["event"]["tool"]["display"]["status"] == "completed"
                     && record["event"]["tool"]["surface"] == "skill"
+                    && record["event"]["tool"]["action"] == "skill.install"
             })
             .expect("completed skill event");
         assert_eq!(skill_completed["event"]["tool"]["action"], "skill.install");
@@ -10736,6 +10745,56 @@ mod tests {
         assert_eq!(
             skill_completed["event"]["tool"]["provider"]["raw_payload"]["provider_method"],
             "skills/install"
+        );
+
+        let skills_list_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["action"] == "skill.list"
+            })
+            .expect("completed skills list event");
+        assert_eq!(
+            skills_list_completed["event"]["tool"]["display"]["title"],
+            "Listed skills"
+        );
+        assert_eq!(
+            skills_list_completed["event"]["tool"]["provider"]["raw_payload"]["provider_method"],
+            "skills/list"
+        );
+
+        let plugins_installed_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["provider"]["raw_payload"]["provider_method"]
+                        == "plugin/installed"
+            })
+            .expect("completed installed plugins event");
+        assert_eq!(
+            plugins_installed_completed["event"]["tool"]["action"],
+            "plugin.list"
+        );
+        assert_eq!(
+            plugins_installed_completed["event"]["tool"]["display"]["title"],
+            "Listed plugins"
+        );
+
+        let plugins_list_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["provider"]["raw_payload"]["provider_method"]
+                        == "plugin/list"
+            })
+            .expect("completed plugin list event");
+        assert_eq!(
+            plugins_list_completed["event"]["tool"]["action"],
+            "plugin.list"
+        );
+        assert_eq!(
+            plugins_list_completed["event"]["tool"]["display"]["title"],
+            "Listed plugins"
         );
 
         let plugin_completed = records
@@ -10773,6 +10832,20 @@ mod tests {
         assert_eq!(
             marketplace_completed["event"]["tool"]["display"]["title"],
             "Upgraded plugin browser"
+        );
+
+        let app_list_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["provider"]["raw_payload"]["provider_method"]
+                        == "app/list"
+            })
+            .expect("completed app list event");
+        assert_eq!(app_list_completed["event"]["tool"]["action"], "app.list");
+        assert_eq!(
+            app_list_completed["event"]["tool"]["display"]["title"],
+            "Listed apps"
         );
 
         let app_completed = records
