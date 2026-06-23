@@ -50,10 +50,22 @@ pub struct AdapterValidationRequest {
 pub struct NativeProviderMethodsListResponse {
     pub provider: String,
     pub methods: Vec<String>,
+    pub method_inventory: Value,
+    pub installed_client_request_methods: Vec<String>,
+    pub installed_client_request_methods_source: String,
     pub adapter_contract_version: u32,
     pub websocket_first: bool,
     pub event_queue_capacity: usize,
     pub max_event_batch_size: usize,
+    pub status: NativeProviderMethodDiscoveryStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeProviderMethodDiscoveryStatus {
+    pub health: ProviderRuntimeHealth,
+    pub transport: String,
+    pub version: String,
+    pub initialized: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -326,6 +338,22 @@ impl AceNativeProvider {
     pub fn supported_client_request_methods_static() -> &'static [&'static str] {
         ACE_NATIVE_CLIENT_REQUEST_METHODS
     }
+
+    fn supported_client_request_methods() -> Vec<String> {
+        Self::supported_client_request_methods_static()
+            .iter()
+            .map(|method| (*method).to_string())
+            .collect()
+    }
+
+    fn method_inventory(methods: &[String]) -> Value {
+        json!({
+            "client_request_methods": methods,
+            "typed_supported_client_request_methods": methods,
+            "version_gated_client_request_methods": [],
+            "deferred_client_request_methods": [],
+        })
+    }
 }
 
 impl Default for AceNativeProvider {
@@ -416,16 +444,24 @@ impl ProviderDriver for AceNativeProvider {
             })),
             "ace.methods.list" => {
                 let contract = ace_provider_adapter_contract();
+                let methods = Self::supported_client_request_methods();
                 Ok(serde_json::to_value(NativeProviderMethodsListResponse {
                     provider: "ace".to_string(),
-                    methods: Self::supported_client_request_methods_static()
-                        .iter()
-                        .map(|method| (*method).to_string())
-                        .collect(),
+                    method_inventory: Self::method_inventory(&methods),
+                    installed_client_request_methods: methods.clone(),
+                    installed_client_request_methods_source: "supported_client_request_methods"
+                        .to_string(),
+                    methods,
                     adapter_contract_version: contract.version,
                     websocket_first: contract.websocket_first,
                     event_queue_capacity: ACE_NATIVE_EVENT_QUEUE_CAPACITY,
                     max_event_batch_size: ACE_NATIVE_MAX_EVENT_BATCH_SIZE,
+                    status: NativeProviderMethodDiscoveryStatus {
+                        health: ProviderRuntimeHealth::Ready,
+                        transport: "in_process".to_string(),
+                        version: env!("CARGO_PKG_VERSION").to_string(),
+                        initialized: true,
+                    },
                 })
                 .map_err(|error| ProviderDriverError::RequestFailed {
                     provider: "ace".to_string(),
@@ -1165,10 +1201,37 @@ mod tests {
         assert!(methods.contains(&"ace.server_request.normalize".to_string()));
         assert!(methods.contains(&"ace.runtime_signal.normalize".to_string()));
         assert_eq!(
+            response["installed_client_request_methods"],
+            serde_json::to_value(&expected_methods).expect("expected methods")
+        );
+        assert_eq!(
+            response["installed_client_request_methods_source"],
+            "supported_client_request_methods"
+        );
+        assert_eq!(
+            response["method_inventory"]["client_request_methods"],
+            serde_json::to_value(&expected_methods).expect("expected inventory methods")
+        );
+        assert_eq!(
+            response["method_inventory"]["typed_supported_client_request_methods"],
+            serde_json::to_value(&expected_methods).expect("expected typed methods")
+        );
+        assert_eq!(
+            response["method_inventory"]["version_gated_client_request_methods"],
+            json!([])
+        );
+        assert_eq!(
+            response["method_inventory"]["deferred_client_request_methods"],
+            json!([])
+        );
+        assert_eq!(
             response["adapter_contract_version"],
             ace_provider_adapter_contract().version
         );
         assert_eq!(response["websocket_first"], true);
+        assert_eq!(response["status"]["health"], "ready");
+        assert_eq!(response["status"]["transport"], "in_process");
+        assert_eq!(response["status"]["initialized"], true);
         assert_eq!(
             response["event_queue_capacity"],
             ACE_NATIVE_EVENT_QUEUE_CAPACITY

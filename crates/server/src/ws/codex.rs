@@ -8992,12 +8992,33 @@ mod tests {
         };
         assert_eq!(body["provider"], "ace");
         assert_eq!(body["adapter_contract_version"], 8);
+        assert_eq!(
+            body["installed_client_request_methods_source"],
+            "supported_client_request_methods"
+        );
         assert!(
             body["methods"]
                 .as_array()
                 .expect("ace methods")
                 .contains(&json!("ace.methods.list"))
         );
+        assert_eq!(
+            body["installed_client_request_methods"], body["methods"],
+            "Ace native provider should use the same installed method inventory as its public method list"
+        );
+        assert!(
+            body["method_inventory"]["typed_supported_client_request_methods"]
+                .as_array()
+                .expect("typed methods")
+                .contains(&json!("ace.runtime_signal.normalize"))
+        );
+        assert_eq!(
+            body["method_inventory"]["version_gated_client_request_methods"],
+            json!([])
+        );
+        assert_eq!(body["status"]["health"], "ready");
+        assert_eq!(body["status"]["transport"], "in_process");
+        assert_eq!(body["status"]["initialized"], true);
 
         let codex_methods = state
             .dispatch_text(
