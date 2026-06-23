@@ -1,4 +1,5 @@
 use crate::ws::{ProviderEventStreamMessage, WsApiState, WsDispatchError};
+use ace_codex::{CodexMethodDirection, CodexMethodSupport, classify_codex_method};
 use ace_core::ProviderKind;
 use ace_git::ProcessRunner;
 use ace_persistence::{ProviderEventRecord, ProviderServerRequestStatus};
@@ -1392,6 +1393,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 let adapter_runtime = self.providers.adapter_runtime_report(provider).ok_or(
                     ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider },
                 )?;
+                let status = self.providers.status(provider).await.ok();
+                if let Some(method) = request.method.as_deref() {
+                    validate_provider_runtime_direct_method(provider, method, status.as_ref())
+                        .map_err(WsDispatchError::BadRequest)?;
+                }
                 if let Some(operation) = request.operation {
                     validate_provider_runtime_operation_hooks(
                         operation,
@@ -1403,7 +1409,6 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     (provider, request.method.as_ref(), request.operation)
                 {
                     validate_provider_runtime_operation(operation, &adapter_profile)?;
-                    let status = self.providers.status(provider).await.ok();
                     validate_codex_runtime_operation_gate(
                         operation,
                         &adapter_profile,
@@ -1417,7 +1422,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     request.method,
                     request.operation,
                     &adapter_profile,
-                    self.providers.status(provider).await.ok().as_ref(),
+                    status.as_ref(),
                 )?;
                 if provider == ProviderKind::Codex {
                     request.params = user_initiated_codex_params(&method, request.params)?;
@@ -3558,10 +3563,8 @@ fn resolve_provider_runtime_request_result(
 
     let (provider_method, runtime_request) = if let Some(method) = method {
         (
-            Some(method),
-            ProviderRuntimeOperationRequest::provider_method(
-                ProviderRuntimeOperationParams::ProviderNative,
-            ),
+            Some(method.clone()),
+            provider_runtime_request_for_direct_method(provider, &method, status),
         )
     } else if let Some(operation) = operation {
         let profile = operation_profile.as_ref().ok_or_else(|| {
@@ -3877,6 +3880,70 @@ fn provider_method_support(
         Err(format!(
             "provider status does not advertise client request method `{method}`"
         ))
+    }
+}
+
+fn provider_runtime_request_for_direct_method(
+    provider: ProviderKind,
+    method: &str,
+    status: Option<&ProviderDriverStatus>,
+) -> ProviderRuntimeOperationRequest {
+    match validate_provider_runtime_direct_method(provider, method, status) {
+        Ok(()) => ProviderRuntimeOperationRequest::provider_method(
+            ProviderRuntimeOperationParams::ProviderNative,
+        ),
+        Err(error) => {
+            let mode = if error.contains("intentionally deferred") {
+                ProviderRuntimeOperationRequestMode::Deferred
+            } else {
+                ProviderRuntimeOperationRequestMode::ProviderMethod
+            };
+            ProviderRuntimeOperationRequest::unavailable(mode, error)
+        }
+    }
+}
+
+fn validate_provider_runtime_direct_method(
+    provider: ProviderKind,
+    method: &str,
+    status: Option<&ProviderDriverStatus>,
+) -> Result<(), String> {
+    if provider == ProviderKind::Codex {
+        if method == "codex.methods.list" {
+            return Ok(());
+        }
+        return validate_codex_provider_runtime_direct_method(method, status);
+    }
+    provider_method_support(method, status)
+}
+
+fn validate_codex_provider_runtime_direct_method(
+    method: &str,
+    status: Option<&ProviderDriverStatus>,
+) -> Result<(), String> {
+    match classify_codex_method(method, CodexMethodDirection::ClientRequest) {
+        Some(CodexMethodSupport::TypedSupported | CodexMethodSupport::RawSupported) => Ok(()),
+        Some(CodexMethodSupport::IntentionallyDeferred) => {
+            Err(format!("Codex method `{method}` is intentionally deferred"))
+        }
+        Some(CodexMethodSupport::VersionGated) => {
+            let Some(status) = status else {
+                return Ok(());
+            };
+            let Some((source, supported_methods)) =
+                supported_client_request_methods(&status.metadata)
+            else {
+                return Ok(());
+            };
+            if supported_methods.contains(method) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "provider status `{source}` did not include version-gated method `{method}`"
+                ))
+            }
+        }
+        None => Err(format!("unknown Codex client request method `{method}`")),
     }
 }
 
@@ -9411,7 +9478,10 @@ mod tests {
         *backend
             .supported_client_request_methods
             .lock()
-            .expect("supported methods") = Some(vec!["command/exec".to_string()]);
+            .expect("supported methods") = Some(vec![
+            "command/exec".to_string(),
+            "remote/connectionList".to_string(),
+        ]);
         let runner = Arc::new(FakeRunner);
         let state = WsApiState::new_services(
             GitService::new(GitClient::with_runner(runner.clone())),
@@ -9778,6 +9848,37 @@ mod tests {
         assert_eq!(body["runtime_request"]["mode"], "provider_method");
         assert!(body.get("operation_profile").is_none());
 
+        let resolved_unavailable_raw_method = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-resolve-unavailable-raw-method",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST_RESOLVE,
+                    "payload": {
+                        "provider": "codex",
+                        "method": "remote/handoff"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let resolved_unavailable_raw_method: WsServerResponse =
+            serde_json::from_str(&resolved_unavailable_raw_method)
+                .expect("unavailable raw method resolve response");
+        let WsServerPayload::Result { body } = resolved_unavailable_raw_method.payload else {
+            panic!("expected unavailable raw method resolve result");
+        };
+        assert_eq!(body["requested_method"], "remote/handoff");
+        assert_eq!(body["provider_method"], "remote/handoff");
+        assert_eq!(body["runtime_request"]["invokable"], false);
+        assert_eq!(body["runtime_request"]["mode"], "provider_method");
+        assert!(
+            body["runtime_request"]["reason"]
+                .as_str()
+                .expect("unavailable raw reason")
+                .contains("remote/handoff")
+        );
+
         let resolved_missing_shell = state
             .dispatch_text(
                 &json!({
@@ -9902,6 +10003,31 @@ mod tests {
             responses[2]["resolution"]["operation_profile"]["availability"],
             "deferred"
         );
+
+        let unavailable_raw_request = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-runtime-unavailable-raw-method",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "method": "remote/handoff",
+                        "params": { "threadId": "thread-1" },
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let unavailable_raw_request: WsServerResponse =
+            serde_json::from_str(&unavailable_raw_request)
+                .expect("unavailable raw request response");
+        let WsServerPayload::Error { code, message } = unavailable_raw_request.payload else {
+            panic!("expected unavailable raw request error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("remote/handoff"));
 
         let oversized_requests = (0..=PROVIDER_RUNTIME_MAX_REQUEST_RESOLVE_BATCH_SIZE)
             .map(|index| {
@@ -10262,7 +10388,7 @@ mod tests {
         let WsServerPayload::Error { code, message } = deferred_codex.payload else {
             panic!("expected deferred codex error");
         };
-        assert_eq!(code, "provider_request_failed");
+        assert_eq!(code, "bad_request");
         assert!(message.contains("intentionally deferred"));
 
         let unknown_codex = state
@@ -10286,7 +10412,7 @@ mod tests {
         let WsServerPayload::Error { code, message } = unknown_codex.payload else {
             panic!("expected unknown codex method error");
         };
-        assert_eq!(code, "provider_request_failed");
+        assert_eq!(code, "bad_request");
         assert!(message.contains("unknown Codex client request method"));
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
