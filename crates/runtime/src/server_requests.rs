@@ -20,20 +20,27 @@ pub const KNOWN_SERVER_REQUEST_METHODS: &[&str] = &[
     "fileChange/approvalRequest",
     "item/tool/requestUserInput",
     "tool/userInputRequest",
+    "tool/user_input_request",
     "mcpServer/elicitation/request",
+    "mcpServer/elicitationRequest",
     "mcp/elicitation",
     "item/permissions/requestApproval",
     "permission/approvalRequest",
     "item/tool/call",
+    "item/dynamicToolCall/requestApproval",
     "dynamicTool/call",
+    "dynamicTool/requestApproval",
     "account/chatgptAuthTokens/refresh",
+    "account/chatgpt_auth_tokens/refresh",
     "account/tokenRefresh",
     "attestation/generate",
     "attestation/request",
     "applyPatchApproval",
     "applyPatch/approvalRequest",
+    "apply_patch/approval_request",
     "execCommandApproval",
     "exec/approvalRequest",
+    "exec_command/approval_request",
 ];
 
 #[must_use]
@@ -80,29 +87,40 @@ pub fn normalize_provider_server_request(
 
 #[must_use]
 pub fn server_request_kind(method: &str) -> ServerRequestKind {
-    match method {
-        "item/commandExecution/requestApproval" | "command/approvalRequest" => {
+    match canonical_method_key(method).as_str() {
+        "itemcommandexecutionrequestapproval" | "commandapprovalrequest" => {
             ServerRequestKind::CommandApproval
         }
-        "item/fileChange/requestApproval" | "fileChange/approvalRequest" => {
+        "itemfilechangerequestapproval" | "filechangeapprovalrequest" => {
             ServerRequestKind::FileChangeApproval
         }
-        "item/tool/requestUserInput" | "tool/userInputRequest" => ServerRequestKind::ToolUserInput,
-        "mcpServer/elicitation/request" | "mcp/elicitation" => ServerRequestKind::McpElicitation,
-        "item/permissions/requestApproval" | "permission/approvalRequest" => {
+        "itemtoolrequestuserinput" | "tooluserinputrequest" => ServerRequestKind::ToolUserInput,
+        "mcpserverelicitationrequest" | "mcpelicitation" => ServerRequestKind::McpElicitation,
+        "itempermissionsrequestapproval" | "permissionapprovalrequest" => {
             ServerRequestKind::PermissionApproval
         }
-        "item/tool/call" | "dynamicTool/call" => ServerRequestKind::DynamicToolCall,
-        "account/chatgptAuthTokens/refresh" | "account/tokenRefresh" => {
+        "itemtoolcall"
+        | "dynamictoolcall"
+        | "itemdynamictoolcallrequestapproval"
+        | "dynamictoolrequestapproval" => ServerRequestKind::DynamicToolCall,
+        "accountchatgptauthtokensrefresh" | "accounttokenrefresh" => {
             ServerRequestKind::AccountTokenRefresh
         }
-        "attestation/generate" | "attestation/request" => ServerRequestKind::Attestation,
-        "applyPatchApproval" | "applyPatch/approvalRequest" => {
-            ServerRequestKind::ApplyPatchApproval
+        "attestationgenerate" | "attestationrequest" => ServerRequestKind::Attestation,
+        "applypatchapproval" | "applypatchapprovalrequest" => ServerRequestKind::ApplyPatchApproval,
+        "execcommandapproval" | "execapprovalrequest" | "execcommandapprovalrequest" => {
+            ServerRequestKind::ExecApproval
         }
-        "execCommandApproval" | "exec/approvalRequest" => ServerRequestKind::ExecApproval,
         _ => ServerRequestKind::Unknown,
     }
+}
+
+fn canonical_method_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn server_request_detail(params: &Value) -> ServerRequestDetail {
@@ -605,8 +623,13 @@ mod tests {
                 ServerRequestKind::ToolUserInput,
             ),
             ("tool/userInputRequest", ServerRequestKind::ToolUserInput),
+            ("tool/user_input_request", ServerRequestKind::ToolUserInput),
             (
                 "mcpServer/elicitation/request",
+                ServerRequestKind::McpElicitation,
+            ),
+            (
+                "mcpServer/elicitationRequest",
                 ServerRequestKind::McpElicitation,
             ),
             ("mcp/elicitation", ServerRequestKind::McpElicitation),
@@ -621,7 +644,19 @@ mod tests {
             ("item/tool/call", ServerRequestKind::DynamicToolCall),
             ("dynamicTool/call", ServerRequestKind::DynamicToolCall),
             (
+                "item/dynamicToolCall/requestApproval",
+                ServerRequestKind::DynamicToolCall,
+            ),
+            (
+                "dynamicTool/requestApproval",
+                ServerRequestKind::DynamicToolCall,
+            ),
+            (
                 "account/chatgptAuthTokens/refresh",
+                ServerRequestKind::AccountTokenRefresh,
+            ),
+            (
+                "account/chatgpt_auth_tokens/refresh",
                 ServerRequestKind::AccountTokenRefresh,
             ),
             (
@@ -635,8 +670,16 @@ mod tests {
                 "applyPatch/approvalRequest",
                 ServerRequestKind::ApplyPatchApproval,
             ),
+            (
+                "apply_patch/approval_request",
+                ServerRequestKind::ApplyPatchApproval,
+            ),
             ("execCommandApproval", ServerRequestKind::ExecApproval),
             ("exec/approvalRequest", ServerRequestKind::ExecApproval),
+            (
+                "exec_command/approval_request",
+                ServerRequestKind::ExecApproval,
+            ),
         ];
 
         for (method, kind) in cases {
