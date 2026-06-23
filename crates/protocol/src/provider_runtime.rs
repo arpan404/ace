@@ -28,6 +28,7 @@ pub const PROVIDER_RUNTIME_EVENT_TOPIC: &str = "provider_runtime.event";
 pub const PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE: usize = 512;
 pub const PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT: usize = 1_000;
 pub const PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT: usize = 1_000;
+pub const PROVIDER_RUNTIME_MAX_REQUEST_RESOLVE_BATCH_SIZE: usize = 128;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeSubscribeRequest {
@@ -227,6 +228,23 @@ pub struct ProviderRuntimeRequestResolveRequest {
     pub operation: Option<ProviderAdapterOperation>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeRequestResolveBatchRequest {
+    pub provider: String,
+    #[serde(default)]
+    pub requests: Vec<ProviderRuntimeRequestResolveBatchItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeRequestResolveBatchItem {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<ProviderAdapterOperation>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRuntimeRequestResolveResponse {
     pub provider: ProviderKind,
@@ -241,6 +259,23 @@ pub struct ProviderRuntimeRequestResolveResponse {
     pub runtime_request: ProviderRuntimeOperationRequest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operation_profile: Option<ProviderRuntimeProviderOperation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeRequestResolveBatchItemResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    pub resolution: ProviderRuntimeRequestResolveResponse,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeRequestResolveBatchResponse {
+    pub provider: ProviderKind,
+    pub runtime_id: String,
+    pub display_name: String,
+    pub requested_count: usize,
+    pub max_requests: usize,
+    pub responses: Vec<ProviderRuntimeRequestResolveBatchItemResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2504,6 +2539,40 @@ mod tests {
         assert_eq!(encoded["runtime_id"], "codex");
         assert_eq!(encoded["provider_method"], "thread/read");
         assert_eq!(encoded["runtime_request"]["mode"], "adapter_operation");
+
+        let batch = serde_json::from_value::<ProviderRuntimeRequestResolveBatchRequest>(json!({
+            "provider": "codex",
+            "requests": [
+                { "request_id": "read", "operation": "thread_read" },
+                { "request_id": "raw", "method": "remote/connectionList" }
+            ]
+        }))
+        .expect("batch resolve request");
+        assert_eq!(batch.provider, "codex");
+        assert_eq!(batch.requests.len(), 2);
+        assert_eq!(batch.requests[0].request_id.as_deref(), Some("read"));
+        assert_eq!(
+            batch.requests[0].operation,
+            Some(ProviderAdapterOperation::ThreadRead)
+        );
+
+        let batch_response = ProviderRuntimeRequestResolveBatchResponse {
+            provider: ProviderKind::Codex,
+            runtime_id: "codex".to_string(),
+            display_name: "Codex".to_string(),
+            requested_count: 2,
+            max_requests: PROVIDER_RUNTIME_MAX_REQUEST_RESOLVE_BATCH_SIZE,
+            responses: vec![ProviderRuntimeRequestResolveBatchItemResponse {
+                request_id: Some("read".to_string()),
+                resolution: response,
+            }],
+        };
+        let encoded = serde_json::to_value(&batch_response).expect("batch resolve response");
+        assert_eq!(encoded["responses"][0]["request_id"], "read");
+        assert_eq!(
+            encoded["responses"][0]["resolution"]["runtime_request"]["params"],
+            "adapter_normalized"
+        );
     }
 
     #[test]

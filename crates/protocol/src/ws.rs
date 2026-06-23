@@ -170,6 +170,8 @@ pub mod methods {
     pub const PROVIDER_RUNTIME_SLASH_COMMANDS_LIST: &str = "provider_runtime.slash_commands.list";
     pub const PROVIDER_RUNTIME_LIFECYCLE: &str = "provider_runtime.lifecycle";
     pub const PROVIDER_RUNTIME_REQUEST_RESOLVE: &str = "provider_runtime.request.resolve";
+    pub const PROVIDER_RUNTIME_REQUEST_RESOLVE_BATCH: &str =
+        "provider_runtime.request.resolve_batch";
     pub const PROVIDER_RUNTIME_REQUEST: &str = "provider_runtime.request";
     pub const PROVIDER_RUNTIME_SERVER_REQUESTS_LIST: &str = "provider_runtime.server_requests.list";
     pub const PROVIDER_RUNTIME_SERVER_REQUEST_RESULT: &str =

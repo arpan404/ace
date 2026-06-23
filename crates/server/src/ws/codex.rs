@@ -27,13 +27,14 @@ use ace_protocol::{
     git::GitWorktreeCreateRequest,
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE,
-        PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT, PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT,
-        ProviderHostToolInvokeServerRequest, ProviderHostToolsListResponse,
-        ProviderRuntimeAdapterValidateRequest, ProviderRuntimeAdapterValidateResponse,
-        ProviderRuntimeContractReport, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
-        ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
-        ProviderRuntimeFeaturesListResponse, ProviderRuntimeLifecycleRequest,
-        ProviderRuntimeLifecycleResponse, ProviderRuntimeModelProviderCapabilitiesReadRequest,
+        PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT, PROVIDER_RUNTIME_MAX_REQUEST_RESOLVE_BATCH_SIZE,
+        PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT, ProviderHostToolInvokeServerRequest,
+        ProviderHostToolsListResponse, ProviderRuntimeAdapterValidateRequest,
+        ProviderRuntimeAdapterValidateResponse, ProviderRuntimeContractReport,
+        ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeEventRecord,
+        ProviderRuntimeFeaturesListRequest, ProviderRuntimeFeaturesListResponse,
+        ProviderRuntimeLifecycleRequest, ProviderRuntimeLifecycleResponse,
+        ProviderRuntimeModelProviderCapabilitiesReadRequest,
         ProviderRuntimeModelProviderCapabilitiesReadResponse, ProviderRuntimeModelsListRequest,
         ProviderRuntimeModelsListResponse, ProviderRuntimeOperationGateResolution,
         ProviderRuntimeOperationGateStatus, ProviderRuntimeOperationParams,
@@ -47,14 +48,16 @@ use ace_protocol::{
         ProviderRuntimeProviderSurfaceSupport, ProviderRuntimeProvidersList,
         ProviderRuntimeRawEventMode, ProviderRuntimeRawEventSummary,
         ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
-        ProviderRuntimeRequest, ProviderRuntimeRequestResolveRequest,
-        ProviderRuntimeRequestResolveResponse, ProviderRuntimeSlashCommandsListRequest,
-        ProviderRuntimeSlashCommandsListResponse, ProviderRuntimeStateGetRequest,
-        ProviderRuntimeStateGetResponse, ProviderRuntimeStateSource,
-        ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
-        ProviderRuntimeSubscribeRequest, ProviderServerRequestAudit,
-        ProviderServerRequestDecisionRecord, ProviderServerRequestDecisionResponse,
-        ProviderServerRequestError, ProviderServerRequestRecord, ProviderServerRequestResult,
+        ProviderRuntimeRequest, ProviderRuntimeRequestResolveBatchItemResponse,
+        ProviderRuntimeRequestResolveBatchRequest, ProviderRuntimeRequestResolveBatchResponse,
+        ProviderRuntimeRequestResolveRequest, ProviderRuntimeRequestResolveResponse,
+        ProviderRuntimeSlashCommandsListRequest, ProviderRuntimeSlashCommandsListResponse,
+        ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
+        ProviderRuntimeStateSource, ProviderRuntimeStatusListRequest,
+        ProviderRuntimeStatusListResponse, ProviderRuntimeSubscribeRequest,
+        ProviderServerRequestAudit, ProviderServerRequestDecisionRecord,
+        ProviderServerRequestDecisionResponse, ProviderServerRequestError,
+        ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
         ProviderServerRequestsListResponse, capped_provider_runtime_events_limit,
         capped_provider_server_requests_limit, projection_deltas_for_events,
@@ -1361,6 +1364,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     serde_json::from_value::<ProviderRuntimeRequestResolveRequest>(payload)?;
                 self.resolve_provider_runtime_request(request).await
             }
+            methods::PROVIDER_RUNTIME_REQUEST_RESOLVE_BATCH => {
+                let request =
+                    serde_json::from_value::<ProviderRuntimeRequestResolveBatchRequest>(payload)?;
+                self.resolve_provider_runtime_request_batch(request).await
+            }
             methods::PROVIDER_RUNTIME_REQUEST => {
                 let mut request = serde_json::from_value::<ProviderRuntimeRequest>(payload)?;
                 let provider =
@@ -2626,75 +2634,63 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             .adapter_profile(provider)
             .ok_or(ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider })?;
         let status = self.providers.status(provider).await.ok();
-        let operation_profile = request
-            .operation
-            .map(|operation| {
-                provider_runtime_operation_for_provider(
-                    provider,
-                    operation,
-                    &adapter_profile,
-                    status.as_ref(),
-                )
-            })
-            .transpose()?;
-        let requested_method = request.method.clone();
-
-        let (provider_method, runtime_request) = if let Some(method) = request.method {
-            (
-                Some(method),
-                ProviderRuntimeOperationRequest::provider_method(
-                    ProviderRuntimeOperationParams::ProviderNative,
-                ),
-            )
-        } else if let Some(operation) = request.operation {
-            let profile = operation_profile.as_ref().ok_or_else(|| {
-                WsDispatchError::BadRequest(format!(
-                    "provider `{}` does not advertise adapter operation `{operation:?}`",
-                    provider.runtime_id()
-                ))
-            })?;
-            if !profile.runtime_request.invokable {
-                (
-                    profile.provider_methods.first().cloned(),
-                    profile.runtime_request.clone(),
-                )
-            } else {
-                match resolve_provider_runtime_request_method(
-                    None,
-                    Some(operation),
-                    &adapter_profile,
-                    status.as_ref(),
-                ) {
-                    Ok(method) => (Some(method), profile.runtime_request.clone()),
-                    Err(error) => (
-                        None,
-                        ProviderRuntimeOperationRequest::unavailable(
-                            ProviderRuntimeOperationRequestMode::ProviderMethod,
-                            error.to_string(),
-                        ),
-                    ),
-                }
-            }
-        } else {
-            (
-                None,
-                ProviderRuntimeOperationRequest::unavailable(
-                    ProviderRuntimeOperationRequestMode::ProviderMethod,
-                    "provider runtime request resolution requires either `method` or `operation`",
-                ),
-            )
-        };
 
         Ok(serde_json::to_value(
-            ProviderRuntimeRequestResolveResponse {
+            resolve_provider_runtime_request_result(
+                provider,
+                request.method,
+                request.operation,
+                &adapter_profile,
+                status.as_ref(),
+            )?,
+        )?)
+    }
+
+    async fn resolve_provider_runtime_request_batch(
+        &self,
+        request: ProviderRuntimeRequestResolveBatchRequest,
+    ) -> Result<Value, WsDispatchError> {
+        if request.requests.len() > PROVIDER_RUNTIME_MAX_REQUEST_RESOLVE_BATCH_SIZE {
+            return Err(WsDispatchError::BadRequest(format!(
+                "provider runtime request resolution accepts at most {} requests per batch",
+                PROVIDER_RUNTIME_MAX_REQUEST_RESOLVE_BATCH_SIZE
+            )));
+        }
+
+        let provider = ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
+            WsDispatchError::BadRequest(format!(
+                "unknown provider `{}` for runtime request resolution",
+                request.provider
+            ))
+        })?;
+        let adapter_profile = self
+            .providers
+            .adapter_profile(provider)
+            .ok_or(ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider })?;
+        let status = self.providers.status(provider).await.ok();
+        let mut responses = Vec::with_capacity(request.requests.len());
+
+        for item in request.requests {
+            responses.push(ProviderRuntimeRequestResolveBatchItemResponse {
+                request_id: item.request_id,
+                resolution: resolve_provider_runtime_request_result(
+                    provider,
+                    item.method,
+                    item.operation,
+                    &adapter_profile,
+                    status.as_ref(),
+                )?,
+            });
+        }
+
+        Ok(serde_json::to_value(
+            ProviderRuntimeRequestResolveBatchResponse {
                 provider,
                 runtime_id: provider.runtime_id().to_string(),
                 display_name: provider.display_name().to_string(),
-                requested_method,
-                operation: request.operation,
-                provider_method,
-                runtime_request,
-                operation_profile,
+                requested_count: responses.len(),
+                max_requests: PROVIDER_RUNTIME_MAX_REQUEST_RESOLVE_BATCH_SIZE,
+                responses,
             },
         )?)
     }
@@ -3476,6 +3472,78 @@ fn provider_runtime_operations_for_provider(
         .cloned()
         .map(|profile| provider_runtime_operation_from_profile(provider, profile, status))
         .collect()
+}
+
+fn resolve_provider_runtime_request_result(
+    provider: ProviderKind,
+    method: Option<String>,
+    operation: Option<ProviderAdapterOperation>,
+    adapter_profile: &ProviderAdapterProfile,
+    status: Option<&ProviderDriverStatus>,
+) -> Result<ProviderRuntimeRequestResolveResponse, WsDispatchError> {
+    let operation_profile = operation
+        .map(|operation| {
+            provider_runtime_operation_for_provider(provider, operation, adapter_profile, status)
+        })
+        .transpose()?;
+    let requested_method = method.clone();
+
+    let (provider_method, runtime_request) = if let Some(method) = method {
+        (
+            Some(method),
+            ProviderRuntimeOperationRequest::provider_method(
+                ProviderRuntimeOperationParams::ProviderNative,
+            ),
+        )
+    } else if let Some(operation) = operation {
+        let profile = operation_profile.as_ref().ok_or_else(|| {
+            WsDispatchError::BadRequest(format!(
+                "provider `{}` does not advertise adapter operation `{operation:?}`",
+                provider.runtime_id()
+            ))
+        })?;
+        if !profile.runtime_request.invokable {
+            (
+                profile.provider_methods.first().cloned(),
+                profile.runtime_request.clone(),
+            )
+        } else {
+            match resolve_provider_runtime_request_method(
+                None,
+                Some(operation),
+                adapter_profile,
+                status,
+            ) {
+                Ok(method) => (Some(method), profile.runtime_request.clone()),
+                Err(error) => (
+                    None,
+                    ProviderRuntimeOperationRequest::unavailable(
+                        ProviderRuntimeOperationRequestMode::ProviderMethod,
+                        error.to_string(),
+                    ),
+                ),
+            }
+        }
+    } else {
+        (
+            None,
+            ProviderRuntimeOperationRequest::unavailable(
+                ProviderRuntimeOperationRequestMode::ProviderMethod,
+                "provider runtime request resolution requires either `method` or `operation`",
+            ),
+        )
+    };
+
+    Ok(ProviderRuntimeRequestResolveResponse {
+        provider,
+        runtime_id: provider.runtime_id().to_string(),
+        display_name: provider.display_name().to_string(),
+        requested_method,
+        operation,
+        provider_method,
+        runtime_request,
+        operation_profile,
+    })
 }
 
 fn provider_runtime_operation_for_provider(
@@ -9524,6 +9592,101 @@ mod tests {
         assert_eq!(body["runtime_request"]["invokable"], false);
         assert_eq!(body["runtime_request"]["mode"], "deferred");
         assert_eq!(body["operation_profile"]["availability"], "deferred");
+
+        let resolved_batch = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-resolve-batch",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST_RESOLVE_BATCH,
+                    "payload": {
+                        "provider": "codex",
+                        "requests": [
+                            {
+                                "request_id": "thread-read",
+                                "operation": "thread_read"
+                            },
+                            {
+                                "request_id": "raw-remote",
+                                "method": "remote/connectionList"
+                            },
+                            {
+                                "request_id": "deferred-cloud",
+                                "operation": "cloud_handoff"
+                            }
+                        ]
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let resolved_batch: WsServerResponse =
+            serde_json::from_str(&resolved_batch).expect("batch resolve response");
+        let WsServerPayload::Result { body } = resolved_batch.payload else {
+            panic!("expected batch resolve result");
+        };
+        assert_eq!(body["provider"], "Codex");
+        assert_eq!(body["runtime_id"], "codex");
+        assert_eq!(body["requested_count"], 3);
+        assert_eq!(
+            body["max_requests"],
+            PROVIDER_RUNTIME_MAX_REQUEST_RESOLVE_BATCH_SIZE
+        );
+        let responses = body["responses"].as_array().expect("batch responses");
+        assert_eq!(responses[0]["request_id"], "thread-read");
+        assert_eq!(responses[0]["resolution"]["provider_method"], "thread/read");
+        assert_eq!(
+            responses[0]["resolution"]["runtime_request"]["mode"],
+            "adapter_operation"
+        );
+        assert_eq!(responses[1]["request_id"], "raw-remote");
+        assert_eq!(
+            responses[1]["resolution"]["provider_method"],
+            "remote/connectionList"
+        );
+        assert_eq!(
+            responses[1]["resolution"]["runtime_request"]["mode"],
+            "provider_method"
+        );
+        assert_eq!(responses[2]["request_id"], "deferred-cloud");
+        assert_eq!(
+            responses[2]["resolution"]["runtime_request"]["mode"],
+            "deferred"
+        );
+        assert_eq!(
+            responses[2]["resolution"]["operation_profile"]["availability"],
+            "deferred"
+        );
+
+        let oversized_requests = (0..=PROVIDER_RUNTIME_MAX_REQUEST_RESOLVE_BATCH_SIZE)
+            .map(|index| {
+                json!({
+                    "request_id": format!("request-{index}"),
+                    "operation": "thread_read"
+                })
+            })
+            .collect::<Vec<_>>();
+        let oversized_batch = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-resolve-oversized-batch",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST_RESOLVE_BATCH,
+                    "payload": {
+                        "provider": "codex",
+                        "requests": oversized_requests
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let oversized_batch: WsServerResponse =
+            serde_json::from_str(&oversized_batch).expect("oversized batch response");
+        let WsServerPayload::Error { code, message } = oversized_batch.payload else {
+            panic!("expected oversized batch error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("at most"));
 
         assert!(
             backend.calls.lock().expect("calls").is_empty(),
