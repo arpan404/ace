@@ -7851,6 +7851,14 @@ mod tests {
             panic!("expected resolved requests result");
         };
         assert_eq!(body["requests"].as_array().expect("requests").len(), 1);
+        assert_eq!(body["summary"]["resolved_with_complete_audit"], 1);
+        assert_eq!(body["summary"]["resolved_missing_audit_context"], 0);
+        assert!(
+            body["summary"]["by_missing_audit_field"]
+                .as_array()
+                .expect("missing audit fields")
+                .is_empty()
+        );
         assert_eq!(body["requests"][0]["status"], "resolved");
         assert_eq!(body["requests"][0]["decision"]["outcome"], "result");
         assert_eq!(body["requests"][0]["decision"]["payload"]["approved"], true);

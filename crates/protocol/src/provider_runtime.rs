@@ -1682,6 +1682,8 @@ pub struct ProviderServerRequestsSummary {
     pub total: usize,
     pub pending: usize,
     pub resolved: usize,
+    pub resolved_with_complete_audit: usize,
+    pub resolved_missing_audit_context: usize,
     #[serde(default)]
     pub by_provider: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
@@ -1694,6 +1696,8 @@ pub struct ProviderServerRequestsSummary {
     pub by_decision_outcome: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
     pub by_decider: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_missing_audit_field: Vec<ProviderRuntimeOperationCount>,
 }
 
 impl ProviderServerRequestsSummary {
@@ -1705,6 +1709,7 @@ impl ProviderServerRequestsSummary {
         let mut by_selected_policy = BTreeMap::new();
         let mut by_decision_outcome = BTreeMap::new();
         let mut by_decider = BTreeMap::new();
+        let mut by_missing_audit_field = BTreeMap::new();
         let mut summary = Self {
             total: records.len(),
             ..Self::default()
@@ -1730,6 +1735,15 @@ impl ProviderServerRequestsSummary {
                 if let Some(decider) = &decision.audit.decided_by {
                     increment_count(&mut by_decider, decider.clone());
                 }
+                let missing_fields = missing_audit_context_fields(&decision.audit);
+                if missing_fields.is_empty() {
+                    summary.resolved_with_complete_audit += 1;
+                } else {
+                    summary.resolved_missing_audit_context += 1;
+                    for field in missing_fields {
+                        increment_count(&mut by_missing_audit_field, field.to_string());
+                    }
+                }
             }
         }
 
@@ -1739,8 +1753,32 @@ impl ProviderServerRequestsSummary {
         summary.by_selected_policy = operation_counts(by_selected_policy);
         summary.by_decision_outcome = operation_counts(by_decision_outcome);
         summary.by_decider = operation_counts(by_decider);
+        summary.by_missing_audit_field = operation_counts(by_missing_audit_field);
         summary
     }
+}
+
+fn missing_audit_context_fields(audit: &ProviderServerRequestAudit) -> Vec<&'static str> {
+    let mut missing = Vec::new();
+    if audit.scope.as_deref().is_none_or(str::is_empty) {
+        missing.push("scope");
+    }
+    if audit.source_thread_id.as_deref().is_none_or(str::is_empty) {
+        missing.push("source_thread_id");
+    }
+    if audit.source_item_id.as_deref().is_none_or(str::is_empty) {
+        missing.push("source_item_id");
+    }
+    if audit.prompt.as_deref().is_none_or(str::is_empty) {
+        missing.push("prompt");
+    }
+    if audit.selected_policy.as_deref().is_none_or(str::is_empty) {
+        missing.push("selected_policy");
+    }
+    if audit.metadata.is_null() {
+        missing.push("metadata");
+    }
+    missing
 }
 
 fn selected_policy_for_server_request_record(
@@ -4071,6 +4109,8 @@ mod tests {
         assert_eq!(encoded["summary"]["total"], 3);
         assert_eq!(encoded["summary"]["pending"], 1);
         assert_eq!(encoded["summary"]["resolved"], 2);
+        assert_eq!(encoded["summary"]["resolved_with_complete_audit"], 0);
+        assert_eq!(encoded["summary"]["resolved_missing_audit_context"], 2);
         assert_eq!(encoded["summary"]["by_provider"][0]["key"], "codex");
         assert_eq!(encoded["summary"]["by_kind"][0]["key"], "command_approval");
         assert_eq!(encoded["summary"]["by_kind"][0]["count"], 1);
@@ -4098,6 +4138,20 @@ mod tests {
         );
         assert_eq!(encoded["summary"]["by_decider"][0]["key"], "auto_review");
         assert_eq!(encoded["summary"]["by_decider"][1]["key"], "user");
+        assert!(
+            encoded["summary"]["by_missing_audit_field"]
+                .as_array()
+                .expect("missing audit fields")
+                .iter()
+                .any(|field| field["key"] == "scope" && field["count"] == 2)
+        );
+        assert!(
+            encoded["summary"]["by_missing_audit_field"]
+                .as_array()
+                .expect("missing audit fields")
+                .iter()
+                .any(|field| field["key"] == "metadata" && field["count"] == 2)
+        );
     }
 
     #[test]
