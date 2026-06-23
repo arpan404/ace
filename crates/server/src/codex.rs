@@ -614,6 +614,7 @@ impl CodexService {
         &self,
         request: CodexThreadStart,
     ) -> std::result::Result<Value, CodexApiError> {
+        let request = request.prepare_for_provider();
         let request_value = serde_json::to_value(&request).unwrap_or(Value::Null);
         let response = self.backend.start_thread(request).await?;
         let thread_id = extract_thread_id(&response).ok_or(CodexApiError::MissingThreadId)?;
@@ -1797,6 +1798,7 @@ pub mod tests {
     #[derive(Default)]
     pub struct FakeCodexBackend {
         pub calls: StdMutex<Vec<String>>,
+        pub thread_start_requests: StdMutex<Vec<CodexThreadStart>>,
         pub events: StdMutex<VecDeque<Vec<ProviderEvent>>>,
         pub server_request_responses: StdMutex<Vec<ServerRequestResponse>>,
         pub stderr_tail: StdMutex<Vec<String>>,
@@ -1944,7 +1946,11 @@ pub mod tests {
             Ok(())
         }
 
-        async fn start_thread(&self, _request: CodexThreadStart) -> Result<Value> {
+        async fn start_thread(&self, request: CodexThreadStart) -> Result<Value> {
+            self.thread_start_requests
+                .lock()
+                .expect("thread start requests")
+                .push(request);
             self.calls
                 .lock()
                 .expect("calls")

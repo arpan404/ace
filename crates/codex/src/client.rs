@@ -150,7 +150,8 @@ impl CodexThreadStart {
         self.ensure_image_generation_preflight();
     }
 
-    fn prepare_for_provider(mut self) -> Self {
+    #[must_use]
+    pub fn prepare_for_provider(mut self) -> Self {
         if self.image_generation_preflight_enabled {
             self.ensure_image_generation_preflight();
         }

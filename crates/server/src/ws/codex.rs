@@ -6216,7 +6216,11 @@ mod tests {
         let calls = [
             (
                 methods::CODEX_THREAD_START,
-                json!({ "cwd": "/repo", "model": "gpt-5" }),
+                json!({
+                    "cwd": "/repo",
+                    "model": "gpt-5",
+                    "image_generation_preflight_enabled": true
+                }),
             ),
             (
                 methods::CODEX_THREAD_RESUME,
@@ -6307,6 +6311,28 @@ mod tests {
                 "thread/inject_items:thread-1:1",
             ]
         );
+        {
+            let thread_start_requests = backend
+                .thread_start_requests
+                .lock()
+                .expect("thread start requests");
+            assert_eq!(thread_start_requests.len(), 1);
+            assert!(thread_start_requests[0].image_generation_preflight_enabled);
+            assert!(
+                thread_start_requests[0]
+                    .dynamic_tools
+                    .iter()
+                    .any(|tool| tool["name"]
+                        == ace_codex::CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME)
+            );
+            assert!(
+                thread_start_requests[0]
+                    .developer_instructions
+                    .as_deref()
+                    .expect("developer instructions")
+                    .contains("Image Generation Preflight")
+            );
+        }
 
         let snapshot = state
             .dispatch_text(
