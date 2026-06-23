@@ -1,25 +1,29 @@
 use ace_git::{GithubCliClient, ProcessRunner};
 use async_trait::async_trait;
+#[cfg(test)]
 use axum::{
     Router,
-    body::Bytes,
     extract::{Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
-    response::{IntoResponse, Response},
+    http::{HeaderMap, HeaderValue},
     routing::get,
 };
-use reqwest::{Url, redirect::Policy};
-use serde::Deserialize;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
+use axum::{
+    body::Bytes,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
 };
+use reqwest::{Url, redirect::Policy};
+#[cfg(test)]
+use serde::Deserialize;
+use std::{path::Path, time::Duration};
+#[cfg(test)]
+use std::{path::PathBuf, sync::Arc};
 use thiserror::Error;
 
 const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 
+#[cfg(test)]
 pub struct GithubImageProxyState<R, F>
 where
     R: ProcessRunner,
@@ -29,6 +33,7 @@ where
     fetcher: Arc<F>,
 }
 
+#[cfg(test)]
 impl<R, F> Clone for GithubImageProxyState<R, F>
 where
     R: ProcessRunner,
@@ -42,18 +47,19 @@ where
     }
 }
 
+#[cfg(test)]
 impl<R, F> GithubImageProxyState<R, F>
 where
     R: ProcessRunner,
     F: GithubImageFetcher,
 {
-    #[cfg(test)]
     #[must_use]
     pub fn new(github: GithubCliClient<R>, fetcher: Arc<F>) -> Self {
         Self { github, fetcher }
     }
 }
 
+#[cfg(test)]
 pub fn router_with_state<R, F>(state: GithubImageProxyState<R, F>) -> Router
 where
     R: ProcessRunner + 'static,
@@ -96,12 +102,14 @@ pub enum ImageProxyError {
     TooLarge { limit: usize },
 }
 
+#[cfg(test)]
 #[derive(Debug, Deserialize)]
 struct ImageProxyQuery {
     cwd: Option<String>,
     url: Option<String>,
 }
 
+#[cfg(test)]
 async fn proxy_github_issue_image<R, F>(
     State(state): State<GithubImageProxyState<R, F>>,
     Query(query): Query<ImageProxyQuery>,
@@ -143,6 +151,7 @@ where
     }
 }
 
+#[cfg(test)]
 fn image_response(image: ProxiedGithubImage) -> Response {
     let mut headers = HeaderMap::new();
     headers.insert(

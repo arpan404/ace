@@ -65,10 +65,10 @@ use ace_runtime::{
     models::{normalize_provider_model_catalog, normalize_provider_model_provider_capabilities},
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
-        ProviderAdapterOperation, ProviderAdapterOperationGate, ProviderAdapterProfile,
-        ProviderAdapterRequestResolution, ProviderDriverStatus, ProviderEvent, ProviderMetadata,
-        ProviderRequest, RuntimeSignalKind, ace_provider_adapter_contract,
-        provider_adapter_profile, provider_contract_report,
+        ProviderAdapterInvocationKind, ProviderAdapterOperation, ProviderAdapterOperationGate,
+        ProviderAdapterOperationProfile, ProviderAdapterProfile, ProviderAdapterRequestResolution,
+        ProviderDriverStatus, ProviderEvent, ProviderMetadata, ProviderRequest, RuntimeSignalKind,
+        ace_provider_adapter_contract, provider_adapter_profile, provider_contract_report,
     },
     tools::{
         ProviderToolMetadata, SemanticToolCall, ToolNormalizationInput, ToolRunStatus,
@@ -1111,10 +1111,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     self.dispatch_codex_method(methods::CODEX_MODEL_LIST, request.params)
                         .await?
                 } else {
+                    let status = self.providers.status(provider).await.ok();
                     let method = resolve_provider_runtime_request_method(
                         None,
                         Some(ProviderAdapterOperation::ModelList),
                         &adapter_profile,
+                        status.as_ref(),
                     )?;
                     self.providers
                         .request(
@@ -1159,10 +1161,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     )
                     .await?
                 } else {
+                    let status = self.providers.status(provider).await.ok();
                     let method = resolve_provider_runtime_request_method(
                         None,
                         Some(ProviderAdapterOperation::ModelProviderCapabilitiesRead),
                         &adapter_profile,
+                        status.as_ref(),
                     )?;
                     self.providers
                         .request(
@@ -1273,6 +1277,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     request.method,
                     request.operation,
                     &adapter_profile,
+                    self.providers.status(provider).await.ok().as_ref(),
                 )?;
                 if provider == ProviderKind::Codex {
                     request.params = user_initiated_codex_params(&method, request.params)?;
@@ -2824,7 +2829,7 @@ fn provider_runtime_operations_for_provider(
             let runtime_request = if provider == ProviderKind::Codex {
                 codex_runtime_request_for_operation(operation)
             } else {
-                ProviderRuntimeOperationRequest::from_invocation(profile.invocation)
+                provider_native_runtime_request_for_profile(&profile, status)
             };
             let gate_resolution = profile
                 .runtime_gate
@@ -2915,6 +2920,55 @@ fn supported_client_request_methods(metadata: &Value) -> Option<(String, BTreeSe
         let methods = method_set_from_value(metadata.pointer(pointer)?)?;
         Some((source.to_string(), methods))
     })
+}
+
+fn provider_native_runtime_request_for_profile(
+    profile: &ProviderAdapterOperationProfile,
+    status: Option<&ProviderDriverStatus>,
+) -> ProviderRuntimeOperationRequest {
+    if profile.invocation != ProviderAdapterInvocationKind::DirectProviderMethod {
+        return ProviderRuntimeOperationRequest::from_invocation(profile.invocation);
+    }
+
+    let Some(method) = profile.provider_methods.first() else {
+        return ProviderRuntimeOperationRequest::unavailable(
+            ProviderRuntimeOperationRequestMode::ProviderMethod,
+            "provider operation is direct but has no provider method",
+        );
+    };
+
+    match provider_method_support(method, status) {
+        Ok(()) => ProviderRuntimeOperationRequest::provider_method(
+            ProviderRuntimeOperationParams::ProviderNative,
+        ),
+        Err(reason) => ProviderRuntimeOperationRequest::unavailable(
+            ProviderRuntimeOperationRequestMode::ProviderMethod,
+            reason,
+        ),
+    }
+}
+
+fn provider_method_support(
+    method: &str,
+    status: Option<&ProviderDriverStatus>,
+) -> Result<(), String> {
+    let Some(status) = status else {
+        return Err(
+            "provider status unavailable; client request method support was not checked"
+                .to_string(),
+        );
+    };
+    let Some((_source, supported_methods)) = supported_client_request_methods(&status.metadata)
+    else {
+        return Err("provider status did not report installed client request methods".to_string());
+    };
+    if supported_methods.contains(method) {
+        Ok(())
+    } else {
+        Err(format!(
+            "provider status does not advertise client request method `{method}`"
+        ))
+    }
 }
 
 fn method_set_from_value(value: &Value) -> Option<BTreeSet<String>> {
@@ -3814,6 +3868,7 @@ fn resolve_provider_runtime_request_method(
     method: Option<String>,
     operation: Option<ProviderAdapterOperation>,
     adapter_profile: &ProviderAdapterProfile,
+    status: Option<&ProviderDriverStatus>,
 ) -> Result<String, WsDispatchError> {
     if let Some(method) = method {
         return Ok(method);
@@ -3829,7 +3884,12 @@ fn resolve_provider_runtime_request_method(
         .resolve_request_operation(operation)
         .map_err(|error| WsDispatchError::BadRequest(error.to_string()))?
     {
-        ProviderAdapterRequestResolution::DirectProviderMethod { method } => Ok(method),
+        ProviderAdapterRequestResolution::DirectProviderMethod { method } => {
+            if adapter_profile.provider != ProviderKind::Codex {
+                provider_method_support(&method, status).map_err(WsDispatchError::BadRequest)?;
+            }
+            Ok(method)
+        }
         ProviderAdapterRequestResolution::Deferred => Err(WsDispatchError::BadRequest(format!(
             "provider `{}` adapter operation `{operation:?}` is intentionally deferred",
             adapter_profile.provider.runtime_id()
@@ -7810,6 +7870,92 @@ mod tests {
                 && operation["runtime_request"]["invokable"] == false
                 && operation["runtime_request"]["mode"] == "deferred"
         }));
+    }
+
+    #[tokio::test]
+    async fn ace_provider_runtime_does_not_advertise_codex_methods_as_invokable() {
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        );
+
+        let list = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-provider-operations",
+                    "method": methods::PROVIDER_RUNTIME_OPERATIONS_LIST,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+            )
+            .await;
+        let list: WsServerResponse = serde_json::from_str(&list).expect("operations response");
+        let WsServerPayload::Result { body } = list.payload else {
+            panic!("expected provider operation list");
+        };
+        let operations = body["providers"][0]["operations"]
+            .as_array()
+            .expect("operations");
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "thread_read"
+                && operation["invocation"] == "direct_provider_method"
+                && operation["provider_methods"] == json!(["thread/read"])
+                && operation["runtime_request"]["invokable"] == false
+                && operation["runtime_request"]["mode"] == "provider_method"
+                && operation["runtime_request"]["reason"]
+                    .as_str()
+                    .is_some_and(|reason| reason.contains("thread/read"))
+        }));
+
+        let unsupported_operation = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-provider-thread-read",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "ace",
+                        "operation": "thread_read",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let unsupported_operation: WsServerResponse =
+            serde_json::from_str(&unsupported_operation).expect("unsupported operation response");
+        let WsServerPayload::Error { code, message } = unsupported_operation.payload else {
+            panic!("expected unsupported operation error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("thread/read"));
+
+        let native_request = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-native-contract",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "ace",
+                        "method": "ace.contract",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let native_request: WsServerResponse =
+            serde_json::from_str(&native_request).expect("native request response");
+        let WsServerPayload::Result { body } = native_request.payload else {
+            panic!("expected native request result");
+        };
+        assert_eq!(body["provider"], "ace");
+        assert_eq!(body["adapter_contract"]["version"], 4);
     }
 
     #[tokio::test]

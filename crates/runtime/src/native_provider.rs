@@ -23,6 +23,21 @@ use std::{collections::HashMap, time::Duration};
 use tokio::sync::{Mutex, mpsc};
 
 const ACE_NATIVE_EVENT_QUEUE_CAPACITY: usize = 256;
+const ACE_NATIVE_CLIENT_REQUEST_METHODS: &[&str] = &[
+    "ace.ping",
+    "ace.descriptor",
+    "ace.capabilities",
+    "ace.events.emit",
+    "ace.semantic_tool.emit",
+    "ace.semantic_tool.normalize",
+    "ace.tool_event.normalize",
+    "ace.server_request_tool.normalize",
+    "ace.server_request.normalize",
+    "ace.thread_item.normalize",
+    "ace.runtime_signal.normalize",
+    "ace.adapter.validate",
+    "ace.contract",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdapterValidationRequest {
@@ -271,6 +286,11 @@ impl AceNativeProvider {
         )
         .collect()
     }
+
+    #[must_use]
+    pub fn supported_client_request_methods_static() -> &'static [&'static str] {
+        ACE_NATIVE_CLIENT_REQUEST_METHODS
+    }
 }
 
 impl Default for AceNativeProvider {
@@ -319,7 +339,8 @@ impl ProviderDriver for AceNativeProvider {
             metadata: json!({
                 "runtime": "ace",
                 "adapter_contract": contract.version,
-                "websocket_first": true
+                "websocket_first": true,
+                "supported_client_request_methods": Self::supported_client_request_methods_static(),
             }),
         }
     }
