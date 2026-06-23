@@ -21,12 +21,14 @@ use ace_protocol::{
         CodexRawRequest, CodexRemoteHandoffRequest, CodexReviewStartRequest, CodexShutdownRequest,
         CodexSkillRequest, CodexSkillsConfigWriteRequest, CodexSkillsExtraRootsSetRequest,
         CodexStderrTailResponse, CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest,
-        CodexThreadForkRequest, CodexThreadIdRequest, CodexThreadInjectItemsRequest,
+        CodexThreadElicitationCountRequest, CodexThreadForkRequest, CodexThreadIdRequest,
+        CodexThreadInjectItemsRequest, CodexThreadMemoryModeSetRequest,
         CodexThreadRealtimeAppendAudioRequest, CodexThreadRealtimeAppendSpeechRequest,
         CodexThreadRealtimeAppendTextRequest, CodexThreadRealtimeListVoicesRequest,
         CodexThreadRealtimeStartRequest, CodexThreadRealtimeStopRequest,
         CodexThreadRollbackRequest, CodexThreadSearchRequest, CodexThreadSetNameRequest,
-        CodexThreadStartRequest, CodexThreadTurnsItemsListRequest, CodexThreadTurnsListRequest,
+        CodexThreadSettingsUpdateRequest, CodexThreadStartRequest,
+        CodexThreadTurnsItemsListRequest, CodexThreadTurnsListRequest,
         CodexThreadUpdateMetadataRequest, CodexThreadsListRequest, CodexTurnStartRequest,
         CodexTurnSteerRequest, CodexVersionedRequest,
     },
@@ -4857,15 +4859,18 @@ fn codex_versioned_app_server_request(
         methods::CODEX_REMOTE_CONTROL_STATUS_READ => {
             Some(("remoteControl/status/read", raw_or_enveloped(payload)?))
         }
-        methods::CODEX_THREAD_DECREMENT_ELICITATION => {
-            Some(("thread/decrement_elicitation", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_THREAD_INCREMENT_ELICITATION => {
-            Some(("thread/increment_elicitation", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_THREAD_MEMORY_MODE_SET => {
-            Some(("thread/memoryMode/set", raw_or_enveloped(payload)?))
-        }
+        methods::CODEX_THREAD_DECREMENT_ELICITATION => Some((
+            "thread/decrement_elicitation",
+            typed_or_enveloped::<CodexThreadElicitationCountRequest>(payload)?,
+        )),
+        methods::CODEX_THREAD_INCREMENT_ELICITATION => Some((
+            "thread/increment_elicitation",
+            typed_or_enveloped::<CodexThreadElicitationCountRequest>(payload)?,
+        )),
+        methods::CODEX_THREAD_MEMORY_MODE_SET => Some((
+            "thread/memoryMode/set",
+            typed_or_enveloped::<CodexThreadMemoryModeSetRequest>(payload)?,
+        )),
         methods::CODEX_THREAD_REALTIME_APPEND_AUDIO => Some((
             "thread/realtime/appendAudio",
             typed_or_enveloped::<CodexThreadRealtimeAppendAudioRequest>(payload)?,
@@ -4894,9 +4899,10 @@ fn codex_versioned_app_server_request(
             "thread/search",
             typed_or_enveloped::<CodexThreadSearchRequest>(payload)?,
         )),
-        methods::CODEX_THREAD_SETTINGS_UPDATE => {
-            Some(("thread/settings/update", raw_or_enveloped(payload)?))
-        }
+        methods::CODEX_THREAD_SETTINGS_UPDATE => Some((
+            "thread/settings/update",
+            typed_or_enveloped::<CodexThreadSettingsUpdateRequest>(payload)?,
+        )),
         methods::CODEX_THREAD_TURNS_ITEMS_LIST => Some((
             "thread/turns/items/list",
             typed_or_enveloped::<CodexThreadTurnsItemsListRequest>(payload)?,
@@ -14155,6 +14161,61 @@ mod tests {
         assert_eq!(method, "thread/realtime/stop");
         assert_eq!(params["threadId"], "thread-1");
         assert_eq!(params["reason"], "user");
+    }
+
+    #[test]
+    fn codex_thread_workflow_settings_use_typed_contracts_without_dropping_extra_fields() {
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_INCREMENT_ELICITATION,
+            &json!({
+                "thread_id": "thread-1",
+                "source": "mcpServer/elicitation/request"
+            }),
+        )
+        .expect("typed elicitation increment")
+        .expect("elicitation increment method");
+        assert_eq!(method, "thread/increment_elicitation");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["source"], "mcpServer/elicitation/request");
+        assert!(params.get("thread_id").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_MEMORY_MODE_SET,
+            &json!({
+                "params": {
+                    "thread_id": "thread-1",
+                    "mode": "project",
+                    "reason": "user"
+                }
+            }),
+        )
+        .expect("typed memory mode set")
+        .expect("memory mode method");
+        assert_eq!(method, "thread/memoryMode/set");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["mode"], "project");
+        assert_eq!(params["reason"], "user");
+        assert!(params.get("thread_id").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_SETTINGS_UPDATE,
+            &json!({
+                "thread_id": "thread-1",
+                "settings": {
+                    "autoReview": true,
+                    "sandbox": "workspace-write"
+                },
+                "schemaVersion": 2
+            }),
+        )
+        .expect("typed settings update")
+        .expect("settings update method");
+        assert_eq!(method, "thread/settings/update");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["settings"]["autoReview"], true);
+        assert_eq!(params["settings"]["sandbox"], "workspace-write");
+        assert_eq!(params["schemaVersion"], 2);
+        assert!(params.get("thread_id").is_none());
     }
 
     #[test]

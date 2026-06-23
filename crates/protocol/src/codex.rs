@@ -202,6 +202,40 @@ pub struct CodexThreadRealtimeListVoicesRequest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct CodexThreadElicitationCountRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "thread_id")]
+    pub thread_id: Option<String>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexThreadMemoryModeSetRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "thread_id")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexThreadSettingsUpdateRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "thread_id")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<Value>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct CodexModelListRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
