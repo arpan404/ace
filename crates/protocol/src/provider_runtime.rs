@@ -945,6 +945,28 @@ fn tool_renderable_asset_metadata(tool: &SemanticToolCall) -> Option<&serde_json
         .filter(|asset| asset.is_object())
 }
 
+fn normalize_remote_connection_status(status: &str) -> String {
+    let normalized = status
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', ' '], "_");
+    match normalized.as_str() {
+        "connect" | "connected" | "online" | "ready" => normalized,
+        "disconnect" | "disconnected" | "offline" => normalized,
+        "available" => "online".to_string(),
+        "unavailable" => "offline".to_string(),
+        _ => normalized,
+    }
+}
+
+fn has_remote_projects(projects: &serde_json::Value) -> bool {
+    match projects {
+        serde_json::Value::Array(projects) => !projects.is_empty(),
+        serde_json::Value::Object(project) => !project.is_empty(),
+        _ => false,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeFeaturesListRequest {
     pub provider: Option<String>,
@@ -1204,6 +1226,10 @@ pub struct ProviderRuntimeStateSummary {
     pub model_reroutes: usize,
     pub provider_states: usize,
     pub remote_connections: usize,
+    pub remote_host_connections: usize,
+    pub connected_remote_connections: usize,
+    pub disconnected_remote_connections: usize,
+    pub remote_connections_with_projects: usize,
     pub realtime_sessions: usize,
     pub realtime_transcripts: usize,
     pub truncated_realtime_transcripts: usize,
@@ -1243,6 +1269,10 @@ pub struct ProviderRuntimeStateSummary {
     pub by_thread_lifecycle_action: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
     pub by_subagent_action: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_remote_connection_status: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_remote_connection_location: Vec<ProviderRuntimeOperationCount>,
 }
 
 impl ProviderRuntimeStateSummary {
@@ -1263,6 +1293,8 @@ impl ProviderRuntimeStateSummary {
         let mut by_approval_status = BTreeMap::new();
         let mut by_thread_lifecycle_action = BTreeMap::new();
         let mut by_subagent_action = BTreeMap::new();
+        let mut by_remote_connection_status = BTreeMap::new();
+        let mut by_remote_connection_location = BTreeMap::new();
         let mut summary = Self {
             threads: snapshot.threads.len(),
             active_threads: snapshot
@@ -1478,6 +1510,27 @@ impl ProviderRuntimeStateSummary {
         for action in &snapshot.subagent_actions {
             increment_count(&mut by_subagent_action, enum_key(&action.action));
         }
+        for connection in &snapshot.remote_connections {
+            increment_count(
+                &mut by_remote_connection_location,
+                enum_key(&connection.execution_location),
+            );
+            if connection.execution_location == ExecutionLocation::RemoteHost {
+                summary.remote_host_connections += 1;
+            }
+            if has_remote_projects(connection.projects.as_ref()) {
+                summary.remote_connections_with_projects += 1;
+            }
+            if let Some(status) = connection.status.as_deref() {
+                let status_key = normalize_remote_connection_status(status);
+                increment_count(&mut by_remote_connection_status, status_key.clone());
+                match status_key.as_str() {
+                    "connected" | "online" | "ready" => summary.connected_remote_connections += 1,
+                    "disconnected" | "offline" => summary.disconnected_remote_connections += 1,
+                    _ => {}
+                }
+            }
+        }
 
         summary.by_execution_location = operation_counts(by_execution_location);
         summary.by_active_turn_mode = operation_counts(by_active_turn_mode);
@@ -1494,6 +1547,8 @@ impl ProviderRuntimeStateSummary {
         summary.by_approval_status = operation_counts(by_approval_status);
         summary.by_thread_lifecycle_action = operation_counts(by_thread_lifecycle_action);
         summary.by_subagent_action = operation_counts(by_subagent_action);
+        summary.by_remote_connection_status = operation_counts(by_remote_connection_status);
+        summary.by_remote_connection_location = operation_counts(by_remote_connection_location);
         summary
     }
 }
