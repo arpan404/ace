@@ -225,19 +225,16 @@ impl AppServerTransport for CodexStdioTransport {
             return Err(error);
         }
 
-        time::timeout(timeout, rx)
-            .await
-            .map_err(|_| {
-                let pending = Arc::clone(&self.pending);
-                tokio::spawn(async move {
-                    pending.lock().await.remove(&id);
-                });
-                CodexError::RequestTimeout {
+        match time::timeout(timeout, rx).await {
+            Ok(result) => result.map_err(|_| CodexError::TransportClosed)?,
+            Err(_) => {
+                self.pending.lock().await.remove(&id);
+                Err(CodexError::RequestTimeout {
                     method: method.to_string(),
                     timeout,
-                }
-            })?
-            .map_err(|_| CodexError::TransportClosed)?
+                })
+            }
+        }
     }
 
     async fn notify(&self, method: &str, params: Value) -> Result<()> {
@@ -376,19 +373,16 @@ impl AppServerTransport for CodexUnixSocketTransport {
             return Err(error);
         }
 
-        time::timeout(timeout, rx)
-            .await
-            .map_err(|_| {
-                let pending = Arc::clone(&self.pending);
-                tokio::spawn(async move {
-                    pending.lock().await.remove(&id);
-                });
-                CodexError::RequestTimeout {
+        match time::timeout(timeout, rx).await {
+            Ok(result) => result.map_err(|_| CodexError::TransportClosed)?,
+            Err(_) => {
+                self.pending.lock().await.remove(&id);
+                Err(CodexError::RequestTimeout {
                     method: method.to_string(),
                     timeout,
-                }
-            })?
-            .map_err(|_| CodexError::TransportClosed)?
+                })
+            }
+        }
     }
 
     async fn notify(&self, method: &str, params: Value) -> Result<()> {
@@ -508,19 +502,16 @@ impl AppServerTransport for CodexWebSocketTransport {
             return Err(error);
         }
 
-        time::timeout(timeout, rx)
-            .await
-            .map_err(|_| {
-                let pending = Arc::clone(&self.pending);
-                tokio::spawn(async move {
-                    pending.lock().await.remove(&id);
-                });
-                CodexError::RequestTimeout {
+        match time::timeout(timeout, rx).await {
+            Ok(result) => result.map_err(|_| CodexError::TransportClosed)?,
+            Err(_) => {
+                self.pending.lock().await.remove(&id);
+                Err(CodexError::RequestTimeout {
                     method: method.to_string(),
                     timeout,
-                }
-            })?
-            .map_err(|_| CodexError::TransportClosed)?
+                })
+            }
+        }
     }
 
     async fn notify(&self, method: &str, params: Value) -> Result<()> {
@@ -882,6 +873,38 @@ pub(crate) mod tests {
                 })
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn request_timeout_removes_pending_request_before_returning() {
+        let (outbound, mut outbound_rx) = mpsc::channel::<Vec<u8>>(OUTBOUND_QUEUE_SIZE);
+        let (child_control, _child_control_rx) = mpsc::channel::<ChildControl>(1);
+        let (_events_tx, events_rx) = mpsc::channel::<CodexInboundEvent>(EVENT_QUEUE_SIZE);
+        let transport = CodexStdioTransport {
+            outbound,
+            events: Arc::new(Mutex::new(events_rx)),
+            pending: Arc::new(Mutex::new(HashMap::new())),
+            next_id: Arc::new(AtomicI64::new(1)),
+            stderr_tail: Arc::new(Mutex::new(VecDeque::new())),
+            child_control,
+            closed: Arc::new(AtomicBool::new(false)),
+        };
+
+        let error = transport
+            .request(
+                "thread/read",
+                json!({ "threadId": "thread-1" }),
+                Duration::ZERO,
+            )
+            .await
+            .expect_err("request timeout");
+
+        assert!(matches!(error, CodexError::RequestTimeout { .. }));
+        assert!(transport.pending.lock().await.is_empty());
+        let frame = outbound_rx.recv().await.expect("outbound frame");
+        let value: Value = serde_json::from_slice(&frame).expect("json frame");
+        assert_eq!(value["id"], 1);
+        assert_eq!(value["method"], "thread/read");
     }
 
     #[tokio::test]
