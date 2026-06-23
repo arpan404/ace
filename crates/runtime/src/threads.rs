@@ -1,6 +1,7 @@
 use crate::provider::{
     NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
-    NormalizedThreadItem, ProviderEvent, RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
+    NormalizedThreadItem, ProviderEvent, ProviderMetadata, RuntimeSignalKind, ThreadItemKind,
+    ThreadItemStatus,
 };
 use crate::tools::SemanticToolCall;
 use serde::{Deserialize, Serialize};
@@ -258,11 +259,19 @@ pub struct PlanSession {
     pub item_id: Option<String>,
     pub status: PlanSessionStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub questions: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completion: Option<String>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub metadata: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<ProviderMetadata>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1855,9 +1864,13 @@ impl AgentRuntimeState {
                     turn_id,
                     item_id: None,
                     status: PlanSessionStatus::Active,
+                    title: None,
                     text: None,
+                    status_text: None,
                     questions: None,
                     completion: None,
+                    metadata: Value::Null,
+                    provider: None,
                 },
             );
         }
@@ -1929,9 +1942,13 @@ impl AgentRuntimeState {
                 turn_id: item.turn_id.clone(),
                 item_id: item.item_id.clone(),
                 status: PlanSessionStatus::Active,
+                title: item.title.clone(),
                 text: None,
+                status_text: item.status_text.clone(),
                 questions: None,
                 completion: None,
+                metadata: item.metadata.clone(),
+                provider: Some(item.provider.clone()),
             });
         if plan.turn_id.is_none() {
             plan.turn_id = item.turn_id.clone();
@@ -1939,8 +1956,14 @@ impl AgentRuntimeState {
         if item.item_id.is_some() {
             plan.item_id = item.item_id.clone();
         }
+        if item.title.is_some() {
+            plan.title = item.title.clone();
+        }
         if item.text.is_some() {
             plan.text = item.text.clone();
+        }
+        if item.status_text.is_some() {
+            plan.status_text = item.status_text.clone();
         }
         if item.plan_questions.is_some() {
             plan.questions = item.plan_questions.clone();
@@ -1948,6 +1971,10 @@ impl AgentRuntimeState {
         if item.plan_completion.is_some() {
             plan.completion = item.plan_completion.clone();
         }
+        if !item.metadata.is_null() {
+            plan.metadata = item.metadata.clone();
+        }
+        plan.provider = Some(item.provider.clone());
     }
 
     pub fn apply_provider_events(&mut self, events: &[ProviderEvent]) {
@@ -3209,9 +3236,9 @@ mod tests {
                 child_thread_id: None,
                 sender: None,
                 role: None,
-                title: None,
+                title: Some("Implementation plan".to_string()),
                 text: Some("Plan".to_string()),
-                status_text: None,
+                status_text: Some("Waiting for confirmation".to_string()),
                 model: None,
                 target: None,
                 url: None,
@@ -3226,12 +3253,12 @@ mod tests {
                     }
                 ])),
                 plan_completion: Some("complete".to_string()),
-                metadata: json!({}),
+                metadata: json!({ "mode": "plan" }),
                 provider: ProviderMetadata {
                     provider: "codex".to_string(),
                     method: Some("item/plan/delta".to_string()),
                     schema_version: None,
-                    raw_payload: json!({}),
+                    raw_payload: json!({ "itemType": "plan" }),
                 },
             }),
         }]);
@@ -3240,15 +3267,38 @@ mod tests {
         assert_eq!(session.turn_id.as_deref(), Some("turn-1"));
         assert_eq!(session.item_id.as_deref(), Some("plan-1"));
         assert_eq!(session.status, PlanSessionStatus::Active);
+        assert_eq!(session.title.as_deref(), Some("Implementation plan"));
         assert_eq!(session.text.as_deref(), Some("Plan"));
+        assert_eq!(
+            session.status_text.as_deref(),
+            Some("Waiting for confirmation")
+        );
         assert_eq!(
             session.questions.as_ref().expect("questions")[0]["question"],
             "Which repository?"
         );
         assert_eq!(session.completion.as_deref(), Some("complete"));
+        assert_eq!(session.metadata["mode"], "plan");
+        assert_eq!(
+            session
+                .provider
+                .as_ref()
+                .expect("provider metadata")
+                .raw_payload["itemType"],
+            "plan"
+        );
 
         let snapshot = state.snapshot();
         assert_eq!(snapshot.plan_sessions[0].item_id.as_deref(), Some("plan-1"));
+        assert_eq!(
+            snapshot.plan_sessions[0].title.as_deref(),
+            Some("Implementation plan")
+        );
+        assert_eq!(
+            snapshot.plan_sessions[0].status_text.as_deref(),
+            Some("Waiting for confirmation")
+        );
+        assert_eq!(snapshot.plan_sessions[0].metadata["mode"], "plan");
         assert_eq!(
             snapshot.plan_sessions[0]
                 .questions

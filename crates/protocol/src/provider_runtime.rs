@@ -1667,7 +1667,15 @@ pub enum ProviderRuntimeProjectionDelta {
         item_id: Option<String>,
         status: ThreadItemStatus,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status_text: Option<String>,
+        #[serde(default, skip_serializing_if = "box_json_value_is_null")]
+        metadata: Box<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_metadata: Option<Box<ace_runtime::provider::ProviderMetadata>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         questions: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2139,7 +2147,11 @@ impl ProviderRuntimeEvent {
                         turn_id: item.turn_id.clone(),
                         item_id: item.item_id.clone(),
                         status: item.status,
+                        title: item.title.clone(),
                         text: item.text.clone(),
+                        status_text: item.status_text.clone(),
+                        metadata: Box::new(item.metadata.clone()),
+                        provider_metadata: Some(Box::new(item.provider.clone())),
                         questions: item.plan_questions.clone(),
                         completion: item.plan_completion.clone(),
                     });
@@ -3839,9 +3851,13 @@ mod tests {
                 turn_id: Some("turn-1".to_string()),
                 item_id: Some("plan-1".to_string()),
                 status: PlanSessionStatus::Implementing,
+                title: Some("Plan".to_string()),
                 text: Some("Plan".to_string()),
+                status_text: None,
                 questions: None,
                 completion: None,
+                metadata: json!({}),
+                provider: None,
             }],
             goals: vec![GoalState {
                 thread_id: "thread-1".to_string(),
@@ -4388,12 +4404,12 @@ mod tests {
                         }
                     ])),
                     plan_completion: Some("complete".to_string()),
-                    metadata: json!({}),
+                    metadata: json!({ "mode": "plan" }),
                     provider: ProviderMetadata {
                         provider: "codex".to_string(),
                         method: Some("item/plan/delta".to_string()),
                         schema_version: None,
-                        raw_payload: json!({}),
+                        raw_payload: json!({ "itemType": "plan" }),
                     },
                 }),
             },
@@ -4419,14 +4435,24 @@ mod tests {
                 thread_id,
                 turn_id,
                 item_id,
+                title,
                 text,
+                status_text,
+                metadata,
+                provider_metadata,
                 questions,
                 completion,
                 ..
             } if thread_id.as_deref() == Some("thread-1")
                 && turn_id.as_deref() == Some("turn-1")
                 && item_id.as_deref() == Some("plan-1")
+                && title.as_deref() == Some("Plan")
                 && text.as_deref() == Some("Implement adapter")
+                && status_text.is_none()
+                && metadata["mode"] == "plan"
+                && provider_metadata.as_ref().is_some_and(|metadata| {
+                    metadata.raw_payload["itemType"] == "plan"
+                })
                 && questions.as_ref().is_some_and(|questions| {
                     questions[0]["question"] == "Implement now?"
                 })
