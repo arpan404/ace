@@ -1280,4 +1280,33 @@ mod tests {
         assert!(browser_bridge.provider_methods.is_empty());
         assert!(browser_bridge.fully_covered);
     }
+
+    #[test]
+    fn codex_client_request_inventory_is_represented_in_adapter_contract() {
+        let contract = ace_runtime::provider::ace_provider_adapter_contract();
+        let contract_methods = contract
+            .operations
+            .iter()
+            .flat_map(|operation| operation.provider_methods.iter())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let adapter_bootstrap_or_schema_only = BTreeSet::from([
+            "initialize".to_string(),
+            "mock/experimentalMethod".to_string(),
+        ]);
+        let missing = CODEX_METHOD_INVENTORY
+            .iter()
+            .filter(|spec| {
+                spec.direction == ClientRequest
+                    && !adapter_bootstrap_or_schema_only.contains(spec.method)
+                    && !contract_methods.contains(spec.method)
+            })
+            .map(|spec| spec.method)
+            .collect::<Vec<_>>();
+
+        assert!(
+            missing.is_empty(),
+            "Codex client request methods missing from provider adapter contract: {missing:#?}"
+        );
+    }
 }
