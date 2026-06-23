@@ -1105,8 +1105,18 @@ mod tests {
                     "events": [
                         {
                             "type": "raw_notification",
-                            "method": "thread/list/updated",
-                            "params": { "threadId": "thread-1" }
+                            "method": "thread/goal/updated",
+                            "params": {
+                                "threadId": "thread-1",
+                                "goal": {
+                                    "threadId": "thread-1",
+                                    "objective": "finish provider adapter",
+                                    "status": "active",
+                                    "tokenBudget": 4096,
+                                    "tokensUsed": 512,
+                                    "timeUsedSeconds": 9
+                                }
+                            }
                         }
                     ]
                 }),
@@ -1126,10 +1136,32 @@ mod tests {
         assert_eq!(
             events,
             vec![ProviderEvent::RawNotification {
-                method: "thread/list/updated".to_string(),
-                params: json!({ "threadId": "thread-1" }),
+                method: "thread/goal/updated".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "goal": {
+                        "threadId": "thread-1",
+                        "objective": "finish provider adapter",
+                        "status": "active",
+                        "tokenBudget": 4096,
+                        "tokensUsed": 512,
+                        "timeUsedSeconds": 9
+                    }
+                }),
             }]
         );
+        let snapshot = provider
+            .runtime_state_snapshot()
+            .await
+            .expect("runtime state snapshot");
+        assert_eq!(snapshot.goals.len(), 1);
+        assert_eq!(snapshot.goals[0].thread_id, "thread-1");
+        assert_eq!(
+            snapshot.goals[0].objective.as_deref(),
+            Some("finish provider adapter")
+        );
+        assert_eq!(snapshot.goals[0].token_budget, Some(4096));
+        assert_eq!(snapshot.goals[0].tokens_used, Some(512));
     }
 
     #[tokio::test]
