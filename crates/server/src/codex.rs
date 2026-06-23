@@ -14,6 +14,7 @@ use ace_runtime::{
         ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
         ProviderServerRequestResponder, ProviderStateSource,
     },
+    server_requests::KNOWN_SERVER_REQUEST_METHODS,
     threads::{
         AgentRuntimeSnapshot, AgentRuntimeState, AgentThread, ApprovalRetryRecord,
         ExecutionLocation, ForkPoint, HandoffPlan, HandoffStatus, PlanImplementationMode,
@@ -341,6 +342,7 @@ impl CodexBackend for LiveCodexBackend {
                 "transport_closed": client_closed,
                 "handshake_initialized": client_initialized,
                 "method_inventory": codex_classified_method_metadata(),
+                "normalized_server_request_methods": KNOWN_SERVER_REQUEST_METHODS,
                 "initialize": initialize_result.map(summarize_initialize_result)
             }),
         }
@@ -2555,6 +2557,18 @@ pub mod tests {
                 .as_array()
                 .expect("deferred methods")
                 .contains(&json!("cloud/handoff"))
+        );
+        assert!(
+            status.metadata["normalized_server_request_methods"]
+                .as_array()
+                .expect("normalized server request methods")
+                .contains(&json!("item/tool/call"))
+        );
+        assert!(
+            status.metadata["normalized_server_request_methods"]
+                .as_array()
+                .expect("normalized server request methods")
+                .contains(&json!("mcpServer/elicitation/request"))
         );
         assert!(
             status
