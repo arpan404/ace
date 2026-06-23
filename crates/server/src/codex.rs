@@ -3,7 +3,7 @@ use ace_codex::{
     CodexLiveClient, CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog,
     CodexPermissionPreset, CodexPlanImplementation, CodexReviewStart, CodexSubagentSteer,
     CodexThreadStart, CodexTransportConfig, CodexTurnPermissions, CodexTurnStart, CodexTurnSteer,
-    Result, classify_codex_method,
+    Result, classify_codex_method, codex_method_inventory,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_protocol::codex::CodexRemoteHandoffRequest;
@@ -117,6 +117,49 @@ fn summarize_initialize_result(result: Value) -> Value {
     }
     summary.insert("top_level_keys".to_string(), json!(object.len()));
     Value::Object(summary)
+}
+
+fn codex_classified_method_metadata() -> Value {
+    let mut client_requests = Vec::new();
+    let mut raw_client_requests = Vec::new();
+    let mut typed_client_requests = Vec::new();
+    let mut version_gated_client_requests = Vec::new();
+    let mut deferred_client_requests = Vec::new();
+    let mut server_notifications = Vec::new();
+    let mut server_requests = Vec::new();
+
+    for spec in codex_method_inventory() {
+        match spec.direction {
+            CodexMethodDirection::ClientRequest => {
+                client_requests.push(spec.method);
+                match spec.support {
+                    CodexMethodSupport::TypedSupported => typed_client_requests.push(spec.method),
+                    CodexMethodSupport::RawSupported => raw_client_requests.push(spec.method),
+                    CodexMethodSupport::VersionGated => {
+                        version_gated_client_requests.push(spec.method);
+                    }
+                    CodexMethodSupport::IntentionallyDeferred => {
+                        deferred_client_requests.push(spec.method);
+                    }
+                }
+            }
+            CodexMethodDirection::ServerNotification => server_notifications.push(spec.method),
+            CodexMethodDirection::ServerRequest => server_requests.push(spec.method),
+            CodexMethodDirection::ClientNotification => {}
+        }
+    }
+
+    json!({
+        "source": "compiled_codex_adapter_inventory",
+        "note": "classified methods describe adapter knowledge; installed support is reported separately when available",
+        "client_request_methods": client_requests,
+        "typed_client_request_methods": typed_client_requests,
+        "raw_client_request_methods": raw_client_requests,
+        "version_gated_client_request_methods": version_gated_client_requests,
+        "deferred_client_request_methods": deferred_client_requests,
+        "server_notification_methods": server_notifications,
+        "server_request_methods": server_requests,
+    })
 }
 
 fn value_type_name(value: &Value) -> &'static str {
@@ -297,6 +340,7 @@ impl CodexBackend for LiveCodexBackend {
                 "spawns_on_first_request": true,
                 "transport_closed": client_closed,
                 "handshake_initialized": client_initialized,
+                "method_inventory": codex_classified_method_metadata(),
                 "initialize": initialize_result.map(summarize_initialize_result)
             }),
         }
@@ -1750,6 +1794,7 @@ pub mod tests {
                 metadata: serde_json::json!({
                     "fake": true,
                     "queued_event_batches": self.events.lock().expect("events").len(),
+                    "method_inventory": codex_classified_method_metadata(),
                     "supported_client_request_methods": supported_client_request_methods
                 }),
             }
@@ -2495,6 +2540,28 @@ pub mod tests {
         assert_eq!(status.metadata["transport"], "stdio");
         assert_eq!(status.metadata["request_timeout_ms"], 25);
         assert_eq!(status.metadata["spawns_on_first_request"], true);
+        assert_eq!(
+            status.metadata["method_inventory"]["source"],
+            "compiled_codex_adapter_inventory"
+        );
+        assert!(
+            status.metadata["method_inventory"]["version_gated_client_request_methods"]
+                .as_array()
+                .expect("version gated methods")
+                .contains(&json!("process/spawn"))
+        );
+        assert!(
+            status.metadata["method_inventory"]["deferred_client_request_methods"]
+                .as_array()
+                .expect("deferred methods")
+                .contains(&json!("cloud/handoff"))
+        );
+        assert!(
+            status
+                .metadata
+                .get("supported_client_request_methods")
+                .is_none()
+        );
     }
 
     #[tokio::test]

@@ -8362,6 +8362,26 @@ mod tests {
         assert_eq!(codex["status"]["transport"], "fake_stdio");
         assert_eq!(codex["status"]["version"], "fake-codex-1");
         assert_eq!(codex["status"]["initialized"], true);
+        assert_eq!(
+            codex["status"]["metadata"]["method_inventory"]["source"],
+            "compiled_codex_adapter_inventory"
+        );
+        assert!(
+            codex["status"]["metadata"]["method_inventory"]["version_gated_client_request_methods"]
+                .as_array()
+                .expect("version gated methods")
+                .contains(&json!("process/spawn"))
+        );
+        assert!(
+            codex["status"]["metadata"]["method_inventory"]["deferred_client_request_methods"]
+                .as_array()
+                .expect("deferred methods")
+                .contains(&json!("cloud/handoff"))
+        );
+        assert_eq!(
+            codex["status"]["metadata"]["supported_client_request_methods"],
+            Value::Null
+        );
         assert_eq!(codex["supports_events"], true);
         assert_eq!(codex["supports_server_request_responses"], true);
         assert_eq!(codex["adapter_profile"]["provider"], "Codex");
