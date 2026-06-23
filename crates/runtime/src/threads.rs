@@ -4665,6 +4665,12 @@ mod tests {
         skill_state_updated.name = Some("rust".to_string());
         skill_state_updated.metadata = json!({ "surface": "skill", "enabled": true });
 
+        let mut plugin_state =
+            runtime_signal(RuntimeSignalKind::ProviderStateUpdated, "skills/changed");
+        plugin_state.status = Some("installed".to_string());
+        plugin_state.name = Some("browser".to_string());
+        plugin_state.metadata = json!({ "surface": "plugin", "source": "plugin_marketplace" });
+
         let mut realtime_initial = runtime_signal(
             RuntimeSignalKind::RealtimeSessionUpdated,
             "thread/realtime/started",
@@ -4740,6 +4746,9 @@ mod tests {
                 signal: Box::new(skill_state_updated),
             },
             ProviderEvent::RuntimeSignal {
+                signal: Box::new(plugin_state),
+            },
+            ProviderEvent::RuntimeSignal {
                 signal: Box::new(realtime_initial),
             },
             ProviderEvent::RuntimeSignal {
@@ -4773,7 +4782,7 @@ mod tests {
         );
 
         let snapshot = state.snapshot();
-        assert_eq!(snapshot.provider_states.len(), 2);
+        assert_eq!(snapshot.provider_states.len(), 3);
         let account_state = snapshot
             .provider_states
             .iter()
@@ -4790,6 +4799,16 @@ mod tests {
         assert_eq!(skill_state.name.as_deref(), Some("rust"));
         assert_eq!(skill_state.status, "enabled");
         assert_eq!(skill_state.metadata["enabled"], true);
+
+        let plugin_state = snapshot
+            .provider_states
+            .iter()
+            .find(|state| state.metadata["surface"] == "plugin")
+            .expect("plugin state");
+        assert_eq!(plugin_state.name.as_deref(), Some("browser"));
+        assert_eq!(plugin_state.status, "installed");
+        assert_eq!(plugin_state.metadata["source"], "plugin_marketplace");
+
         assert_eq!(snapshot.realtime_sessions.len(), 1);
         assert_eq!(snapshot.realtime_sessions[0].status, "error");
         assert_eq!(
