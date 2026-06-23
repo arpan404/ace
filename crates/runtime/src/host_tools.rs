@@ -1225,6 +1225,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn default_computer_bridge_can_be_replaced_by_attached_handler() {
+        let mut registry = HostToolRegistry::with_default_bridge_contracts();
+        let mut descriptor = HostToolDescriptor::new(
+            "computer.bridge",
+            ToolTransport::ComputerBridge,
+            ToolSurface::Computer,
+        );
+        descriptor.aliases = vec!["computer_use".to_string(), "ace_computer".to_string()];
+        descriptor.actions = vec![
+            ToolActionKind::ComputerClick,
+            ToolActionKind::ComputerScreenshot,
+        ];
+        descriptor.capabilities = vec![
+            ProviderCapability {
+                key: "host_tool.bridge.status.connected".to_string(),
+                version: 1,
+            },
+            ProviderCapability {
+                key: "host_tool.computer.accessibility".to_string(),
+                version: 1,
+            },
+        ];
+        let handler = Arc::new(RecordingTool {
+            descriptor,
+            invocations: Mutex::new(Vec::new()),
+        });
+
+        registry.replace(handler.clone()).expect("replace bridge");
+        let computer = registry
+            .descriptors()
+            .into_iter()
+            .find(|descriptor| descriptor.name == "computer.bridge")
+            .expect("computer descriptor");
+        assert!(
+            computer
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "host_tool.bridge.status.connected")
+        );
+        assert!(
+            !computer
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "host_tool.bridge.status.unavailable")
+        );
+
+        let result = registry
+            .invoke_server_request(
+                ProviderKind::Codex,
+                &request(
+                    ServerRequestKind::DynamicToolCall,
+                    json!({
+                        "toolName": "computer_use",
+                        "arguments": {
+                            "operation": "click",
+                            "x": 40,
+                            "y": 50
+                        }
+                    }),
+                ),
+            )
+            .await
+            .expect("invoke attached bridge");
+        assert_eq!(result.output["ok"], true);
+        let invocations = handler.invocations.lock().expect("invocations");
+        assert_eq!(invocations.len(), 1);
+        assert_eq!(
+            invocations[0].descriptor_name.as_deref(),
+            Some("computer.bridge")
+        );
+        assert_eq!(invocations[0].arguments["operation"], "click");
+    }
+
+    #[tokio::test]
     async fn bridge_replacement_rejects_colliding_alias_without_detaching_existing_bridge() {
         let mut registry = HostToolRegistry::with_default_bridge_contracts();
         let mut desktop_descriptor = HostToolDescriptor::new(

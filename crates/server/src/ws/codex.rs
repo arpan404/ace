@@ -15174,29 +15174,51 @@ mod tests {
     #[tokio::test]
     async fn provider_runtime_lists_attached_bridge_status_over_ws_rpc() {
         let runner = Arc::new(FakeRunner);
-        let mut descriptor = HostToolDescriptor::new(
+        let mut browser_descriptor = HostToolDescriptor::new(
             "browser.bridge",
             ToolTransport::BrowserBridge,
             ToolSurface::Browser,
         );
-        descriptor.aliases = vec!["ace_browser".to_string()];
-        descriptor.actions = vec![
+        browser_descriptor.aliases = vec!["ace_browser".to_string()];
+        browser_descriptor.actions = vec![
             ToolActionKind::BrowserClick,
             ToolActionKind::BrowserScreenshot,
         ];
-        descriptor.capabilities = vec![ProviderCapability {
+        browser_descriptor.capabilities = vec![ProviderCapability {
+            key: "host_tool.bridge.status.connected".to_string(),
+            version: 1,
+        }];
+        let mut computer_descriptor = HostToolDescriptor::new(
+            "computer.bridge",
+            ToolTransport::ComputerBridge,
+            ToolSurface::Computer,
+        );
+        computer_descriptor.aliases = vec!["computer_use".to_string()];
+        computer_descriptor.actions = vec![
+            ToolActionKind::ComputerClick,
+            ToolActionKind::ComputerScreenshot,
+        ];
+        computer_descriptor.capabilities = vec![ProviderCapability {
             key: "host_tool.bridge.status.connected".to_string(),
             version: 1,
         }];
         let mut host_tools = HostToolRegistry::with_default_bridge_contracts();
         host_tools
             .replace(Arc::new(RecordingHostTool {
-                descriptor,
+                descriptor: browser_descriptor,
                 invocations: Mutex::new(Vec::new()),
                 result: json!({ "ok": true }),
                 error: None,
             }))
             .expect("attach browser bridge");
+        host_tools
+            .replace(Arc::new(RecordingHostTool {
+                descriptor: computer_descriptor,
+                invocations: Mutex::new(Vec::new()),
+                result: json!({ "ok": true }),
+                error: None,
+            }))
+            .expect("attach computer bridge");
         let state = WsApiState::new_services(
             GitService::new(GitClient::with_runner(runner.clone())),
             GithubService::new(GithubCliClient::with_runner(runner)),
@@ -15249,8 +15271,14 @@ mod tests {
             .iter()
             .find(|bridge| bridge["surface"] == "computer")
             .expect("computer bridge summary");
-        assert_eq!(computer["status"], "unavailable");
+        assert_eq!(computer["status"], "connected");
         assert_eq!(computer["descriptor_name"], "computer.bridge");
+        assert!(
+            computer["actions"]
+                .as_array()
+                .expect("computer actions")
+                .contains(&json!("computer.click"))
+        );
     }
 
     #[tokio::test]
