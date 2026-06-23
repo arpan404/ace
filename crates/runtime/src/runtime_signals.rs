@@ -246,12 +246,16 @@ fn runtime_signal_kind(method: &str) -> Option<RuntimeSignalKind> {
         | "guardianWarning"
         | "windows/worldWritableWarning" => Some(RuntimeSignalKind::Warning),
         "model/rerouted" => Some(RuntimeSignalKind::ModelRerouted),
-        "realtime/transcriptDelta" | "thread/realtime/transcript/delta" => {
-            Some(RuntimeSignalKind::RealtimeTranscriptDelta)
-        }
-        "realtime/audioDelta" | "thread/realtime/outputAudio/delta" => {
-            Some(RuntimeSignalKind::RealtimeAudioDelta)
-        }
+        "realtime/transcriptDelta"
+        | "realtime/transcript/delta"
+        | "thread/realtime/transcriptDelta"
+        | "thread/realtime/transcript/delta" => Some(RuntimeSignalKind::RealtimeTranscriptDelta),
+        "realtime/audioDelta"
+        | "realtime/audio/delta"
+        | "thread/realtime/audioDelta"
+        | "thread/realtime/audio/delta"
+        | "thread/realtime/outputAudioDelta"
+        | "thread/realtime/outputAudio/delta" => Some(RuntimeSignalKind::RealtimeAudioDelta),
         "thread/started"
         | "thread/status/changed"
         | "thread/archived"
@@ -544,18 +548,55 @@ mod tests {
 
     #[test]
     fn normalizes_realtime_process_and_server_request_signals() {
-        let transcript = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
-            provider: "future-provider".to_string(),
-            method: "realtime/transcriptDelta".to_string(),
-            params: json!({
-                "threadId": "thread-1",
-                "turnId": "turn-1",
-                "delta": "hello"
-            }),
-        })
-        .expect("transcript signal");
-        assert_eq!(transcript.kind, RuntimeSignalKind::RealtimeTranscriptDelta);
-        assert_eq!(transcript.text.as_deref(), Some("hello"));
+        for method in [
+            "realtime/transcriptDelta",
+            "realtime/transcript/delta",
+            "thread/realtime/transcriptDelta",
+            "thread/realtime/transcript/delta",
+        ] {
+            let transcript = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
+                provider: "future-provider".to_string(),
+                method: method.to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "delta": "hello"
+                }),
+            })
+            .expect("transcript signal");
+            assert_eq!(
+                transcript.kind,
+                RuntimeSignalKind::RealtimeTranscriptDelta,
+                "{method}"
+            );
+            assert_eq!(transcript.text.as_deref(), Some("hello"), "{method}");
+        }
+
+        for method in [
+            "realtime/audioDelta",
+            "realtime/audio/delta",
+            "thread/realtime/audioDelta",
+            "thread/realtime/audio/delta",
+            "thread/realtime/outputAudioDelta",
+            "thread/realtime/outputAudio/delta",
+        ] {
+            let audio = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
+                provider: "future-provider".to_string(),
+                method: method.to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "audio": "AAAA"
+                }),
+            })
+            .expect("audio signal");
+            assert_eq!(
+                audio.kind,
+                RuntimeSignalKind::RealtimeAudioDelta,
+                "{method}"
+            );
+            assert_eq!(audio.audio.as_deref(), Some("AAAA"), "{method}");
+        }
 
         let process = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
             provider: "future-provider".to_string(),

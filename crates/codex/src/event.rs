@@ -654,6 +654,40 @@ mod tests {
         );
         assert_eq!(signal.text.as_deref(), Some("hello"));
 
+        let thread_transcript = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "thread/realtime/transcriptDelta".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "text": "from thread stream"
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &thread_transcript[0] else {
+            panic!("expected thread transcript signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::RealtimeTranscriptDelta
+        );
+        assert_eq!(signal.text.as_deref(), Some("from thread stream"));
+
+        let thread_audio = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "thread/realtime/audioDelta".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "audio": "AAAA"
+            }),
+        });
+        let ProviderEvent::RuntimeSignal { signal } = &thread_audio[0] else {
+            panic!("expected thread audio signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::RealtimeAudioDelta
+        );
+        assert_eq!(signal.audio.as_deref(), Some("AAAA"));
+
         let account = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
             method: "account/updated".to_string(),
             params: json!({
