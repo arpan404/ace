@@ -262,20 +262,24 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("thread/goal/updated", ServerNotification, TypedSupported),
     CodexMethodSpec::new("thread/goal/cleared", ServerNotification, TypedSupported),
     CodexMethodSpec::new("thread/name/updated", ServerNotification, RawSupported),
-    CodexMethodSpec::new("thread/realtime/closed", ServerNotification, RawSupported),
-    CodexMethodSpec::new("thread/realtime/error", ServerNotification, RawSupported),
+    CodexMethodSpec::new("thread/realtime/closed", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("thread/realtime/error", ServerNotification, TypedSupported),
     CodexMethodSpec::new(
         "thread/realtime/itemAdded",
         ServerNotification,
-        RawSupported,
+        TypedSupported,
     ),
     CodexMethodSpec::new(
         "thread/realtime/outputAudio/delta",
         ServerNotification,
         TypedSupported,
     ),
-    CodexMethodSpec::new("thread/realtime/sdp", ServerNotification, RawSupported),
-    CodexMethodSpec::new("thread/realtime/started", ServerNotification, RawSupported),
+    CodexMethodSpec::new("thread/realtime/sdp", ServerNotification, TypedSupported),
+    CodexMethodSpec::new(
+        "thread/realtime/started",
+        ServerNotification,
+        TypedSupported,
+    ),
     CodexMethodSpec::new(
         "thread/realtime/transcript/delta",
         ServerNotification,
@@ -284,7 +288,7 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new(
         "thread/realtime/transcript/done",
         ServerNotification,
-        RawSupported,
+        TypedSupported,
     ),
     CodexMethodSpec::new("thread/settings/updated", ServerNotification, RawSupported),
     CodexMethodSpec::new("thread/started", ServerNotification, RawSupported),
@@ -1244,6 +1248,31 @@ mod tests {
             plan.direction,
             Some(ProviderFeatureDirection::ServerNotification)
         );
+
+        let realtime_session = features
+            .iter()
+            .find(|feature| feature.provider_method.as_deref() == Some("thread/realtime/started"))
+            .expect("realtime session feature");
+        assert_eq!(realtime_session.category, ProviderFeatureCategory::Threads);
+        assert_eq!(realtime_session.support, ProviderFeatureSupport::Typed);
+        assert_eq!(
+            realtime_session.direction,
+            Some(ProviderFeatureDirection::ServerNotification)
+        );
+
+        for method in [
+            "thread/realtime/closed",
+            "thread/realtime/error",
+            "thread/realtime/itemAdded",
+            "thread/realtime/sdp",
+            "thread/realtime/transcript/done",
+        ] {
+            let feature = features
+                .iter()
+                .find(|feature| feature.provider_method.as_deref() == Some(method))
+                .unwrap_or_else(|| panic!("missing realtime feature {method}"));
+            assert_eq!(feature.support, ProviderFeatureSupport::Typed, "{method}");
+        }
 
         let remote = features
             .iter()
