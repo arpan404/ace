@@ -7393,6 +7393,130 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_resolved_server_request_notification_updates_ws_request_index() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let mut events = ace_codex::normalize_codex_inbound_event(
+            &ace_codex::CodexInboundEvent::ServerRequest {
+                id: 44,
+                method: "command/approvalRequest".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "item-1",
+                    "command": "cargo check",
+                    "prompt": "Run cargo check?",
+                    "approvalPolicy": "on-request"
+                }),
+            },
+        );
+        events.extend(ace_codex::normalize_codex_inbound_event(
+            &ace_codex::CodexInboundEvent::Notification {
+                method: "serverRequest/resolved".to_string(),
+                params: json!({
+                    "requestId": "44",
+                    "outcome": "result",
+                    "payload": { "approved": true },
+                    "audit": {
+                        "decided_by": "codex",
+                        "source_thread_id": "thread-1"
+                    }
+                }),
+            },
+        ));
+        backend.push_events(events);
+
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+        let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::channel::<String>(8);
+
+        let subscribe = state
+            .dispatch_text_with_events(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-resolved-subscribe",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+                Some(outbound_tx),
+            )
+            .await;
+        let subscribe: WsServerResponse = serde_json::from_str(&subscribe).expect("subscribe");
+        assert!(matches!(subscribe.payload, WsServerPayload::Result { .. }));
+
+        let pushed = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .expect("provider event timeout")
+            .expect("provider event");
+        let pushed: WsServerResponse = serde_json::from_str(&pushed).expect("pushed event");
+        let WsServerPayload::Event { body, .. } = pushed.payload else {
+            panic!("expected provider event");
+        };
+        let events = body["events"].as_array().expect("events");
+        assert!(events.iter().any(|event| event["type"] == "server_request"));
+        assert!(
+            events
+                .iter()
+                .any(|event| event["type"] == "server_request_resolved")
+        );
+        let deltas = body["projection_deltas"]
+            .as_array()
+            .expect("projection deltas");
+        assert!(deltas.iter().any(|delta| {
+            delta["type"] == "approval_resolved"
+                && delta["request_id"] == "44"
+                && delta["decision"]["payload"]["approved"] == true
+        }));
+
+        let pending_requests = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-resolved-pending",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUESTS_LIST,
+                    "payload": { "provider": "codex", "status": "pending", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let pending_requests: WsServerResponse =
+            serde_json::from_str(&pending_requests).expect("pending requests response");
+        let WsServerPayload::Result { body } = pending_requests.payload else {
+            panic!("expected pending requests result");
+        };
+        assert!(body["requests"].as_array().expect("pending").is_empty());
+
+        let resolved_requests = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-resolved-list",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUESTS_LIST,
+                    "payload": { "provider": "codex", "status": "resolved", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let resolved_requests: WsServerResponse =
+            serde_json::from_str(&resolved_requests).expect("resolved requests response");
+        let WsServerPayload::Result { body } = resolved_requests.payload else {
+            panic!("expected resolved requests result");
+        };
+        assert_eq!(body["requests"][0]["request_id"], "44");
+        assert_eq!(body["requests"][0]["status"], "resolved");
+        assert_eq!(body["requests"][0]["request"]["prompt"], "Run cargo check?");
+        assert_eq!(body["requests"][0]["decision"]["payload"]["approved"], true);
+        assert_eq!(
+            body["requests"][0]["decision"]["audit"]["decided_by"],
+            "codex"
+        );
+    }
+
+    #[tokio::test]
     async fn provider_runtime_splits_large_live_event_batches() {
         let backend = Arc::new(FakeCodexBackend::default());
         let events = (0..=PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
