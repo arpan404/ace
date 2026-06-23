@@ -2497,41 +2497,28 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
 }
 
 fn provider_event_chunks(events: Vec<ProviderEvent>) -> Vec<Vec<ProviderEvent>> {
-    if events.len() <= PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE {
-        return vec![events];
-    }
-
-    let mut chunks =
-        Vec::with_capacity(events.len().div_ceil(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE));
-    let mut events = events.into_iter();
-    loop {
-        let chunk = events
-            .by_ref()
-            .take(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
-            .collect::<Vec<_>>();
-        if chunk.is_empty() {
-            break;
-        }
-        chunks.push(chunk);
-    }
-    chunks
+    chunk_provider_items(events)
 }
 
 fn provider_event_record_chunks(
     records: Vec<ProviderEventRecord>,
 ) -> Vec<Vec<ProviderEventRecord>> {
-    if records.len() <= PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE {
-        return vec![records];
+    chunk_provider_items(records)
+}
+
+fn chunk_provider_items<T>(items: Vec<T>) -> Vec<Vec<T>> {
+    if items.is_empty() {
+        return Vec::new();
+    }
+    if items.len() <= PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE {
+        return vec![items];
     }
 
-    let mut chunks = Vec::with_capacity(
-        records
-            .len()
-            .div_ceil(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE),
-    );
-    let mut records = records.into_iter();
+    let mut chunks =
+        Vec::with_capacity(items.len().div_ceil(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE));
+    let mut items = items.into_iter();
     loop {
-        let chunk = records
+        let chunk = items
             .by_ref()
             .take(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
             .collect::<Vec<_>>();
