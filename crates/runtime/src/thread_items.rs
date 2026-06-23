@@ -71,11 +71,15 @@ pub fn normalize_provider_thread_item(
             .or_else(|| string_at(&input.params, "modelName")),
         target: string_at(item, "target")
             .or_else(|| string_at(&input.params, "target"))
+            .or_else(|| string_at(item, "query"))
+            .or_else(|| string_at(&input.params, "query"))
+            .or_else(|| string_at(item, "prompt"))
+            .or_else(|| string_at(&input.params, "prompt"))
             .or_else(|| string_at(item, "path"))
             .or_else(|| string_at(&input.params, "path"))
             .or_else(|| string_at(item, "command"))
             .or_else(|| string_at(&input.params, "command")),
-        url: string_at(item, "url").or_else(|| string_at(&input.params, "url")),
+        url: url_for_thread_item(item, &input.params),
         files: value_at(item, "files").or_else(|| value_at(&input.params, "files")),
         attachments: attachments_for_thread_item(item, &input.params),
         diff: value_at(item, "diff")
@@ -183,6 +187,9 @@ fn text_for_thread_item(method: &str, item: &Value, params: &Value) -> Option<St
             item.get("input")
                 .and_then(|input| string_at(input, "prompt"))
         })
+        .or_else(|| string_at(item, "query"))
+        .or_else(|| string_at(item, "caption"))
+        .or_else(|| string_at(item, "alt"))
 }
 
 fn title_for_thread_item(kind: ThreadItemKind, item: &Value, text: Option<&str>) -> Option<String> {
@@ -230,9 +237,17 @@ fn metadata_for_thread_item(item: &Value) -> Value {
         "targetThreadId",
         "target_thread_id",
         "target",
+        "query",
+        "result",
+        "results",
         "url",
+        "urls",
         "files",
         "attachments",
+        "output",
+        "outputs",
+        "outputImages",
+        "output_images",
         "images",
         "image",
         "inputImages",
@@ -264,6 +279,14 @@ fn attachments_for_thread_item(item: &Value, params: &Value) -> Option<Value> {
         .or_else(|| value_at(params, "inputImages"))
         .or_else(|| value_at(item, "input_images"))
         .or_else(|| value_at(params, "input_images"))
+        .or_else(|| value_at(item, "outputImages"))
+        .or_else(|| value_at(params, "outputImages"))
+        .or_else(|| value_at(item, "output_images"))
+        .or_else(|| value_at(params, "output_images"))
+        .or_else(|| value_at(item, "output"))
+        .or_else(|| value_at(params, "output"))
+        .or_else(|| value_at(item, "outputs"))
+        .or_else(|| value_at(params, "outputs"))
         .or_else(|| value_at(item, "images"))
         .or_else(|| value_at(params, "images"))
         .or_else(|| value_at(item, "image"))
@@ -311,6 +334,24 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
 
 fn value_at(value: &Value, key: &str) -> Option<Value> {
     value.get(key).cloned()
+}
+
+fn url_for_thread_item(item: &Value, params: &Value) -> Option<String> {
+    string_at(item, "url")
+        .or_else(|| string_at(params, "url"))
+        .or_else(|| string_at(item, "imageUrl"))
+        .or_else(|| string_at(params, "imageUrl"))
+        .or_else(|| string_at(item, "image_url"))
+        .or_else(|| string_at(params, "image_url"))
+        .or_else(|| nested_string_at(item, "/image", &["url", "href", "src"]))
+        .or_else(|| nested_string_at(params, "/image", &["url", "href", "src"]))
+        .or_else(|| nested_string_at(item, "/result", &["url", "href"]))
+        .or_else(|| nested_string_at(params, "/result", &["url", "href"]))
+}
+
+fn nested_string_at(value: &Value, pointer: &str, keys: &[&str]) -> Option<String> {
+    let nested = value.pointer(pointer)?;
+    keys.iter().find_map(|key| string_at(nested, key))
 }
 
 fn plan_questions_for_thread_item(
@@ -553,9 +594,118 @@ mod tests {
             web_search.url.as_deref(),
             Some("https://developers.openai.com/codex/app-server")
         );
+        assert_eq!(web_search.text.as_deref(), Some("Codex app-server"));
+        assert_eq!(web_search.target.as_deref(), Some("Codex app-server"));
         assert_eq!(
             web_search.metadata["url"],
             "https://developers.openai.com/codex/app-server"
+        );
+    }
+
+    #[test]
+    fn normalizes_search_and_image_item_render_fields() {
+        let search = normalize_provider_thread_item(ThreadItemNormalizationInput {
+            provider: "codex".to_string(),
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "item": {
+                    "id": "search-1",
+                    "type": "webSearch",
+                    "query": "gpui desktop app",
+                    "result": {
+                        "url": "https://github.com/zed-industries/zed",
+                        "count": 4
+                    },
+                    "results": [
+                        {
+                            "title": "Zed",
+                            "url": "https://github.com/zed-industries/zed"
+                        }
+                    ]
+                }
+            }),
+        })
+        .expect("web search item");
+
+        assert_eq!(search.kind, ThreadItemKind::WebSearch);
+        assert_eq!(search.text.as_deref(), Some("gpui desktop app"));
+        assert_eq!(search.target.as_deref(), Some("gpui desktop app"));
+        assert_eq!(
+            search.url.as_deref(),
+            Some("https://github.com/zed-industries/zed")
+        );
+        assert_eq!(search.metadata["query"], "gpui desktop app");
+        assert_eq!(search.metadata["result"]["count"], 4);
+        assert_eq!(
+            search.metadata["results"][0]["url"],
+            "https://github.com/zed-industries/zed"
+        );
+
+        let generated = normalize_provider_thread_item(ThreadItemNormalizationInput {
+            provider: "codex".to_string(),
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "item": {
+                    "id": "image-1",
+                    "type": "imageGeneration",
+                    "prompt": "terminal timeline screenshot",
+                    "outputImages": [
+                        {
+                            "mimeType": "image/png",
+                            "url": "codex://image/generated.png"
+                        }
+                    ]
+                }
+            }),
+        })
+        .expect("generated image item");
+
+        assert_eq!(generated.kind, ThreadItemKind::ImageGeneration);
+        assert_eq!(
+            generated.text.as_deref(),
+            Some("terminal timeline screenshot")
+        );
+        assert_eq!(
+            generated.target.as_deref(),
+            Some("terminal timeline screenshot")
+        );
+        assert_eq!(
+            generated.attachments.as_ref().expect("generated images")[0]["url"],
+            "codex://image/generated.png"
+        );
+        assert_eq!(
+            generated.metadata["outputImages"][0]["mimeType"],
+            "image/png"
+        );
+
+        let viewed = normalize_provider_thread_item(ThreadItemNormalizationInput {
+            provider: "codex".to_string(),
+            method: "item/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "item": {
+                    "id": "image-2",
+                    "type": "imageView",
+                    "image": {
+                        "src": "https://github.com/openai/codex/raw/main/screenshot.png"
+                    },
+                    "caption": "Codex screenshot"
+                }
+            }),
+        })
+        .expect("viewed image item");
+
+        assert_eq!(viewed.kind, ThreadItemKind::ImageView);
+        assert_eq!(viewed.text.as_deref(), Some("Codex screenshot"));
+        assert_eq!(
+            viewed.url.as_deref(),
+            Some("https://github.com/openai/codex/raw/main/screenshot.png")
+        );
+        assert_eq!(
+            viewed.attachments.as_ref().expect("viewed image")["src"],
+            "https://github.com/openai/codex/raw/main/screenshot.png"
         );
     }
 
