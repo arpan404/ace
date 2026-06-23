@@ -781,6 +781,7 @@ impl ProviderStateSource for AceNativeProvider {
             message: None,
             name: Some("Ace native provider".to_string()),
             metadata: json!({
+                "surface": "provider",
                 "runtime": "in_process",
                 "adapter_contract": contract.version,
                 "pending_server_requests": pending_server_requests,
