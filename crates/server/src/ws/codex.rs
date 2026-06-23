@@ -12691,6 +12691,12 @@ mod tests {
                     "version": 1
                 }))
         );
+        let browser_operations = browser["input_schema"]["properties"]["operation"]["enum"]
+            .as_array()
+            .expect("browser operations");
+        assert!(browser_operations.contains(&json!("navigate_tab_url")));
+        assert!(browser_operations.contains(&json!("playwright_locator_click")));
+        assert!(browser_operations.contains(&json!("tab_dev_logs")));
 
         let computer = tools
             .iter()
@@ -12704,6 +12710,12 @@ mod tests {
                 .expect("aliases")
                 .contains(&json!("computer_use"))
         );
+        let computer_operations = computer["input_schema"]["properties"]["operation"]["enum"]
+            .as_array()
+            .expect("computer operations");
+        assert!(computer_operations.contains(&json!("click")));
+        assert!(computer_operations.contains(&json!("press_key")));
+        assert!(computer_operations.contains(&json!("app_state")));
     }
 
     #[tokio::test]

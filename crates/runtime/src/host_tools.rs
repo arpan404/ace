@@ -8,7 +8,7 @@ use crate::{
 use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 const DEFAULT_MAX_ARGUMENT_BYTES: usize = 256 * 1024;
@@ -509,6 +509,7 @@ fn browser_bridge_descriptor() -> HostToolDescriptor {
     ];
     descriptor.description =
         Some("App-owned Browser bridge contract; handler attaches from the UI process".to_string());
+    descriptor.input_schema = browser_bridge_input_schema();
     descriptor.requires_user_approval = true;
     descriptor
 }
@@ -546,8 +547,90 @@ fn computer_bridge_descriptor() -> HostToolDescriptor {
     descriptor.description = Some(
         "App-owned Computer Use bridge contract; handler attaches from the UI process".to_string(),
     );
+    descriptor.input_schema = computer_bridge_input_schema();
     descriptor.requires_user_approval = true;
     descriptor
+}
+
+fn browser_bridge_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+            "operation": {
+                "type": "string",
+                "enum": [
+                    "navigate_tab_url",
+                    "cua_click",
+                    "dom_cua_click",
+                    "playwright_locator_click",
+                    "cua_type",
+                    "dom_cua_type",
+                    "playwright_locator_fill",
+                    "cua_scroll",
+                    "dom_cua_scroll",
+                    "cua_keypress",
+                    "dom_cua_keypress",
+                    "screenshot",
+                    "playwright_screenshot",
+                    "playwright_dom_snapshot",
+                    "tab_dev_logs",
+                    "tab_select",
+                    "resize_viewport",
+                    "zoom",
+                    "wait"
+                ]
+            },
+            "url": { "type": "string" },
+            "label": { "type": "string" },
+            "selector": { "type": "string" },
+            "text": { "type": "string" },
+            "key": { "type": "string" },
+            "scrollX": { "type": "number" },
+            "scrollY": { "type": "number" },
+            "tabId": { "type": ["string", "number"] }
+        },
+        "required": ["operation"]
+    })
+}
+
+fn computer_bridge_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+            "operation": {
+                "type": "string",
+                "enum": [
+                    "click",
+                    "double_click",
+                    "cua_click",
+                    "type_text",
+                    "set_value",
+                    "select_text",
+                    "scroll",
+                    "cua_scroll",
+                    "keypress",
+                    "press_key",
+                    "screenshot",
+                    "get_screenshot",
+                    "app_state",
+                    "list_apps"
+                ]
+            },
+            "app": { "type": "string" },
+            "window": { "type": "string" },
+            "element": { "type": ["string", "number"] },
+            "element_index": { "type": ["string", "number"] },
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "text": { "type": "string" },
+            "key": { "type": "string" },
+            "direction": { "type": "string" },
+            "pages": { "type": "number" }
+        },
+        "required": ["operation"]
+    })
 }
 
 fn serde_name<T: Serialize>(value: T) -> String {
@@ -976,6 +1059,13 @@ mod tests {
         assert!(browser.aliases.contains(&"ace_browser".to_string()));
         assert!(browser.actions.contains(&ToolActionKind::BrowserClick));
         assert!(browser.actions.contains(&ToolActionKind::BrowserNavigate));
+        assert_eq!(browser.input_schema["required"], json!(["operation"]));
+        let browser_operations = browser.input_schema["properties"]["operation"]["enum"]
+            .as_array()
+            .expect("browser operations");
+        assert!(browser_operations.contains(&json!("navigate_tab_url")));
+        assert!(browser_operations.contains(&json!("playwright_locator_click")));
+        assert!(browser_operations.contains(&json!("tab_dev_logs")));
         assert!(
             browser
                 .capabilities
@@ -996,6 +1086,13 @@ mod tests {
                 .actions
                 .contains(&ToolActionKind::ComputerScreenshot)
         );
+        assert_eq!(computer.input_schema["required"], json!(["operation"]));
+        let computer_operations = computer.input_schema["properties"]["operation"]["enum"]
+            .as_array()
+            .expect("computer operations");
+        assert!(computer_operations.contains(&json!("click")));
+        assert!(computer_operations.contains(&json!("press_key")));
+        assert!(computer_operations.contains(&json!("app_state")));
 
         let error = registry
             .invoke_server_request(
