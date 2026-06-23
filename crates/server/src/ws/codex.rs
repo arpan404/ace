@@ -60,7 +60,8 @@ use ace_runtime::threads::{
 };
 use ace_runtime::{
     host_tools::{
-        HostToolError, HostToolInvocation, HostToolResult, host_tool_invocation_from_server_request,
+        HostToolDescriptor, HostToolError, HostToolInvocation, HostToolResult,
+        host_tool_invocation_from_server_request,
     },
     models::{normalize_provider_model_catalog, normalize_provider_model_provider_capabilities},
     provider::{
@@ -1370,6 +1371,15 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             .await;
                     }
                 };
+                let descriptor = self.host_tool_descriptor_for_invocation(&invocation);
+                self.append_and_publish_provider_events(
+                    provider_kind,
+                    vec![ProviderEvent::SemanticTool {
+                        tool: Box::new(
+                            invocation.semantic_tool(descriptor.as_ref(), ToolRunStatus::Started),
+                        ),
+                    }],
+                )?;
                 let result = match self.host_tools.invoke_invocation(invocation.clone()).await {
                     Ok(result) => result,
                     Err(error) => {
@@ -1410,15 +1420,23 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     )?;
                 self.append_and_publish_provider_events(
                     provider_kind,
-                    vec![ProviderEvent::ServerRequestResolved {
-                        request_id: request.request_id.clone(),
-                        decision: NormalizedServerRequestDecision {
-                            outcome: decision.outcome.clone(),
-                            payload: decision.payload.clone(),
-                            audit: audit_value,
+                    vec![
+                        ProviderEvent::SemanticTool {
+                            tool: Box::new(
+                                invocation
+                                    .semantic_tool(descriptor.as_ref(), ToolRunStatus::Completed),
+                            ),
                         },
-                        request: decision_context.request.clone(),
-                    }],
+                        ProviderEvent::ServerRequestResolved {
+                            request_id: request.request_id.clone(),
+                            decision: NormalizedServerRequestDecision {
+                                outcome: decision.outcome.clone(),
+                                payload: decision.payload.clone(),
+                                audit: audit_value,
+                            },
+                            request: decision_context.request.clone(),
+                        },
+                    ],
                 )?;
                 Ok(serde_json::to_value(
                     ProviderServerRequestDecisionResponse {
@@ -1571,6 +1589,21 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         })
     }
 
+    fn host_tool_descriptor_for_invocation(
+        &self,
+        invocation: &HostToolInvocation,
+    ) -> Option<HostToolDescriptor> {
+        invocation
+            .descriptor_name
+            .as_deref()
+            .or(Some(invocation.tool_name.as_str()))
+            .and_then(|name| {
+                self.host_tools
+                    .resolve(name)
+                    .map(|(_, handler)| handler.descriptor())
+            })
+    }
+
     async fn respond_host_tool_error(
         &self,
         provider_kind: ProviderKind,
@@ -1593,6 +1626,14 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 error_message.clone(),
             )
             .await?;
+        let failed_tool = invocation.map(|invocation| {
+            let descriptor = self.host_tool_descriptor_for_invocation(invocation);
+            ProviderEvent::SemanticTool {
+                tool: Box::new(
+                    invocation.semantic_tool(descriptor.as_ref(), ToolRunStatus::Failed),
+                ),
+            }
+        });
         let audit = host_tool_error_audit(decision_context.audit, invocation, &error)?;
         let audit_value = serde_json::to_value(&audit)?;
         let decision = ProviderServerRequestDecisionRecord {
@@ -1609,18 +1650,20 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 error_payload.clone(),
                 audit_value.clone(),
             )?;
-        self.append_and_publish_provider_events(
-            provider_kind,
-            vec![ProviderEvent::ServerRequestResolved {
-                request_id: request_id.clone(),
-                decision: NormalizedServerRequestDecision {
-                    outcome: decision.outcome.clone(),
-                    payload: decision.payload.clone(),
-                    audit: audit_value,
-                },
-                request: decision_context.request.clone(),
-            }],
-        )?;
+        let mut events = Vec::new();
+        if let Some(failed_tool) = failed_tool {
+            events.push(failed_tool);
+        }
+        events.push(ProviderEvent::ServerRequestResolved {
+            request_id: request_id.clone(),
+            decision: NormalizedServerRequestDecision {
+                outcome: decision.outcome.clone(),
+                payload: decision.payload.clone(),
+                audit: audit_value,
+            },
+            request: decision_context.request.clone(),
+        });
+        self.append_and_publish_provider_events(provider_kind, events)?;
         Ok(serde_json::to_value(
             ProviderServerRequestDecisionResponse {
                 responded: true,
@@ -11140,6 +11183,48 @@ mod tests {
             resolved[0].decision.as_ref().expect("decision").payload["opened"],
             true
         );
+
+        let recent = state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .recent(Some("codex"), 4)
+            .expect("recent events");
+        assert!(matches!(
+            recent[0].event,
+            ProviderEvent::ServerRequest { .. }
+        ));
+        let ProviderEvent::SemanticTool { tool: started_tool } = &recent[1].event else {
+            panic!("expected started host tool event");
+        };
+        assert_eq!(started_tool.display.status, ToolRunStatus::Started);
+        assert_eq!(started_tool.surface, ToolSurface::Browser);
+        assert_eq!(
+            started_tool.display.title,
+            "Opening http://localhost:5173 in Browser"
+        );
+
+        let ProviderEvent::SemanticTool {
+            tool: completed_tool,
+        } = &recent[2].event
+        else {
+            panic!("expected completed host tool event");
+        };
+        assert!(matches!(
+            recent[3].event,
+            ProviderEvent::ServerRequestResolved { .. }
+        ));
+        assert_eq!(completed_tool.display.status, ToolRunStatus::Completed);
+        assert_eq!(completed_tool.surface, ToolSurface::Browser);
+        assert_eq!(completed_tool.action, ToolActionKind::BrowserNavigate);
+        assert_eq!(
+            completed_tool.display.title,
+            "Opened http://localhost:5173 in Browser"
+        );
+        assert_eq!(
+            completed_tool.provider.raw_payload["toolName"],
+            "ace_browser"
+        );
     }
 
     #[tokio::test]
@@ -11271,6 +11356,36 @@ mod tests {
                 code: -32015,
                 message: "host tool failed: browser bridge is not connected".to_string()
             }]
+        );
+        let recent = state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .recent(Some("codex"), 4)
+            .expect("recent events");
+        assert!(matches!(
+            recent[0].event,
+            ProviderEvent::ServerRequest { .. }
+        ));
+        let ProviderEvent::SemanticTool { tool: started_tool } = &recent[1].event else {
+            panic!("expected started host tool event");
+        };
+        assert_eq!(started_tool.display.status, ToolRunStatus::Started);
+        assert_eq!(started_tool.surface, ToolSurface::Browser);
+        assert_eq!(started_tool.action, ToolActionKind::BrowserNavigate);
+        assert!(matches!(
+            recent[3].event,
+            ProviderEvent::ServerRequestResolved { .. }
+        ));
+        let ProviderEvent::SemanticTool { tool } = &recent[2].event else {
+            panic!("expected failed host tool event");
+        };
+        assert_eq!(tool.display.status, ToolRunStatus::Failed);
+        assert_eq!(tool.surface, ToolSurface::Browser);
+        assert_eq!(tool.action, ToolActionKind::BrowserNavigate);
+        assert_eq!(
+            tool.display.title,
+            "Failed http://localhost:5173 in Browser"
         );
     }
 
