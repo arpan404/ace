@@ -938,6 +938,13 @@ fn operation_counts(counts: BTreeMap<String, usize>) -> Vec<ProviderRuntimeOpera
         .collect()
 }
 
+fn tool_renderable_asset_metadata(tool: &SemanticToolCall) -> Option<&serde_json::Value> {
+    tool.display
+        .technical_metadata
+        .get("renderable_asset")
+        .filter(|asset| asset.is_object())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeFeaturesListRequest {
     pub provider: Option<String>,
@@ -1180,6 +1187,10 @@ pub struct ProviderRuntimeStateSummary {
     pub subagent_actions: usize,
     pub thread_items: usize,
     pub tool_timeline: usize,
+    pub renderable_tool_assets: usize,
+    pub image_tool_assets: usize,
+    pub proxy_required_tool_assets: usize,
+    pub github_proxy_required_tool_assets: usize,
     pub approvals: usize,
     pub pending_approvals: usize,
     pub resolved_approvals: usize,
@@ -1429,6 +1440,30 @@ impl ProviderRuntimeStateSummary {
         }
         for tool in &snapshot.tool_timeline {
             increment_count(&mut by_tool_status, enum_key(&tool.display.status));
+            if let Some(asset) = tool_renderable_asset_metadata(tool) {
+                summary.renderable_tool_assets += 1;
+                if asset
+                    .get("kind")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|kind| kind == "image")
+                {
+                    summary.image_tool_assets += 1;
+                }
+                if asset
+                    .get("proxy_required")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    summary.proxy_required_tool_assets += 1;
+                    if asset
+                        .get("proxy_method")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|method| method == "github.image.proxy")
+                    {
+                        summary.github_proxy_required_tool_assets += 1;
+                    }
+                }
+            }
         }
         for approval in &snapshot.approvals {
             increment_count(&mut by_approval_status, enum_key(&approval.status));
@@ -4316,6 +4351,18 @@ mod tests {
             provider,
             item_type: Some("commandExecution".to_string()),
         });
+        let mut image_provider = ProviderToolMetadata::new();
+        image_provider.provider = Some("codex".to_string());
+        image_provider.method = Some("item/imageView".to_string());
+        image_provider.raw_result = json!({
+            "url": "https://private-user-images.githubusercontent.com/1/example.png"
+        });
+        let image_tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::CodexBuiltin,
+            status: ToolRunStatus::Completed,
+            provider: image_provider,
+            item_type: Some("imageView".to_string()),
+        });
 
         let snapshot = AgentRuntimeSnapshot {
             threads: vec![
@@ -4432,7 +4479,7 @@ mod tests {
                 approvals_reviewer: Some("user".to_string()),
                 provider_response: json!({ "forked": true }),
             }],
-            tool_timeline: vec![tool],
+            tool_timeline: vec![tool, image_tool],
             terminal_outputs: vec![
                 TerminalOutputRecord {
                     provider: "codex".to_string(),
@@ -4570,6 +4617,11 @@ mod tests {
         assert_eq!(summary.realtime_audio_truncated_chunks, 3);
         assert_eq!(summary.thread_lifecycle, 1);
         assert_eq!(summary.subagent_actions, 1);
+        assert_eq!(summary.tool_timeline, 2);
+        assert_eq!(summary.renderable_tool_assets, 1);
+        assert_eq!(summary.image_tool_assets, 1);
+        assert_eq!(summary.proxy_required_tool_assets, 1);
+        assert_eq!(summary.github_proxy_required_tool_assets, 1);
         assert_eq!(count(&summary.by_execution_location, "local"), 1);
         assert_eq!(count(&summary.by_execution_location, "worktree"), 1);
         assert_eq!(count(&summary.by_active_turn_mode, "plan"), 1);
@@ -4591,6 +4643,7 @@ mod tests {
         assert_eq!(count(&summary.by_thread_item_status, "updated"), 1);
         assert_eq!(count(&summary.by_thread_item_status, "completed"), 1);
         assert_eq!(count(&summary.by_tool_status, "approval_requested"), 1);
+        assert_eq!(count(&summary.by_tool_status, "completed"), 1);
         assert_eq!(count(&summary.by_thread_lifecycle_action, "rollback"), 1);
         assert_eq!(count(&summary.by_subagent_action, "steer"), 1);
     }

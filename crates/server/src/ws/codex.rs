@@ -12690,6 +12690,21 @@ mod tests {
             provider: tool_provider,
             item_type: Some("commandExecution".to_string()),
         });
+        let mut image_provider = ProviderToolMetadata::new();
+        image_provider.provider = Some("codex".to_string());
+        image_provider.method = Some("item/imageView".to_string());
+        image_provider.item_id = Some("image-1".to_string());
+        image_provider.thread_id = Some("thread-1".to_string());
+        image_provider.turn_id = Some("turn-1".to_string());
+        image_provider.raw_result = json!({
+            "url": "https://private-user-images.githubusercontent.com/1/example.png"
+        });
+        let image_tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::CodexBuiltin,
+            status: ToolRunStatus::Completed,
+            provider: image_provider,
+            item_type: Some("imageView".to_string()),
+        });
         event_log
             .append_batch(
                 "codex",
@@ -12895,6 +12910,9 @@ mod tests {
                     ProviderEvent::SemanticTool {
                         tool: Box::new(completed_tool),
                     },
+                    ProviderEvent::SemanticTool {
+                        tool: Box::new(image_tool),
+                    },
                     ProviderEvent::ServerRequest {
                         request: Box::new(normalized_approval_request("approval-1")),
                     },
@@ -12951,7 +12969,11 @@ mod tests {
         let summary = &body["providers"][0]["summary"];
         assert_eq!(summary["thread_items"], 2);
         assert_eq!(summary["plan_sessions"], 1);
-        assert_eq!(summary["tool_timeline"], 1);
+        assert_eq!(summary["tool_timeline"], 2);
+        assert_eq!(summary["renderable_tool_assets"], 1);
+        assert_eq!(summary["image_tool_assets"], 1);
+        assert_eq!(summary["proxy_required_tool_assets"], 1);
+        assert_eq!(summary["github_proxy_required_tool_assets"], 1);
         assert_eq!(summary["terminal_outputs"], 1);
         assert_eq!(summary["truncated_terminal_outputs"], 0);
         assert_eq!(summary["terminal_truncated_bytes"], 0);
@@ -12970,7 +12992,7 @@ mod tests {
         );
         assert_eq!(
             summary["by_tool_status"],
-            json!([{ "key": "completed", "count": 1 }])
+            json!([{ "key": "completed", "count": 2 }])
         );
         assert_eq!(
             summary["by_approval_status"],
@@ -13009,6 +13031,11 @@ mod tests {
         assert_eq!(
             snapshot_state["tool_timeline"][0]["provider"]["raw_args"]["command"],
             "cargo test"
+        );
+        assert_eq!(
+            snapshot_state["tool_timeline"][1]["display"]["technical_metadata"]["renderable_asset"]
+                ["proxy_method"],
+            "github.image.proxy"
         );
         assert_eq!(snapshot_state["terminal_outputs"][0]["item_id"], "tool-1");
         assert_eq!(
