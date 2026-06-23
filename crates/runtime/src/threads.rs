@@ -855,7 +855,9 @@ impl AgentRuntimeState {
         let terminal_outputs = self.terminal_outputs_in_order();
 
         let mut provider_states = self.provider_states.values().cloned().collect::<Vec<_>>();
-        provider_states.sort_by(|left, right| left.provider.cmp(&right.provider));
+        provider_states.sort_by(|left, right| {
+            provider_state_sort_key(left).cmp(&provider_state_sort_key(right))
+        });
 
         let mut remote_connections = self
             .remote_connections
@@ -1417,7 +1419,8 @@ impl AgentRuntimeState {
     }
 
     pub fn upsert_provider_state(&mut self, state: ProviderStateRecord) {
-        self.provider_states.insert(state.provider.clone(), state);
+        self.provider_states
+            .insert(provider_state_key(&state), state);
     }
 
     pub fn upsert_remote_connection(&mut self, connection: RemoteConnectionRecord) {
@@ -2453,6 +2456,29 @@ fn provider_state_from_signal(signal: &NormalizedRuntimeSignal) -> Option<Provid
         name: signal.name.clone(),
         metadata: signal.metadata.clone(),
     })
+}
+
+fn provider_state_key(state: &ProviderStateRecord) -> String {
+    let surface = provider_state_surface(state).unwrap_or("provider");
+    let name = state.name.as_deref().unwrap_or_default();
+    format!("{}\u{0}{surface}\u{0}{name}", state.provider)
+}
+
+fn provider_state_sort_key(state: &ProviderStateRecord) -> (&str, &str, &str, &str) {
+    (
+        state.provider.as_str(),
+        provider_state_surface(state).unwrap_or("provider"),
+        state.name.as_deref().unwrap_or_default(),
+        state.status.as_str(),
+    )
+}
+
+fn provider_state_surface(state: &ProviderStateRecord) -> Option<&str> {
+    state
+        .metadata
+        .get("surface")
+        .and_then(Value::as_str)
+        .filter(|surface| !surface.trim().is_empty())
 }
 
 fn remote_connection_from_signal(
@@ -4625,7 +4651,19 @@ mod tests {
         provider_state.status = Some("account_updated".to_string());
         provider_state.message = Some("Signed in".to_string());
         provider_state.name = Some("work".to_string());
-        provider_state.metadata = json!({ "email": "user@example.com" });
+        provider_state.metadata = json!({ "surface": "account", "email": "user@example.com" });
+
+        let mut skill_state =
+            runtime_signal(RuntimeSignalKind::ProviderStateUpdated, "skills/changed");
+        skill_state.status = Some("installed".to_string());
+        skill_state.name = Some("rust".to_string());
+        skill_state.metadata = json!({ "surface": "skill", "source": "marketplace" });
+
+        let mut skill_state_updated =
+            runtime_signal(RuntimeSignalKind::ProviderStateUpdated, "skills/changed");
+        skill_state_updated.status = Some("enabled".to_string());
+        skill_state_updated.name = Some("rust".to_string());
+        skill_state_updated.metadata = json!({ "surface": "skill", "enabled": true });
 
         let mut realtime_initial = runtime_signal(
             RuntimeSignalKind::RealtimeSessionUpdated,
@@ -4696,6 +4734,12 @@ mod tests {
                 signal: Box::new(provider_state),
             },
             ProviderEvent::RuntimeSignal {
+                signal: Box::new(skill_state),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(skill_state_updated),
+            },
+            ProviderEvent::RuntimeSignal {
                 signal: Box::new(realtime_initial),
             },
             ProviderEvent::RuntimeSignal {
@@ -4729,12 +4773,23 @@ mod tests {
         );
 
         let snapshot = state.snapshot();
-        assert_eq!(snapshot.provider_states.len(), 1);
-        assert_eq!(snapshot.provider_states[0].status, "account_updated");
-        assert_eq!(
-            snapshot.provider_states[0].metadata["email"],
-            "user@example.com"
-        );
+        assert_eq!(snapshot.provider_states.len(), 2);
+        let account_state = snapshot
+            .provider_states
+            .iter()
+            .find(|state| state.metadata["surface"] == "account")
+            .expect("account state");
+        assert_eq!(account_state.status, "account_updated");
+        assert_eq!(account_state.metadata["email"], "user@example.com");
+
+        let skill_state = snapshot
+            .provider_states
+            .iter()
+            .find(|state| state.metadata["surface"] == "skill")
+            .expect("skill state");
+        assert_eq!(skill_state.name.as_deref(), Some("rust"));
+        assert_eq!(skill_state.status, "enabled");
+        assert_eq!(skill_state.metadata["enabled"], true);
         assert_eq!(snapshot.realtime_sessions.len(), 1);
         assert_eq!(snapshot.realtime_sessions[0].status, "error");
         assert_eq!(
