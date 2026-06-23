@@ -158,10 +158,17 @@ fn thread_item_kind_for_type(item_type: &str) -> ThreadItemKind {
 }
 
 fn text_for_thread_item(method: &str, item: &Value, params: &Value) -> Option<String> {
-    if method.ends_with("/delta") || method == "turn/plan/updated" {
+    if matches!(
+        thread_item_status_from_method(method),
+        Some(ThreadItemStatus::Updated)
+    ) {
         return string_at(params, "delta")
             .or_else(|| string_at(params, "text"))
             .or_else(|| string_at(params, "content"))
+            .or_else(|| string_at(params, "summary"))
+            .or_else(|| string_at(item, "text"))
+            .or_else(|| string_at(item, "content"))
+            .or_else(|| string_at(item, "summary"))
             .or_else(|| string_at(item, "delta"));
     }
 
@@ -642,5 +649,43 @@ mod tests {
         );
         assert_eq!(item.plan_completion.as_deref(), Some("complete"));
         assert_eq!(item.provider.raw_payload["completed"], true);
+    }
+
+    #[test]
+    fn normalizes_non_suffix_reasoning_text_deltas() {
+        for (method, params, expected) in [
+            (
+                "item/reasoning/textDelta",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "reasoning-1",
+                    "text": "Checking invariants"
+                }),
+                "Checking invariants",
+            ),
+            (
+                "item/reasoning/summaryTextDelta",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "reasoning-1",
+                    "summary": "Need bounded queues"
+                }),
+                "Need bounded queues",
+            ),
+        ] {
+            let item = normalize_provider_thread_item(ThreadItemNormalizationInput {
+                provider: "codex".to_string(),
+                method: method.to_string(),
+                params,
+            })
+            .expect("reasoning delta");
+
+            assert_eq!(item.kind, ThreadItemKind::Reasoning, "{method}");
+            assert_eq!(item.status, ThreadItemStatus::Updated, "{method}");
+            assert_eq!(item.text.as_deref(), Some(expected), "{method}");
+            assert_eq!(item.item_id.as_deref(), Some("reasoning-1"), "{method}");
+        }
     }
 }

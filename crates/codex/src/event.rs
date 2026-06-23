@@ -1646,6 +1646,20 @@ mod tests {
         let item = first_thread_item(&reasoning);
         assert_eq!(item.kind, ThreadItemKind::Reasoning);
         assert_eq!(item.text.as_deref(), Some("Need to preserve raw payloads"));
+
+        let reasoning_text = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/reasoning/summaryTextDelta".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "reasoning-1",
+                "summary": "Keep event fanout bounded"
+            }),
+        });
+        let item = first_thread_item(&reasoning_text);
+        assert_eq!(item.kind, ThreadItemKind::Reasoning);
+        assert_eq!(item.status, ThreadItemStatus::Updated);
+        assert_eq!(item.text.as_deref(), Some("Keep event fanout bounded"));
     }
 
     #[test]
