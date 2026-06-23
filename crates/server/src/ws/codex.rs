@@ -58,7 +58,10 @@ use ace_protocol::{
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
-use ace_provider_commands::provider_fallback_slash_commands;
+use ace_provider_commands::{
+    CodexExtensionDiscoveryOptions, discover_codex_extension_slash_commands,
+    merge_provider_slash_commands, provider_fallback_slash_commands,
+};
 use ace_runtime::threads::{
     ApprovalRetryRecord, ExecutionLocation, ForkPoint, GoalState, GoalStatus, HandoffPlan,
     HandoffStatus, PlanImplementationMode, PlanImplementationRecord, SideChat, TurnMode,
@@ -1251,14 +1254,14 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 let request =
                     serde_json::from_value::<ProviderRuntimeSlashCommandsListRequest>(payload)?;
                 let providers =
-                    self.provider_runtime_filter(request.provider, "slash command list")?;
+                    self.provider_runtime_filter(request.provider.clone(), "slash command list")?;
                 let providers = providers
                     .into_iter()
                     .map(|provider| ProviderRuntimeProviderSlashCommands {
                         provider,
                         runtime_id: provider.runtime_id().to_string(),
                         display_name: provider.display_name().to_string(),
-                        commands: provider_fallback_slash_commands(Some(provider)),
+                        commands: provider_slash_commands(provider, &request),
                     })
                     .collect();
                 Ok(serde_json::to_value(
@@ -3354,6 +3357,23 @@ fn provider_runtime_operations_for_provider(
                 .with_runtime_gate_resolution(gate_resolution)
         })
         .collect()
+}
+
+fn provider_slash_commands(
+    provider: ProviderKind,
+    request: &ProviderRuntimeSlashCommandsListRequest,
+) -> Vec<ace_provider_commands::ProviderSlashCommand> {
+    let fallback = provider_fallback_slash_commands(Some(provider));
+    if provider != ProviderKind::Codex {
+        return fallback;
+    }
+
+    let discovered = discover_codex_extension_slash_commands(CodexExtensionDiscoveryOptions {
+        cwd: request.cwd.as_ref().map(PathBuf::from),
+        codex_home: request.codex_home.as_ref().map(PathBuf::from),
+        agents_home: request.agents_home.as_ref().map(PathBuf::from),
+    });
+    merge_provider_slash_commands([discovered, fallback])
 }
 
 fn resolve_provider_operation_gate(
@@ -10337,6 +10357,40 @@ mod tests {
     async fn provider_runtime_lists_provider_slash_commands_over_ws_rpc() {
         let backend = Arc::new(FakeCodexBackend::default());
         let runner = Arc::new(FakeRunner);
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cwd = temp.path().join("repo");
+        let codex_home = temp.path().join("codex-home");
+        let agents_home = temp.path().join("agents-home");
+        let project_skill = cwd.join(".codex").join("skills").join("review");
+        std::fs::create_dir_all(&project_skill).expect("project skill dir");
+        std::fs::write(
+            project_skill.join("SKILL.md"),
+            "---\nname: review-code\ndescription: Review code changes\n---\n# Review\n",
+        )
+        .expect("project skill file");
+        let plugin_root = codex_home
+            .join("plugins")
+            .join("cache")
+            .join("openai-bundled")
+            .join("browser-use");
+        std::fs::create_dir_all(plugin_root.join(".codex-plugin")).expect("plugin manifest dir");
+        std::fs::write(
+            plugin_root.join(".codex-plugin").join("plugin.json"),
+            r#"{
+  "name": "browser-use",
+  "description": "Browser automation",
+  "skills": "skills",
+  "interface": { "shortDescription": "Use browser automation" }
+}"#,
+        )
+        .expect("plugin manifest");
+        let inspect_skill = plugin_root.join("skills").join("inspect-page");
+        std::fs::create_dir_all(&inspect_skill).expect("plugin skill dir");
+        std::fs::write(
+            inspect_skill.join("SKILL.md"),
+            "---\ndescription: Inspect a page\n---\n# Inspect Page\n",
+        )
+        .expect("plugin skill file");
         let state = WsApiState::new_services(
             GitService::new(GitClient::with_runner(runner.clone())),
             GithubService::new(GithubCliClient::with_runner(runner)),
@@ -10349,7 +10403,11 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "provider-slash-commands",
                     "method": methods::PROVIDER_RUNTIME_SLASH_COMMANDS_LIST,
-                    "payload": {}
+                    "payload": {
+                        "cwd": cwd.to_string_lossy(),
+                        "codex_home": codex_home.to_string_lossy(),
+                        "agents_home": agents_home.to_string_lossy()
+                    }
                 })
                 .to_string(),
             )
@@ -10384,6 +10442,36 @@ mod tests {
                 .iter()
                 .any(|command| command["name"] == "plan" && command["input_hint"] == "<prompt>")
         );
+        assert!(
+            codex["commands"]
+                .as_array()
+                .expect("codex commands")
+                .iter()
+                .any(|command| command["name"] == "review-code"
+                    && command["kind"] == "skill"
+                    && command["prompt_prefix"] == "$review-code"),
+            "missing discovered project skill command"
+        );
+        assert!(
+            codex["commands"]
+                .as_array()
+                .expect("codex commands")
+                .iter()
+                .any(|command| command["name"] == "browser-use"
+                    && command["kind"] == "plugin"
+                    && command["prompt_prefix"] == "@browser-use"),
+            "missing discovered plugin command"
+        );
+        assert!(
+            codex["commands"]
+                .as_array()
+                .expect("codex commands")
+                .iter()
+                .any(|command| command["name"] == "browser-use:inspect-page"
+                    && command["kind"] == "skill"
+                    && command["prompt_prefix"] == "$browser-use:inspect-page"),
+            "missing discovered plugin skill command"
+        );
 
         let ace = providers
             .iter()
@@ -10397,7 +10485,12 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "codex-slash-commands",
                     "method": methods::PROVIDER_RUNTIME_SLASH_COMMANDS_LIST,
-                    "payload": { "provider": "codex" }
+                    "payload": {
+                        "provider": "codex",
+                        "cwd": cwd.to_string_lossy(),
+                        "codex_home": codex_home.to_string_lossy(),
+                        "agents_home": agents_home.to_string_lossy()
+                    }
                 })
                 .to_string(),
             )
