@@ -243,75 +243,73 @@ pub fn normalize_provider_runtime_signal(
 }
 
 fn runtime_signal_kind(method: &str) -> Option<RuntimeSignalKind> {
-    match method {
-        "warning" => Some(RuntimeSignalKind::Warning),
-        "configWarning"
-        | "deprecationNotice"
+    match canonical_method_key(method).as_str() {
+        "warning"
+        | "configwarning"
+        | "deprecationnotice"
         | "error"
-        | "guardianWarning"
-        | "windows/worldWritableWarning" => Some(RuntimeSignalKind::Warning),
-        "model/rerouted" => Some(RuntimeSignalKind::ModelRerouted),
-        "realtime/transcriptDelta"
-        | "realtime/transcript/delta"
-        | "thread/realtime/transcriptDelta"
-        | "thread/realtime/transcript/delta" => Some(RuntimeSignalKind::RealtimeTranscriptDelta),
-        "realtime/audioDelta"
-        | "realtime/audio/delta"
-        | "thread/realtime/audioDelta"
-        | "thread/realtime/audio/delta"
-        | "thread/realtime/outputAudioDelta"
-        | "thread/realtime/outputAudio/delta" => Some(RuntimeSignalKind::RealtimeAudioDelta),
-        "thread/started"
-        | "thread/status/changed"
-        | "thread/archived"
-        | "thread/unarchived"
-        | "thread/deleted"
-        | "thread/closed"
-        | "thread/compacted"
-        | "thread/name/updated" => Some(RuntimeSignalKind::ThreadLifecycleChanged),
-        "thread/settings/updated" => Some(RuntimeSignalKind::ThreadSettingsUpdated),
-        "thread/tokenUsage/updated" => Some(RuntimeSignalKind::ThreadTokenUsageUpdated),
-        "turn/diff/updated" => Some(RuntimeSignalKind::TurnDiffUpdated),
-        "turn/moderationMetadata" => Some(RuntimeSignalKind::TurnModerationUpdated),
-        "process/exited" => Some(RuntimeSignalKind::ProcessExited),
-        "serverRequest/resolved" => Some(RuntimeSignalKind::ServerRequestResolved),
-        "thread/realtime/closed"
-        | "thread/realtime/error"
-        | "thread/realtime/itemAdded"
-        | "thread/realtime/sdp"
-        | "thread/realtime/started"
-        | "thread/realtime/transcript/done" => Some(RuntimeSignalKind::RealtimeSessionUpdated),
-        "item/autoApprovalReview/completed" | "item/autoApprovalReview/started" => {
+        | "guardianwarning"
+        | "windowsworldwritablewarning" => Some(RuntimeSignalKind::Warning),
+        "modelrerouted" => Some(RuntimeSignalKind::ModelRerouted),
+        "realtimetranscriptdelta"
+        | "threadrealtimetranscriptdelta"
+        | "realtimetranscriptupdated"
+        | "threadrealtimetranscriptupdated" => Some(RuntimeSignalKind::RealtimeTranscriptDelta),
+        "realtimeaudiodelta"
+        | "threadrealtimeaudiodelta"
+        | "threadrealtimeoutputaudiodelta"
+        | "realtimeoutputaudiodelta" => Some(RuntimeSignalKind::RealtimeAudioDelta),
+        "threadstarted"
+        | "threadstatuschanged"
+        | "threadarchived"
+        | "threadunarchived"
+        | "threaddeleted"
+        | "threadclosed"
+        | "threadcompacted"
+        | "threadnameupdated" => Some(RuntimeSignalKind::ThreadLifecycleChanged),
+        "threadsettingsupdated" => Some(RuntimeSignalKind::ThreadSettingsUpdated),
+        "threadtokenusageupdated" => Some(RuntimeSignalKind::ThreadTokenUsageUpdated),
+        "turndiffupdated" => Some(RuntimeSignalKind::TurnDiffUpdated),
+        "turnmoderationmetadata" => Some(RuntimeSignalKind::TurnModerationUpdated),
+        "processexited" => Some(RuntimeSignalKind::ProcessExited),
+        "serverrequestresolved" => Some(RuntimeSignalKind::ServerRequestResolved),
+        "threadrealtimeclosed"
+        | "threadrealtimeerror"
+        | "threadrealtimeitemadded"
+        | "threadrealtimesdp"
+        | "threadrealtimestarted"
+        | "threadrealtimetranscriptdone" => Some(RuntimeSignalKind::RealtimeSessionUpdated),
+        "itemautoapprovalreviewcompleted" | "itemautoapprovalreviewstarted" => {
             Some(RuntimeSignalKind::AutoApprovalReviewUpdated)
         }
-        "account/login/completed"
-        | "account/rateLimits/updated"
-        | "account/updated"
-        | "app/list/updated"
-        | "externalAgentConfig/import/completed"
-        | "fs/changed"
-        | "fuzzyFileSearch/sessionCompleted"
-        | "fuzzyFileSearch/sessionUpdated"
-        | "hook/completed"
-        | "hook/started"
-        | "mcpServer/oauthLogin/completed"
-        | "mcpServer/startupStatus/updated"
-        | "model/verification"
-        | "remoteControl/status/changed"
-        | "skills/changed"
-        | "windowsSandbox/setupCompleted" => Some(RuntimeSignalKind::ProviderStateUpdated),
+        "accountlogincompleted"
+        | "accountratelimitsupdated"
+        | "accountupdated"
+        | "applistupdated"
+        | "externalagentconfigimportcompleted"
+        | "fschanged"
+        | "fuzzyfilesearchsessioncompleted"
+        | "fuzzyfilesearchsessionupdated"
+        | "hookcompleted"
+        | "hookstarted"
+        | "mcpserveroauthlogincompleted"
+        | "mcpserverstartupstatusupdated"
+        | "modelverification"
+        | "remotecontrolstatuschanged"
+        | "skillschanged"
+        | "windowssandboxsetupcompleted" => Some(RuntimeSignalKind::ProviderStateUpdated),
         _ => None,
     }
 }
 
 fn warning_message_from_method(method: &str) -> Option<String> {
     Some(
-        match method {
-            "configWarning" => "Configuration warning",
-            "deprecationNotice" => "Deprecation notice",
+        match canonical_method_key(method).as_str() {
+            "configwarning" => "Configuration warning",
+            "deprecationnotice" => "Deprecation notice",
             "error" => "Provider error",
-            "guardianWarning" => "Approval warning",
-            "windows/worldWritableWarning" => "World-writable path warning",
+            "guardianwarning" => "Approval warning",
+            "windowsworldwritablewarning" => "World-writable path warning",
             _ => return None,
         }
         .to_string(),
@@ -319,45 +317,43 @@ fn warning_message_from_method(method: &str) -> Option<String> {
 }
 
 fn provider_state_status_from_method(method: &str) -> Option<String> {
-    match method {
-        "account/login/completed" => Some("account_login_completed".to_string()),
-        "account/rateLimits/updated" => Some("account_rate_limits_updated".to_string()),
-        "account/updated" => Some("account_updated".to_string()),
-        "app/list/updated" => Some("app_list_updated".to_string()),
-        "externalAgentConfig/import/completed" => {
+    match canonical_method_key(method).as_str() {
+        "accountlogincompleted" => Some("account_login_completed".to_string()),
+        "accountratelimitsupdated" => Some("account_rate_limits_updated".to_string()),
+        "accountupdated" => Some("account_updated".to_string()),
+        "applistupdated" => Some("app_list_updated".to_string()),
+        "externalagentconfigimportcompleted" => {
             Some("external_agent_config_import_completed".to_string())
         }
-        "fs/changed" => Some("filesystem_changed".to_string()),
-        "fuzzyFileSearch/sessionCompleted" => Some("fuzzy_file_search_completed".to_string()),
-        "fuzzyFileSearch/sessionUpdated" => Some("fuzzy_file_search_updated".to_string()),
-        "hook/completed" => Some("hook_completed".to_string()),
-        "hook/started" => Some("hook_started".to_string()),
-        "mcpServer/oauthLogin/completed" => Some("mcp_oauth_login_completed".to_string()),
-        "mcpServer/startupStatus/updated" => Some("mcp_startup_status_updated".to_string()),
-        "model/verification" => Some("model_verification".to_string()),
-        "remoteControl/status/changed" => Some("remote_control_status_changed".to_string()),
-        "skills/changed" => Some("skills_changed".to_string()),
-        "windowsSandbox/setupCompleted" => Some("windows_sandbox_setup_completed".to_string()),
+        "fschanged" => Some("filesystem_changed".to_string()),
+        "fuzzyfilesearchsessioncompleted" => Some("fuzzy_file_search_completed".to_string()),
+        "fuzzyfilesearchsessionupdated" => Some("fuzzy_file_search_updated".to_string()),
+        "hookcompleted" => Some("hook_completed".to_string()),
+        "hookstarted" => Some("hook_started".to_string()),
+        "mcpserveroauthlogincompleted" => Some("mcp_oauth_login_completed".to_string()),
+        "mcpserverstartupstatusupdated" => Some("mcp_startup_status_updated".to_string()),
+        "modelverification" => Some("model_verification".to_string()),
+        "remotecontrolstatuschanged" => Some("remote_control_status_changed".to_string()),
+        "skillschanged" => Some("skills_changed".to_string()),
+        "windowssandboxsetupcompleted" => Some("windows_sandbox_setup_completed".to_string()),
         _ => None,
     }
 }
 
 fn provider_state_surface_from_method(method: &str) -> Option<&'static str> {
-    match method {
-        "app/list/updated" => Some("app"),
-        "skills/changed" => Some("skill"),
-        "mcpServer/oauthLogin/completed" | "mcpServer/startupStatus/updated" => Some("mcp"),
-        "account/login/completed" | "account/rateLimits/updated" | "account/updated" => {
-            Some("account")
-        }
-        "remoteControl/status/changed" => Some("remote"),
-        "windowsSandbox/setupCompleted" => Some("sandbox"),
+    match canonical_method_key(method).as_str() {
+        "applistupdated" => Some("app"),
+        "skillschanged" => Some("skill"),
+        "mcpserveroauthlogincompleted" | "mcpserverstartupstatusupdated" => Some("mcp"),
+        "accountlogincompleted" | "accountratelimitsupdated" | "accountupdated" => Some("account"),
+        "remotecontrolstatuschanged" => Some("remote"),
+        "windowssandboxsetupcompleted" => Some("sandbox"),
         _ => None,
     }
 }
 
 fn provider_state_surface(method: &str, params: &Value) -> Option<&'static str> {
-    if method == "skills/changed" && skills_changed_payload_is_plugin(params) {
+    if canonical_method_key(method) == "skillschanged" && skills_changed_payload_is_plugin(params) {
         return Some("plugin");
     }
     provider_state_surface_from_method(method)
@@ -391,13 +387,13 @@ fn normalized_provider_state_metadata(params: &Value, surface: &str) -> Value {
 
 fn realtime_session_status_from_method(method: &str) -> Option<String> {
     Some(
-        match method {
-            "thread/realtime/closed" => "closed",
-            "thread/realtime/error" => "error",
-            "thread/realtime/itemAdded" => "item_added",
-            "thread/realtime/sdp" => "sdp_updated",
-            "thread/realtime/started" => "started",
-            "thread/realtime/transcript/done" => "transcript_done",
+        match canonical_method_key(method).as_str() {
+            "threadrealtimeclosed" => "closed",
+            "threadrealtimeerror" => "error",
+            "threadrealtimeitemadded" => "item_added",
+            "threadrealtimesdp" => "sdp_updated",
+            "threadrealtimestarted" => "started",
+            "threadrealtimetranscriptdone" => "transcript_done",
             _ => return None,
         }
         .to_string(),
@@ -406,9 +402,9 @@ fn realtime_session_status_from_method(method: &str) -> Option<String> {
 
 fn auto_approval_review_status_from_method(method: &str) -> Option<String> {
     Some(
-        match method {
-            "item/autoApprovalReview/completed" => "completed",
-            "item/autoApprovalReview/started" => "started",
+        match canonical_method_key(method).as_str() {
+            "itemautoapprovalreviewcompleted" => "completed",
+            "itemautoapprovalreviewstarted" => "started",
             _ => return None,
         }
         .to_string(),
@@ -417,14 +413,14 @@ fn auto_approval_review_status_from_method(method: &str) -> Option<String> {
 
 fn lifecycle_status_from_method(method: &str) -> Option<String> {
     Some(
-        match method {
-            "thread/started" => "started",
-            "thread/archived" => "archived",
-            "thread/unarchived" => "unarchived",
-            "thread/deleted" => "deleted",
-            "thread/closed" => "closed",
-            "thread/compacted" => "compacted",
-            "thread/name/updated" => "renamed",
+        match canonical_method_key(method).as_str() {
+            "threadstarted" => "started",
+            "threadarchived" => "archived",
+            "threadunarchived" => "unarchived",
+            "threaddeleted" => "deleted",
+            "threadclosed" => "closed",
+            "threadcompacted" => "compacted",
+            "threadnameupdated" => "renamed",
             _ => return None,
         }
         .to_string(),
@@ -432,19 +428,27 @@ fn lifecycle_status_from_method(method: &str) -> Option<String> {
 }
 
 fn lifecycle_active_from_method(method: &str) -> Option<bool> {
-    match method {
-        "thread/deleted" | "thread/closed" => Some(false),
-        "thread/started" => Some(true),
+    match canonical_method_key(method).as_str() {
+        "threaddeleted" | "threadclosed" => Some(false),
+        "threadstarted" => Some(true),
         _ => None,
     }
 }
 
 fn lifecycle_archived_from_method(method: &str) -> Option<bool> {
-    match method {
-        "thread/archived" => Some(true),
-        "thread/unarchived" => Some(false),
+    match canonical_method_key(method).as_str() {
+        "threadarchived" => Some(true),
+        "threadunarchived" => Some(false),
         _ => None,
     }
+}
+
+fn canonical_method_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn string_at(value: &Value, key: &str) -> Option<String> {
@@ -600,6 +604,7 @@ mod tests {
             "realtime/transcript/delta",
             "thread/realtime/transcriptDelta",
             "thread/realtime/transcript/delta",
+            "thread/realtime/transcript_delta",
         ] {
             let transcript = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
                 provider: "future-provider".to_string(),
@@ -626,6 +631,7 @@ mod tests {
             "thread/realtime/audio/delta",
             "thread/realtime/outputAudioDelta",
             "thread/realtime/outputAudio/delta",
+            "thread/realtime/output_audio_delta",
         ] {
             let audio = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
                 provider: "future-provider".to_string(),
@@ -660,7 +666,7 @@ mod tests {
 
         let resolved = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
             provider: "future-provider".to_string(),
-            method: "serverRequest/resolved".to_string(),
+            method: "server_request/resolved".to_string(),
             params: json!({
                 "requestId": "approval-1",
                 "outcome": "approved"
@@ -670,5 +676,67 @@ mod tests {
         assert_eq!(resolved.kind, RuntimeSignalKind::ServerRequestResolved);
         assert_eq!(resolved.request_id.as_deref(), Some("approval-1"));
         assert_eq!(resolved.status.as_deref(), Some("approved"));
+    }
+
+    #[test]
+    fn accepts_runtime_signal_method_aliases() {
+        let lifecycle = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
+            provider: "future-provider".to_string(),
+            method: "thread-name-updated".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "name": "Adapter parity"
+            }),
+        })
+        .expect("lifecycle signal");
+        assert_eq!(lifecycle.kind, RuntimeSignalKind::ThreadLifecycleChanged);
+        assert_eq!(lifecycle.status.as_deref(), Some("renamed"));
+        assert_eq!(lifecycle.name.as_deref(), Some("Adapter parity"));
+        assert_eq!(
+            lifecycle.provider.method.as_deref(),
+            Some("thread-name-updated")
+        );
+
+        let provider_state = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
+            provider: "future-provider".to_string(),
+            method: "remote_control/status_changed".to_string(),
+            params: json!({
+                "hostId": "devbox",
+                "status": "connected"
+            }),
+        })
+        .expect("provider state signal");
+        assert_eq!(provider_state.kind, RuntimeSignalKind::ProviderStateUpdated);
+        assert_eq!(provider_state.status.as_deref(), Some("connected"));
+        assert_eq!(provider_state.metadata["surface"], "remote");
+
+        let auto_review = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
+            provider: "future-provider".to_string(),
+            method: "item/auto_approval_review/completed".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "requestId": "approval-1",
+                "reason": "unsafe command"
+            }),
+        })
+        .expect("auto review signal");
+        assert_eq!(
+            auto_review.kind,
+            RuntimeSignalKind::AutoApprovalReviewUpdated
+        );
+        assert_eq!(auto_review.status.as_deref(), Some("completed"));
+        assert_eq!(auto_review.message.as_deref(), Some("unsafe command"));
+
+        let warning = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
+            provider: "future-provider".to_string(),
+            method: "windows/world_writable_warning".to_string(),
+            params: json!({}),
+        })
+        .expect("warning signal");
+        assert_eq!(warning.kind, RuntimeSignalKind::Warning);
+        assert_eq!(
+            warning.message.as_deref(),
+            Some("World-writable path warning")
+        );
     }
 }
