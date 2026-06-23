@@ -2654,6 +2654,12 @@ fn validate_provider_runtime_operation(
             "provider `{}` adapter operation `{operation:?}` is event-stream driven; subscribe to provider runtime events",
             adapter_profile.provider.runtime_id()
         ))),
+        ProviderAdapterRequestResolution::HostToolContract => {
+            Err(WsDispatchError::BadRequest(format!(
+                "provider `{}` adapter operation `{operation:?}` is a host-tool contract; use provider runtime host-tool APIs",
+                adapter_profile.provider.runtime_id()
+            )))
+        }
         ProviderAdapterRequestResolution::DirectProviderMethod { .. }
         | ProviderAdapterRequestResolution::TypedApi
         | ProviderAdapterRequestResolution::CompositeTypedApi { .. } => Ok(()),
@@ -3076,6 +3082,13 @@ fn codex_runtime_request_for_operation(
                 ProviderRuntimeOperationRequest::unavailable(
                     ProviderRuntimeOperationRequestMode::Deferred,
                     "this adapter operation is intentionally deferred",
+                )
+            }
+            ProviderAdapterOperation::BrowserBridgeContract
+            | ProviderAdapterOperation::ComputerBridgeContract => {
+                ProviderRuntimeOperationRequest::unavailable(
+                    ProviderRuntimeOperationRequestMode::HostTool,
+                    "use provider runtime host-tool APIs and server-request routing for this operation",
                 )
             }
             _ => ProviderRuntimeOperationRequest::unavailable(
@@ -4155,6 +4168,12 @@ fn resolve_provider_runtime_request_method(
             "provider `{}` adapter operation `{operation:?}` is event-stream driven; subscribe to provider runtime events",
             adapter_profile.provider.runtime_id()
         ))),
+        ProviderAdapterRequestResolution::HostToolContract => {
+            Err(WsDispatchError::BadRequest(format!(
+                "provider `{}` adapter operation `{operation:?}` is a host-tool contract; use provider runtime host-tool APIs",
+                adapter_profile.provider.runtime_id()
+            )))
+        }
         ProviderAdapterRequestResolution::TypedApi => Err(WsDispatchError::BadRequest(format!(
             "provider `{}` adapter operation `{operation:?}` has no direct provider method; use its typed API",
             adapter_profile.provider.runtime_id()
@@ -8362,6 +8381,17 @@ mod tests {
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "server_request_respond"
                 && operation["required_runtime_hooks"] == json!(["server_request_responder"])
+        }));
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "browser_bridge_contract"
+                && operation["invocation"] == "host_tool_contract"
+                && operation["support"] == "required"
+                && operation["availability"] == "available"
+                && operation["required_runtime_hooks"] == json!(["host_tool_registry"])
+                && operation["policy"]["external_side_effects"] == true
+                && operation["policy"]["approval_boundary"] == true
+                && operation["runtime_request"]["invokable"] == false
+                && operation["runtime_request"]["mode"] == "host_tool"
         }));
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "cloud_handoff"

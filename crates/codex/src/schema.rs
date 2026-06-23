@@ -1364,7 +1364,7 @@ mod tests {
             .expect("browser bridge contract operation");
         assert_eq!(
             browser_bridge.declared_support,
-            ProviderAdapterOperationSupport::Deferred
+            ProviderAdapterOperationSupport::Required
         );
         assert!(browser_bridge.provider_methods.is_empty());
         assert!(browser_bridge.fully_covered);

@@ -53,7 +53,11 @@ pub mod provider {
     use async_trait::async_trait;
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
-    use std::{collections::HashMap, sync::Arc, time::Duration};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+        time::Duration,
+    };
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct ProviderDescriptor {
@@ -336,6 +340,7 @@ pub mod provider {
         DirectProviderMethod,
         TypedApi,
         CompositeTypedApi,
+        HostToolContract,
         EventStream,
         Deferred,
     }
@@ -410,6 +415,7 @@ pub mod provider {
         DirectProviderMethod { method: String },
         TypedApi,
         CompositeTypedApi { methods: Vec<String> },
+        HostToolContract,
         EventStream,
         Deferred,
     }
@@ -474,6 +480,9 @@ pub mod provider {
                         methods: profile.provider_methods.clone(),
                     })
                 }
+                ProviderAdapterInvocationKind::HostToolContract => {
+                    Ok(ProviderAdapterRequestResolution::HostToolContract)
+                }
                 ProviderAdapterInvocationKind::EventStream => {
                     Ok(ProviderAdapterRequestResolution::EventStream)
                 }
@@ -498,6 +507,7 @@ pub mod provider {
     #[serde(rename_all = "snake_case")]
     pub enum ProviderAdapterRuntimeHook {
         EventSource,
+        HostToolRegistry,
         ServerRequestResponder,
     }
 
@@ -1005,6 +1015,7 @@ pub mod provider {
         event_sources: HashMap<ProviderKind, DynProviderEventSource>,
         server_request_responders: HashMap<ProviderKind, DynProviderServerRequestResponder>,
         state_sources: HashMap<ProviderKind, DynProviderStateSource>,
+        host_tool_registries: HashSet<ProviderKind>,
     }
 
     #[must_use]
@@ -1866,13 +1877,13 @@ pub mod provider {
             op(
                 Operation::BrowserBridgeContract,
                 Category::Tools,
-                Deferred,
+                Required,
                 None,
             ),
             op(
                 Operation::ComputerBridgeContract,
                 Category::Tools,
-                Deferred,
+                Required,
                 None,
             ),
             op(
@@ -2109,7 +2120,9 @@ pub mod provider {
             | ProviderAdapterOperation::MarketplaceUpgrade
             | ProviderAdapterOperation::RemoteHandoff
             | ProviderAdapterOperation::CloudThreadStart
-            | ProviderAdapterOperation::CloudHandoff => {
+            | ProviderAdapterOperation::CloudHandoff
+            | ProviderAdapterOperation::BrowserBridgeContract
+            | ProviderAdapterOperation::ComputerBridgeContract => {
                 policy.read_only = false;
                 policy.external_side_effects = true;
             }
@@ -2126,7 +2139,9 @@ pub mod provider {
             | ProviderAdapterOperation::FsRemove
             | ProviderAdapterOperation::McpToolCall
             | ProviderAdapterOperation::RawRequest
-            | ProviderAdapterOperation::ServerRequestRespond => {
+            | ProviderAdapterOperation::ServerRequestRespond
+            | ProviderAdapterOperation::BrowserBridgeContract
+            | ProviderAdapterOperation::ComputerBridgeContract => {
                 policy.approval_boundary = true;
             }
             _ => {}
@@ -2382,6 +2397,10 @@ pub mod provider {
         }
 
         match spec.operation {
+            ProviderAdapterOperation::BrowserBridgeContract
+            | ProviderAdapterOperation::ComputerBridgeContract => {
+                ProviderAdapterInvocationKind::HostToolContract
+            }
             ProviderAdapterOperation::ProviderEvents | ProviderAdapterOperation::SemanticTools => {
                 ProviderAdapterInvocationKind::EventStream
             }
@@ -2466,6 +2485,10 @@ pub mod provider {
         match spec.operation {
             ProviderAdapterOperation::ProviderEvents | ProviderAdapterOperation::SemanticTools => {
                 vec![ProviderAdapterRuntimeHook::EventSource]
+            }
+            ProviderAdapterOperation::BrowserBridgeContract
+            | ProviderAdapterOperation::ComputerBridgeContract => {
+                vec![ProviderAdapterRuntimeHook::HostToolRegistry]
             }
             ProviderAdapterOperation::ServerRequestRespond => {
                 vec![ProviderAdapterRuntimeHook::ServerRequestResponder]
@@ -2553,6 +2576,12 @@ pub mod provider {
             self
         }
 
+        #[must_use]
+        pub fn with_host_tool_registry(mut self, provider: ProviderKind) -> Self {
+            self.register_host_tool_registry(provider);
+            self
+        }
+
         pub fn register(&mut self, driver: DynProviderDriver) {
             let kind = driver.descriptor().kind;
             self.drivers.insert(kind, driver);
@@ -2582,6 +2611,10 @@ pub mod provider {
             self.state_sources.insert(provider, source);
         }
 
+        pub fn register_host_tool_registry(&mut self, provider: ProviderKind) {
+            self.host_tool_registries.insert(provider);
+        }
+
         #[must_use]
         pub fn get(&self, kind: ProviderKind) -> Option<DynProviderDriver> {
             self.drivers.get(&kind).cloned()
@@ -2600,6 +2633,11 @@ pub mod provider {
         #[must_use]
         pub fn has_state_source(&self, kind: ProviderKind) -> bool {
             self.state_sources.contains_key(&kind)
+        }
+
+        #[must_use]
+        pub fn has_host_tool_registry(&self, kind: ProviderKind) -> bool {
+            self.host_tool_registries.contains(&kind)
         }
 
         #[must_use]
@@ -2651,8 +2689,11 @@ pub mod provider {
                 &profile,
                 ProviderAdapterRuntimeHook::ServerRequestResponder,
             );
+            let host_tool_operations =
+                required_hook_operations(&profile, ProviderAdapterRuntimeHook::HostToolRegistry);
             let event_available = self.has_event_source(kind);
             let responder_available = self.has_server_request_responder(kind);
+            let host_tool_available = self.has_host_tool_registry(kind);
             let hooks = vec![
                 ProviderAdapterRuntimeHookStatus {
                     hook: ProviderAdapterRuntimeHook::EventSource,
@@ -2665,6 +2706,12 @@ pub mod provider {
                     required: !server_request_operations.is_empty(),
                     available: responder_available,
                     operations: server_request_operations,
+                },
+                ProviderAdapterRuntimeHookStatus {
+                    hook: ProviderAdapterRuntimeHook::HostToolRegistry,
+                    required: !host_tool_operations.is_empty(),
+                    available: host_tool_available,
+                    operations: host_tool_operations,
                 },
             ];
             let missing_required_hooks = hooks
@@ -3131,6 +3178,38 @@ pub mod provider {
                     && operation.required_runtime_hooks
                         == vec![ProviderAdapterRuntimeHook::ServerRequestResponder]
             }));
+            for bridge_operation in [
+                ProviderAdapterOperation::BrowserBridgeContract,
+                ProviderAdapterOperation::ComputerBridgeContract,
+            ] {
+                let operation = codex_profile
+                    .operations
+                    .iter()
+                    .find(|operation| operation.operation == bridge_operation)
+                    .expect("bridge contract operation");
+                assert_eq!(operation.category, ProviderFeatureCategory::Tools);
+                assert_eq!(
+                    operation.invocation,
+                    ProviderAdapterInvocationKind::HostToolContract
+                );
+                assert_eq!(
+                    operation.availability,
+                    ProviderAdapterOperationAvailability::Available
+                );
+                assert!(!operation.policy.read_only);
+                assert!(operation.policy.external_side_effects);
+                assert!(operation.policy.approval_boundary);
+                assert_eq!(
+                    operation.required_runtime_hooks,
+                    vec![ProviderAdapterRuntimeHook::HostToolRegistry]
+                );
+                assert_eq!(
+                    codex_profile
+                        .resolve_request_operation(bridge_operation)
+                        .expect("bridge contract resolution"),
+                    ProviderAdapterRequestResolution::HostToolContract
+                );
+            }
             assert!(codex_profile.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::CloudHandoff
                     && operation.invocation == ProviderAdapterInvocationKind::Deferred
@@ -3411,6 +3490,7 @@ pub mod provider {
                 vec![
                     ProviderAdapterRuntimeHook::EventSource,
                     ProviderAdapterRuntimeHook::ServerRequestResponder,
+                    ProviderAdapterRuntimeHook::HostToolRegistry,
                 ]
             );
             assert!(codex_runtime.hooks.iter().any(|hook| {
@@ -3450,7 +3530,8 @@ pub mod provider {
             let registry = ProviderRegistry::new()
                 .with_driver(codex)
                 .with_event_source(ProviderKind::Codex, source)
-                .with_server_request_responder(ProviderKind::Codex, responder);
+                .with_server_request_responder(ProviderKind::Codex, responder)
+                .with_host_tool_registry(ProviderKind::Codex);
 
             let report = registry
                 .adapter_runtime_report(ProviderKind::Codex)
@@ -3462,6 +3543,16 @@ pub mod provider {
                     && hook.required
                     && hook.available
                     && hook.operations == vec![ProviderAdapterOperation::ServerRequestRespond]
+            }));
+            assert!(report.hooks.iter().any(|hook| {
+                hook.hook == ProviderAdapterRuntimeHook::HostToolRegistry
+                    && hook.required
+                    && hook.available
+                    && hook.operations
+                        == vec![
+                            ProviderAdapterOperation::BrowserBridgeContract,
+                            ProviderAdapterOperation::ComputerBridgeContract,
+                        ]
             }));
             assert_eq!(registry.adapter_runtime_reports().len(), 1);
         }
@@ -3646,7 +3737,9 @@ pub mod provider {
                     .find(|operation| operation.operation == bridge_operation)
                     .expect("bridge contract operation");
                 assert_eq!(operation.category, ProviderFeatureCategory::Tools);
-                assert_eq!(operation.support, ProviderAdapterOperationSupport::Deferred);
+                assert_eq!(operation.support, ProviderAdapterOperationSupport::Required);
+                assert!(operation.policy.external_side_effects);
+                assert!(operation.policy.approval_boundary);
                 assert!(operation.canonical_method.is_none());
                 assert!(operation.provider_methods.is_empty());
             }

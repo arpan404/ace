@@ -96,7 +96,9 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
             .with_server_request_responder(ace_core::ProviderKind::Ace, ace.clone())
             .with_server_request_responder(ace_core::ProviderKind::Codex, codex.clone())
             .with_state_source(ace_core::ProviderKind::Ace, ace.clone())
-            .with_state_source(ace_core::ProviderKind::Codex, codex.clone());
+            .with_state_source(ace_core::ProviderKind::Codex, codex.clone())
+            .with_host_tool_registry(ace_core::ProviderKind::Ace)
+            .with_host_tool_registry(ace_core::ProviderKind::Codex);
         let paths = AppPaths::resolve().expect("resolve app paths");
         std::fs::create_dir_all(&paths.state_dir).expect("create app state directory");
         Self {
@@ -134,7 +136,9 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
             .with_server_request_responder(ace_core::ProviderKind::Ace, ace.clone())
             .with_server_request_responder(ace_core::ProviderKind::Codex, codex.clone())
             .with_state_source(ace_core::ProviderKind::Ace, ace.clone())
-            .with_state_source(ace_core::ProviderKind::Codex, codex.clone());
+            .with_state_source(ace_core::ProviderKind::Codex, codex.clone())
+            .with_host_tool_registry(ace_core::ProviderKind::Ace)
+            .with_host_tool_registry(ace_core::ProviderKind::Codex);
         Self {
             checkpoint: Arc::new(CheckpointService::production()),
             codex,

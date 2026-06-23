@@ -392,6 +392,10 @@ impl ProviderRuntimeOperationRequest {
                 ProviderRuntimeOperationRequestMode::TypedApi,
                 "use the provider typed API because this operation maps to multiple provider calls",
             ),
+            ProviderAdapterInvocationKind::HostToolContract => Self::unavailable(
+                ProviderRuntimeOperationRequestMode::HostTool,
+                "use provider runtime host-tool APIs and server-request routing for this operation",
+            ),
             ProviderAdapterInvocationKind::EventStream => Self::unavailable(
                 ProviderRuntimeOperationRequestMode::EventStream,
                 "subscribe to provider runtime events for this operation",
@@ -410,6 +414,7 @@ pub enum ProviderRuntimeOperationRequestMode {
     AdapterOperation,
     ProviderMethod,
     TypedApi,
+    HostTool,
     EventStream,
     Deferred,
 }
@@ -2302,17 +2307,21 @@ mod tests {
         let browser_bridge = operation(ProviderAdapterOperation::BrowserBridgeContract);
         assert_eq!(
             browser_bridge.invocation,
-            ProviderAdapterInvocationKind::Deferred
+            ProviderAdapterInvocationKind::HostToolContract
         );
         assert_eq!(browser_bridge.category, ProviderFeatureCategory::Tools);
         assert_eq!(
             browser_bridge.availability,
-            ProviderAdapterOperationAvailability::Deferred
+            ProviderAdapterOperationAvailability::Available
+        );
+        assert_eq!(
+            browser_bridge.required_runtime_hooks,
+            vec![ProviderAdapterRuntimeHook::HostToolRegistry]
         );
         assert!(!browser_bridge.runtime_request.invokable);
         assert_eq!(
             browser_bridge.runtime_request.mode,
-            ProviderRuntimeOperationRequestMode::Deferred
+            ProviderRuntimeOperationRequestMode::HostTool
         );
     }
 
