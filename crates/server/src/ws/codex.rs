@@ -71,7 +71,8 @@ use ace_runtime::{
         ProviderAdapterInvocationKind, ProviderAdapterOperation, ProviderAdapterOperationGate,
         ProviderAdapterOperationProfile, ProviderAdapterProfile, ProviderAdapterRequestResolution,
         ProviderDriverStatus, ProviderEvent, ProviderMetadata, ProviderRequest, RuntimeSignalKind,
-        ace_provider_adapter_contract, provider_adapter_profile, provider_contract_report,
+        ServerRequestKind, ace_provider_adapter_contract, provider_adapter_profile,
+        provider_contract_report,
     },
     tools::{
         ProviderToolMetadata, SemanticToolCall, ToolNormalizationInput, ToolRunStatus,
@@ -1692,6 +1693,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 "provider `{provider}` server request `{request_id}` has no normalized request"
             ))
         })?;
+        if request.kind == ServerRequestKind::Unknown {
+            return Err(WsDispatchError::BadRequest(format!(
+                "provider `{provider}` server request `{request_id}` uses unsupported method `{}`",
+                request.method
+            )));
+        }
         let audit = enrich_server_request_audit(audit, Some(&request));
         Ok(ServerRequestDecisionContext {
             request: Some(Box::new(request)),
@@ -4866,6 +4873,31 @@ mod tests {
 
     fn pending_unknown_dynamic_tool_request() -> ProviderEvent {
         pending_codex_dynamic_tool_request_for_tool("unknown_tool")
+    }
+
+    fn pending_unknown_server_request() -> ProviderEvent {
+        ProviderEvent::ServerRequest {
+            request: Box::new(NormalizedServerRequest {
+                kind: ServerRequestKind::Unknown,
+                request_id: "99".to_string(),
+                method: "future/request".to_string(),
+                thread_id: Some("thread-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("future-1".to_string()),
+                scope: None,
+                title: Some("Provider request".to_string()),
+                prompt: Some("Future Codex request".to_string()),
+                selected_policy: None,
+                detail: ServerRequestDetail::default(),
+                metadata: json!({ "feature": "future" }),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("future/request".to_string()),
+                    schema_version: Some("future-test".to_string()),
+                    raw_payload: json!({ "feature": "future" }),
+                },
+            }),
+        }
     }
 
     fn pending_codex_dynamic_tool_request_for_tool(tool_name: &str) -> ProviderEvent {
@@ -13183,6 +13215,102 @@ mod tests {
         };
         assert_eq!(code, "bad_request");
         assert!(message.contains("not pending"));
+    }
+
+    #[tokio::test]
+    async fn rejects_unknown_codex_server_request_decision_over_provider_runtime_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .append_batch("codex", &[pending_unknown_server_request()])
+            .expect("append unknown request");
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "unknown-request-result",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT,
+                    "payload": {
+                        "provider": "codex",
+                        "request_id": 99,
+                        "result": { "accepted": true },
+                        "audit": { "decided_by": "user" }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse =
+            serde_json::from_str(&response).expect("unknown decision response");
+        let WsServerPayload::Error { code, message } = response.payload else {
+            panic!("expected unknown request decision error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("unsupported method `future/request`"));
+        assert!(
+            backend
+                .server_request_responses
+                .lock()
+                .expect("server request responses")
+                .is_empty()
+        );
+
+        let host_tool_response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "unknown-request-host-tool",
+                    "method": methods::PROVIDER_RUNTIME_HOST_TOOL_INVOKE_SERVER_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "request_id": "99",
+                        "audit": { "decided_by": "user" }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let host_tool_response: WsServerResponse =
+            serde_json::from_str(&host_tool_response).expect("unknown host tool response");
+        let WsServerPayload::Error { code, message } = host_tool_response.payload else {
+            panic!("expected unknown host tool request error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("unsupported method `future/request`"));
+        assert!(
+            backend
+                .server_request_responses
+                .lock()
+                .expect("server request responses")
+                .is_empty()
+        );
+
+        let pending = state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .server_requests(
+                Some("codex"),
+                Some(ProviderServerRequestStatus::Pending),
+                10,
+            )
+            .expect("pending requests");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].request_id, "99");
+        assert_eq!(
+            pending[0].request.as_ref().expect("request").kind,
+            ServerRequestKind::Unknown
+        );
     }
 
     #[tokio::test]
