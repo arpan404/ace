@@ -4863,7 +4863,8 @@ mod tests {
         },
         provider::{
             NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
-            NormalizedThreadItem, ProviderEvent, ProviderMetadata, RuntimeSignalKind,
+            NormalizedThreadItem, ProviderDescriptor, ProviderDriver, ProviderDriverError,
+            ProviderEvent, ProviderMetadata, ProviderRequest, RuntimeSignalKind,
             ServerRequestDetail, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
         },
         tools::{
@@ -4873,7 +4874,7 @@ mod tests {
     };
     use async_trait::async_trait;
     use rusqlite::Connection;
-    use serde_json::json;
+    use serde_json::{Value, json};
     use std::sync::{Arc, Mutex};
 
     use super::*;
@@ -4887,6 +4888,29 @@ mod tests {
             Err(GitToolError::Parse {
                 context: "codex ws fake runner",
                 message: "no git process expected".to_string(),
+            })
+        }
+    }
+
+    #[derive(Debug)]
+    struct FakeProviderDriver {
+        kind: ProviderKind,
+    }
+
+    #[async_trait]
+    impl ProviderDriver for FakeProviderDriver {
+        fn descriptor(&self) -> ProviderDescriptor {
+            ProviderDescriptor {
+                kind: self.kind,
+                capabilities: Vec::new(),
+            }
+        }
+
+        async fn request(&self, request: ProviderRequest) -> Result<Value, ProviderDriverError> {
+            Err(ProviderDriverError::RequestFailed {
+                provider: self.kind.runtime_id().to_string(),
+                method: request.method,
+                message: "fake provider driver does not handle requests".to_string(),
             })
         }
     }
@@ -10530,6 +10554,183 @@ mod tests {
         };
         assert_eq!(body["providers"].as_array().expect("providers").len(), 1);
         assert_eq!(body["providers"][0]["runtime_id"], "codex");
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_discovers_registered_provider_extension_commands_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let temp = tempfile::tempdir().expect("tempdir");
+        let claude_home = temp.path().join("claude-home");
+        let cursor_home = temp.path().join("cursor-home");
+        let agents_home = temp.path().join("agents-home");
+
+        let claude_skill = claude_home.join("skills").join("review");
+        std::fs::create_dir_all(&claude_skill).expect("claude skill dir");
+        std::fs::write(
+            claude_skill.join("SKILL.md"),
+            "---\ndescription: Review with Claude\n---\n# Review\n",
+        )
+        .expect("claude skill file");
+        let claude_plugin_root = temp.path().join("claude-plugin");
+        std::fs::create_dir_all(claude_plugin_root.join(".claude-plugin"))
+            .expect("claude plugin manifest dir");
+        std::fs::write(
+            claude_plugin_root
+                .join(".claude-plugin")
+                .join("plugin.json"),
+            r#"{
+  "name": "claude-tools",
+  "description": "Claude tools",
+  "commands": "commands"
+}"#,
+        )
+        .expect("claude plugin manifest");
+        std::fs::create_dir_all(claude_plugin_root.join("commands"))
+            .expect("claude plugin commands dir");
+        std::fs::write(
+            claude_plugin_root.join("commands").join("summarize.md"),
+            "---\ndescription: Summarize thread\n---\n# Summarize\n",
+        )
+        .expect("claude plugin command");
+        std::fs::create_dir_all(claude_home.join("plugins")).expect("claude plugins dir");
+        std::fs::write(
+            claude_home.join("plugins").join("installed_plugins.json"),
+            json!({
+                "plugins": {
+                    "claude-tools@local": [
+                        { "installPath": claude_plugin_root }
+                    ]
+                }
+            })
+            .to_string(),
+        )
+        .expect("claude installed plugins");
+
+        let cursor_skill = cursor_home.join("skills").join("rules");
+        std::fs::create_dir_all(&cursor_skill).expect("cursor skill dir");
+        std::fs::write(
+            cursor_skill.join("SKILL.md"),
+            "---\ndescription: Apply Cursor rules\n---\n# Rules\n",
+        )
+        .expect("cursor skill file");
+        let cursor_plugin_root = cursor_home.join("plugins").join("cursor-tools");
+        std::fs::create_dir_all(cursor_plugin_root.join(".cursor-plugin"))
+            .expect("cursor plugin manifest dir");
+        std::fs::write(
+            cursor_plugin_root
+                .join(".cursor-plugin")
+                .join("plugin.json"),
+            r#"{
+  "name": "cursor-tools",
+  "description": "Cursor tools",
+  "commands": "commands"
+}"#,
+        )
+        .expect("cursor plugin manifest");
+        std::fs::create_dir_all(cursor_plugin_root.join("commands"))
+            .expect("cursor plugin commands dir");
+        std::fs::write(
+            cursor_plugin_root.join("commands").join("fix.md"),
+            "# Fix\n",
+        )
+        .expect("cursor plugin command");
+
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend))
+        .with_provider_driver(Arc::new(FakeProviderDriver {
+            kind: ProviderKind::ClaudeCode,
+        }))
+        .with_provider_driver(Arc::new(FakeProviderDriver {
+            kind: ProviderKind::Cursor,
+        }));
+
+        let claude = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "claude-provider-slash-commands",
+                    "method": methods::PROVIDER_RUNTIME_SLASH_COMMANDS_LIST,
+                    "payload": {
+                        "provider": "claude_code",
+                        "provider_home": claude_home.to_string_lossy(),
+                        "agents_home": agents_home.to_string_lossy()
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let claude: WsServerResponse =
+            serde_json::from_str(&claude).expect("claude slash command response");
+        let WsServerPayload::Result { body } = claude.payload else {
+            panic!("expected claude command list");
+        };
+        let commands = body["providers"][0]["commands"]
+            .as_array()
+            .expect("commands");
+        assert!(commands.iter().any(|command| command["name"] == "review"
+            && command["kind"] == "skill"
+            && command["prompt_prefix"] == "Use the review skill:"));
+        assert!(
+            commands
+                .iter()
+                .any(|command| command["name"] == "claude-tools"
+                    && command["kind"] == "plugin"
+                    && command["prompt_prefix"] == "Use the claude-tools plugin.")
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|command| command["name"] == "claude-tools:summarize"
+                    && command["kind"] == "plugin"
+                    && command["prompt_prefix"] == "/claude-tools:summarize")
+        );
+
+        let cursor = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "cursor-provider-slash-commands",
+                    "method": methods::PROVIDER_RUNTIME_SLASH_COMMANDS_LIST,
+                    "payload": {
+                        "provider": "cursor",
+                        "provider_home": cursor_home.to_string_lossy(),
+                        "agents_home": agents_home.to_string_lossy(),
+                        "provider_home_dir_name": ".cursor",
+                        "plugin_manifest_dir_name": ".cursor-plugin"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let cursor: WsServerResponse =
+            serde_json::from_str(&cursor).expect("cursor slash command response");
+        let WsServerPayload::Result { body } = cursor.payload else {
+            panic!("expected cursor command list");
+        };
+        let commands = body["providers"][0]["commands"]
+            .as_array()
+            .expect("commands");
+        assert!(commands.iter().any(|command| command["name"] == "rules"
+            && command["kind"] == "skill"
+            && command["prompt_prefix"] == "Use the rules skill:"));
+        assert!(
+            commands
+                .iter()
+                .any(|command| command["name"] == "cursor-tools"
+                    && command["kind"] == "plugin"
+                    && command["prompt_prefix"] == "Use the cursor-tools plugin.")
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|command| command["name"] == "cursor-tools:fix"
+                    && command["kind"] == "plugin"
+                    && command["prompt_prefix"] == "/cursor-tools:fix")
+        );
     }
 
     #[tokio::test]

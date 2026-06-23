@@ -26,7 +26,7 @@ use ace_protocol::{
 use ace_runtime::{
     host_tools::HostToolRegistry,
     native_provider::AceNativeProvider,
-    provider::{ProviderEvent, ProviderRegistry, ProviderRuntimeError},
+    provider::{DynProviderDriver, ProviderEvent, ProviderRegistry, ProviderRuntimeError},
 };
 use ace_terminal::{PortablePtyAdapter, PtyAdapter, TerminalError, TerminalManager};
 use axum::{
@@ -200,6 +200,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         self.providers
             .register_state_source(ace_core::ProviderKind::Codex, codex.clone());
         self.codex = codex;
+        self
+    }
+
+    #[must_use]
+    pub fn with_provider_driver(mut self, driver: DynProviderDriver) -> Self {
+        self.providers.register(driver);
         self
     }
 
