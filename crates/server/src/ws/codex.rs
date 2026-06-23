@@ -1672,15 +1672,29 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         request_id: &str,
         audit: ProviderServerRequestAudit,
     ) -> Result<ServerRequestDecisionContext, WsDispatchError> {
-        let request = self
+        let record = self
             .provider_events
             .lock()
             .expect("provider event log")
             .server_request(provider, request_id)?
-            .and_then(|record| record.request);
-        let audit = enrich_server_request_audit(audit, request.as_ref());
+            .ok_or_else(|| {
+                WsDispatchError::BadRequest(format!(
+                    "provider `{provider}` server request `{request_id}` is not pending"
+                ))
+            })?;
+        if record.status != ProviderServerRequestStatus::Pending {
+            return Err(WsDispatchError::BadRequest(format!(
+                "provider `{provider}` server request `{request_id}` is already resolved"
+            )));
+        }
+        let request = record.request.ok_or_else(|| {
+            WsDispatchError::BadRequest(format!(
+                "provider `{provider}` server request `{request_id}` has no normalized request"
+            ))
+        })?;
+        let audit = enrich_server_request_audit(audit, Some(&request));
         Ok(ServerRequestDecisionContext {
-            request: request.map(Box::new),
+            request: Some(Box::new(request)),
             audit,
         })
     }
@@ -13113,6 +13127,62 @@ mod tests {
         assert_eq!(approvals[0]["request_id"], "42");
         assert_eq!(approvals[0]["status"], "resolved");
         assert_eq!(approvals[0]["decision"]["payload"]["approved"], true);
+
+        let duplicate = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "approval-result-duplicate",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT,
+                    "payload": {
+                        "provider": "codex",
+                        "request_id": 42,
+                        "result": { "approved": true },
+                        "audit": { "decided_by": "user" }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let duplicate: WsServerResponse =
+            serde_json::from_str(&duplicate).expect("duplicate approval response");
+        let WsServerPayload::Error { code, message } = duplicate.payload else {
+            panic!("expected duplicate approval error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("already resolved"));
+        assert_eq!(
+            backend
+                .server_request_responses
+                .lock()
+                .expect("server request responses")
+                .len(),
+            1
+        );
+
+        let missing = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "approval-result-missing",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT,
+                    "payload": {
+                        "provider": "codex",
+                        "request_id": 404,
+                        "result": { "approved": true },
+                        "audit": { "decided_by": "user" }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let missing: WsServerResponse =
+            serde_json::from_str(&missing).expect("missing approval response");
+        let WsServerPayload::Error { code, message } = missing.payload else {
+            panic!("expected missing approval error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("not pending"));
     }
 
     #[tokio::test]
