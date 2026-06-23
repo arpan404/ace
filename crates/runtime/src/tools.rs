@@ -31,6 +31,8 @@ pub enum ToolSurface {
     WebSearch,
     Image,
     Subagent,
+    Plan,
+    Handoff,
     Skill,
     Plugin,
     App,
@@ -124,6 +126,16 @@ pub enum ToolActionKind {
     SubagentSteer,
     #[serde(rename = "subagent.stop")]
     SubagentStop,
+    #[serde(rename = "plan.continue")]
+    PlanContinue,
+    #[serde(rename = "plan.fork")]
+    PlanFork,
+    #[serde(rename = "plan.side_implementation")]
+    PlanSideImplementation,
+    #[serde(rename = "handoff.agent")]
+    HandoffAgent,
+    #[serde(rename = "handoff.location")]
+    HandoffLocation,
     #[serde(rename = "skill.list")]
     SkillList,
     #[serde(rename = "skill.read")]
@@ -493,6 +505,29 @@ fn infer_surface_action(
         || facts.haystack.contains("view image")
     {
         return (ToolSurface::Image, ToolActionKind::ImageView);
+    }
+    if facts.haystack.contains("plan implementation")
+        || facts.haystack.contains("ace plan")
+        || facts.haystack.contains("plan continue")
+        || facts.haystack.contains("plan fork")
+        || facts.haystack.contains("side implementation")
+    {
+        let action = if facts.haystack.contains("side implementation") {
+            ToolActionKind::PlanSideImplementation
+        } else if facts.haystack.contains("fork") {
+            ToolActionKind::PlanFork
+        } else {
+            ToolActionKind::PlanContinue
+        };
+        return (ToolSurface::Plan, action);
+    }
+    if facts.haystack.contains("handoff") {
+        let action = if facts.haystack.contains("agent") {
+            ToolActionKind::HandoffAgent
+        } else {
+            ToolActionKind::HandoffLocation
+        };
+        return (ToolSurface::Handoff, action);
     }
     if facts.haystack.contains("subagent")
         || facts.haystack.contains("collab agent")
@@ -1012,6 +1047,30 @@ fn infer_target(
             kind: ToolTargetKind::Agent,
             label,
         }),
+        ToolSurface::Plan => first_string([
+            string_at_deep(args, "targetThreadId").as_deref(),
+            string_at_deep(args, "target_thread_id").as_deref(),
+            string_at_deep(args, "threadId").as_deref(),
+            string_at_deep(args, "thread_id").as_deref(),
+            string_at_deep(args, "prompt").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Text,
+            label,
+        }),
+        ToolSurface::Handoff => first_string([
+            string_at_deep(args, "targetLocation").as_deref(),
+            string_at_deep(args, "target_location").as_deref(),
+            string_at_deep(args, "remoteHost").as_deref(),
+            string_at_deep(args, "remote_host").as_deref(),
+            string_at_deep(args, "branch").as_deref(),
+            string_at_deep(args, "targetThreadId").as_deref(),
+            string_at_deep(args, "target_thread_id").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Unknown,
+            label,
+        }),
         ToolSurface::Skill => first_string([
             string_at_deep(args, "skill").as_deref(),
             string_at_deep(args, "name").as_deref(),
@@ -1313,6 +1372,20 @@ fn display_for(
         (ToolSurface::Github, None) => format!("{verb} GitHub {noun}"),
         (ToolSurface::Subagent, Some(target)) => format!("{verb} subagent {target}"),
         (ToolSurface::Subagent, None) => format!("{verb} subagent"),
+        (ToolSurface::Plan, Some(target)) => match action {
+            ToolActionKind::PlanContinue => format!("{verb} plan in {target}"),
+            ToolActionKind::PlanFork => format!("{verb} plan into {target}"),
+            ToolActionKind::PlanSideImplementation => {
+                format!("{verb} side implementation {target}")
+            }
+            _ => format!("{verb} plan {target}"),
+        },
+        (ToolSurface::Plan, None) => match action {
+            ToolActionKind::PlanSideImplementation => format!("{verb} side implementation"),
+            _ => format!("{verb} plan"),
+        },
+        (ToolSurface::Handoff, Some(target)) => format!("{verb} to {target}"),
+        (ToolSurface::Handoff, None) => format!("{verb} handoff"),
         (ToolSurface::WebSearch, Some(target)) => format!("{verb} web for {target}"),
         (ToolSurface::WebSearch, None) => format!("{verb} web search"),
         (ToolSurface::Image, Some(target)) => format!("{verb} image {target}"),
@@ -1383,6 +1456,10 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 ToolActionKind::SubagentSpawn => "Starting",
                 ToolActionKind::SubagentSteer => "Steering",
                 ToolActionKind::SubagentStop => "Stopping",
+                ToolActionKind::PlanContinue => "Continuing",
+                ToolActionKind::PlanFork => "Forking",
+                ToolActionKind::PlanSideImplementation => "Starting",
+                ToolActionKind::HandoffAgent | ToolActionKind::HandoffLocation => "Handing off",
                 ToolActionKind::SkillList
                 | ToolActionKind::PluginList
                 | ToolActionKind::AppList => "Listing",
@@ -1430,6 +1507,10 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             ToolActionKind::SubagentSpawn => "Started",
             ToolActionKind::SubagentSteer => "Steered",
             ToolActionKind::SubagentStop => "Stopped",
+            ToolActionKind::PlanContinue => "Continued",
+            ToolActionKind::PlanFork => "Forked",
+            ToolActionKind::PlanSideImplementation => "Started",
+            ToolActionKind::HandoffAgent | ToolActionKind::HandoffLocation => "Handed off",
             ToolActionKind::SkillList | ToolActionKind::PluginList | ToolActionKind::AppList => {
                 "Listed"
             }
@@ -1488,6 +1569,10 @@ fn noun_for(action: ToolActionKind) -> &'static str {
         | ToolActionKind::PluginMarketplaceUpgrade => "plugin",
         ToolActionKind::AppList => "apps",
         ToolActionKind::AppConfigure => "app",
+        ToolActionKind::PlanContinue
+        | ToolActionKind::PlanFork
+        | ToolActionKind::PlanSideImplementation => "plan",
+        ToolActionKind::HandoffAgent | ToolActionKind::HandoffLocation => "handoff",
         _ => "tool",
     }
 }
@@ -1538,6 +1623,8 @@ fn icon_for(surface: ToolSurface, action: ToolActionKind) -> &'static str {
         ToolSurface::WebSearch => "search",
         ToolSurface::Image => "image",
         ToolSurface::Subagent => "bot",
+        ToolSurface::Plan => "list-checks",
+        ToolSurface::Handoff => "send",
         ToolSurface::Skill => "sparkles",
         ToolSurface::Plugin => "plug",
         ToolSurface::App => "app-window",
@@ -2264,6 +2351,28 @@ mod tests {
         ));
         assert_eq!(subagent.surface, ToolSurface::Subagent);
         assert_eq!(subagent.display.title, "Started subagent reviewer");
+
+        let plan = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "planImplementation",
+            "plan",
+            "fork_for_implementation",
+            json!({ "targetThreadId": "fork-1" }),
+        ));
+        assert_eq!(plan.surface, ToolSurface::Plan);
+        assert_eq!(plan.action, ToolActionKind::PlanFork);
+        assert_eq!(plan.display.title, "Forked plan into fork-1");
+
+        let handoff = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "handoff",
+            "handoff",
+            "handoff_to_location",
+            json!({ "targetLocation": "worktree" }),
+        ));
+        assert_eq!(handoff.surface, ToolSurface::Handoff);
+        assert_eq!(handoff.action, ToolActionKind::HandoffLocation);
+        assert_eq!(handoff.display.title, "Handed off to worktree");
 
         let image = normalize_tool_call(input(
             ToolTransport::CodexBuiltin,

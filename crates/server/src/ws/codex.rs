@@ -1954,38 +1954,44 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             "provider_response": signal.provider_response,
         });
         let raw_payload = metadata.clone();
+        let semantic_tool = semantic_tool_for_codex_handoff(&signal, raw_payload.clone());
         self.append_and_publish_provider_events(
             ProviderKind::Codex,
-            vec![ProviderEvent::RuntimeSignal {
-                signal: Box::new(NormalizedRuntimeSignal {
-                    kind: RuntimeSignalKind::HandoffUpdated,
-                    thread_id: Some(signal.handoff.source_thread_id),
-                    turn_id: None,
-                    item_id: None,
-                    message: None,
-                    from_model: None,
-                    to_model: None,
-                    reason: None,
-                    text: None,
-                    audio: None,
-                    status: Some("completed".to_string()),
-                    name: None,
-                    active: None,
-                    archived: None,
-                    diff: None,
-                    files: None,
-                    process_id: None,
-                    exit_code: None,
-                    request_id: None,
-                    metadata,
-                    provider: ProviderMetadata {
-                        provider: ProviderKind::Codex.runtime_id().to_string(),
-                        method: Some(signal.method.to_string()),
-                        schema_version: None,
-                        raw_payload,
-                    },
-                }),
-            }],
+            vec![
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::HandoffUpdated,
+                        thread_id: Some(signal.handoff.source_thread_id),
+                        turn_id: None,
+                        item_id: None,
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: None,
+                        audio: None,
+                        status: Some("completed".to_string()),
+                        name: None,
+                        active: None,
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata,
+                        provider: ProviderMetadata {
+                            provider: ProviderKind::Codex.runtime_id().to_string(),
+                            method: Some(signal.method.to_string()),
+                            schema_version: None,
+                            raw_payload,
+                        },
+                    }),
+                },
+                ProviderEvent::SemanticTool {
+                    tool: Box::new(semantic_tool),
+                },
+            ],
         )
     }
 
@@ -1998,38 +2004,45 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             "plan_implementation": implementation,
         });
         let raw_payload = metadata.clone();
+        let semantic_tool =
+            semantic_tool_for_codex_plan_implementation(&signal, raw_payload.clone());
         self.append_and_publish_provider_events(
             ProviderKind::Codex,
-            vec![ProviderEvent::RuntimeSignal {
-                signal: Box::new(NormalizedRuntimeSignal {
-                    kind: RuntimeSignalKind::PlanImplementationUpdated,
-                    thread_id: Some(signal.implementation.parent_thread_id),
-                    turn_id: None,
-                    item_id: None,
-                    message: None,
-                    from_model: None,
-                    to_model: None,
-                    reason: None,
-                    text: Some(signal.implementation.prompt),
-                    audio: None,
-                    status: Some(plan_implementation_mode_key(signal.implementation.mode)),
-                    name: None,
-                    active: None,
-                    archived: None,
-                    diff: None,
-                    files: None,
-                    process_id: None,
-                    exit_code: None,
-                    request_id: None,
-                    metadata,
-                    provider: ProviderMetadata {
-                        provider: ProviderKind::Codex.runtime_id().to_string(),
-                        method: Some(signal.method.to_string()),
-                        schema_version: None,
-                        raw_payload,
-                    },
-                }),
-            }],
+            vec![
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::PlanImplementationUpdated,
+                        thread_id: Some(signal.implementation.parent_thread_id),
+                        turn_id: None,
+                        item_id: None,
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: Some(signal.implementation.prompt),
+                        audio: None,
+                        status: Some(plan_implementation_mode_key(signal.implementation.mode)),
+                        name: None,
+                        active: None,
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata,
+                        provider: ProviderMetadata {
+                            provider: ProviderKind::Codex.runtime_id().to_string(),
+                            method: Some(signal.method.to_string()),
+                            schema_version: None,
+                            raw_payload,
+                        },
+                    }),
+                },
+                ProviderEvent::SemanticTool {
+                    tool: Box::new(semantic_tool),
+                },
+            ],
         )
     }
 
@@ -2598,6 +2611,97 @@ struct CodexPlanImplementationSignal {
     method: &'static str,
 }
 
+fn semantic_tool_for_codex_handoff(
+    signal: &CodexHandoffSignal,
+    raw_payload: Value,
+) -> SemanticToolCall {
+    let mut raw_args = raw_payload
+        .get("handoff")
+        .cloned()
+        .unwrap_or_else(|| raw_payload.clone());
+    if let Value::Object(map) = &mut raw_args {
+        map.insert(
+            "targetLocation".to_string(),
+            json!(execution_location_key(signal.handoff.target_location)),
+        );
+        if let Some(target_thread_id) = signal.handoff.target_thread_id.as_deref() {
+            map.insert("targetThreadId".to_string(), json!(target_thread_id));
+        }
+        if let Some(branch) = signal.handoff.branch.as_deref() {
+            map.insert("branch".to_string(), json!(branch));
+        }
+        if let Some(remote_host) = signal.handoff.remote_host.as_deref() {
+            map.insert("remoteHost".to_string(), json!(remote_host));
+        }
+    }
+    let mut provider = ProviderToolMetadata::new();
+    provider.provider = Some(ProviderKind::Codex.runtime_id().to_string());
+    provider.method = Some(signal.method.to_string());
+    provider.thread_id = Some(signal.handoff.source_thread_id.clone());
+    provider.item_id = signal
+        .handoff
+        .target_thread_id
+        .clone()
+        .or_else(|| signal.handoff.branch.clone());
+    provider.tool_name = Some("handoff".to_string());
+    provider.operation = Some(if signal.method.contains("agent") {
+        "handoff_agent".to_string()
+    } else {
+        "handoff_location".to_string()
+    });
+    provider.raw_args = raw_args;
+    provider.raw_result = signal.provider_response.clone();
+    provider.raw_payload = raw_payload;
+
+    normalize_tool_call(ToolNormalizationInput {
+        transport: ToolTransport::CodexBuiltin,
+        status: ToolRunStatus::Completed,
+        provider,
+        item_type: Some("handoff".to_string()),
+    })
+}
+
+fn semantic_tool_for_codex_plan_implementation(
+    signal: &CodexPlanImplementationSignal,
+    raw_payload: Value,
+) -> SemanticToolCall {
+    let mut raw_args = raw_payload
+        .get("plan_implementation")
+        .cloned()
+        .unwrap_or_else(|| raw_payload.clone());
+    if let Value::Object(map) = &mut raw_args {
+        map.insert(
+            "targetThreadId".to_string(),
+            json!(signal.implementation.target_thread_id.as_str()),
+        );
+        map.insert(
+            "threadId".to_string(),
+            json!(signal.implementation.parent_thread_id.as_str()),
+        );
+        map.insert(
+            "mode".to_string(),
+            json!(plan_implementation_mode_key(signal.implementation.mode)),
+        );
+    }
+    let mut provider = ProviderToolMetadata::new();
+    provider.provider = Some(ProviderKind::Codex.runtime_id().to_string());
+    provider.method = Some(signal.method.to_string());
+    provider.thread_id = Some(signal.implementation.parent_thread_id.clone());
+    provider.item_id = Some(signal.implementation.target_thread_id.clone());
+    provider.tool_name = Some("plan".to_string());
+    provider.operation = Some(plan_implementation_mode_key(signal.implementation.mode));
+    provider.raw_args = raw_args;
+    provider.raw_result = signal.implementation.provider_response.clone();
+    provider.raw_payload = raw_payload;
+
+    normalize_tool_call(ToolNormalizationInput {
+        transport: ToolTransport::CodexBuiltin,
+        status: ToolRunStatus::Completed,
+        provider,
+        item_type: Some("planImplementation".to_string()),
+    })
+}
+
 struct CodexApprovalRetrySignal {
     retry: ApprovalRetryRecord,
     method: &'static str,
@@ -2690,6 +2794,15 @@ fn plan_implementation_mode_key(mode: PlanImplementationMode) -> String {
         PlanImplementationMode::SideImplementation => "side_implementation",
     }
     .to_string()
+}
+
+fn execution_location_key(location: ExecutionLocation) -> &'static str {
+    match location {
+        ExecutionLocation::Local => "local",
+        ExecutionLocation::Worktree => "worktree",
+        ExecutionLocation::RemoteHost => "remote_host",
+        ExecutionLocation::Cloud => "cloud",
+    }
 }
 
 fn approval_retry_record_from_codex(
@@ -4949,8 +5062,8 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 3);
-        assert!(records.iter().all(|record| {
+        assert_eq!(records.len(), 6);
+        assert!(records.iter().step_by(2).take(3).all(|record| {
             record["event"]["type"] == "runtime_signal"
                 && record["event"]["signal"]["kind"] == "plan_implementation_updated"
                 && record["projection_deltas"][0]["type"] == "plan_implementation_updated"
@@ -4963,17 +5076,37 @@ mod tests {
             records[0]["projection_deltas"][0]["implementation"]["target_thread_id"],
             "thread-1"
         );
+        assert_eq!(records[1]["event"]["type"], "tool_completed");
+        assert_eq!(records[1]["event"]["tool"]["surface"], "plan");
+        assert_eq!(records[1]["event"]["tool"]["action"], "plan.continue");
         assert_eq!(
-            records[1]["projection_deltas"][0]["implementation"]["mode"],
-            "fork_for_implementation"
-        );
-        assert_eq!(
-            records[1]["projection_deltas"][0]["implementation"]["provider_response"]["forked"],
-            true
+            records[1]["event"]["tool"]["display"]["title"],
+            "Continued plan in thread-1"
         );
         assert_eq!(
             records[2]["projection_deltas"][0]["implementation"]["mode"],
+            "fork_for_implementation"
+        );
+        assert_eq!(
+            records[2]["projection_deltas"][0]["implementation"]["provider_response"]["forked"],
+            true
+        );
+        assert_eq!(records[3]["event"]["tool"]["action"], "plan.fork");
+        assert_eq!(
+            records[3]["event"]["tool"]["display"]["title"],
+            "Forked plan into fork-1"
+        );
+        assert_eq!(
+            records[4]["projection_deltas"][0]["implementation"]["mode"],
             "side_implementation"
+        );
+        assert_eq!(
+            records[5]["event"]["tool"]["action"],
+            "plan.side_implementation"
+        );
+        assert_eq!(
+            records[5]["event"]["tool"]["display"]["title"],
+            "Started side implementation fork-1"
         );
     }
 
@@ -5785,7 +5918,7 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 7);
+        assert_eq!(records.len(), 8);
         assert!(records.iter().step_by(2).take(3).all(|record| {
             record["event"]["type"] == "runtime_signal"
                 && record["event"]["signal"]["kind"] == "subagent_action"
@@ -5853,6 +5986,13 @@ mod tests {
         assert_eq!(
             records[6]["projection_deltas"][0]["handoff"]["target_location"],
             "local"
+        );
+        assert_eq!(records[7]["event"]["type"], "tool_completed");
+        assert_eq!(records[7]["event"]["tool"]["surface"], "handoff");
+        assert_eq!(records[7]["event"]["tool"]["action"], "handoff.agent");
+        assert_eq!(
+            records[7]["event"]["tool"]["display"]["title"],
+            "Handed off to local"
         );
     }
 
@@ -5987,7 +6127,7 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 2);
+        assert_eq!(records.len(), 3);
         assert_eq!(
             records[0]["event"]["signal"]["kind"],
             "turn_lifecycle_changed"
@@ -6014,6 +6154,17 @@ mod tests {
         assert_eq!(
             records[1]["projection_deltas"][0]["handoff"]["interrupted_active_turn"],
             true
+        );
+        assert_eq!(records[2]["event"]["type"], "tool_completed");
+        assert_eq!(records[2]["event"]["tool"]["surface"], "handoff");
+        assert_eq!(records[2]["event"]["tool"]["action"], "handoff.location");
+        assert_eq!(
+            records[2]["event"]["tool"]["display"]["title"],
+            "Handed off to worktree"
+        );
+        assert_eq!(
+            records[2]["event"]["tool"]["provider"]["raw_args"]["branch"],
+            "feature/task-2"
         );
     }
 
