@@ -54,7 +54,7 @@ pub mod provider {
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
     use std::{
-        collections::{HashMap, HashSet},
+        collections::{BTreeMap, HashMap, HashSet},
         sync::Arc,
         time::Duration,
     };
@@ -97,6 +97,7 @@ pub mod provider {
         pub raw_payload_policy: String,
         pub raw_payload: ProviderRawPayloadPolicy,
         pub required_capabilities: Vec<ProviderContractRequirement>,
+        pub feature_families: Vec<ProviderAdapterFeatureFamily>,
         pub operations: Vec<ProviderAdapterOperationSpec>,
         pub normalized_thread_item_kinds: Vec<ThreadItemKind>,
         pub normalized_server_request_kinds: Vec<ServerRequestKind>,
@@ -106,6 +107,18 @@ pub mod provider {
         pub tool_surfaces: Vec<ToolSurface>,
         pub tool_action_kinds: Vec<ToolActionKind>,
         pub execution_locations: Vec<ExecutionLocation>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderAdapterFeatureFamily {
+        pub category: ProviderFeatureCategory,
+        pub total_operations: usize,
+        pub required_operations: usize,
+        pub optional_operations: usize,
+        pub version_gated_operations: usize,
+        pub deferred_operations: usize,
+        #[serde(default)]
+        pub operations: Vec<ProviderAdapterOperation>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -553,7 +566,7 @@ pub mod provider {
         Deferred,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case")]
     pub enum ProviderFeatureCategory {
         Threads,
@@ -2208,13 +2221,15 @@ pub mod provider {
 
     #[must_use]
     pub fn ace_provider_adapter_contract() -> ProviderAdapterContract {
+        let operations = ace_provider_adapter_operations();
         ProviderAdapterContract {
-            version: 8,
+            version: 9,
             websocket_first: true,
             raw_payload_policy: "preserve_provider_payloads".to_string(),
             raw_payload: ace_provider_raw_payload_policy(),
             required_capabilities: ace_provider_contract_requirements(),
-            operations: ace_provider_adapter_operations(),
+            feature_families: provider_adapter_feature_families(&operations),
+            operations,
             normalized_thread_item_kinds: vec![
                 ThreadItemKind::UserMessage,
                 ThreadItemKind::HookPrompt,
@@ -2394,6 +2409,37 @@ pub mod provider {
                 ExecutionLocation::Cloud,
             ],
         }
+    }
+
+    #[must_use]
+    pub fn provider_adapter_feature_families(
+        operations: &[ProviderAdapterOperationSpec],
+    ) -> Vec<ProviderAdapterFeatureFamily> {
+        let mut families = BTreeMap::<ProviderFeatureCategory, ProviderAdapterFeatureFamily>::new();
+        for operation in operations {
+            let family = families.entry(operation.category).or_insert_with(|| {
+                ProviderAdapterFeatureFamily {
+                    category: operation.category,
+                    total_operations: 0,
+                    required_operations: 0,
+                    optional_operations: 0,
+                    version_gated_operations: 0,
+                    deferred_operations: 0,
+                    operations: Vec::new(),
+                }
+            });
+            family.total_operations += 1;
+            family.operations.push(operation.operation);
+            match operation.support {
+                ProviderAdapterOperationSupport::Required => family.required_operations += 1,
+                ProviderAdapterOperationSupport::Optional => family.optional_operations += 1,
+                ProviderAdapterOperationSupport::VersionGated => {
+                    family.version_gated_operations += 1;
+                }
+                ProviderAdapterOperationSupport::Deferred => family.deferred_operations += 1,
+            }
+        }
+        families.into_values().collect()
     }
 
     #[must_use]
@@ -3182,7 +3228,7 @@ pub mod provider {
                 .iter()
                 .find(|profile| profile.provider == ProviderKind::Codex)
                 .expect("codex profile");
-            assert_eq!(codex_profile.contract_version, 8);
+            assert_eq!(codex_profile.contract_version, 9);
             assert!(codex_profile.websocket_first);
             assert_eq!(
                 codex_profile.raw_payload.retention,
@@ -3751,7 +3797,7 @@ pub mod provider {
         fn adapter_contract_lists_required_normalized_surfaces() {
             let contract = ace_provider_adapter_contract();
 
-            assert_eq!(contract.version, 8);
+            assert_eq!(contract.version, 9);
             assert!(contract.websocket_first);
             assert_eq!(contract.raw_payload_policy, "preserve_provider_payloads");
             assert_eq!(
@@ -3780,6 +3826,35 @@ pub mod provider {
                     .iter()
                     .any(|capability| capability.key == "provider.adapter_contract"
                         && capability.required)
+            );
+            let family = |category| {
+                contract
+                    .feature_families
+                    .iter()
+                    .find(|family| family.category == category)
+                    .unwrap_or_else(|| panic!("missing provider feature family {category:?}"))
+            };
+            assert!(family(ProviderFeatureCategory::Threads).required_operations > 0);
+            assert!(family(ProviderFeatureCategory::Plans).required_operations > 0);
+            assert!(family(ProviderFeatureCategory::Subagents).required_operations > 0);
+            assert!(family(ProviderFeatureCategory::Handoff).required_operations > 0);
+            assert!(family(ProviderFeatureCategory::Mcp).version_gated_operations > 0);
+            assert!(family(ProviderFeatureCategory::Skills).version_gated_operations > 0);
+            assert!(family(ProviderFeatureCategory::Plugins).optional_operations > 0);
+            assert!(family(ProviderFeatureCategory::Apps).version_gated_operations > 0);
+            assert!(family(ProviderFeatureCategory::Tools).required_operations > 0);
+            assert_eq!(
+                contract
+                    .feature_families
+                    .iter()
+                    .map(|family| family.total_operations)
+                    .sum::<usize>(),
+                contract.operations.len()
+            );
+            assert!(
+                family(ProviderFeatureCategory::Tools)
+                    .operations
+                    .contains(&ProviderAdapterOperation::BrowserBridgeContract)
             );
             assert!(contract.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::PlanForkForImplementation

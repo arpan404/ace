@@ -9407,7 +9407,7 @@ mod tests {
         assert_eq!(codex_runtime["supports_server_request_responses"], true);
         assert_eq!(codex_runtime["contract"]["satisfies_required"], true);
         assert_eq!(codex_runtime["adapter_profile"]["provider"], "Codex");
-        assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 8);
+        assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 9);
         assert_eq!(codex_runtime["adapter_profile"]["websocket_first"], true);
         assert_eq!(
             codex_runtime["adapter_runtime"]["satisfies_required_hooks"],
@@ -9503,7 +9503,7 @@ mod tests {
             panic!("expected ace method list result");
         };
         assert_eq!(body["provider"], "ace");
-        assert_eq!(body["adapter_contract_version"], 8);
+        assert_eq!(body["adapter_contract_version"], 9);
         assert_eq!(
             body["installed_client_request_methods_source"],
             "supported_client_request_methods"
@@ -9560,7 +9560,7 @@ mod tests {
             panic!("expected codex method list result");
         };
         assert_eq!(body["provider"], "codex");
-        assert_eq!(body["adapter_contract_version"], 8);
+        assert_eq!(body["adapter_contract_version"], 9);
         assert_eq!(
             body["installed_client_request_methods_source"],
             "supported_client_request_methods"
@@ -10226,7 +10226,7 @@ mod tests {
         let WsServerPayload::Result { body } = contract.payload else {
             panic!("expected provider contract result");
         };
-        assert_eq!(body["adapter_contract"]["version"], 8);
+        assert_eq!(body["adapter_contract"]["version"], 9);
         assert_eq!(body["adapter_contract"]["websocket_first"], true);
         assert_eq!(
             body["adapter_contract"]["raw_payload"]["retention"],
@@ -10261,6 +10261,45 @@ mod tests {
                     |capability| capability["key"] == "provider.adapter_contract"
                         && capability["required"] == true
                 )
+        );
+        let families = body["adapter_contract"]["feature_families"]
+            .as_array()
+            .expect("feature families");
+        let family = |category: &str| {
+            families
+                .iter()
+                .find(|family| family["category"] == category)
+                .unwrap_or_else(|| panic!("missing feature family {category}"))
+        };
+        assert!(
+            family("plans")["required_operations"]
+                .as_u64()
+                .unwrap_or_default()
+                > 0
+        );
+        assert!(
+            family("skills")["version_gated_operations"]
+                .as_u64()
+                .unwrap_or_default()
+                > 0
+        );
+        assert!(
+            family("plugins")["optional_operations"]
+                .as_u64()
+                .unwrap_or_default()
+                > 0
+        );
+        assert!(
+            family("apps")["version_gated_operations"]
+                .as_u64()
+                .unwrap_or_default()
+                > 0
+        );
+        assert!(
+            family("tools")["operations"]
+                .as_array()
+                .expect("tool family operations")
+                .contains(&json!("browser_bridge_contract"))
         );
         let operations = body["adapter_contract"]["operations"]
             .as_array()
@@ -10362,7 +10401,7 @@ mod tests {
         let WsServerPayload::Result { body } = list.payload else {
             panic!("expected provider operation list");
         };
-        assert_eq!(body["adapter_contract"]["version"], 8);
+        assert_eq!(body["adapter_contract"]["version"], 9);
         assert_eq!(
             body["providers"][0]["adapter_runtime"]["satisfies_required_hooks"],
             true
@@ -10852,7 +10891,7 @@ mod tests {
             panic!("expected native request result");
         };
         assert_eq!(body["provider"], "ace");
-        assert_eq!(body["adapter_contract"]["version"], 8);
+        assert_eq!(body["adapter_contract"]["version"], 9);
     }
 
     #[tokio::test]

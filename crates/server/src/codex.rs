@@ -2578,7 +2578,7 @@ pub mod tests {
             .expect("method discovery");
 
         assert_eq!(response["provider"], "codex");
-        assert_eq!(response["adapter_contract_version"], 8);
+        assert_eq!(response["adapter_contract_version"], 9);
         assert_eq!(response["websocket_first"], true);
         assert_eq!(
             response["installed_client_request_methods_source"],

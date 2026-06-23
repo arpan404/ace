@@ -929,7 +929,7 @@ mod tests {
             .expect("contract");
 
         assert_eq!(response["provider"], "ace");
-        assert_eq!(response["version"], 8);
+        assert_eq!(response["version"], 9);
         assert_eq!(response["runtime"]["transport"], "websocket");
         assert_eq!(response["runtime"]["websocket_first"], true);
         assert_eq!(
@@ -962,7 +962,7 @@ mod tests {
                 .expect("events")
                 .contains(&json!("semantic_tool"))
         );
-        assert_eq!(response["adapter_contract"]["version"], 8);
+        assert_eq!(response["adapter_contract"]["version"], 9);
         assert!(
             response["adapter_contract"]["operations"]
                 .as_array()
