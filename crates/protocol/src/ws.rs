@@ -111,6 +111,9 @@ pub mod methods {
     pub const CODEX_CONFIG_VALUE_WRITE: &str = "codex.config.value_write";
     pub const CODEX_CONFIG_BATCH_WRITE: &str = "codex.config.batch_write";
     pub const CODEX_CONFIG_MCP_SERVER_RELOAD: &str = "codex.config.mcp_server_reload";
+    pub const CODEX_COLLABORATION_MODE_LIST: &str = "codex.collaboration_mode.list";
+    pub const CODEX_ENVIRONMENT_ADD: &str = "codex.environment.add";
+    pub const CODEX_MEMORY_RESET: &str = "codex.memory.reset";
     pub const CODEX_EXPERIMENTAL_FEATURE_LIST: &str = "codex.experimental_feature.list";
     pub const CODEX_EXPERIMENTAL_FEATURE_ENABLEMENT_SET: &str =
         "codex.experimental_feature.enablement_set";
@@ -118,7 +121,31 @@ pub mod methods {
     pub const CODEX_EXTERNAL_AGENT_CONFIG_IMPORT: &str = "codex.external_agent_config.import";
     pub const CODEX_FEEDBACK_UPLOAD: &str = "codex.feedback.upload";
     pub const CODEX_FUZZY_FILE_SEARCH: &str = "codex.fuzzy_file_search";
+    pub const CODEX_FUZZY_FILE_SEARCH_SESSION_START: &str = "codex.fuzzy_file_search.session_start";
+    pub const CODEX_FUZZY_FILE_SEARCH_SESSION_STOP: &str = "codex.fuzzy_file_search.session_stop";
+    pub const CODEX_FUZZY_FILE_SEARCH_SESSION_UPDATE: &str =
+        "codex.fuzzy_file_search.session_update";
     pub const CODEX_HOOKS_LIST: &str = "codex.hooks.list";
+    pub const CODEX_REMOTE_CONTROL_CLIENT_LIST: &str = "codex.remote_control.client.list";
+    pub const CODEX_REMOTE_CONTROL_CLIENT_REVOKE: &str = "codex.remote_control.client.revoke";
+    pub const CODEX_REMOTE_CONTROL_DISABLE: &str = "codex.remote_control.disable";
+    pub const CODEX_REMOTE_CONTROL_ENABLE: &str = "codex.remote_control.enable";
+    pub const CODEX_REMOTE_CONTROL_PAIRING_START: &str = "codex.remote_control.pairing.start";
+    pub const CODEX_REMOTE_CONTROL_PAIRING_STATUS: &str = "codex.remote_control.pairing.status";
+    pub const CODEX_REMOTE_CONTROL_STATUS_READ: &str = "codex.remote_control.status.read";
+    pub const CODEX_THREAD_DECREMENT_ELICITATION: &str = "codex.thread.decrement_elicitation";
+    pub const CODEX_THREAD_INCREMENT_ELICITATION: &str = "codex.thread.increment_elicitation";
+    pub const CODEX_THREAD_MEMORY_MODE_SET: &str = "codex.thread.memory_mode.set";
+    pub const CODEX_THREAD_REALTIME_APPEND_AUDIO: &str = "codex.thread.realtime.append_audio";
+    pub const CODEX_THREAD_REALTIME_APPEND_SPEECH: &str = "codex.thread.realtime.append_speech";
+    pub const CODEX_THREAD_REALTIME_APPEND_TEXT: &str = "codex.thread.realtime.append_text";
+    pub const CODEX_THREAD_REALTIME_LIST_VOICES: &str = "codex.thread.realtime.list_voices";
+    pub const CODEX_THREAD_REALTIME_START: &str = "codex.thread.realtime.start";
+    pub const CODEX_THREAD_REALTIME_STOP: &str = "codex.thread.realtime.stop";
+    pub const CODEX_THREAD_SEARCH: &str = "codex.thread.search";
+    pub const CODEX_THREAD_SETTINGS_UPDATE: &str = "codex.thread.settings.update";
+    pub const CODEX_THREAD_TURNS_ITEMS_LIST: &str = "codex.thread.turns.items.list";
+    pub const CODEX_THREAD_TURNS_LIST: &str = "codex.thread.turns.list";
     pub const CODEX_MARKETPLACE_ADD: &str = "codex.marketplace.add";
     pub const CODEX_MARKETPLACE_REMOVE: &str = "codex.marketplace.remove";
     pub const CODEX_MARKETPLACE_UPGRADE: &str = "codex.marketplace.upgrade";

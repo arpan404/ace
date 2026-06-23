@@ -3663,6 +3663,11 @@ fn codex_versioned_app_server_request(
         methods::CODEX_CONFIG_MCP_SERVER_RELOAD => {
             Some(("config/mcpServer/reload", raw_or_enveloped(payload)?))
         }
+        methods::CODEX_COLLABORATION_MODE_LIST => {
+            Some(("collaborationMode/list", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_ENVIRONMENT_ADD => Some(("environment/add", raw_or_enveloped(payload)?)),
+        methods::CODEX_MEMORY_RESET => Some(("memory/reset", raw_or_enveloped(payload)?)),
         methods::CODEX_EXPERIMENTAL_FEATURE_LIST => {
             Some(("experimentalFeature/list", raw_or_enveloped(payload)?))
         }
@@ -3678,7 +3683,72 @@ fn codex_versioned_app_server_request(
         }
         methods::CODEX_FEEDBACK_UPLOAD => Some(("feedback/upload", raw_or_enveloped(payload)?)),
         methods::CODEX_FUZZY_FILE_SEARCH => Some(("fuzzyFileSearch", raw_or_enveloped(payload)?)),
+        methods::CODEX_FUZZY_FILE_SEARCH_SESSION_START => {
+            Some(("fuzzyFileSearch/sessionStart", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_FUZZY_FILE_SEARCH_SESSION_STOP => {
+            Some(("fuzzyFileSearch/sessionStop", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_FUZZY_FILE_SEARCH_SESSION_UPDATE => {
+            Some(("fuzzyFileSearch/sessionUpdate", raw_or_enveloped(payload)?))
+        }
         methods::CODEX_HOOKS_LIST => Some(("hooks/list", raw_or_enveloped(payload)?)),
+        methods::CODEX_REMOTE_CONTROL_CLIENT_LIST => {
+            Some(("remoteControl/client/list", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_REMOTE_CONTROL_CLIENT_REVOKE => {
+            Some(("remoteControl/client/revoke", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_REMOTE_CONTROL_DISABLE => {
+            Some(("remoteControl/disable", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_REMOTE_CONTROL_ENABLE => {
+            Some(("remoteControl/enable", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_REMOTE_CONTROL_PAIRING_START => {
+            Some(("remoteControl/pairing/start", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_REMOTE_CONTROL_PAIRING_STATUS => {
+            Some(("remoteControl/pairing/status", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_REMOTE_CONTROL_STATUS_READ => {
+            Some(("remoteControl/status/read", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_DECREMENT_ELICITATION => {
+            Some(("thread/decrement_elicitation", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_INCREMENT_ELICITATION => {
+            Some(("thread/increment_elicitation", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_MEMORY_MODE_SET => {
+            Some(("thread/memoryMode/set", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_REALTIME_APPEND_AUDIO => {
+            Some(("thread/realtime/appendAudio", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_REALTIME_APPEND_SPEECH => {
+            Some(("thread/realtime/appendSpeech", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_REALTIME_APPEND_TEXT => {
+            Some(("thread/realtime/appendText", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_REALTIME_LIST_VOICES => {
+            Some(("thread/realtime/listVoices", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_REALTIME_START => {
+            Some(("thread/realtime/start", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_REALTIME_STOP => {
+            Some(("thread/realtime/stop", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_SEARCH => Some(("thread/search", raw_or_enveloped(payload)?)),
+        methods::CODEX_THREAD_SETTINGS_UPDATE => {
+            Some(("thread/settings/update", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_TURNS_ITEMS_LIST => {
+            Some(("thread/turns/items/list", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_TURNS_LIST => Some(("thread/turns/list", raw_or_enveloped(payload)?)),
         methods::CODEX_MARKETPLACE_ADD => Some((
             "marketplace/add",
             typed_or_enveloped::<CodexMarketplaceRequest>(payload)?,
@@ -9321,6 +9391,15 @@ mod tests {
                 methods::CODEX_CONFIG_MCP_SERVER_RELOAD,
                 json!({ "server": "github" }),
             ),
+            (methods::CODEX_COLLABORATION_MODE_LIST, json!({})),
+            (
+                methods::CODEX_ENVIRONMENT_ADD,
+                json!({ "threadId": "thread-1", "environment": { "name": "dev" } }),
+            ),
+            (
+                methods::CODEX_MEMORY_RESET,
+                json!({ "threadId": "thread-1" }),
+            ),
             (methods::CODEX_EXPERIMENTAL_FEATURE_LIST, json!({})),
             (
                 methods::CODEX_EXPERIMENTAL_FEATURE_ENABLEMENT_SET,
@@ -9336,7 +9415,50 @@ mod tests {
             ),
             (methods::CODEX_FEEDBACK_UPLOAD, json!({ "kind": "bug" })),
             (methods::CODEX_FUZZY_FILE_SEARCH, json!({ "query": "main" })),
+            (
+                methods::CODEX_FUZZY_FILE_SEARCH_SESSION_START,
+                json!({ "query": "main", "root": "/tmp/repo" }),
+            ),
+            (
+                methods::CODEX_FUZZY_FILE_SEARCH_SESSION_UPDATE,
+                json!({ "sessionId": "search-1", "query": "lib" }),
+            ),
+            (
+                methods::CODEX_FUZZY_FILE_SEARCH_SESSION_STOP,
+                json!({ "sessionId": "search-1" }),
+            ),
             (methods::CODEX_HOOKS_LIST, json!({})),
+            (methods::CODEX_REMOTE_CONTROL_STATUS_READ, json!({})),
+            (methods::CODEX_REMOTE_CONTROL_PAIRING_START, json!({})),
+            (
+                methods::CODEX_REMOTE_CONTROL_CLIENT_REVOKE,
+                json!({ "clientId": "client-1" }),
+            ),
+            (
+                methods::CODEX_THREAD_INCREMENT_ELICITATION,
+                json!({ "threadId": "thread-1" }),
+            ),
+            (
+                methods::CODEX_THREAD_MEMORY_MODE_SET,
+                json!({ "threadId": "thread-1", "mode": "project" }),
+            ),
+            (
+                methods::CODEX_THREAD_REALTIME_APPEND_TEXT,
+                json!({ "threadId": "thread-1", "text": "hello" }),
+            ),
+            (
+                methods::CODEX_THREAD_REALTIME_LIST_VOICES,
+                json!({ "threadId": "thread-1" }),
+            ),
+            (methods::CODEX_THREAD_SEARCH, json!({ "query": "plan" })),
+            (
+                methods::CODEX_THREAD_SETTINGS_UPDATE,
+                json!({ "threadId": "thread-1", "settings": { "model": "gpt-5" } }),
+            ),
+            (
+                methods::CODEX_THREAD_TURNS_LIST,
+                json!({ "threadId": "thread-1" }),
+            ),
             (
                 methods::CODEX_MARKETPLACE_ADD,
                 json!({ "plugin": "browser" }),
@@ -9425,13 +9547,29 @@ mod tests {
                 "config/value/write",
                 "config/batchWrite",
                 "config/mcpServer/reload",
+                "collaborationMode/list",
+                "environment/add",
+                "memory/reset",
                 "experimentalFeature/list",
                 "experimentalFeature/enablement/set",
                 "externalAgentConfig/detect",
                 "externalAgentConfig/import",
                 "feedback/upload",
                 "fuzzyFileSearch",
+                "fuzzyFileSearch/sessionStart",
+                "fuzzyFileSearch/sessionUpdate",
+                "fuzzyFileSearch/sessionStop",
                 "hooks/list",
+                "remoteControl/status/read",
+                "remoteControl/pairing/start",
+                "remoteControl/client/revoke",
+                "thread/increment_elicitation",
+                "thread/memoryMode/set",
+                "thread/realtime/appendText",
+                "thread/realtime/listVoices",
+                "thread/search",
+                "thread/settings/update",
+                "thread/turns/list",
                 "marketplace/add",
                 "marketplace/remove",
                 "marketplace/upgrade",
@@ -9994,6 +10132,105 @@ mod tests {
         .expect("search method");
         assert_eq!(method, "fuzzyFileSearch");
         assert_eq!(params["query"], "main");
+
+        for (ws_method, expected_codex_method) in [
+            (
+                methods::CODEX_COLLABORATION_MODE_LIST,
+                "collaborationMode/list",
+            ),
+            (methods::CODEX_ENVIRONMENT_ADD, "environment/add"),
+            (methods::CODEX_MEMORY_RESET, "memory/reset"),
+            (
+                methods::CODEX_FUZZY_FILE_SEARCH_SESSION_START,
+                "fuzzyFileSearch/sessionStart",
+            ),
+            (
+                methods::CODEX_FUZZY_FILE_SEARCH_SESSION_STOP,
+                "fuzzyFileSearch/sessionStop",
+            ),
+            (
+                methods::CODEX_FUZZY_FILE_SEARCH_SESSION_UPDATE,
+                "fuzzyFileSearch/sessionUpdate",
+            ),
+            (
+                methods::CODEX_REMOTE_CONTROL_CLIENT_LIST,
+                "remoteControl/client/list",
+            ),
+            (
+                methods::CODEX_REMOTE_CONTROL_CLIENT_REVOKE,
+                "remoteControl/client/revoke",
+            ),
+            (
+                methods::CODEX_REMOTE_CONTROL_DISABLE,
+                "remoteControl/disable",
+            ),
+            (methods::CODEX_REMOTE_CONTROL_ENABLE, "remoteControl/enable"),
+            (
+                methods::CODEX_REMOTE_CONTROL_PAIRING_START,
+                "remoteControl/pairing/start",
+            ),
+            (
+                methods::CODEX_REMOTE_CONTROL_PAIRING_STATUS,
+                "remoteControl/pairing/status",
+            ),
+            (
+                methods::CODEX_REMOTE_CONTROL_STATUS_READ,
+                "remoteControl/status/read",
+            ),
+            (
+                methods::CODEX_THREAD_DECREMENT_ELICITATION,
+                "thread/decrement_elicitation",
+            ),
+            (
+                methods::CODEX_THREAD_INCREMENT_ELICITATION,
+                "thread/increment_elicitation",
+            ),
+            (
+                methods::CODEX_THREAD_MEMORY_MODE_SET,
+                "thread/memoryMode/set",
+            ),
+            (
+                methods::CODEX_THREAD_REALTIME_APPEND_AUDIO,
+                "thread/realtime/appendAudio",
+            ),
+            (
+                methods::CODEX_THREAD_REALTIME_APPEND_SPEECH,
+                "thread/realtime/appendSpeech",
+            ),
+            (
+                methods::CODEX_THREAD_REALTIME_APPEND_TEXT,
+                "thread/realtime/appendText",
+            ),
+            (
+                methods::CODEX_THREAD_REALTIME_LIST_VOICES,
+                "thread/realtime/listVoices",
+            ),
+            (
+                methods::CODEX_THREAD_REALTIME_START,
+                "thread/realtime/start",
+            ),
+            (methods::CODEX_THREAD_REALTIME_STOP, "thread/realtime/stop"),
+            (methods::CODEX_THREAD_SEARCH, "thread/search"),
+            (
+                methods::CODEX_THREAD_SETTINGS_UPDATE,
+                "thread/settings/update",
+            ),
+            (
+                methods::CODEX_THREAD_TURNS_ITEMS_LIST,
+                "thread/turns/items/list",
+            ),
+            (methods::CODEX_THREAD_TURNS_LIST, "thread/turns/list"),
+        ] {
+            let (method, params) = codex_versioned_app_server_request(
+                ws_method,
+                &json!({ "params": { "threadId": "thread-1", "query": "main" } }),
+            )
+            .expect("experimental method")
+            .expect("experimental method route");
+            assert_eq!(method, expected_codex_method);
+            assert_eq!(params["threadId"], "thread-1");
+            assert_eq!(params["query"], "main");
+        }
     }
 
     #[tokio::test]
