@@ -1587,7 +1587,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         result.output.clone(),
                     )
                     .await?;
-                let audit = host_tool_audit(decision_context.audit, &invocation, &result)?;
+                let audit = host_tool_audit(
+                    audit_with_default_decider(decision_context.audit, "host_tool"),
+                    &invocation,
+                    &result,
+                )?;
                 let audit_value = serde_json::to_value(&audit)?;
                 let decision = ProviderServerRequestDecisionRecord {
                     outcome: "result".to_string(),
@@ -1651,7 +1655,10 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         request.result.clone(),
                     )
                     .await?;
-                let audit = serde_json::to_value(&decision_context.audit)?;
+                let audit = serde_json::to_value(audit_with_default_decider(
+                    decision_context.audit,
+                    "user",
+                ))?;
                 let decision = ProviderServerRequestDecisionRecord {
                     outcome: "result".to_string(),
                     payload: request.result.clone(),
@@ -1709,7 +1716,10 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     )
                     .await?;
                 let error_payload = serde_json::to_value(request.error)?;
-                let audit = serde_json::to_value(&decision_context.audit)?;
+                let audit = serde_json::to_value(audit_with_default_decider(
+                    decision_context.audit,
+                    "user",
+                ))?;
                 let decision = ProviderServerRequestDecisionRecord {
                     outcome: "error".to_string(),
                     payload: error_payload.clone(),
@@ -1833,7 +1843,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 ),
             }
         });
-        let audit = host_tool_error_audit(decision_context.audit, invocation, &error)?;
+        let audit = host_tool_error_audit(
+            audit_with_default_decider(decision_context.audit, "host_tool"),
+            invocation,
+            &error,
+        )?;
         let audit_value = serde_json::to_value(&audit)?;
         let decision = ProviderServerRequestDecisionRecord {
             outcome: "error".to_string(),
@@ -4207,6 +4221,16 @@ fn host_tool_dispatch_error(error: HostToolError) -> WsDispatchError {
         | HostToolError::DuplicateName { .. } => WsDispatchError::BadRequest(error.to_string()),
         HostToolError::Handler { .. } => WsDispatchError::BadRequest(error.to_string()),
     }
+}
+
+fn audit_with_default_decider(
+    mut audit: ProviderServerRequestAudit,
+    default_decider: &str,
+) -> ProviderServerRequestAudit {
+    if audit.decided_by.is_none() {
+        audit.decided_by = Some(default_decider.to_string());
+    }
+    audit
 }
 
 fn host_tool_audit(
@@ -14528,6 +14552,7 @@ mod tests {
         assert_eq!(body["responded"], true);
         assert_eq!(body["decision"]["outcome"], "result");
         assert_eq!(body["decision"]["payload"]["opened"], true);
+        assert_eq!(body["decision"]["audit"]["decided_by"], "user");
         assert_eq!(
             body["decision"]["audit"]["metadata"]["host_tool"]["tool_name"],
             "ace_browser"
@@ -14672,7 +14697,7 @@ mod tests {
                     "payload": {
                         "provider": "codex",
                         "request_id": "42",
-                        "audit": { "decided_by": "user" }
+                        "audit": {}
                     }
                 })
                 .to_string(),
@@ -14686,6 +14711,7 @@ mod tests {
         assert_eq!(body["responded"], true);
         assert_eq!(body["decision"]["outcome"], "error");
         assert_eq!(body["decision"]["payload"]["code"], -32012);
+        assert_eq!(body["decision"]["audit"]["decided_by"], "host_tool");
         assert!(
             body["decision"]["payload"]["message"]
                 .as_str()
@@ -14975,6 +15001,7 @@ mod tests {
         assert_eq!(body["decision"]["audit"]["source_item_id"], "item-1");
         assert_eq!(body["decision"]["audit"]["prompt"], "Run cargo test?");
         assert_eq!(body["decision"]["audit"]["selected_policy"], "on-request");
+        assert_eq!(body["decision"]["audit"]["decided_by"], "user");
         assert_eq!(body["decision"]["audit"]["metadata"]["risk"], "low");
         assert_eq!(body["request"]["request_id"], "42");
         assert_eq!(body["request"]["prompt"], "Run cargo test?");
@@ -15033,6 +15060,7 @@ mod tests {
         assert_eq!(decision.audit["source_item_id"], "item-1");
         assert_eq!(decision.audit["prompt"], "Run cargo test?");
         assert_eq!(decision.audit["selected_policy"], "on-request");
+        assert_eq!(decision.audit["decided_by"], "user");
         assert_eq!(decision.audit["metadata"]["risk"], "low");
         assert_eq!(
             decision.audit["metadata"]["provider_method"],
@@ -15279,7 +15307,6 @@ mod tests {
                             "message": "denied"
                         },
                         "audit": {
-                            "decided_by": "user",
                             "reason": "outside workspace"
                         }
                     }
@@ -15306,6 +15333,7 @@ mod tests {
             "Write outside workspace?"
         );
         assert_eq!(body["decision"]["audit"]["selected_policy"], "strict");
+        assert_eq!(body["decision"]["audit"]["decided_by"], "user");
         assert_eq!(body["request"]["request_id"], "43");
         assert_eq!(body["request"]["prompt"], "Write outside workspace?");
         assert_eq!(
@@ -15339,6 +15367,7 @@ mod tests {
         assert_eq!(decision.audit["source_item_id"], "file-change-1");
         assert_eq!(decision.audit["prompt"], "Write outside workspace?");
         assert_eq!(decision.audit["selected_policy"], "strict");
+        assert_eq!(decision.audit["decided_by"], "user");
         assert_eq!(
             decision.audit["metadata"]["provider_method"],
             "fileChange/approvalRequest"
