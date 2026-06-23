@@ -2500,23 +2500,23 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     }
 }
 
-fn provider_event_chunks(mut events: Vec<ProviderEvent>) -> Vec<Vec<ProviderEvent>> {
+fn provider_event_chunks(events: Vec<ProviderEvent>) -> Vec<Vec<ProviderEvent>> {
     if events.len() <= PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE {
         return vec![events];
     }
 
     let mut chunks =
         Vec::with_capacity(events.len().div_ceil(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE));
-    while !events.is_empty() {
-        if events.len() <= PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE {
-            chunks.push(std::mem::take(&mut events));
-        } else {
-            chunks.push(
-                events
-                    .drain(..PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
-                    .collect(),
-            );
+    let mut events = events.into_iter();
+    loop {
+        let chunk = events
+            .by_ref()
+            .take(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
+            .collect::<Vec<_>>();
+        if chunk.is_empty() {
+            break;
         }
+        chunks.push(chunk);
     }
     chunks
 }
