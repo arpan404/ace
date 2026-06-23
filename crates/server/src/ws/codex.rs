@@ -3471,6 +3471,32 @@ fn codex_versioned_app_server_request(
             "process/clean",
             user_initiated_typed_or_enveloped::<CodexProcessCleanRequest>(payload)?,
         )),
+        methods::CODEX_PROCESS_SPAWN => {
+            Some(("process/spawn", user_initiated_raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_PROCESS_WRITE_STDIN => Some((
+            "process/writeStdin",
+            user_initiated_raw_or_enveloped(payload)?,
+        )),
+        methods::CODEX_PROCESS_RESIZE_PTY => Some((
+            "process/resizePty",
+            user_initiated_raw_or_enveloped(payload)?,
+        )),
+        methods::CODEX_PROCESS_KILL => {
+            Some(("process/kill", user_initiated_raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_THREAD_BACKGROUND_TERMINALS_LIST => Some((
+            "thread/backgroundTerminals/list",
+            user_initiated_raw_or_enveloped(payload)?,
+        )),
+        methods::CODEX_THREAD_BACKGROUND_TERMINALS_CLEAN => Some((
+            "thread/backgroundTerminals/clean",
+            user_initiated_raw_or_enveloped(payload)?,
+        )),
+        methods::CODEX_THREAD_BACKGROUND_TERMINALS_TERMINATE => Some((
+            "thread/backgroundTerminals/terminate",
+            user_initiated_raw_or_enveloped(payload)?,
+        )),
         methods::CODEX_FS_READ_FILE => Some((
             "fs/readFile",
             typed_or_enveloped::<CodexFsReadFileRequest>(payload)?,
@@ -3692,6 +3718,8 @@ fn semantic_tool_for_codex_versioned_request(
         &[
             "processId",
             "process_id",
+            "terminalId",
+            "terminal_id",
             "path",
             "uri",
             "skill",
@@ -3728,7 +3756,14 @@ fn codex_versioned_tool_transport(codex_method: &str) -> Option<ToolTransport> {
         | "command/exec/resize"
         | "command/exec/terminate"
         | "process/list"
-        | "process/clean" => Some(ToolTransport::Process),
+        | "process/clean"
+        | "process/spawn"
+        | "process/writeStdin"
+        | "process/resizePty"
+        | "process/kill"
+        | "thread/backgroundTerminals/list"
+        | "thread/backgroundTerminals/clean"
+        | "thread/backgroundTerminals/terminate" => Some(ToolTransport::Process),
         "fs/readFile" | "fs/writeFile" | "fs/readDirectory" | "fs/createDirectory" | "fs/copy"
         | "fs/remove" | "fs/getMetadata" | "fs/watch" | "fs/unwatch" => {
             Some(ToolTransport::Filesystem)
@@ -3764,7 +3799,19 @@ fn codex_versioned_tool_name(codex_method: &str, params: &Value) -> String {
     string_field(
         params,
         &[
-            "tool", "command", "path", "uri", "skill", "plugin", "shareId", "share_id", "app",
+            "tool",
+            "command",
+            "path",
+            "uri",
+            "skill",
+            "plugin",
+            "shareId",
+            "share_id",
+            "app",
+            "terminalId",
+            "terminal_id",
+            "processId",
+            "process_id",
         ],
     )
     .unwrap_or_else(|| codex_method.replace('/', "."))
@@ -3779,6 +3826,13 @@ fn codex_versioned_tool_operation(codex_method: &str) -> String {
         "command/exec/terminate" => "terminal_terminate",
         "process/list" => "process_list",
         "process/clean" => "process_clean",
+        "process/spawn" => "process_spawn",
+        "process/writeStdin" => "process_write_stdin",
+        "process/resizePty" => "process_resize_pty",
+        "process/kill" => "process_kill",
+        "thread/backgroundTerminals/list" => "background_terminals_list",
+        "thread/backgroundTerminals/clean" => "background_terminals_clean",
+        "thread/backgroundTerminals/terminate" => "background_terminal_terminate",
         "fs/readFile" => "read_file",
         "fs/writeFile" => "write_file",
         "fs/readDirectory" => "read_directory",
@@ -3825,7 +3879,14 @@ fn codex_versioned_tool_item_type(codex_method: &str) -> &'static str {
         | "command/exec/resize"
         | "command/exec/terminate"
         | "process/list"
-        | "process/clean" => "commandExecution",
+        | "process/clean"
+        | "process/spawn"
+        | "process/writeStdin"
+        | "process/resizePty"
+        | "process/kill"
+        | "thread/backgroundTerminals/list"
+        | "thread/backgroundTerminals/clean"
+        | "thread/backgroundTerminals/terminate" => "commandExecution",
         "fs/readFile" | "fs/readDirectory" | "fs/getMetadata" | "fs/watch" | "fs/unwatch" => {
             "fileRead"
         }
@@ -3971,6 +4032,13 @@ fn codex_shell_process_method(method: &str) -> bool {
             | "command/exec/terminate"
             | "process/list"
             | "process/clean"
+            | "process/spawn"
+            | "process/writeStdin"
+            | "process/resizePty"
+            | "process/kill"
+            | "thread/backgroundTerminals/list"
+            | "thread/backgroundTerminals/clean"
+            | "thread/backgroundTerminals/terminate"
     )
 }
 
@@ -9081,6 +9149,51 @@ mod tests {
                 json!({ "userInitiated": true, "params": { "threadId": "thread-1" } }),
             ),
             (
+                methods::CODEX_PROCESS_SPAWN,
+                json!({
+                    "userInitiated": true,
+                    "command": "npm run dev",
+                    "cwd": "/tmp/repo"
+                }),
+            ),
+            (
+                methods::CODEX_PROCESS_WRITE_STDIN,
+                json!({
+                    "userInitiated": true,
+                    "processId": "proc-1",
+                    "stdin": "q"
+                }),
+            ),
+            (
+                methods::CODEX_PROCESS_RESIZE_PTY,
+                json!({
+                    "userInitiated": true,
+                    "processId": "proc-1",
+                    "cols": 120,
+                    "rows": 40
+                }),
+            ),
+            (
+                methods::CODEX_PROCESS_KILL,
+                json!({ "userInitiated": true, "processId": "proc-1" }),
+            ),
+            (
+                methods::CODEX_THREAD_BACKGROUND_TERMINALS_LIST,
+                json!({ "userInitiated": true, "threadId": "thread-1" }),
+            ),
+            (
+                methods::CODEX_THREAD_BACKGROUND_TERMINALS_CLEAN,
+                json!({ "userInitiated": true, "threadId": "thread-1" }),
+            ),
+            (
+                methods::CODEX_THREAD_BACKGROUND_TERMINALS_TERMINATE,
+                json!({
+                    "userInitiated": true,
+                    "threadId": "thread-1",
+                    "terminalId": "term-1"
+                }),
+            ),
+            (
                 methods::CODEX_FS_READ_FILE,
                 json!({ "path": "src/lib.rs", "encoding": "utf8" }),
             ),
@@ -9262,11 +9375,18 @@ mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             [
-                "review/start",
+                "review/start:thread-1",
                 "thread/shellCommand",
                 "command/exec",
                 "command/exec/write",
                 "process/list",
+                "process/spawn",
+                "process/writeStdin",
+                "process/resizePty",
+                "process/kill",
+                "thread/backgroundTerminals/list",
+                "thread/backgroundTerminals/clean",
+                "thread/backgroundTerminals/terminate",
                 "fs/readFile",
                 "fs/writeFile",
                 "fs/readDirectory",
@@ -9437,6 +9557,15 @@ mod tests {
                 }),
             ),
             (
+                "codex-process-spawn",
+                methods::CODEX_PROCESS_SPAWN,
+                json!({
+                    "userInitiated": true,
+                    "command": "npm run dev",
+                    "cwd": "/tmp/repo"
+                }),
+            ),
+            (
                 "codex-skill-install",
                 methods::CODEX_SKILLS_INSTALL,
                 json!({ "skill": "rust" }),
@@ -9493,7 +9622,7 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 14);
+        assert_eq!(records.len(), 16);
 
         let file_completed = records
             .iter()
@@ -9533,6 +9662,21 @@ mod tests {
         assert_eq!(
             mcp_started["event"]["tool"]["provider"]["raw_args"]["arguments"]["team"],
             "eng"
+        );
+
+        let process_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["provider"]["raw_payload"]["provider_method"]
+                        == "process/spawn"
+            })
+            .expect("completed process spawn event");
+        assert_eq!(process_completed["event"]["tool"]["surface"], "terminal");
+        assert_eq!(process_completed["event"]["tool"]["action"], "terminal.run");
+        assert_ne!(
+            process_completed["event"]["tool"]["display"]["title"],
+            "Codex tool"
         );
 
         let skill_completed = records
@@ -9689,6 +9833,57 @@ mod tests {
         assert_eq!(method, "process/clean");
         assert_eq!(params["threadId"], "thread-1");
         assert!(params.get("userInitiated").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_PROCESS_SPAWN,
+            &json!({
+                "userInitiated": true,
+                "command": "npm run dev",
+                "cwd": "/tmp/repo"
+            }),
+        )
+        .expect("user initiated process spawn")
+        .expect("process spawn method");
+        assert_eq!(method, "process/spawn");
+        assert_eq!(params["command"], "npm run dev");
+        assert!(params.get("userInitiated").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_PROCESS_WRITE_STDIN,
+            &json!({ "userInitiated": true, "processId": "p1", "stdin": "q" }),
+        )
+        .expect("user initiated process stdin")
+        .expect("process stdin method");
+        assert_eq!(method, "process/writeStdin");
+        assert_eq!(params["processId"], "p1");
+        assert!(params.get("userInitiated").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_BACKGROUND_TERMINALS_TERMINATE,
+            &json!({
+                "userInitiated": true,
+                "params": {
+                    "threadId": "thread-1",
+                    "terminalId": "term-1"
+                }
+            }),
+        )
+        .expect("user initiated background terminal terminate")
+        .expect("background terminal terminate method");
+        assert_eq!(method, "thread/backgroundTerminals/terminate");
+        assert_eq!(params["terminalId"], "term-1");
+        assert!(params.get("userInitiated").is_none());
+
+        let missing_process_marker = codex_versioned_app_server_request(
+            methods::CODEX_PROCESS_SPAWN,
+            &json!({ "command": "npm run dev" }),
+        )
+        .expect_err("missing process user initiation");
+        assert!(matches!(
+            missing_process_marker,
+            WsDispatchError::BadRequest(ref message)
+                if message.contains("userInitiated: true")
+        ));
 
         let missing_raw_marker =
             user_initiated_codex_params("command/exec", json!({ "command": "cargo test" }))

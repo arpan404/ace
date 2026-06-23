@@ -53,6 +53,16 @@ pub mod methods {
     pub const CODEX_COMMAND_TERMINATE: &str = "codex.command.terminate";
     pub const CODEX_PROCESS_LIST: &str = "codex.process.list";
     pub const CODEX_PROCESS_CLEAN: &str = "codex.process.clean";
+    pub const CODEX_PROCESS_SPAWN: &str = "codex.process.spawn";
+    pub const CODEX_PROCESS_WRITE_STDIN: &str = "codex.process.write_stdin";
+    pub const CODEX_PROCESS_RESIZE_PTY: &str = "codex.process.resize_pty";
+    pub const CODEX_PROCESS_KILL: &str = "codex.process.kill";
+    pub const CODEX_THREAD_BACKGROUND_TERMINALS_LIST: &str =
+        "codex.thread.background_terminals.list";
+    pub const CODEX_THREAD_BACKGROUND_TERMINALS_CLEAN: &str =
+        "codex.thread.background_terminals.clean";
+    pub const CODEX_THREAD_BACKGROUND_TERMINALS_TERMINATE: &str =
+        "codex.thread.background_terminals.terminate";
     pub const CODEX_MCP_STATUS: &str = "codex.mcp.status";
     pub const CODEX_MCP_RESOURCE_READ: &str = "codex.mcp.resource_read";
     pub const CODEX_MCP_OAUTH_LOGIN: &str = "codex.mcp.oauth_login";
