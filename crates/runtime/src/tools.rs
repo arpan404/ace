@@ -140,6 +140,12 @@ pub enum ToolActionKind {
     PluginUninstall,
     #[serde(rename = "plugin.share")]
     PluginShare,
+    #[serde(rename = "plugin.marketplace_add")]
+    PluginMarketplaceAdd,
+    #[serde(rename = "plugin.marketplace_remove")]
+    PluginMarketplaceRemove,
+    #[serde(rename = "plugin.marketplace_upgrade")]
+    PluginMarketplaceUpgrade,
     #[serde(rename = "app.list")]
     AppList,
     #[serde(rename = "app.configure")]
@@ -856,11 +862,13 @@ fn plugin_action(facts: &ToolFacts) -> Option<ToolActionKind> {
     if !facts.haystack.contains("plugin") && !facts.haystack.contains("marketplace") {
         return None;
     }
-    if facts.haystack.contains("share")
-        || facts.haystack.contains("marketplace add")
-        || facts.haystack.contains("marketplace remove")
-        || facts.haystack.contains("marketplace upgrade")
-    {
+    if facts.haystack.contains("marketplace add") {
+        Some(ToolActionKind::PluginMarketplaceAdd)
+    } else if facts.haystack.contains("marketplace remove") {
+        Some(ToolActionKind::PluginMarketplaceRemove)
+    } else if facts.haystack.contains("marketplace upgrade") {
+        Some(ToolActionKind::PluginMarketplaceUpgrade)
+    } else if facts.haystack.contains("share") {
         Some(ToolActionKind::PluginShare)
     } else if facts.haystack.contains("uninstall") {
         Some(ToolActionKind::PluginUninstall)
@@ -1319,6 +1327,9 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 ToolActionKind::SkillConfigure | ToolActionKind::AppConfigure => "Configuring",
                 ToolActionKind::PluginUninstall => "Uninstalling",
                 ToolActionKind::PluginShare => "Sharing",
+                ToolActionKind::PluginMarketplaceAdd => "Adding",
+                ToolActionKind::PluginMarketplaceRemove => "Removing",
+                ToolActionKind::PluginMarketplaceUpgrade => "Upgrading",
                 _ => "Running",
             }
         }
@@ -1362,6 +1373,9 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             ToolActionKind::SkillConfigure | ToolActionKind::AppConfigure => "Configured",
             ToolActionKind::PluginUninstall => "Uninstalled",
             ToolActionKind::PluginShare => "Shared",
+            ToolActionKind::PluginMarketplaceAdd => "Added",
+            ToolActionKind::PluginMarketplaceRemove => "Removed",
+            ToolActionKind::PluginMarketplaceUpgrade => "Upgraded",
             _ => "Ran",
         },
         ToolRunStatus::Failed => "Failed",
@@ -1397,7 +1411,10 @@ fn noun_for(action: ToolActionKind) -> &'static str {
         ToolActionKind::PluginRead
         | ToolActionKind::PluginInstall
         | ToolActionKind::PluginUninstall
-        | ToolActionKind::PluginShare => "plugin",
+        | ToolActionKind::PluginShare
+        | ToolActionKind::PluginMarketplaceAdd
+        | ToolActionKind::PluginMarketplaceRemove
+        | ToolActionKind::PluginMarketplaceUpgrade => "plugin",
         ToolActionKind::AppList => "apps",
         ToolActionKind::AppConfigure => "app",
         _ => "tool",
@@ -2237,6 +2254,20 @@ mod tests {
         assert_eq!(plugin.surface, ToolSurface::Plugin);
         assert_eq!(plugin.action, ToolActionKind::PluginRead);
         assert_eq!(plugin.display.title, "Read plugin browser");
+
+        let marketplace_upgrade = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "plugin",
+            "browser",
+            "marketplace/upgrade",
+            json!({ "plugin": "browser" }),
+        ));
+        assert_eq!(marketplace_upgrade.surface, ToolSurface::Plugin);
+        assert_eq!(
+            marketplace_upgrade.action,
+            ToolActionKind::PluginMarketplaceUpgrade
+        );
+        assert_eq!(marketplace_upgrade.display.title, "Upgraded plugin browser");
 
         let app = normalize_tool_call(input(
             ToolTransport::AppConnector,

@@ -163,6 +163,98 @@ pub struct CodexTurnSteer {
     pub client_user_message_id: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexReviewStart {
+    #[serde(alias = "thread_id")]
+    pub thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detached: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "base_turn_id")]
+    pub base_turn_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexNamedQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexSkillRequest {
+    pub skill: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexSkillsConfigWrite {
+    #[serde(default)]
+    pub config: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexSkillsExtraRootsSet {
+    #[serde(default)]
+    pub roots: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexPluginRequest {
+    pub plugin: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexPluginShareRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "share_id")]
+    pub share_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexPluginShareSave {
+    pub plugin: String,
+    #[serde(default)]
+    pub targets: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexPluginShareUpdateTargets {
+    #[serde(alias = "share_id")]
+    pub share_id: String,
+    #[serde(default)]
+    pub targets: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexAppConfigWrite {
+    pub app: String,
+    #[serde(default)]
+    pub config: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexMarketplaceRequest {
+    pub plugin: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
 impl CodexTurnStart {
     #[must_use]
     pub fn plan(
@@ -701,6 +793,14 @@ impl CodexLiveClient {
             Self::WebSocket(client) => client.handoff_to_agent(request).await,
         }
     }
+
+    pub async fn review_start(&self, request: CodexReviewStart) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.review_start(request).await,
+            Self::UnixSocket(client) => client.review_start(request).await,
+            Self::WebSocket(client) => client.review_start(request).await,
+        }
+    }
 }
 
 impl<T: AppServerTransport> CodexClient<T> {
@@ -1032,8 +1132,9 @@ impl<T: AppServerTransport> CodexClient<T> {
             .await
     }
 
-    pub async fn review_start(&self, params: Value) -> Result<Value> {
-        self.raw_request("review/start", params).await
+    pub async fn review_start(&self, request: CodexReviewStart) -> Result<Value> {
+        self.raw_request("review/start", serde_json::to_value(request)?)
+            .await
     }
 
     pub async fn thread_shell_command(&self, params: Value) -> Result<Value> {
@@ -1116,72 +1217,92 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.raw_request("mcpServer/tool/call", params).await
     }
 
-    pub async fn skills_list(&self, params: Value) -> Result<Value> {
-        self.raw_request("skills/list", params).await
+    pub async fn skills_list(&self, request: CodexNamedQuery) -> Result<Value> {
+        self.raw_request("skills/list", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn skills_read(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugin/skill/read", params).await
+    pub async fn skills_read(&self, request: CodexSkillRequest) -> Result<Value> {
+        self.raw_request("plugin/skill/read", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn skills_install(&self, params: Value) -> Result<Value> {
-        self.raw_request("skills/install", params).await
+    pub async fn skills_install(&self, request: CodexSkillRequest) -> Result<Value> {
+        self.raw_request("skills/install", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn skills_config_write(&self, params: Value) -> Result<Value> {
-        self.raw_request("skills/config/write", params).await
+    pub async fn skills_config_write(&self, request: CodexSkillsConfigWrite) -> Result<Value> {
+        self.raw_request("skills/config/write", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn skills_extra_roots_set(&self, params: Value) -> Result<Value> {
-        self.raw_request("skills/extraRoots/set", params).await
+    pub async fn skills_extra_roots_set(&self, request: CodexSkillsExtraRootsSet) -> Result<Value> {
+        self.raw_request("skills/extraRoots/set", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn plugins_installed(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugin/installed", params).await
+    pub async fn plugins_installed(&self, request: CodexNamedQuery) -> Result<Value> {
+        self.raw_request("plugin/installed", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn plugins_list(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugin/list", params).await
+    pub async fn plugins_list(&self, request: CodexNamedQuery) -> Result<Value> {
+        self.raw_request("plugin/list", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn plugins_read(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugin/read", params).await
+    pub async fn plugins_read(&self, request: CodexPluginRequest) -> Result<Value> {
+        self.raw_request("plugin/read", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn plugins_install(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugin/install", params).await
+    pub async fn plugins_install(&self, request: CodexPluginRequest) -> Result<Value> {
+        self.raw_request("plugin/install", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn plugins_uninstall(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugin/uninstall", params).await
+    pub async fn plugins_uninstall(&self, request: CodexPluginRequest) -> Result<Value> {
+        self.raw_request("plugin/uninstall", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn plugin_share_checkout(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugin/share/checkout", params).await
+    pub async fn plugin_share_checkout(&self, request: CodexPluginShareRequest) -> Result<Value> {
+        self.raw_request("plugin/share/checkout", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn plugin_share_delete(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugin/share/delete", params).await
+    pub async fn plugin_share_delete(&self, request: CodexPluginShareRequest) -> Result<Value> {
+        self.raw_request("plugin/share/delete", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn plugin_share_list(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugin/share/list", params).await
+    pub async fn plugin_share_list(&self, request: CodexPluginShareRequest) -> Result<Value> {
+        self.raw_request("plugin/share/list", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn plugin_share_save(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugin/share/save", params).await
+    pub async fn plugin_share_save(&self, request: CodexPluginShareSave) -> Result<Value> {
+        self.raw_request("plugin/share/save", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn plugin_share_update_targets(&self, params: Value) -> Result<Value> {
-        self.raw_request("plugin/share/updateTargets", params).await
+    pub async fn plugin_share_update_targets(
+        &self,
+        request: CodexPluginShareUpdateTargets,
+    ) -> Result<Value> {
+        self.raw_request("plugin/share/updateTargets", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn apps_list(&self, params: Value) -> Result<Value> {
-        self.raw_request("app/list", params).await
+    pub async fn apps_list(&self, request: CodexNamedQuery) -> Result<Value> {
+        self.raw_request("app/list", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn apps_config_write(&self, params: Value) -> Result<Value> {
-        self.raw_request("apps/configWrite", params).await
+    pub async fn apps_config_write(&self, request: CodexAppConfigWrite) -> Result<Value> {
+        self.raw_request("apps/configWrite", serde_json::to_value(request)?)
+            .await
     }
 
     pub async fn remote_connection_list(&self, params: Value) -> Result<Value> {
@@ -1279,16 +1400,19 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.raw_request("hooks/list", params).await
     }
 
-    pub async fn marketplace_add(&self, params: Value) -> Result<Value> {
-        self.raw_request("marketplace/add", params).await
+    pub async fn marketplace_add(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+        self.raw_request("marketplace/add", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn marketplace_remove(&self, params: Value) -> Result<Value> {
-        self.raw_request("marketplace/remove", params).await
+    pub async fn marketplace_remove(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+        self.raw_request("marketplace/remove", serde_json::to_value(request)?)
+            .await
     }
 
-    pub async fn marketplace_upgrade(&self, params: Value) -> Result<Value> {
-        self.raw_request("marketplace/upgrade", params).await
+    pub async fn marketplace_upgrade(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+        self.raw_request("marketplace/upgrade", serde_json::to_value(request)?)
+            .await
     }
 
     pub async fn model_list(&self, params: Value) -> Result<Value> {
@@ -1887,7 +2011,11 @@ mod tests {
         let client = CodexClient::new(fake, Duration::from_secs(1));
 
         client
-            .review_start(json!({ "threadId": "thread-1" }))
+            .review_start(CodexReviewStart {
+                thread_id: "thread-1".to_string(),
+                detached: Some(true),
+                base_turn_id: Some("turn-1".to_string()),
+            })
             .await
             .expect("review");
         client
@@ -1964,63 +2092,102 @@ mod tests {
             .mcp_tool_call(json!({ "server": "github", "tool": "list_issues" }))
             .await
             .expect("tool call");
-        client.skills_list(json!({})).await.expect("skills list");
         client
-            .skills_read(json!({ "skill": "rust" }))
+            .skills_list(CodexNamedQuery::default())
+            .await
+            .expect("skills list");
+        client
+            .skills_read(CodexSkillRequest {
+                skill: "rust".to_string(),
+            })
             .await
             .expect("skills read");
         client
-            .skills_install(json!({ "skill": "rust" }))
+            .skills_install(CodexSkillRequest {
+                skill: "rust".to_string(),
+            })
             .await
             .expect("skills install");
         client
-            .skills_config_write(json!({ "config": { "enabled": ["rust"] } }))
+            .skills_config_write(CodexSkillsConfigWrite {
+                config: json!({ "enabled": ["rust"] }),
+            })
             .await
             .expect("skills config");
         client
-            .skills_extra_roots_set(json!({ "roots": ["/tmp/skills"] }))
+            .skills_extra_roots_set(CodexSkillsExtraRootsSet {
+                roots: vec!["/tmp/skills".to_string()],
+            })
             .await
             .expect("skills extra roots");
         client
-            .plugins_installed(json!({}))
+            .plugins_installed(CodexNamedQuery::default())
             .await
             .expect("plugins installed");
-        client.plugins_list(json!({})).await.expect("plugins list");
         client
-            .plugins_read(json!({ "plugin": "browser" }))
+            .plugins_list(CodexNamedQuery::default())
+            .await
+            .expect("plugins list");
+        client
+            .plugins_read(CodexPluginRequest {
+                plugin: "browser".to_string(),
+            })
             .await
             .expect("plugins read");
         client
-            .plugins_install(json!({ "plugin": "browser" }))
+            .plugins_install(CodexPluginRequest {
+                plugin: "browser".to_string(),
+            })
             .await
             .expect("plugins install");
         client
-            .plugins_uninstall(json!({ "plugin": "browser" }))
+            .plugins_uninstall(CodexPluginRequest {
+                plugin: "browser".to_string(),
+            })
             .await
             .expect("plugins uninstall");
         client
-            .plugin_share_checkout(json!({ "shareId": "share-1" }))
+            .plugin_share_checkout(CodexPluginShareRequest {
+                plugin: None,
+                share_id: Some("share-1".to_string()),
+            })
             .await
             .expect("plugin share checkout");
         client
-            .plugin_share_delete(json!({ "shareId": "share-1" }))
+            .plugin_share_delete(CodexPluginShareRequest {
+                plugin: None,
+                share_id: Some("share-1".to_string()),
+            })
             .await
             .expect("plugin share delete");
         client
-            .plugin_share_list(json!({}))
+            .plugin_share_list(CodexPluginShareRequest::default())
             .await
             .expect("plugin share list");
         client
-            .plugin_share_save(json!({ "plugin": "browser", "targets": ["team"] }))
+            .plugin_share_save(CodexPluginShareSave {
+                plugin: "browser".to_string(),
+                targets: vec!["team".to_string()],
+                metadata: None,
+            })
             .await
             .expect("plugin share save");
         client
-            .plugin_share_update_targets(json!({ "shareId": "share-1", "targets": ["team"] }))
+            .plugin_share_update_targets(CodexPluginShareUpdateTargets {
+                share_id: "share-1".to_string(),
+                targets: vec!["team".to_string()],
+            })
             .await
             .expect("plugin share update targets");
-        client.apps_list(json!({})).await.expect("apps list");
         client
-            .apps_config_write(json!({ "app": "browser", "config": {} }))
+            .apps_list(CodexNamedQuery::default())
+            .await
+            .expect("apps list");
+        client
+            .apps_config_write(CodexAppConfigWrite {
+                app: "browser".to_string(),
+                config: json!({}),
+            })
             .await
             .expect("apps config");
         client
@@ -2082,10 +2249,16 @@ mod tests {
                 "remote/handoff",
             ]
         );
+        assert_eq!(requests[0].1["threadId"], "thread-1");
+        assert_eq!(requests[0].1["detached"], true);
+        assert_eq!(requests[0].1["baseTurnId"], "turn-1");
         assert_eq!(requests[1].1["command"], "pwd");
         assert_eq!(requests[2].1["command"], "cargo test");
         assert_eq!(requests[12].1["fromPath"], "src/lib.rs");
         assert_eq!(requests[20].1["tool"], "list_issues");
+        assert_eq!(requests[22].1["skill"], "rust");
+        assert_eq!(requests[31].1["shareId"], "share-1");
+        assert_eq!(requests[34].1["targets"][0], "team");
         assert_eq!(requests.last().expect("remote handoff").1["host"], "devbox");
     }
 
@@ -2207,15 +2380,27 @@ mod tests {
             .expect("fuzzy search");
         client.hooks_list(json!({})).await.expect("hooks list");
         client
-            .marketplace_add(json!({ "plugin": "browser" }))
+            .marketplace_add(CodexMarketplaceRequest {
+                plugin: "browser".to_string(),
+                target: Some("personal".to_string()),
+                version: None,
+            })
             .await
             .expect("marketplace add");
         client
-            .marketplace_remove(json!({ "plugin": "browser" }))
+            .marketplace_remove(CodexMarketplaceRequest {
+                plugin: "browser".to_string(),
+                target: Some("personal".to_string()),
+                version: None,
+            })
             .await
             .expect("marketplace remove");
         client
-            .marketplace_upgrade(json!({ "plugin": "browser" }))
+            .marketplace_upgrade(CodexMarketplaceRequest {
+                plugin: "browser".to_string(),
+                target: None,
+                version: Some("latest".to_string()),
+            })
             .await
             .expect("marketplace upgrade");
         client
@@ -2255,6 +2440,8 @@ mod tests {
         );
         assert_eq!(requests[1].1["key"], "model");
         assert_eq!(requests[9].1["query"], "main");
+        assert_eq!(requests[11].1["target"], "personal");
+        assert_eq!(requests[13].1["version"], "latest");
         assert_eq!(requests[14].1["provider"], "openai");
         assert_eq!(requests[15].1["provider"], "openai");
     }

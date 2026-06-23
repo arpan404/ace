@@ -11,11 +11,12 @@ use ace_protocol::{
         CodexFsReadDirectoryRequest, CodexFsReadFileRequest, CodexFsWriteFileRequest,
         CodexGoalSetRequest, CodexGuardianDeniedActionApprovalRequest, CodexHandoffLocation,
         CodexHandoffToAgentRequest, CodexHandoffToLocationRequest, CodexHandoffToLocationResponse,
-        CodexMcpOauthLoginRequest, CodexMcpResourceReadRequest, CodexMcpStatusRequest,
-        CodexMcpToolCallRequest, CodexNamedQueryRequest, CodexPermissionPresetRequest,
-        CodexPlanImplementationRequest, CodexPlanTurnStartRequest, CodexPluginRequest,
-        CodexProcessCleanRequest, CodexProcessListRequest, CodexRawRequest,
-        CodexRemoteHandoffRequest, CodexReviewStartRequest, CodexShutdownRequest,
+        CodexMarketplaceRequest, CodexMcpOauthLoginRequest, CodexMcpResourceReadRequest,
+        CodexMcpStatusRequest, CodexMcpToolCallRequest, CodexNamedQueryRequest,
+        CodexPermissionPresetRequest, CodexPlanImplementationRequest, CodexPlanTurnStartRequest,
+        CodexPluginRequest, CodexPluginShareRequest, CodexPluginShareSaveRequest,
+        CodexPluginShareUpdateTargetsRequest, CodexProcessCleanRequest, CodexProcessListRequest,
+        CodexRawRequest, CodexRemoteHandoffRequest, CodexReviewStartRequest, CodexShutdownRequest,
         CodexSkillRequest, CodexSkillsConfigWriteRequest, CodexSkillsExtraRootsSetRequest,
         CodexStderrTailResponse, CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest,
         CodexThreadForkRequest, CodexThreadIdRequest, CodexThreadInjectItemsRequest,
@@ -95,10 +96,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         if method == methods::CODEX_REVIEW_START {
             let request = serde_json::from_value::<CodexReviewStartRequest>(payload)?;
             let params = serde_json::to_value(&request)?;
-            let response = self
-                .codex
-                .review_start(request.thread_id.clone(), params.clone())
-                .await?;
+            let response = self.codex.review_start(request.clone()).await?;
             self.publish_codex_review_mode_signal(CodexReviewModeSignal {
                 thread_id: request.thread_id,
                 active: true,
@@ -3509,17 +3507,26 @@ fn codex_versioned_app_server_request(
             "plugin/uninstall",
             typed_or_enveloped::<CodexPluginRequest>(payload)?,
         )),
-        methods::CODEX_PLUGIN_SHARE_CHECKOUT => {
-            Some(("plugin/share/checkout", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_PLUGIN_SHARE_DELETE => {
-            Some(("plugin/share/delete", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_PLUGIN_SHARE_LIST => Some(("plugin/share/list", raw_or_enveloped(payload)?)),
-        methods::CODEX_PLUGIN_SHARE_SAVE => Some(("plugin/share/save", raw_or_enveloped(payload)?)),
-        methods::CODEX_PLUGIN_SHARE_UPDATE_TARGETS => {
-            Some(("plugin/share/updateTargets", raw_or_enveloped(payload)?))
-        }
+        methods::CODEX_PLUGIN_SHARE_CHECKOUT => Some((
+            "plugin/share/checkout",
+            typed_or_enveloped::<CodexPluginShareRequest>(payload)?,
+        )),
+        methods::CODEX_PLUGIN_SHARE_DELETE => Some((
+            "plugin/share/delete",
+            typed_or_enveloped::<CodexPluginShareRequest>(payload)?,
+        )),
+        methods::CODEX_PLUGIN_SHARE_LIST => Some((
+            "plugin/share/list",
+            typed_or_enveloped::<CodexPluginShareRequest>(payload)?,
+        )),
+        methods::CODEX_PLUGIN_SHARE_SAVE => Some((
+            "plugin/share/save",
+            typed_or_enveloped::<CodexPluginShareSaveRequest>(payload)?,
+        )),
+        methods::CODEX_PLUGIN_SHARE_UPDATE_TARGETS => Some((
+            "plugin/share/updateTargets",
+            typed_or_enveloped::<CodexPluginShareUpdateTargetsRequest>(payload)?,
+        )),
         methods::CODEX_APPS_LIST => Some((
             "app/list",
             typed_or_enveloped::<CodexNamedQueryRequest>(payload)?,
@@ -3590,13 +3597,18 @@ fn codex_versioned_app_server_request(
         methods::CODEX_FEEDBACK_UPLOAD => Some(("feedback/upload", raw_or_enveloped(payload)?)),
         methods::CODEX_FUZZY_FILE_SEARCH => Some(("fuzzyFileSearch", raw_or_enveloped(payload)?)),
         methods::CODEX_HOOKS_LIST => Some(("hooks/list", raw_or_enveloped(payload)?)),
-        methods::CODEX_MARKETPLACE_ADD => Some(("marketplace/add", raw_or_enveloped(payload)?)),
-        methods::CODEX_MARKETPLACE_REMOVE => {
-            Some(("marketplace/remove", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_MARKETPLACE_UPGRADE => {
-            Some(("marketplace/upgrade", raw_or_enveloped(payload)?))
-        }
+        methods::CODEX_MARKETPLACE_ADD => Some((
+            "marketplace/add",
+            typed_or_enveloped::<CodexMarketplaceRequest>(payload)?,
+        )),
+        methods::CODEX_MARKETPLACE_REMOVE => Some((
+            "marketplace/remove",
+            typed_or_enveloped::<CodexMarketplaceRequest>(payload)?,
+        )),
+        methods::CODEX_MARKETPLACE_UPGRADE => Some((
+            "marketplace/upgrade",
+            typed_or_enveloped::<CodexMarketplaceRequest>(payload)?,
+        )),
         methods::CODEX_MODEL_LIST => Some(("model/list", raw_or_enveloped(payload)?)),
         methods::CODEX_MODEL_PROVIDER_CAPABILITIES_READ => Some((
             "modelProvider/capabilities/read",
@@ -9287,6 +9299,16 @@ mod tests {
                 json!({ "plugin": "browser" }),
             ),
             (
+                "codex-plugin-share",
+                methods::CODEX_PLUGIN_SHARE_SAVE,
+                json!({ "plugin": "browser", "targets": ["team"] }),
+            ),
+            (
+                "codex-marketplace-upgrade",
+                methods::CODEX_MARKETPLACE_UPGRADE,
+                json!({ "plugin": "browser" }),
+            ),
+            (
                 "codex-app-config",
                 methods::CODEX_APPS_CONFIG_WRITE,
                 json!({ "app": "browser", "config": { "enabled": true } }),
@@ -9323,7 +9345,7 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 10);
+        assert_eq!(records.len(), 14);
 
         let file_completed = records
             .iter()
@@ -9386,13 +9408,37 @@ mod tests {
             .iter()
             .find(|record| {
                 record["event"]["tool"]["display"]["status"] == "completed"
-                    && record["event"]["tool"]["surface"] == "plugin"
+                    && record["event"]["tool"]["action"] == "plugin.read"
             })
             .expect("completed plugin event");
         assert_eq!(plugin_completed["event"]["tool"]["action"], "plugin.read");
         assert_eq!(
             plugin_completed["event"]["tool"]["display"]["title"],
             "Read plugin browser"
+        );
+
+        let plugin_share_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["action"] == "plugin.share"
+            })
+            .expect("completed plugin share event");
+        assert_eq!(
+            plugin_share_completed["event"]["tool"]["display"]["title"],
+            "Shared plugin browser"
+        );
+
+        let marketplace_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["action"] == "plugin.marketplace_upgrade"
+            })
+            .expect("completed marketplace upgrade event");
+        assert_eq!(
+            marketplace_completed["event"]["tool"]["display"]["title"],
+            "Upgraded plugin browser"
         );
 
         let app_completed = records

@@ -171,9 +171,16 @@ pub fn normalize_provider_runtime_signal(
                 string_at(&input.params, "name").as_deref(),
                 string_at(&input.params, "title").as_deref(),
                 string_at(&input.params, "app").as_deref(),
+                string_at(&input.params, "skill").as_deref(),
+                string_at(&input.params, "plugin").as_deref(),
+                string_at(&input.params, "connector").as_deref(),
                 string_at(&input.params, "account").as_deref(),
                 string_at(&input.params, "query").as_deref(),
+                string_at(&input.params, "id").as_deref(),
             ]);
+            if let Some(surface) = provider_state_surface_from_method(&input.method) {
+                signal.metadata = normalized_provider_state_metadata(&input.params, surface);
+            }
         }
         RuntimeSignalKind::RealtimeSessionUpdated => {
             signal.status = first_string([
@@ -326,6 +333,26 @@ fn provider_state_status_from_method(method: &str) -> Option<String> {
     }
 }
 
+fn provider_state_surface_from_method(method: &str) -> Option<&'static str> {
+    match method {
+        "app/list/updated" => Some("app"),
+        "skills/changed" => Some("skill"),
+        "mcpServer/oauthLogin/completed" | "mcpServer/startupStatus/updated" => Some("mcp"),
+        "account/login/completed" | "account/rateLimits/updated" | "account/updated" => {
+            Some("account")
+        }
+        "remoteControl/status/changed" => Some("remote"),
+        "windowsSandbox/setupCompleted" => Some("sandbox"),
+        _ => None,
+    }
+}
+
+fn normalized_provider_state_metadata(params: &Value, surface: &str) -> Value {
+    let mut metadata = params.as_object().cloned().unwrap_or_default();
+    metadata.insert("surface".to_string(), Value::String(surface.to_string()));
+    Value::Object(metadata)
+}
+
 fn realtime_session_status_from_method(method: &str) -> Option<String> {
     Some(
         match method {
@@ -475,6 +502,43 @@ mod tests {
         assert_eq!(
             provider_state.provider.method.as_deref(),
             Some("mcpServer/startupStatus/updated")
+        );
+        assert_eq!(provider_state.name.as_deref(), Some("browser"));
+        assert_eq!(provider_state.metadata["surface"], "mcp");
+
+        let skill_state = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
+            provider: "future-provider".to_string(),
+            method: "skills/changed".to_string(),
+            params: json!({
+                "event": "installed",
+                "skill": "rust",
+                "source": "marketplace"
+            }),
+        })
+        .expect("skill state signal");
+        assert_eq!(skill_state.kind, RuntimeSignalKind::ProviderStateUpdated);
+        assert_eq!(skill_state.status.as_deref(), Some("installed"));
+        assert_eq!(skill_state.name.as_deref(), Some("rust"));
+        assert_eq!(skill_state.metadata["surface"], "skill");
+        assert_eq!(skill_state.provider.raw_payload["source"], "marketplace");
+
+        let app_state = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
+            provider: "future-provider".to_string(),
+            method: "app/list/updated".to_string(),
+            params: json!({
+                "app": "browser",
+                "status": "ready",
+                "connector": "openai-bundled/browser"
+            }),
+        })
+        .expect("app state signal");
+        assert_eq!(app_state.kind, RuntimeSignalKind::ProviderStateUpdated);
+        assert_eq!(app_state.status.as_deref(), Some("ready"));
+        assert_eq!(app_state.name.as_deref(), Some("browser"));
+        assert_eq!(app_state.metadata["surface"], "app");
+        assert_eq!(
+            app_state.provider.raw_payload["connector"],
+            "openai-bundled/browser"
         );
     }
 

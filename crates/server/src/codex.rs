@@ -1,9 +1,9 @@
 use ace_codex::{
     CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent,
     CodexLiveClient, CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog,
-    CodexPermissionPreset, CodexPlanImplementation, CodexSubagentSteer, CodexThreadStart,
-    CodexTransportConfig, CodexTurnPermissions, CodexTurnStart, CodexTurnSteer, Result,
-    classify_codex_method,
+    CodexPermissionPreset, CodexPlanImplementation, CodexReviewStart, CodexSubagentSteer,
+    CodexThreadStart, CodexTransportConfig, CodexTurnPermissions, CodexTurnStart, CodexTurnSteer,
+    Result, classify_codex_method,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_protocol::codex::CodexRemoteHandoffRequest;
@@ -175,6 +175,7 @@ pub trait CodexBackend: Send + Sync {
     async fn subagent_stop(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value>;
     async fn subagent_close(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value>;
     async fn handoff_to_agent(&self, request: CodexHandoffToAgent) -> Result<Value>;
+    async fn review_start(&self, request: CodexReviewStart) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
     async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()>;
     async fn respond_server_request_error(
@@ -482,6 +483,10 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn handoff_to_agent(&self, request: CodexHandoffToAgent) -> Result<Value> {
         self.client().await?.handoff_to_agent(request).await
+    }
+
+    async fn review_start(&self, request: CodexReviewStart) -> Result<Value> {
+        self.client().await?.review_start(request).await
     }
 
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
@@ -939,10 +944,10 @@ impl CodexService {
 
     pub async fn review_start(
         &self,
-        thread_id: String,
-        params: Value,
+        request: CodexReviewStart,
     ) -> std::result::Result<Value, CodexApiError> {
-        let response = self.backend.raw_request("review/start", params).await?;
+        let thread_id = request.thread_id.clone();
+        let response = self.backend.review_start(request).await?;
         self.state.lock().await.set_review_mode(&thread_id, true);
         Ok(response)
     }
@@ -2195,6 +2200,18 @@ pub mod tests {
                     "id": "agent-thread-1"
                 },
                 "role": request.agent_role,
+            }))
+        }
+
+        async fn review_start(&self, request: CodexReviewStart) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("review/start:{}", request.thread_id));
+            Ok(serde_json::json!({
+                "threadId": request.thread_id,
+                "detached": request.detached,
+                "baseTurnId": request.base_turn_id
             }))
         }
 

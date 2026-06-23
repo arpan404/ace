@@ -1,8 +1,9 @@
 use ace_codex::{
-    CodexAdapterOperationCoverage, CodexGoalSet, CodexGuardianDeniedActionApproval,
-    CodexHandoffToAgent, CodexMethodDirection, CodexMethodSpec, CodexMethodSupport,
-    CodexPermissionPreset, CodexPlanImplementation, CodexSubagentSteer, CodexSubagentThreadRequest,
-    CodexThreadStart, CodexTurnStart, CodexTurnSteer,
+    CodexAdapterOperationCoverage, CodexAppConfigWrite, CodexGoalSet,
+    CodexGuardianDeniedActionApproval, CodexHandoffToAgent, CodexMethodDirection, CodexMethodSpec,
+    CodexMethodSupport, CodexNamedQuery, CodexPermissionPreset, CodexPlanImplementation,
+    CodexReviewStart, CodexSkillsConfigWrite, CodexSkillsExtraRootsSet, CodexSubagentSteer,
+    CodexSubagentThreadRequest, CodexThreadStart, CodexTurnStart, CodexTurnSteer,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,16 +21,7 @@ pub struct CodexVersionedRequest {
     pub params: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexReviewStartRequest {
-    #[serde(alias = "thread_id")]
-    pub thread_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub detached: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base_turn_id: Option<String>,
-}
+pub type CodexReviewStartRequest = CodexReviewStart;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -157,46 +149,16 @@ pub struct CodexFsCopyRequest {
     pub overwrite: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexNamedQueryRequest {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub query: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexSkillRequest {
-    pub skill: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexSkillsConfigWriteRequest {
-    #[serde(default)]
-    pub config: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexSkillsExtraRootsSetRequest {
-    #[serde(default)]
-    pub roots: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexPluginRequest {
-    pub plugin: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexAppConfigWriteRequest {
-    pub app: String,
-    #[serde(default)]
-    pub config: Value,
-}
+pub type CodexNamedQueryRequest = CodexNamedQuery;
+pub type CodexSkillRequest = ace_codex::CodexSkillRequest;
+pub type CodexSkillsConfigWriteRequest = CodexSkillsConfigWrite;
+pub type CodexSkillsExtraRootsSetRequest = CodexSkillsExtraRootsSet;
+pub type CodexPluginRequest = ace_codex::CodexPluginRequest;
+pub type CodexPluginShareRequest = ace_codex::CodexPluginShareRequest;
+pub type CodexPluginShareSaveRequest = ace_codex::CodexPluginShareSave;
+pub type CodexPluginShareUpdateTargetsRequest = ace_codex::CodexPluginShareUpdateTargets;
+pub type CodexAppConfigWriteRequest = CodexAppConfigWrite;
+pub type CodexMarketplaceRequest = ace_codex::CodexMarketplaceRequest;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
