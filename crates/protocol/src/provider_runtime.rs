@@ -22,6 +22,7 @@ use ace_runtime::{
 use serde::{Deserialize, Deserializer, Serialize};
 
 pub const PROVIDER_RUNTIME_EVENT_TOPIC: &str = "provider_runtime.event";
+pub const PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE: usize = 512;
 pub const PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT: usize = 1_000;
 pub const PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT: usize = 1_000;
 
@@ -765,6 +766,7 @@ pub struct ProviderRuntimeEventBatch {
     pub provider: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_persisted_sequence: Option<i64>,
+    pub max_batch_size: usize,
     pub events: Vec<ProviderRuntimeEvent>,
     #[serde(default)]
     pub projection_deltas: Vec<ProviderRuntimeProjectionDelta>,
@@ -2195,6 +2197,7 @@ mod tests {
         let compact_batch = ProviderRuntimeEventBatch {
             provider: "codex".to_string(),
             last_persisted_sequence: Some(1),
+            max_batch_size: PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE,
             events: vec![ProviderRuntimeEvent::from_provider_event(
                 "codex",
                 event.clone(),
@@ -2206,6 +2209,10 @@ mod tests {
         let encoded = serde_json::to_value(&compact_batch).expect("compact batch");
         assert!(encoded.get("raw_events").is_none());
         assert_eq!(encoded["last_persisted_sequence"], 1);
+        assert_eq!(
+            encoded["max_batch_size"],
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE
+        );
         assert_eq!(
             encoded["raw_event_summaries"][0]["provider_method"],
             "item/completed"

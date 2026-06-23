@@ -26,14 +26,14 @@ use ace_protocol::{
     },
     git::GitWorktreeCreateRequest,
     provider_runtime::{
-        PROVIDER_RUNTIME_EVENT_TOPIC, PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT,
-        PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT, ProviderHostToolInvokeServerRequest,
-        ProviderHostToolsListResponse, ProviderRuntimeAdapterValidateRequest,
-        ProviderRuntimeAdapterValidateResponse, ProviderRuntimeContractReport,
-        ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeEventRecord,
-        ProviderRuntimeFeaturesListRequest, ProviderRuntimeFeaturesListResponse,
-        ProviderRuntimeLifecycleRequest, ProviderRuntimeLifecycleResponse,
-        ProviderRuntimeModelProviderCapabilitiesReadRequest,
+        PROVIDER_RUNTIME_EVENT_TOPIC, PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE,
+        PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT, PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT,
+        ProviderHostToolInvokeServerRequest, ProviderHostToolsListResponse,
+        ProviderRuntimeAdapterValidateRequest, ProviderRuntimeAdapterValidateResponse,
+        ProviderRuntimeContractReport, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
+        ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
+        ProviderRuntimeFeaturesListResponse, ProviderRuntimeLifecycleRequest,
+        ProviderRuntimeLifecycleResponse, ProviderRuntimeModelProviderCapabilitiesReadRequest,
         ProviderRuntimeModelProviderCapabilitiesReadResponse, ProviderRuntimeModelsListRequest,
         ProviderRuntimeModelsListResponse, ProviderRuntimeOperationGateResolution,
         ProviderRuntimeOperationGateStatus, ProviderRuntimeOperationParams,
@@ -2362,6 +2362,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         Ok(serde_json::json!({
             "subscribed": true,
             "provider": response_provider,
+            "max_event_batch_size": PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE,
             "requested_replay_limit": requested_replay_limit,
             "effective_replay_limit": effective_replay_limit,
             "max_replay_limit": PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT
@@ -2445,7 +2446,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         let provider_streams = Arc::clone(&self.provider_event_streams);
         let provider_name = provider_kind.runtime_id().to_string();
         tokio::spawn(async move {
-            loop {
+            'provider_loop: loop {
                 let events = match providers.next_events(provider_kind).await {
                     Ok(Some(events)) => events,
                     Ok(None) => break,
@@ -2460,25 +2461,27 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 if events.is_empty() {
                     continue;
                 }
-                let append_result = provider_events
-                    .lock()
-                    .expect("provider event log")
-                    .append_batch(&provider_name, &events);
-                let records = match append_result {
-                    Ok(records) => records,
-                    Err(error) => {
-                        let _ = sender.send(ProviderEventStreamMessage::Error {
-                            code: "persistence_error".to_string(),
-                            message: error.to_string(),
-                        });
-                        break;
-                    }
-                };
-                let last_persisted_sequence = records.last().map(|record| record.sequence);
-                let _ = sender.send(ProviderEventStreamMessage::Events {
-                    events,
-                    last_persisted_sequence,
-                });
+                for events in provider_event_chunks(events) {
+                    let append_result = provider_events
+                        .lock()
+                        .expect("provider event log")
+                        .append_batch(&provider_name, &events);
+                    let records = match append_result {
+                        Ok(records) => records,
+                        Err(error) => {
+                            let _ = sender.send(ProviderEventStreamMessage::Error {
+                                code: "persistence_error".to_string(),
+                                message: error.to_string(),
+                            });
+                            break 'provider_loop;
+                        }
+                    };
+                    let last_persisted_sequence = records.last().map(|record| record.sequence);
+                    let _ = sender.send(ProviderEventStreamMessage::Events {
+                        events,
+                        last_persisted_sequence,
+                    });
+                }
             }
             provider_streams
                 .lock()
@@ -2487,6 +2490,27 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         });
         receiver
     }
+}
+
+fn provider_event_chunks(mut events: Vec<ProviderEvent>) -> Vec<Vec<ProviderEvent>> {
+    if events.len() <= PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE {
+        return vec![events];
+    }
+
+    let mut chunks =
+        Vec::with_capacity(events.len().div_ceil(PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE));
+    while !events.is_empty() {
+        if events.len() <= PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE {
+            chunks.push(std::mem::take(&mut events));
+        } else {
+            chunks.push(
+                events
+                    .drain(..PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
+                    .collect(),
+            );
+        }
+    }
+    chunks
 }
 
 async fn send_provider_runtime_event_batch(
@@ -2534,6 +2558,7 @@ fn provider_runtime_event_batch(
     ProviderRuntimeEventBatch {
         provider: provider_name.to_string(),
         last_persisted_sequence,
+        max_batch_size: PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE,
         events: runtime_events,
         projection_deltas,
         raw_event_summaries,
@@ -7117,6 +7142,95 @@ mod tests {
         };
         assert_eq!(body["subscribed"], true);
         assert_eq!(body["provider"], "ace");
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_splits_large_live_event_batches() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let events = (0..=PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
+            .map(|index| ProviderEvent::RawNotification {
+                method: "item/completed".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "itemId": format!("item-{index}")
+                }),
+            })
+            .collect::<Vec<_>>();
+        backend.push_events(events);
+
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+        let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::channel::<String>(4);
+
+        let subscribe = state
+            .dispatch_text_with_events(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-events-split",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+                Some(outbound_tx),
+            )
+            .await;
+        let subscribe: WsServerResponse = serde_json::from_str(&subscribe).expect("subscribe");
+        let WsServerPayload::Result { body } = subscribe.payload else {
+            panic!("expected subscribe result");
+        };
+        assert_eq!(body["subscribed"], true);
+        assert_eq!(
+            body["max_event_batch_size"],
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE
+        );
+
+        let first = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .expect("first split batch timeout")
+            .expect("first split batch");
+        let second = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .expect("second split batch timeout")
+            .expect("second split batch");
+        let first: WsServerResponse = serde_json::from_str(&first).expect("first response");
+        let second: WsServerResponse = serde_json::from_str(&second).expect("second response");
+        let WsServerPayload::Event { body: first, .. } = first.payload else {
+            panic!("expected first event batch");
+        };
+        let WsServerPayload::Event { body: second, .. } = second.payload else {
+            panic!("expected second event batch");
+        };
+
+        assert_eq!(
+            first["events"].as_array().expect("first events").len(),
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE
+        );
+        assert_eq!(second["events"].as_array().expect("second events").len(), 1);
+        assert_eq!(
+            first["max_batch_size"],
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE
+        );
+        assert_eq!(
+            second["max_batch_size"],
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE
+        );
+        assert_eq!(
+            first["last_persisted_sequence"],
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE
+        );
+        assert_eq!(
+            second["last_persisted_sequence"],
+            PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE + 1
+        );
+        assert_eq!(first["events"][0]["method"], "item/completed");
+        assert_eq!(
+            second["events"][0]["params"]["itemId"],
+            format!("item-{}", PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE)
+        );
     }
 
     #[tokio::test]
