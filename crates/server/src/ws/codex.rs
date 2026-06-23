@@ -9146,6 +9146,12 @@ mod tests {
                 .expect("ace methods")
                 .contains(&json!("ace.methods.list"))
         );
+        assert!(
+            body["methods"]
+                .as_array()
+                .expect("ace methods")
+                .contains(&json!("provider/methods/list"))
+        );
         assert_eq!(
             body["installed_client_request_methods"], body["methods"],
             "Ace native provider should use the same installed method inventory as its public method list"

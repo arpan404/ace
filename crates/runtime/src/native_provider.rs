@@ -24,11 +24,13 @@ use tokio::sync::{Mutex, mpsc};
 
 const ACE_NATIVE_EVENT_QUEUE_CAPACITY: usize = 256;
 const ACE_NATIVE_MAX_EVENT_BATCH_SIZE: usize = 512;
+const PROVIDER_NATIVE_METHODS_LIST: &str = "provider/methods/list";
 const ACE_NATIVE_CLIENT_REQUEST_METHODS: &[&str] = &[
     "ace.ping",
     "ace.descriptor",
     "ace.capabilities",
     "ace.methods.list",
+    PROVIDER_NATIVE_METHODS_LIST,
     "ace.events.emit",
     "ace.semantic_tool.emit",
     "ace.semantic_tool.normalize",
@@ -238,6 +240,12 @@ impl AceNativeProvider {
                 "ace.methods.list",
             ),
             (
+                "provider.methods",
+                "Provider method inventory",
+                ProviderFeatureCategory::Native,
+                PROVIDER_NATIVE_METHODS_LIST,
+            ),
+            (
                 "ace.adapter_validation",
                 "Adapter validation",
                 ProviderFeatureCategory::Native,
@@ -442,7 +450,7 @@ impl ProviderDriver for AceNativeProvider {
                 "provider": "ace",
                 "capabilities": self.descriptor().capabilities,
             })),
-            "ace.methods.list" => {
+            "ace.methods.list" | PROVIDER_NATIVE_METHODS_LIST => {
                 let contract = ace_provider_adapter_contract();
                 let methods = Self::supported_client_request_methods();
                 Ok(serde_json::to_value(NativeProviderMethodsListResponse {
@@ -1198,6 +1206,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(methods, expected_methods);
         assert!(methods.contains(&"ace.methods.list".to_string()));
+        assert!(methods.contains(&PROVIDER_NATIVE_METHODS_LIST.to_string()));
         assert!(methods.contains(&"ace.server_request.normalize".to_string()));
         assert!(methods.contains(&"ace.runtime_signal.normalize".to_string()));
         assert_eq!(
@@ -1241,10 +1250,28 @@ mod tests {
             ACE_NATIVE_MAX_EVENT_BATCH_SIZE
         );
 
+        let neutral_response = provider
+            .request(ProviderRequest {
+                method: PROVIDER_NATIVE_METHODS_LIST.to_string(),
+                params: Value::Null,
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("neutral method list");
+        assert_eq!(neutral_response["methods"], response["methods"]);
+        assert_eq!(
+            neutral_response["method_inventory"],
+            response["method_inventory"]
+        );
+
         let features = AceNativeProvider::features_static();
         assert!(features.iter().any(|feature| {
             feature.key == "ace.methods"
                 && feature.provider_method.as_deref() == Some("ace.methods.list")
+        }));
+        assert!(features.iter().any(|feature| {
+            feature.key == "provider.methods"
+                && feature.provider_method.as_deref() == Some(PROVIDER_NATIVE_METHODS_LIST)
         }));
     }
 
