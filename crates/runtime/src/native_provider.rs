@@ -822,7 +822,7 @@ mod tests {
             .expect("contract");
 
         assert_eq!(response["provider"], "ace");
-        assert_eq!(response["version"], 6);
+        assert_eq!(response["version"], 7);
         assert_eq!(response["runtime"]["transport"], "websocket");
         assert_eq!(response["runtime"]["websocket_first"], true);
         assert_eq!(
@@ -847,7 +847,7 @@ mod tests {
                 .expect("events")
                 .contains(&json!("semantic_tool"))
         );
-        assert_eq!(response["adapter_contract"]["version"], 6);
+        assert_eq!(response["adapter_contract"]["version"], 7);
         assert!(
             response["adapter_contract"]["operations"]
                 .as_array()
@@ -857,6 +857,23 @@ mod tests {
                     && operation["policy"]["requires_user_initiation"] == true
                     && operation["policy"]["escapes_thread_sandbox"] == true)
         );
+        for operation in [
+            "tool_event_normalize",
+            "server_request_normalize",
+            "thread_item_normalize",
+            "runtime_signal_normalize",
+        ] {
+            assert!(
+                response["adapter_contract"]["operations"]
+                    .as_array()
+                    .expect("operations")
+                    .iter()
+                    .any(|entry| entry["operation"] == operation
+                        && entry["support"] == "required"
+                        && entry["policy"]["read_only"] == true),
+                "contract should advertise {operation}"
+            );
+        }
         assert!(
             response["adapter_contract"]["normalized_thread_item_kinds"]
                 .as_array()

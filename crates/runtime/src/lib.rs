@@ -291,6 +291,10 @@ pub mod provider {
         CloudThreadStart,
         CloudHandoff,
         ProviderEvents,
+        ToolEventNormalize,
+        ServerRequestNormalize,
+        ThreadItemNormalize,
+        RuntimeSignalNormalize,
         SemanticTools,
     }
 
@@ -1923,6 +1927,30 @@ pub mod provider {
                 Some("cloud/handoff"),
             ),
             op(Operation::ProviderEvents, Category::Events, Required, None),
+            op(
+                Operation::ToolEventNormalize,
+                Category::Tools,
+                Required,
+                None,
+            ),
+            op(
+                Operation::ServerRequestNormalize,
+                Category::ServerRequests,
+                Required,
+                None,
+            ),
+            op(
+                Operation::ThreadItemNormalize,
+                Category::Events,
+                Required,
+                None,
+            ),
+            op(
+                Operation::RuntimeSignalNormalize,
+                Category::Events,
+                Required,
+                None,
+            ),
             op(Operation::SemanticTools, Category::Tools, Required, None),
         ]
         .into()
@@ -2171,7 +2199,7 @@ pub mod provider {
     #[must_use]
     pub fn ace_provider_adapter_contract() -> ProviderAdapterContract {
         ProviderAdapterContract {
-            version: 6,
+            version: 7,
             websocket_first: true,
             raw_payload_policy: "preserve_provider_payloads".to_string(),
             raw_payload: ace_provider_raw_payload_policy(),
@@ -2414,9 +2442,12 @@ pub mod provider {
             | ProviderAdapterOperation::ComputerBridgeContract => {
                 ProviderAdapterInvocationKind::HostToolContract
             }
-            ProviderAdapterOperation::ProviderEvents | ProviderAdapterOperation::SemanticTools => {
-                ProviderAdapterInvocationKind::EventStream
-            }
+            ProviderAdapterOperation::ProviderEvents
+            | ProviderAdapterOperation::ToolEventNormalize
+            | ProviderAdapterOperation::ServerRequestNormalize
+            | ProviderAdapterOperation::ThreadItemNormalize
+            | ProviderAdapterOperation::RuntimeSignalNormalize
+            | ProviderAdapterOperation::SemanticTools => ProviderAdapterInvocationKind::EventStream,
             _ => match spec.provider_methods.len() {
                 0 => ProviderAdapterInvocationKind::TypedApi,
                 1 => ProviderAdapterInvocationKind::DirectProviderMethod,
@@ -2496,7 +2527,12 @@ pub mod provider {
         }
 
         match spec.operation {
-            ProviderAdapterOperation::ProviderEvents | ProviderAdapterOperation::SemanticTools => {
+            ProviderAdapterOperation::ProviderEvents
+            | ProviderAdapterOperation::ToolEventNormalize
+            | ProviderAdapterOperation::ServerRequestNormalize
+            | ProviderAdapterOperation::ThreadItemNormalize
+            | ProviderAdapterOperation::RuntimeSignalNormalize
+            | ProviderAdapterOperation::SemanticTools => {
                 vec![ProviderAdapterRuntimeHook::EventSource]
             }
             ProviderAdapterOperation::BrowserBridgeContract
@@ -3129,7 +3165,7 @@ pub mod provider {
                 .iter()
                 .find(|profile| profile.provider == ProviderKind::Codex)
                 .expect("codex profile");
-            assert_eq!(codex_profile.contract_version, 6);
+            assert_eq!(codex_profile.contract_version, 7);
             assert!(codex_profile.websocket_first);
             assert_eq!(
                 codex_profile.raw_payload.retention,
@@ -3186,6 +3222,22 @@ pub mod provider {
                     && operation.required_runtime_hooks
                         == vec![ProviderAdapterRuntimeHook::EventSource]
             }));
+            for normalization_operation in [
+                ProviderAdapterOperation::ToolEventNormalize,
+                ProviderAdapterOperation::ServerRequestNormalize,
+                ProviderAdapterOperation::ThreadItemNormalize,
+                ProviderAdapterOperation::RuntimeSignalNormalize,
+            ] {
+                assert!(
+                    codex_profile.operations.iter().any(|operation| {
+                        operation.operation == normalization_operation
+                            && operation.invocation == ProviderAdapterInvocationKind::EventStream
+                            && operation.required_runtime_hooks
+                                == vec![ProviderAdapterRuntimeHook::EventSource]
+                    }),
+                    "adapter profile should expose {normalization_operation:?}"
+                );
+            }
             assert!(codex_profile.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::ServerRequestRespond
                     && operation.required_runtime_hooks
@@ -3664,7 +3716,7 @@ pub mod provider {
         fn adapter_contract_lists_required_normalized_surfaces() {
             let contract = ace_provider_adapter_contract();
 
-            assert_eq!(contract.version, 6);
+            assert_eq!(contract.version, 7);
             assert!(contract.websocket_first);
             assert_eq!(contract.raw_payload_policy, "preserve_provider_payloads");
             assert_eq!(
@@ -3740,6 +3792,22 @@ pub mod provider {
                 operation.operation == ProviderAdapterOperation::CloudHandoff
                     && operation.support == ProviderAdapterOperationSupport::Deferred
             }));
+            for normalization_operation in [
+                ProviderAdapterOperation::ToolEventNormalize,
+                ProviderAdapterOperation::ServerRequestNormalize,
+                ProviderAdapterOperation::ThreadItemNormalize,
+                ProviderAdapterOperation::RuntimeSignalNormalize,
+            ] {
+                let operation = contract
+                    .operations
+                    .iter()
+                    .find(|operation| operation.operation == normalization_operation)
+                    .expect("normalization contract operation");
+                assert_eq!(operation.support, ProviderAdapterOperationSupport::Required);
+                assert!(operation.canonical_method.is_none());
+                assert!(operation.provider_methods.is_empty());
+                assert!(operation.policy.read_only);
+            }
             for bridge_operation in [
                 ProviderAdapterOperation::BrowserBridgeContract,
                 ProviderAdapterOperation::ComputerBridgeContract,

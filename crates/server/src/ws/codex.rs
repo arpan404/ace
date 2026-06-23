@@ -3096,6 +3096,10 @@ fn codex_ws_method_for_adapter_operation(
         | ProviderAdapterOperation::BrowserBridgeContract
         | ProviderAdapterOperation::ComputerBridgeContract
         | ProviderAdapterOperation::ProviderEvents
+        | ProviderAdapterOperation::ToolEventNormalize
+        | ProviderAdapterOperation::ServerRequestNormalize
+        | ProviderAdapterOperation::ThreadItemNormalize
+        | ProviderAdapterOperation::RuntimeSignalNormalize
         | ProviderAdapterOperation::SemanticTools => {
             return Err(WsDispatchError::BadRequest(format!(
                 "Codex adapter operation `{operation:?}` is not invokable through provider_runtime.request"
@@ -7811,7 +7815,7 @@ mod tests {
         assert_eq!(codex_runtime["supports_server_request_responses"], true);
         assert_eq!(codex_runtime["contract"]["satisfies_required"], true);
         assert_eq!(codex_runtime["adapter_profile"]["provider"], "Codex");
-        assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 6);
+        assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 7);
         assert_eq!(codex_runtime["adapter_profile"]["websocket_first"], true);
         assert_eq!(
             codex_runtime["adapter_runtime"]["satisfies_required_hooks"],
@@ -8261,7 +8265,7 @@ mod tests {
         let WsServerPayload::Result { body } = contract.payload else {
             panic!("expected provider contract result");
         };
-        assert_eq!(body["adapter_contract"]["version"], 6);
+        assert_eq!(body["adapter_contract"]["version"], 7);
         assert_eq!(body["adapter_contract"]["websocket_first"], true);
         assert_eq!(
             body["adapter_contract"]["raw_payload"]["retention"],
@@ -8397,7 +8401,7 @@ mod tests {
         let WsServerPayload::Result { body } = list.payload else {
             panic!("expected provider operation list");
         };
-        assert_eq!(body["adapter_contract"]["version"], 6);
+        assert_eq!(body["adapter_contract"]["version"], 7);
         assert_eq!(
             body["providers"][0]["adapter_runtime"]["satisfies_required_hooks"],
             true
@@ -8796,7 +8800,7 @@ mod tests {
             panic!("expected native request result");
         };
         assert_eq!(body["provider"], "ace");
-        assert_eq!(body["adapter_contract"]["version"], 6);
+        assert_eq!(body["adapter_contract"]["version"], 7);
     }
 
     #[tokio::test]
