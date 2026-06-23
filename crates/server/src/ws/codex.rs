@@ -3293,7 +3293,12 @@ fn codex_runtime_request_for_operation(
             "use the dedicated provider runtime websocket method for this operation",
         ),
         Err(_) => match operation {
-            ProviderAdapterOperation::ProviderEvents | ProviderAdapterOperation::SemanticTools => {
+            ProviderAdapterOperation::ProviderEvents
+            | ProviderAdapterOperation::ToolEventNormalize
+            | ProviderAdapterOperation::ServerRequestNormalize
+            | ProviderAdapterOperation::ThreadItemNormalize
+            | ProviderAdapterOperation::RuntimeSignalNormalize
+            | ProviderAdapterOperation::SemanticTools => {
                 ProviderRuntimeOperationRequest::unavailable(
                     ProviderRuntimeOperationRequestMode::EventStream,
                     "subscribe to provider runtime events for this operation",
@@ -8679,6 +8684,29 @@ mod tests {
                 && operation["runtime_request"]["invokable"] == false
                 && operation["runtime_request"]["mode"] == "event_stream"
         }));
+        for operation_name in [
+            "tool_event_normalize",
+            "server_request_normalize",
+            "thread_item_normalize",
+            "runtime_signal_normalize",
+        ] {
+            assert!(
+                operations.iter().any(|operation| {
+                    operation["operation"] == operation_name
+                        && operation["invocation"] == "event_stream"
+                        && operation["availability"] == "available"
+                        && operation["direct_invocation"] == false
+                        && operation["provider_methods"]
+                            .as_array()
+                            .expect("provider methods")
+                            .is_empty()
+                        && operation["required_runtime_hooks"] == json!(["event_source"])
+                        && operation["runtime_request"]["invokable"] == false
+                        && operation["runtime_request"]["mode"] == "event_stream"
+                }),
+                "missing event-stream normalization operation {operation_name}"
+            );
+        }
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "semantic_tools"
                 && operation["invocation"] == "event_stream"

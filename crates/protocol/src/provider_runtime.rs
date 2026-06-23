@@ -2264,6 +2264,34 @@ mod tests {
             vec![ProviderAdapterRuntimeHook::EventSource]
         );
 
+        for normalization_operation in [
+            ProviderAdapterOperation::ToolEventNormalize,
+            ProviderAdapterOperation::ServerRequestNormalize,
+            ProviderAdapterOperation::ThreadItemNormalize,
+            ProviderAdapterOperation::RuntimeSignalNormalize,
+        ] {
+            let operation = operation(normalization_operation);
+            assert_eq!(
+                operation.invocation,
+                ProviderAdapterInvocationKind::EventStream
+            );
+            assert_eq!(
+                operation.availability,
+                ProviderAdapterOperationAvailability::Available
+            );
+            assert!(!operation.direct_invocation);
+            assert!(operation.provider_methods.is_empty());
+            assert!(!operation.runtime_request.invokable);
+            assert_eq!(
+                operation.runtime_request.mode,
+                ProviderRuntimeOperationRequestMode::EventStream
+            );
+            assert_eq!(
+                operation.required_runtime_hooks,
+                vec![ProviderAdapterRuntimeHook::EventSource]
+            );
+        }
+
         let server_request = operation(ProviderAdapterOperation::ServerRequestRespond);
         assert_eq!(
             server_request.required_runtime_hooks,
