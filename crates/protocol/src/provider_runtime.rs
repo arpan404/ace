@@ -1174,6 +1174,8 @@ pub struct ProviderRuntimeStateSummary {
     pub review_threads: usize,
     pub turn_diffs: usize,
     pub terminal_outputs: usize,
+    pub truncated_terminal_outputs: usize,
+    pub terminal_truncated_bytes: usize,
     pub process_exits: usize,
     pub warnings: usize,
     pub model_reroutes: usize,
@@ -1181,7 +1183,11 @@ pub struct ProviderRuntimeStateSummary {
     pub remote_connections: usize,
     pub realtime_sessions: usize,
     pub realtime_transcripts: usize,
+    pub truncated_realtime_transcripts: usize,
+    pub realtime_transcript_truncated_bytes: usize,
     pub realtime_audio: usize,
+    pub truncated_realtime_audio: usize,
+    pub realtime_audio_truncated_chunks: usize,
     pub turn_moderation: usize,
     pub auto_approval_reviews: usize,
     #[serde(default)]
@@ -1269,6 +1275,16 @@ impl ProviderRuntimeStateSummary {
             review_threads: snapshot.review_threads.len(),
             turn_diffs: snapshot.turn_diffs.len(),
             terminal_outputs: snapshot.terminal_outputs.len(),
+            truncated_terminal_outputs: snapshot
+                .terminal_outputs
+                .iter()
+                .filter(|output| output.truncated_bytes > 0)
+                .count(),
+            terminal_truncated_bytes: snapshot
+                .terminal_outputs
+                .iter()
+                .map(|output| output.truncated_bytes)
+                .sum(),
             process_exits: snapshot.process_exits.len(),
             warnings: snapshot.warnings.len(),
             model_reroutes: snapshot.model_reroutes.len(),
@@ -1276,7 +1292,27 @@ impl ProviderRuntimeStateSummary {
             remote_connections: snapshot.remote_connections.len(),
             realtime_sessions: snapshot.realtime_sessions.len(),
             realtime_transcripts: snapshot.realtime_transcripts.len(),
+            truncated_realtime_transcripts: snapshot
+                .realtime_transcripts
+                .iter()
+                .filter(|transcript| transcript.truncated_bytes > 0)
+                .count(),
+            realtime_transcript_truncated_bytes: snapshot
+                .realtime_transcripts
+                .iter()
+                .map(|transcript| transcript.truncated_bytes)
+                .sum(),
             realtime_audio: snapshot.realtime_audio.len(),
+            truncated_realtime_audio: snapshot
+                .realtime_audio
+                .iter()
+                .filter(|audio| audio.truncated_chunks > 0)
+                .count(),
+            realtime_audio_truncated_chunks: snapshot
+                .realtime_audio
+                .iter()
+                .map(|audio| audio.truncated_chunks)
+                .sum(),
             turn_moderation: snapshot.turn_moderation.len(),
             auto_approval_reviews: snapshot.auto_approval_reviews.len(),
             ..Self::default()
@@ -3377,8 +3413,8 @@ mod tests {
         AgentRuntimeSnapshot, AgentThread, ChildThreadRecord, ChildThreadRelationship,
         ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus,
         PlanImplementationMode, PlanImplementationRecord, PlanSession, PlanSessionStatus,
-        SubagentActionKind, SubagentActionRecord, ThreadLifecycleActionKind, ThreadLifecycleRecord,
-        Turn, TurnMode,
+        RealtimeAudioRecord, RealtimeTranscriptRecord, SubagentActionKind, SubagentActionRecord,
+        TerminalOutputRecord, ThreadLifecycleActionKind, ThreadLifecycleRecord, Turn, TurnMode,
     };
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
@@ -4356,6 +4392,40 @@ mod tests {
                 provider_response: json!({ "forked": true }),
             }],
             tool_timeline: vec![tool],
+            terminal_outputs: vec![
+                TerminalOutputRecord {
+                    provider: "codex".to_string(),
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("cmd-1".to_string()),
+                    process_id: Some("proc-1".to_string()),
+                    text: "kept output".to_string(),
+                    truncated_bytes: 8,
+                },
+                TerminalOutputRecord {
+                    provider: "codex".to_string(),
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("cmd-2".to_string()),
+                    process_id: Some("proc-2".to_string()),
+                    text: "short output".to_string(),
+                    truncated_bytes: 0,
+                },
+            ],
+            realtime_transcripts: vec![RealtimeTranscriptRecord {
+                provider: "codex".to_string(),
+                thread_id: Some("thread-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                text: "partial transcript".to_string(),
+                truncated_bytes: 13,
+            }],
+            realtime_audio: vec![RealtimeAudioRecord {
+                provider: "codex".to_string(),
+                thread_id: Some("thread-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                chunks: vec!["audio-final".to_string()],
+                truncated_chunks: 3,
+            }],
             thread_items: vec![
                 NormalizedThreadItem {
                     kind: ThreadItemKind::Plan,
@@ -4435,6 +4505,15 @@ mod tests {
         assert_eq!(summary.persistent_side_chats, 0);
         assert_eq!(summary.interrupted_handoffs, 1);
         assert_eq!(summary.plan_implementations, 1);
+        assert_eq!(summary.terminal_outputs, 2);
+        assert_eq!(summary.truncated_terminal_outputs, 1);
+        assert_eq!(summary.terminal_truncated_bytes, 8);
+        assert_eq!(summary.realtime_transcripts, 1);
+        assert_eq!(summary.truncated_realtime_transcripts, 1);
+        assert_eq!(summary.realtime_transcript_truncated_bytes, 13);
+        assert_eq!(summary.realtime_audio, 1);
+        assert_eq!(summary.truncated_realtime_audio, 1);
+        assert_eq!(summary.realtime_audio_truncated_chunks, 3);
         assert_eq!(summary.thread_lifecycle, 1);
         assert_eq!(summary.subagent_actions, 1);
         assert_eq!(count(&summary.by_execution_location, "local"), 1);

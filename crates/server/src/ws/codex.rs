@@ -12945,11 +12945,17 @@ mod tests {
         assert_eq!(summary["plan_sessions"], 1);
         assert_eq!(summary["tool_timeline"], 1);
         assert_eq!(summary["terminal_outputs"], 1);
+        assert_eq!(summary["truncated_terminal_outputs"], 0);
+        assert_eq!(summary["terminal_truncated_bytes"], 0);
         assert_eq!(summary["approvals"], 1);
         assert_eq!(summary["pending_approvals"], 0);
         assert_eq!(summary["resolved_approvals"], 1);
         assert_eq!(summary["realtime_transcripts"], 1);
+        assert_eq!(summary["truncated_realtime_transcripts"], 0);
+        assert_eq!(summary["realtime_transcript_truncated_bytes"], 0);
         assert_eq!(summary["realtime_audio"], 1);
+        assert_eq!(summary["truncated_realtime_audio"], 0);
+        assert_eq!(summary["realtime_audio_truncated_chunks"], 0);
         assert_eq!(
             summary["by_plan_status"],
             json!([{ "key": "active", "count": 1 }])
