@@ -12913,6 +12913,48 @@ mod tests {
                     ProviderEvent::SemanticTool {
                         tool: Box::new(image_tool),
                     },
+                    ProviderEvent::RuntimeSignal {
+                        signal: Box::new(NormalizedRuntimeSignal {
+                            kind: RuntimeSignalKind::ProviderStateUpdated,
+                            thread_id: None,
+                            turn_id: None,
+                            item_id: None,
+                            message: None,
+                            from_model: None,
+                            to_model: None,
+                            reason: None,
+                            text: None,
+                            audio: None,
+                            status: Some("connected".to_string()),
+                            name: Some("Devbox".to_string()),
+                            active: None,
+                            archived: None,
+                            diff: None,
+                            files: None,
+                            process_id: None,
+                            exit_code: None,
+                            request_id: None,
+                            metadata: json!({
+                                "hostId": "devbox",
+                                "host": "devbox.example.com",
+                                "displayName": "Devbox",
+                                "status": "connected",
+                                "projects": [{ "path": "/srv/ace" }]
+                            }),
+                            provider: ProviderMetadata {
+                                provider: "codex".to_string(),
+                                method: Some("remoteControl/status/changed".to_string()),
+                                schema_version: None,
+                                raw_payload: json!({
+                                    "hostId": "devbox",
+                                    "host": "devbox.example.com",
+                                    "displayName": "Devbox",
+                                    "status": "connected",
+                                    "projects": [{ "path": "/srv/ace" }]
+                                }),
+                            },
+                        }),
+                    },
                     ProviderEvent::ServerRequest {
                         request: Box::new(normalized_approval_request("approval-1")),
                     },
@@ -12986,6 +13028,11 @@ mod tests {
         assert_eq!(summary["realtime_audio"], 1);
         assert_eq!(summary["truncated_realtime_audio"], 0);
         assert_eq!(summary["realtime_audio_truncated_chunks"], 0);
+        assert_eq!(summary["remote_connections"], 1);
+        assert_eq!(summary["remote_host_connections"], 1);
+        assert_eq!(summary["connected_remote_connections"], 1);
+        assert_eq!(summary["disconnected_remote_connections"], 0);
+        assert_eq!(summary["remote_connections_with_projects"], 1);
         assert_eq!(
             summary["by_plan_status"],
             json!([{ "key": "active", "count": 1 }])
@@ -12997,6 +13044,14 @@ mod tests {
         assert_eq!(
             summary["by_approval_status"],
             json!([{ "key": "resolved", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_remote_connection_status"],
+            json!([{ "key": "connected", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_remote_connection_location"],
+            json!([{ "key": "remote_host", "count": 1 }])
         );
         assert_eq!(snapshot_state["thread_items"].as_array().unwrap().len(), 2);
         assert_eq!(snapshot_state["thread_items"][0]["item_id"], "item-1");
@@ -13051,6 +13106,7 @@ mod tests {
             "hello world"
         );
         assert_eq!(snapshot_state["realtime_audio"][0]["chunks"][0], "audio-1");
+        assert_eq!(snapshot_state["remote_connections"][0]["host_id"], "devbox");
     }
 
     #[tokio::test]

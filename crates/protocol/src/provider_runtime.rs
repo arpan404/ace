@@ -946,10 +946,7 @@ fn tool_renderable_asset_metadata(tool: &SemanticToolCall) -> Option<&serde_json
 }
 
 fn normalize_remote_connection_status(status: &str) -> String {
-    let normalized = status
-        .trim()
-        .to_ascii_lowercase()
-        .replace(['-', ' '], "_");
+    let normalized = status.trim().to_ascii_lowercase().replace(['-', ' '], "_");
     match normalized.as_str() {
         "connect" | "connected" | "online" | "ready" => normalized,
         "disconnect" | "disconnected" | "offline" => normalized,
@@ -3544,8 +3541,8 @@ mod tests {
         AgentRuntimeSnapshot, AgentThread, ChildThreadRecord, ChildThreadRelationship,
         ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus,
         PlanImplementationMode, PlanImplementationRecord, PlanSession, PlanSessionStatus,
-        RealtimeAudioRecord, RealtimeTranscriptRecord, SubagentActionKind, SubagentActionRecord,
-        RemoteConnectionRecord, TerminalOutputRecord, ThreadLifecycleActionKind,
+        RealtimeAudioRecord, RealtimeTranscriptRecord, RemoteConnectionRecord, SubagentActionKind,
+        SubagentActionRecord, TerminalOutputRecord, ThreadLifecycleActionKind,
         ThreadLifecycleRecord, Turn, TurnMode,
     };
     use ace_runtime::tools::{
@@ -4570,6 +4567,28 @@ mod tests {
                 chunks: vec!["audio-final".to_string()],
                 truncated_chunks: 3,
             }],
+            remote_connections: vec![
+                RemoteConnectionRecord {
+                    provider: "codex".to_string(),
+                    host_id: "devbox".to_string(),
+                    host: Some("devbox.example.com".to_string()),
+                    display_name: Some("Devbox".to_string()),
+                    status: Some("connected".to_string()),
+                    execution_location: ExecutionLocation::RemoteHost,
+                    projects: json!([{ "path": "/srv/ace" }]),
+                    metadata: json!({ "platform": "linux" }),
+                },
+                RemoteConnectionRecord {
+                    provider: "ace".to_string(),
+                    host_id: "local".to_string(),
+                    host: Some("localhost".to_string()),
+                    display_name: Some("This computer".to_string()),
+                    status: Some("offline".to_string()),
+                    execution_location: ExecutionLocation::Local,
+                    projects: serde_json::Value::Null,
+                    metadata: json!({}),
+                },
+            ],
             thread_items: vec![
                 NormalizedThreadItem {
                     kind: ThreadItemKind::Plan,
@@ -4671,6 +4690,11 @@ mod tests {
         assert_eq!(summary.realtime_audio, 1);
         assert_eq!(summary.truncated_realtime_audio, 1);
         assert_eq!(summary.realtime_audio_truncated_chunks, 3);
+        assert_eq!(summary.remote_connections, 2);
+        assert_eq!(summary.remote_host_connections, 1);
+        assert_eq!(summary.connected_remote_connections, 1);
+        assert_eq!(summary.disconnected_remote_connections, 1);
+        assert_eq!(summary.remote_connections_with_projects, 1);
         assert_eq!(summary.thread_lifecycle, 1);
         assert_eq!(summary.subagent_actions, 1);
         assert_eq!(summary.tool_timeline, 2);
@@ -4702,6 +4726,13 @@ mod tests {
         assert_eq!(count(&summary.by_tool_status, "completed"), 1);
         assert_eq!(count(&summary.by_thread_lifecycle_action, "rollback"), 1);
         assert_eq!(count(&summary.by_subagent_action, "steer"), 1);
+        assert_eq!(count(&summary.by_remote_connection_status, "connected"), 1);
+        assert_eq!(count(&summary.by_remote_connection_status, "offline"), 1);
+        assert_eq!(
+            count(&summary.by_remote_connection_location, "remote_host"),
+            1
+        );
+        assert_eq!(count(&summary.by_remote_connection_location, "local"), 1);
     }
 
     #[test]
