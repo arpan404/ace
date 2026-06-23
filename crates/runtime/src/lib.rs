@@ -245,6 +245,8 @@ pub mod provider {
         MarketplaceAdd,
         MarketplaceRemove,
         MarketplaceUpgrade,
+        BrowserBridgeContract,
+        ComputerBridgeContract,
         ModelList,
         ModelProviderCapabilitiesRead,
         RemoteConnectionList,
@@ -1631,6 +1633,18 @@ pub mod provider {
                 Some("marketplace/upgrade"),
             ),
             op(
+                Operation::BrowserBridgeContract,
+                Category::Tools,
+                Deferred,
+                None,
+            ),
+            op(
+                Operation::ComputerBridgeContract,
+                Category::Tools,
+                Deferred,
+                None,
+            ),
+            op(
                 Operation::ModelList,
                 Category::Models,
                 Optional,
@@ -1866,7 +1880,7 @@ pub mod provider {
     #[must_use]
     pub fn ace_provider_adapter_contract() -> ProviderAdapterContract {
         ProviderAdapterContract {
-            version: 3,
+            version: 4,
             websocket_first: true,
             raw_payload_policy: "preserve_provider_payloads".to_string(),
             raw_payload: ace_provider_raw_payload_policy(),
@@ -2779,7 +2793,7 @@ pub mod provider {
                 .iter()
                 .find(|profile| profile.provider == ProviderKind::Codex)
                 .expect("codex profile");
-            assert_eq!(codex_profile.contract_version, 3);
+            assert_eq!(codex_profile.contract_version, 4);
             assert!(codex_profile.websocket_first);
             assert_eq!(
                 codex_profile.raw_payload.retention,
@@ -3213,7 +3227,7 @@ pub mod provider {
         fn adapter_contract_lists_required_normalized_surfaces() {
             let contract = ace_provider_adapter_contract();
 
-            assert_eq!(contract.version, 3);
+            assert_eq!(contract.version, 4);
             assert!(contract.websocket_first);
             assert_eq!(contract.raw_payload_policy, "preserve_provider_payloads");
             assert_eq!(
@@ -3289,6 +3303,20 @@ pub mod provider {
                 operation.operation == ProviderAdapterOperation::CloudHandoff
                     && operation.support == ProviderAdapterOperationSupport::Deferred
             }));
+            for bridge_operation in [
+                ProviderAdapterOperation::BrowserBridgeContract,
+                ProviderAdapterOperation::ComputerBridgeContract,
+            ] {
+                let operation = contract
+                    .operations
+                    .iter()
+                    .find(|operation| operation.operation == bridge_operation)
+                    .expect("bridge contract operation");
+                assert_eq!(operation.category, ProviderFeatureCategory::Tools);
+                assert_eq!(operation.support, ProviderAdapterOperationSupport::Deferred);
+                assert!(operation.canonical_method.is_none());
+                assert!(operation.provider_methods.is_empty());
+            }
             assert!(
                 contract
                     .normalized_thread_item_kinds

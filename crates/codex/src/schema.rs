@@ -1175,5 +1175,19 @@ mod tests {
             cloud_handoff.provider_methods[0].support,
             IntentionallyDeferred
         );
+
+        let browser_bridge = coverage
+            .iter()
+            .find(|operation| {
+                operation.operation
+                    == ace_runtime::provider::ProviderAdapterOperation::BrowserBridgeContract
+            })
+            .expect("browser bridge contract operation");
+        assert_eq!(
+            browser_bridge.declared_support,
+            ProviderAdapterOperationSupport::Deferred
+        );
+        assert!(browser_bridge.provider_methods.is_empty());
+        assert!(browser_bridge.fully_covered);
     }
 }

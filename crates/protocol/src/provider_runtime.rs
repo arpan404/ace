@@ -2276,6 +2276,22 @@ mod tests {
             ProviderRuntimeOperationRequestMode::Deferred
         );
         assert!(deferred.required_runtime_hooks.is_empty());
+
+        let browser_bridge = operation(ProviderAdapterOperation::BrowserBridgeContract);
+        assert_eq!(
+            browser_bridge.invocation,
+            ProviderAdapterInvocationKind::Deferred
+        );
+        assert_eq!(browser_bridge.category, ProviderFeatureCategory::Tools);
+        assert_eq!(
+            browser_bridge.availability,
+            ProviderAdapterOperationAvailability::Deferred
+        );
+        assert!(!browser_bridge.runtime_request.invokable);
+        assert_eq!(
+            browser_bridge.runtime_request.mode,
+            ProviderRuntimeOperationRequestMode::Deferred
+        );
     }
 
     #[test]
