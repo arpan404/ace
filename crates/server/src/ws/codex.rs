@@ -11180,6 +11180,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_runtime_reports_default_bridge_host_tool_unavailable() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+        state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .append_batch("codex", &[pending_codex_dynamic_tool_request()])
+            .expect("append server request");
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "host-tool-default-unavailable",
+                    "method": methods::PROVIDER_RUNTIME_HOST_TOOL_INVOKE_SERVER_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "request_id": "42",
+                        "audit": { "decided_by": "user" }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse =
+            serde_json::from_str(&response).expect("default unavailable response");
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected default unavailable decision response");
+        };
+        assert_eq!(body["responded"], true);
+        assert_eq!(body["decision"]["outcome"], "error");
+        assert_eq!(body["decision"]["payload"]["code"], -32015);
+        assert_eq!(
+            body["decision"]["payload"]["message"],
+            "host tool failed: browser bridge is not connected"
+        );
+        assert_eq!(
+            body["decision"]["audit"]["metadata"]["host_tool"]["error"]["kind"],
+            "handler_failed"
+        );
+        assert_eq!(
+            body["decision"]["audit"]["metadata"]["host_tool"]["invocation"]["descriptor_name"],
+            "browser.bridge"
+        );
+        assert_eq!(
+            backend
+                .server_request_responses
+                .lock()
+                .expect("responses")
+                .as_slice(),
+            [ServerRequestResponse::Error {
+                request_id: 42,
+                code: -32015,
+                message: "host tool failed: browser bridge is not connected".to_string()
+            }]
+        );
+    }
+
+    #[tokio::test]
     async fn provider_runtime_records_host_tool_handler_failure_as_provider_error() {
         let backend = Arc::new(FakeCodexBackend::default());
         let runner = Arc::new(FakeRunner);
