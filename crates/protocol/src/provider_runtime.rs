@@ -911,6 +911,8 @@ pub struct ProviderRuntimeStateSummary {
     pub handoffs: usize,
     pub approval_retries: usize,
     pub plan_implementations: usize,
+    pub thread_lifecycle: usize,
+    pub subagent_actions: usize,
     pub thread_items: usize,
     pub tool_timeline: usize,
     pub approvals: usize,
@@ -992,6 +994,8 @@ impl ProviderRuntimeStateSummary {
             handoffs: snapshot.handoffs.len(),
             approval_retries: snapshot.approval_retries.len(),
             plan_implementations: snapshot.plan_implementations.len(),
+            thread_lifecycle: snapshot.thread_lifecycle.len(),
+            subagent_actions: snapshot.subagent_actions.len(),
             thread_items: snapshot.thread_items.len(),
             tool_timeline: snapshot.tool_timeline.len(),
             approvals: snapshot.approvals.len(),
@@ -3582,6 +3586,8 @@ mod tests {
         assert_eq!(summary.active_threads, 1);
         assert_eq!(summary.archived_threads, 1);
         assert_eq!(summary.active_turns, 1);
+        assert_eq!(summary.thread_lifecycle, 1);
+        assert_eq!(summary.subagent_actions, 1);
         assert_eq!(count(&summary.by_execution_location, "local"), 1);
         assert_eq!(count(&summary.by_execution_location, "worktree"), 1);
         assert_eq!(count(&summary.by_active_turn_mode, "plan"), 1);
