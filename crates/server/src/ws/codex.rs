@@ -13,7 +13,8 @@ use ace_protocol::{
         CodexGoalSetRequest, CodexGuardianDeniedActionApprovalRequest, CodexHandoffLocation,
         CodexHandoffToAgentRequest, CodexHandoffToLocationRequest, CodexHandoffToLocationResponse,
         CodexMarketplaceRequest, CodexMcpOauthLoginRequest, CodexMcpResourceReadRequest,
-        CodexMcpStatusRequest, CodexMcpToolCallRequest, CodexNamedQueryRequest,
+        CodexMcpStatusRequest, CodexMcpToolCallRequest, CodexModelListRequest,
+        CodexModelProviderCapabilitiesReadRequest, CodexNamedQueryRequest,
         CodexPermissionPresetRequest, CodexPlanImplementationRequest, CodexPlanTurnStartRequest,
         CodexPluginRequest, CodexPluginShareRequest, CodexPluginShareSaveRequest,
         CodexPluginShareUpdateTargetsRequest, CodexProcessCleanRequest, CodexProcessListRequest,
@@ -1205,7 +1206,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     &adapter_profile,
                 )?;
                 let raw_models = if provider == ProviderKind::Codex {
-                    self.dispatch_codex_method(methods::CODEX_MODEL_LIST, request.params)
+                    let params = default_null_params_to_object(request.params);
+                    self.dispatch_codex_method(methods::CODEX_MODEL_LIST, params)
                         .await?
                 } else {
                     let status = self.providers.status(provider).await.ok();
@@ -1252,9 +1254,10 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     &adapter_profile,
                 )?;
                 let raw_capabilities = if provider == ProviderKind::Codex {
+                    let params = default_null_params_to_object(request.params);
                     self.dispatch_codex_method(
                         methods::CODEX_MODEL_PROVIDER_CAPABILITIES_READ,
-                        request.params,
+                        params,
                     )
                     .await?
                 } else {
@@ -4914,10 +4917,13 @@ fn codex_versioned_app_server_request(
             "marketplace/upgrade",
             typed_or_enveloped::<CodexMarketplaceRequest>(payload)?,
         )),
-        methods::CODEX_MODEL_LIST => Some(("model/list", raw_or_enveloped(payload)?)),
+        methods::CODEX_MODEL_LIST => Some((
+            "model/list",
+            typed_or_enveloped::<CodexModelListRequest>(payload)?,
+        )),
         methods::CODEX_MODEL_PROVIDER_CAPABILITIES_READ => Some((
             "modelProvider/capabilities/read",
-            raw_or_enveloped(payload)?,
+            typed_or_enveloped::<CodexModelProviderCapabilitiesReadRequest>(payload)?,
         )),
         _ => None,
     };
@@ -5281,6 +5287,10 @@ where
     Ok(serde_json::to_value(serde_json::from_value::<T>(
         payload.clone(),
     )?)?)
+}
+
+fn default_null_params_to_object(params: Value) -> Value {
+    if params.is_null() { json!({}) } else { params }
 }
 
 fn raw_or_enveloped(payload: &Value) -> Result<Value, WsDispatchError> {
@@ -12065,6 +12075,10 @@ mod tests {
     #[tokio::test]
     async fn provider_runtime_lists_normalized_models_over_ws_rpc() {
         let backend = Arc::new(FakeCodexBackend::default());
+        *backend
+            .supported_client_request_methods
+            .lock()
+            .expect("supported methods") = Some(vec!["model/list".to_string()]);
         let runner = Arc::new(FakeRunner);
         let state = WsApiState::new_services(
             GitService::new(GitClient::with_runner(runner.clone())),
@@ -12121,6 +12135,11 @@ mod tests {
     #[tokio::test]
     async fn provider_runtime_reads_normalized_model_provider_capabilities_over_ws_rpc() {
         let backend = Arc::new(FakeCodexBackend::default());
+        *backend
+            .supported_client_request_methods
+            .lock()
+            .expect("supported methods") =
+            Some(vec!["modelProvider/capabilities/read".to_string()]);
         let runner = Arc::new(FakeRunner);
         let state = WsApiState::new_services(
             GitService::new(GitClient::with_runner(runner.clone())),
@@ -14136,6 +14155,43 @@ mod tests {
         assert_eq!(method, "thread/realtime/stop");
         assert_eq!(params["threadId"], "thread-1");
         assert_eq!(params["reason"], "user");
+    }
+
+    #[test]
+    fn codex_model_methods_use_typed_contracts_without_dropping_extra_fields() {
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_MODEL_LIST,
+            &json!({
+                "model_provider": "openai",
+                "includeUnavailable": true,
+                "capability": "reasoning"
+            }),
+        )
+        .expect("typed model list request")
+        .expect("model list method");
+        assert_eq!(method, "model/list");
+        assert_eq!(params["modelProvider"], "openai");
+        assert_eq!(params["includeUnavailable"], true);
+        assert_eq!(params["capability"], "reasoning");
+        assert!(params.get("model_provider").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_MODEL_PROVIDER_CAPABILITIES_READ,
+            &json!({
+                "params": {
+                    "model_provider": "openai",
+                    "model": "gpt-5",
+                    "surface": "desktop"
+                }
+            }),
+        )
+        .expect("typed model provider capabilities request")
+        .expect("model provider capabilities method");
+        assert_eq!(method, "modelProvider/capabilities/read");
+        assert_eq!(params["modelProvider"], "openai");
+        assert_eq!(params["model"], "gpt-5");
+        assert_eq!(params["surface"], "desktop");
+        assert!(params.get("model_provider").is_none());
     }
 
     #[test]
