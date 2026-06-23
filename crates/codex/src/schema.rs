@@ -733,6 +733,13 @@ fn codex_method_display_name(method: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ace_runtime::{
+        provider::ServerRequestKind,
+        server_requests::{KNOWN_SERVER_REQUEST_METHODS, server_request_kind},
+        tools::{
+            ProviderServerRequestToolNormalizationInput, normalize_provider_server_request_tool,
+        },
+    };
     use serde_json::Value;
     use std::{
         collections::{BTreeSet, HashSet},
@@ -1003,6 +1010,88 @@ mod tests {
         assert_all_methods_classified(CURRENT_CLIENT_NOTIFICATION_METHODS, ClientNotification);
         assert_all_methods_classified(CURRENT_SERVER_NOTIFICATION_METHODS, ServerNotification);
         assert_all_methods_classified(CURRENT_SERVER_REQUEST_METHODS, ServerRequest);
+    }
+
+    #[test]
+    fn codex_server_request_inventory_has_runtime_normalizers() {
+        let server_request_methods = CODEX_METHOD_INVENTORY
+            .iter()
+            .filter(|spec| spec.direction == ServerRequest)
+            .map(|spec| spec.method)
+            .collect::<Vec<_>>();
+
+        assert!(!server_request_methods.is_empty());
+        for method in server_request_methods {
+            assert!(
+                KNOWN_SERVER_REQUEST_METHODS.contains(&method),
+                "{method} must be listed in runtime known server request methods"
+            );
+            assert_ne!(
+                server_request_kind(method),
+                ServerRequestKind::Unknown,
+                "{method} must map to a concrete NormalizedServerRequest kind"
+            );
+        }
+    }
+
+    #[test]
+    fn codex_host_tool_server_requests_have_semantic_display() {
+        let semantic_methods = CODEX_METHOD_INVENTORY
+            .iter()
+            .filter(|spec| spec.direction == ServerRequest)
+            .filter_map(|spec| {
+                let kind = server_request_kind(spec.method);
+                matches!(
+                    kind,
+                    ServerRequestKind::CommandApproval
+                        | ServerRequestKind::ExecApproval
+                        | ServerRequestKind::FileChangeApproval
+                        | ServerRequestKind::ApplyPatchApproval
+                        | ServerRequestKind::ToolUserInput
+                        | ServerRequestKind::McpElicitation
+                        | ServerRequestKind::DynamicToolCall
+                )
+                .then_some(spec.method)
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!semantic_methods.is_empty());
+        for method in semantic_methods {
+            let tool = normalize_provider_server_request_tool(
+                ProviderServerRequestToolNormalizationInput {
+                    provider: "codex".to_string(),
+                    request_id: format!("{method}:request"),
+                    method: method.to_string(),
+                    params: serde_json::json!({
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "itemId": "item-1",
+                        "command": "cargo check",
+                        "cwd": "/repo",
+                        "path": "src/lib.rs",
+                        "patch": "*** Begin Patch\n*** End Patch\n",
+                        "serverName": "browser",
+                        "toolName": "navigate_tab_url",
+                        "operation": "navigate_tab_url",
+                        "arguments": {
+                            "url": "https://example.com"
+                        },
+                        "question": "Choose a tab",
+                        "choices": ["current", "new"]
+                    }),
+                },
+            )
+            .unwrap_or_else(|| panic!("{method} must produce a semantic tool display"));
+
+            assert!(
+                !tool.display.title.trim().is_empty(),
+                "{method} produced an empty display title"
+            );
+            assert!(
+                tool.provider.raw_payload.is_object(),
+                "{method} must preserve the raw provider payload"
+            );
+        }
     }
 
     #[test]

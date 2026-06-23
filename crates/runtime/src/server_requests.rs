@@ -13,6 +13,29 @@ pub struct ServerRequestNormalizationInput {
     pub params: Value,
 }
 
+pub const KNOWN_SERVER_REQUEST_METHODS: &[&str] = &[
+    "item/commandExecution/requestApproval",
+    "command/approvalRequest",
+    "item/fileChange/requestApproval",
+    "fileChange/approvalRequest",
+    "item/tool/requestUserInput",
+    "tool/userInputRequest",
+    "mcpServer/elicitation/request",
+    "mcp/elicitation",
+    "item/permissions/requestApproval",
+    "permission/approvalRequest",
+    "item/tool/call",
+    "dynamicTool/call",
+    "account/chatgptAuthTokens/refresh",
+    "account/tokenRefresh",
+    "attestation/generate",
+    "attestation/request",
+    "applyPatchApproval",
+    "applyPatch/approvalRequest",
+    "execCommandApproval",
+    "exec/approvalRequest",
+];
+
 #[must_use]
 pub fn normalize_provider_server_request(
     request: ServerRequestNormalizationInput,
@@ -394,6 +417,14 @@ mod tests {
 
     #[test]
     fn classifies_all_known_server_request_methods() {
+        for method in KNOWN_SERVER_REQUEST_METHODS {
+            assert_ne!(
+                server_request_kind(method),
+                ServerRequestKind::Unknown,
+                "{method}"
+            );
+        }
+
         let cases = [
             (
                 "item/commandExecution/requestApproval",
@@ -448,11 +479,15 @@ mod tests {
             ),
             ("execCommandApproval", ServerRequestKind::ExecApproval),
             ("exec/approvalRequest", ServerRequestKind::ExecApproval),
-            ("unknown/request", ServerRequestKind::Unknown),
         ];
 
         for (method, kind) in cases {
             assert_eq!(server_request_kind(method), kind, "{method}");
         }
+
+        assert_eq!(
+            server_request_kind("unknown/request"),
+            ServerRequestKind::Unknown
+        );
     }
 }
