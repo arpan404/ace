@@ -1416,6 +1416,30 @@ mod tests {
             };
             assert_eq!(raw_method, method);
             assert_eq!(&request.provider.raw_payload, params);
+
+            if matches!(
+                kind,
+                ServerRequestKind::CommandApproval
+                    | ServerRequestKind::ExecApproval
+                    | ServerRequestKind::FileChangeApproval
+                    | ServerRequestKind::ApplyPatchApproval
+                    | ServerRequestKind::ToolUserInput
+                    | ServerRequestKind::McpElicitation
+                    | ServerRequestKind::DynamicToolCall
+            ) {
+                let ProviderEvent::SemanticTool { tool } = &events[2] else {
+                    panic!("expected semantic server request tool for {method}");
+                };
+                assert_eq!(tool.display.status, ToolRunStatus::ApprovalRequested);
+                assert_eq!(tool.provider.method.as_deref(), Some(method));
+                assert_eq!(tool.provider.raw_payload, request.provider.raw_payload);
+            } else {
+                assert_eq!(
+                    events.len(),
+                    2,
+                    "{method} should not emit a tool display event"
+                );
+            }
         }
     }
 
