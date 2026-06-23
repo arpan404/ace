@@ -422,6 +422,7 @@ pub struct ProviderRuntimeProviderOperation {
     pub support: ProviderAdapterOperationSupport,
     pub availability: ProviderAdapterOperationAvailability,
     pub policy: ProviderAdapterOperationPolicy,
+    pub policy_summary: ProviderRuntimeOperationPolicySummary,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_gate: Option<ProviderAdapterOperationGate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -449,12 +450,14 @@ impl ProviderRuntimeProviderOperation {
     }
 
     pub fn from_profile(profile: ProviderAdapterOperationProfile) -> Self {
+        let policy_summary = ProviderRuntimeOperationPolicySummary::from_policy(&profile.policy);
         Self {
             operation: profile.operation,
             category: profile.category,
             support: profile.support,
             availability: profile.availability,
             policy: profile.policy,
+            policy_summary,
             runtime_gate: profile.runtime_gate,
             runtime_gate_resolution: None,
             availability_reason: profile.availability_reason,
@@ -500,6 +503,114 @@ impl ProviderRuntimeProviderOperation {
     pub fn with_typed_ws_method(mut self, method: Option<String>) -> Self {
         self.typed_ws_method = method;
         self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeOperationPolicySummary {
+    pub key: String,
+    pub title: String,
+    pub description: String,
+    pub approval_required: bool,
+    #[serde(default)]
+    pub badges: Vec<String>,
+}
+
+impl ProviderRuntimeOperationPolicySummary {
+    #[must_use]
+    pub fn from_policy(policy: &ProviderAdapterOperationPolicy) -> Self {
+        let (key, title, description) = if policy.escapes_thread_sandbox {
+            (
+                "sandbox_escape",
+                "Runs outside sandbox",
+                "Requires an explicit user action because it escapes the active thread sandbox.",
+            )
+        } else if policy.approval_boundary
+            && policy.mutates_workspace
+            && policy.external_side_effects
+        {
+            (
+                "approval_external_workspace",
+                "Approval, workspace, and external effects",
+                "Can change workspace files and cause external side effects, so approval handling is required.",
+            )
+        } else if policy.approval_boundary && policy.mutates_workspace {
+            (
+                "approval_workspace",
+                "Workspace approval required",
+                "Can change workspace files and crosses an approval boundary.",
+            )
+        } else if policy.approval_boundary && policy.external_side_effects {
+            (
+                "approval_external",
+                "External approval required",
+                "Can cause external side effects and crosses an approval boundary.",
+            )
+        } else if policy.approval_boundary {
+            (
+                "approval_required",
+                "Approval required",
+                "Crosses a provider approval boundary before it can run.",
+            )
+        } else if policy.external_side_effects {
+            (
+                "external_side_effect",
+                "External side effect",
+                "Can affect external state outside the local workspace.",
+            )
+        } else if policy.mutates_workspace {
+            (
+                "workspace_write",
+                "Workspace write",
+                "Can change files or process state in the workspace.",
+            )
+        } else if policy.mutates_provider_state {
+            (
+                "provider_state",
+                "Provider state change",
+                "Can change provider-side state without changing workspace files.",
+            )
+        } else {
+            (
+                "read_only",
+                "Read only",
+                "Does not mutate workspace or provider state.",
+            )
+        };
+
+        let mut badges = Vec::new();
+        if policy.read_only {
+            badges.push("read_only".to_string());
+        }
+        if policy.mutates_workspace {
+            badges.push("workspace".to_string());
+        }
+        if policy.mutates_provider_state {
+            badges.push("provider_state".to_string());
+        }
+        if policy.external_side_effects {
+            badges.push("external".to_string());
+        }
+        if policy.approval_boundary {
+            badges.push("approval".to_string());
+        }
+        if policy.requires_user_initiation {
+            badges.push("user_initiated".to_string());
+        }
+        if policy.escapes_thread_sandbox {
+            badges.push("sandbox_escape".to_string());
+        }
+
+        Self {
+            key: key.to_string(),
+            title: title.to_string(),
+            description: policy
+                .reason
+                .clone()
+                .unwrap_or_else(|| description.to_string()),
+            approval_required: policy.approval_boundary,
+            badges,
+        }
     }
 }
 
@@ -660,6 +771,8 @@ pub struct ProviderRuntimeOperationSummary {
     pub by_availability: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
     pub by_request_mode: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_policy: Vec<ProviderRuntimeOperationCount>,
 }
 
 impl ProviderRuntimeOperationSummary {
@@ -669,6 +782,7 @@ impl ProviderRuntimeOperationSummary {
         let mut by_support = BTreeMap::new();
         let mut by_availability = BTreeMap::new();
         let mut by_request_mode = BTreeMap::new();
+        let mut by_policy = BTreeMap::new();
         let mut missing_provider_methods = BTreeSet::new();
         let mut missing_runtime_hooks = BTreeSet::new();
         let mut summary = Self {
@@ -684,6 +798,7 @@ impl ProviderRuntimeOperationSummary {
                 &mut by_request_mode,
                 enum_key(&operation.runtime_request.mode),
             );
+            increment_count(&mut by_policy, operation.policy_summary.key.clone());
 
             if operation.runtime_request.invokable {
                 summary.invokable += 1;
@@ -715,6 +830,7 @@ impl ProviderRuntimeOperationSummary {
         summary.by_support = operation_counts(by_support);
         summary.by_availability = operation_counts(by_availability);
         summary.by_request_mode = operation_counts(by_request_mode);
+        summary.by_policy = operation_counts(by_policy);
         summary
     }
 }
@@ -3000,6 +3116,10 @@ mod tests {
             direct.invocation,
             ProviderAdapterInvocationKind::DirectProviderMethod
         );
+        assert_eq!(direct.policy_summary.key, "read_only");
+        assert_eq!(direct.policy_summary.title, "Read only");
+        assert!(!direct.policy_summary.approval_required);
+        assert_eq!(direct.policy_summary.badges, vec!["read_only"]);
         assert_eq!(
             direct.availability,
             ProviderAdapterOperationAvailability::Available
@@ -3094,6 +3214,29 @@ mod tests {
             version_gated.availability,
             ProviderAdapterOperationAvailability::VersionGated
         );
+        assert_eq!(
+            version_gated.policy_summary.key,
+            "approval_external_workspace"
+        );
+        assert!(version_gated.policy_summary.approval_required);
+        assert!(
+            version_gated
+                .policy_summary
+                .badges
+                .contains(&"workspace".to_string())
+        );
+        assert!(
+            version_gated
+                .policy_summary
+                .badges
+                .contains(&"external".to_string())
+        );
+        assert!(
+            version_gated
+                .policy_summary
+                .badges
+                .contains(&"approval".to_string())
+        );
         assert!(
             version_gated
                 .availability_reason
@@ -3137,6 +3280,7 @@ mod tests {
             browser_bridge.required_runtime_hooks,
             vec![ProviderAdapterRuntimeHook::HostToolRegistry]
         );
+        assert_eq!(browser_bridge.policy_summary.key, "approval_external");
         assert!(!browser_bridge.runtime_request.invokable);
         assert_eq!(
             browser_bridge.runtime_request.mode,
@@ -3209,6 +3353,8 @@ mod tests {
         assert_eq!(count(&summary.by_availability, "version_gated"), 1);
         assert_eq!(count(&summary.by_request_mode, "adapter_operation"), 2);
         assert_eq!(count(&summary.by_request_mode, "event_stream"), 1);
+        assert_eq!(count(&summary.by_policy, "read_only"), 2);
+        assert_eq!(count(&summary.by_policy, "sandbox_escape"), 1);
     }
 
     #[test]

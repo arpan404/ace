@@ -10739,6 +10739,9 @@ mod tests {
         assert!(summary_count("by_category", "plugins") > 0);
         assert!(summary_count("by_support", "version_gated") > 0);
         assert!(summary_count("by_request_mode", "adapter_operation") > 0);
+        assert!(summary_count("by_policy", "read_only") > 0);
+        assert!(summary_count("by_policy", "approval_external_workspace") > 0);
+        assert!(summary_count("by_policy", "sandbox_escape") > 0);
 
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "thread_read"
@@ -10750,6 +10753,8 @@ mod tests {
                 && operation["provider_methods"] == json!(["thread/read"])
                 && operation["policy"]["read_only"] == true
                 && operation["policy"]["approval_boundary"] == false
+                && operation["policy_summary"]["key"] == "read_only"
+                && operation["policy_summary"]["approval_required"] == false
                 && operation["runtime_request"]["invokable"] == true
                 && operation["runtime_request"]["mode"] == "adapter_operation"
                 && operation["runtime_request"]["params"] == "adapter_normalized"
@@ -10759,6 +10764,11 @@ mod tests {
                 && operation["policy"]["requires_user_initiation"] == true
                 && operation["policy"]["escapes_thread_sandbox"] == true
                 && operation["policy"]["approval_boundary"] == true
+                && operation["policy_summary"]["key"] == "sandbox_escape"
+                && operation["policy_summary"]["badges"]
+                    .as_array()
+                    .expect("policy badges")
+                    .contains(&json!("sandbox_escape"))
                 && operation["policy"]["reason"]
                     .as_str()
                     .is_some_and(|reason| reason.contains("outside the thread sandbox"))
@@ -10768,6 +10778,7 @@ mod tests {
                 && operation["policy"]["read_only"] == false
                 && operation["policy"]["mutates_workspace"] == true
                 && operation["policy"]["approval_boundary"] == true
+                && operation["policy_summary"]["key"] == "approval_workspace"
         }));
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "plan_fork_for_implementation"
@@ -10797,6 +10808,8 @@ mod tests {
                     .as_str()
                     .expect("availability reason")
                     .contains("version-gated")
+                && operation["policy_summary"]["key"] == "approval_external_workspace"
+                && operation["policy_summary"]["approval_required"] == true
                 && operation["runtime_request"]["invokable"] == true
                 && operation["runtime_request"]["mode"] == "adapter_operation"
                 && operation["runtime_request"]["params"] == "adapter_normalized"
