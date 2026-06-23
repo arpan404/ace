@@ -14402,26 +14402,90 @@ mod tests {
     }
 
     #[test]
-    fn codex_raw_plugin_share_methods_preserve_payload_shape() {
+    fn codex_plugin_marketplace_and_skill_methods_use_typed_contracts_without_dropping_extra_fields()
+     {
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_SKILLS_EXTRA_ROOTS_SET,
+            &json!({
+                "roots": ["/tmp/skills"],
+                "source": "settings"
+            }),
+        )
+        .expect("typed skills extra roots request")
+        .expect("skills extra roots method");
+        assert_eq!(method, "skills/extraRoots/set");
+        assert_eq!(params["roots"][0], "/tmp/skills");
+        assert_eq!(params["source"], "settings");
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_PLUGINS_READ,
+            &json!({
+                "plugin": "browser",
+                "includeManifest": true
+            }),
+        )
+        .expect("typed plugin read request")
+        .expect("plugin read method");
+        assert_eq!(method, "plugin/read");
+        assert_eq!(params["plugin"], "browser");
+        assert_eq!(params["includeManifest"], true);
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_PLUGIN_SHARE_CHECKOUT,
+            &json!({
+                "share_id": "share-1",
+                "target": "personal"
+            }),
+        )
+        .expect("typed share checkout request")
+        .expect("share checkout method");
+        assert_eq!(method, "plugin/share/checkout");
+        assert_eq!(params["shareId"], "share-1");
+        assert_eq!(params["target"], "personal");
+        assert!(params.get("share_id").is_none());
+
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_PLUGIN_SHARE_SAVE,
-            &json!({ "plugin": "browser", "targets": ["team"] }),
+            &json!({
+                "plugin": "browser",
+                "targets": ["team"],
+                "dryRun": true
+            }),
         )
-        .expect("raw share request")
+        .expect("typed share request")
         .expect("share method");
         assert_eq!(method, "plugin/share/save");
         assert_eq!(params["plugin"], "browser");
         assert_eq!(params["targets"][0], "team");
+        assert_eq!(params["dryRun"], true);
 
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_PLUGIN_SHARE_UPDATE_TARGETS,
-            &json!({ "params": { "shareId": "share-1", "targets": ["team"] } }),
+            &json!({ "params": { "shareId": "share-1", "targets": ["team"], "reason": "sync" } }),
         )
-        .expect("enveloped raw share request")
+        .expect("enveloped typed share request")
         .expect("share update method");
         assert_eq!(method, "plugin/share/updateTargets");
         assert_eq!(params["shareId"], "share-1");
         assert_eq!(params["targets"][0], "team");
+        assert_eq!(params["reason"], "sync");
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_MARKETPLACE_UPGRADE,
+            &json!({
+                "plugin": "browser",
+                "target": "personal",
+                "version": "latest",
+                "channel": "stable"
+            }),
+        )
+        .expect("typed marketplace request")
+        .expect("marketplace method");
+        assert_eq!(method, "marketplace/upgrade");
+        assert_eq!(params["plugin"], "browser");
+        assert_eq!(params["target"], "personal");
+        assert_eq!(params["version"], "latest");
+        assert_eq!(params["channel"], "stable");
     }
 
     #[test]

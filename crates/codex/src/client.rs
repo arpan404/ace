@@ -236,6 +236,8 @@ pub struct CodexNamedQuery {
 #[serde(rename_all = "camelCase")]
 pub struct CodexSkillRequest {
     pub skill: String,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -243,6 +245,8 @@ pub struct CodexSkillRequest {
 pub struct CodexSkillsConfigWrite {
     #[serde(default)]
     pub config: Value,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -250,12 +254,16 @@ pub struct CodexSkillsConfigWrite {
 pub struct CodexSkillsExtraRootsSet {
     #[serde(default)]
     pub roots: Vec<String>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexPluginRequest {
     pub plugin: String,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -266,6 +274,8 @@ pub struct CodexPluginShareRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(alias = "share_id")]
     pub share_id: Option<String>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -276,6 +286,8 @@ pub struct CodexPluginShareSave {
     pub targets: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Value>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -285,6 +297,8 @@ pub struct CodexPluginShareUpdateTargets {
     pub share_id: String,
     #[serde(default)]
     pub targets: Vec<String>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -293,6 +307,8 @@ pub struct CodexAppConfigWrite {
     pub app: String,
     #[serde(default)]
     pub config: Value,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -303,6 +319,8 @@ pub struct CodexMarketplaceRequest {
     pub target: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    #[serde(default, flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 impl CodexTurnStart {
@@ -2416,24 +2434,28 @@ mod tests {
         client
             .skills_read(CodexSkillRequest {
                 skill: "rust".to_string(),
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("skills read");
         client
             .skills_install(CodexSkillRequest {
                 skill: "rust".to_string(),
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("skills install");
         client
             .skills_config_write(CodexSkillsConfigWrite {
                 config: json!({ "enabled": ["rust"] }),
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("skills config");
         client
             .skills_extra_roots_set(CodexSkillsExtraRootsSet {
                 roots: vec!["/tmp/skills".to_string()],
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("skills extra roots");
@@ -2448,18 +2470,21 @@ mod tests {
         client
             .plugins_read(CodexPluginRequest {
                 plugin: "browser".to_string(),
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("plugins read");
         client
             .plugins_install(CodexPluginRequest {
                 plugin: "browser".to_string(),
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("plugins install");
         client
             .plugins_uninstall(CodexPluginRequest {
                 plugin: "browser".to_string(),
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("plugins uninstall");
@@ -2467,6 +2492,7 @@ mod tests {
             .plugin_share_checkout(CodexPluginShareRequest {
                 plugin: None,
                 share_id: Some("share-1".to_string()),
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("plugin share checkout");
@@ -2474,6 +2500,7 @@ mod tests {
             .plugin_share_delete(CodexPluginShareRequest {
                 plugin: None,
                 share_id: Some("share-1".to_string()),
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("plugin share delete");
@@ -2486,6 +2513,7 @@ mod tests {
                 plugin: "browser".to_string(),
                 targets: vec!["team".to_string()],
                 metadata: None,
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("plugin share save");
@@ -2493,6 +2521,7 @@ mod tests {
             .plugin_share_update_targets(CodexPluginShareUpdateTargets {
                 share_id: "share-1".to_string(),
                 targets: vec!["team".to_string()],
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("plugin share update targets");
@@ -2504,6 +2533,7 @@ mod tests {
             .apps_config_write(CodexAppConfigWrite {
                 app: "browser".to_string(),
                 config: json!({}),
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("apps config");
@@ -2701,6 +2731,7 @@ mod tests {
                 plugin: "browser".to_string(),
                 target: Some("personal".to_string()),
                 version: None,
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("marketplace add");
@@ -2709,6 +2740,7 @@ mod tests {
                 plugin: "browser".to_string(),
                 target: Some("personal".to_string()),
                 version: None,
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("marketplace remove");
@@ -2717,6 +2749,7 @@ mod tests {
                 plugin: "browser".to_string(),
                 target: None,
                 version: Some("latest".to_string()),
+                extra: serde_json::Map::new(),
             })
             .await
             .expect("marketplace upgrade");
