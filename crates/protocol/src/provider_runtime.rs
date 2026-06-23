@@ -295,6 +295,7 @@ pub struct ProviderRuntimeProviderInfo {
     pub display_name: String,
     pub descriptor: ProviderDescriptor,
     pub summary: ProviderRuntimeProviderInfoSummary,
+    pub readiness: ProviderRuntimeAdapterReadiness,
     pub supports_events: bool,
     pub supports_server_request_responses: bool,
     pub contract: ProviderContractReport,
@@ -331,6 +332,89 @@ pub struct ProviderRuntimeProviderSurfaceSupport {
     pub server_request_responses: bool,
     pub state_snapshots: bool,
     pub host_tools: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeAdapterReadiness {
+    pub ready: bool,
+    pub contract_satisfied: bool,
+    pub runtime_hooks_satisfied: bool,
+    #[serde(default)]
+    pub missing_required_capabilities: Vec<String>,
+    #[serde(default)]
+    pub missing_required_hooks: Vec<ProviderAdapterRuntimeHook>,
+    #[serde(default)]
+    pub feature_families: Vec<ProviderRuntimeFeatureFamilyReadiness>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeFeatureFamilyReadiness {
+    pub category: ProviderFeatureCategory,
+    pub ready: bool,
+    pub total_operations: usize,
+    pub hook_ready_operations: usize,
+    pub hook_blocked_operations: usize,
+    pub required_operations: usize,
+    pub required_blocked_operations: usize,
+    #[serde(default)]
+    pub required_hooks: Vec<ProviderAdapterRuntimeHook>,
+    #[serde(default)]
+    pub missing_hooks: Vec<ProviderAdapterRuntimeHook>,
+    #[serde(default)]
+    pub operations: Vec<ProviderAdapterOperation>,
+}
+
+impl ProviderRuntimeAdapterReadiness {
+    #[must_use]
+    pub fn from_parts(
+        contract: &ProviderContractReport,
+        adapter_profile: &ProviderAdapterProfile,
+        adapter_runtime: &ProviderAdapterRuntimeReport,
+    ) -> Self {
+        let feature_families = adapter_runtime
+            .feature_families
+            .iter()
+            .map(|family| {
+                let required_operations = family
+                    .operations
+                    .iter()
+                    .filter(|operation| {
+                        adapter_profile
+                            .operation(**operation)
+                            .is_some_and(|profile| {
+                                profile.support == ProviderAdapterOperationSupport::Required
+                            })
+                    })
+                    .count();
+                let required_blocked_operations = if family.hook_blocked_operations == 0 {
+                    0
+                } else {
+                    required_operations
+                };
+                ProviderRuntimeFeatureFamilyReadiness {
+                    category: family.category,
+                    ready: family.hook_blocked_operations == 0,
+                    total_operations: family.total_operations,
+                    hook_ready_operations: family.hook_ready_operations,
+                    hook_blocked_operations: family.hook_blocked_operations,
+                    required_operations,
+                    required_blocked_operations,
+                    required_hooks: family.required_hooks.clone(),
+                    missing_hooks: family.missing_hooks.clone(),
+                    operations: family.operations.clone(),
+                }
+            })
+            .collect();
+
+        Self {
+            ready: contract.satisfies_required && adapter_runtime.satisfies_required_hooks,
+            contract_satisfied: contract.satisfies_required,
+            runtime_hooks_satisfied: adapter_runtime.satisfies_required_hooks,
+            missing_required_capabilities: contract.missing_required.clone(),
+            missing_required_hooks: adapter_runtime.missing_required_hooks.clone(),
+            feature_families,
+        }
+    }
 }
 
 impl ProviderRuntimeProviderInfoSummary {
@@ -884,6 +968,7 @@ pub struct ProviderRuntimeProviderStatus {
     pub display_name: String,
     pub status: ProviderDriverStatus,
     pub summary: ProviderRuntimeProviderStatusSummary,
+    pub readiness: ProviderRuntimeAdapterReadiness,
     pub supports_events: bool,
     pub supports_server_request_responses: bool,
     pub contract: ProviderContractReport,

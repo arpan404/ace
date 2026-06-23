@@ -45,11 +45,12 @@ use ace_protocol::{
         PROVIDER_RUNTIME_MAX_EVENTS_REPLAY_LIMIT, PROVIDER_RUNTIME_MAX_REQUEST_RESOLVE_BATCH_SIZE,
         PROVIDER_RUNTIME_MAX_SERVER_REQUESTS_LIMIT, ProviderHostToolBridgeSummary,
         ProviderHostToolInvokeServerRequest, ProviderHostToolsListResponse,
-        ProviderRuntimeAdapterValidateRequest, ProviderRuntimeAdapterValidateResponse,
-        ProviderRuntimeContractReport, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
-        ProviderRuntimeEventRecord, ProviderRuntimeFeaturesListRequest,
-        ProviderRuntimeFeaturesListResponse, ProviderRuntimeLifecycleRequest,
-        ProviderRuntimeLifecycleResponse, ProviderRuntimeModelProviderCapabilitiesReadRequest,
+        ProviderRuntimeAdapterReadiness, ProviderRuntimeAdapterValidateRequest,
+        ProviderRuntimeAdapterValidateResponse, ProviderRuntimeContractReport,
+        ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeEventRecord,
+        ProviderRuntimeFeaturesListRequest, ProviderRuntimeFeaturesListResponse,
+        ProviderRuntimeLifecycleRequest, ProviderRuntimeLifecycleResponse,
+        ProviderRuntimeModelProviderCapabilitiesReadRequest,
         ProviderRuntimeModelProviderCapabilitiesReadResponse, ProviderRuntimeModelsListRequest,
         ProviderRuntimeModelsListResponse, ProviderRuntimeOperationGateResolution,
         ProviderRuntimeOperationGateStatus, ProviderRuntimeOperationParams,
@@ -1122,12 +1123,18 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         &contract,
                         &adapter_runtime,
                     );
+                    let readiness = ProviderRuntimeAdapterReadiness::from_parts(
+                        &contract,
+                        &adapter_profile,
+                        &adapter_runtime,
+                    );
                     provider_statuses.push(ProviderRuntimeProviderStatus {
                         provider,
                         runtime_id: provider.runtime_id().to_string(),
                         display_name: provider.display_name().to_string(),
                         status,
                         summary,
+                        readiness,
                         supports_events,
                         supports_server_request_responses,
                         contract,
@@ -2664,6 +2671,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             runtime_id: provider.runtime_id().to_string(),
             display_name: provider.display_name().to_string(),
             summary,
+            readiness: ProviderRuntimeAdapterReadiness::from_parts(
+                &contract,
+                &adapter_profile,
+                &adapter_runtime,
+            ),
             supports_events,
             supports_server_request_responses,
             contract,
@@ -9686,6 +9698,34 @@ mod tests {
             codex_runtime["summary"]["runtime_blocked_feature_families"],
             0
         );
+        assert_eq!(codex_runtime["readiness"]["ready"], true);
+        assert_eq!(codex_runtime["readiness"]["contract_satisfied"], true);
+        assert_eq!(codex_runtime["readiness"]["runtime_hooks_satisfied"], true);
+        assert!(
+            codex_runtime["readiness"]["missing_required_capabilities"]
+                .as_array()
+                .expect("missing required capabilities")
+                .is_empty()
+        );
+        assert!(
+            codex_runtime["readiness"]["missing_required_hooks"]
+                .as_array()
+                .expect("missing required hooks")
+                .is_empty()
+        );
+        assert!(
+            codex_runtime["readiness"]["feature_families"]
+                .as_array()
+                .expect("readiness feature families")
+                .iter()
+                .any(|family| family["category"] == "tools"
+                    && family["ready"] == true
+                    && family["hook_blocked_operations"] == 0
+                    && family["operations"]
+                        .as_array()
+                        .expect("tool operations")
+                        .contains(&json!("computer_bridge_contract")))
+        );
         assert!(
             codex_runtime["summary"]["required_operations"]
                 .as_u64()
@@ -9780,6 +9820,21 @@ mod tests {
                 .expect("ace native capabilities")
                 .iter()
                 .any(|capability| capability == "ace.provider_contract")
+        );
+        assert_eq!(ace_runtime["readiness"]["ready"], true);
+        assert_eq!(ace_runtime["readiness"]["contract_satisfied"], true);
+        assert_eq!(ace_runtime["readiness"]["runtime_hooks_satisfied"], true);
+        assert!(
+            ace_runtime["readiness"]["feature_families"]
+                .as_array()
+                .expect("ace readiness feature families")
+                .iter()
+                .any(|family| family["category"] == "server_requests"
+                    && family["ready"] == true
+                    && family["missing_hooks"]
+                        .as_array()
+                        .expect("ace missing server request hooks")
+                        .is_empty())
         );
         assert_eq!(ace_runtime["supports_events"], true);
         assert_eq!(ace_runtime["supports_server_request_responses"], true);
@@ -11998,6 +12053,18 @@ mod tests {
         assert_eq!(codex["summary"]["supports_server_request_responses"], true);
         assert_eq!(codex["summary"]["contract_satisfied"], true);
         assert_eq!(codex["summary"]["runtime_hooks_satisfied"], true);
+        assert_eq!(codex["readiness"]["ready"], true);
+        assert_eq!(codex["readiness"]["contract_satisfied"], true);
+        assert_eq!(codex["readiness"]["runtime_hooks_satisfied"], true);
+        assert!(
+            codex["readiness"]["feature_families"]
+                .as_array()
+                .expect("codex readiness families")
+                .iter()
+                .any(|family| family["category"] == "server_requests"
+                    && family["ready"] == true
+                    && family["required_blocked_operations"] == 0)
+        );
         assert!(
             codex["summary"]["runtime_ready_feature_families"]
                 .as_u64()
@@ -12087,6 +12154,18 @@ mod tests {
         assert_eq!(ace["summary"]["transport"], "in_process");
         assert_eq!(ace["summary"]["supports_events"], true);
         assert_eq!(ace["summary"]["contract_satisfied"], true);
+        assert_eq!(ace["readiness"]["ready"], true);
+        assert_eq!(ace["readiness"]["contract_satisfied"], true);
+        assert_eq!(ace["readiness"]["runtime_hooks_satisfied"], true);
+        assert!(
+            ace["readiness"]["feature_families"]
+                .as_array()
+                .expect("ace readiness families")
+                .iter()
+                .any(|family| family["category"] == "tools"
+                    && family["ready"] == true
+                    && family["hook_blocked_operations"] == 0)
+        );
         assert!(
             ace["summary"]["advertised_client_request_methods"]
                 .as_u64()
