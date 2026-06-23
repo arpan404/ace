@@ -47,7 +47,8 @@ use ace_protocol::{
         ProviderRuntimeProviderSurfaceSupport, ProviderRuntimeProvidersList,
         ProviderRuntimeRawEventMode, ProviderRuntimeRawEventSummary,
         ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
-        ProviderRuntimeRequest, ProviderRuntimeSlashCommandsListRequest,
+        ProviderRuntimeRequest, ProviderRuntimeRequestResolveRequest,
+        ProviderRuntimeRequestResolveResponse, ProviderRuntimeSlashCommandsListRequest,
         ProviderRuntimeSlashCommandsListResponse, ProviderRuntimeStateGetRequest,
         ProviderRuntimeStateGetResponse, ProviderRuntimeStateSource,
         ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
@@ -1355,6 +1356,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     records,
                 })?)
             }
+            methods::PROVIDER_RUNTIME_REQUEST_RESOLVE => {
+                let request =
+                    serde_json::from_value::<ProviderRuntimeRequestResolveRequest>(payload)?;
+                self.resolve_provider_runtime_request(request).await
+            }
             methods::PROVIDER_RUNTIME_REQUEST => {
                 let mut request = serde_json::from_value::<ProviderRuntimeRequest>(payload)?;
                 let provider =
@@ -2605,6 +2611,94 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         }
     }
 
+    async fn resolve_provider_runtime_request(
+        &self,
+        request: ProviderRuntimeRequestResolveRequest,
+    ) -> Result<Value, WsDispatchError> {
+        let provider = ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
+            WsDispatchError::BadRequest(format!(
+                "unknown provider `{}` for runtime request resolution",
+                request.provider
+            ))
+        })?;
+        let adapter_profile = self
+            .providers
+            .adapter_profile(provider)
+            .ok_or(ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider })?;
+        let status = self.providers.status(provider).await.ok();
+        let operation_profile = request
+            .operation
+            .map(|operation| {
+                provider_runtime_operation_for_provider(
+                    provider,
+                    operation,
+                    &adapter_profile,
+                    status.as_ref(),
+                )
+            })
+            .transpose()?;
+        let requested_method = request.method.clone();
+
+        let (provider_method, runtime_request) = if let Some(method) = request.method {
+            (
+                Some(method),
+                ProviderRuntimeOperationRequest::provider_method(
+                    ProviderRuntimeOperationParams::ProviderNative,
+                ),
+            )
+        } else if let Some(operation) = request.operation {
+            let profile = operation_profile.as_ref().ok_or_else(|| {
+                WsDispatchError::BadRequest(format!(
+                    "provider `{}` does not advertise adapter operation `{operation:?}`",
+                    provider.runtime_id()
+                ))
+            })?;
+            if !profile.runtime_request.invokable {
+                (
+                    profile.provider_methods.first().cloned(),
+                    profile.runtime_request.clone(),
+                )
+            } else {
+                match resolve_provider_runtime_request_method(
+                    None,
+                    Some(operation),
+                    &adapter_profile,
+                    status.as_ref(),
+                ) {
+                    Ok(method) => (Some(method), profile.runtime_request.clone()),
+                    Err(error) => (
+                        None,
+                        ProviderRuntimeOperationRequest::unavailable(
+                            ProviderRuntimeOperationRequestMode::ProviderMethod,
+                            error.to_string(),
+                        ),
+                    ),
+                }
+            }
+        } else {
+            (
+                None,
+                ProviderRuntimeOperationRequest::unavailable(
+                    ProviderRuntimeOperationRequestMode::ProviderMethod,
+                    "provider runtime request resolution requires either `method` or `operation`",
+                ),
+            )
+        };
+
+        Ok(serde_json::to_value(
+            ProviderRuntimeRequestResolveResponse {
+                provider,
+                runtime_id: provider.runtime_id().to_string(),
+                display_name: provider.display_name().to_string(),
+                requested_method,
+                operation: request.operation,
+                provider_method,
+                runtime_request,
+                operation_profile,
+            },
+        )?)
+    }
+
     fn provider_runtime_filter(
         &self,
         provider: Option<String>,
@@ -3380,21 +3474,47 @@ fn provider_runtime_operations_for_provider(
         .operations
         .iter()
         .cloned()
-        .map(|profile| {
-            let gate_resolution = profile
-                .runtime_gate
-                .as_ref()
-                .map(|gate| resolve_provider_operation_gate(gate, status));
-            let runtime_request = if provider == ProviderKind::Codex {
-                codex_runtime_request_for_profile(&profile, gate_resolution.as_ref())
-            } else {
-                provider_native_runtime_request_for_profile(provider, &profile, status)
-            };
-            ProviderRuntimeProviderOperation::from_profile(profile)
-                .with_runtime_request(runtime_request)
-                .with_runtime_gate_resolution(gate_resolution)
-        })
+        .map(|profile| provider_runtime_operation_from_profile(provider, profile, status))
         .collect()
+}
+
+fn provider_runtime_operation_for_provider(
+    provider: ProviderKind,
+    operation: ProviderAdapterOperation,
+    adapter_profile: &ProviderAdapterProfile,
+    status: Option<&ProviderDriverStatus>,
+) -> Result<ProviderRuntimeProviderOperation, WsDispatchError> {
+    let profile = adapter_profile
+        .operation(operation)
+        .cloned()
+        .ok_or_else(|| {
+            WsDispatchError::BadRequest(format!(
+                "provider `{}` does not advertise adapter operation `{operation:?}`",
+                provider.runtime_id()
+            ))
+        })?;
+    Ok(provider_runtime_operation_from_profile(
+        provider, profile, status,
+    ))
+}
+
+fn provider_runtime_operation_from_profile(
+    provider: ProviderKind,
+    profile: ProviderAdapterOperationProfile,
+    status: Option<&ProviderDriverStatus>,
+) -> ProviderRuntimeProviderOperation {
+    let gate_resolution = profile
+        .runtime_gate
+        .as_ref()
+        .map(|gate| resolve_provider_operation_gate(gate, status));
+    let runtime_request = if provider == ProviderKind::Codex {
+        codex_runtime_request_for_profile(&profile, gate_resolution.as_ref())
+    } else {
+        provider_native_runtime_request_for_profile(provider, &profile, status)
+    };
+    ProviderRuntimeProviderOperation::from_profile(profile)
+        .with_runtime_request(runtime_request)
+        .with_runtime_gate_resolution(gate_resolution)
 }
 
 fn provider_slash_commands(
@@ -9295,6 +9415,120 @@ mod tests {
                 .contains(&json!("command/exec"))
         );
         assert!(backend.calls.lock().expect("calls").is_empty());
+
+        let resolved_thread_read = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-resolve-thread-read",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST_RESOLVE,
+                    "payload": {
+                        "provider": "codex",
+                        "operation": "thread_read"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let resolved_thread_read: WsServerResponse =
+            serde_json::from_str(&resolved_thread_read).expect("thread read resolve response");
+        let WsServerPayload::Result { body } = resolved_thread_read.payload else {
+            panic!("expected thread read resolve result");
+        };
+        assert_eq!(body["provider"], "Codex");
+        assert_eq!(body["runtime_id"], "codex");
+        assert_eq!(body["operation"], "thread_read");
+        assert_eq!(body["provider_method"], "thread/read");
+        assert_eq!(body["runtime_request"]["invokable"], true);
+        assert_eq!(body["runtime_request"]["mode"], "adapter_operation");
+        assert_eq!(body["runtime_request"]["params"], "adapter_normalized");
+        assert_eq!(body["operation_profile"]["operation"], "thread_read");
+
+        let resolved_raw_method = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-resolve-raw-method",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST_RESOLVE,
+                    "payload": {
+                        "provider": "codex",
+                        "method": "remote/connectionList"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let resolved_raw_method: WsServerResponse =
+            serde_json::from_str(&resolved_raw_method).expect("raw method resolve response");
+        let WsServerPayload::Result { body } = resolved_raw_method.payload else {
+            panic!("expected raw method resolve result");
+        };
+        assert_eq!(body["requested_method"], "remote/connectionList");
+        assert_eq!(body["provider_method"], "remote/connectionList");
+        assert_eq!(body["runtime_request"]["invokable"], true);
+        assert_eq!(body["runtime_request"]["mode"], "provider_method");
+        assert!(body.get("operation_profile").is_none());
+
+        let resolved_missing_shell = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-resolve-missing-shell",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST_RESOLVE,
+                    "payload": {
+                        "provider": "codex",
+                        "operation": "thread_shell_command"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let resolved_missing_shell: WsServerResponse =
+            serde_json::from_str(&resolved_missing_shell).expect("missing shell resolve response");
+        let WsServerPayload::Result { body } = resolved_missing_shell.payload else {
+            panic!("expected missing shell resolve result");
+        };
+        assert_eq!(body["provider_method"], "thread/shellCommand");
+        assert_eq!(body["runtime_request"]["invokable"], false);
+        assert_eq!(body["runtime_request"]["mode"], "adapter_operation");
+        assert!(
+            body["runtime_request"]["reason"]
+                .as_str()
+                .expect("missing shell reason")
+                .contains("missing from the installed provider")
+        );
+        assert_eq!(
+            body["operation_profile"]["runtime_gate_resolution"]["status"],
+            "unavailable"
+        );
+
+        let resolved_deferred = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-resolve-deferred",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST_RESOLVE,
+                    "payload": {
+                        "provider": "codex",
+                        "operation": "cloud_handoff"
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let resolved_deferred: WsServerResponse =
+            serde_json::from_str(&resolved_deferred).expect("deferred resolve response");
+        let WsServerPayload::Result { body } = resolved_deferred.payload else {
+            panic!("expected deferred resolve result");
+        };
+        assert_eq!(body["runtime_request"]["invokable"], false);
+        assert_eq!(body["runtime_request"]["mode"], "deferred");
+        assert_eq!(body["operation_profile"]["availability"], "deferred");
+
+        assert!(
+            backend.calls.lock().expect("calls").is_empty(),
+            "request resolution must not execute provider calls"
+        );
 
         let routed = state
             .dispatch_text(

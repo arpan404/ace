@@ -219,6 +219,31 @@ pub struct ProviderRuntimeRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeRequestResolveRequest {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<ProviderAdapterOperation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeRequestResolveResponse {
+    pub provider: ProviderKind,
+    pub runtime_id: String,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<ProviderAdapterOperation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_method: Option<String>,
+    pub runtime_request: ProviderRuntimeOperationRequest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_profile: Option<ProviderRuntimeProviderOperation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderRuntimeProvidersList {
     pub providers: Vec<ProviderDescriptor>,
     #[serde(default)]
@@ -2450,6 +2475,35 @@ mod tests {
             by_operation.operation,
             Some(ProviderAdapterOperation::ThreadRead)
         );
+
+        let resolve = serde_json::from_value::<ProviderRuntimeRequestResolveRequest>(json!({
+            "provider": "codex",
+            "operation": "thread_read"
+        }))
+        .expect("resolve request");
+        assert_eq!(resolve.provider, "codex");
+        assert_eq!(resolve.method, None);
+        assert_eq!(
+            resolve.operation,
+            Some(ProviderAdapterOperation::ThreadRead)
+        );
+
+        let response = ProviderRuntimeRequestResolveResponse {
+            provider: ProviderKind::Codex,
+            runtime_id: "codex".to_string(),
+            display_name: "Codex".to_string(),
+            requested_method: None,
+            operation: Some(ProviderAdapterOperation::ThreadRead),
+            provider_method: Some("thread/read".to_string()),
+            runtime_request: ProviderRuntimeOperationRequest::operation(
+                ProviderRuntimeOperationParams::AdapterNormalized,
+            ),
+            operation_profile: None,
+        };
+        let encoded = serde_json::to_value(&response).expect("resolve response");
+        assert_eq!(encoded["runtime_id"], "codex");
+        assert_eq!(encoded["provider_method"], "thread/read");
+        assert_eq!(encoded["runtime_request"]["mode"], "adapter_operation");
     }
 
     #[test]
