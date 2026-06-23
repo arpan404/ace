@@ -543,7 +543,23 @@ pub mod provider {
         pub provider: ProviderKind,
         pub satisfies_required_hooks: bool,
         pub hooks: Vec<ProviderAdapterRuntimeHookStatus>,
+        #[serde(default)]
+        pub feature_families: Vec<ProviderAdapterFeatureFamilyRuntime>,
         pub missing_required_hooks: Vec<ProviderAdapterRuntimeHook>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderAdapterFeatureFamilyRuntime {
+        pub category: ProviderFeatureCategory,
+        pub total_operations: usize,
+        pub hook_ready_operations: usize,
+        pub hook_blocked_operations: usize,
+        #[serde(default)]
+        pub required_hooks: Vec<ProviderAdapterRuntimeHook>,
+        #[serde(default)]
+        pub missing_hooks: Vec<ProviderAdapterRuntimeHook>,
+        #[serde(default)]
+        pub operations: Vec<ProviderAdapterOperation>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2646,6 +2662,67 @@ pub mod provider {
             .collect()
     }
 
+    fn provider_adapter_family_runtime(
+        profile: &ProviderAdapterProfile,
+        hooks: &[ProviderAdapterRuntimeHookStatus],
+    ) -> Vec<ProviderAdapterFeatureFamilyRuntime> {
+        let mut families =
+            BTreeMap::<ProviderFeatureCategory, ProviderAdapterFeatureFamilyRuntime>::new();
+        for operation in &profile.operations {
+            let family = families.entry(operation.category).or_insert_with(|| {
+                ProviderAdapterFeatureFamilyRuntime {
+                    category: operation.category,
+                    total_operations: 0,
+                    hook_ready_operations: 0,
+                    hook_blocked_operations: 0,
+                    required_hooks: Vec::new(),
+                    missing_hooks: Vec::new(),
+                    operations: Vec::new(),
+                }
+            });
+            family.total_operations += 1;
+            family.operations.push(operation.operation);
+            merge_hooks(
+                &mut family.required_hooks,
+                &operation.required_runtime_hooks,
+            );
+            let missing = operation
+                .required_runtime_hooks
+                .iter()
+                .copied()
+                .filter(|hook| !hook_is_available(hooks, *hook))
+                .collect::<Vec<_>>();
+            if missing.is_empty() {
+                family.hook_ready_operations += 1;
+            } else {
+                family.hook_blocked_operations += 1;
+                merge_hooks(&mut family.missing_hooks, &missing);
+            }
+        }
+        families.into_values().collect()
+    }
+
+    fn hook_is_available(
+        hooks: &[ProviderAdapterRuntimeHookStatus],
+        target: ProviderAdapterRuntimeHook,
+    ) -> bool {
+        hooks
+            .iter()
+            .find(|hook| hook.hook == target)
+            .is_some_and(|hook| hook.available)
+    }
+
+    fn merge_hooks(
+        target: &mut Vec<ProviderAdapterRuntimeHook>,
+        hooks: &[ProviderAdapterRuntimeHook],
+    ) {
+        for hook in hooks {
+            if !target.contains(hook) {
+                target.push(*hook);
+            }
+        }
+    }
+
     impl ProviderRegistry {
         #[must_use]
         pub fn new() -> Self {
@@ -2834,6 +2911,7 @@ pub mod provider {
             Some(ProviderAdapterRuntimeReport {
                 provider: kind,
                 satisfies_required_hooks: missing_required_hooks.is_empty(),
+                feature_families: provider_adapter_family_runtime(&profile, &hooks),
                 hooks,
                 missing_required_hooks,
             })
@@ -3649,6 +3727,33 @@ pub mod provider {
                     .operations
                     .contains(&ProviderAdapterOperation::SemanticTools)
             );
+            let tools_family = codex_runtime
+                .feature_families
+                .iter()
+                .find(|family| family.category == ProviderFeatureCategory::Tools)
+                .expect("tools runtime family");
+            assert!(tools_family.total_operations > 0);
+            assert!(tools_family.hook_blocked_operations > 0);
+            assert!(
+                tools_family
+                    .missing_hooks
+                    .contains(&ProviderAdapterRuntimeHook::HostToolRegistry)
+            );
+            assert!(
+                tools_family
+                    .operations
+                    .contains(&ProviderAdapterOperation::BrowserBridgeContract)
+            );
+            let events_family = codex_runtime
+                .feature_families
+                .iter()
+                .find(|family| family.category == ProviderFeatureCategory::Events)
+                .expect("events runtime family");
+            assert!(
+                events_family
+                    .missing_hooks
+                    .contains(&ProviderAdapterRuntimeHook::EventSource)
+            );
         }
 
         #[test]
@@ -3700,6 +3805,21 @@ pub mod provider {
                             ProviderAdapterOperation::ComputerBridgeContract,
                         ]
             }));
+            let tools_family = report
+                .feature_families
+                .iter()
+                .find(|family| family.category == ProviderFeatureCategory::Tools)
+                .expect("tools runtime family");
+            assert_eq!(tools_family.hook_blocked_operations, 0);
+            assert_eq!(tools_family.missing_hooks, Vec::new());
+            assert_eq!(
+                report
+                    .feature_families
+                    .iter()
+                    .map(|family| family.total_operations)
+                    .sum::<usize>(),
+                ace_provider_adapter_contract().operations.len()
+            );
             assert_eq!(registry.adapter_runtime_reports().len(), 1);
         }
 

@@ -310,6 +310,8 @@ pub struct ProviderRuntimeProviderInfoSummary {
     pub supports_server_request_responses: bool,
     pub supports_state_snapshots: bool,
     pub supports_host_tools: bool,
+    pub runtime_ready_feature_families: usize,
+    pub runtime_blocked_feature_families: usize,
     pub required_operations: usize,
     pub optional_operations: usize,
     pub version_gated_operations: usize,
@@ -361,6 +363,16 @@ impl ProviderRuntimeProviderInfoSummary {
             supports_server_request_responses: support.server_request_responses,
             supports_state_snapshots: support.state_snapshots,
             supports_host_tools: support.host_tools,
+            runtime_ready_feature_families: adapter_runtime
+                .feature_families
+                .iter()
+                .filter(|family| family.hook_blocked_operations == 0)
+                .count(),
+            runtime_blocked_feature_families: adapter_runtime
+                .feature_families
+                .iter()
+                .filter(|family| family.hook_blocked_operations > 0)
+                .count(),
             required_operations,
             optional_operations,
             version_gated_operations,
@@ -760,6 +772,8 @@ pub struct ProviderRuntimeProviderStatusSummary {
     pub supports_server_request_responses: bool,
     pub contract_satisfied: bool,
     pub runtime_hooks_satisfied: bool,
+    pub runtime_ready_feature_families: usize,
+    pub runtime_blocked_feature_families: usize,
     #[serde(default)]
     pub missing_required_capabilities: Vec<String>,
     #[serde(default)]
@@ -796,6 +810,16 @@ impl ProviderRuntimeProviderStatusSummary {
             supports_server_request_responses,
             contract_satisfied: contract.satisfies_required,
             runtime_hooks_satisfied: adapter_runtime.satisfies_required_hooks,
+            runtime_ready_feature_families: adapter_runtime
+                .feature_families
+                .iter()
+                .filter(|family| family.hook_blocked_operations == 0)
+                .count(),
+            runtime_blocked_feature_families: adapter_runtime
+                .feature_families
+                .iter()
+                .filter(|family| family.hook_blocked_operations > 0)
+                .count(),
             missing_required_capabilities: contract.missing_required.clone(),
             missing_required_hooks: adapter_runtime
                 .missing_required_hooks
@@ -3188,6 +3212,26 @@ mod tests {
             provider: ProviderKind::Cursor,
             satisfies_required_hooks: false,
             hooks: Vec::new(),
+            feature_families: vec![
+                ace_runtime::provider::ProviderAdapterFeatureFamilyRuntime {
+                    category: ProviderFeatureCategory::Threads,
+                    total_operations: 3,
+                    hook_ready_operations: 3,
+                    hook_blocked_operations: 0,
+                    required_hooks: Vec::new(),
+                    missing_hooks: Vec::new(),
+                    operations: Vec::new(),
+                },
+                ace_runtime::provider::ProviderAdapterFeatureFamilyRuntime {
+                    category: ProviderFeatureCategory::Events,
+                    total_operations: 2,
+                    hook_ready_operations: 0,
+                    hook_blocked_operations: 2,
+                    required_hooks: vec![ProviderAdapterRuntimeHook::EventSource],
+                    missing_hooks: vec![ProviderAdapterRuntimeHook::EventSource],
+                    operations: Vec::new(),
+                },
+            ],
             missing_required_hooks: vec![ProviderAdapterRuntimeHook::EventSource],
         };
 
@@ -3210,6 +3254,8 @@ mod tests {
         assert!(!summary.supports_server_request_responses);
         assert!(summary.supports_state_snapshots);
         assert!(!summary.supports_host_tools);
+        assert_eq!(summary.runtime_ready_feature_families, 1);
+        assert_eq!(summary.runtime_blocked_feature_families, 1);
         assert!(summary.required_operations > 0);
         assert!(summary.optional_operations > 0);
         assert!(summary.version_gated_operations > 0);
@@ -3250,6 +3296,15 @@ mod tests {
             provider: ProviderKind::Codex,
             satisfies_required_hooks: true,
             hooks: Vec::new(),
+            feature_families: vec![ace_runtime::provider::ProviderAdapterFeatureFamilyRuntime {
+                category: ProviderFeatureCategory::Threads,
+                total_operations: 3,
+                hook_ready_operations: 3,
+                hook_blocked_operations: 0,
+                required_hooks: Vec::new(),
+                missing_hooks: Vec::new(),
+                operations: Vec::new(),
+            }],
             missing_required_hooks: Vec::new(),
         };
 
@@ -3268,6 +3323,8 @@ mod tests {
         assert_eq!(summary.advertised_client_request_methods, 2);
         assert_eq!(summary.version_gated_client_request_methods, 1);
         assert_eq!(summary.deferred_client_request_methods, 1);
+        assert_eq!(summary.runtime_ready_feature_families, 1);
+        assert_eq!(summary.runtime_blocked_feature_families, 0);
 
         let degraded_contract = ace_runtime::provider::ProviderContractReport {
             satisfies_required: false,
@@ -3277,6 +3334,7 @@ mod tests {
         let degraded_runtime = ace_runtime::provider::ProviderAdapterRuntimeReport {
             satisfies_required_hooks: false,
             missing_required_hooks: vec![ProviderAdapterRuntimeHook::EventSource],
+            feature_families: Vec::new(),
             ..runtime
         };
         let degraded = ProviderRuntimeProviderStatusSummary::from_status(

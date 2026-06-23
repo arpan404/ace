@@ -2594,6 +2594,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 provider,
                 satisfies_required_hooks: false,
                 hooks: Vec::new(),
+                feature_families: Vec::new(),
                 missing_required_hooks: Vec::new(),
             });
         let supports_events = self.providers.has_event_source(provider);
@@ -9380,6 +9381,16 @@ mod tests {
         assert_eq!(codex_runtime["summary"]["supports_state_snapshots"], true);
         assert_eq!(codex_runtime["summary"]["supports_host_tools"], true);
         assert!(
+            codex_runtime["summary"]["runtime_ready_feature_families"]
+                .as_u64()
+                .expect("ready families")
+                > 0
+        );
+        assert_eq!(
+            codex_runtime["summary"]["runtime_blocked_feature_families"],
+            0
+        );
+        assert!(
             codex_runtime["summary"]["required_operations"]
                 .as_u64()
                 .expect("required operations")
@@ -9418,6 +9429,18 @@ mod tests {
                 .as_array()
                 .expect("missing required hooks")
                 .is_empty()
+        );
+        assert!(
+            codex_runtime["adapter_runtime"]["feature_families"]
+                .as_array()
+                .expect("runtime feature families")
+                .iter()
+                .any(|family| family["category"] == "tools"
+                    && family["hook_blocked_operations"] == 0
+                    && family["operations"]
+                        .as_array()
+                        .expect("tool operations")
+                        .contains(&json!("browser_bridge_contract")))
         );
         assert!(
             codex_runtime["adapter_profile"]["operations"]
@@ -11551,6 +11574,13 @@ mod tests {
         assert_eq!(codex["summary"]["supports_server_request_responses"], true);
         assert_eq!(codex["summary"]["contract_satisfied"], true);
         assert_eq!(codex["summary"]["runtime_hooks_satisfied"], true);
+        assert!(
+            codex["summary"]["runtime_ready_feature_families"]
+                .as_u64()
+                .expect("ready families")
+                > 0
+        );
+        assert_eq!(codex["summary"]["runtime_blocked_feature_families"], 0);
         assert_eq!(
             codex["summary"]["method_inventory_source"],
             "compiled_codex_adapter_inventory"
@@ -11609,6 +11639,17 @@ mod tests {
                     && operation["invocation"] == "event_stream")
         );
         assert_eq!(codex["adapter_runtime"]["satisfies_required_hooks"], true);
+        assert!(
+            codex["adapter_runtime"]["feature_families"]
+                .as_array()
+                .expect("runtime feature families")
+                .iter()
+                .any(|family| family["category"] == "server_requests"
+                    && family["missing_hooks"]
+                        .as_array()
+                        .expect("missing hooks")
+                        .is_empty())
+        );
 
         let ace = providers
             .iter()
