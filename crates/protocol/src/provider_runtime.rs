@@ -1518,7 +1518,7 @@ impl ProviderRuntimeStateSummary {
             if connection.execution_location == ExecutionLocation::RemoteHost {
                 summary.remote_host_connections += 1;
             }
-            if has_remote_projects(connection.projects.as_ref()) {
+            if has_remote_projects(&connection.projects) {
                 summary.remote_connections_with_projects += 1;
             }
             if let Some(status) = connection.status.as_deref() {
@@ -3545,7 +3545,8 @@ mod tests {
         ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus,
         PlanImplementationMode, PlanImplementationRecord, PlanSession, PlanSessionStatus,
         RealtimeAudioRecord, RealtimeTranscriptRecord, SubagentActionKind, SubagentActionRecord,
-        TerminalOutputRecord, ThreadLifecycleActionKind, ThreadLifecycleRecord, Turn, TurnMode,
+        RemoteConnectionRecord, TerminalOutputRecord, ThreadLifecycleActionKind,
+        ThreadLifecycleRecord, Turn, TurnMode,
     };
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
