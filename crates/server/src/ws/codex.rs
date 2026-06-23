@@ -6865,6 +6865,14 @@ mod tests {
         assert_eq!(goals[0]["status"], "cleared");
         assert_eq!(goals[0]["objective"], "finish adapter");
         assert_eq!(goals[0]["token_budget"], 12000);
+        let summary = &body["providers"][0]["summary"];
+        assert_eq!(summary["goals"], 1);
+        assert_eq!(summary["cleared_goals"], 1);
+        assert_eq!(summary["goals_with_token_budget"], 1);
+        assert_eq!(summary["goal_token_budget_total"], 12000);
+        assert_eq!(summary["goal_tokens_used_total"], 0);
+        assert_eq!(summary["goal_time_used_seconds_total"], 0);
+        assert_eq!(summary["goals_over_token_budget"], 0);
 
         let recent = state
             .dispatch_text(

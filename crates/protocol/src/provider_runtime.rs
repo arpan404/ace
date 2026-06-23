@@ -1151,6 +1151,18 @@ pub struct ProviderRuntimeStateSummary {
     pub rejected_plan_sessions: usize,
     pub implementing_plan_sessions: usize,
     pub goals: usize,
+    pub active_goals: usize,
+    pub paused_goals: usize,
+    pub blocked_goals: usize,
+    pub usage_limited_goals: usize,
+    pub budget_limited_goals: usize,
+    pub complete_goals: usize,
+    pub cleared_goals: usize,
+    pub goals_with_token_budget: usize,
+    pub goal_token_budget_total: u64,
+    pub goal_tokens_used_total: u64,
+    pub goal_time_used_seconds_total: u64,
+    pub goals_over_token_budget: usize,
     pub child_threads: usize,
     pub active_child_threads: usize,
     pub ephemeral_child_threads: usize,
@@ -1346,6 +1358,35 @@ impl ProviderRuntimeStateSummary {
         }
         for goal in &snapshot.goals {
             increment_count(&mut by_goal_status, enum_key(&goal.status));
+            match goal.status {
+                GoalStatus::Active => summary.active_goals += 1,
+                GoalStatus::Paused => summary.paused_goals += 1,
+                GoalStatus::Blocked => summary.blocked_goals += 1,
+                GoalStatus::UsageLimited => summary.usage_limited_goals += 1,
+                GoalStatus::BudgetLimited => summary.budget_limited_goals += 1,
+                GoalStatus::Complete => summary.complete_goals += 1,
+                GoalStatus::Cleared => summary.cleared_goals += 1,
+            }
+            if let Some(token_budget) = goal.token_budget {
+                summary.goals_with_token_budget += 1;
+                summary.goal_token_budget_total =
+                    summary.goal_token_budget_total.saturating_add(token_budget);
+                if goal
+                    .tokens_used
+                    .is_some_and(|tokens_used| tokens_used > token_budget)
+                {
+                    summary.goals_over_token_budget += 1;
+                }
+            }
+            if let Some(tokens_used) = goal.tokens_used {
+                summary.goal_tokens_used_total =
+                    summary.goal_tokens_used_total.saturating_add(tokens_used);
+            }
+            if let Some(time_used_seconds) = goal.time_used_seconds {
+                summary.goal_time_used_seconds_total = summary
+                    .goal_time_used_seconds_total
+                    .saturating_add(time_used_seconds);
+            }
         }
         for handoff in &snapshot.handoffs {
             increment_count(&mut by_handoff_status, enum_key(&handoff.status));
@@ -4497,6 +4538,19 @@ mod tests {
         assert_eq!(summary.completed_plan_sessions, 0);
         assert_eq!(summary.rejected_plan_sessions, 0);
         assert_eq!(summary.implementing_plan_sessions, 1);
+        assert_eq!(summary.goals, 1);
+        assert_eq!(summary.active_goals, 0);
+        assert_eq!(summary.paused_goals, 1);
+        assert_eq!(summary.blocked_goals, 0);
+        assert_eq!(summary.usage_limited_goals, 0);
+        assert_eq!(summary.budget_limited_goals, 0);
+        assert_eq!(summary.complete_goals, 0);
+        assert_eq!(summary.cleared_goals, 0);
+        assert_eq!(summary.goals_with_token_budget, 1);
+        assert_eq!(summary.goal_token_budget_total, 100);
+        assert_eq!(summary.goal_tokens_used_total, 10);
+        assert_eq!(summary.goal_time_used_seconds_total, 5);
+        assert_eq!(summary.goals_over_token_budget, 0);
         assert_eq!(summary.child_threads, 1);
         assert_eq!(summary.active_child_threads, 1);
         assert_eq!(summary.ephemeral_child_threads, 0);
