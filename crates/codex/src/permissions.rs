@@ -1,4 +1,7 @@
-use ace_runtime::threads::PermissionPolicy;
+use ace_runtime::threads::{
+    PermissionApprovalMode, PermissionApprovalReviewer, PermissionNetworkAccess, PermissionPolicy,
+    PermissionSandboxMode,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -151,9 +154,47 @@ pub struct CodexPermissionPresetCatalogEntry {
     pub label: String,
     pub permissions: CodexTurnPermissions,
     pub normalized_policy: PermissionPolicy,
+    pub safety: CodexPermissionPresetSafety,
     pub available: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unavailable_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexPermissionPresetSafety {
+    pub read_only: bool,
+    pub workspace_write: bool,
+    pub full_access: bool,
+    pub external_sandbox: bool,
+    pub network_enabled: bool,
+    pub approval_required: bool,
+    pub no_prompts: bool,
+    pub auto_review: bool,
+    pub auto_review_only_changes_reviewer: bool,
+}
+
+impl CodexPermissionPresetSafety {
+    #[must_use]
+    pub fn from_policy(preset: CodexPermissionPreset, policy: &PermissionPolicy) -> Self {
+        let auto_policy = CodexPermissionPreset::Auto
+            .turn_permissions()
+            .normalized_policy();
+        Self {
+            read_only: policy.sandbox_mode == PermissionSandboxMode::ReadOnly,
+            workspace_write: policy.sandbox_mode == PermissionSandboxMode::WorkspaceWrite,
+            full_access: policy.sandbox_mode == PermissionSandboxMode::DangerFullAccess,
+            external_sandbox: policy.sandbox_mode == PermissionSandboxMode::External,
+            network_enabled: policy.network_access == PermissionNetworkAccess::Enabled,
+            approval_required: !matches!(policy.approval_mode, PermissionApprovalMode::Never),
+            no_prompts: policy.approval_mode == PermissionApprovalMode::Never,
+            auto_review: policy.approval_reviewer == Some(PermissionApprovalReviewer::AutoReview),
+            auto_review_only_changes_reviewer: preset == CodexPermissionPreset::AutoReview
+                && policy.sandbox_mode == auto_policy.sandbox_mode
+                && policy.network_access == auto_policy.network_access
+                && policy.approval_mode == auto_policy.approval_mode
+                && policy.approval_reviewer == Some(PermissionApprovalReviewer::AutoReview),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -236,12 +277,14 @@ pub fn permission_preset_catalog_entries(
             };
             let permissions = preset.turn_permissions();
             let normalized_policy = permissions.normalized_policy();
+            let safety = CodexPermissionPresetSafety::from_policy(preset, &normalized_policy);
             CodexPermissionPresetCatalogEntry {
                 preset,
                 key: key.to_string(),
                 label: preset.label().to_string(),
                 permissions,
                 normalized_policy,
+                safety,
                 available: unavailable_reason.is_none(),
                 unavailable_reason,
             }
@@ -375,6 +418,10 @@ mod tests {
         let auto_review = CodexPermissionPreset::AutoReview
             .turn_permissions()
             .normalized_policy();
+        let auto_review_safety = CodexPermissionPresetSafety::from_policy(
+            CodexPermissionPreset::AutoReview,
+            &auto_review,
+        );
 
         assert_eq!(auto.sandbox_mode, PermissionSandboxMode::WorkspaceWrite);
         assert_eq!(
@@ -398,6 +445,11 @@ mod tests {
             Some(PermissionApprovalReviewer::AutoReview)
         );
         assert!(!auto_review.allows_full_access_without_prompts());
+        assert!(auto_review_safety.auto_review);
+        assert!(auto_review_safety.auto_review_only_changes_reviewer);
+        assert!(auto_review_safety.approval_required);
+        assert!(!auto_review_safety.network_enabled);
+        assert!(!auto_review_safety.full_access);
     }
 
     #[test]
@@ -451,6 +503,11 @@ mod tests {
             full_access.normalized_policy.approval_mode,
             PermissionApprovalMode::Never
         );
+        assert!(full_access.safety.full_access);
+        assert!(full_access.safety.network_enabled);
+        assert!(full_access.safety.no_prompts);
+        assert!(!full_access.safety.approval_required);
+        assert!(!full_access.safety.auto_review);
     }
 
     #[test]
@@ -468,5 +525,46 @@ mod tests {
                 .and_then(|entry| entry.unavailable_reason.as_deref()),
             Some("missing_permission_profile")
         );
+    }
+
+    #[test]
+    fn permission_catalog_entries_expose_safety_summary() {
+        let catalog = CodexPermissionCatalog::from_sources(json!({}), json!({}));
+
+        let strict = catalog
+            .preset_entry(CodexPermissionPreset::Strict)
+            .expect("strict");
+        assert!(strict.safety.read_only);
+        assert!(!strict.safety.workspace_write);
+        assert!(!strict.safety.full_access);
+        assert!(!strict.safety.network_enabled);
+        assert!(strict.safety.approval_required);
+        assert!(!strict.safety.no_prompts);
+
+        let auto = catalog
+            .preset_entry(CodexPermissionPreset::Auto)
+            .expect("auto");
+        assert!(auto.safety.workspace_write);
+        assert!(!auto.safety.auto_review);
+        assert!(!auto.safety.auto_review_only_changes_reviewer);
+
+        let auto_review = catalog
+            .preset_entry(CodexPermissionPreset::AutoReview)
+            .expect("auto review");
+        assert!(auto_review.safety.workspace_write);
+        assert!(auto_review.safety.auto_review);
+        assert!(auto_review.safety.auto_review_only_changes_reviewer);
+        assert_eq!(
+            auto.normalized_policy.sandbox_mode,
+            auto_review.normalized_policy.sandbox_mode
+        );
+
+        let full_access = catalog
+            .preset_entry(CodexPermissionPreset::FullAccess)
+            .expect("full access");
+        assert!(full_access.safety.full_access);
+        assert!(full_access.safety.network_enabled);
+        assert!(full_access.safety.no_prompts);
+        assert!(!full_access.safety.approval_required);
     }
 }

@@ -6458,6 +6458,30 @@ mod tests {
                     && entry["normalized_policy"]["approval_mode"] == "on_request"
                     && entry["normalized_policy"]["approval_reviewer"] == "auto_review")
         );
+        assert!(
+            body["presets"]
+                .as_array()
+                .expect("preset entries")
+                .iter()
+                .any(|entry| entry["preset"] == "auto_review"
+                    && entry["safety"]["workspace_write"] == true
+                    && entry["safety"]["auto_review"] == true
+                    && entry["safety"]["auto_review_only_changes_reviewer"] == true
+                    && entry["safety"]["full_access"] == false
+                    && entry["safety"]["network_enabled"] == false
+                    && entry["safety"]["approval_required"] == true)
+        );
+        assert!(
+            body["presets"]
+                .as_array()
+                .expect("preset entries")
+                .iter()
+                .any(|entry| entry["preset"] == "full_access"
+                    && entry["safety"]["full_access"] == true
+                    && entry["safety"]["network_enabled"] == true
+                    && entry["safety"]["no_prompts"] == true
+                    && entry["safety"]["approval_required"] == false)
+        );
 
         let preset = state
             .dispatch_text(
