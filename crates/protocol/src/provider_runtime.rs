@@ -930,25 +930,46 @@ pub struct ProviderRuntimeStateSummary {
     pub turn_moderation: usize,
     pub auto_approval_reviews: usize,
     #[serde(default)]
+    pub by_execution_location: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_active_turn_mode: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
     pub by_plan_status: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
     pub by_goal_status: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
+    pub by_handoff_status: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
     pub by_child_relationship: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_thread_item_kind: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_thread_item_status: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
     pub by_tool_status: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
     pub by_approval_status: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_thread_lifecycle_action: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_subagent_action: Vec<ProviderRuntimeOperationCount>,
 }
 
 impl ProviderRuntimeStateSummary {
     #[must_use]
     pub fn from_snapshot(snapshot: &AgentRuntimeSnapshot) -> Self {
+        let mut by_execution_location = BTreeMap::new();
+        let mut by_active_turn_mode = BTreeMap::new();
         let mut by_plan_status = BTreeMap::new();
         let mut by_goal_status = BTreeMap::new();
+        let mut by_handoff_status = BTreeMap::new();
         let mut by_child_relationship = BTreeMap::new();
+        let mut by_thread_item_kind = BTreeMap::new();
+        let mut by_thread_item_status = BTreeMap::new();
         let mut by_tool_status = BTreeMap::new();
         let mut by_approval_status = BTreeMap::new();
+        let mut by_thread_lifecycle_action = BTreeMap::new();
+        let mut by_subagent_action = BTreeMap::new();
         let mut summary = Self {
             threads: snapshot.threads.len(),
             active_threads: snapshot
@@ -990,14 +1011,30 @@ impl ProviderRuntimeStateSummary {
             ..Self::default()
         };
 
+        for thread in &snapshot.threads {
+            increment_count(
+                &mut by_execution_location,
+                enum_key(&thread.execution_location),
+            );
+        }
+        for turn in &snapshot.active_turns {
+            increment_count(&mut by_active_turn_mode, enum_key(&turn.mode));
+        }
         for plan in &snapshot.plan_sessions {
             increment_count(&mut by_plan_status, enum_key(&plan.status));
         }
         for goal in &snapshot.goals {
             increment_count(&mut by_goal_status, enum_key(&goal.status));
         }
+        for handoff in &snapshot.handoffs {
+            increment_count(&mut by_handoff_status, enum_key(&handoff.status));
+        }
         for child in &snapshot.child_threads {
             increment_count(&mut by_child_relationship, enum_key(&child.relationship));
+        }
+        for item in &snapshot.thread_items {
+            increment_count(&mut by_thread_item_kind, enum_key(&item.kind));
+            increment_count(&mut by_thread_item_status, enum_key(&item.status));
         }
         for tool in &snapshot.tool_timeline {
             increment_count(&mut by_tool_status, enum_key(&tool.display.status));
@@ -1009,12 +1046,25 @@ impl ProviderRuntimeStateSummary {
                 ace_runtime::threads::ApprovalStatus::Resolved => summary.resolved_approvals += 1,
             }
         }
+        for lifecycle in &snapshot.thread_lifecycle {
+            increment_count(&mut by_thread_lifecycle_action, enum_key(&lifecycle.action));
+        }
+        for action in &snapshot.subagent_actions {
+            increment_count(&mut by_subagent_action, enum_key(&action.action));
+        }
 
+        summary.by_execution_location = operation_counts(by_execution_location);
+        summary.by_active_turn_mode = operation_counts(by_active_turn_mode);
         summary.by_plan_status = operation_counts(by_plan_status);
         summary.by_goal_status = operation_counts(by_goal_status);
+        summary.by_handoff_status = operation_counts(by_handoff_status);
         summary.by_child_relationship = operation_counts(by_child_relationship);
+        summary.by_thread_item_kind = operation_counts(by_thread_item_kind);
+        summary.by_thread_item_status = operation_counts(by_thread_item_status);
         summary.by_tool_status = operation_counts(by_tool_status);
         summary.by_approval_status = operation_counts(by_approval_status);
+        summary.by_thread_lifecycle_action = operation_counts(by_thread_lifecycle_action);
+        summary.by_subagent_action = operation_counts(by_subagent_action);
         summary
     }
 }
@@ -2660,7 +2710,12 @@ mod tests {
         ProviderEvent, ProviderFeatureCategory, ProviderMetadata, RuntimeSignalKind,
         ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     };
-    use ace_runtime::threads::GoalStatus;
+    use ace_runtime::threads::{
+        AgentRuntimeSnapshot, AgentThread, ChildThreadRecord, ChildThreadRelationship,
+        ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus, PlanSession,
+        PlanSessionStatus, SubagentActionKind, SubagentActionRecord, ThreadLifecycleActionKind,
+        ThreadLifecycleRecord, Turn, TurnMode,
+    };
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
         normalize_tool_call,
@@ -3345,6 +3400,202 @@ mod tests {
             "file_change_approval"
         );
         assert_eq!(encoded["summary"]["by_scope"][0]["key"], "filesystem");
+    }
+
+    #[test]
+    fn provider_runtime_state_summary_counts_projection_buckets() {
+        let mut provider = ProviderToolMetadata::new();
+        provider.provider = Some("codex".to_string());
+        provider.method = Some("tool/call".to_string());
+        provider.tool_name = Some("shell".to_string());
+        provider.operation = Some("command/exec".to_string());
+        provider.raw_args = json!({ "command": "cargo test" });
+        let tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::Process,
+            status: ToolRunStatus::ApprovalRequested,
+            provider,
+            item_type: Some("commandExecution".to_string()),
+        });
+
+        let snapshot = AgentRuntimeSnapshot {
+            threads: vec![
+                AgentThread {
+                    thread_id: "thread-1".to_string(),
+                    provider: "codex".to_string(),
+                    execution_location: ExecutionLocation::Local,
+                    name: Some("Main".to_string()),
+                    active: Some(true),
+                    archived: Some(false),
+                    active_turn: None,
+                    plan_session: None,
+                    settings: json!(null),
+                    token_usage: json!(null),
+                    metadata: json!({}),
+                },
+                AgentThread {
+                    thread_id: "thread-2".to_string(),
+                    provider: "codex".to_string(),
+                    execution_location: ExecutionLocation::Worktree,
+                    name: None,
+                    active: Some(false),
+                    archived: Some(true),
+                    active_turn: None,
+                    plan_session: None,
+                    settings: json!(null),
+                    token_usage: json!(null),
+                    metadata: json!({}),
+                },
+            ],
+            child_threads: vec![ChildThreadRecord {
+                provider: "codex".to_string(),
+                parent_thread_id: "thread-1".to_string(),
+                thread_id: "child-1".to_string(),
+                relationship: ChildThreadRelationship::Subagent,
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("item-1".to_string()),
+                role: Some("reviewer".to_string()),
+                nickname: Some("Review".to_string()),
+                status: Some("running".to_string()),
+                execution_location: Some(ExecutionLocation::Worktree),
+                ephemeral: Some(false),
+                metadata: json!({}),
+            }],
+            active_turns: vec![Turn {
+                thread_id: "thread-1".to_string(),
+                turn_id: Some("turn-1".to_string()),
+                mode: TurnMode::Plan,
+                active: true,
+            }],
+            plan_sessions: vec![PlanSession {
+                thread_id: "thread-1".to_string(),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("plan-1".to_string()),
+                status: PlanSessionStatus::Implementing,
+                text: Some("Plan".to_string()),
+                questions: None,
+                completion: None,
+            }],
+            goals: vec![GoalState {
+                thread_id: "thread-1".to_string(),
+                status: GoalStatus::Paused,
+                objective: Some("Ship".to_string()),
+                token_budget: Some(100),
+                tokens_used: Some(10),
+                time_used_seconds: Some(5),
+            }],
+            handoffs: vec![HandoffPlan {
+                source_thread_id: "thread-1".to_string(),
+                target_location: ExecutionLocation::Worktree,
+                status: HandoffStatus::Transferring,
+                target_thread_id: Some("thread-2".to_string()),
+                repo_root: None,
+                worktree_path: None,
+                branch: Some("feature/runtime".to_string()),
+                start_point: None,
+                checkpoint_ref: None,
+                remote_host: None,
+                transfer_status: Some("copying".to_string()),
+                interrupted_active_turn: Some(true),
+                metadata: json!({}),
+            }],
+            thread_lifecycle: vec![ThreadLifecycleRecord {
+                thread_id: "thread-1".to_string(),
+                action: ThreadLifecycleActionKind::Rollback,
+                turn_id: Some("turn-1".to_string()),
+                name: None,
+                item_count: None,
+                request: json!({}),
+                provider_response: json!({}),
+            }],
+            subagent_actions: vec![SubagentActionRecord {
+                parent_thread_id: "thread-1".to_string(),
+                subagent_thread_id: "child-1".to_string(),
+                action: SubagentActionKind::Steer,
+                prompt: Some("Focus on tests".to_string()),
+                provider_response: json!({}),
+            }],
+            tool_timeline: vec![tool],
+            thread_items: vec![
+                NormalizedThreadItem {
+                    kind: ThreadItemKind::Plan,
+                    status: ThreadItemStatus::Updated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("plan-1".to_string()),
+                    parent_thread_id: None,
+                    child_thread_id: None,
+                    sender: None,
+                    role: None,
+                    title: Some("Plan".to_string()),
+                    text: Some("Implement".to_string()),
+                    status_text: None,
+                    model: None,
+                    target: None,
+                    url: None,
+                    files: None,
+                    attachments: None,
+                    diff: None,
+                    token_usage: None,
+                    plan_questions: None,
+                    plan_completion: None,
+                    metadata: json!({}),
+                    provider: provider_metadata("item/plan/delta"),
+                },
+                NormalizedThreadItem {
+                    kind: ThreadItemKind::CommandExecution,
+                    status: ThreadItemStatus::Completed,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("cmd-1".to_string()),
+                    parent_thread_id: None,
+                    child_thread_id: None,
+                    sender: None,
+                    role: None,
+                    title: Some("Ran cargo test".to_string()),
+                    text: None,
+                    status_text: None,
+                    model: None,
+                    target: Some("cargo test".to_string()),
+                    url: None,
+                    files: None,
+                    attachments: None,
+                    diff: None,
+                    token_usage: None,
+                    plan_questions: None,
+                    plan_completion: None,
+                    metadata: json!({}),
+                    provider: provider_metadata("item/completed"),
+                },
+            ],
+            ..AgentRuntimeSnapshot::default()
+        };
+
+        let summary = ProviderRuntimeStateSummary::from_snapshot(&snapshot);
+        let count = |bucket: &[ProviderRuntimeOperationCount], key: &str| {
+            bucket
+                .iter()
+                .find(|entry| entry.key == key)
+                .map_or(0, |entry| entry.count)
+        };
+
+        assert_eq!(summary.threads, 2);
+        assert_eq!(summary.active_threads, 1);
+        assert_eq!(summary.archived_threads, 1);
+        assert_eq!(summary.active_turns, 1);
+        assert_eq!(count(&summary.by_execution_location, "local"), 1);
+        assert_eq!(count(&summary.by_execution_location, "worktree"), 1);
+        assert_eq!(count(&summary.by_active_turn_mode, "plan"), 1);
+        assert_eq!(count(&summary.by_plan_status, "implementing"), 1);
+        assert_eq!(count(&summary.by_goal_status, "paused"), 1);
+        assert_eq!(count(&summary.by_handoff_status, "transferring"), 1);
+        assert_eq!(count(&summary.by_child_relationship, "subagent"), 1);
+        assert_eq!(count(&summary.by_thread_item_kind, "plan"), 1);
+        assert_eq!(count(&summary.by_thread_item_kind, "commandExecution"), 1);
+        assert_eq!(count(&summary.by_thread_item_status, "updated"), 1);
+        assert_eq!(count(&summary.by_thread_item_status, "completed"), 1);
+        assert_eq!(count(&summary.by_tool_status, "approval_requested"), 1);
+        assert_eq!(count(&summary.by_thread_lifecycle_action, "rollback"), 1);
+        assert_eq!(count(&summary.by_subagent_action, "steer"), 1);
     }
 
     #[test]
