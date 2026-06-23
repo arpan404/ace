@@ -107,33 +107,47 @@ pub fn server_request_kind(method: &str) -> ServerRequestKind {
 
 fn server_request_detail(params: &Value) -> ServerRequestDetail {
     ServerRequestDetail {
-        command: string_at(params, "command")
-            .or_else(|| string_at(params, "cmd"))
-            .or_else(|| nested_string_at(params, "/command", &["text", "command", "cmd"])),
+        command: command_text(params),
         argv: string_vec_at(params, "argv")
             .or_else(|| string_vec_at(params, "args"))
-            .or_else(|| nested_string_vec_at(params, "/command", &["argv", "args"])),
+            .or_else(|| nested_string_vec_at(params, "/command", &["argv", "args"]))
+            .or_else(|| nested_string_vec_at(params, "/exec", &["argv", "args"]))
+            .or_else(|| nested_string_vec_at(params, "/process", &["argv", "args"])),
         cwd: string_at(params, "cwd")
             .or_else(|| string_at(params, "workingDirectory"))
-            .or_else(|| string_at(params, "working_directory")),
+            .or_else(|| string_at(params, "working_directory"))
+            .or_else(|| nested_string_at(params, "/command", &["cwd", "workingDirectory"]))
+            .or_else(|| nested_string_at(params, "/exec", &["cwd", "workingDirectory"])),
         path: string_at(params, "path")
             .or_else(|| string_at(params, "file"))
-            .or_else(|| string_at(params, "uri")),
+            .or_else(|| string_at(params, "uri"))
+            .or_else(|| nested_string_at(params, "/file", &["path", "file", "uri"]))
+            .or_else(|| nested_string_at(params, "/patch", &["path", "file"])),
         paths: string_vec_at(params, "paths")
             .or_else(|| string_vec_at(params, "files"))
+            .or_else(|| nested_string_vec_at(params, "/patch", &["paths", "files"]))
+            .or_else(|| nested_string_vec_at(params, "/fileChange", &["paths", "files"]))
             .or_else(|| string_at(params, "path").map(|path| vec![path])),
-        diff: value_at(params, "diff"),
-        patch: value_at(params, "patch"),
+        diff: value_at(params, "diff")
+            .or_else(|| value_at(params, "fileDiff"))
+            .or_else(|| value_at(params, "file_diff"))
+            .or_else(|| nested_value_at(params, "/fileChange/diff")),
+        patch: value_at(params, "patch")
+            .or_else(|| value_at(params, "changes"))
+            .or_else(|| nested_value_at(params, "/fileChange/patch")),
         tool_name: string_at(params, "toolName")
             .or_else(|| string_at(params, "tool_name"))
             .or_else(|| nested_string_at(params, "/tool", &["name", "toolName", "tool_name"]))
+            .or_else(|| nested_string_at(params, "/toolCall", &["name", "toolName", "tool_name"]))
             .or_else(|| string_at(params, "name")),
         server_name: string_at(params, "serverName")
             .or_else(|| string_at(params, "server_name"))
             .or_else(|| {
                 nested_string_at(params, "/server", &["name", "serverName", "server_name"])
             }),
-        operation: string_at(params, "operation").or_else(|| string_at(params, "action")),
+        operation: string_at(params, "operation")
+            .or_else(|| string_at(params, "action"))
+            .or_else(|| string_at(params, "kind")),
         permission: string_at(params, "permission")
             .or_else(|| string_at(params, "permissionPolicy"))
             .or_else(|| string_at(params, "permission_policy"))
@@ -144,12 +158,16 @@ fn server_request_detail(params: &Value) -> ServerRequestDetail {
             .or_else(|| string_at(params, "uri"))
             .or_else(|| string_at(params, "account"))
             .or_else(|| string_at(params, "accountId"))
-            .or_else(|| string_at(params, "account_id")),
+            .or_else(|| string_at(params, "account_id"))
+            .or_else(|| string_at(params, "provider"))
+            .or_else(|| string_at(params, "audience"))
+            .or_else(|| string_at(params, "subject")),
         choices: value_at(params, "choices").or_else(|| value_at(params, "options")),
         schema: value_at(params, "schema"),
         arguments: value_at(params, "arguments")
             .or_else(|| value_at(params, "args"))
-            .or_else(|| value_at(params, "input")),
+            .or_else(|| value_at(params, "input"))
+            .or_else(|| value_at(params, "payload")),
     }
 }
 
@@ -198,7 +216,25 @@ fn server_request_prompt(params: &Value) -> Option<String> {
         .or_else(|| string_at(params, "reason"))
         .or_else(|| string_at(params, "description"))
         .or_else(|| string_at(params, "instructions"))
-        .or_else(|| string_at(params, "command").map(|command| format!("Run `{command}`?")))
+        .or_else(|| command_text(params).map(|command| format!("Run `{command}`?")))
+        .or_else(|| {
+            first_string([
+                string_at(params, "path").as_deref(),
+                string_at(params, "file").as_deref(),
+                nested_string_at(params, "/file", &["path", "file"]).as_deref(),
+            ])
+            .map(|path| format!("Allow changes to `{path}`?"))
+        })
+        .or_else(|| {
+            first_string([
+                string_at(params, "resource").as_deref(),
+                string_at(params, "accountId").as_deref(),
+                string_at(params, "account_id").as_deref(),
+                string_at(params, "audience").as_deref(),
+                string_at(params, "subject").as_deref(),
+            ])
+            .map(|resource| format!("Allow provider request for `{resource}`?"))
+        })
         .or_else(|| {
             first_string([
                 string_at(params, "toolName").as_deref(),
@@ -281,6 +317,10 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
     value.get(key)?.as_str().map(ToString::to_string)
 }
 
+fn nested_value_at(value: &Value, pointer: &str) -> Option<Value> {
+    value.pointer(pointer).cloned()
+}
+
 fn value_at(value: &Value, key: &str) -> Option<Value> {
     value.get(key).cloned()
 }
@@ -310,6 +350,20 @@ fn first_string<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Option
         let trimmed = value.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     })
+}
+
+fn command_text(params: &Value) -> Option<String> {
+    string_at(params, "command")
+        .or_else(|| string_at(params, "cmd"))
+        .or_else(|| nested_string_at(params, "/command", &["text", "command", "cmd"]))
+        .or_else(|| nested_string_at(params, "/exec", &["text", "command", "cmd"]))
+        .or_else(|| {
+            string_vec_at(params, "argv")
+                .or_else(|| string_vec_at(params, "args"))
+                .or_else(|| nested_string_vec_at(params, "/command", &["argv", "args"]))
+                .or_else(|| nested_string_vec_at(params, "/exec", &["argv", "args"]))
+                .map(|argv| argv.join(" "))
+        })
 }
 
 #[cfg(test)]
@@ -412,6 +466,110 @@ mod tests {
         assert_eq!(
             permission_request.provider.raw_payload["sandboxPolicy"]["mode"],
             "workspace-write"
+        );
+    }
+
+    #[test]
+    fn extracts_nested_command_patch_account_and_attestation_details() {
+        let exec_request = normalize_provider_server_request(ServerRequestNormalizationInput {
+            provider: "codex".to_string(),
+            request_id: "exec-req".to_string(),
+            method: "exec/approvalRequest".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "exec": {
+                    "argv": ["cargo", "test", "--workspace"],
+                    "cwd": "/repo"
+                },
+                "approvalPolicy": "on-request"
+            }),
+        });
+
+        assert_eq!(exec_request.kind, ServerRequestKind::ExecApproval);
+        assert_eq!(
+            exec_request.detail.command.as_deref(),
+            Some("cargo test --workspace")
+        );
+        assert_eq!(
+            exec_request.detail.argv.as_ref().expect("argv"),
+            &vec![
+                "cargo".to_string(),
+                "test".to_string(),
+                "--workspace".to_string()
+            ]
+        );
+        assert_eq!(exec_request.detail.cwd.as_deref(), Some("/repo"));
+        assert_eq!(
+            exec_request.prompt.as_deref(),
+            Some("Run `cargo test --workspace`?")
+        );
+
+        let patch_request = normalize_provider_server_request(ServerRequestNormalizationInput {
+            provider: "codex".to_string(),
+            request_id: "patch-req".to_string(),
+            method: "applyPatchApproval".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "fileChange": {
+                    "files": ["src/lib.rs", "Cargo.toml"],
+                    "patch": "@@ -1 +1 @@",
+                    "diff": "diff --git a/src/lib.rs b/src/lib.rs"
+                }
+            }),
+        });
+
+        assert_eq!(patch_request.kind, ServerRequestKind::ApplyPatchApproval);
+        assert_eq!(
+            patch_request.detail.paths.as_ref().expect("paths"),
+            &vec!["src/lib.rs".to_string(), "Cargo.toml".to_string()]
+        );
+        assert_eq!(
+            patch_request.detail.patch.as_ref().expect("patch"),
+            "@@ -1 +1 @@"
+        );
+        assert_eq!(
+            patch_request.detail.diff.as_ref().expect("diff"),
+            "diff --git a/src/lib.rs b/src/lib.rs"
+        );
+
+        let account_request = normalize_provider_server_request(ServerRequestNormalizationInput {
+            provider: "codex".to_string(),
+            request_id: "account-req".to_string(),
+            method: "account/chatgptAuthTokens/refresh".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "account_id": "acct-1",
+                "audience": "openai-api"
+            }),
+        });
+
+        assert_eq!(account_request.kind, ServerRequestKind::AccountTokenRefresh);
+        assert_eq!(account_request.detail.resource.as_deref(), Some("acct-1"));
+        assert_eq!(
+            account_request.prompt.as_deref(),
+            Some("Allow provider request for `acct-1`?")
+        );
+
+        let attestation_request =
+            normalize_provider_server_request(ServerRequestNormalizationInput {
+                provider: "codex".to_string(),
+                request_id: "attestation-req".to_string(),
+                method: "attestation/request".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "subject": "device-key",
+                    "challenge": "nonce"
+                }),
+            });
+
+        assert_eq!(attestation_request.kind, ServerRequestKind::Attestation);
+        assert_eq!(
+            attestation_request.detail.resource.as_deref(),
+            Some("device-key")
+        );
+        assert_eq!(
+            attestation_request.prompt.as_deref(),
+            Some("Allow provider request for `device-key`?")
         );
     }
 
