@@ -937,6 +937,8 @@ fn plugin_action(facts: &ToolFacts) -> Option<ToolActionKind> {
         Some(ToolActionKind::PluginShare)
     } else if facts.haystack.contains("uninstall") {
         Some(ToolActionKind::PluginUninstall)
+    } else if facts.haystack.contains("installed") {
+        Some(ToolActionKind::PluginList)
     } else if facts.haystack.contains("install") {
         Some(ToolActionKind::PluginInstall)
     } else if facts.haystack.contains("read") {
@@ -2468,6 +2470,17 @@ mod tests {
         assert_eq!(plugin.surface, ToolSurface::Plugin);
         assert_eq!(plugin.action, ToolActionKind::PluginRead);
         assert_eq!(plugin.display.title, "Read plugin browser");
+
+        let installed_plugins = normalize_tool_call(input(
+            ToolTransport::CodexBuiltin,
+            "plugin",
+            "",
+            "plugin/installed",
+            json!({}),
+        ));
+        assert_eq!(installed_plugins.surface, ToolSurface::Plugin);
+        assert_eq!(installed_plugins.action, ToolActionKind::PluginList);
+        assert_eq!(installed_plugins.display.title, "Listed plugins");
 
         let marketplace_upgrade = normalize_tool_call(input(
             ToolTransport::CodexBuiltin,
