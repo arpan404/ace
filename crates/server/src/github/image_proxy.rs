@@ -1,4 +1,4 @@
-use ace_git::{GithubCliClient, ProcessRunner, TokioProcessRunner};
+use ace_git::{GithubCliClient, ProcessRunner};
 use async_trait::async_trait;
 use axum::{
     Router,
@@ -42,16 +42,6 @@ where
     }
 }
 
-impl GithubImageProxyState<TokioProcessRunner, ReqwestGithubImageFetcher> {
-    #[must_use]
-    pub fn production() -> Self {
-        Self {
-            github: GithubCliClient::new(),
-            fetcher: Arc::new(ReqwestGithubImageFetcher::new()),
-        }
-    }
-}
-
 impl<R, F> GithubImageProxyState<R, F>
 where
     R: ProcessRunner,
@@ -62,13 +52,6 @@ where
     pub fn new(github: GithubCliClient<R>, fetcher: Arc<F>) -> Self {
         Self { github, fetcher }
     }
-}
-
-pub fn router() -> Router {
-    router_with_state(GithubImageProxyState::<
-        TokioProcessRunner,
-        ReqwestGithubImageFetcher,
-    >::production())
 }
 
 pub fn router_with_state<R, F>(state: GithubImageProxyState<R, F>) -> Router
