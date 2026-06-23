@@ -1458,14 +1458,14 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     }
                 };
                 let descriptor = self.host_tool_descriptor_for_invocation(&invocation);
-                self.append_and_publish_provider_events(
-                    provider_kind,
-                    vec![ProviderEvent::SemanticTool {
-                        tool: Box::new(
-                            invocation.semantic_tool(descriptor.as_ref(), ToolRunStatus::Started),
-                        ),
-                    }],
-                )?;
+                let events = vec![ProviderEvent::SemanticTool {
+                    tool: Box::new(
+                        invocation.semantic_tool(descriptor.as_ref(), ToolRunStatus::Started),
+                    ),
+                }];
+                self.apply_codex_live_provider_events(provider_kind, &events)
+                    .await;
+                self.append_and_publish_provider_events(provider_kind, events)?;
                 let result = match self.host_tools.invoke_invocation(invocation.clone()).await {
                     Ok(result) => result,
                     Err(error) => {
@@ -1504,26 +1504,25 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         result.output.clone(),
                         audit_value.clone(),
                     )?;
-                self.append_and_publish_provider_events(
-                    provider_kind,
-                    vec![
-                        ProviderEvent::SemanticTool {
-                            tool: Box::new(
-                                invocation
-                                    .semantic_tool(descriptor.as_ref(), ToolRunStatus::Completed),
-                            ),
+                let events = vec![
+                    ProviderEvent::SemanticTool {
+                        tool: Box::new(
+                            invocation.semantic_tool(descriptor.as_ref(), ToolRunStatus::Completed),
+                        ),
+                    },
+                    ProviderEvent::ServerRequestResolved {
+                        request_id: request.request_id.clone(),
+                        decision: NormalizedServerRequestDecision {
+                            outcome: decision.outcome.clone(),
+                            payload: decision.payload.clone(),
+                            audit: audit_value,
                         },
-                        ProviderEvent::ServerRequestResolved {
-                            request_id: request.request_id.clone(),
-                            decision: NormalizedServerRequestDecision {
-                                outcome: decision.outcome.clone(),
-                                payload: decision.payload.clone(),
-                                audit: audit_value,
-                            },
-                            request: decision_context.request.clone(),
-                        },
-                    ],
-                )?;
+                        request: decision_context.request.clone(),
+                    },
+                ];
+                self.apply_codex_live_provider_events(provider_kind, &events)
+                    .await;
+                self.append_and_publish_provider_events(provider_kind, events)?;
                 Ok(serde_json::to_value(
                     ProviderServerRequestDecisionResponse {
                         responded: true,
@@ -1570,18 +1569,18 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         request.result.clone(),
                         audit.clone(),
                     )?;
-                self.append_and_publish_provider_events(
-                    provider_kind,
-                    vec![ProviderEvent::ServerRequestResolved {
-                        request_id: request.request_id.clone(),
-                        decision: NormalizedServerRequestDecision {
-                            outcome: decision.outcome.clone(),
-                            payload: decision.payload.clone(),
-                            audit,
-                        },
-                        request: decision_context.request.clone(),
-                    }],
-                )?;
+                let events = vec![ProviderEvent::ServerRequestResolved {
+                    request_id: request.request_id.clone(),
+                    decision: NormalizedServerRequestDecision {
+                        outcome: decision.outcome.clone(),
+                        payload: decision.payload.clone(),
+                        audit,
+                    },
+                    request: decision_context.request.clone(),
+                }];
+                self.apply_codex_live_provider_events(provider_kind, &events)
+                    .await;
+                self.append_and_publish_provider_events(provider_kind, events)?;
                 Ok(serde_json::to_value(
                     ProviderServerRequestDecisionResponse {
                         responded: true,
@@ -1630,18 +1629,18 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         error_payload.clone(),
                         audit.clone(),
                     )?;
-                self.append_and_publish_provider_events(
-                    provider_kind,
-                    vec![ProviderEvent::ServerRequestResolved {
-                        request_id: request.request_id.clone(),
-                        decision: NormalizedServerRequestDecision {
-                            outcome: decision.outcome.clone(),
-                            payload: decision.payload.clone(),
-                            audit,
-                        },
-                        request: decision_context.request.clone(),
-                    }],
-                )?;
+                let events = vec![ProviderEvent::ServerRequestResolved {
+                    request_id: request.request_id.clone(),
+                    decision: NormalizedServerRequestDecision {
+                        outcome: decision.outcome.clone(),
+                        payload: decision.payload.clone(),
+                        audit,
+                    },
+                    request: decision_context.request.clone(),
+                }];
+                self.apply_codex_live_provider_events(provider_kind, &events)
+                    .await;
+                self.append_and_publish_provider_events(provider_kind, events)?;
                 Ok(serde_json::to_value(
                     ProviderServerRequestDecisionResponse {
                         responded: true,
@@ -1749,6 +1748,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             },
             request: decision_context.request.clone(),
         });
+        self.apply_codex_live_provider_events(provider_kind, &events)
+            .await;
         self.append_and_publish_provider_events(provider_kind, events)?;
         Ok(serde_json::to_value(
             ProviderServerRequestDecisionResponse {
@@ -1794,6 +1795,16 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         Ok(())
     }
 
+    async fn apply_codex_live_provider_events(
+        &self,
+        provider_kind: ProviderKind,
+        events: &[ProviderEvent],
+    ) {
+        if provider_kind == ProviderKind::Codex {
+            self.codex.apply_provider_events(events).await;
+        }
+    }
+
     async fn publish_codex_versioned_tool_event(
         &self,
         ws_method: &str,
@@ -1814,7 +1825,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         let events = vec![ProviderEvent::SemanticTool {
             tool: Box::new(tool),
         }];
-        self.codex.apply_provider_events(&events).await;
+        self.apply_codex_live_provider_events(ProviderKind::Codex, &events)
+            .await;
         self.append_and_publish_provider_events(ProviderKind::Codex, events)
     }
 
@@ -12575,6 +12587,30 @@ mod tests {
             decision.audit["metadata"]["request_metadata"]["command"],
             "cargo test"
         );
+
+        let live_state = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "approval-result-live-state",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let live_state: WsServerResponse =
+            serde_json::from_str(&live_state).expect("live approval state");
+        let WsServerPayload::Result { body } = live_state.payload else {
+            panic!("expected live approval state result");
+        };
+        let approvals = body["providers"][0]["state"]["approvals"]
+            .as_array()
+            .expect("approvals");
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals[0]["request_id"], "42");
+        assert_eq!(approvals[0]["status"], "resolved");
+        assert_eq!(approvals[0]["decision"]["payload"]["approved"], true);
     }
 
     #[tokio::test]
