@@ -96,6 +96,8 @@ pub enum ToolActionKind {
     FileEdit,
     #[serde(rename = "file.patch")]
     FilePatch,
+    #[serde(rename = "file.search")]
+    FileSearch,
     #[serde(rename = "git.commit")]
     GitCommit,
     #[serde(rename = "git.push")]
@@ -769,7 +771,10 @@ fn terminal_action(
             Some(ToolActionKind::TerminalResize)
         } else if facts.haystack.contains("terminate") || facts.haystack.contains("stop") {
             Some(ToolActionKind::TerminalTerminate)
-        } else if facts.haystack.contains("write") || facts.haystack.contains("stdin") {
+        } else if facts.haystack.contains("write")
+            || facts.haystack.contains("stdin")
+            || facts.haystack.contains("append")
+        {
             Some(ToolActionKind::TerminalWrite)
         } else if facts.haystack.contains("output") {
             Some(ToolActionKind::TerminalOutput)
@@ -777,14 +782,33 @@ fn terminal_action(
             Some(ToolActionKind::TerminalRun)
         }
     } else if transport == ToolTransport::Shell || transport == ToolTransport::Process {
-        Some(ToolActionKind::TerminalRun)
+        if facts.haystack.contains("write")
+            || facts.haystack.contains("stdin")
+            || facts.haystack.contains("append")
+        {
+            Some(ToolActionKind::TerminalWrite)
+        } else if facts.haystack.contains("resize") {
+            Some(ToolActionKind::TerminalResize)
+        } else if facts.haystack.contains("terminate")
+            || facts.haystack.contains("kill")
+            || facts.haystack.contains("stop")
+        {
+            Some(ToolActionKind::TerminalTerminate)
+        } else {
+            Some(ToolActionKind::TerminalRun)
+        }
     } else {
         None
     }
 }
 
 fn file_action(haystack: &str) -> Option<ToolActionKind> {
-    if haystack.contains("file change") || haystack.contains("apply patch") {
+    if haystack.contains("fuzzyfilesearch")
+        || haystack.contains("file search")
+        || haystack.contains("search files")
+    {
+        Some(ToolActionKind::FileSearch)
+    } else if haystack.contains("file change") || haystack.contains("apply patch") {
         Some(ToolActionKind::FilePatch)
     } else if haystack.contains("file read") || haystack.contains("read file") {
         Some(ToolActionKind::FileRead)
@@ -886,10 +910,17 @@ fn app_action(facts: &ToolFacts) -> Option<ToolActionKind> {
         && !facts.haystack.contains("app list")
         && !facts.haystack.contains("apps")
         && !facts.haystack.contains("app connector")
+        && !facts.haystack.contains("remotecontrol")
     {
         return None;
     }
-    if facts.haystack.contains("config") || facts.haystack.contains("write") {
+    if facts.haystack.contains("config")
+        || facts.haystack.contains("write")
+        || facts.haystack.contains("pairing")
+        || facts.haystack.contains("enable")
+        || facts.haystack.contains("disable")
+        || facts.haystack.contains("revoke")
+    {
         Some(ToolActionKind::AppConfigure)
     } else {
         Some(ToolActionKind::AppList)
@@ -1134,9 +1165,21 @@ fn file_target(args: &Value) -> Option<ToolTarget> {
         string_at_deep(args, "file").as_deref(),
         string_at_deep(args, "filePath").as_deref(),
         string_at_deep(args, "relativePath").as_deref(),
+        string_at_deep(args, "query").as_deref(),
+        string_at_deep(args, "searchQuery").as_deref(),
+        string_at_deep(args, "sessionId").as_deref(),
+        string_at_deep(args, "session_id").as_deref(),
     ])
     .map(|label| ToolTarget {
-        kind: ToolTargetKind::File,
+        kind: if args.get("query").is_some()
+            || args.get("searchQuery").is_some()
+            || args.get("sessionId").is_some()
+            || args.get("session_id").is_some()
+        {
+            ToolTargetKind::Text
+        } else {
+            ToolTargetKind::File
+        },
         label,
     })
 }
@@ -1308,6 +1351,7 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 ToolActionKind::TerminalTerminate => "Stopping",
                 ToolActionKind::TerminalOutput => "Reading",
                 ToolActionKind::FilePatch | ToolActionKind::FileEdit => "Editing",
+                ToolActionKind::FileSearch => "Searching",
                 ToolActionKind::FileRead => "Reading",
                 ToolActionKind::GithubIssue
                 | ToolActionKind::GithubPullRequest
@@ -1354,6 +1398,7 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             ToolActionKind::TerminalTerminate => "Stopped",
             ToolActionKind::TerminalOutput => "Read",
             ToolActionKind::FilePatch | ToolActionKind::FileEdit => "Edited",
+            ToolActionKind::FileSearch => "Searched",
             ToolActionKind::FileRead => "Read",
             ToolActionKind::GithubIssue
             | ToolActionKind::GithubPullRequest
@@ -1398,11 +1443,17 @@ fn noun_for(action: ToolActionKind) -> &'static str {
         ToolActionKind::BrowserWait => "page",
         ToolActionKind::BrowserViewport => "viewport",
         ToolActionKind::BrowserZoom => "zoom",
+        ToolActionKind::TerminalRun => "command",
+        ToolActionKind::TerminalWrite
+        | ToolActionKind::TerminalResize
+        | ToolActionKind::TerminalTerminate
+        | ToolActionKind::TerminalOutput => "terminal",
         ToolActionKind::GithubIssue => "issue",
         ToolActionKind::GithubPullRequest => "pull request",
         ToolActionKind::GithubCheck => "checks",
         ToolActionKind::GithubCommit => "commit",
         ToolActionKind::GithubSearch => "search",
+        ToolActionKind::FileSearch => "files",
         ToolActionKind::SkillList => "skills",
         ToolActionKind::SkillRead
         | ToolActionKind::SkillInstall

@@ -369,6 +369,7 @@ fn operation_for_action(action: ToolActionKind) -> &'static str {
         ToolActionKind::FileRead => "read_file",
         ToolActionKind::FileEdit => "write_file",
         ToolActionKind::FilePatch => "apply_patch",
+        ToolActionKind::FileSearch => "search_files",
         ToolActionKind::GitCommit => "git_commit",
         ToolActionKind::GitPush => "git_push",
         ToolActionKind::GithubIssue => "github_issue",

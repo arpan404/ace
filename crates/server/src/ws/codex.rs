@@ -3902,6 +3902,15 @@ fn codex_versioned_tool_transport(codex_method: &str) -> Option<ToolTransport> {
         | "fs/remove" | "fs/getMetadata" | "fs/watch" | "fs/unwatch" => {
             Some(ToolTransport::Filesystem)
         }
+        "fuzzyFileSearch"
+        | "fuzzyFileSearch/sessionStart"
+        | "fuzzyFileSearch/sessionStop"
+        | "fuzzyFileSearch/sessionUpdate" => Some(ToolTransport::Filesystem),
+        "thread/realtime/appendAudio"
+        | "thread/realtime/appendSpeech"
+        | "thread/realtime/appendText"
+        | "thread/realtime/start"
+        | "thread/realtime/stop" => Some(ToolTransport::Process),
         "mcpServerStatus/list"
         | "mcpServer/resource/read"
         | "mcpServer/oauth/login"
@@ -3924,7 +3933,15 @@ fn codex_versioned_tool_transport(codex_method: &str) -> Option<ToolTransport> {
         | "marketplace/add"
         | "marketplace/remove"
         | "marketplace/upgrade" => Some(ToolTransport::CodexBuiltin),
-        "app/list" | "apps/configWrite" => Some(ToolTransport::AppConnector),
+        "app/list"
+        | "apps/configWrite"
+        | "remoteControl/client/list"
+        | "remoteControl/client/revoke"
+        | "remoteControl/disable"
+        | "remoteControl/enable"
+        | "remoteControl/pairing/start"
+        | "remoteControl/pairing/status"
+        | "remoteControl/status/read" => Some(ToolTransport::AppConnector),
         _ => None,
     }
 }
@@ -3976,6 +3993,22 @@ fn codex_versioned_tool_operation(codex_method: &str) -> String {
         "fs/getMetadata" => "file_metadata",
         "fs/watch" => "watch_file",
         "fs/unwatch" => "unwatch_file",
+        "fuzzyFileSearch" => "file_search",
+        "fuzzyFileSearch/sessionStart" => "file_search_session_start",
+        "fuzzyFileSearch/sessionStop" => "file_search_session_stop",
+        "fuzzyFileSearch/sessionUpdate" => "file_search_session_update",
+        "thread/realtime/appendAudio" => "realtime_append_audio",
+        "thread/realtime/appendSpeech" => "realtime_append_speech",
+        "thread/realtime/appendText" => "realtime_append_text",
+        "thread/realtime/start" => "realtime_start",
+        "thread/realtime/stop" => "realtime_stop",
+        "remoteControl/client/list" => "remote_control_client_list",
+        "remoteControl/client/revoke" => "remote_control_client_revoke",
+        "remoteControl/disable" => "remote_control_disable",
+        "remoteControl/enable" => "remote_control_enable",
+        "remoteControl/pairing/start" => "remote_control_pairing_start",
+        "remoteControl/pairing/status" => "remote_control_pairing_status",
+        "remoteControl/status/read" => "remote_control_status_read",
         "mcpServerStatus/list" => "mcp_status",
         "mcpServer/resource/read" => "mcp_resource_read",
         "mcpServer/oauth/login" => "mcp_oauth_login",
@@ -4024,7 +4057,16 @@ fn codex_versioned_tool_item_type(codex_method: &str) -> &'static str {
         "fs/readFile" | "fs/readDirectory" | "fs/getMetadata" | "fs/watch" | "fs/unwatch" => {
             "fileRead"
         }
+        "fuzzyFileSearch"
+        | "fuzzyFileSearch/sessionStart"
+        | "fuzzyFileSearch/sessionStop"
+        | "fuzzyFileSearch/sessionUpdate" => "fileSearch",
         "fs/writeFile" | "fs/createDirectory" | "fs/copy" | "fs/remove" => "fileChange",
+        "thread/realtime/appendAudio"
+        | "thread/realtime/appendSpeech"
+        | "thread/realtime/appendText"
+        | "thread/realtime/start"
+        | "thread/realtime/stop" => "realtime",
         "mcpServerStatus/list"
         | "mcpServer/resource/read"
         | "mcpServer/oauth/login"
@@ -4047,7 +4089,15 @@ fn codex_versioned_tool_item_type(codex_method: &str) -> &'static str {
         | "marketplace/add"
         | "marketplace/remove"
         | "marketplace/upgrade" => "plugin",
-        "app/list" | "apps/configWrite" => "appConnector",
+        "app/list"
+        | "apps/configWrite"
+        | "remoteControl/client/list"
+        | "remoteControl/client/revoke"
+        | "remoteControl/disable"
+        | "remoteControl/enable"
+        | "remoteControl/pairing/start"
+        | "remoteControl/pairing/status"
+        | "remoteControl/status/read" => "appConnector",
         _ => "tool",
     }
 }
@@ -9844,6 +9894,21 @@ mod tests {
                 }),
             ),
             (
+                "codex-fuzzy-search",
+                methods::CODEX_FUZZY_FILE_SEARCH_SESSION_START,
+                json!({ "query": "provider adapter" }),
+            ),
+            (
+                "codex-remote-pairing",
+                methods::CODEX_REMOTE_CONTROL_PAIRING_START,
+                json!({ "clientName": "mobile" }),
+            ),
+            (
+                "codex-realtime-text",
+                methods::CODEX_THREAD_REALTIME_APPEND_TEXT,
+                json!({ "threadId": "thread-1", "text": "hello" }),
+            ),
+            (
                 "codex-skill-install",
                 methods::CODEX_SKILLS_INSTALL,
                 json!({ "skill": "rust" }),
@@ -9890,7 +9955,7 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "semantic-tool-events",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
-                    "payload": { "provider": "codex", "limit": 16 }
+                    "payload": { "provider": "codex", "limit": 22 }
                 })
                 .to_string(),
             )
@@ -9900,7 +9965,7 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 16);
+        assert_eq!(records.len(), 22);
 
         let file_completed = records
             .iter()
@@ -9918,6 +9983,51 @@ mod tests {
         assert_eq!(
             file_completed["event"]["tool"]["provider"]["raw_payload"]["provider_method"],
             "fs/readFile"
+        );
+
+        let search_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["action"] == "file.search"
+            })
+            .expect("completed fuzzy file search event");
+        assert_eq!(
+            search_completed["event"]["tool"]["display"]["title"],
+            "Searched provider adapter"
+        );
+        assert_eq!(
+            search_completed["event"]["tool"]["provider"]["raw_payload"]["provider_method"],
+            "fuzzyFileSearch/sessionStart"
+        );
+
+        let remote_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["provider"]["raw_payload"]["provider_method"]
+                        == "remoteControl/pairing/start"
+            })
+            .expect("completed remote control event");
+        assert_eq!(remote_completed["event"]["tool"]["surface"], "app");
+        assert_eq!(remote_completed["event"]["tool"]["action"], "app.configure");
+        assert_eq!(
+            remote_completed["event"]["tool"]["display"]["title"],
+            "Configured apps"
+        );
+
+        let realtime_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["provider"]["raw_payload"]["provider_method"]
+                        == "thread/realtime/appendText"
+            })
+            .expect("completed realtime event");
+        assert_eq!(realtime_completed["event"]["tool"]["surface"], "terminal");
+        assert_eq!(
+            realtime_completed["event"]["tool"]["display"]["title"],
+            "Wrote to terminal stdin"
         );
 
         let mcp_started = records
@@ -10015,7 +10125,8 @@ mod tests {
             .iter()
             .find(|record| {
                 record["event"]["tool"]["display"]["status"] == "completed"
-                    && record["event"]["tool"]["surface"] == "app"
+                    && record["event"]["tool"]["provider"]["raw_payload"]["provider_method"]
+                        == "apps/configWrite"
             })
             .expect("completed app event");
         assert_eq!(app_completed["event"]["tool"]["action"], "app.configure");
