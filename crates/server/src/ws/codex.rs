@@ -172,11 +172,45 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         match method {
             methods::CODEX_RAW_REQUEST => {
                 let request = serde_json::from_value::<CodexRawRequest>(payload)?;
-                let params = user_initiated_codex_params(&request.method, request.params)?;
-                self.codex
-                    .raw_request(request.method, params)
+                let codex_method = request.method;
+                let params = user_initiated_codex_params(&codex_method, request.params)?;
+                self.publish_codex_versioned_tool_event(
+                    method,
+                    &codex_method,
+                    &params,
+                    None,
+                    ToolRunStatus::Started,
+                )?;
+                let response = self
+                    .codex
+                    .raw_request(codex_method.clone(), params.clone())
                     .await
-                    .map_err(Into::into)
+                    .map_err(WsDispatchError::from);
+                match response {
+                    Ok(response) => {
+                        self.publish_codex_versioned_tool_event(
+                            method,
+                            &codex_method,
+                            &params,
+                            Some(&response),
+                            ToolRunStatus::Completed,
+                        )?;
+                        Ok(response)
+                    }
+                    Err(error) => {
+                        let error_payload = json!({
+                            "message": error.to_string(),
+                        });
+                        self.publish_codex_versioned_tool_event(
+                            method,
+                            &codex_method,
+                            &params,
+                            Some(&error_payload),
+                            ToolRunStatus::Failed,
+                        )?;
+                        Err(error)
+                    }
+                }
             }
             methods::CODEX_THREAD_START => {
                 let request = serde_json::from_value::<CodexThreadStartRequest>(payload)?;
@@ -11706,6 +11740,30 @@ mod tests {
             backend.calls.lock().expect("calls").as_slice(),
             ["remote/connectionList", "command/exec"]
         );
+        let recent = state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .recent(Some("codex"), 10)
+            .expect("recent events");
+        let command_tools = recent
+            .iter()
+            .filter_map(|record| match &record.event {
+                ProviderEvent::SemanticTool { tool }
+                    if tool.provider.method.as_deref() == Some("command/exec") =>
+                {
+                    Some(tool.as_ref())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(command_tools.len(), 2);
+        assert_eq!(command_tools[0].display.status, ToolRunStatus::Started);
+        assert_eq!(command_tools[0].surface, ToolSurface::Terminal);
+        assert_eq!(command_tools[0].action, ToolActionKind::TerminalRun);
+        assert_eq!(command_tools[0].display.title, "Running `cargo test`");
+        assert_eq!(command_tools[1].display.status, ToolRunStatus::Completed);
+        assert_eq!(command_tools[1].display.title, "Ran `cargo test`");
 
         let deferred = state
             .dispatch_text(
