@@ -11525,6 +11525,11 @@ mod tests {
             ),
             ("codex-skills-list", methods::CODEX_SKILLS_LIST, json!({})),
             (
+                "codex-skill-read",
+                methods::CODEX_SKILLS_READ,
+                json!({ "skill": "rust" }),
+            ),
+            (
                 "codex-skill-install",
                 methods::CODEX_SKILLS_INSTALL,
                 json!({ "skill": "rust" }),
@@ -11578,7 +11583,7 @@ mod tests {
                     "version": PROTOCOL_VERSION,
                     "request_id": "semantic-tool-events",
                     "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
-                    "payload": { "provider": "codex", "limit": 36 }
+                    "payload": { "provider": "codex", "limit": 38 }
                 })
                 .to_string(),
             )
@@ -11588,7 +11593,7 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 36);
+        assert_eq!(records.len(), 38);
 
         let file_completed = records
             .iter()
@@ -11773,6 +11778,22 @@ mod tests {
         assert_eq!(
             skills_list_completed["event"]["tool"]["provider"]["raw_payload"]["provider_method"],
             "skills/list"
+        );
+
+        let skill_read_completed = records
+            .iter()
+            .find(|record| {
+                record["event"]["tool"]["display"]["status"] == "completed"
+                    && record["event"]["tool"]["action"] == "skill.read"
+            })
+            .expect("completed skill read event");
+        assert_eq!(
+            skill_read_completed["event"]["tool"]["display"]["title"],
+            "Read skill rust"
+        );
+        assert_eq!(
+            skill_read_completed["event"]["tool"]["provider"]["raw_payload"]["provider_method"],
+            "plugin/skill/read"
         );
 
         let plugins_installed_completed = records
