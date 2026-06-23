@@ -1879,42 +1879,68 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         let raw_payload = json!({
             "threadId": signal.parent_thread_id.clone(),
             "subagentThreadId": signal.subagent_thread_id.clone(),
+            "name": signal.subagent_thread_id.clone(),
             "action": signal.action,
             "prompt": signal.prompt.clone(),
             "metadata": metadata.clone(),
         });
+        let mut provider = ProviderToolMetadata::new();
+        provider.provider = Some(ProviderKind::Codex.runtime_id().to_string());
+        provider.method = Some(format!("ace/subagent/{}", signal.action));
+        provider.thread_id = Some(signal.parent_thread_id.clone());
+        provider.item_id = Some(signal.subagent_thread_id.clone());
+        provider.tool_name = Some("subagent".to_string());
+        provider.operation = Some(format!("subagent_{}", signal.action));
+        provider.raw_args = raw_payload.clone();
+        provider.raw_result = signal
+            .metadata
+            .get("provider_response")
+            .cloned()
+            .unwrap_or(Value::Null);
+        provider.raw_payload = raw_payload.clone();
+        let semantic_tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::CodexBuiltin,
+            status: ToolRunStatus::Completed,
+            provider,
+            item_type: Some("subagent".to_string()),
+        });
         self.append_and_publish_provider_events(
             ProviderKind::Codex,
-            vec![ProviderEvent::RuntimeSignal {
-                signal: Box::new(NormalizedRuntimeSignal {
-                    kind: RuntimeSignalKind::SubagentAction,
-                    thread_id: Some(signal.parent_thread_id),
-                    turn_id: None,
-                    item_id: None,
-                    message: None,
-                    from_model: None,
-                    to_model: None,
-                    reason: None,
-                    text: signal.prompt,
-                    audio: None,
-                    status: Some(signal.action.to_string()),
-                    name: None,
-                    active: None,
-                    archived: None,
-                    diff: None,
-                    files: None,
-                    process_id: None,
-                    exit_code: None,
-                    request_id: None,
-                    metadata,
-                    provider: ProviderMetadata {
-                        provider: ProviderKind::Codex.runtime_id().to_string(),
-                        method: Some(format!("ace/subagent/{}", signal.action)),
-                        schema_version: None,
-                        raw_payload,
-                    },
-                }),
-            }],
+            vec![
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::SubagentAction,
+                        thread_id: Some(signal.parent_thread_id),
+                        turn_id: None,
+                        item_id: None,
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: signal.prompt,
+                        audio: None,
+                        status: Some(signal.action.to_string()),
+                        name: None,
+                        active: None,
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata,
+                        provider: ProviderMetadata {
+                            provider: ProviderKind::Codex.runtime_id().to_string(),
+                            method: Some(format!("ace/subagent/{}", signal.action)),
+                            schema_version: None,
+                            raw_payload,
+                        },
+                    }),
+                },
+                ProviderEvent::SemanticTool {
+                    tool: Box::new(semantic_tool),
+                },
+            ],
         )
     }
 
@@ -5759,8 +5785,8 @@ mod tests {
             panic!("expected recent events result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 4);
-        assert!(records[..3].iter().all(|record| {
+        assert_eq!(records.len(), 7);
+        assert!(records.iter().step_by(2).take(3).all(|record| {
             record["event"]["type"] == "runtime_signal"
                 && record["event"]["signal"]["kind"] == "subagent_action"
                 && record["projection_deltas"][0]["type"] == "subagent_action_recorded"
@@ -5780,31 +5806,52 @@ mod tests {
             records[0]["projection_deltas"][0]["metadata"]["provider_response"]["steered"],
             true
         );
-        assert_eq!(records[1]["projection_deltas"][0]["action"], "stop");
+        assert_eq!(records[1]["event"]["type"], "tool_completed");
+        assert_eq!(records[1]["event"]["tool"]["surface"], "subagent");
+        assert_eq!(records[1]["event"]["tool"]["action"], "subagent.steer");
         assert_eq!(
-            records[1]["projection_deltas"][0]["metadata"]["provider_response"]["stopped"],
+            records[1]["event"]["tool"]["display"]["title"],
+            "Steered subagent subagent-1"
+        );
+        assert_eq!(
+            records[1]["event"]["tool"]["provider"]["raw_args"]["prompt"],
+            "focus on tests"
+        );
+        assert_eq!(records[2]["projection_deltas"][0]["action"], "stop");
+        assert_eq!(
+            records[2]["projection_deltas"][0]["metadata"]["provider_response"]["stopped"],
             true
         );
-        assert_eq!(records[2]["projection_deltas"][0]["action"], "close");
+        assert_eq!(records[3]["event"]["tool"]["action"], "subagent.stop");
         assert_eq!(
-            records[2]["projection_deltas"][0]["metadata"]["provider_response"]["closed"],
+            records[3]["event"]["tool"]["display"]["title"],
+            "Stopped subagent subagent-1"
+        );
+        assert_eq!(records[4]["projection_deltas"][0]["action"], "close");
+        assert_eq!(
+            records[4]["projection_deltas"][0]["metadata"]["provider_response"]["closed"],
             true
         );
-        assert_eq!(records[3]["event"]["signal"]["kind"], "handoff_updated");
+        assert_eq!(records[5]["event"]["tool"]["action"], "subagent.stop");
         assert_eq!(
-            records[3]["projection_deltas"][0]["type"],
+            records[5]["event"]["tool"]["display"]["title"],
+            "Stopped subagent subagent-1"
+        );
+        assert_eq!(records[6]["event"]["signal"]["kind"], "handoff_updated");
+        assert_eq!(
+            records[6]["projection_deltas"][0]["type"],
             "handoff_updated"
         );
         assert_eq!(
-            records[3]["projection_deltas"][0]["handoff"]["source_thread_id"],
+            records[6]["projection_deltas"][0]["handoff"]["source_thread_id"],
             "thread-1"
         );
         assert_eq!(
-            records[3]["projection_deltas"][0]["handoff"]["target_thread_id"],
+            records[6]["projection_deltas"][0]["handoff"]["target_thread_id"],
             "agent-thread-1"
         );
         assert_eq!(
-            records[3]["projection_deltas"][0]["handoff"]["target_location"],
+            records[6]["projection_deltas"][0]["handoff"]["target_location"],
             "local"
         );
     }
