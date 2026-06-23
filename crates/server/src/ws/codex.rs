@@ -2720,6 +2720,19 @@ fn codex_ws_method_for_adapter_operation(
         ProviderAdapterOperation::CommandTerminate => methods::CODEX_COMMAND_TERMINATE,
         ProviderAdapterOperation::ProcessList => methods::CODEX_PROCESS_LIST,
         ProviderAdapterOperation::ProcessClean => methods::CODEX_PROCESS_CLEAN,
+        ProviderAdapterOperation::ProcessSpawn => methods::CODEX_PROCESS_SPAWN,
+        ProviderAdapterOperation::ProcessWriteStdin => methods::CODEX_PROCESS_WRITE_STDIN,
+        ProviderAdapterOperation::ProcessResizePty => methods::CODEX_PROCESS_RESIZE_PTY,
+        ProviderAdapterOperation::ProcessKill => methods::CODEX_PROCESS_KILL,
+        ProviderAdapterOperation::BackgroundTerminalsList => {
+            methods::CODEX_THREAD_BACKGROUND_TERMINALS_LIST
+        }
+        ProviderAdapterOperation::BackgroundTerminalsClean => {
+            methods::CODEX_THREAD_BACKGROUND_TERMINALS_CLEAN
+        }
+        ProviderAdapterOperation::BackgroundTerminalTerminate => {
+            methods::CODEX_THREAD_BACKGROUND_TERMINALS_TERMINATE
+        }
         ProviderAdapterOperation::FsReadFile => methods::CODEX_FS_READ_FILE,
         ProviderAdapterOperation::FsWriteFile => methods::CODEX_FS_WRITE_FILE,
         ProviderAdapterOperation::FsReadDirectory => methods::CODEX_FS_READ_DIRECTORY,
@@ -2788,7 +2801,58 @@ fn codex_ws_method_for_adapter_operation(
         }
         ProviderAdapterOperation::FeedbackUpload => methods::CODEX_FEEDBACK_UPLOAD,
         ProviderAdapterOperation::FuzzyFileSearch => methods::CODEX_FUZZY_FILE_SEARCH,
+        ProviderAdapterOperation::FuzzyFileSearchSessionStart => {
+            methods::CODEX_FUZZY_FILE_SEARCH_SESSION_START
+        }
+        ProviderAdapterOperation::FuzzyFileSearchSessionStop => {
+            methods::CODEX_FUZZY_FILE_SEARCH_SESSION_STOP
+        }
+        ProviderAdapterOperation::FuzzyFileSearchSessionUpdate => {
+            methods::CODEX_FUZZY_FILE_SEARCH_SESSION_UPDATE
+        }
         ProviderAdapterOperation::HooksList => methods::CODEX_HOOKS_LIST,
+        ProviderAdapterOperation::RemoteControlClientList => {
+            methods::CODEX_REMOTE_CONTROL_CLIENT_LIST
+        }
+        ProviderAdapterOperation::RemoteControlClientRevoke => {
+            methods::CODEX_REMOTE_CONTROL_CLIENT_REVOKE
+        }
+        ProviderAdapterOperation::RemoteControlDisable => methods::CODEX_REMOTE_CONTROL_DISABLE,
+        ProviderAdapterOperation::RemoteControlEnable => methods::CODEX_REMOTE_CONTROL_ENABLE,
+        ProviderAdapterOperation::RemoteControlPairingStart => {
+            methods::CODEX_REMOTE_CONTROL_PAIRING_START
+        }
+        ProviderAdapterOperation::RemoteControlPairingStatus => {
+            methods::CODEX_REMOTE_CONTROL_PAIRING_STATUS
+        }
+        ProviderAdapterOperation::RemoteControlStatusRead => {
+            methods::CODEX_REMOTE_CONTROL_STATUS_READ
+        }
+        ProviderAdapterOperation::ThreadDecrementElicitation => {
+            methods::CODEX_THREAD_DECREMENT_ELICITATION
+        }
+        ProviderAdapterOperation::ThreadIncrementElicitation => {
+            methods::CODEX_THREAD_INCREMENT_ELICITATION
+        }
+        ProviderAdapterOperation::ThreadMemoryModeSet => methods::CODEX_THREAD_MEMORY_MODE_SET,
+        ProviderAdapterOperation::ThreadRealtimeAppendAudio => {
+            methods::CODEX_THREAD_REALTIME_APPEND_AUDIO
+        }
+        ProviderAdapterOperation::ThreadRealtimeAppendSpeech => {
+            methods::CODEX_THREAD_REALTIME_APPEND_SPEECH
+        }
+        ProviderAdapterOperation::ThreadRealtimeAppendText => {
+            methods::CODEX_THREAD_REALTIME_APPEND_TEXT
+        }
+        ProviderAdapterOperation::ThreadRealtimeListVoices => {
+            methods::CODEX_THREAD_REALTIME_LIST_VOICES
+        }
+        ProviderAdapterOperation::ThreadRealtimeStart => methods::CODEX_THREAD_REALTIME_START,
+        ProviderAdapterOperation::ThreadRealtimeStop => methods::CODEX_THREAD_REALTIME_STOP,
+        ProviderAdapterOperation::ThreadSearch => methods::CODEX_THREAD_SEARCH,
+        ProviderAdapterOperation::ThreadSettingsUpdate => methods::CODEX_THREAD_SETTINGS_UPDATE,
+        ProviderAdapterOperation::ThreadTurnsItemsList => methods::CODEX_THREAD_TURNS_ITEMS_LIST,
+        ProviderAdapterOperation::ThreadTurnsList => methods::CODEX_THREAD_TURNS_LIST,
         ProviderAdapterOperation::MarketplaceAdd => methods::CODEX_MARKETPLACE_ADD,
         ProviderAdapterOperation::MarketplaceRemove => methods::CODEX_MARKETPLACE_REMOVE,
         ProviderAdapterOperation::MarketplaceUpgrade => methods::CODEX_MARKETPLACE_UPGRADE,
@@ -7739,6 +7803,9 @@ mod tests {
             "thread/inject_items".to_string(),
             "turn/start".to_string(),
             "command/exec".to_string(),
+            "process/spawn".to_string(),
+            "process/writeStdin".to_string(),
+            "thread/backgroundTerminals/list".to_string(),
             "fs/readFile".to_string(),
             "skills/config/write".to_string(),
             "skills/extraRoots/set".to_string(),
@@ -7749,6 +7816,10 @@ mod tests {
             "account/read".to_string(),
             "config/value/write".to_string(),
             "fuzzyFileSearch".to_string(),
+            "fuzzyFileSearch/sessionStart".to_string(),
+            "remoteControl/pairing/start".to_string(),
+            "thread/realtime/appendAudio".to_string(),
+            "thread/turns/items/list".to_string(),
             "marketplace/upgrade".to_string(),
             "model/list".to_string(),
             "modelProvider/capabilities/read".to_string(),
@@ -7936,6 +8007,55 @@ mod tests {
                 "search",
                 "optional",
                 "optional",
+            ),
+            (
+                "fuzzy_file_search_session_start",
+                "fuzzyFileSearch/sessionStart",
+                "search",
+                "version_gated",
+                "version_gated",
+            ),
+            (
+                "process_spawn",
+                "process/spawn",
+                "tools",
+                "version_gated",
+                "version_gated",
+            ),
+            (
+                "process_write_stdin",
+                "process/writeStdin",
+                "tools",
+                "version_gated",
+                "version_gated",
+            ),
+            (
+                "background_terminals_list",
+                "thread/backgroundTerminals/list",
+                "tools",
+                "version_gated",
+                "version_gated",
+            ),
+            (
+                "remote_control_pairing_start",
+                "remoteControl/pairing/start",
+                "remote",
+                "version_gated",
+                "version_gated",
+            ),
+            (
+                "thread_realtime_append_audio",
+                "thread/realtime/appendAudio",
+                "turns",
+                "version_gated",
+                "version_gated",
+            ),
+            (
+                "thread_turns_items_list",
+                "thread/turns/items/list",
+                "turns",
+                "version_gated",
+                "version_gated",
             ),
             (
                 "marketplace_upgrade",

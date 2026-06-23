@@ -191,6 +191,13 @@ pub mod provider {
         CommandTerminate,
         ProcessList,
         ProcessClean,
+        ProcessSpawn,
+        ProcessWriteStdin,
+        ProcessResizePty,
+        ProcessKill,
+        BackgroundTerminalsList,
+        BackgroundTerminalsClean,
+        BackgroundTerminalTerminate,
         FsReadFile,
         FsWriteFile,
         FsReadDirectory,
@@ -241,7 +248,30 @@ pub mod provider {
         ExternalAgentConfigImport,
         FeedbackUpload,
         FuzzyFileSearch,
+        FuzzyFileSearchSessionStart,
+        FuzzyFileSearchSessionStop,
+        FuzzyFileSearchSessionUpdate,
         HooksList,
+        RemoteControlClientList,
+        RemoteControlClientRevoke,
+        RemoteControlDisable,
+        RemoteControlEnable,
+        RemoteControlPairingStart,
+        RemoteControlPairingStatus,
+        RemoteControlStatusRead,
+        ThreadDecrementElicitation,
+        ThreadIncrementElicitation,
+        ThreadMemoryModeSet,
+        ThreadRealtimeAppendAudio,
+        ThreadRealtimeAppendSpeech,
+        ThreadRealtimeAppendText,
+        ThreadRealtimeListVoices,
+        ThreadRealtimeStart,
+        ThreadRealtimeStop,
+        ThreadSearch,
+        ThreadSettingsUpdate,
+        ThreadTurnsItemsList,
+        ThreadTurnsList,
         MarketplaceAdd,
         MarketplaceRemove,
         MarketplaceUpgrade,
@@ -1309,6 +1339,48 @@ pub mod provider {
                 Some("process/clean"),
             ),
             op(
+                Operation::ProcessSpawn,
+                Category::Tools,
+                VersionGated,
+                Some("process/spawn"),
+            ),
+            op(
+                Operation::ProcessWriteStdin,
+                Category::Tools,
+                VersionGated,
+                Some("process/writeStdin"),
+            ),
+            op(
+                Operation::ProcessResizePty,
+                Category::Tools,
+                VersionGated,
+                Some("process/resizePty"),
+            ),
+            op(
+                Operation::ProcessKill,
+                Category::Tools,
+                VersionGated,
+                Some("process/kill"),
+            ),
+            op(
+                Operation::BackgroundTerminalsList,
+                Category::Tools,
+                VersionGated,
+                Some("thread/backgroundTerminals/list"),
+            ),
+            op(
+                Operation::BackgroundTerminalsClean,
+                Category::Tools,
+                VersionGated,
+                Some("thread/backgroundTerminals/clean"),
+            ),
+            op(
+                Operation::BackgroundTerminalTerminate,
+                Category::Tools,
+                VersionGated,
+                Some("thread/backgroundTerminals/terminate"),
+            ),
+            op(
                 Operation::FsReadFile,
                 Category::Tools,
                 Required,
@@ -1609,10 +1681,148 @@ pub mod provider {
                 Some("fuzzyFileSearch"),
             ),
             op(
+                Operation::FuzzyFileSearchSessionStart,
+                Category::Search,
+                VersionGated,
+                Some("fuzzyFileSearch/sessionStart"),
+            ),
+            op(
+                Operation::FuzzyFileSearchSessionStop,
+                Category::Search,
+                VersionGated,
+                Some("fuzzyFileSearch/sessionStop"),
+            ),
+            op(
+                Operation::FuzzyFileSearchSessionUpdate,
+                Category::Search,
+                VersionGated,
+                Some("fuzzyFileSearch/sessionUpdate"),
+            ),
+            op(
                 Operation::HooksList,
                 Category::Config,
                 Optional,
                 Some("hooks/list"),
+            ),
+            op(
+                Operation::RemoteControlClientList,
+                Category::Remote,
+                VersionGated,
+                Some("remoteControl/client/list"),
+            ),
+            op(
+                Operation::RemoteControlClientRevoke,
+                Category::Remote,
+                VersionGated,
+                Some("remoteControl/client/revoke"),
+            ),
+            op(
+                Operation::RemoteControlDisable,
+                Category::Remote,
+                VersionGated,
+                Some("remoteControl/disable"),
+            ),
+            op(
+                Operation::RemoteControlEnable,
+                Category::Remote,
+                VersionGated,
+                Some("remoteControl/enable"),
+            ),
+            op(
+                Operation::RemoteControlPairingStart,
+                Category::Remote,
+                VersionGated,
+                Some("remoteControl/pairing/start"),
+            ),
+            op(
+                Operation::RemoteControlPairingStatus,
+                Category::Remote,
+                VersionGated,
+                Some("remoteControl/pairing/status"),
+            ),
+            op(
+                Operation::RemoteControlStatusRead,
+                Category::Remote,
+                VersionGated,
+                Some("remoteControl/status/read"),
+            ),
+            op(
+                Operation::ThreadDecrementElicitation,
+                Category::Turns,
+                VersionGated,
+                Some("thread/decrement_elicitation"),
+            ),
+            op(
+                Operation::ThreadIncrementElicitation,
+                Category::Turns,
+                VersionGated,
+                Some("thread/increment_elicitation"),
+            ),
+            op(
+                Operation::ThreadMemoryModeSet,
+                Category::Threads,
+                VersionGated,
+                Some("thread/memoryMode/set"),
+            ),
+            op(
+                Operation::ThreadRealtimeAppendAudio,
+                Category::Turns,
+                VersionGated,
+                Some("thread/realtime/appendAudio"),
+            ),
+            op(
+                Operation::ThreadRealtimeAppendSpeech,
+                Category::Turns,
+                VersionGated,
+                Some("thread/realtime/appendSpeech"),
+            ),
+            op(
+                Operation::ThreadRealtimeAppendText,
+                Category::Turns,
+                VersionGated,
+                Some("thread/realtime/appendText"),
+            ),
+            op(
+                Operation::ThreadRealtimeListVoices,
+                Category::Turns,
+                VersionGated,
+                Some("thread/realtime/listVoices"),
+            ),
+            op(
+                Operation::ThreadRealtimeStart,
+                Category::Turns,
+                VersionGated,
+                Some("thread/realtime/start"),
+            ),
+            op(
+                Operation::ThreadRealtimeStop,
+                Category::Turns,
+                VersionGated,
+                Some("thread/realtime/stop"),
+            ),
+            op(
+                Operation::ThreadSearch,
+                Category::Search,
+                VersionGated,
+                Some("thread/search"),
+            ),
+            op(
+                Operation::ThreadSettingsUpdate,
+                Category::Threads,
+                VersionGated,
+                Some("thread/settings/update"),
+            ),
+            op(
+                Operation::ThreadTurnsItemsList,
+                Category::Turns,
+                VersionGated,
+                Some("thread/turns/items/list"),
+            ),
+            op(
+                Operation::ThreadTurnsList,
+                Category::Turns,
+                VersionGated,
+                Some("thread/turns/list"),
             ),
             op(
                 Operation::MarketplaceAdd,
@@ -1753,6 +1963,12 @@ pub mod provider {
             | ProviderAdapterOperation::GuardianDeniedActionApprove
             | ProviderAdapterOperation::ServerRequestRespond
             | ProviderAdapterOperation::ReviewStart
+            | ProviderAdapterOperation::ProcessSpawn
+            | ProviderAdapterOperation::ProcessWriteStdin
+            | ProviderAdapterOperation::ProcessResizePty
+            | ProviderAdapterOperation::ProcessKill
+            | ProviderAdapterOperation::BackgroundTerminalsClean
+            | ProviderAdapterOperation::BackgroundTerminalTerminate
             | ProviderAdapterOperation::FsWatch
             | ProviderAdapterOperation::FsUnwatch
             | ProviderAdapterOperation::McpOauthLogin
@@ -1775,7 +1991,23 @@ pub mod provider {
             | ProviderAdapterOperation::ExperimentalFeatureEnablementSet
             | ProviderAdapterOperation::ExternalAgentConfigImport
             | ProviderAdapterOperation::FeedbackUpload
+            | ProviderAdapterOperation::FuzzyFileSearchSessionStart
+            | ProviderAdapterOperation::FuzzyFileSearchSessionStop
+            | ProviderAdapterOperation::FuzzyFileSearchSessionUpdate
             | ProviderAdapterOperation::HandoffToLocation
+            | ProviderAdapterOperation::RemoteControlClientRevoke
+            | ProviderAdapterOperation::RemoteControlDisable
+            | ProviderAdapterOperation::RemoteControlEnable
+            | ProviderAdapterOperation::RemoteControlPairingStart
+            | ProviderAdapterOperation::ThreadDecrementElicitation
+            | ProviderAdapterOperation::ThreadIncrementElicitation
+            | ProviderAdapterOperation::ThreadMemoryModeSet
+            | ProviderAdapterOperation::ThreadRealtimeAppendAudio
+            | ProviderAdapterOperation::ThreadRealtimeAppendSpeech
+            | ProviderAdapterOperation::ThreadRealtimeAppendText
+            | ProviderAdapterOperation::ThreadRealtimeStart
+            | ProviderAdapterOperation::ThreadRealtimeStop
+            | ProviderAdapterOperation::ThreadSettingsUpdate
             | ProviderAdapterOperation::WindowsSandboxSetupStart
             | ProviderAdapterOperation::MarketplaceAdd
             | ProviderAdapterOperation::MarketplaceRemove
@@ -1796,6 +2028,10 @@ pub mod provider {
             | ProviderAdapterOperation::CommandWriteStdin
             | ProviderAdapterOperation::CommandResize
             | ProviderAdapterOperation::CommandTerminate
+            | ProviderAdapterOperation::ProcessSpawn
+            | ProviderAdapterOperation::ProcessWriteStdin
+            | ProviderAdapterOperation::ProcessResizePty
+            | ProviderAdapterOperation::ProcessKill
             | ProviderAdapterOperation::FsWriteFile
             | ProviderAdapterOperation::FsCreateDirectory
             | ProviderAdapterOperation::FsCopy
@@ -1812,6 +2048,12 @@ pub mod provider {
             | ProviderAdapterOperation::CommandWriteStdin
             | ProviderAdapterOperation::CommandResize
             | ProviderAdapterOperation::CommandTerminate
+            | ProviderAdapterOperation::ProcessSpawn
+            | ProviderAdapterOperation::ProcessWriteStdin
+            | ProviderAdapterOperation::ProcessResizePty
+            | ProviderAdapterOperation::ProcessKill
+            | ProviderAdapterOperation::BackgroundTerminalsClean
+            | ProviderAdapterOperation::BackgroundTerminalTerminate
             | ProviderAdapterOperation::McpOauthLogin
             | ProviderAdapterOperation::McpToolCall
             | ProviderAdapterOperation::SkillsInstall
@@ -1829,6 +2071,14 @@ pub mod provider {
             | ProviderAdapterOperation::AccountRateLimitResetCreditConsume
             | ProviderAdapterOperation::AccountSendAddCreditsNudgeEmail
             | ProviderAdapterOperation::WindowsSandboxSetupStart
+            | ProviderAdapterOperation::RemoteControlClientRevoke
+            | ProviderAdapterOperation::RemoteControlDisable
+            | ProviderAdapterOperation::RemoteControlEnable
+            | ProviderAdapterOperation::RemoteControlPairingStart
+            | ProviderAdapterOperation::ThreadRealtimeAppendAudio
+            | ProviderAdapterOperation::ThreadRealtimeAppendSpeech
+            | ProviderAdapterOperation::ThreadRealtimeAppendText
+            | ProviderAdapterOperation::ThreadRealtimeStart
             | ProviderAdapterOperation::MarketplaceAdd
             | ProviderAdapterOperation::MarketplaceRemove
             | ProviderAdapterOperation::MarketplaceUpgrade
@@ -1844,6 +2094,7 @@ pub mod provider {
         match operation {
             ProviderAdapterOperation::ThreadShellCommand
             | ProviderAdapterOperation::CommandExec
+            | ProviderAdapterOperation::ProcessSpawn
             | ProviderAdapterOperation::FsWriteFile
             | ProviderAdapterOperation::FsCreateDirectory
             | ProviderAdapterOperation::FsCopy
@@ -2881,6 +3132,33 @@ pub mod provider {
                         .is_some_and(|reason| reason.contains("version-gated"))
             }));
             assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::ProcessSpawn
+                    && operation.availability == ProviderAdapterOperationAvailability::VersionGated
+                    && operation.policy.mutates_workspace
+                    && operation.policy.external_side_effects
+                    && operation.policy.approval_boundary
+                    && operation.runtime_gate.as_ref().is_some_and(|gate| {
+                        gate.kind == ProviderAdapterOperationGateKind::VersionGatedProviderMethod
+                            && gate.provider_methods == vec!["process/spawn".to_string()]
+                    })
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::ThreadRealtimeAppendAudio
+                    && operation.category == ProviderFeatureCategory::Turns
+                    && operation.availability == ProviderAdapterOperationAvailability::VersionGated
+                    && operation.policy.mutates_provider_state
+                    && operation.policy.external_side_effects
+                    && operation.provider_methods == vec!["thread/realtime/appendAudio".to_string()]
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::RemoteControlPairingStart
+                    && operation.category == ProviderFeatureCategory::Remote
+                    && operation.availability == ProviderAdapterOperationAvailability::VersionGated
+                    && operation.policy.mutates_provider_state
+                    && operation.policy.external_side_effects
+                    && operation.provider_methods == vec!["remoteControl/pairing/start".to_string()]
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::ThreadShellCommand
                     && operation.policy.requires_user_initiation
                     && operation.policy.escapes_thread_sandbox
@@ -2919,6 +3197,21 @@ pub mod provider {
                     ProviderAdapterOperation::ThreadShellCommand,
                     "thread/shellCommand",
                     ProviderFeatureCategory::Tools,
+                ),
+                (
+                    ProviderAdapterOperation::ProcessSpawn,
+                    "process/spawn",
+                    ProviderFeatureCategory::Tools,
+                ),
+                (
+                    ProviderAdapterOperation::FuzzyFileSearchSessionStart,
+                    "fuzzyFileSearch/sessionStart",
+                    ProviderFeatureCategory::Search,
+                ),
+                (
+                    ProviderAdapterOperation::ThreadTurnsItemsList,
+                    "thread/turns/items/list",
+                    ProviderFeatureCategory::Turns,
                 ),
                 (
                     ProviderAdapterOperation::SkillsConfigWrite,
