@@ -418,39 +418,43 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new(
         "account/chatgptAuthTokens/refresh",
         ServerRequest,
-        RawSupported,
+        TypedSupported,
     ),
-    CodexMethodSpec::new("applyPatchApproval", ServerRequest, RawSupported),
-    CodexMethodSpec::new("attestation/generate", ServerRequest, RawSupported),
-    CodexMethodSpec::new("execCommandApproval", ServerRequest, RawSupported),
+    CodexMethodSpec::new("applyPatchApproval", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("attestation/generate", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("execCommandApproval", ServerRequest, TypedSupported),
     CodexMethodSpec::new(
         "item/commandExecution/requestApproval",
         ServerRequest,
-        RawSupported,
+        TypedSupported,
     ),
     CodexMethodSpec::new(
         "item/fileChange/requestApproval",
         ServerRequest,
-        RawSupported,
+        TypedSupported,
     ),
     CodexMethodSpec::new(
         "item/permissions/requestApproval",
         ServerRequest,
-        RawSupported,
+        TypedSupported,
     ),
-    CodexMethodSpec::new("item/tool/call", ServerRequest, RawSupported),
-    CodexMethodSpec::new("item/tool/requestUserInput", ServerRequest, RawSupported),
-    CodexMethodSpec::new("mcpServer/elicitation/request", ServerRequest, RawSupported),
-    CodexMethodSpec::new("command/approvalRequest", ServerRequest, RawSupported),
-    CodexMethodSpec::new("fileChange/approvalRequest", ServerRequest, RawSupported),
-    CodexMethodSpec::new("tool/userInputRequest", ServerRequest, RawSupported),
-    CodexMethodSpec::new("mcp/elicitation", ServerRequest, RawSupported),
-    CodexMethodSpec::new("permission/approvalRequest", ServerRequest, RawSupported),
-    CodexMethodSpec::new("dynamicTool/call", ServerRequest, RawSupported),
-    CodexMethodSpec::new("account/tokenRefresh", ServerRequest, RawSupported),
-    CodexMethodSpec::new("attestation/request", ServerRequest, RawSupported),
-    CodexMethodSpec::new("applyPatch/approvalRequest", ServerRequest, RawSupported),
-    CodexMethodSpec::new("exec/approvalRequest", ServerRequest, RawSupported),
+    CodexMethodSpec::new("item/tool/call", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("item/tool/requestUserInput", ServerRequest, TypedSupported),
+    CodexMethodSpec::new(
+        "mcpServer/elicitation/request",
+        ServerRequest,
+        TypedSupported,
+    ),
+    CodexMethodSpec::new("command/approvalRequest", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("fileChange/approvalRequest", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("tool/userInputRequest", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("mcp/elicitation", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("permission/approvalRequest", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("dynamicTool/call", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("account/tokenRefresh", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("attestation/request", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("applyPatch/approvalRequest", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("exec/approvalRequest", ServerRequest, TypedSupported),
 ];
 
 #[must_use]
@@ -1012,7 +1016,7 @@ mod tests {
         );
         assert_eq!(
             classify_codex_method("item/commandExecution/requestApproval", ServerRequest),
-            Some(RawSupported)
+            Some(TypedSupported)
         );
         assert_eq!(
             classify_codex_method("item/plan/delta", ServerNotification),
@@ -1065,6 +1069,17 @@ mod tests {
         ] {
             assert_eq!(
                 classify_codex_method(method, ServerNotification),
+                Some(TypedSupported),
+                "{method}"
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_server_requests_are_typed_supported() {
+        for method in KNOWN_SERVER_REQUEST_METHODS {
+            assert_eq!(
+                classify_codex_method(method, ServerRequest),
                 Some(TypedSupported),
                 "{method}"
             );
