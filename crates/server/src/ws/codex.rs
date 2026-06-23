@@ -9,21 +9,25 @@ use ace_protocol::{
         CodexAppConfigWriteRequest, CodexBackgroundTerminalCleanRequest,
         CodexBackgroundTerminalListRequest, CodexBackgroundTerminalTerminateRequest,
         CodexCommandExecRequest, CodexCommandProcessRequest, CodexCommandResizeRequest,
-        CodexCommandWriteStdinRequest, CodexCompatibilityInventoryResponse, CodexFsCopyRequest,
-        CodexFsPathRequest, CodexFsReadDirectoryRequest, CodexFsReadFileRequest,
-        CodexFsWriteFileRequest, CodexGoalSetRequest, CodexGuardianDeniedActionApprovalRequest,
-        CodexHandoffLocation, CodexHandoffToAgentRequest, CodexHandoffToLocationRequest,
-        CodexHandoffToLocationResponse, CodexMarketplaceRequest, CodexMcpOauthLoginRequest,
-        CodexMcpResourceReadRequest, CodexMcpStatusRequest, CodexMcpToolCallRequest,
-        CodexModelListRequest, CodexModelProviderCapabilitiesReadRequest, CodexNamedQueryRequest,
-        CodexPermissionPresetRequest, CodexPlanImplementationRequest, CodexPlanTurnStartRequest,
-        CodexPluginRequest, CodexPluginShareRequest, CodexPluginShareSaveRequest,
-        CodexPluginShareUpdateTargetsRequest, CodexProcessCleanRequest, CodexProcessKillRequest,
-        CodexProcessListRequest, CodexProcessResizePtyRequest, CodexProcessSpawnRequest,
-        CodexProcessWriteStdinRequest, CodexRawRequest, CodexRemoteHandoffRequest,
-        CodexReviewStartRequest, CodexShutdownRequest, CodexSkillRequest,
-        CodexSkillsConfigWriteRequest, CodexSkillsExtraRootsSetRequest, CodexStderrTailResponse,
-        CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest,
+        CodexCommandWriteStdinRequest, CodexCompatibilityInventoryResponse,
+        CodexConfigBatchWriteRequest, CodexConfigMcpServerReloadRequest, CodexConfigReadRequest,
+        CodexConfigValueWriteRequest, CodexExperimentalFeatureEnablementSetRequest,
+        CodexExperimentalFeatureListRequest, CodexExternalAgentConfigRequest,
+        CodexFeedbackUploadRequest, CodexFsCopyRequest, CodexFsPathRequest,
+        CodexFsReadDirectoryRequest, CodexFsReadFileRequest, CodexFsWriteFileRequest,
+        CodexFuzzyFileSearchSessionRequest, CodexGoalSetRequest,
+        CodexGuardianDeniedActionApprovalRequest, CodexHandoffLocation, CodexHandoffToAgentRequest,
+        CodexHandoffToLocationRequest, CodexHandoffToLocationResponse, CodexMarketplaceRequest,
+        CodexMcpOauthLoginRequest, CodexMcpResourceReadRequest, CodexMcpStatusRequest,
+        CodexMcpToolCallRequest, CodexModelListRequest, CodexModelProviderCapabilitiesReadRequest,
+        CodexNamedQueryRequest, CodexNamedWorkspaceQueryRequest, CodexPermissionPresetRequest,
+        CodexPlanImplementationRequest, CodexPlanTurnStartRequest, CodexPluginRequest,
+        CodexPluginShareRequest, CodexPluginShareSaveRequest, CodexPluginShareUpdateTargetsRequest,
+        CodexProcessCleanRequest, CodexProcessKillRequest, CodexProcessListRequest,
+        CodexProcessResizePtyRequest, CodexProcessSpawnRequest, CodexProcessWriteStdinRequest,
+        CodexRawRequest, CodexRemoteHandoffRequest, CodexReviewStartRequest, CodexShutdownRequest,
+        CodexSkillRequest, CodexSkillsConfigWriteRequest, CodexSkillsExtraRootsSetRequest,
+        CodexStderrTailResponse, CodexSubagentSteerRequest, CodexSubagentThreadRpcRequest,
         CodexThreadElicitationCountRequest, CodexThreadForkRequest, CodexThreadIdRequest,
         CodexThreadInjectItemsRequest, CodexThreadMemoryModeSetRequest,
         CodexThreadRealtimeAppendAudioRequest, CodexThreadRealtimeAppendSpeechRequest,
@@ -4803,46 +4807,67 @@ fn codex_versioned_app_server_request(
         methods::CODEX_WINDOWS_SANDBOX_SETUP_START => {
             Some(("windowsSandbox/setupStart", raw_or_enveloped(payload)?))
         }
-        methods::CODEX_CONFIG_READ => Some(("config/read", raw_or_enveloped(payload)?)),
-        methods::CODEX_CONFIG_VALUE_WRITE => {
-            Some(("config/value/write", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_CONFIG_BATCH_WRITE => {
-            Some(("config/batchWrite", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_CONFIG_MCP_SERVER_RELOAD => {
-            Some(("config/mcpServer/reload", raw_or_enveloped(payload)?))
-        }
+        methods::CODEX_CONFIG_READ => Some((
+            "config/read",
+            typed_or_enveloped::<CodexConfigReadRequest>(payload)?,
+        )),
+        methods::CODEX_CONFIG_VALUE_WRITE => Some((
+            "config/value/write",
+            typed_or_enveloped::<CodexConfigValueWriteRequest>(payload)?,
+        )),
+        methods::CODEX_CONFIG_BATCH_WRITE => Some((
+            "config/batchWrite",
+            typed_or_enveloped::<CodexConfigBatchWriteRequest>(payload)?,
+        )),
+        methods::CODEX_CONFIG_MCP_SERVER_RELOAD => Some((
+            "config/mcpServer/reload",
+            typed_or_enveloped::<CodexConfigMcpServerReloadRequest>(payload)?,
+        )),
         methods::CODEX_COLLABORATION_MODE_LIST => {
             Some(("collaborationMode/list", raw_or_enveloped(payload)?))
         }
         methods::CODEX_ENVIRONMENT_ADD => Some(("environment/add", raw_or_enveloped(payload)?)),
         methods::CODEX_MEMORY_RESET => Some(("memory/reset", raw_or_enveloped(payload)?)),
-        methods::CODEX_EXPERIMENTAL_FEATURE_LIST => {
-            Some(("experimentalFeature/list", raw_or_enveloped(payload)?))
-        }
+        methods::CODEX_EXPERIMENTAL_FEATURE_LIST => Some((
+            "experimentalFeature/list",
+            typed_or_enveloped::<CodexExperimentalFeatureListRequest>(payload)?,
+        )),
         methods::CODEX_EXPERIMENTAL_FEATURE_ENABLEMENT_SET => Some((
             "experimentalFeature/enablement/set",
-            raw_or_enveloped(payload)?,
+            typed_or_enveloped::<CodexExperimentalFeatureEnablementSetRequest>(payload)?,
         )),
-        methods::CODEX_EXTERNAL_AGENT_CONFIG_DETECT => {
-            Some(("externalAgentConfig/detect", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_EXTERNAL_AGENT_CONFIG_IMPORT => {
-            Some(("externalAgentConfig/import", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_FEEDBACK_UPLOAD => Some(("feedback/upload", raw_or_enveloped(payload)?)),
-        methods::CODEX_FUZZY_FILE_SEARCH => Some(("fuzzyFileSearch", raw_or_enveloped(payload)?)),
-        methods::CODEX_FUZZY_FILE_SEARCH_SESSION_START => {
-            Some(("fuzzyFileSearch/sessionStart", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_FUZZY_FILE_SEARCH_SESSION_STOP => {
-            Some(("fuzzyFileSearch/sessionStop", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_FUZZY_FILE_SEARCH_SESSION_UPDATE => {
-            Some(("fuzzyFileSearch/sessionUpdate", raw_or_enveloped(payload)?))
-        }
-        methods::CODEX_HOOKS_LIST => Some(("hooks/list", raw_or_enveloped(payload)?)),
+        methods::CODEX_EXTERNAL_AGENT_CONFIG_DETECT => Some((
+            "externalAgentConfig/detect",
+            typed_or_enveloped::<CodexExternalAgentConfigRequest>(payload)?,
+        )),
+        methods::CODEX_EXTERNAL_AGENT_CONFIG_IMPORT => Some((
+            "externalAgentConfig/import",
+            typed_or_enveloped::<CodexExternalAgentConfigRequest>(payload)?,
+        )),
+        methods::CODEX_FEEDBACK_UPLOAD => Some((
+            "feedback/upload",
+            typed_or_enveloped::<CodexFeedbackUploadRequest>(payload)?,
+        )),
+        methods::CODEX_FUZZY_FILE_SEARCH => Some((
+            "fuzzyFileSearch",
+            typed_or_enveloped::<CodexNamedWorkspaceQueryRequest>(payload)?,
+        )),
+        methods::CODEX_FUZZY_FILE_SEARCH_SESSION_START => Some((
+            "fuzzyFileSearch/sessionStart",
+            typed_or_enveloped::<CodexFuzzyFileSearchSessionRequest>(payload)?,
+        )),
+        methods::CODEX_FUZZY_FILE_SEARCH_SESSION_STOP => Some((
+            "fuzzyFileSearch/sessionStop",
+            typed_or_enveloped::<CodexFuzzyFileSearchSessionRequest>(payload)?,
+        )),
+        methods::CODEX_FUZZY_FILE_SEARCH_SESSION_UPDATE => Some((
+            "fuzzyFileSearch/sessionUpdate",
+            typed_or_enveloped::<CodexFuzzyFileSearchSessionRequest>(payload)?,
+        )),
+        methods::CODEX_HOOKS_LIST => Some((
+            "hooks/list",
+            typed_or_enveloped::<CodexNamedWorkspaceQueryRequest>(payload)?,
+        )),
         methods::CODEX_REMOTE_CONTROL_CLIENT_LIST => {
             Some(("remoteControl/client/list", raw_or_enveloped(payload)?))
         }
@@ -14433,35 +14458,153 @@ mod tests {
     }
 
     #[test]
-    fn codex_raw_config_marketplace_and_search_methods_preserve_payload_shape() {
+    fn codex_config_feature_and_search_methods_use_typed_contracts_without_dropping_extra_fields() {
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_CONFIG_READ,
+            &json!({
+                "key": "model",
+                "include_defaults": true,
+                "scope": "user"
+            }),
+        )
+        .expect("config read")
+        .expect("config method");
+        assert_eq!(method, "config/read");
+        assert_eq!(params["key"], "model");
+        assert_eq!(params["includeDefaults"], true);
+        assert_eq!(params["scope"], "user");
+        assert!(params.get("include_defaults").is_none());
+
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_CONFIG_VALUE_WRITE,
-            &json!({ "key": "model", "value": "gpt-5" }),
+            &json!({ "key": "model", "value": "gpt-5", "source": "settings" }),
         )
         .expect("config value write")
         .expect("config method");
         assert_eq!(method, "config/value/write");
         assert_eq!(params["key"], "model");
         assert_eq!(params["value"], "gpt-5");
+        assert_eq!(params["source"], "settings");
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_CONFIG_BATCH_WRITE,
+            &json!({
+                "params": {
+                    "values": { "model": "gpt-5", "sandbox": "workspace-write" },
+                    "reason": "profile"
+                }
+            }),
+        )
+        .expect("config batch write")
+        .expect("config method");
+        assert_eq!(method, "config/batchWrite");
+        assert_eq!(params["values"]["model"], "gpt-5");
+        assert_eq!(params["values"]["sandbox"], "workspace-write");
+        assert_eq!(params["reason"], "profile");
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_CONFIG_MCP_SERVER_RELOAD,
+            &json!({ "server": "browser", "force": true }),
+        )
+        .expect("mcp config reload")
+        .expect("config method");
+        assert_eq!(method, "config/mcpServer/reload");
+        assert_eq!(params["server"], "browser");
+        assert_eq!(params["force"], true);
 
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_EXPERIMENTAL_FEATURE_ENABLEMENT_SET,
-            &json!({ "params": { "feature": "plan_mode", "enabled": true } }),
+            &json!({ "params": { "feature": "plan_mode", "enabled": true, "scope": "user" } }),
         )
         .expect("feature enablement")
         .expect("feature method");
         assert_eq!(method, "experimentalFeature/enablement/set");
         assert_eq!(params["feature"], "plan_mode");
         assert_eq!(params["enabled"], true);
+        assert_eq!(params["scope"], "user");
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_EXPERIMENTAL_FEATURE_LIST,
+            &json!({ "query": "plan", "includeUnavailable": true }),
+        )
+        .expect("feature list")
+        .expect("feature method");
+        assert_eq!(method, "experimentalFeature/list");
+        assert_eq!(params["query"], "plan");
+        assert_eq!(params["includeUnavailable"], true);
 
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_FUZZY_FILE_SEARCH,
-            &json!({ "query": "main" }),
+            &json!({ "query": "main", "cwd": "/tmp/repo", "limit": 20, "includeHidden": true }),
         )
         .expect("fuzzy file search")
         .expect("search method");
         assert_eq!(method, "fuzzyFileSearch");
         assert_eq!(params["query"], "main");
+        assert_eq!(params["cwd"], "/tmp/repo");
+        assert_eq!(params["limit"], 20);
+        assert_eq!(params["includeHidden"], true);
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_FUZZY_FILE_SEARCH_SESSION_UPDATE,
+            &json!({
+                "session_id": "search-1",
+                "query": "lib",
+                "cursor": "c1",
+                "includeIgnored": false
+            }),
+        )
+        .expect("fuzzy file search session update")
+        .expect("search method");
+        assert_eq!(method, "fuzzyFileSearch/sessionUpdate");
+        assert_eq!(params["sessionId"], "search-1");
+        assert_eq!(params["query"], "lib");
+        assert_eq!(params["cursor"], "c1");
+        assert_eq!(params["includeIgnored"], false);
+        assert!(params.get("session_id").is_none());
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_HOOKS_LIST,
+            &json!({ "cwd": "/tmp/repo", "query": "pre", "includeDisabled": true }),
+        )
+        .expect("hooks list")
+        .expect("hooks method");
+        assert_eq!(method, "hooks/list");
+        assert_eq!(params["cwd"], "/tmp/repo");
+        assert_eq!(params["query"], "pre");
+        assert_eq!(params["includeDisabled"], true);
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_EXTERNAL_AGENT_CONFIG_IMPORT,
+            &json!({
+                "provider": "codex",
+                "path": "/tmp/agent.toml",
+                "config": { "model": "gpt-5" },
+                "overwrite": true
+            }),
+        )
+        .expect("external agent config import")
+        .expect("external agent config method");
+        assert_eq!(method, "externalAgentConfig/import");
+        assert_eq!(params["provider"], "codex");
+        assert_eq!(params["path"], "/tmp/agent.toml");
+        assert_eq!(params["config"]["model"], "gpt-5");
+        assert_eq!(params["overwrite"], true);
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_FEEDBACK_UPLOAD,
+            &json!({
+                "kind": "bug",
+                "payload": { "threadId": "thread-1" },
+                "attachments": ["log.txt"]
+            }),
+        )
+        .expect("feedback upload")
+        .expect("feedback method");
+        assert_eq!(method, "feedback/upload");
+        assert_eq!(params["kind"], "bug");
+        assert_eq!(params["payload"]["threadId"], "thread-1");
+        assert_eq!(params["attachments"][0], "log.txt");
 
         for (ws_method, expected_codex_method) in [
             (
@@ -14470,18 +14613,6 @@ mod tests {
             ),
             (methods::CODEX_ENVIRONMENT_ADD, "environment/add"),
             (methods::CODEX_MEMORY_RESET, "memory/reset"),
-            (
-                methods::CODEX_FUZZY_FILE_SEARCH_SESSION_START,
-                "fuzzyFileSearch/sessionStart",
-            ),
-            (
-                methods::CODEX_FUZZY_FILE_SEARCH_SESSION_STOP,
-                "fuzzyFileSearch/sessionStop",
-            ),
-            (
-                methods::CODEX_FUZZY_FILE_SEARCH_SESSION_UPDATE,
-                "fuzzyFileSearch/sessionUpdate",
-            ),
             (
                 methods::CODEX_REMOTE_CONTROL_CLIENT_LIST,
                 "remoteControl/client/list",
