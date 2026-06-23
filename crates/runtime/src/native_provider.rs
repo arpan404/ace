@@ -23,6 +23,7 @@ use std::{collections::HashMap, time::Duration};
 use tokio::sync::{Mutex, mpsc};
 
 const ACE_NATIVE_EVENT_QUEUE_CAPACITY: usize = 256;
+const ACE_NATIVE_MAX_EVENT_BATCH_SIZE: usize = 512;
 const ACE_NATIVE_CLIENT_REQUEST_METHODS: &[&str] = &[
     "ace.ping",
     "ace.descriptor",
@@ -124,6 +125,17 @@ impl AceNativeProvider {
         method: &'static str,
         events: Vec<ProviderEvent>,
     ) -> Result<(), ProviderDriverError> {
+        if events.len() > ACE_NATIVE_MAX_EVENT_BATCH_SIZE {
+            return Err(ProviderDriverError::RequestFailed {
+                provider: "ace".to_string(),
+                method: method.to_string(),
+                message: format!(
+                    "Ace native provider event batch has {} events, exceeding limit {}",
+                    events.len(),
+                    ACE_NATIVE_MAX_EVENT_BATCH_SIZE
+                ),
+            });
+        }
         self.track_pending_server_requests(&events).await;
         self.event_tx
             .send(events)
@@ -340,6 +352,8 @@ impl ProviderDriver for AceNativeProvider {
                 "runtime": "ace",
                 "adapter_contract": contract.version,
                 "websocket_first": true,
+                "event_queue_capacity": ACE_NATIVE_EVENT_QUEUE_CAPACITY,
+                "max_event_batch_size": ACE_NATIVE_MAX_EVENT_BATCH_SIZE,
                 "supported_client_request_methods": Self::supported_client_request_methods_static(),
             }),
         }
@@ -636,6 +650,8 @@ impl ProviderDriver for AceNativeProvider {
                     "runtime": {
                         "transport": "websocket",
                         "websocket_first": contract.websocket_first,
+                        "event_queue_capacity": ACE_NATIVE_EVENT_QUEUE_CAPACITY,
+                        "max_event_batch_size": ACE_NATIVE_MAX_EVENT_BATCH_SIZE,
                         "events": contract.provider_event_types,
                         "raw_payload_policy": contract.raw_payload_policy,
                         "raw_payload": contract.raw_payload
@@ -762,6 +778,8 @@ impl ProviderStateSource for AceNativeProvider {
                     "runtime": "in_process",
                     "adapter_contract": contract.version,
                     "pending_server_requests": pending_server_requests,
+                    "event_queue_capacity": ACE_NATIVE_EVENT_QUEUE_CAPACITY,
+                    "max_event_batch_size": ACE_NATIVE_MAX_EVENT_BATCH_SIZE,
                     "websocket_first": true,
                 }),
             }],
@@ -825,6 +843,14 @@ mod tests {
         assert_eq!(response["version"], 7);
         assert_eq!(response["runtime"]["transport"], "websocket");
         assert_eq!(response["runtime"]["websocket_first"], true);
+        assert_eq!(
+            response["runtime"]["event_queue_capacity"],
+            ACE_NATIVE_EVENT_QUEUE_CAPACITY
+        );
+        assert_eq!(
+            response["runtime"]["max_event_batch_size"],
+            ACE_NATIVE_MAX_EVENT_BATCH_SIZE
+        );
         assert_eq!(
             response["runtime"]["raw_payload_policy"],
             "preserve_provider_payloads"
@@ -936,6 +962,14 @@ mod tests {
         let status = provider.status().await;
         assert_eq!(status.metadata["adapter_contract"], contract.version);
         assert_eq!(status.metadata["websocket_first"], true);
+        assert_eq!(
+            status.metadata["event_queue_capacity"],
+            ACE_NATIVE_EVENT_QUEUE_CAPACITY
+        );
+        assert_eq!(
+            status.metadata["max_event_batch_size"],
+            ACE_NATIVE_MAX_EVENT_BATCH_SIZE
+        );
 
         let snapshot = provider
             .runtime_state_snapshot()
@@ -949,6 +983,10 @@ mod tests {
         assert_eq!(
             snapshot.provider_states[0].metadata["runtime"],
             "in_process"
+        );
+        assert_eq!(
+            snapshot.provider_states[0].metadata["max_event_batch_size"],
+            ACE_NATIVE_MAX_EVENT_BATCH_SIZE
         );
     }
 
@@ -1084,6 +1122,41 @@ mod tests {
                 params: json!({ "threadId": "thread-1" }),
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn native_provider_rejects_oversized_event_batches_before_queueing() {
+        let provider = AceNativeProvider::new();
+        let events = (0..=ACE_NATIVE_MAX_EVENT_BATCH_SIZE)
+            .map(|index| {
+                json!({
+                    "type": "raw_notification",
+                    "method": "thread/list/updated",
+                    "params": { "threadId": format!("thread-{index}") }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let error = provider
+            .request(ProviderRequest {
+                method: "ace.events.emit".to_string(),
+                params: json!({ "events": events }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect_err("oversized batch");
+
+        assert!(matches!(
+            error,
+            ProviderDriverError::RequestFailed {
+                provider,
+                method,
+                message
+            } if provider == "ace"
+                && method == "ace.events.emit"
+                && message.contains("exceeding limit")
+        ));
+        assert!(provider.event_rx.lock().await.try_recv().is_err());
     }
 
     #[tokio::test]
