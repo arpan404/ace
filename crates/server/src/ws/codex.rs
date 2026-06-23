@@ -53,7 +53,7 @@ use ace_protocol::{
         ProviderRuntimeRequestResolveRequest, ProviderRuntimeRequestResolveResponse,
         ProviderRuntimeSlashCommandsListRequest, ProviderRuntimeSlashCommandsListResponse,
         ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
-        ProviderRuntimeStateSource, ProviderRuntimeStatusListRequest,
+        ProviderRuntimeStateSource, ProviderRuntimeStateSummary, ProviderRuntimeStatusListRequest,
         ProviderRuntimeStatusListResponse, ProviderRuntimeSubscribeRequest,
         ProviderServerRequestAudit, ProviderServerRequestDecisionRecord,
         ProviderServerRequestDecisionResponse, ProviderServerRequestError,
@@ -1142,6 +1142,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             .lock()
                             .expect("provider event log")
                             .runtime_state_snapshot(Some(provider.runtime_id()))?;
+                        let summary =
+                            ProviderRuntimeStateSummary::from_snapshot(&persisted_snapshot);
                         provider_states.push(ProviderRuntimeProviderState {
                             provider,
                             runtime_id: provider.runtime_id().to_string(),
@@ -1149,6 +1151,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             source: ProviderRuntimeStateSource::Persisted,
                             persisted_replay_available,
                             last_persisted_sequence,
+                            summary,
                             state: persisted_snapshot,
                         });
                         continue;
@@ -1162,6 +1165,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         }
                         continue;
                     }
+                    let snapshot = self.providers.runtime_state_snapshot(provider).await?;
+                    let summary = ProviderRuntimeStateSummary::from_snapshot(&snapshot);
                     provider_states.push(ProviderRuntimeProviderState {
                         provider,
                         runtime_id: provider.runtime_id().to_string(),
@@ -1169,7 +1174,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         source: ProviderRuntimeStateSource::Live,
                         persisted_replay_available,
                         last_persisted_sequence,
-                        state: self.providers.runtime_state_snapshot(provider).await?,
+                        summary,
+                        state: snapshot,
                     });
                 }
                 Ok(serde_json::to_value(ProviderRuntimeStateGetResponse {
@@ -5536,6 +5542,12 @@ mod tests {
         let WsServerPayload::Result { body } = snapshot.payload else {
             panic!("expected snapshot result");
         };
+        assert_eq!(body["providers"][0]["summary"]["active_turns"], 1);
+        assert_eq!(body["providers"][0]["summary"]["plan_sessions"], 1);
+        assert_eq!(
+            body["providers"][0]["summary"]["by_plan_status"],
+            json!([{ "key": "active", "count": 1 }])
+        );
         let active_turns = body["providers"][0]["state"]["active_turns"]
             .as_array()
             .expect("active turns");
@@ -12248,6 +12260,28 @@ mod tests {
                 .is_some_and(|sequence| sequence > 0)
         );
         let snapshot_state = &body["providers"][0]["state"];
+        let summary = &body["providers"][0]["summary"];
+        assert_eq!(summary["thread_items"], 2);
+        assert_eq!(summary["plan_sessions"], 1);
+        assert_eq!(summary["tool_timeline"], 1);
+        assert_eq!(summary["terminal_outputs"], 1);
+        assert_eq!(summary["approvals"], 1);
+        assert_eq!(summary["pending_approvals"], 0);
+        assert_eq!(summary["resolved_approvals"], 1);
+        assert_eq!(summary["realtime_transcripts"], 1);
+        assert_eq!(summary["realtime_audio"], 1);
+        assert_eq!(
+            summary["by_plan_status"],
+            json!([{ "key": "active", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_tool_status"],
+            json!([{ "key": "completed", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_approval_status"],
+            json!([{ "key": "resolved", "count": 1 }])
+        );
         assert_eq!(snapshot_state["thread_items"].as_array().unwrap().len(), 2);
         assert_eq!(snapshot_state["thread_items"][0]["item_id"], "item-1");
         assert_eq!(snapshot_state["thread_items"][0]["text"], "final");

@@ -887,12 +887,136 @@ pub struct ProviderRuntimeProviderState {
     pub persisted_replay_available: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_persisted_sequence: Option<i64>,
+    pub summary: ProviderRuntimeStateSummary,
     pub state: AgentRuntimeSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRuntimeStateGetResponse {
     pub providers: Vec<ProviderRuntimeProviderState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ProviderRuntimeStateSummary {
+    pub threads: usize,
+    pub active_threads: usize,
+    pub archived_threads: usize,
+    pub active_turns: usize,
+    pub plan_sessions: usize,
+    pub goals: usize,
+    pub child_threads: usize,
+    pub fork_points: usize,
+    pub side_chats: usize,
+    pub subagents: usize,
+    pub handoffs: usize,
+    pub approval_retries: usize,
+    pub plan_implementations: usize,
+    pub thread_items: usize,
+    pub tool_timeline: usize,
+    pub approvals: usize,
+    pub pending_approvals: usize,
+    pub resolved_approvals: usize,
+    pub review_threads: usize,
+    pub turn_diffs: usize,
+    pub terminal_outputs: usize,
+    pub process_exits: usize,
+    pub warnings: usize,
+    pub model_reroutes: usize,
+    pub provider_states: usize,
+    pub remote_connections: usize,
+    pub realtime_sessions: usize,
+    pub realtime_transcripts: usize,
+    pub realtime_audio: usize,
+    pub turn_moderation: usize,
+    pub auto_approval_reviews: usize,
+    #[serde(default)]
+    pub by_plan_status: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_goal_status: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_child_relationship: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_tool_status: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_approval_status: Vec<ProviderRuntimeOperationCount>,
+}
+
+impl ProviderRuntimeStateSummary {
+    #[must_use]
+    pub fn from_snapshot(snapshot: &AgentRuntimeSnapshot) -> Self {
+        let mut by_plan_status = BTreeMap::new();
+        let mut by_goal_status = BTreeMap::new();
+        let mut by_child_relationship = BTreeMap::new();
+        let mut by_tool_status = BTreeMap::new();
+        let mut by_approval_status = BTreeMap::new();
+        let mut summary = Self {
+            threads: snapshot.threads.len(),
+            active_threads: snapshot
+                .threads
+                .iter()
+                .filter(|thread| thread.active == Some(true))
+                .count(),
+            archived_threads: snapshot
+                .threads
+                .iter()
+                .filter(|thread| thread.archived == Some(true))
+                .count(),
+            active_turns: snapshot.active_turns.len(),
+            plan_sessions: snapshot.plan_sessions.len(),
+            goals: snapshot.goals.len(),
+            child_threads: snapshot.child_threads.len(),
+            fork_points: snapshot.fork_points.len(),
+            side_chats: snapshot.side_chats.len(),
+            subagents: snapshot.subagents.len(),
+            handoffs: snapshot.handoffs.len(),
+            approval_retries: snapshot.approval_retries.len(),
+            plan_implementations: snapshot.plan_implementations.len(),
+            thread_items: snapshot.thread_items.len(),
+            tool_timeline: snapshot.tool_timeline.len(),
+            approvals: snapshot.approvals.len(),
+            review_threads: snapshot.review_threads.len(),
+            turn_diffs: snapshot.turn_diffs.len(),
+            terminal_outputs: snapshot.terminal_outputs.len(),
+            process_exits: snapshot.process_exits.len(),
+            warnings: snapshot.warnings.len(),
+            model_reroutes: snapshot.model_reroutes.len(),
+            provider_states: snapshot.provider_states.len(),
+            remote_connections: snapshot.remote_connections.len(),
+            realtime_sessions: snapshot.realtime_sessions.len(),
+            realtime_transcripts: snapshot.realtime_transcripts.len(),
+            realtime_audio: snapshot.realtime_audio.len(),
+            turn_moderation: snapshot.turn_moderation.len(),
+            auto_approval_reviews: snapshot.auto_approval_reviews.len(),
+            ..Self::default()
+        };
+
+        for plan in &snapshot.plan_sessions {
+            increment_count(&mut by_plan_status, enum_key(&plan.status));
+        }
+        for goal in &snapshot.goals {
+            increment_count(&mut by_goal_status, enum_key(&goal.status));
+        }
+        for child in &snapshot.child_threads {
+            increment_count(&mut by_child_relationship, enum_key(&child.relationship));
+        }
+        for tool in &snapshot.tool_timeline {
+            increment_count(&mut by_tool_status, enum_key(&tool.display.status));
+        }
+        for approval in &snapshot.approvals {
+            increment_count(&mut by_approval_status, enum_key(&approval.status));
+            match approval.status {
+                ace_runtime::threads::ApprovalStatus::Pending => summary.pending_approvals += 1,
+                ace_runtime::threads::ApprovalStatus::Resolved => summary.resolved_approvals += 1,
+            }
+        }
+
+        summary.by_plan_status = operation_counts(by_plan_status);
+        summary.by_goal_status = operation_counts(by_goal_status);
+        summary.by_child_relationship = operation_counts(by_child_relationship);
+        summary.by_tool_status = operation_counts(by_tool_status);
+        summary.by_approval_status = operation_counts(by_approval_status);
+        summary
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
