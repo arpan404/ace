@@ -12,7 +12,8 @@ use ace_runtime::{
         ProviderAdapterRuntimeHook, ProviderAdapterRuntimeReport, ProviderContractReport,
         ProviderDescriptor, ProviderDriverStatus, ProviderEvent, ProviderFeature,
         ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
-        RuntimeSignalKind, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+        ProviderRuntimeHealth, RuntimeSignalKind, ServerRequestKind, ThreadItemKind,
+        ThreadItemStatus,
     },
     threads::{
         AgentRuntimeSnapshot, ApprovalRetryRecord, ExecutionLocation, ForkPoint, GoalState,
@@ -585,11 +586,125 @@ pub struct ProviderRuntimeProviderStatus {
     pub runtime_id: String,
     pub display_name: String,
     pub status: ProviderDriverStatus,
+    pub summary: ProviderRuntimeProviderStatusSummary,
     pub supports_events: bool,
     pub supports_server_request_responses: bool,
     pub contract: ProviderContractReport,
     pub adapter_profile: ProviderAdapterProfile,
     pub adapter_runtime: ProviderAdapterRuntimeReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeProviderStatusSummary {
+    pub health: ProviderRuntimeHealth,
+    pub ready: bool,
+    pub initialized: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    pub supports_events: bool,
+    pub supports_server_request_responses: bool,
+    pub contract_satisfied: bool,
+    pub runtime_hooks_satisfied: bool,
+    #[serde(default)]
+    pub missing_required_capabilities: Vec<String>,
+    #[serde(default)]
+    pub missing_required_hooks: Vec<String>,
+    pub advertised_client_request_methods: usize,
+    pub version_gated_client_request_methods: usize,
+    pub deferred_client_request_methods: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_inventory_source: Option<String>,
+}
+
+impl ProviderRuntimeProviderStatusSummary {
+    #[must_use]
+    pub fn from_status(
+        status: &ProviderDriverStatus,
+        supports_events: bool,
+        supports_server_request_responses: bool,
+        contract: &ProviderContractReport,
+        adapter_runtime: &ProviderAdapterRuntimeReport,
+    ) -> Self {
+        Self {
+            health: status.health,
+            ready: matches!(
+                status.health,
+                ProviderRuntimeHealth::Ready | ProviderRuntimeHealth::Running
+            ) && status.initialized
+                && contract.satisfies_required
+                && adapter_runtime.satisfies_required_hooks,
+            initialized: status.initialized,
+            transport: status.transport.clone(),
+            version: status.version.clone(),
+            last_error: status.last_error.clone(),
+            supports_events,
+            supports_server_request_responses,
+            contract_satisfied: contract.satisfies_required,
+            runtime_hooks_satisfied: adapter_runtime.satisfies_required_hooks,
+            missing_required_capabilities: contract.missing_required.clone(),
+            missing_required_hooks: adapter_runtime
+                .missing_required_hooks
+                .iter()
+                .map(enum_key)
+                .collect(),
+            advertised_client_request_methods: client_request_methods_count(&status.metadata),
+            version_gated_client_request_methods: metadata_array_count(
+                &status.metadata,
+                &[
+                    "/method_inventory/version_gated_client_request_methods",
+                    "/version_gated_client_request_methods",
+                ],
+            ),
+            deferred_client_request_methods: metadata_array_count(
+                &status.metadata,
+                &[
+                    "/method_inventory/deferred_client_request_methods",
+                    "/deferred_client_request_methods",
+                ],
+            ),
+            method_inventory_source: string_pointer(
+                &status.metadata,
+                &[
+                    "/method_inventory/source",
+                    "/installed_client_request_methods_source",
+                    "/client_request_methods_source",
+                ],
+            ),
+        }
+    }
+}
+
+fn client_request_methods_count(metadata: &serde_json::Value) -> usize {
+    metadata_array_count(
+        metadata,
+        &[
+            "/supported_client_request_methods",
+            "/installed_client_request_methods",
+            "/client_request_methods",
+            "/schema/client_request_methods",
+            "/schema/clientRequestMethods",
+            "/methods/client_request",
+            "/methods/clientRequest",
+            "/method_inventory/client_request_methods",
+        ],
+    )
+}
+
+fn metadata_array_count(metadata: &serde_json::Value, pointers: &[&str]) -> usize {
+    pointers
+        .iter()
+        .find_map(|pointer| metadata.pointer(pointer)?.as_array().map(Vec::len))
+        .unwrap_or_default()
+}
+
+fn string_pointer(metadata: &serde_json::Value, pointers: &[&str]) -> Option<String> {
+    pointers
+        .iter()
+        .find_map(|pointer| metadata.pointer(pointer)?.as_str().map(ToString::to_string))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2606,6 +2721,80 @@ mod tests {
         assert_eq!(count(&summary.by_availability, "version_gated"), 1);
         assert_eq!(count(&summary.by_request_mode, "adapter_operation"), 2);
         assert_eq!(count(&summary.by_request_mode, "event_stream"), 1);
+    }
+
+    #[test]
+    fn provider_runtime_status_summary_normalizes_health_and_inventory() {
+        let status = ace_runtime::provider::ProviderDriverStatus {
+            health: ProviderRuntimeHealth::Running,
+            transport: Some("stdio".to_string()),
+            version: Some("1.2.3".to_string()),
+            initialized: true,
+            last_error: None,
+            metadata: json!({
+                "method_inventory": {
+                    "source": "generated_schema",
+                    "client_request_methods": ["thread/read", "turn/start"],
+                    "version_gated_client_request_methods": ["process/spawn"],
+                    "deferred_client_request_methods": ["cloud/handoff"]
+                }
+            }),
+        };
+        let contract = ace_runtime::provider::ProviderContractReport {
+            provider: ProviderKind::Codex,
+            satisfies_required: true,
+            requirements: Vec::new(),
+            capabilities: Vec::new(),
+            missing_required: Vec::new(),
+        };
+        let runtime = ace_runtime::provider::ProviderAdapterRuntimeReport {
+            provider: ProviderKind::Codex,
+            satisfies_required_hooks: true,
+            hooks: Vec::new(),
+            missing_required_hooks: Vec::new(),
+        };
+
+        let summary = ProviderRuntimeProviderStatusSummary::from_status(
+            &status, true, true, &contract, &runtime,
+        );
+        assert_eq!(summary.health, ProviderRuntimeHealth::Running);
+        assert!(summary.ready);
+        assert!(summary.initialized);
+        assert_eq!(summary.transport.as_deref(), Some("stdio"));
+        assert_eq!(summary.version.as_deref(), Some("1.2.3"));
+        assert_eq!(
+            summary.method_inventory_source.as_deref(),
+            Some("generated_schema")
+        );
+        assert_eq!(summary.advertised_client_request_methods, 2);
+        assert_eq!(summary.version_gated_client_request_methods, 1);
+        assert_eq!(summary.deferred_client_request_methods, 1);
+
+        let degraded_contract = ace_runtime::provider::ProviderContractReport {
+            satisfies_required: false,
+            missing_required: vec!["provider.normalized_events".to_string()],
+            ..contract
+        };
+        let degraded_runtime = ace_runtime::provider::ProviderAdapterRuntimeReport {
+            satisfies_required_hooks: false,
+            missing_required_hooks: vec![ProviderAdapterRuntimeHook::EventSource],
+            ..runtime
+        };
+        let degraded = ProviderRuntimeProviderStatusSummary::from_status(
+            &status,
+            false,
+            false,
+            &degraded_contract,
+            &degraded_runtime,
+        );
+        assert!(!degraded.ready);
+        assert!(!degraded.supports_events);
+        assert!(!degraded.supports_server_request_responses);
+        assert_eq!(
+            degraded.missing_required_capabilities,
+            ["provider.normalized_events"]
+        );
+        assert_eq!(degraded.missing_required_hooks, ["event_source"]);
     }
 
     #[test]

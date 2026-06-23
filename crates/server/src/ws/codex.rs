@@ -42,7 +42,8 @@ use ace_protocol::{
         ProviderRuntimeOperationsListResponse, ProviderRuntimeProviderFeatures,
         ProviderRuntimeProviderInfo, ProviderRuntimeProviderOperation,
         ProviderRuntimeProviderOperations, ProviderRuntimeProviderSlashCommands,
-        ProviderRuntimeProviderState, ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
+        ProviderRuntimeProviderState, ProviderRuntimeProviderStatus,
+        ProviderRuntimeProviderStatusSummary, ProviderRuntimeProvidersList,
         ProviderRuntimeRawEventMode, ProviderRuntimeRawEventSummary,
         ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
         ProviderRuntimeRequest, ProviderRuntimeSlashCommandsListRequest,
@@ -1078,26 +1079,38 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         )?
                         .descriptor();
                     let status = self.providers.status(provider).await?;
+                    let supports_events = self.providers.has_event_source(provider);
+                    let supports_server_request_responses =
+                        self.providers.has_server_request_responder(provider);
+                    let contract = ace_runtime::provider::provider_contract_report(&descriptor);
+                    let adapter_profile = self.providers.adapter_profile(provider).ok_or(
+                        ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
+                            provider,
+                        },
+                    )?;
+                    let adapter_runtime = self.providers.adapter_runtime_report(provider).ok_or(
+                        ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
+                            provider,
+                        },
+                    )?;
+                    let summary = ProviderRuntimeProviderStatusSummary::from_status(
+                        &status,
+                        supports_events,
+                        supports_server_request_responses,
+                        &contract,
+                        &adapter_runtime,
+                    );
                     provider_statuses.push(ProviderRuntimeProviderStatus {
                         provider,
                         runtime_id: provider.runtime_id().to_string(),
                         display_name: provider.display_name().to_string(),
                         status,
-                        supports_events: self.providers.has_event_source(provider),
-                        supports_server_request_responses: self
-                            .providers
-                            .has_server_request_responder(provider),
-                        contract: ace_runtime::provider::provider_contract_report(&descriptor),
-                        adapter_profile: self.providers.adapter_profile(provider).ok_or(
-                            ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
-                                provider,
-                            },
-                        )?,
-                        adapter_runtime: self.providers.adapter_runtime_report(provider).ok_or(
-                            ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable {
-                                provider,
-                            },
-                        )?,
+                        summary,
+                        supports_events,
+                        supports_server_request_responses,
+                        contract,
+                        adapter_profile,
+                        adapter_runtime,
                     });
                 }
                 Ok(serde_json::to_value(ProviderRuntimeStatusListResponse {
@@ -10913,6 +10926,19 @@ mod tests {
         assert_eq!(codex["status"]["transport"], "fake_stdio");
         assert_eq!(codex["status"]["version"], "fake-codex-1");
         assert_eq!(codex["status"]["initialized"], true);
+        assert_eq!(codex["summary"]["health"], "running");
+        assert_eq!(codex["summary"]["ready"], true);
+        assert_eq!(codex["summary"]["initialized"], true);
+        assert_eq!(codex["summary"]["transport"], "fake_stdio");
+        assert_eq!(codex["summary"]["version"], "fake-codex-1");
+        assert_eq!(codex["summary"]["supports_events"], true);
+        assert_eq!(codex["summary"]["supports_server_request_responses"], true);
+        assert_eq!(codex["summary"]["contract_satisfied"], true);
+        assert_eq!(codex["summary"]["runtime_hooks_satisfied"], true);
+        assert_eq!(
+            codex["summary"]["method_inventory_source"],
+            "compiled_codex_adapter_inventory"
+        );
         assert_eq!(
             codex["status"]["metadata"]["method_inventory"]["source"],
             "compiled_codex_adapter_inventory"
@@ -10932,6 +10958,24 @@ mod tests {
         assert_eq!(
             codex["status"]["metadata"]["supported_client_request_methods"],
             Value::Null
+        );
+        assert!(
+            codex["summary"]["advertised_client_request_methods"]
+                .as_u64()
+                .expect("advertised method count")
+                > 0
+        );
+        assert!(
+            codex["summary"]["version_gated_client_request_methods"]
+                .as_u64()
+                .expect("version gated method count")
+                > 0
+        );
+        assert!(
+            codex["summary"]["deferred_client_request_methods"]
+                .as_u64()
+                .expect("deferred method count")
+                > 0
         );
         assert_eq!(codex["supports_events"], true);
         assert_eq!(codex["supports_server_request_responses"], true);
@@ -10957,6 +11001,17 @@ mod tests {
         assert_eq!(ace["status"]["health"], "ready");
         assert_eq!(ace["status"]["transport"], "in_process");
         assert_eq!(ace["status"]["initialized"], true);
+        assert_eq!(ace["summary"]["health"], "ready");
+        assert_eq!(ace["summary"]["ready"], true);
+        assert_eq!(ace["summary"]["transport"], "in_process");
+        assert_eq!(ace["summary"]["supports_events"], true);
+        assert_eq!(ace["summary"]["contract_satisfied"], true);
+        assert!(
+            ace["summary"]["advertised_client_request_methods"]
+                .as_u64()
+                .expect("ace method count")
+                > 0
+        );
         assert_eq!(ace["supports_events"], true);
         assert_eq!(ace["supports_server_request_responses"], true);
         assert_eq!(ace["adapter_profile"]["provider"], "Ace");
