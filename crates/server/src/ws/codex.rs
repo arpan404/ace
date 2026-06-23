@@ -3498,6 +3498,9 @@ fn enrich_server_request_audit(
     if audit.source_thread_id.is_none() {
         audit.source_thread_id.clone_from(&request.thread_id);
     }
+    if audit.source_turn_id.is_none() {
+        audit.source_turn_id.clone_from(&request.turn_id);
+    }
     if audit.source_item_id.is_none() {
         audit.source_item_id.clone_from(&request.item_id);
     }
@@ -11862,6 +11865,7 @@ mod tests {
         assert_eq!(body["decision"]["payload"]["approved"], true);
         assert_eq!(body["decision"]["audit"]["scope"], "command");
         assert_eq!(body["decision"]["audit"]["source_thread_id"], "thread-1");
+        assert_eq!(body["decision"]["audit"]["source_turn_id"], "turn-1");
         assert_eq!(body["decision"]["audit"]["source_item_id"], "item-1");
         assert_eq!(body["decision"]["audit"]["prompt"], "Run cargo test?");
         assert_eq!(body["decision"]["audit"]["selected_policy"], "on-request");
@@ -11919,6 +11923,7 @@ mod tests {
         let decision = records[0].decision.as_ref().expect("decision");
         assert_eq!(decision.audit["scope"], "command");
         assert_eq!(decision.audit["source_thread_id"], "thread-1");
+        assert_eq!(decision.audit["source_turn_id"], "turn-1");
         assert_eq!(decision.audit["source_item_id"], "item-1");
         assert_eq!(decision.audit["prompt"], "Run cargo test?");
         assert_eq!(decision.audit["selected_policy"], "on-request");
@@ -12012,6 +12017,7 @@ mod tests {
         assert_eq!(body["decision"]["payload"]["message"], "denied");
         assert_eq!(body["decision"]["audit"]["scope"], "filesystem");
         assert_eq!(body["decision"]["audit"]["source_thread_id"], "thread-1");
+        assert_eq!(body["decision"]["audit"]["source_turn_id"], "turn-2");
         assert_eq!(body["decision"]["audit"]["source_item_id"], "file-change-1");
         assert_eq!(
             body["decision"]["audit"]["prompt"],
@@ -12047,6 +12053,7 @@ mod tests {
         assert_eq!(decision.outcome, "error");
         assert_eq!(decision.audit["scope"], "filesystem");
         assert_eq!(decision.audit["source_thread_id"], "thread-1");
+        assert_eq!(decision.audit["source_turn_id"], "turn-2");
         assert_eq!(decision.audit["source_item_id"], "file-change-1");
         assert_eq!(decision.audit["prompt"], "Write outside workspace?");
         assert_eq!(decision.audit["selected_policy"], "strict");

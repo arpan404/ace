@@ -580,6 +580,8 @@ pub struct ProviderServerRequestAudit {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_item_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
@@ -2753,6 +2755,7 @@ mod tests {
                     audit: json!({
                         "scope": "command",
                         "source_thread_id": "thread-1",
+                        "source_turn_id": "turn-1",
                         "decided_by": "user"
                     }),
                 },
@@ -2775,6 +2778,10 @@ mod tests {
         assert_eq!(
             encoded_delta["decision"]["audit"]["source_thread_id"],
             "thread-1"
+        );
+        assert_eq!(
+            encoded_delta["decision"]["audit"]["source_turn_id"],
+            "turn-1"
         );
         assert_eq!(
             encoded_delta["request"]["metadata"]["command"],
