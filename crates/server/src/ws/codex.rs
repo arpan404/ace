@@ -7916,6 +7916,94 @@ mod tests {
             body["projection_deltas"][0]["request"]["provider"]["provider"],
             "future-provider"
         );
+
+        let pending_snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-server-request-pending-state",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+            )
+            .await;
+        let pending_snapshot: WsServerResponse =
+            serde_json::from_str(&pending_snapshot).expect("pending snapshot");
+        let WsServerPayload::Result { body } = pending_snapshot.payload else {
+            panic!("expected pending snapshot result");
+        };
+        assert_eq!(
+            body["providers"][0]["state"]["approvals"][0]["request_id"],
+            "approval-1"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["approvals"][0]["status"],
+            "pending"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["approvals"][0]["request"]["provider"]["raw_payload"]["diff"],
+            "@@ -1 +1 @@"
+        );
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-server-request-result",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT,
+                    "payload": {
+                        "provider": "ace",
+                        "request_id": "approval-1",
+                        "result": { "approved": true },
+                        "audit": {
+                            "decided_by": "user",
+                            "reason": "approved in test",
+                            "metadata": { "surface": "workspace" }
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse =
+            serde_json::from_str(&response).expect("server request response");
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected server request result response");
+        };
+        assert_eq!(body["responded"], true);
+        assert_eq!(body["provider"], "ace");
+        assert_eq!(body["request_id"], "approval-1");
+        assert_eq!(body["decision"]["outcome"], "result");
+        assert_eq!(body["decision"]["payload"]["approved"], true);
+        assert_eq!(body["decision"]["audit"]["scope"], "filesystem");
+        assert_eq!(body["decision"]["audit"]["source_thread_id"], "thread-1");
+        assert_eq!(body["decision"]["audit"]["source_item_id"], "item-1");
+
+        let resolved_snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-server-request-resolved-state",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+            )
+            .await;
+        let resolved_snapshot: WsServerResponse =
+            serde_json::from_str(&resolved_snapshot).expect("resolved snapshot");
+        let WsServerPayload::Result { body } = resolved_snapshot.payload else {
+            panic!("expected resolved snapshot result");
+        };
+        assert_eq!(
+            body["providers"][0]["state"]["approvals"][0]["status"],
+            "resolved"
+        );
+        assert_eq!(
+            body["providers"][0]["state"]["approvals"][0]["decision"]["payload"]["approved"],
+            true
+        );
     }
 
     #[tokio::test]
