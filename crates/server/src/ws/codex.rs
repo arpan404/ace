@@ -107,7 +107,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 request: params,
                 provider_response: response.clone(),
                 method: "ace/review/start",
-            })?;
+            })
+            .await?;
             return Ok(response);
         }
 
@@ -577,7 +578,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         response.clone(),
                     ),
                     method: "ace/plan/continue_in_thread",
-                })?;
+                })
+                .await?;
                 Ok(response)
             }
             methods::CODEX_PLAN_FORK_FOR_IMPLEMENTATION => {
@@ -596,7 +598,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             response.clone(),
                         ),
                         method: "ace/plan/fork_for_implementation",
-                    })?;
+                    })
+                    .await?;
                 }
                 Ok(response)
             }
@@ -613,7 +616,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             response.clone(),
                         ),
                         method: "ace/plan/side_implementation",
-                    })?;
+                    })
+                    .await?;
                 }
                 Ok(response)
             }
@@ -761,7 +765,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     action: "steer",
                     prompt: Some(params.prompt),
                     metadata: json!({ "provider_response": response.clone() }),
-                })?;
+                })
+                .await?;
                 Ok(response)
             }
             methods::CODEX_SUBAGENT_STOP => {
@@ -779,7 +784,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     action: "stop",
                     prompt: None,
                     metadata: json!({ "provider_response": response.clone() }),
-                })?;
+                })
+                .await?;
                 Ok(response)
             }
             methods::CODEX_SUBAGENT_CLOSE => {
@@ -797,7 +803,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     action: "close",
                     prompt: None,
                     metadata: json!({ "provider_response": response.clone() }),
-                })?;
+                })
+                .await?;
                 Ok(response)
             }
             methods::CODEX_HANDOFF_TO_AGENT => {
@@ -823,7 +830,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     handoff,
                     method: "ace/handoff/agent",
                     provider_response: response.clone(),
-                })?;
+                })
+                .await?;
                 Ok(response)
             }
             methods::CODEX_HANDOFF_TO_LOCATION => {
@@ -931,7 +939,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             handoff,
             method: "ace/handoff/location",
             provider_response: metadata.clone(),
-        })?;
+        })
+        .await?;
 
         Ok(serde_json::to_value(CodexHandoffToLocationResponse {
             source_thread_id: request.thread_id.clone(),
@@ -1810,6 +1819,19 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         }
     }
 
+    async fn apply_codex_live_semantic_tool_events(&self, events: &[ProviderEvent]) {
+        let semantic_events = events
+            .iter()
+            .filter_map(|event| match event {
+                ProviderEvent::SemanticTool { .. } => Some(event.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if !semantic_events.is_empty() {
+            self.codex.apply_provider_events(&semantic_events).await;
+        }
+    }
+
     async fn publish_codex_versioned_tool_event(
         &self,
         ws_method: &str,
@@ -1929,7 +1951,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         )
     }
 
-    fn publish_codex_review_mode_signal(
+    async fn publish_codex_review_mode_signal(
         &self,
         signal: CodexReviewModeSignal,
     ) -> Result<(), WsDispatchError> {
@@ -1939,47 +1961,46 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         });
         let raw_payload = metadata.clone();
         let semantic_tool = semantic_tool_for_codex_review(&signal, raw_payload.clone());
-        self.append_and_publish_provider_events(
-            ProviderKind::Codex,
-            vec![
-                ProviderEvent::RuntimeSignal {
-                    signal: Box::new(NormalizedRuntimeSignal {
-                        kind: RuntimeSignalKind::ReviewModeUpdated,
-                        thread_id: Some(signal.thread_id),
-                        turn_id: None,
-                        item_id: None,
-                        message: None,
-                        from_model: None,
-                        to_model: None,
-                        reason: None,
-                        text: None,
-                        audio: None,
-                        status: Some(signal.status.to_string()),
-                        name: None,
-                        active: Some(signal.active),
-                        archived: None,
-                        diff: None,
-                        files: None,
-                        process_id: None,
-                        exit_code: None,
-                        request_id: None,
-                        metadata,
-                        provider: ProviderMetadata {
-                            provider: ProviderKind::Codex.runtime_id().to_string(),
-                            method: Some(signal.method.to_string()),
-                            schema_version: None,
-                            raw_payload,
-                        },
-                    }),
-                },
-                ProviderEvent::SemanticTool {
-                    tool: Box::new(semantic_tool),
-                },
-            ],
-        )
+        let events = vec![
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ReviewModeUpdated,
+                    thread_id: Some(signal.thread_id),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some(signal.status.to_string()),
+                    name: None,
+                    active: Some(signal.active),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(signal.method.to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            },
+            ProviderEvent::SemanticTool {
+                tool: Box::new(semantic_tool),
+            },
+        ];
+        self.apply_codex_live_semantic_tool_events(&events).await;
+        self.append_and_publish_provider_events(ProviderKind::Codex, events)
     }
 
-    fn publish_codex_subagent_action_signal(
+    async fn publish_codex_subagent_action_signal(
         &self,
         signal: CodexSubagentActionSignal,
     ) -> Result<(), WsDispatchError> {
@@ -2015,47 +2036,46 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             provider,
             item_type: Some("subagent".to_string()),
         });
-        self.append_and_publish_provider_events(
-            ProviderKind::Codex,
-            vec![
-                ProviderEvent::RuntimeSignal {
-                    signal: Box::new(NormalizedRuntimeSignal {
-                        kind: RuntimeSignalKind::SubagentAction,
-                        thread_id: Some(signal.parent_thread_id),
-                        turn_id: None,
-                        item_id: None,
-                        message: None,
-                        from_model: None,
-                        to_model: None,
-                        reason: None,
-                        text: signal.prompt,
-                        audio: None,
-                        status: Some(signal.action.to_string()),
-                        name: None,
-                        active: None,
-                        archived: None,
-                        diff: None,
-                        files: None,
-                        process_id: None,
-                        exit_code: None,
-                        request_id: None,
-                        metadata,
-                        provider: ProviderMetadata {
-                            provider: ProviderKind::Codex.runtime_id().to_string(),
-                            method: Some(format!("ace/subagent/{}", signal.action)),
-                            schema_version: None,
-                            raw_payload,
-                        },
-                    }),
-                },
-                ProviderEvent::SemanticTool {
-                    tool: Box::new(semantic_tool),
-                },
-            ],
-        )
+        let events = vec![
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::SubagentAction,
+                    thread_id: Some(signal.parent_thread_id),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: signal.prompt,
+                    audio: None,
+                    status: Some(signal.action.to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(format!("ace/subagent/{}", signal.action)),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            },
+            ProviderEvent::SemanticTool {
+                tool: Box::new(semantic_tool),
+            },
+        ];
+        self.apply_codex_live_semantic_tool_events(&events).await;
+        self.append_and_publish_provider_events(ProviderKind::Codex, events)
     }
 
-    fn publish_codex_handoff_signal(
+    async fn publish_codex_handoff_signal(
         &self,
         signal: CodexHandoffSignal,
     ) -> Result<(), WsDispatchError> {
@@ -2066,47 +2086,46 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         });
         let raw_payload = metadata.clone();
         let semantic_tool = semantic_tool_for_codex_handoff(&signal, raw_payload.clone());
-        self.append_and_publish_provider_events(
-            ProviderKind::Codex,
-            vec![
-                ProviderEvent::RuntimeSignal {
-                    signal: Box::new(NormalizedRuntimeSignal {
-                        kind: RuntimeSignalKind::HandoffUpdated,
-                        thread_id: Some(signal.handoff.source_thread_id),
-                        turn_id: None,
-                        item_id: None,
-                        message: None,
-                        from_model: None,
-                        to_model: None,
-                        reason: None,
-                        text: None,
-                        audio: None,
-                        status: Some("completed".to_string()),
-                        name: None,
-                        active: None,
-                        archived: None,
-                        diff: None,
-                        files: None,
-                        process_id: None,
-                        exit_code: None,
-                        request_id: None,
-                        metadata,
-                        provider: ProviderMetadata {
-                            provider: ProviderKind::Codex.runtime_id().to_string(),
-                            method: Some(signal.method.to_string()),
-                            schema_version: None,
-                            raw_payload,
-                        },
-                    }),
-                },
-                ProviderEvent::SemanticTool {
-                    tool: Box::new(semantic_tool),
-                },
-            ],
-        )
+        let events = vec![
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::HandoffUpdated,
+                    thread_id: Some(signal.handoff.source_thread_id),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("completed".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(signal.method.to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            },
+            ProviderEvent::SemanticTool {
+                tool: Box::new(semantic_tool),
+            },
+        ];
+        self.apply_codex_live_semantic_tool_events(&events).await;
+        self.append_and_publish_provider_events(ProviderKind::Codex, events)
     }
 
-    fn publish_codex_plan_implementation_signal(
+    async fn publish_codex_plan_implementation_signal(
         &self,
         signal: CodexPlanImplementationSignal,
     ) -> Result<(), WsDispatchError> {
@@ -2117,44 +2136,43 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         let raw_payload = metadata.clone();
         let semantic_tool =
             semantic_tool_for_codex_plan_implementation(&signal, raw_payload.clone());
-        self.append_and_publish_provider_events(
-            ProviderKind::Codex,
-            vec![
-                ProviderEvent::RuntimeSignal {
-                    signal: Box::new(NormalizedRuntimeSignal {
-                        kind: RuntimeSignalKind::PlanImplementationUpdated,
-                        thread_id: Some(signal.implementation.parent_thread_id),
-                        turn_id: None,
-                        item_id: None,
-                        message: None,
-                        from_model: None,
-                        to_model: None,
-                        reason: None,
-                        text: Some(signal.implementation.prompt),
-                        audio: None,
-                        status: Some(plan_implementation_mode_key(signal.implementation.mode)),
-                        name: None,
-                        active: None,
-                        archived: None,
-                        diff: None,
-                        files: None,
-                        process_id: None,
-                        exit_code: None,
-                        request_id: None,
-                        metadata,
-                        provider: ProviderMetadata {
-                            provider: ProviderKind::Codex.runtime_id().to_string(),
-                            method: Some(signal.method.to_string()),
-                            schema_version: None,
-                            raw_payload,
-                        },
-                    }),
-                },
-                ProviderEvent::SemanticTool {
-                    tool: Box::new(semantic_tool),
-                },
-            ],
-        )
+        let events = vec![
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::PlanImplementationUpdated,
+                    thread_id: Some(signal.implementation.parent_thread_id),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: Some(signal.implementation.prompt),
+                    audio: None,
+                    status: Some(plan_implementation_mode_key(signal.implementation.mode)),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(signal.method.to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            },
+            ProviderEvent::SemanticTool {
+                tool: Box::new(semantic_tool),
+            },
+        ];
+        self.apply_codex_live_semantic_tool_events(&events).await;
+        self.append_and_publish_provider_events(ProviderKind::Codex, events)
     }
 
     fn publish_codex_approval_retry_signal(
@@ -9957,6 +9975,15 @@ mod tests {
             snapshot_state["handoffs"][0]["target_thread_id"],
             "agent-thread-1"
         );
+        let tool_timeline = snapshot_state["tool_timeline"]
+            .as_array()
+            .expect("tool timeline");
+        assert!(tool_timeline.iter().any(|tool| {
+            tool["surface"] == "handoff"
+                && tool["action"] == "handoff.agent"
+                && tool["display"]["status"] == "completed"
+                && tool["provider"]["method"] == "ace/handoff/agent"
+        }));
         let child_threads = snapshot_state["child_threads"]
             .as_array()
             .expect("child threads");
