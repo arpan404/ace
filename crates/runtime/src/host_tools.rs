@@ -206,21 +206,48 @@ impl HostToolRegistry {
     }
 
     pub fn register(&mut self, handler: DynHostToolHandler) -> Result<(), HostToolError> {
+        self.insert_handler(handler, false)
+    }
+
+    pub fn replace(&mut self, handler: DynHostToolHandler) -> Result<(), HostToolError> {
+        self.insert_handler(handler, true)
+    }
+
+    fn insert_handler(
+        &mut self,
+        handler: DynHostToolHandler,
+        replace: bool,
+    ) -> Result<(), HostToolError> {
         let descriptor = handler.descriptor();
         let canonical = normalize_name(&descriptor.name)?;
+        let normalized_aliases = descriptor
+            .aliases
+            .iter()
+            .map(|alias| normalize_name(alias))
+            .collect::<Result<Vec<_>, _>>()?;
+        let previous_handlers = self.handlers.clone();
+        let previous_aliases = self.aliases.clone();
+
+        if replace && self.handlers.contains_key(&canonical) {
+            self.handlers.remove(&canonical);
+            self.aliases.retain(|_, target| target != &canonical);
+        }
+
         if self.handlers.contains_key(&canonical) || self.aliases.contains_key(&canonical) {
             return Err(HostToolError::DuplicateName { name: canonical });
         }
-        for alias in &descriptor.aliases {
-            let alias = normalize_name(alias)?;
-            if self.handlers.contains_key(&alias) || self.aliases.contains_key(&alias) {
-                return Err(HostToolError::DuplicateName { name: alias });
+        for alias in &normalized_aliases {
+            if self.handlers.contains_key(alias) || self.aliases.contains_key(alias) {
+                self.handlers = previous_handlers;
+                self.aliases = previous_aliases;
+                return Err(HostToolError::DuplicateName {
+                    name: alias.clone(),
+                });
             }
         }
 
-        for alias in &descriptor.aliases {
-            self.aliases
-                .insert(normalize_name(alias)?, canonical.clone());
+        for alias in normalized_aliases {
+            self.aliases.insert(alias, canonical.clone());
         }
         self.handlers.insert(canonical, handler);
         Ok(())
@@ -1122,6 +1149,136 @@ mod tests {
                 message: "browser bridge is not connected".to_string()
             }
         );
+    }
+
+    #[tokio::test]
+    async fn default_browser_bridge_can_be_replaced_by_attached_handler() {
+        let mut registry = HostToolRegistry::with_default_bridge_contracts();
+        let mut descriptor = HostToolDescriptor::new(
+            "browser.bridge",
+            ToolTransport::BrowserBridge,
+            ToolSurface::Browser,
+        );
+        descriptor.aliases = vec!["ace_browser".to_string(), "browser".to_string()];
+        descriptor.actions = vec![
+            ToolActionKind::BrowserClick,
+            ToolActionKind::BrowserScreenshot,
+        ];
+        descriptor.capabilities = vec![
+            ProviderCapability {
+                key: "host_tool.bridge.status.connected".to_string(),
+                version: 1,
+            },
+            ProviderCapability {
+                key: "host_tool.browser.tabs".to_string(),
+                version: 2,
+            },
+        ];
+        let handler = Arc::new(RecordingTool {
+            descriptor,
+            invocations: Mutex::new(Vec::new()),
+        });
+
+        registry.replace(handler.clone()).expect("replace bridge");
+        let browser = registry
+            .descriptors()
+            .into_iter()
+            .find(|descriptor| descriptor.name == "browser.bridge")
+            .expect("browser descriptor");
+        assert!(
+            browser
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "host_tool.bridge.status.connected")
+        );
+        assert!(
+            !browser
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "host_tool.bridge.status.unavailable")
+        );
+
+        let result = registry
+            .invoke_server_request(
+                ProviderKind::Codex,
+                &request(
+                    ServerRequestKind::DynamicToolCall,
+                    json!({
+                        "toolName": "ace_browser",
+                        "arguments": {
+                            "operation": "cua_click",
+                            "label": "Deploy"
+                        }
+                    }),
+                ),
+            )
+            .await
+            .expect("invoke attached bridge");
+        assert_eq!(result.output["ok"], true);
+        let invocations = handler.invocations.lock().expect("invocations");
+        assert_eq!(invocations.len(), 1);
+        assert_eq!(
+            invocations[0].descriptor_name.as_deref(),
+            Some("browser.bridge")
+        );
+        assert_eq!(invocations[0].arguments["operation"], "cua_click");
+    }
+
+    #[tokio::test]
+    async fn bridge_replacement_rejects_colliding_alias_without_detaching_existing_bridge() {
+        let mut registry = HostToolRegistry::with_default_bridge_contracts();
+        let mut desktop_descriptor = HostToolDescriptor::new(
+            "desktop.helper",
+            ToolTransport::ComputerBridge,
+            ToolSurface::Computer,
+        );
+        desktop_descriptor.aliases = vec!["desktop".to_string()];
+        registry
+            .register(Arc::new(RecordingTool {
+                descriptor: desktop_descriptor,
+                invocations: Mutex::new(Vec::new()),
+            }))
+            .expect("register desktop helper");
+
+        let mut replacement = HostToolDescriptor::new(
+            "browser.bridge",
+            ToolTransport::BrowserBridge,
+            ToolSurface::Browser,
+        );
+        replacement.aliases = vec!["desktop".to_string()];
+        let error = registry
+            .replace(Arc::new(RecordingTool {
+                descriptor: replacement,
+                invocations: Mutex::new(Vec::new()),
+            }))
+            .expect_err("alias collision");
+        assert_eq!(
+            error,
+            HostToolError::DuplicateName {
+                name: "desktop".to_string()
+            }
+        );
+
+        let error = registry
+            .invoke_server_request(
+                ProviderKind::Codex,
+                &request(
+                    ServerRequestKind::DynamicToolCall,
+                    json!({
+                        "toolName": "ace_browser",
+                        "arguments": { "operation": "screenshot" }
+                    }),
+                ),
+            )
+            .await
+            .expect_err("original bridge remains unavailable");
+        assert_eq!(
+            error,
+            HostToolError::Handler {
+                message: "browser bridge is not connected".to_string()
+            }
+        );
+        assert!(registry.resolve("desktop").is_some());
     }
 
     #[test]
