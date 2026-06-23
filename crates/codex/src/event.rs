@@ -1713,6 +1713,46 @@ mod tests {
         assert_eq!(semantic.action, ToolActionKind::SubagentSpawn);
         assert_eq!(semantic.display.title, "Started subagent Reviewer");
         assert_eq!(semantic.provider.raw_payload["threadId"], "parent-thread");
+
+        let collab = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "item/collabAgentToolCall/progress".to_string(),
+            params: json!({
+                "threadId": "parent-thread",
+                "turnId": "turn-1",
+                "itemId": "handoff-1",
+                "item": {
+                    "id": "handoff-1",
+                    "type": "collabAgentToolCall",
+                    "senderThreadId": "parent-thread",
+                    "receiverThreadId": "review-thread",
+                    "newThreadId": "review-thread",
+                    "agentRole": "reviewer",
+                    "nickname": "Review Buddy",
+                    "prompt": "Audit the diff for risk",
+                    "status": "started"
+                }
+            }),
+        });
+        let item = first_thread_item(&collab);
+        assert_eq!(item.kind, ThreadItemKind::CollabAgentToolCall);
+        assert_eq!(item.parent_thread_id.as_deref(), Some("parent-thread"));
+        assert_eq!(item.child_thread_id.as_deref(), Some("review-thread"));
+        assert_eq!(item.sender.as_deref(), Some("Review Buddy"));
+        assert_eq!(item.text.as_deref(), Some("Audit the diff for risk"));
+
+        let semantic = collab
+            .iter()
+            .find_map(|event| match event {
+                ProviderEvent::SemanticTool { tool } => Some(tool.as_ref()),
+                _ => None,
+            })
+            .expect("semantic collab tool");
+        assert_eq!(semantic.surface, ToolSurface::Subagent);
+        assert_eq!(semantic.action, ToolActionKind::SubagentSpawn);
+        assert_eq!(
+            semantic.provider.raw_payload["item"]["newThreadId"],
+            "review-thread"
+        );
     }
 
     #[test]

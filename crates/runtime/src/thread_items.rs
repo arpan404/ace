@@ -35,13 +35,27 @@ pub fn normalize_provider_thread_item(
         item_id,
         parent_thread_id: string_at(item, "parentThreadId")
             .or_else(|| string_at(item, "parent_thread_id"))
-            .or_else(|| string_at(item, "senderThreadId")),
+            .or_else(|| string_at(item, "senderThreadId"))
+            .or_else(|| string_at(item, "sender_thread_id"))
+            .or_else(|| string_at(item, "sourceThreadId"))
+            .or_else(|| string_at(item, "source_thread_id"))
+            .or_else(|| string_at(item, "originThreadId"))
+            .or_else(|| string_at(item, "origin_thread_id")),
         child_thread_id: string_at(item, "childThreadId")
             .or_else(|| string_at(item, "child_thread_id"))
+            .or_else(|| string_at(item, "receiverThreadId"))
+            .or_else(|| string_at(item, "receiver_thread_id"))
+            .or_else(|| string_at(item, "newThreadId"))
+            .or_else(|| string_at(item, "new_thread_id"))
+            .or_else(|| string_at(item, "subagentThreadId"))
+            .or_else(|| string_at(item, "subagent_thread_id"))
+            .or_else(|| string_at(item, "targetThreadId"))
+            .or_else(|| string_at(item, "target_thread_id"))
             .or_else(|| string_at(item, "threadId")),
         sender: string_at(item, "sender")
             .or_else(|| string_at(item, "senderName"))
-            .or_else(|| string_at(item, "agentName")),
+            .or_else(|| string_at(item, "agentName"))
+            .or_else(|| string_at(item, "nickname")),
         role: string_at(item, "role")
             .or_else(|| string_at(item, "agentRole"))
             .or_else(|| string_at(item, "agent_role")),
@@ -154,8 +168,13 @@ fn text_for_thread_item(method: &str, item: &Value, params: &Value) -> Option<St
     string_at(item, "text")
         .or_else(|| string_at(item, "message"))
         .or_else(|| string_at(item, "content"))
+        .or_else(|| string_at(item, "prompt"))
         .or_else(|| string_at(item, "summary"))
         .or_else(|| item.get("input").and_then(|input| string_at(input, "text")))
+        .or_else(|| {
+            item.get("input")
+                .and_then(|input| string_at(input, "prompt"))
+        })
 }
 
 fn title_for_thread_item(kind: ThreadItemKind, item: &Value, text: Option<&str>) -> Option<String> {
@@ -189,6 +208,19 @@ fn metadata_for_thread_item(item: &Value) -> Value {
         "agentRole",
         "agentName",
         "nickname",
+        "prompt",
+        "receiverThreadId",
+        "receiver_thread_id",
+        "senderThreadId",
+        "sender_thread_id",
+        "sourceThreadId",
+        "source_thread_id",
+        "newThreadId",
+        "new_thread_id",
+        "subagentThreadId",
+        "subagent_thread_id",
+        "targetThreadId",
+        "target_thread_id",
         "target",
         "url",
         "files",
@@ -407,6 +439,37 @@ mod tests {
         assert_eq!(subagent.role.as_deref(), Some("reviewer"));
         assert_eq!(subagent.sender.as_deref(), Some("Reviewer"));
         assert_eq!(subagent.status_text.as_deref(), Some("running"));
+
+        let collab = normalize_provider_thread_item(ThreadItemNormalizationInput {
+            provider: "future-provider".to_string(),
+            method: "item/collabAgentToolCall/progress".to_string(),
+            params: json!({
+                "threadId": "parent-thread",
+                "itemId": "handoff-1",
+                "item": {
+                    "id": "handoff-1",
+                    "type": "collabAgentToolCall",
+                    "senderThreadId": "parent-thread",
+                    "receiverThreadId": "review-thread",
+                    "newThreadId": "review-thread",
+                    "agentRole": "reviewer",
+                    "nickname": "Review Buddy",
+                    "prompt": "Audit the diff for risk",
+                    "status": "started"
+                }
+            }),
+        })
+        .expect("collab agent item");
+        assert_eq!(collab.kind, ThreadItemKind::CollabAgentToolCall);
+        assert_eq!(collab.status, ThreadItemStatus::Updated);
+        assert_eq!(collab.parent_thread_id.as_deref(), Some("parent-thread"));
+        assert_eq!(collab.child_thread_id.as_deref(), Some("review-thread"));
+        assert_eq!(collab.sender.as_deref(), Some("Review Buddy"));
+        assert_eq!(collab.role.as_deref(), Some("reviewer"));
+        assert_eq!(collab.text.as_deref(), Some("Audit the diff for risk"));
+        assert_eq!(collab.metadata["receiverThreadId"], "review-thread");
+        assert_eq!(collab.metadata["newThreadId"], "review-thread");
+        assert_eq!(collab.metadata["prompt"], "Audit the diff for risk");
     }
 
     #[test]
