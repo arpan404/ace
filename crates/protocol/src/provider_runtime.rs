@@ -21,6 +21,7 @@ use ace_runtime::{
     tools::{SemanticToolCall, ToolRunStatus},
 };
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const PROVIDER_RUNTIME_EVENT_TOPIC: &str = "provider_runtime.event";
 pub const PROVIDER_RUNTIME_MAX_EVENT_BATCH_SIZE: usize = 512;
@@ -445,6 +446,7 @@ pub struct ProviderRuntimeProviderOperations {
     pub display_name: String,
     pub adapter_profile: ProviderAdapterProfile,
     pub adapter_runtime: ProviderAdapterRuntimeReport,
+    pub summary: ProviderRuntimeOperationSummary,
     pub operations: Vec<ProviderRuntimeProviderOperation>,
 }
 
@@ -452,6 +454,106 @@ pub struct ProviderRuntimeProviderOperations {
 pub struct ProviderRuntimeOperationsListResponse {
     pub adapter_contract: ProviderAdapterContract,
     pub providers: Vec<ProviderRuntimeProviderOperations>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeOperationCount {
+    pub key: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ProviderRuntimeOperationSummary {
+    pub total: usize,
+    pub invokable: usize,
+    pub unavailable: usize,
+    pub direct_invocation: usize,
+    pub gated: usize,
+    pub gate_available: usize,
+    pub gate_unavailable: usize,
+    pub gate_unknown: usize,
+    #[serde(default)]
+    pub missing_provider_methods: Vec<String>,
+    #[serde(default)]
+    pub by_category: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_support: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_availability: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_request_mode: Vec<ProviderRuntimeOperationCount>,
+}
+
+impl ProviderRuntimeOperationSummary {
+    #[must_use]
+    pub fn from_operations(operations: &[ProviderRuntimeProviderOperation]) -> Self {
+        let mut by_category = BTreeMap::new();
+        let mut by_support = BTreeMap::new();
+        let mut by_availability = BTreeMap::new();
+        let mut by_request_mode = BTreeMap::new();
+        let mut missing_provider_methods = BTreeSet::new();
+        let mut summary = Self {
+            total: operations.len(),
+            ..Self::default()
+        };
+
+        for operation in operations {
+            increment_count(&mut by_category, enum_key(&operation.category));
+            increment_count(&mut by_support, enum_key(&operation.support));
+            increment_count(&mut by_availability, enum_key(&operation.availability));
+            increment_count(
+                &mut by_request_mode,
+                enum_key(&operation.runtime_request.mode),
+            );
+
+            if operation.runtime_request.invokable {
+                summary.invokable += 1;
+            }
+            if operation.direct_invocation {
+                summary.direct_invocation += 1;
+            }
+            if operation.runtime_gate.is_some() {
+                summary.gated += 1;
+            }
+            if let Some(resolution) = &operation.runtime_gate_resolution {
+                match resolution.status {
+                    ProviderRuntimeOperationGateStatus::Available => summary.gate_available += 1,
+                    ProviderRuntimeOperationGateStatus::Unavailable => {
+                        summary.gate_unavailable += 1;
+                    }
+                    ProviderRuntimeOperationGateStatus::Unknown => summary.gate_unknown += 1,
+                }
+                missing_provider_methods
+                    .extend(resolution.missing_provider_methods.iter().cloned());
+            }
+        }
+
+        summary.unavailable = summary.total.saturating_sub(summary.invokable);
+        summary.missing_provider_methods = missing_provider_methods.into_iter().collect();
+        summary.by_category = operation_counts(by_category);
+        summary.by_support = operation_counts(by_support);
+        summary.by_availability = operation_counts(by_availability);
+        summary.by_request_mode = operation_counts(by_request_mode);
+        summary
+    }
+}
+
+fn enum_key(value: &impl Serialize) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(ToString::to_string))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn increment_count(counts: &mut BTreeMap<String, usize>, key: String) {
+    *counts.entry(key).or_default() += 1;
+}
+
+fn operation_counts(counts: BTreeMap<String, usize>) -> Vec<ProviderRuntimeOperationCount> {
+    counts
+        .into_iter()
+        .map(|(key, count)| ProviderRuntimeOperationCount { key, count })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -2440,6 +2542,70 @@ mod tests {
             browser_bridge.runtime_request.mode,
             ProviderRuntimeOperationRequestMode::HostTool
         );
+    }
+
+    #[test]
+    fn provider_runtime_operation_summary_counts_gate_and_request_state() {
+        let contract = ace_runtime::provider::ace_provider_adapter_contract();
+        let operation = |target| {
+            contract
+                .operations
+                .iter()
+                .find(|operation| operation.operation == target)
+                .map(ProviderRuntimeProviderOperation::from_spec)
+                .expect("operation")
+        };
+
+        let mut direct = operation(ProviderAdapterOperation::ThreadRead);
+        direct.runtime_request = ProviderRuntimeOperationRequest::operation(
+            ProviderRuntimeOperationParams::AdapterNormalized,
+        );
+
+        let mut unavailable_gated = operation(ProviderAdapterOperation::ThreadShellCommand);
+        unavailable_gated.runtime_gate_resolution = Some(ProviderRuntimeOperationGateResolution {
+            status: ProviderRuntimeOperationGateStatus::Unavailable,
+            provider_methods: vec!["thread/shellCommand".to_string()],
+            missing_provider_methods: vec!["thread/shellCommand".to_string()],
+            source: Some("supported_client_request_methods".to_string()),
+            reason: "missing provider method".to_string(),
+        });
+        unavailable_gated.runtime_request = ProviderRuntimeOperationRequest::unavailable(
+            ProviderRuntimeOperationRequestMode::AdapterOperation,
+            "missing provider method",
+        );
+
+        let event_stream = operation(ProviderAdapterOperation::ProviderEvents);
+        let summary = ProviderRuntimeOperationSummary::from_operations(&[
+            direct,
+            unavailable_gated,
+            event_stream,
+        ]);
+        let count = |counts: &[ProviderRuntimeOperationCount], key: &str| {
+            counts
+                .iter()
+                .find(|count| count.key == key)
+                .map(|count| count.count)
+                .unwrap_or_default()
+        };
+
+        assert_eq!(summary.total, 3);
+        assert_eq!(summary.invokable, 1);
+        assert_eq!(summary.unavailable, 2);
+        assert_eq!(summary.direct_invocation, 2);
+        assert_eq!(summary.gated, 1);
+        assert_eq!(summary.gate_available, 0);
+        assert_eq!(summary.gate_unavailable, 1);
+        assert_eq!(summary.gate_unknown, 0);
+        assert_eq!(summary.missing_provider_methods, ["thread/shellCommand"]);
+        assert_eq!(count(&summary.by_category, "threads"), 1);
+        assert_eq!(count(&summary.by_category, "tools"), 1);
+        assert_eq!(count(&summary.by_category, "events"), 1);
+        assert_eq!(count(&summary.by_support, "required"), 2);
+        assert_eq!(count(&summary.by_support, "version_gated"), 1);
+        assert_eq!(count(&summary.by_availability, "available"), 2);
+        assert_eq!(count(&summary.by_availability, "version_gated"), 1);
+        assert_eq!(count(&summary.by_request_mode, "adapter_operation"), 2);
+        assert_eq!(count(&summary.by_request_mode, "event_stream"), 1);
     }
 
     #[test]

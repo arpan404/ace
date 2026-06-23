@@ -38,20 +38,20 @@ use ace_protocol::{
         ProviderRuntimeModelsListResponse, ProviderRuntimeOperationGateResolution,
         ProviderRuntimeOperationGateStatus, ProviderRuntimeOperationParams,
         ProviderRuntimeOperationRequest, ProviderRuntimeOperationRequestMode,
-        ProviderRuntimeOperationsListRequest, ProviderRuntimeOperationsListResponse,
-        ProviderRuntimeProviderFeatures, ProviderRuntimeProviderInfo,
-        ProviderRuntimeProviderOperation, ProviderRuntimeProviderOperations,
-        ProviderRuntimeProviderSlashCommands, ProviderRuntimeProviderState,
-        ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList, ProviderRuntimeRawEventMode,
-        ProviderRuntimeRawEventSummary, ProviderRuntimeRecentEventsRequest,
-        ProviderRuntimeRecentEventsResponse, ProviderRuntimeRequest,
-        ProviderRuntimeSlashCommandsListRequest, ProviderRuntimeSlashCommandsListResponse,
-        ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
-        ProviderRuntimeStateSource, ProviderRuntimeStatusListRequest,
-        ProviderRuntimeStatusListResponse, ProviderRuntimeSubscribeRequest,
-        ProviderServerRequestAudit, ProviderServerRequestDecisionRecord,
-        ProviderServerRequestDecisionResponse, ProviderServerRequestError,
-        ProviderServerRequestRecord, ProviderServerRequestResult,
+        ProviderRuntimeOperationSummary, ProviderRuntimeOperationsListRequest,
+        ProviderRuntimeOperationsListResponse, ProviderRuntimeProviderFeatures,
+        ProviderRuntimeProviderInfo, ProviderRuntimeProviderOperation,
+        ProviderRuntimeProviderOperations, ProviderRuntimeProviderSlashCommands,
+        ProviderRuntimeProviderState, ProviderRuntimeProviderStatus, ProviderRuntimeProvidersList,
+        ProviderRuntimeRawEventMode, ProviderRuntimeRawEventSummary,
+        ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
+        ProviderRuntimeRequest, ProviderRuntimeSlashCommandsListRequest,
+        ProviderRuntimeSlashCommandsListResponse, ProviderRuntimeStateGetRequest,
+        ProviderRuntimeStateGetResponse, ProviderRuntimeStateSource,
+        ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
+        ProviderRuntimeSubscribeRequest, ProviderServerRequestAudit,
+        ProviderServerRequestDecisionRecord, ProviderServerRequestDecisionResponse,
+        ProviderServerRequestError, ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
         ProviderServerRequestsListResponse, capped_provider_runtime_events_limit,
         capped_provider_server_requests_limit, projection_deltas_for_events,
@@ -1018,15 +1018,18 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         },
                     )?;
                     let status = self.providers.status(provider).await.ok();
+                    let operations = provider_runtime_operations_for_provider(
+                        provider,
+                        &adapter_profile,
+                        status.as_ref(),
+                    );
+                    let summary = ProviderRuntimeOperationSummary::from_operations(&operations);
                     provider_operations.push(ProviderRuntimeProviderOperations {
                         provider,
                         runtime_id: provider.runtime_id().to_string(),
                         display_name: provider.display_name().to_string(),
-                        operations: provider_runtime_operations_for_provider(
-                            provider,
-                            &adapter_profile,
-                            status.as_ref(),
-                        ),
+                        summary,
+                        operations,
                         adapter_profile,
                         adapter_runtime,
                     });
@@ -9786,6 +9789,37 @@ mod tests {
         assert_eq!(providers.len(), 1);
         assert_eq!(providers[0]["runtime_id"], "codex");
         let operations = providers[0]["operations"].as_array().expect("operations");
+        let summary = &providers[0]["summary"];
+        let summary_count = |bucket: &str, key: &str| {
+            summary[bucket]
+                .as_array()
+                .expect("summary bucket")
+                .iter()
+                .find(|entry| entry["key"] == key)
+                .and_then(|entry| entry["count"].as_u64())
+                .unwrap_or_default()
+        };
+        assert_eq!(summary["total"].as_u64(), Some(operations.len() as u64));
+        assert!(summary["invokable"].as_u64().expect("invokable") > 0);
+        assert!(summary["unavailable"].as_u64().expect("unavailable") > 0);
+        assert!(summary["gated"].as_u64().expect("gated") > 0);
+        assert!(summary["gate_available"].as_u64().expect("gate available") > 0);
+        assert!(
+            summary["gate_unavailable"]
+                .as_u64()
+                .expect("gate unavailable")
+                > 0
+        );
+        assert!(
+            summary["missing_provider_methods"]
+                .as_array()
+                .expect("missing methods")
+                .contains(&json!("thread/shellCommand"))
+        );
+        assert!(summary_count("by_category", "skills") > 0);
+        assert!(summary_count("by_category", "plugins") > 0);
+        assert!(summary_count("by_support", "version_gated") > 0);
+        assert!(summary_count("by_request_mode", "adapter_operation") > 0);
 
         assert!(operations.iter().any(|operation| {
             operation["operation"] == "thread_read"
