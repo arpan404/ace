@@ -2171,7 +2171,7 @@ pub mod provider {
     #[must_use]
     pub fn ace_provider_adapter_contract() -> ProviderAdapterContract {
         ProviderAdapterContract {
-            version: 5,
+            version: 6,
             websocket_first: true,
             raw_payload_policy: "preserve_provider_payloads".to_string(),
             raw_payload: ace_provider_raw_payload_policy(),
@@ -2306,6 +2306,7 @@ pub mod provider {
                 ToolActionKind::FileRead,
                 ToolActionKind::FileEdit,
                 ToolActionKind::FilePatch,
+                ToolActionKind::FileSearch,
                 ToolActionKind::GitCommit,
                 ToolActionKind::GitPush,
                 ToolActionKind::GithubIssue,
@@ -2334,6 +2335,9 @@ pub mod provider {
                 ToolActionKind::PluginInstall,
                 ToolActionKind::PluginUninstall,
                 ToolActionKind::PluginShare,
+                ToolActionKind::PluginMarketplaceAdd,
+                ToolActionKind::PluginMarketplaceRemove,
+                ToolActionKind::PluginMarketplaceUpgrade,
                 ToolActionKind::AppList,
                 ToolActionKind::AppConfigure,
                 ToolActionKind::ToolRun,
@@ -3125,7 +3129,7 @@ pub mod provider {
                 .iter()
                 .find(|profile| profile.provider == ProviderKind::Codex)
                 .expect("codex profile");
-            assert_eq!(codex_profile.contract_version, 5);
+            assert_eq!(codex_profile.contract_version, 6);
             assert!(codex_profile.websocket_first);
             assert_eq!(
                 codex_profile.raw_payload.retention,
@@ -3660,7 +3664,7 @@ pub mod provider {
         fn adapter_contract_lists_required_normalized_surfaces() {
             let contract = ace_provider_adapter_contract();
 
-            assert_eq!(contract.version, 5);
+            assert_eq!(contract.version, 6);
             assert!(contract.websocket_first);
             assert_eq!(contract.raw_payload_policy, "preserve_provider_payloads");
             assert_eq!(
@@ -3799,6 +3803,10 @@ pub mod provider {
                 crate::tools::ToolActionKind::HandoffAgent,
                 crate::tools::ToolActionKind::HandoffLocation,
                 crate::tools::ToolActionKind::ReviewStart,
+                crate::tools::ToolActionKind::FileSearch,
+                crate::tools::ToolActionKind::PluginMarketplaceAdd,
+                crate::tools::ToolActionKind::PluginMarketplaceRemove,
+                crate::tools::ToolActionKind::PluginMarketplaceUpgrade,
             ] {
                 assert!(
                     contract.tool_action_kinds.contains(&action),

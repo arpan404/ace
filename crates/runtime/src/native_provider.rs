@@ -822,7 +822,7 @@ mod tests {
             .expect("contract");
 
         assert_eq!(response["provider"], "ace");
-        assert_eq!(response["version"], 5);
+        assert_eq!(response["version"], 6);
         assert_eq!(response["runtime"]["transport"], "websocket");
         assert_eq!(response["runtime"]["websocket_first"], true);
         assert_eq!(
@@ -847,7 +847,7 @@ mod tests {
                 .expect("events")
                 .contains(&json!("semantic_tool"))
         );
-        assert_eq!(response["adapter_contract"]["version"], 5);
+        assert_eq!(response["adapter_contract"]["version"], 6);
         assert!(
             response["adapter_contract"]["operations"]
                 .as_array()
@@ -886,6 +886,18 @@ mod tests {
                 .as_array()
                 .expect("tool action kinds")
                 .contains(&json!("terminal.output"))
+        );
+        assert!(
+            response["adapter_contract"]["tool_action_kinds"]
+                .as_array()
+                .expect("tool action kinds")
+                .contains(&json!("file.search"))
+        );
+        assert!(
+            response["adapter_contract"]["tool_action_kinds"]
+                .as_array()
+                .expect("tool action kinds")
+                .contains(&json!("plugin.marketplace_upgrade"))
         );
         assert!(
             response["adapter_contract"]["execution_locations"]
