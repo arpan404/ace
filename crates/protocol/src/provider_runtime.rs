@@ -231,11 +231,91 @@ pub struct ProviderRuntimeProviderInfo {
     pub runtime_id: String,
     pub display_name: String,
     pub descriptor: ProviderDescriptor,
+    pub summary: ProviderRuntimeProviderInfoSummary,
     pub supports_events: bool,
     pub supports_server_request_responses: bool,
     pub contract: ProviderContractReport,
     pub adapter_profile: ProviderAdapterProfile,
     pub adapter_runtime: ProviderAdapterRuntimeReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeProviderInfoSummary {
+    pub contract_satisfied: bool,
+    pub runtime_hooks_satisfied: bool,
+    pub selectable: bool,
+    pub supports_events: bool,
+    pub supports_server_request_responses: bool,
+    pub supports_state_snapshots: bool,
+    pub supports_host_tools: bool,
+    pub required_operations: usize,
+    pub optional_operations: usize,
+    pub version_gated_operations: usize,
+    pub deferred_operations: usize,
+    #[serde(default)]
+    pub missing_required_capabilities: Vec<String>,
+    #[serde(default)]
+    pub missing_required_hooks: Vec<String>,
+    #[serde(default)]
+    pub native_capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderRuntimeProviderSurfaceSupport {
+    pub events: bool,
+    pub server_request_responses: bool,
+    pub state_snapshots: bool,
+    pub host_tools: bool,
+}
+
+impl ProviderRuntimeProviderInfoSummary {
+    #[must_use]
+    pub fn from_parts(
+        descriptor: &ProviderDescriptor,
+        contract: &ProviderContractReport,
+        adapter_profile: &ProviderAdapterProfile,
+        adapter_runtime: &ProviderAdapterRuntimeReport,
+        support: ProviderRuntimeProviderSurfaceSupport,
+    ) -> Self {
+        let mut required_operations = 0;
+        let mut optional_operations = 0;
+        let mut version_gated_operations = 0;
+        let mut deferred_operations = 0;
+
+        for operation in &adapter_profile.operations {
+            match operation.support {
+                ProviderAdapterOperationSupport::Required => required_operations += 1,
+                ProviderAdapterOperationSupport::Optional => optional_operations += 1,
+                ProviderAdapterOperationSupport::VersionGated => version_gated_operations += 1,
+                ProviderAdapterOperationSupport::Deferred => deferred_operations += 1,
+            }
+        }
+
+        Self {
+            contract_satisfied: contract.satisfies_required,
+            runtime_hooks_satisfied: adapter_runtime.satisfies_required_hooks,
+            selectable: contract.satisfies_required && adapter_runtime.satisfies_required_hooks,
+            supports_events: support.events,
+            supports_server_request_responses: support.server_request_responses,
+            supports_state_snapshots: support.state_snapshots,
+            supports_host_tools: support.host_tools,
+            required_operations,
+            optional_operations,
+            version_gated_operations,
+            deferred_operations,
+            missing_required_capabilities: contract.missing_required.clone(),
+            missing_required_hooks: adapter_runtime
+                .missing_required_hooks
+                .iter()
+                .map(enum_key)
+                .collect(),
+            native_capabilities: descriptor
+                .capabilities
+                .iter()
+                .map(|capability| capability.key.clone())
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2721,6 +2801,61 @@ mod tests {
         assert_eq!(count(&summary.by_availability, "version_gated"), 1);
         assert_eq!(count(&summary.by_request_mode, "adapter_operation"), 2);
         assert_eq!(count(&summary.by_request_mode, "event_stream"), 1);
+    }
+
+    #[test]
+    fn provider_runtime_provider_info_summary_counts_contract_surfaces() {
+        let descriptor = ace_runtime::provider::ProviderDescriptor {
+            kind: ProviderKind::Cursor,
+            capabilities: vec![ace_core::ProviderCapability {
+                key: "provider.adapter_contract".to_string(),
+                version: 1,
+            }],
+        };
+        let contract = ace_runtime::provider::ProviderContractReport {
+            provider: ProviderKind::Cursor,
+            satisfies_required: false,
+            requirements: Vec::new(),
+            capabilities: descriptor.capabilities.clone(),
+            missing_required: vec!["provider.normalized_events".to_string()],
+        };
+        let adapter_profile = ace_runtime::provider::provider_adapter_profile(&descriptor);
+        let adapter_runtime = ace_runtime::provider::ProviderAdapterRuntimeReport {
+            provider: ProviderKind::Cursor,
+            satisfies_required_hooks: false,
+            hooks: Vec::new(),
+            missing_required_hooks: vec![ProviderAdapterRuntimeHook::EventSource],
+        };
+
+        let summary = ProviderRuntimeProviderInfoSummary::from_parts(
+            &descriptor,
+            &contract,
+            &adapter_profile,
+            &adapter_runtime,
+            ProviderRuntimeProviderSurfaceSupport {
+                events: true,
+                server_request_responses: false,
+                state_snapshots: true,
+                host_tools: false,
+            },
+        );
+        assert!(!summary.selectable);
+        assert!(!summary.contract_satisfied);
+        assert!(!summary.runtime_hooks_satisfied);
+        assert!(summary.supports_events);
+        assert!(!summary.supports_server_request_responses);
+        assert!(summary.supports_state_snapshots);
+        assert!(!summary.supports_host_tools);
+        assert!(summary.required_operations > 0);
+        assert!(summary.optional_operations > 0);
+        assert!(summary.version_gated_operations > 0);
+        assert!(summary.deferred_operations > 0);
+        assert_eq!(
+            summary.missing_required_capabilities,
+            ["provider.normalized_events"]
+        );
+        assert_eq!(summary.missing_required_hooks, ["event_source"]);
+        assert_eq!(summary.native_capabilities, ["provider.adapter_contract"]);
     }
 
     #[test]

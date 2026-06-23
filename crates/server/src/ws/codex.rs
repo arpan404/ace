@@ -40,10 +40,11 @@ use ace_protocol::{
         ProviderRuntimeOperationRequest, ProviderRuntimeOperationRequestMode,
         ProviderRuntimeOperationSummary, ProviderRuntimeOperationsListRequest,
         ProviderRuntimeOperationsListResponse, ProviderRuntimeProviderFeatures,
-        ProviderRuntimeProviderInfo, ProviderRuntimeProviderOperation,
-        ProviderRuntimeProviderOperations, ProviderRuntimeProviderSlashCommands,
-        ProviderRuntimeProviderState, ProviderRuntimeProviderStatus,
-        ProviderRuntimeProviderStatusSummary, ProviderRuntimeProvidersList,
+        ProviderRuntimeProviderInfo, ProviderRuntimeProviderInfoSummary,
+        ProviderRuntimeProviderOperation, ProviderRuntimeProviderOperations,
+        ProviderRuntimeProviderSlashCommands, ProviderRuntimeProviderState,
+        ProviderRuntimeProviderStatus, ProviderRuntimeProviderStatusSummary,
+        ProviderRuntimeProviderSurfaceSupport, ProviderRuntimeProvidersList,
         ProviderRuntimeRawEventMode, ProviderRuntimeRawEventSummary,
         ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
         ProviderRuntimeRequest, ProviderRuntimeSlashCommandsListRequest,
@@ -2572,15 +2573,32 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 hooks: Vec::new(),
                 missing_required_hooks: Vec::new(),
             });
+        let supports_events = self.providers.has_event_source(provider);
+        let supports_server_request_responses =
+            self.providers.has_server_request_responder(provider);
+        let supports_state_snapshots = self.providers.has_state_source(provider);
+        let supports_host_tools = self.providers.has_host_tool_registry(provider);
+        let contract = ace_runtime::provider::provider_contract_report(&descriptor);
+        let summary = ProviderRuntimeProviderInfoSummary::from_parts(
+            &descriptor,
+            &contract,
+            &adapter_profile,
+            &adapter_runtime,
+            ProviderRuntimeProviderSurfaceSupport {
+                events: supports_events,
+                server_request_responses: supports_server_request_responses,
+                state_snapshots: supports_state_snapshots,
+                host_tools: supports_host_tools,
+            },
+        );
         ProviderRuntimeProviderInfo {
             provider,
             runtime_id: provider.runtime_id().to_string(),
             display_name: provider.display_name().to_string(),
-            supports_events: self.providers.has_event_source(provider),
-            supports_server_request_responses: self
-                .providers
-                .has_server_request_responder(provider),
-            contract: ace_runtime::provider::provider_contract_report(&descriptor),
+            summary,
+            supports_events,
+            supports_server_request_responses,
+            contract,
             adapter_profile,
             adapter_runtime,
             descriptor,
@@ -9068,6 +9086,40 @@ mod tests {
         assert_eq!(codex_runtime["provider"], "Codex");
         assert_eq!(codex_runtime["display_name"], "Codex");
         assert_eq!(codex_runtime["descriptor"]["kind"], "Codex");
+        assert_eq!(codex_runtime["summary"]["selectable"], true);
+        assert_eq!(codex_runtime["summary"]["contract_satisfied"], true);
+        assert_eq!(codex_runtime["summary"]["runtime_hooks_satisfied"], true);
+        assert_eq!(codex_runtime["summary"]["supports_events"], true);
+        assert_eq!(
+            codex_runtime["summary"]["supports_server_request_responses"],
+            true
+        );
+        assert_eq!(codex_runtime["summary"]["supports_state_snapshots"], true);
+        assert_eq!(codex_runtime["summary"]["supports_host_tools"], true);
+        assert!(
+            codex_runtime["summary"]["required_operations"]
+                .as_u64()
+                .expect("required operations")
+                > 0
+        );
+        assert!(
+            codex_runtime["summary"]["optional_operations"]
+                .as_u64()
+                .expect("optional operations")
+                > 0
+        );
+        assert!(
+            codex_runtime["summary"]["version_gated_operations"]
+                .as_u64()
+                .expect("version gated operations")
+                > 0
+        );
+        assert!(
+            codex_runtime["summary"]["deferred_operations"]
+                .as_u64()
+                .expect("deferred operations")
+                > 0
+        );
         assert_eq!(codex_runtime["supports_events"], true);
         assert_eq!(codex_runtime["supports_server_request_responses"], true);
         assert_eq!(codex_runtime["contract"]["satisfies_required"], true);
@@ -9110,6 +9162,23 @@ mod tests {
         assert_eq!(ace_runtime["provider"], "Ace");
         assert_eq!(ace_runtime["display_name"], "Ace");
         assert_eq!(ace_runtime["descriptor"]["kind"], "Ace");
+        assert_eq!(ace_runtime["summary"]["selectable"], true);
+        assert_eq!(ace_runtime["summary"]["contract_satisfied"], true);
+        assert_eq!(ace_runtime["summary"]["runtime_hooks_satisfied"], true);
+        assert_eq!(ace_runtime["summary"]["supports_events"], true);
+        assert_eq!(
+            ace_runtime["summary"]["supports_server_request_responses"],
+            true
+        );
+        assert_eq!(ace_runtime["summary"]["supports_state_snapshots"], true);
+        assert_eq!(ace_runtime["summary"]["supports_host_tools"], true);
+        assert!(
+            ace_runtime["summary"]["native_capabilities"]
+                .as_array()
+                .expect("ace native capabilities")
+                .iter()
+                .any(|capability| capability == "ace.provider_contract")
+        );
         assert_eq!(ace_runtime["supports_events"], true);
         assert_eq!(ace_runtime["supports_server_request_responses"], true);
         assert_eq!(ace_runtime["contract"]["satisfies_required"], true);
