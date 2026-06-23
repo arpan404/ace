@@ -1,6 +1,7 @@
 use ace_runtime::{
     provider::{
-        NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem, ProviderEvent,
+        NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
+        NormalizedThreadItem, ProviderEvent,
     },
     runtime_signals::{RuntimeSignalNormalizationInput, normalize_provider_runtime_signal},
     server_requests::{ServerRequestNormalizationInput, normalize_provider_server_request},
@@ -33,6 +34,9 @@ pub fn normalize_codex_inbound_event(event: &CodexInboundEvent) -> Vec<ProviderE
                 events.push(ProviderEvent::ThreadItem {
                     item: Box::new(item),
                 });
+            }
+            if let Some(event) = normalize_codex_server_request_resolved(method, params) {
+                events.push(event);
             }
             events.push(ProviderEvent::RawNotification {
                 method: method.clone(),
@@ -108,6 +112,36 @@ fn normalize_codex_tool_notification(
     })
 }
 
+fn normalize_codex_server_request_resolved(method: &str, params: &Value) -> Option<ProviderEvent> {
+    if method != "serverRequest/resolved" {
+        return None;
+    }
+    let request_id = string_field(params, &["requestId", "request_id", "id"])?;
+    let outcome = string_field(params, &["outcome", "status", "result"])
+        .unwrap_or_else(|| "resolved".to_string());
+    let payload = params
+        .get("payload")
+        .or_else(|| params.get("decision"))
+        .or_else(|| params.get("response"))
+        .or_else(|| params.get("resultPayload"))
+        .cloned()
+        .unwrap_or_else(|| params.clone());
+    let audit = params
+        .get("audit")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    Some(ProviderEvent::ServerRequestResolved {
+        request_id,
+        decision: NormalizedServerRequestDecision {
+            outcome,
+            payload,
+            audit,
+        },
+        request: None,
+    })
+}
+
 fn normalize_codex_server_request_tool(
     id: i64,
     method: &str,
@@ -119,6 +153,13 @@ fn normalize_codex_server_request_tool(
         method: method.to_string(),
         params: params.clone(),
     })
+}
+
+fn string_field(value: &Value, fields: &[&str]) -> Option<String> {
+    fields
+        .iter()
+        .filter_map(|field| value.get(*field))
+        .find_map(|value| value.as_str().map(ToString::to_string))
 }
 
 #[cfg(test)]
@@ -1120,6 +1161,47 @@ mod tests {
         );
         assert_eq!(signal.process_id.as_deref(), Some("proc-1"));
         assert_eq!(signal.exit_code, Some(2));
+    }
+
+    #[test]
+    fn normalizes_server_request_resolved_notification_into_decision_event() {
+        let events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "serverRequest/resolved".to_string(),
+            params: json!({
+                "requestId": "approval-1",
+                "outcome": "result",
+                "payload": { "approved": true },
+                "audit": {
+                    "decided_by": "codex",
+                    "source_thread_id": "thread-1"
+                }
+            }),
+        });
+
+        let ProviderEvent::RuntimeSignal { signal } = &events[0] else {
+            panic!("expected runtime signal");
+        };
+        assert_eq!(
+            signal.kind,
+            ace_runtime::provider::RuntimeSignalKind::ServerRequestResolved
+        );
+        assert_eq!(signal.request_id.as_deref(), Some("approval-1"));
+
+        let ProviderEvent::ServerRequestResolved {
+            request_id,
+            decision,
+            request,
+        } = &events[1]
+        else {
+            panic!("expected server request resolved event");
+        };
+        assert_eq!(request_id, "approval-1");
+        assert_eq!(decision.outcome, "result");
+        assert_eq!(decision.payload["approved"], true);
+        assert_eq!(decision.audit["decided_by"], "codex");
+        assert_eq!(decision.audit["source_thread_id"], "thread-1");
+        assert!(request.is_none());
+        assert!(matches!(events[2], ProviderEvent::RawNotification { .. }));
     }
 
     #[test]

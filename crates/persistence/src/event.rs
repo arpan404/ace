@@ -96,6 +96,17 @@ impl ProviderEventLogRepository {
                  ON CONFLICT(provider, request_id) DO UPDATE SET
                    request_json = excluded.request_json",
             )?;
+            let mut server_request_resolved_statement = transaction.prepare(
+                "INSERT INTO provider_server_requests(
+                   provider, request_id, request_json, status, decision_json, resolved_at
+                 )
+                 VALUES (?1, ?2, ?3, 'resolved', ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                 ON CONFLICT(provider, request_id) DO UPDATE SET
+                   request_json = COALESCE(excluded.request_json, provider_server_requests.request_json),
+                   status = 'resolved',
+                   decision_json = excluded.decision_json,
+                   resolved_at = excluded.resolved_at",
+            )?;
             for event in events {
                 let (sequence, created_at) = statement
                     .query_row(params![provider, json(event)?], |row| {
@@ -106,6 +117,22 @@ impl ProviderEventLogRepository {
                         provider,
                         request.request_id,
                         json(request.as_ref())?
+                    ])?;
+                }
+                if let ProviderEvent::ServerRequestResolved {
+                    request_id,
+                    decision,
+                    request,
+                } = event
+                {
+                    server_request_resolved_statement.execute(params![
+                        provider,
+                        request_id,
+                        request
+                            .as_ref()
+                            .map(|request| json(request.as_ref()))
+                            .transpose()?,
+                        json(decision)?
                     ])?;
                 }
                 records.push(ProviderEventRecord {
@@ -800,29 +827,30 @@ mod tests {
         let mut repo =
             ProviderEventLogRepository::from_connection(Connection::open_in_memory().expect("db"))
                 .expect("repo");
+        let server_request = |request_id: &str, prompt: &str| NormalizedServerRequest {
+            kind: ServerRequestKind::CommandApproval,
+            request_id: request_id.to_string(),
+            method: "command/approvalRequest".to_string(),
+            thread_id: Some("thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some(format!("item-{request_id}")),
+            scope: Some("command".to_string()),
+            title: Some("Approve command execution".to_string()),
+            prompt: Some(prompt.to_string()),
+            selected_policy: Some("on-request".to_string()),
+            detail: Default::default(),
+            metadata: serde_json::json!({ "command": "cargo test" }),
+            provider: ProviderMetadata {
+                provider: "codex".to_string(),
+                method: Some("command/approvalRequest".to_string()),
+                schema_version: None,
+                raw_payload: serde_json::json!({ "command": "cargo test" }),
+            },
+        };
         repo.append_batch(
             "codex",
             &[ProviderEvent::ServerRequest {
-                request: Box::new(NormalizedServerRequest {
-                    kind: ServerRequestKind::CommandApproval,
-                    request_id: "42".to_string(),
-                    method: "command/approvalRequest".to_string(),
-                    thread_id: Some("thread-1".to_string()),
-                    turn_id: Some("turn-1".to_string()),
-                    item_id: Some("item-1".to_string()),
-                    scope: Some("command".to_string()),
-                    title: Some("Approve command execution".to_string()),
-                    prompt: Some("Run tests?".to_string()),
-                    selected_policy: Some("on-request".to_string()),
-                    detail: Default::default(),
-                    metadata: serde_json::json!({ "command": "cargo test" }),
-                    provider: ProviderMetadata {
-                        provider: "codex".to_string(),
-                        method: Some("command/approvalRequest".to_string()),
-                        schema_version: None,
-                        raw_payload: serde_json::json!({ "command": "cargo test" }),
-                    },
-                }),
+                request: Box::new(server_request("42", "Run tests?")),
             }],
         )
         .expect("append server request");
@@ -899,6 +927,53 @@ mod tests {
         assert_eq!(decision.audit["decided_by"], "user");
         assert_eq!(decision.audit["source_thread_id"], "thread-1");
         assert!(resolved[0].resolved_at.is_some());
+
+        repo.append_batch(
+            "codex",
+            &[
+                ProviderEvent::ServerRequest {
+                    request: Box::new(server_request("43", "Run clippy?")),
+                },
+                ProviderEvent::ServerRequestResolved {
+                    request_id: "43".to_string(),
+                    decision: NormalizedServerRequestDecision {
+                        outcome: "result".to_string(),
+                        payload: serde_json::json!({ "approved": false }),
+                        audit: serde_json::json!({
+                            "decided_by": "codex",
+                            "source_thread_id": "thread-1"
+                        }),
+                    },
+                    request: None,
+                },
+            ],
+        )
+        .expect("append provider resolution");
+
+        let resolved_by_notification = repo
+            .server_request("codex", "43")
+            .expect("resolved by notification lookup")
+            .expect("resolved by notification");
+        assert_eq!(
+            resolved_by_notification.status,
+            ProviderServerRequestStatus::Resolved
+        );
+        assert_eq!(
+            resolved_by_notification
+                .request
+                .as_ref()
+                .expect("request")
+                .prompt
+                .as_deref(),
+            Some("Run clippy?")
+        );
+        let decision = resolved_by_notification
+            .decision
+            .as_ref()
+            .expect("decision");
+        assert_eq!(decision.outcome, "result");
+        assert_eq!(decision.payload["approved"], false);
+        assert_eq!(decision.audit["decided_by"], "codex");
     }
 
     fn thread_item(item_id: &str, text: &str) -> NormalizedThreadItem {
