@@ -68,6 +68,7 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     ),
     CodexMethodSpec::new("account/usage/read", ClientRequest, RawSupported),
     CodexMethodSpec::new("app/list", ClientRequest, VersionGated),
+    CodexMethodSpec::new("collaborationMode/list", ClientRequest, VersionGated),
     CodexMethodSpec::new("config/batchWrite", ClientRequest, RawSupported),
     CodexMethodSpec::new("config/mcpServer/reload", ClientRequest, RawSupported),
     CodexMethodSpec::new("config/read", ClientRequest, RawSupported),
@@ -81,6 +82,7 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("externalAgentConfig/detect", ClientRequest, RawSupported),
     CodexMethodSpec::new("externalAgentConfig/import", ClientRequest, RawSupported),
     CodexMethodSpec::new("feedback/upload", ClientRequest, RawSupported),
+    CodexMethodSpec::new("environment/add", ClientRequest, VersionGated),
     CodexMethodSpec::new("fs/copy", ClientRequest, RawSupported),
     CodexMethodSpec::new("fs/createDirectory", ClientRequest, RawSupported),
     CodexMethodSpec::new("fs/getMetadata", ClientRequest, RawSupported),
@@ -91,6 +93,9 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("fs/watch", ClientRequest, RawSupported),
     CodexMethodSpec::new("fs/writeFile", ClientRequest, RawSupported),
     CodexMethodSpec::new("fuzzyFileSearch", ClientRequest, RawSupported),
+    CodexMethodSpec::new("fuzzyFileSearch/sessionStart", ClientRequest, VersionGated),
+    CodexMethodSpec::new("fuzzyFileSearch/sessionStop", ClientRequest, VersionGated),
+    CodexMethodSpec::new("fuzzyFileSearch/sessionUpdate", ClientRequest, VersionGated),
     CodexMethodSpec::new("hooks/list", ClientRequest, RawSupported),
     CodexMethodSpec::new("marketplace/add", ClientRequest, RawSupported),
     CodexMethodSpec::new("marketplace/remove", ClientRequest, RawSupported),
@@ -101,6 +106,8 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
         ClientRequest,
         RawSupported,
     ),
+    CodexMethodSpec::new("memory/reset", ClientRequest, VersionGated),
+    CodexMethodSpec::new("mock/experimentalMethod", ClientRequest, VersionGated),
     CodexMethodSpec::new("thread/start", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/resume", ClientRequest, TypedSupported),
     CodexMethodSpec::new("thread/fork", ClientRequest, TypedSupported),
@@ -143,6 +150,10 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("command/exec/terminate", ClientRequest, VersionGated),
     CodexMethodSpec::new("process/list", ClientRequest, VersionGated),
     CodexMethodSpec::new("process/clean", ClientRequest, VersionGated),
+    CodexMethodSpec::new("process/kill", ClientRequest, VersionGated),
+    CodexMethodSpec::new("process/resizePty", ClientRequest, VersionGated),
+    CodexMethodSpec::new("process/spawn", ClientRequest, VersionGated),
+    CodexMethodSpec::new("process/writeStdin", ClientRequest, VersionGated),
     CodexMethodSpec::new("mcpServerStatus/list", ClientRequest, VersionGated),
     CodexMethodSpec::new("mcpServer/resource/read", ClientRequest, VersionGated),
     CodexMethodSpec::new("mcpServer/oauth/login", ClientRequest, VersionGated),
@@ -165,6 +176,41 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("apps/configWrite", ClientRequest, VersionGated),
     CodexMethodSpec::new("remote/connectionList", ClientRequest, VersionGated),
     CodexMethodSpec::new("remote/handoff", ClientRequest, VersionGated),
+    CodexMethodSpec::new("remoteControl/client/list", ClientRequest, VersionGated),
+    CodexMethodSpec::new("remoteControl/client/revoke", ClientRequest, VersionGated),
+    CodexMethodSpec::new("remoteControl/disable", ClientRequest, VersionGated),
+    CodexMethodSpec::new("remoteControl/enable", ClientRequest, VersionGated),
+    CodexMethodSpec::new("remoteControl/pairing/start", ClientRequest, VersionGated),
+    CodexMethodSpec::new("remoteControl/pairing/status", ClientRequest, VersionGated),
+    CodexMethodSpec::new("remoteControl/status/read", ClientRequest, VersionGated),
+    CodexMethodSpec::new(
+        "thread/backgroundTerminals/clean",
+        ClientRequest,
+        VersionGated,
+    ),
+    CodexMethodSpec::new(
+        "thread/backgroundTerminals/list",
+        ClientRequest,
+        VersionGated,
+    ),
+    CodexMethodSpec::new(
+        "thread/backgroundTerminals/terminate",
+        ClientRequest,
+        VersionGated,
+    ),
+    CodexMethodSpec::new("thread/decrement_elicitation", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/increment_elicitation", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/memoryMode/set", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/realtime/appendAudio", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/realtime/appendSpeech", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/realtime/appendText", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/realtime/listVoices", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/realtime/start", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/realtime/stop", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/search", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/settings/update", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/turns/items/list", ClientRequest, VersionGated),
+    CodexMethodSpec::new("thread/turns/list", ClientRequest, VersionGated),
     CodexMethodSpec::new("windowsSandbox/readiness", ClientRequest, RawSupported),
     CodexMethodSpec::new("windowsSandbox/setupStart", ClientRequest, RawSupported),
     CodexMethodSpec::new("cloud/threadStart", ClientRequest, IntentionallyDeferred),
@@ -621,12 +667,15 @@ fn codex_method_category(method: &str, direction: CodexMethodDirection) -> Provi
         | "review"
         | "fs"
         | "fuzzyFileSearch"
-        | "hooks" => ProviderFeatureCategory::Tools,
+        | "hooks"
+        | "environment"
+        | "memory"
+        | "mock" => ProviderFeatureCategory::Tools,
         "mcp" | "mcpServer" | "mcpServerStatus" => ProviderFeatureCategory::Mcp,
         "skills" => ProviderFeatureCategory::Skills,
         "plugins" | "plugin" | "marketplace" => ProviderFeatureCategory::Plugins,
         "apps" | "app" => ProviderFeatureCategory::Apps,
-        "remote" => {
+        "remote" | "remoteControl" => {
             if method.contains("handoff") {
                 ProviderFeatureCategory::Handoff
             } else {
@@ -646,7 +695,9 @@ fn codex_method_category(method: &str, direction: CodexMethodDirection) -> Provi
                 ProviderFeatureCategory::Events
             }
         }
-        "model" | "warning" | "realtime" => ProviderFeatureCategory::Events,
+        "collaborationMode" | "model" | "modelProvider" | "warning" | "realtime" => {
+            ProviderFeatureCategory::Events
+        }
         "account"
         | "attestation"
         | "feedback"
@@ -700,6 +751,7 @@ mod tests {
         "account/sendAddCreditsNudgeEmail",
         "account/usage/read",
         "app/list",
+        "collaborationMode/list",
         "command/exec",
         "command/exec/resize",
         "command/exec/terminate",
@@ -714,6 +766,7 @@ mod tests {
         "externalAgentConfig/detect",
         "externalAgentConfig/import",
         "feedback/upload",
+        "environment/add",
         "fs/copy",
         "fs/createDirectory",
         "fs/getMetadata",
@@ -724,6 +777,9 @@ mod tests {
         "fs/watch",
         "fs/writeFile",
         "fuzzyFileSearch",
+        "fuzzyFileSearch/sessionStart",
+        "fuzzyFileSearch/sessionStop",
+        "fuzzyFileSearch/sessionUpdate",
         "hooks/list",
         "initialize",
         "marketplace/add",
@@ -735,6 +791,8 @@ mod tests {
         "mcpServerStatus/list",
         "model/list",
         "modelProvider/capabilities/read",
+        "memory/reset",
+        "mock/experimentalMethod",
         "permissionProfile/list",
         "plugin/install",
         "plugin/installed",
@@ -747,28 +805,55 @@ mod tests {
         "plugin/share/updateTargets",
         "plugin/skill/read",
         "plugin/uninstall",
+        "process/kill",
+        "process/resizePty",
+        "process/spawn",
+        "process/writeStdin",
+        "remoteControl/client/list",
+        "remoteControl/client/revoke",
+        "remoteControl/disable",
+        "remoteControl/enable",
+        "remoteControl/pairing/start",
+        "remoteControl/pairing/status",
+        "remoteControl/status/read",
         "review/start",
         "skills/config/write",
         "skills/extraRoots/set",
         "skills/list",
         "thread/approveGuardianDeniedAction",
         "thread/archive",
+        "thread/backgroundTerminals/clean",
+        "thread/backgroundTerminals/list",
+        "thread/backgroundTerminals/terminate",
         "thread/compact/start",
+        "thread/decrement_elicitation",
         "thread/delete",
         "thread/fork",
         "thread/goal/clear",
         "thread/goal/get",
         "thread/goal/set",
+        "thread/increment_elicitation",
         "thread/inject_items",
         "thread/list",
         "thread/loaded/list",
+        "thread/memoryMode/set",
         "thread/metadata/update",
         "thread/name/set",
         "thread/read",
+        "thread/realtime/appendAudio",
+        "thread/realtime/appendSpeech",
+        "thread/realtime/appendText",
+        "thread/realtime/listVoices",
+        "thread/realtime/start",
+        "thread/realtime/stop",
         "thread/resume",
         "thread/rollback",
+        "thread/search",
+        "thread/settings/update",
         "thread/shellCommand",
         "thread/start",
+        "thread/turns/items/list",
+        "thread/turns/list",
         "thread/unarchive",
         "thread/unsubscribe",
         "turn/interrupt",
@@ -924,7 +1009,12 @@ mod tests {
     fn installed_codex_generated_schema_methods_are_classified_when_available() {
         let out_dir = tempfile::tempdir().expect("schema tempdir");
         let output = match Command::new("codex")
-            .args(["app-server", "generate-json-schema", "--out"])
+            .args([
+                "app-server",
+                "generate-json-schema",
+                "--experimental",
+                "--out",
+            ])
             .arg(out_dir.path())
             .output()
         {
