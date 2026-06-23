@@ -59,7 +59,9 @@ use ace_protocol::{
     ws::{WsServerPayload, WsServerResponse, methods},
 };
 use ace_provider_commands::{
-    CodexExtensionDiscoveryOptions, discover_codex_extension_slash_commands,
+    CodexExtensionDiscoveryOptions, GenericProviderExtensionDiscoveryOptions,
+    ProviderExtensionDiscoveryOptions, discover_claude_extension_slash_commands,
+    discover_codex_extension_slash_commands, discover_generic_provider_extension_slash_commands,
     merge_provider_slash_commands, provider_fallback_slash_commands,
 };
 use ace_runtime::threads::{
@@ -3364,15 +3366,41 @@ fn provider_slash_commands(
     request: &ProviderRuntimeSlashCommandsListRequest,
 ) -> Vec<ace_provider_commands::ProviderSlashCommand> {
     let fallback = provider_fallback_slash_commands(Some(provider));
-    if provider != ProviderKind::Codex {
-        return fallback;
-    }
-
-    let discovered = discover_codex_extension_slash_commands(CodexExtensionDiscoveryOptions {
-        cwd: request.cwd.as_ref().map(PathBuf::from),
-        codex_home: request.codex_home.as_ref().map(PathBuf::from),
-        agents_home: request.agents_home.as_ref().map(PathBuf::from),
-    });
+    let discovered = match provider {
+        ProviderKind::Codex => {
+            discover_codex_extension_slash_commands(CodexExtensionDiscoveryOptions {
+                cwd: request.cwd.as_ref().map(PathBuf::from),
+                codex_home: request.codex_home.as_ref().map(PathBuf::from),
+                agents_home: request.agents_home.as_ref().map(PathBuf::from),
+            })
+        }
+        ProviderKind::ClaudeCode => {
+            discover_claude_extension_slash_commands(ProviderExtensionDiscoveryOptions {
+                cwd: request.cwd.as_ref().map(PathBuf::from),
+                provider_home: request.provider_home.as_ref().map(PathBuf::from),
+                agents_home: request.agents_home.as_ref().map(PathBuf::from),
+            })
+        }
+        ProviderKind::Cursor => discover_generic_provider_extension_slash_commands(
+            GenericProviderExtensionDiscoveryOptions {
+                cwd: request.cwd.as_ref().map(PathBuf::from),
+                provider_home: request.provider_home.as_ref().map(PathBuf::from),
+                config_home: request.config_home.as_ref().map(PathBuf::from),
+                agents_home: request.agents_home.as_ref().map(PathBuf::from),
+                provider_home_dir_name: request
+                    .provider_home_dir_name
+                    .clone()
+                    .unwrap_or_else(|| ".cursor".to_string()),
+                plugin_manifest_dir_name: Some(
+                    request
+                        .plugin_manifest_dir_name
+                        .clone()
+                        .unwrap_or_else(|| ".cursor-plugin".to_string()),
+                ),
+            },
+        ),
+        ProviderKind::Ace => Vec::new(),
+    };
     merge_provider_slash_commands([discovered, fallback])
 }
 

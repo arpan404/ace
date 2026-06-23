@@ -569,6 +569,14 @@ pub struct ProviderRuntimeSlashCommandsListRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_home: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_home: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_home: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_home_dir_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_manifest_dir_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agents_home: Option<String>,
 }
 

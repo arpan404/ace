@@ -11,6 +11,7 @@ const PLUGIN_MANIFEST_MAX_DEPTH: usize = 5;
 const SKILL_ROOT_MAX_NESTED_DEPTH: usize = 1;
 const SKILL_FILE_NAME: &str = "SKILL.md";
 const CODEX_PLUGIN_MANIFEST_DIR: &str = ".codex-plugin";
+const CLAUDE_PLUGIN_MANIFEST_DIR: &str = ".claude-plugin";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -67,11 +68,29 @@ pub struct CodexExtensionDiscoveryOptions {
     pub agents_home: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderExtensionDiscoveryOptions {
+    pub cwd: Option<PathBuf>,
+    pub provider_home: Option<PathBuf>,
+    pub agents_home: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GenericProviderExtensionDiscoveryOptions {
+    pub cwd: Option<PathBuf>,
+    pub provider_home: Option<PathBuf>,
+    pub config_home: Option<PathBuf>,
+    pub agents_home: Option<PathBuf>,
+    pub provider_home_dir_name: String,
+    pub plugin_manifest_dir_name: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct PluginManifest {
     name: Option<String>,
     description: Option<String>,
     skills: Option<String>,
+    commands: Option<String>,
     #[serde(default, rename = "interface")]
     interface_config: Option<PluginInterface>,
 }
@@ -251,8 +270,93 @@ pub fn discover_codex_extension_slash_commands(
         .map(|home| home.join("plugins").join("cache"))
         .into_iter()
         .flat_map(|root| plugin_manifest_files(&root, CODEX_PLUGIN_MANIFEST_DIR))
-        .flat_map(|manifest_path| read_plugin_commands(&manifest_path))
+        .flat_map(|manifest_path| read_plugin_commands(&manifest_path, PluginReadMode::Codex))
         .collect::<Vec<_>>();
+
+    merge_provider_slash_commands([skill_commands, plugin_commands])
+}
+
+#[must_use]
+pub fn discover_claude_extension_slash_commands(
+    options: ProviderExtensionDiscoveryOptions,
+) -> Vec<ProviderSlashCommand> {
+    let claude_home = options
+        .provider_home
+        .or_else(|| home_dir().map(|home| home.join(".claude")));
+    let agents_home = options
+        .agents_home
+        .or_else(|| home_dir().map(|home| home.join(".agents")));
+
+    let skill_commands = discover_skill_root_slash_commands(
+        &[
+            options
+                .cwd
+                .as_deref()
+                .map(|cwd| cwd.join(".claude").join("skills")),
+            options
+                .cwd
+                .as_deref()
+                .map(|cwd| cwd.join(".agents").join("skills")),
+            claude_home.as_deref().map(|home| home.join("skills")),
+            agents_home.as_deref().map(|home| home.join("skills")),
+        ],
+        SkillPromptMode::Natural,
+    );
+    let plugin_commands = claude_home
+        .as_deref()
+        .map(|home| home.join("plugins").join("installed_plugins.json"))
+        .into_iter()
+        .flat_map(read_claude_installed_plugin_commands)
+        .collect::<Vec<_>>();
+
+    merge_provider_slash_commands([skill_commands, plugin_commands])
+}
+
+#[must_use]
+pub fn discover_generic_provider_extension_slash_commands(
+    options: GenericProviderExtensionDiscoveryOptions,
+) -> Vec<ProviderSlashCommand> {
+    let provider_home_dir_name =
+        nonempty_string(options.provider_home_dir_name).unwrap_or_else(|| ".provider".to_string());
+    let provider_home = options.provider_home.or(options.config_home).or_else(|| {
+        home_dir().map(|home| {
+            if provider_home_dir_name.starts_with('.') {
+                home.join(&provider_home_dir_name)
+            } else {
+                home.join(format!(".{provider_home_dir_name}"))
+            }
+        })
+    });
+    let agents_home = options
+        .agents_home
+        .or_else(|| home_dir().map(|home| home.join(".agents")));
+    let skill_commands = discover_skill_root_slash_commands(
+        &[
+            options
+                .cwd
+                .as_deref()
+                .map(|cwd| cwd.join(&provider_home_dir_name).join("skills")),
+            options
+                .cwd
+                .as_deref()
+                .map(|cwd| cwd.join(".agents").join("skills")),
+            provider_home.as_deref().map(|home| home.join("skills")),
+            agents_home.as_deref().map(|home| home.join("skills")),
+        ],
+        SkillPromptMode::Natural,
+    );
+    let plugin_commands = match options.plugin_manifest_dir_name.as_deref() {
+        Some(manifest_dir_name) => provider_home
+            .as_deref()
+            .map(|home| home.join("plugins"))
+            .into_iter()
+            .flat_map(|root| plugin_manifest_files(&root, manifest_dir_name))
+            .flat_map(|manifest_path| {
+                read_plugin_commands(&manifest_path, PluginReadMode::NaturalWithMarkdownCommands)
+            })
+            .collect::<Vec<_>>(),
+        None => Vec::new(),
+    };
 
     merge_provider_slash_commands([skill_commands, plugin_commands])
 }
@@ -294,6 +398,11 @@ fn trim_optional(value: Option<String>) -> Option<String> {
         let trimmed = value.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     })
+}
+
+fn nonempty_string(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 fn is_valid_command_name(value: &str) -> bool {
@@ -366,19 +475,64 @@ fn read_skill_command(skill_dir: &Path, prefix: Option<&str>) -> Option<Provider
     ))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SkillPromptMode {
+    Dollar,
+    Natural,
+}
+
+fn read_skill_command_with_mode(
+    skill_dir: &Path,
+    prefix: Option<&str>,
+    mode: SkillPromptMode,
+) -> Option<ProviderSlashCommand> {
+    let mut command = read_skill_command(skill_dir, prefix)?;
+    if mode == SkillPromptMode::Natural {
+        let skill_name = command.name.rsplit(':').next().unwrap_or(&command.name);
+        command.prompt_prefix = Some(match prefix {
+            Some(plugin_name) => {
+                format!("Use the {skill_name} skill from the {plugin_name} plugin:")
+            }
+            None => format!("Use the {skill_name} skill:"),
+        });
+    }
+    Some(command)
+}
+
 fn read_skill_root(root: &Path, prefix: Option<&str>, depth: usize) -> Vec<ProviderSlashCommand> {
+    read_skill_root_with_mode(root, prefix, depth, SkillPromptMode::Dollar)
+}
+
+fn read_skill_root_with_mode(
+    root: &Path,
+    prefix: Option<&str>,
+    depth: usize,
+    mode: SkillPromptMode,
+) -> Vec<ProviderSlashCommand> {
     if !is_directory(root) {
         return Vec::new();
     }
     let mut commands = Vec::new();
     for entry in safe_read_dir(root) {
-        if let Some(command) = read_skill_command(&entry, prefix) {
+        if let Some(command) = read_skill_command_with_mode(&entry, prefix, mode) {
             commands.push(command);
         } else if depth < SKILL_ROOT_MAX_NESTED_DEPTH && is_directory(&entry) {
-            commands.extend(read_skill_root(&entry, prefix, depth + 1));
+            commands.extend(read_skill_root_with_mode(&entry, prefix, depth + 1, mode));
         }
     }
     commands
+}
+
+fn discover_skill_root_slash_commands(
+    roots: &[Option<PathBuf>],
+    mode: SkillPromptMode,
+) -> Vec<ProviderSlashCommand> {
+    merge_provider_slash_commands(
+        roots
+            .iter()
+            .filter_map(Option::as_deref)
+            .map(|root| read_skill_root_with_mode(root, None, 0, mode)),
+    )
 }
 
 fn plugin_manifest_files(root: &Path, manifest_dir_name: &str) -> Vec<PathBuf> {
@@ -403,7 +557,16 @@ fn plugin_manifest_files(root: &Path, manifest_dir_name: &str) -> Vec<PathBuf> {
     manifests
 }
 
-fn read_plugin_commands(plugin_manifest_path: &Path) -> Vec<ProviderSlashCommand> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PluginReadMode {
+    Codex,
+    NaturalWithMarkdownCommands,
+}
+
+fn read_plugin_commands(
+    plugin_manifest_path: &Path,
+    mode: PluginReadMode,
+) -> Vec<ProviderSlashCommand> {
     let Some(raw) = safe_read_to_string(plugin_manifest_path) else {
         return Vec::new();
     };
@@ -442,11 +605,20 @@ fn read_plugin_commands(plugin_manifest_path: &Path) -> Vec<ProviderSlashCommand
         .or_else(|| manifest.description.clone())
         .or_else(|| Some(format!("Use {plugin_name}")));
 
+    let plugin_prompt_prefix = match mode {
+        PluginReadMode::Codex => format!("@{plugin_name}"),
+        PluginReadMode::NaturalWithMarkdownCommands => format!("Use the {plugin_name} plugin."),
+    };
+    let skill_prompt_mode = match mode {
+        PluginReadMode::Codex => SkillPromptMode::Dollar,
+        PluginReadMode::NaturalWithMarkdownCommands => SkillPromptMode::Natural,
+    };
+
     let mut commands = vec![provider_plugin_slash_command(
         ProviderExtensionCommandInput {
             name: plugin_name.clone(),
             description,
-            prompt_prefix: Some(format!("@{plugin_name}")),
+            prompt_prefix: Some(plugin_prompt_prefix),
             input_hint: Some("<prompt>".to_string()),
         },
     )];
@@ -456,14 +628,142 @@ fn read_plugin_commands(plugin_manifest_path: &Path) -> Vec<ProviderSlashCommand
         .as_deref()
         .filter(|value| !value.trim().is_empty())
     {
-        commands.extend(read_skill_root(
+        commands.extend(read_skill_root_with_mode(
             &plugin_root.join(skills_root),
             Some(&plugin_name),
             0,
+            skill_prompt_mode,
+        ));
+    }
+    if mode == PluginReadMode::NaturalWithMarkdownCommands
+        && let Some(commands_root) = manifest
+            .commands
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+    {
+        commands.extend(read_plugin_markdown_command_root(
+            &plugin_root.join(commands_root),
+            &plugin_name,
         ));
     }
 
     commands
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeInstalledPlugins {
+    #[serde(default)]
+    plugins: std::collections::BTreeMap<String, Vec<ClaudeInstalledPluginEntry>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeInstalledPluginEntry {
+    #[serde(rename = "installPath")]
+    install_path: Option<PathBuf>,
+}
+
+fn read_claude_installed_plugin_commands(
+    installed_plugins_path: PathBuf,
+) -> Vec<ProviderSlashCommand> {
+    let Some(raw) = safe_read_to_string(&installed_plugins_path) else {
+        return Vec::new();
+    };
+    let Ok(installed) = serde_json::from_str::<ClaudeInstalledPlugins>(&raw) else {
+        return Vec::new();
+    };
+    installed
+        .plugins
+        .into_iter()
+        .flat_map(|(identity, installs)| {
+            let fallback_name = identity.split('@').next().unwrap_or_default().to_string();
+            installs.into_iter().filter_map(move |entry| {
+                let install_path = entry.install_path?;
+                let manifest_path = install_path
+                    .join(CLAUDE_PLUGIN_MANIFEST_DIR)
+                    .join("plugin.json");
+                let mut commands = read_plugin_commands(
+                    &manifest_path,
+                    PluginReadMode::NaturalWithMarkdownCommands,
+                );
+                if commands.is_empty() {
+                    commands = read_plugin_commands_from_root_with_fallback_name(
+                        &install_path,
+                        CLAUDE_PLUGIN_MANIFEST_DIR,
+                        &fallback_name,
+                        PluginReadMode::NaturalWithMarkdownCommands,
+                    );
+                }
+                Some(commands)
+            })
+        })
+        .flatten()
+        .collect()
+}
+
+fn read_plugin_commands_from_root_with_fallback_name(
+    plugin_root: &Path,
+    manifest_dir_name: &str,
+    fallback_name: &str,
+    mode: PluginReadMode,
+) -> Vec<ProviderSlashCommand> {
+    let manifest_path = plugin_root.join(manifest_dir_name).join("plugin.json");
+    let commands = read_plugin_commands(&manifest_path, mode);
+    if !commands.is_empty() {
+        return commands;
+    }
+    let Some(plugin_name) = normalize_discovered_command_name(fallback_name) else {
+        return Vec::new();
+    };
+    vec![provider_plugin_slash_command(
+        ProviderExtensionCommandInput {
+            name: plugin_name.clone(),
+            description: Some(format!("Use {plugin_name}")),
+            prompt_prefix: Some(format!("Use the {plugin_name} plugin.")),
+            input_hint: Some("<prompt>".to_string()),
+        },
+    )]
+}
+
+fn read_plugin_markdown_command_root(root: &Path, plugin_name: &str) -> Vec<ProviderSlashCommand> {
+    if !is_directory(root) {
+        return Vec::new();
+    }
+    safe_read_dir(root)
+        .into_iter()
+        .filter_map(|file| read_plugin_markdown_command(&file, plugin_name))
+        .collect()
+}
+
+fn read_plugin_markdown_command(file: &Path, plugin_name: &str) -> Option<ProviderSlashCommand> {
+    if file.extension().and_then(|extension| extension.to_str()) != Some("md") {
+        return None;
+    }
+    let raw_name = file.file_stem()?.to_string_lossy();
+    if raw_name.starts_with('_') {
+        return None;
+    }
+    let command_name = normalize_discovered_command_name(&raw_name)?;
+    let markdown = safe_read_to_string(file)?;
+    let name = format!("{plugin_name}:{command_name}");
+    Some(provider_plugin_slash_command(
+        ProviderExtensionCommandInput {
+            name: name.clone(),
+            description: frontmatter_field(&markdown, "description")
+                .or_else(|| first_markdown_heading(&markdown)),
+            prompt_prefix: Some(format!("/{name}")),
+            input_hint: Some("<prompt>".to_string()),
+        },
+    ))
+}
+
+fn first_markdown_heading(markdown: &str) -> Option<String> {
+    markdown.lines().find_map(|line| {
+        line.trim_start()
+            .strip_prefix("# ")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+    })
 }
 
 fn collect_plugin_command_keys(sources: &[Vec<ProviderSlashCommand>]) -> HashSet<String> {
@@ -778,6 +1078,144 @@ description: Inspect a page
             skill.prompt_prefix.as_deref(),
             Some("$browser-use:inspect-page")
         );
+    }
+
+    #[test]
+    fn discovers_claude_skills_plugins_and_markdown_commands() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cwd = temp.path().join("repo");
+        let claude_home = temp.path().join("claude-home");
+        let agents_home = temp.path().join("agents-home");
+        write_skill(
+            &cwd.join(".claude").join("skills").join("audit"),
+            "---\ndescription: Audit code\n---\n# Audit\n",
+        );
+
+        let plugin_root = temp.path().join("installed").join("acme-plugin");
+        fs::create_dir_all(plugin_root.join(".claude-plugin")).expect("plugin manifest dir");
+        fs::write(
+            plugin_root.join(".claude-plugin").join("plugin.json"),
+            r#"{
+  "name": "acme-plugin",
+  "description": "Acme plugin",
+  "skills": "skills",
+  "commands": "commands"
+}"#,
+        )
+        .expect("plugin manifest");
+        write_skill(
+            &plugin_root.join("skills").join("deploy-review"),
+            "---\ndescription: Review deploy\n---\n# Deploy Review\n",
+        );
+        fs::create_dir_all(plugin_root.join("commands")).expect("plugin commands dir");
+        fs::write(
+            plugin_root.join("commands").join("deploy.md"),
+            "---\ndescription: Deploy command\n---\n# Deploy\n",
+        )
+        .expect("plugin command");
+        fs::create_dir_all(claude_home.join("plugins")).expect("claude plugins dir");
+        fs::write(
+            claude_home.join("plugins").join("installed_plugins.json"),
+            serde_json::json!({
+                "plugins": {
+                    "acme-plugin@marketplace": [
+                        { "installPath": plugin_root }
+                    ]
+                }
+            })
+            .to_string(),
+        )
+        .expect("installed plugins");
+
+        let commands =
+            discover_claude_extension_slash_commands(ProviderExtensionDiscoveryOptions {
+                cwd: Some(cwd),
+                provider_home: Some(claude_home),
+                agents_home: Some(agents_home),
+            });
+        let names = commands
+            .iter()
+            .map(|command| command.name.as_str())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"audit"));
+        assert!(names.contains(&"acme-plugin"));
+        assert!(names.contains(&"acme-plugin:deploy-review"));
+        assert!(names.contains(&"acme-plugin:deploy"));
+
+        let plugin = commands
+            .iter()
+            .find(|command| command.name == "acme-plugin")
+            .expect("plugin");
+        assert_eq!(
+            plugin.prompt_prefix.as_deref(),
+            Some("Use the acme-plugin plugin.")
+        );
+        let plugin_skill = commands
+            .iter()
+            .find(|command| command.name == "acme-plugin:deploy-review")
+            .expect("plugin skill");
+        assert_eq!(
+            plugin_skill.prompt_prefix.as_deref(),
+            Some("Use the deploy-review skill from the acme-plugin plugin:")
+        );
+        let plugin_command = commands
+            .iter()
+            .find(|command| command.name == "acme-plugin:deploy")
+            .expect("plugin command");
+        assert_eq!(plugin_command.kind, Some(ProviderSlashCommandKind::Plugin));
+        assert_eq!(
+            plugin_command.prompt_prefix.as_deref(),
+            Some("/acme-plugin:deploy")
+        );
+    }
+
+    #[test]
+    fn discovers_generic_provider_skills_and_plugins() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let provider_home = temp.path().join("cursor-home");
+        let agents_home = temp.path().join("agents-home");
+        write_skill(
+            &provider_home.join("skills").join("rules"),
+            "---\ndescription: Use rules\n---\n# Rules\n",
+        );
+
+        let plugin_root = provider_home.join("plugins").join("rules-plugin");
+        fs::create_dir_all(plugin_root.join(".cursor-plugin")).expect("plugin manifest dir");
+        fs::write(
+            plugin_root.join(".cursor-plugin").join("plugin.json"),
+            r#"{
+  "name": "rules-plugin",
+  "description": "Rules plugin",
+  "skills": "skills",
+  "commands": "commands"
+}"#,
+        )
+        .expect("plugin manifest");
+        write_skill(
+            &plugin_root.join("skills").join("lint"),
+            "---\ndescription: Lint rules\n---\n# Lint\n",
+        );
+        fs::create_dir_all(plugin_root.join("commands")).expect("plugin commands dir");
+        fs::write(plugin_root.join("commands").join("fix.md"), "# Fix\n").expect("plugin command");
+
+        let commands = discover_generic_provider_extension_slash_commands(
+            GenericProviderExtensionDiscoveryOptions {
+                cwd: None,
+                provider_home: Some(provider_home),
+                config_home: None,
+                agents_home: Some(agents_home),
+                provider_home_dir_name: ".cursor".to_string(),
+                plugin_manifest_dir_name: Some(".cursor-plugin".to_string()),
+            },
+        );
+        let names = commands
+            .iter()
+            .map(|command| command.name.as_str())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"rules"));
+        assert!(names.contains(&"rules-plugin"));
+        assert!(names.contains(&"rules-plugin:lint"));
+        assert!(names.contains(&"rules-plugin:fix"));
     }
 
     #[test]
