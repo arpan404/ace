@@ -174,11 +174,12 @@ pub fn normalize_provider_runtime_signal(
                 string_at(&input.params, "skill").as_deref(),
                 string_at(&input.params, "plugin").as_deref(),
                 string_at(&input.params, "connector").as_deref(),
+                string_at(&input.params, "server").as_deref(),
                 string_at(&input.params, "account").as_deref(),
                 string_at(&input.params, "query").as_deref(),
                 string_at(&input.params, "id").as_deref(),
             ]);
-            if let Some(surface) = provider_state_surface_from_method(&input.method) {
+            if let Some(surface) = provider_state_surface(&input.method, &input.params) {
                 signal.metadata = normalized_provider_state_metadata(&input.params, surface);
             }
         }
@@ -349,6 +350,33 @@ fn provider_state_surface_from_method(method: &str) -> Option<&'static str> {
         "windowsSandbox/setupCompleted" => Some("sandbox"),
         _ => None,
     }
+}
+
+fn provider_state_surface(method: &str, params: &Value) -> Option<&'static str> {
+    if method == "skills/changed" && skills_changed_payload_is_plugin(params) {
+        return Some("plugin");
+    }
+    provider_state_surface_from_method(method)
+}
+
+fn skills_changed_payload_is_plugin(params: &Value) -> bool {
+    if string_at(params, "plugin")
+        .or_else(|| string_at(params, "pluginId"))
+        .or_else(|| string_at(params, "plugin_id"))
+        .or_else(|| string_at(params, "connector"))
+        .is_some()
+    {
+        return true;
+    }
+    ["surface", "kind", "type", "category"]
+        .into_iter()
+        .filter_map(|key| string_at(params, key))
+        .any(|value| {
+            let value = value.to_ascii_lowercase();
+            value.contains("plugin")
+        })
+        || string_at(params, "source")
+            .is_some_and(|source| source.to_ascii_lowercase().contains("plugin"))
 }
 
 fn normalized_provider_state_metadata(params: &Value, surface: &str) -> Value {
@@ -525,6 +553,21 @@ mod tests {
         assert_eq!(skill_state.name.as_deref(), Some("rust"));
         assert_eq!(skill_state.metadata["surface"], "skill");
         assert_eq!(skill_state.provider.raw_payload["source"], "marketplace");
+
+        let plugin_state = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
+            provider: "future-provider".to_string(),
+            method: "skills/changed".to_string(),
+            params: json!({
+                "event": "installed",
+                "plugin": "browser",
+                "source": "plugin_marketplace"
+            }),
+        })
+        .expect("plugin state signal");
+        assert_eq!(plugin_state.kind, RuntimeSignalKind::ProviderStateUpdated);
+        assert_eq!(plugin_state.status.as_deref(), Some("installed"));
+        assert_eq!(plugin_state.name.as_deref(), Some("browser"));
+        assert_eq!(plugin_state.metadata["surface"], "plugin");
 
         let app_state = normalize_provider_runtime_signal(RuntimeSignalNormalizationInput {
             provider: "future-provider".to_string(),

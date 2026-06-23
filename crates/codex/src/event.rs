@@ -757,6 +757,46 @@ mod tests {
             assert_eq!(signal.provider.method.as_deref(), Some(method));
             assert!(matches!(events[1], ProviderEvent::RawNotification { .. }));
         }
+
+        let mcp_events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "mcpServer/startupStatus/updated".to_string(),
+            params: json!({ "server": "browser", "status": "running" }),
+        });
+        let ProviderEvent::RuntimeSignal { signal: mcp_signal } = &mcp_events[0] else {
+            panic!("expected mcp provider state signal");
+        };
+        assert_eq!(mcp_signal.name.as_deref(), Some("browser"));
+        assert_eq!(mcp_signal.metadata["surface"], "mcp");
+
+        let skill_events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "skills/changed".to_string(),
+            params: json!({ "event": "installed", "skill": "rust", "source": "marketplace" }),
+        });
+        let ProviderEvent::RuntimeSignal {
+            signal: skill_signal,
+        } = &skill_events[0]
+        else {
+            panic!("expected skill provider state signal");
+        };
+        assert_eq!(skill_signal.name.as_deref(), Some("rust"));
+        assert_eq!(skill_signal.metadata["surface"], "skill");
+
+        let plugin_events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+            method: "skills/changed".to_string(),
+            params: json!({
+                "event": "installed",
+                "plugin": "browser",
+                "source": "plugin_marketplace"
+            }),
+        });
+        let ProviderEvent::RuntimeSignal {
+            signal: plugin_signal,
+        } = &plugin_events[0]
+        else {
+            panic!("expected plugin provider state signal");
+        };
+        assert_eq!(plugin_signal.name.as_deref(), Some("browser"));
+        assert_eq!(plugin_signal.metadata["surface"], "plugin");
     }
 
     #[test]
