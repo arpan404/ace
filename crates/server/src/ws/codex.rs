@@ -99,6 +99,8 @@ use std::{
 };
 use tokio::sync::{broadcast, mpsc};
 
+const PROVIDER_NATIVE_METHODS_LIST: &str = "provider/methods/list";
+
 impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     pub(super) async fn dispatch_codex_method(
         &self,
@@ -3352,7 +3354,7 @@ fn provider_runtime_operations_for_provider(
             let runtime_request = if provider == ProviderKind::Codex {
                 codex_runtime_request_for_profile(&profile, gate_resolution.as_ref())
             } else {
-                provider_native_runtime_request_for_profile(&profile, status)
+                provider_native_runtime_request_for_profile(provider, &profile, status)
             };
             ProviderRuntimeProviderOperation::from_profile(profile)
                 .with_runtime_request(runtime_request)
@@ -3485,9 +3487,22 @@ fn supported_client_request_methods(metadata: &Value) -> Option<(String, BTreeSe
 }
 
 fn provider_native_runtime_request_for_profile(
+    provider: ProviderKind,
     profile: &ProviderAdapterOperationProfile,
     status: Option<&ProviderDriverStatus>,
 ) -> ProviderRuntimeOperationRequest {
+    if profile.operation == ProviderAdapterOperation::ProviderMethodsList {
+        return match provider_methods_list_method(provider, status) {
+            Ok(_method) => ProviderRuntimeOperationRequest::provider_method(
+                ProviderRuntimeOperationParams::ProviderNative,
+            ),
+            Err(reason) => ProviderRuntimeOperationRequest::unavailable(
+                ProviderRuntimeOperationRequestMode::ProviderMethod,
+                reason,
+            ),
+        };
+    }
+
     if profile.invocation != ProviderAdapterInvocationKind::DirectProviderMethod {
         return ProviderRuntimeOperationRequest::from_invocation(profile.invocation);
     }
@@ -3530,6 +3545,20 @@ fn provider_method_support(
         Err(format!(
             "provider status does not advertise client request method `{method}`"
         ))
+    }
+}
+
+fn provider_methods_list_method(
+    provider: ProviderKind,
+    status: Option<&ProviderDriverStatus>,
+) -> Result<String, String> {
+    match provider {
+        ProviderKind::Ace => Ok("ace.methods.list".to_string()),
+        ProviderKind::Codex => Ok("codex.methods.list".to_string()),
+        _ => {
+            provider_method_support(PROVIDER_NATIVE_METHODS_LIST, status)?;
+            Ok(PROVIDER_NATIVE_METHODS_LIST.to_string())
+        }
     }
 }
 
@@ -4715,14 +4744,8 @@ fn resolve_provider_runtime_request_method(
         ProviderAdapterRequestResolution::TypedApi
             if operation == ProviderAdapterOperation::ProviderMethodsList =>
         {
-            match adapter_profile.provider {
-                ProviderKind::Ace => Ok("ace.methods.list".to_string()),
-                ProviderKind::Codex => Ok("codex.methods.list".to_string()),
-                provider => Err(WsDispatchError::BadRequest(format!(
-                    "provider `{}` does not expose provider method discovery through provider_runtime.request",
-                    provider.runtime_id()
-                ))),
-            }
+            provider_methods_list_method(adapter_profile.provider, status)
+                .map_err(WsDispatchError::BadRequest)
         }
         ProviderAdapterRequestResolution::TypedApi => Err(WsDispatchError::BadRequest(format!(
             "provider `{}` adapter operation `{operation:?}` has no direct provider method; use its typed API",
@@ -4864,8 +4887,9 @@ mod tests {
         provider::{
             NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
             NormalizedThreadItem, ProviderDescriptor, ProviderDriver, ProviderDriverError,
-            ProviderEvent, ProviderMetadata, ProviderRequest, RuntimeSignalKind,
-            ServerRequestDetail, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+            ProviderDriverStatus, ProviderEvent, ProviderMetadata, ProviderRequest,
+            ProviderRuntimeHealth, RuntimeSignalKind, ServerRequestDetail, ServerRequestKind,
+            ThreadItemKind, ThreadItemStatus,
         },
         tools::{
             ProviderToolMetadata, ToolActionKind, ToolNormalizationInput, ToolRunStatus,
@@ -4895,6 +4919,7 @@ mod tests {
     #[derive(Debug)]
     struct FakeProviderDriver {
         kind: ProviderKind,
+        supported_methods: Vec<String>,
     }
 
     #[async_trait]
@@ -4906,7 +4931,33 @@ mod tests {
             }
         }
 
+        async fn status(&self) -> ProviderDriverStatus {
+            ProviderDriverStatus {
+                health: ProviderRuntimeHealth::Ready,
+                transport: Some("fake_native".to_string()),
+                version: Some("fake-provider-1".to_string()),
+                initialized: true,
+                last_error: None,
+                metadata: json!({
+                    "supported_client_request_methods": self.supported_methods.clone(),
+                    "method_inventory": {
+                        "client_request_methods": self.supported_methods.clone(),
+                    }
+                }),
+            }
+        }
+
         async fn request(&self, request: ProviderRequest) -> Result<Value, ProviderDriverError> {
+            if request.method == PROVIDER_NATIVE_METHODS_LIST {
+                return Ok(json!({
+                    "provider": self.kind.runtime_id(),
+                    "methods": self.supported_methods.clone(),
+                    "method_inventory": {
+                        "client_request_methods": self.supported_methods.clone(),
+                    },
+                    "status": "ready",
+                }));
+            }
             Err(ProviderDriverError::RequestFailed {
                 provider: self.kind.runtime_id().to_string(),
                 method: request.method,
@@ -10643,9 +10694,11 @@ mod tests {
         .with_codex_service(CodexService::new(backend))
         .with_provider_driver(Arc::new(FakeProviderDriver {
             kind: ProviderKind::ClaudeCode,
+            supported_methods: vec![PROVIDER_NATIVE_METHODS_LIST.to_string()],
         }))
         .with_provider_driver(Arc::new(FakeProviderDriver {
             kind: ProviderKind::Cursor,
+            supported_methods: vec![PROVIDER_NATIVE_METHODS_LIST.to_string()],
         }));
 
         let claude = state
@@ -10730,6 +10783,58 @@ mod tests {
                 .any(|command| command["name"] == "cursor-tools:fix"
                     && command["kind"] == "plugin"
                     && command["prompt_prefix"] == "/cursor-tools:fix")
+        );
+
+        let operations = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "cursor-provider-operations",
+                    "method": methods::PROVIDER_RUNTIME_OPERATIONS_LIST,
+                    "payload": { "provider": "cursor" }
+                })
+                .to_string(),
+            )
+            .await;
+        let operations: WsServerResponse =
+            serde_json::from_str(&operations).expect("provider operations response");
+        let WsServerPayload::Result { body } = operations.payload else {
+            panic!("expected provider operations");
+        };
+        let operations = body["providers"][0]["operations"]
+            .as_array()
+            .expect("operations");
+        assert!(operations.iter().any(|operation| {
+            operation["operation"] == "provider_methods_list"
+                && operation["runtime_request"]["invokable"] == true
+                && operation["runtime_request"]["mode"] == "provider_method"
+        }));
+
+        let methods = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "cursor-provider-methods",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "cursor",
+                        "operation": "provider_methods_list",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let methods: WsServerResponse =
+            serde_json::from_str(&methods).expect("provider methods response");
+        let WsServerPayload::Result { body } = methods.payload else {
+            panic!("expected provider method inventory");
+        };
+        assert_eq!(body["provider"], "cursor");
+        assert_eq!(
+            body["methods"].as_array().expect("methods"),
+            &[json!(PROVIDER_NATIVE_METHODS_LIST)]
         );
     }
 
