@@ -17,7 +17,7 @@ use std::{
 #[cfg(unix)]
 use tokio::net::UnixStream;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{Mutex, mpsc, oneshot},
     time,
@@ -67,6 +67,11 @@ pub enum CodexInboundEvent {
 type PendingSender = oneshot::Sender<Result<Value>>;
 type PendingRequests = Arc<Mutex<HashMap<i64, PendingSender>>>;
 type StderrTail = Arc<Mutex<VecDeque<String>>>;
+
+enum BoundedLine {
+    Line(Vec<u8>),
+    Truncated(Vec<u8>),
+}
 
 enum ChildControl {
     Shutdown {
@@ -561,12 +566,12 @@ async fn read_stdout_loop(
     pending: PendingRequests,
     events: mpsc::Sender<CodexInboundEvent>,
 ) {
-    let mut lines = BufReader::new(stdout).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        if line.len() > MAX_LINE_BYTES {
+    let mut reader = BufReader::new(stdout);
+    while let Ok(Some(line)) = read_bounded_line(&mut reader, MAX_LINE_BYTES).await {
+        let BoundedLine::Line(line) = line else {
             continue;
-        }
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+        };
+        let Ok(value) = serde_json::from_slice::<Value>(&line) else {
             continue;
         };
         route_message(value, &pending, &events).await;
@@ -580,12 +585,12 @@ async fn read_socket_loop(
     events: mpsc::Sender<CodexInboundEvent>,
     closed: Arc<AtomicBool>,
 ) {
-    let mut lines = BufReader::new(stream).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        if line.len() > MAX_LINE_BYTES {
+    let mut reader = BufReader::new(stream);
+    while let Ok(Some(line)) = read_bounded_line(&mut reader, MAX_LINE_BYTES).await {
+        let BoundedLine::Line(line) = line else {
             continue;
-        }
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+        };
+        let Ok(value) = serde_json::from_slice::<Value>(&line) else {
             continue;
         };
         route_message(value, &pending, &events).await;
@@ -642,12 +647,12 @@ async fn read_stderr_loop(
     tail: StderrTail,
     events: mpsc::Sender<CodexInboundEvent>,
 ) {
-    let mut lines = BufReader::new(stderr).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        let line = if line.len() > MAX_LINE_BYTES {
-            line.chars().take(MAX_LINE_BYTES).collect()
-        } else {
-            line
+    let mut reader = BufReader::new(stderr);
+    while let Ok(Some(line)) = read_bounded_line(&mut reader, MAX_LINE_BYTES).await {
+        let line = match line {
+            BoundedLine::Line(line) | BoundedLine::Truncated(line) => {
+                String::from_utf8_lossy(&line).into_owned()
+            }
         };
         {
             let mut tail = tail.lock().await;
@@ -695,6 +700,53 @@ async fn child_lifecycle_loop(
     closed.store(true, Ordering::Relaxed);
     close_pending_requests(&pending).await;
     let _ = events.send(CodexInboundEvent::ServerExited { code }).await;
+}
+
+async fn read_bounded_line<R>(reader: &mut R, limit: usize) -> io::Result<Option<BoundedLine>>
+where
+    R: AsyncBufRead + Unpin,
+{
+    let mut line = Vec::with_capacity(usize::min(limit, 8 * 1024));
+    let mut truncated = false;
+
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            if line.is_empty() && !truncated {
+                return Ok(None);
+            }
+            return Ok(Some(if truncated {
+                BoundedLine::Truncated(line)
+            } else {
+                BoundedLine::Line(line)
+            }));
+        }
+
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let chunk_len = newline.unwrap_or(available.len());
+        if !truncated {
+            let remaining = limit.saturating_sub(line.len());
+            let take = usize::min(chunk_len, remaining);
+            line.extend_from_slice(&available[..take]);
+            if take < chunk_len {
+                truncated = true;
+            }
+        }
+
+        let consume = chunk_len + usize::from(newline.is_some());
+        reader.consume(consume);
+
+        if newline.is_some() {
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            return Ok(Some(if truncated {
+                BoundedLine::Truncated(line)
+            } else {
+                BoundedLine::Line(line)
+            }));
+        }
+    }
 }
 
 async fn close_pending_requests(pending: &PendingRequests) {
@@ -971,6 +1023,70 @@ pub(crate) mod tests {
             events_rx.recv().await,
             Some(CodexInboundEvent::StderrLine("warn two".to_string()))
         );
+    }
+
+    #[tokio::test]
+    async fn bounded_line_reader_limits_memory_before_newline() {
+        let input = b"hello\r\nabcdef\n".as_slice();
+        let mut reader = BufReader::new(input);
+
+        let first = read_bounded_line(&mut reader, 8)
+            .await
+            .expect("first line")
+            .expect("line");
+        let BoundedLine::Line(first) = first else {
+            panic!("expected untruncated line");
+        };
+        assert_eq!(first, b"hello");
+
+        let second = read_bounded_line(&mut reader, 3)
+            .await
+            .expect("second line")
+            .expect("line");
+        let BoundedLine::Truncated(second) = second else {
+            panic!("expected truncated line");
+        };
+        assert_eq!(second, b"abc");
+        assert!(
+            read_bounded_line(&mut reader, 8)
+                .await
+                .expect("eof")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn stdout_loop_skips_oversized_jsonl_frame_and_routes_next_frame() {
+        let (mut writer, reader) = tokio::io::duplex(128);
+        let pending: PendingRequests = Arc::new(Mutex::new(HashMap::new()));
+        let (events_tx, mut events_rx) = mpsc::channel(2);
+        let task = tokio::spawn(read_stdout_loop(reader, pending, events_tx));
+
+        writer
+            .write_all(br#"{"method":"oversized","params":{"data":""#)
+            .await
+            .expect("write prefix");
+        writer
+            .write_all(&vec![b'x'; MAX_LINE_BYTES + 1])
+            .await
+            .expect("write oversized payload");
+        writer
+            .write_all(
+                br#""}}
+{"method":"turn/started","params":{"threadId":"thread-1"}}
+"#,
+            )
+            .await
+            .expect("write valid frame");
+        drop(writer);
+        task.await.expect("stdout loop");
+
+        assert!(matches!(
+            events_rx.recv().await,
+            Some(CodexInboundEvent::Notification { method, params })
+                if method == "turn/started" && params["threadId"] == "thread-1"
+        ));
+        assert!(events_rx.recv().await.is_none());
     }
 
     #[tokio::test]
