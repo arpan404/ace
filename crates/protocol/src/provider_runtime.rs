@@ -1243,49 +1243,9 @@ impl ProviderRuntimeEvent {
             | Self::ToolUpdated { tool }
             | Self::ToolCompleted { tool }
             | Self::ToolFailed { tool, .. }
-            | Self::ToolApprovalRequested { tool } => {
-                vec![ProviderRuntimeProjectionDelta::ToolTimelineUpsert { tool: tool.clone() }]
-            }
+            | Self::ToolApprovalRequested { tool } => projection_deltas_for_tool(tool, None),
             Self::ToolOutputDelta { tool, delta } => {
-                let mut deltas =
-                    vec![ProviderRuntimeProjectionDelta::ToolTimelineUpsert { tool: tool.clone() }];
-                match tool.surface {
-                    ace_runtime::tools::ToolSurface::Terminal => {
-                        deltas.push(ProviderRuntimeProjectionDelta::TerminalOutputAppended {
-                            provider: tool
-                                .provider
-                                .provider
-                                .clone()
-                                .unwrap_or_else(|| "unknown".to_string()),
-                            thread_id: tool.provider.thread_id.clone(),
-                            turn_id: tool.provider.turn_id.clone(),
-                            item_id: tool.provider.item_id.clone(),
-                            text: delta.clone(),
-                        });
-                    }
-                    ace_runtime::tools::ToolSurface::Filesystem => {
-                        deltas.push(ProviderRuntimeProjectionDelta::DiffUpdated {
-                            provider: tool
-                                .provider
-                                .provider
-                                .clone()
-                                .unwrap_or_else(|| "unknown".to_string()),
-                            thread_id: tool.provider.thread_id.clone(),
-                            turn_id: tool.provider.turn_id.clone(),
-                            item_id: tool.provider.item_id.clone(),
-                            status: ThreadItemStatus::Updated,
-                            diff: Some(delta.clone()),
-                            files: tool
-                                .provider
-                                .raw_args
-                                .get("files")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null),
-                        });
-                    }
-                    _ => {}
-                }
-                deltas
+                projection_deltas_for_tool(tool, Some(delta.clone()))
             }
             Self::ThreadItem { item } => {
                 let mut deltas =
@@ -1500,6 +1460,68 @@ pub fn projection_deltas_for_events(
         .iter()
         .flat_map(ProviderRuntimeEvent::projection_deltas)
         .collect()
+}
+
+fn projection_deltas_for_tool(
+    tool: &SemanticToolCall,
+    explicit_delta: Option<String>,
+) -> Vec<ProviderRuntimeProjectionDelta> {
+    let mut deltas = vec![ProviderRuntimeProjectionDelta::ToolTimelineUpsert {
+        tool: Box::new(tool.clone()),
+    }];
+    let Some(delta) = explicit_delta
+        .or_else(|| tool_output_delta_text(tool))
+        .filter(|delta| !delta.is_empty())
+    else {
+        return deltas;
+    };
+    match tool.surface {
+        ace_runtime::tools::ToolSurface::Terminal => {
+            deltas.push(ProviderRuntimeProjectionDelta::TerminalOutputAppended {
+                provider: tool
+                    .provider
+                    .provider
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
+                thread_id: tool.provider.thread_id.clone(),
+                turn_id: tool.provider.turn_id.clone(),
+                item_id: tool.provider.item_id.clone(),
+                text: delta,
+            });
+        }
+        ace_runtime::tools::ToolSurface::Filesystem => {
+            deltas.push(ProviderRuntimeProjectionDelta::DiffUpdated {
+                provider: tool
+                    .provider
+                    .provider
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
+                thread_id: tool.provider.thread_id.clone(),
+                turn_id: tool.provider.turn_id.clone(),
+                item_id: tool.provider.item_id.clone(),
+                status: tool_status_to_thread_item_status(tool.display.status),
+                diff: Some(delta),
+                files: tool
+                    .provider
+                    .raw_args
+                    .get("files")
+                    .or_else(|| tool.provider.raw_payload.get("files"))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
+            });
+        }
+        _ => {}
+    }
+    deltas
+}
+
+fn tool_status_to_thread_item_status(status: ToolRunStatus) -> ThreadItemStatus {
+    match status {
+        ToolRunStatus::Started => ThreadItemStatus::Started,
+        ToolRunStatus::Updated | ToolRunStatus::ApprovalRequested => ThreadItemStatus::Updated,
+        ToolRunStatus::Completed => ThreadItemStatus::Completed,
+        ToolRunStatus::Failed => ThreadItemStatus::Failed,
+    }
 }
 
 fn tool_output_delta_text(tool: &SemanticToolCall) -> Option<String> {
@@ -2495,6 +2517,82 @@ mod tests {
                 && diff.as_deref() == Some("@@ -1 +1 @@\n-old\n+new\n")
                 && files == &json!(["src/lib.rs"])
         )));
+    }
+
+    #[test]
+    fn completed_terminal_tool_with_output_still_projects_terminal_delta() {
+        let mut provider = ProviderToolMetadata::new();
+        provider.provider = Some("codex".to_string());
+        provider.method = Some("item/commandExecution/outputDelta".to_string());
+        provider.thread_id = Some("thread-1".to_string());
+        provider.turn_id = Some("turn-1".to_string());
+        provider.item_id = Some("cmd-1".to_string());
+        provider.tool_name = Some("shell".to_string());
+        provider.operation = Some("process/outputDelta".to_string());
+        provider.raw_args = json!({ "processId": "proc-1", "stdout": "final output\n" });
+        let tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::Process,
+            status: ToolRunStatus::Completed,
+            provider,
+            item_type: Some("commandExecution".to_string()),
+        });
+
+        let event = ProviderRuntimeEvent::tool(tool);
+        assert!(matches!(event, ProviderRuntimeEvent::ToolCompleted { .. }));
+        let deltas = event.projection_deltas();
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::TerminalOutputAppended {
+                provider,
+                thread_id,
+                turn_id,
+                item_id,
+                text,
+            } if provider == "codex"
+                && thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+                && item_id.as_deref() == Some("cmd-1")
+                && text == "final output\n"
+        )));
+    }
+
+    #[test]
+    fn completed_filesystem_tool_with_patch_still_projects_diff_delta() {
+        let mut provider = ProviderToolMetadata::new();
+        provider.provider = Some("codex".to_string());
+        provider.method = Some("item/fileChange/patchUpdated".to_string());
+        provider.thread_id = Some("thread-1".to_string());
+        provider.turn_id = Some("turn-1".to_string());
+        provider.item_id = Some("file-1".to_string());
+        provider.tool_name = Some("apply_patch".to_string());
+        provider.operation = Some("apply_patch".to_string());
+        provider.raw_args = json!({ "delta": "@@ -1 +1 @@\n-old\n+new\n" });
+        provider.raw_payload = json!({ "files": ["src/lib.rs"] });
+        let tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::Filesystem,
+            status: ToolRunStatus::Completed,
+            provider,
+            item_type: Some("fileChange".to_string()),
+        });
+
+        let event = ProviderRuntimeEvent::tool(tool);
+        assert!(matches!(event, ProviderRuntimeEvent::ToolCompleted { .. }));
+        let deltas = event.projection_deltas();
+        let diff = deltas
+            .iter()
+            .find_map(|delta| match delta {
+                ProviderRuntimeProjectionDelta::DiffUpdated {
+                    status,
+                    diff,
+                    files,
+                    ..
+                } => Some((status, diff, files)),
+                _ => None,
+            })
+            .expect("diff delta");
+        assert_eq!(*diff.0, ThreadItemStatus::Completed);
+        assert_eq!(diff.1.as_deref(), Some("@@ -1 +1 @@\n-old\n+new\n"));
+        assert_eq!(diff.2, &json!(["src/lib.rs"]));
     }
 
     #[test]
