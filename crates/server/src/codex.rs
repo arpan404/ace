@@ -3,15 +3,16 @@ use ace_codex::{
     CodexLiveClient, CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog,
     CodexPermissionPreset, CodexPlanImplementation, CodexReviewStart, CodexSubagentSteer,
     CodexThreadStart, CodexTransportConfig, CodexTurnPermissions, CodexTurnStart, CodexTurnSteer,
-    Result, classify_codex_method, codex_method_inventory,
+    Result, classify_codex_method, codex_method_inventory, image_generation_preflight_result,
+    is_image_generation_preflight_request,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_protocol::codex::CodexRemoteHandoffRequest;
 use ace_runtime::{
     provider::{
-        ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderDriverStatus,
-        ProviderEvent, ProviderEventSource, ProviderFeature, ProviderLifecycleAction,
-        ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
+        NormalizedServerRequestDecision, ProviderDescriptor, ProviderDriver, ProviderDriverError,
+        ProviderDriverStatus, ProviderEvent, ProviderEventSource, ProviderFeature,
+        ProviderLifecycleAction, ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
         ProviderServerRequestResponder, ProviderStateSource,
     },
     server_requests::KNOWN_SERVER_REQUEST_METHODS,
@@ -1265,11 +1266,56 @@ impl CodexService {
     pub async fn next_events(
         &self,
     ) -> std::result::Result<Option<Vec<ProviderEvent>>, CodexApiError> {
-        let events = self.backend.next_events().await?;
-        if let Some(events) = events.as_ref() {
+        let mut events = self.backend.next_events().await?;
+        if let Some(events) = events.as_mut() {
+            self.resolve_image_generation_preflight_requests(events)
+                .await?;
             self.state.lock().await.apply_provider_events(events);
         }
         Ok(events)
+    }
+
+    async fn resolve_image_generation_preflight_requests(
+        &self,
+        events: &mut Vec<ProviderEvent>,
+    ) -> std::result::Result<(), CodexApiError> {
+        let mut resolved = Vec::new();
+        for event in events.iter() {
+            let ProviderEvent::RawServerRequest { id, method, params } = event else {
+                continue;
+            };
+            if !is_image_generation_preflight_request(method, params) {
+                continue;
+            }
+            let request_id = id.parse::<i64>().map_err(|error| {
+                ace_codex::CodexError::InvalidMessage(format!(
+                    "invalid image generation preflight request id `{id}`: {error}"
+                ))
+            })?;
+            let result = image_generation_preflight_result();
+            self.backend
+                .respond_server_request_result(request_id, result.clone())
+                .await?;
+            resolved.push(ProviderEvent::ServerRequestResolved {
+                request_id: id.clone(),
+                decision: NormalizedServerRequestDecision {
+                    outcome: "result".to_string(),
+                    payload: result,
+                    audit: json!({
+                        "source": "codex_image_generation_preflight",
+                        "auto_resolved": true,
+                    }),
+                },
+                request: events.iter().find_map(|candidate| match candidate {
+                    ProviderEvent::ServerRequest { request } if request.request_id == *id => {
+                        Some(request.clone())
+                    }
+                    _ => None,
+                }),
+            });
+        }
+        events.extend(resolved);
+        Ok(())
     }
 
     pub async fn respond_server_request_result(
@@ -2723,6 +2769,52 @@ pub mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["turn/start:thread-1", "turn/start:thread-1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_auto_resolves_image_generation_preflight_tool_request() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+        backend.push_events(ace_codex::normalize_codex_inbound_event(
+            &ace_codex::CodexInboundEvent::ServerRequest {
+                id: 42,
+                method: "item/tool/call".to_string(),
+                params: serde_json::json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "callId": "call-image-preflight-1",
+                    "tool": ace_codex::CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME,
+                    "arguments": {
+                        "size": "1536x1024"
+                    }
+                }),
+            },
+        ));
+
+        let events = service
+            .next_events()
+            .await
+            .expect("events")
+            .expect("some events");
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ProviderEvent::ServerRequestResolved { request_id, .. } if request_id == "42"
+        )));
+        let responses = backend
+            .server_request_responses
+            .lock()
+            .expect("server request responses");
+        assert_eq!(responses.len(), 1);
+        let ServerRequestResponse::Result { request_id, result } = &responses[0] else {
+            panic!("expected result");
+        };
+        assert_eq!(*request_id, 42);
+        assert_eq!(result["success"], true);
+        assert_eq!(
+            result["contentItems"][0]["text"],
+            ace_codex::CODEX_IMAGE_GENERATION_PREFLIGHT_RESULT_TEXT
         );
     }
 

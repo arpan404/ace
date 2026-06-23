@@ -21,6 +21,12 @@ use std::{
 };
 
 pub const DEFAULT_CODEX_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+pub const CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME: &str = "image_generation_prehook";
+pub const CODEX_IMAGE_GENERATION_PREFLIGHT_RESULT_TEXT: &str = "Ace image generation preflight is active. Continue by using the native image generation capability now; this tool result is not the final image.";
+
+const CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS: &str = r#"## Image Generation Preflight
+
+When you are about to create or edit a raster image with the native image generation capability, first call the `image_generation_prehook` tool exactly once for that image request. This tool only opens Ace's live image placeholder; it does not create the image. After it returns, continue with the native image generation capability and do not treat the preflight tool result as the final answer."#;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodexClientInfo {
@@ -121,6 +127,46 @@ pub struct CodexThreadStart {
     pub approvals_reviewer: Option<String>,
     #[serde(default)]
     pub ephemeral: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "developer_instructions")]
+    pub developer_instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(alias = "dynamic_tools")]
+    pub dynamic_tools: Vec<Value>,
+    #[serde(default, skip_serializing)]
+    #[serde(alias = "image_generation_preflight_enabled")]
+    pub image_generation_preflight_enabled: bool,
+}
+
+impl CodexThreadStart {
+    #[must_use]
+    pub fn with_image_generation_preflight(mut self) -> Self {
+        self.enable_image_generation_preflight();
+        self
+    }
+
+    pub fn enable_image_generation_preflight(&mut self) {
+        self.image_generation_preflight_enabled = true;
+        self.ensure_image_generation_preflight();
+    }
+
+    fn prepare_for_provider(mut self) -> Self {
+        if self.image_generation_preflight_enabled {
+            self.ensure_image_generation_preflight();
+        }
+        self
+    }
+
+    fn ensure_image_generation_preflight(&mut self) {
+        if !self
+            .dynamic_tools
+            .iter()
+            .any(is_image_generation_preflight_tool)
+        {
+            self.dynamic_tools.push(image_generation_preflight_tool());
+        }
+        append_instruction_string(&mut self.developer_instructions);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -148,6 +194,9 @@ pub struct CodexTurnStart {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(alias = "collaboration_mode")]
     pub collaboration_mode: Option<Value>,
+    #[serde(default, skip_serializing)]
+    #[serde(alias = "image_generation_preflight_enabled")]
+    pub image_generation_preflight_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -280,6 +329,7 @@ impl CodexTurnStart {
                     "reasoning_effort": reasoning_effort,
                 }
             })),
+            image_generation_preflight_enabled: false,
         }
     }
 
@@ -290,6 +340,28 @@ impl CodexTurnStart {
             .and_then(|mode| mode.get("mode"))
             .and_then(Value::as_str)
             == Some("plan")
+    }
+
+    #[must_use]
+    pub fn with_image_generation_preflight(mut self) -> Self {
+        self.enable_image_generation_preflight();
+        self
+    }
+
+    pub fn enable_image_generation_preflight(&mut self) {
+        self.image_generation_preflight_enabled = true;
+        self.ensure_image_generation_preflight();
+    }
+
+    fn prepare_for_provider(mut self) -> Self {
+        if self.image_generation_preflight_enabled {
+            self.ensure_image_generation_preflight();
+        }
+        self
+    }
+
+    fn ensure_image_generation_preflight(&mut self) {
+        append_image_generation_preflight_instructions(&mut self.collaboration_mode);
     }
 }
 
@@ -331,8 +403,154 @@ impl CodexPlanImplementation {
             approval_policy: self.approval_policy,
             approvals_reviewer: self.approvals_reviewer,
             collaboration_mode: None,
+            image_generation_preflight_enabled: false,
         }
     }
+}
+
+#[must_use]
+pub fn image_generation_preflight_result() -> Value {
+    json!({
+        "success": true,
+        "contentItems": [
+            {
+                "type": "inputText",
+                "text": CODEX_IMAGE_GENERATION_PREFLIGHT_RESULT_TEXT,
+            }
+        ],
+    })
+}
+
+#[must_use]
+pub fn is_image_generation_preflight_request(method: &str, params: &Value) -> bool {
+    if method != "item/tool/call" && method != "dynamicTool/call" {
+        return false;
+    }
+    dynamic_tool_name(params)
+        .as_deref()
+        .map(normalized_dynamic_tool_name)
+        .is_some_and(|tool| {
+            matches!(
+                tool.as_str(),
+                "image_generation_prehook"
+                    | "image generation prehook"
+                    | "imagegen"
+                    | "image gen"
+                    | "image generation"
+            )
+        })
+}
+
+fn image_generation_preflight_tool() -> Value {
+    json!({
+        "name": CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME,
+        "description": "Open Ace's live image-generation placeholder before using the native image generation capability. This tool does not generate an image; call it once immediately before native raster image generation.",
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Brief description of the image that will be generated."
+                },
+                "size": {
+                    "type": "string",
+                    "description": "Requested image dimensions, such as 1536x1024 or 1024x1536."
+                },
+                "width": {
+                    "type": "number",
+                    "description": "Requested image width in pixels, when known."
+                },
+                "height": {
+                    "type": "number",
+                    "description": "Requested image height in pixels, when known."
+                },
+                "aspectRatio": {
+                    "type": "string",
+                    "description": "Requested aspect ratio, when known."
+                }
+            }
+        }
+    })
+}
+
+fn is_image_generation_preflight_tool(tool: &Value) -> bool {
+    tool.get("name")
+        .and_then(Value::as_str)
+        .map(normalized_dynamic_tool_name)
+        .is_some_and(|tool| tool == "image generation prehook")
+}
+
+fn append_image_generation_preflight_instructions(collaboration_mode: &mut Option<Value>) {
+    let settings = collaboration_mode
+        .get_or_insert_with(|| json!({ "mode": "default", "settings": {} }))
+        .as_object_mut()
+        .and_then(|mode| mode.get_mut("settings"))
+        .and_then(Value::as_object_mut);
+    let Some(settings) = settings else {
+        return;
+    };
+    let existing = settings
+        .get("developer_instructions")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mut instructions = if existing.is_empty() {
+        None
+    } else {
+        Some(existing.to_string())
+    };
+    append_instruction_string(&mut instructions);
+    if let Some(instructions) = instructions {
+        settings.insert(
+            "developer_instructions".to_string(),
+            Value::String(instructions),
+        );
+    }
+}
+
+fn append_instruction_string(instructions: &mut Option<String>) {
+    if instructions
+        .as_deref()
+        .is_some_and(|existing| existing.contains("Image Generation Preflight"))
+    {
+        return;
+    }
+    *instructions = Some(match instructions.take() {
+        Some(existing) if !existing.trim().is_empty() => {
+            format!("{existing}\n\n{CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS}")
+        }
+        _ => CODEX_IMAGE_GENERATION_PREFLIGHT_INSTRUCTIONS.to_string(),
+    });
+}
+
+fn dynamic_tool_name(params: &Value) -> Option<String> {
+    string_at(params, "tool")
+        .or_else(|| string_at(params, "toolName"))
+        .or_else(|| string_at(params, "tool_name"))
+        .or_else(|| {
+            params
+                .get("tool")
+                .and_then(|tool| tool.get("name"))
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
+}
+
+fn normalized_dynamic_tool_name(name: impl AsRef<str>) -> String {
+    name.as_ref()
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', '_'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn string_at(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -838,8 +1056,11 @@ impl<T: AppServerTransport> CodexClient<T> {
     }
 
     pub async fn start_thread(&self, request: CodexThreadStart) -> Result<Value> {
-        self.raw_request("thread/start", serde_json::to_value(request)?)
-            .await
+        self.raw_request(
+            "thread/start",
+            serde_json::to_value(request.prepare_for_provider())?,
+        )
+        .await
     }
 
     pub async fn resume_thread(&self, thread_id: &str) -> Result<Value> {
@@ -941,8 +1162,11 @@ impl<T: AppServerTransport> CodexClient<T> {
     }
 
     pub async fn start_turn(&self, request: CodexTurnStart) -> Result<Value> {
-        self.raw_request("turn/start", serde_json::to_value(request)?)
-            .await
+        self.raw_request(
+            "turn/start",
+            serde_json::to_value(request.prepare_for_provider())?,
+        )
+        .await
     }
 
     pub async fn steer_turn(&self, request: CodexTurnSteer) -> Result<Value> {
@@ -1683,6 +1907,98 @@ mod tests {
             requests[0].1["collaborationMode"]["settings"]["reasoning_effort"],
             "high"
         );
+    }
+
+    #[tokio::test]
+    async fn starts_thread_with_image_generation_preflight_dynamic_tool() {
+        let fake = FakeTransport::default();
+        fake.responses
+            .lock()
+            .expect("responses")
+            .push_back(Ok(json!({ "thread": { "id": "thread-1" } })));
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        client
+            .start_thread(
+                CodexThreadStart {
+                    cwd: None,
+                    model: Some("gpt-5.5".to_string()),
+                    model_provider: None,
+                    sandbox: None,
+                    approval_policy: None,
+                    approvals_reviewer: None,
+                    ephemeral: None,
+                    developer_instructions: None,
+                    dynamic_tools: Vec::new(),
+                    image_generation_preflight_enabled: false,
+                }
+                .with_image_generation_preflight(),
+            )
+            .await
+            .expect("thread");
+
+        let requests = client.transport.requests.lock().expect("requests");
+        assert_eq!(requests[0].0, "thread/start");
+        assert_eq!(
+            requests[0].1["dynamicTools"][0]["name"],
+            CODEX_IMAGE_GENERATION_PREFLIGHT_TOOL_NAME
+        );
+        assert!(
+            requests[0].1["developerInstructions"]
+                .as_str()
+                .expect("instructions")
+                .contains("Image Generation Preflight")
+        );
+        assert!(
+            requests[0]
+                .1
+                .get("imageGenerationPreflightEnabled")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn starts_turn_with_image_generation_preflight_instructions() {
+        let fake = FakeTransport::default();
+        fake.responses
+            .lock()
+            .expect("responses")
+            .push_back(Ok(json!({ "turn": { "id": "turn-1" } })));
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        client
+            .start_turn(
+                CodexTurnStart::plan("thread-1", "create an image", "gpt-5.5".to_string(), None)
+                    .with_image_generation_preflight(),
+            )
+            .await
+            .expect("turn");
+
+        let requests = client.transport.requests.lock().expect("requests");
+        assert_eq!(requests[0].0, "turn/start");
+        assert!(requests[0].1.get("dynamicTools").is_none());
+        assert!(
+            requests[0].1["collaborationMode"]["settings"]["developer_instructions"]
+                .as_str()
+                .expect("instructions")
+                .contains("Image Generation Preflight")
+        );
+    }
+
+    #[test]
+    fn detects_image_generation_preflight_server_requests() {
+        assert!(is_image_generation_preflight_request(
+            "item/tool/call",
+            &json!({ "tool": "image_generation_prehook" })
+        ));
+        assert!(is_image_generation_preflight_request(
+            "dynamicTool/call",
+            &json!({ "toolName": "imagegen" })
+        ));
+        assert!(!is_image_generation_preflight_request(
+            "item/tool/call",
+            &json!({ "tool": "ace_browser" })
+        ));
     }
 
     #[tokio::test]
