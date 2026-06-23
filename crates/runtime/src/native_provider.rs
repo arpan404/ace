@@ -885,7 +885,7 @@ mod tests {
             .expect("contract");
 
         assert_eq!(response["provider"], "ace");
-        assert_eq!(response["version"], 7);
+        assert_eq!(response["version"], 8);
         assert_eq!(response["runtime"]["transport"], "websocket");
         assert_eq!(response["runtime"]["websocket_first"], true);
         assert_eq!(
@@ -918,7 +918,24 @@ mod tests {
                 .expect("events")
                 .contains(&json!("semantic_tool"))
         );
-        assert_eq!(response["adapter_contract"]["version"], 7);
+        assert_eq!(response["adapter_contract"]["version"], 8);
+        assert!(
+            response["adapter_contract"]["operations"]
+                .as_array()
+                .expect("operations")
+                .iter()
+                .any(
+                    |operation| operation["operation"] == "provider_methods_list"
+                        && operation["support"] == "required"
+                        && operation["category"] == "native"
+                        && operation["provider_methods"]
+                            .as_array()
+                            .expect("provider methods")
+                            .is_empty()
+                        && operation["policy"]["read_only"] == true
+                ),
+            "contract should advertise provider method discovery"
+        );
         assert!(
             response["adapter_contract"]["operations"]
                 .as_array()

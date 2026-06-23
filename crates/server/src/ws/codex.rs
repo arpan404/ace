@@ -3289,6 +3289,7 @@ fn codex_ws_method_for_adapter_operation(
         ProviderAdapterOperation::RemoteHandoff => methods::CODEX_REMOTE_HANDOFF,
         ProviderAdapterOperation::RuntimeStatus
         | ProviderAdapterOperation::RuntimeLifecycle
+        | ProviderAdapterOperation::ProviderMethodsList
         | ProviderAdapterOperation::ServerRequestRespond => return Ok(None),
         ProviderAdapterOperation::CloudThreadStart
         | ProviderAdapterOperation::CloudHandoff
@@ -4641,6 +4642,12 @@ fn resolve_provider_runtime_request_method(
                 "provider `{}` adapter operation `{operation:?}` is a host-tool contract; use provider runtime host-tool APIs",
                 adapter_profile.provider.runtime_id()
             )))
+        }
+        ProviderAdapterRequestResolution::TypedApi
+            if adapter_profile.provider == ProviderKind::Ace
+                && operation == ProviderAdapterOperation::ProviderMethodsList =>
+        {
+            Ok("ace.methods.list".to_string())
         }
         ProviderAdapterRequestResolution::TypedApi => Err(WsDispatchError::BadRequest(format!(
             "provider `{}` adapter operation `{operation:?}` has no direct provider method; use its typed API",
@@ -8899,7 +8906,7 @@ mod tests {
         assert_eq!(codex_runtime["supports_server_request_responses"], true);
         assert_eq!(codex_runtime["contract"]["satisfies_required"], true);
         assert_eq!(codex_runtime["adapter_profile"]["provider"], "Codex");
-        assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 7);
+        assert_eq!(codex_runtime["adapter_profile"]["contract_version"], 8);
         assert_eq!(codex_runtime["adapter_profile"]["websocket_first"], true);
         assert_eq!(
             codex_runtime["adapter_runtime"]["satisfies_required_hooks"],
@@ -8918,6 +8925,16 @@ mod tests {
                 .iter()
                 .any(|operation| operation["operation"] == "thread_read"
                     && operation["invocation"] == "direct_provider_method")
+        );
+        assert!(
+            codex_runtime["adapter_profile"]["operations"]
+                .as_array()
+                .expect("adapter profile operations")
+                .iter()
+                .any(
+                    |operation| operation["operation"] == "provider_methods_list"
+                        && operation["invocation"] == "typed_api"
+                )
         );
 
         let ace_runtime = runtime
@@ -8944,6 +8961,36 @@ mod tests {
                 .as_array()
                 .expect("ace missing hooks")
                 .is_empty()
+        );
+
+        let ace_methods = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-provider-methods-operation",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "ace",
+                        "operation": "provider_methods_list",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let ace_methods: WsServerResponse =
+            serde_json::from_str(&ace_methods).expect("ace method list response");
+        let WsServerPayload::Result { body } = ace_methods.payload else {
+            panic!("expected ace method list result");
+        };
+        assert_eq!(body["provider"], "ace");
+        assert_eq!(body["adapter_contract_version"], 8);
+        assert!(
+            body["methods"]
+                .as_array()
+                .expect("ace methods")
+                .contains(&json!("ace.methods.list"))
         );
 
         let routed = state
@@ -9375,7 +9422,7 @@ mod tests {
         let WsServerPayload::Result { body } = contract.payload else {
             panic!("expected provider contract result");
         };
-        assert_eq!(body["adapter_contract"]["version"], 7);
+        assert_eq!(body["adapter_contract"]["version"], 8);
         assert_eq!(body["adapter_contract"]["websocket_first"], true);
         assert_eq!(
             body["adapter_contract"]["raw_payload"]["retention"],
@@ -9511,7 +9558,7 @@ mod tests {
         let WsServerPayload::Result { body } = list.payload else {
             panic!("expected provider operation list");
         };
-        assert_eq!(body["adapter_contract"]["version"], 7);
+        assert_eq!(body["adapter_contract"]["version"], 8);
         assert_eq!(
             body["providers"][0]["adapter_runtime"]["satisfies_required_hooks"],
             true
@@ -9963,7 +10010,7 @@ mod tests {
             panic!("expected native request result");
         };
         assert_eq!(body["provider"], "ace");
-        assert_eq!(body["adapter_contract"]["version"], 7);
+        assert_eq!(body["adapter_contract"]["version"], 8);
     }
 
     #[tokio::test]

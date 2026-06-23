@@ -146,6 +146,7 @@ pub mod provider {
     pub enum ProviderAdapterOperation {
         RuntimeStatus,
         RuntimeLifecycle,
+        ProviderMethodsList,
         RawRequest,
         ThreadStart,
         ThreadResume,
@@ -1063,6 +1064,12 @@ pub mod provider {
             op(Operation::RuntimeStatus, Category::Native, Required, None),
             op(
                 Operation::RuntimeLifecycle,
+                Category::Native,
+                Required,
+                None,
+            ),
+            op(
+                Operation::ProviderMethodsList,
                 Category::Native,
                 Required,
                 None,
@@ -2202,7 +2209,7 @@ pub mod provider {
     #[must_use]
     pub fn ace_provider_adapter_contract() -> ProviderAdapterContract {
         ProviderAdapterContract {
-            version: 7,
+            version: 8,
             websocket_first: true,
             raw_payload_policy: "preserve_provider_payloads".to_string(),
             raw_payload: ace_provider_raw_payload_policy(),
@@ -3175,7 +3182,7 @@ pub mod provider {
                 .iter()
                 .find(|profile| profile.provider == ProviderKind::Codex)
                 .expect("codex profile");
-            assert_eq!(codex_profile.contract_version, 7);
+            assert_eq!(codex_profile.contract_version, 8);
             assert!(codex_profile.websocket_first);
             assert_eq!(
                 codex_profile.raw_payload.retention,
@@ -3201,6 +3208,15 @@ pub mod provider {
                     && operation.direct_invocation
                     && operation.availability == ProviderAdapterOperationAvailability::Available
                     && operation.availability_reason.is_none()
+            }));
+            assert!(codex_profile.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::ProviderMethodsList
+                    && operation.invocation == ProviderAdapterInvocationKind::TypedApi
+                    && operation.category == ProviderFeatureCategory::Native
+                    && operation.availability == ProviderAdapterOperationAvailability::Available
+                    && operation.policy.read_only
+                    && operation.provider_methods.is_empty()
+                    && operation.required_runtime_hooks.is_empty()
             }));
             assert!(codex_profile.operations.iter().any(|operation| {
                 operation.operation == ProviderAdapterOperation::RawRequest
@@ -3735,7 +3751,7 @@ pub mod provider {
         fn adapter_contract_lists_required_normalized_surfaces() {
             let contract = ace_provider_adapter_contract();
 
-            assert_eq!(contract.version, 7);
+            assert_eq!(contract.version, 8);
             assert!(contract.websocket_first);
             assert_eq!(contract.raw_payload_policy, "preserve_provider_payloads");
             assert_eq!(
