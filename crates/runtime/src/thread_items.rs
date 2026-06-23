@@ -124,12 +124,19 @@ fn thread_item_status_from_method(method: &str) -> Option<ThreadItemStatus> {
         | "item/fileChange/outputDelta"
         | "item/fileChange/patchUpdated"
         | "item/mcpToolCall/progress"
+        | "item/dynamicToolCall/progress"
         | "item/subAgentActivity/delta"
         | "item/collabAgentToolCall/progress"
+        | "item/webSearch/progress"
+        | "item/imageView/progress"
+        | "item/imageGeneration/progress"
+        | "item/contextCompaction/progress"
         | "command/exec/outputDelta"
         | "process/outputDelta" => Some(ThreadItemStatus::Updated),
         _ => {
-            if method.starts_with("item/") && method.ends_with("/delta") {
+            if method.starts_with("item/")
+                && (method.ends_with("/delta") || method.ends_with("/progress"))
+            {
                 Some(ThreadItemStatus::Updated)
             } else {
                 None
@@ -139,7 +146,7 @@ fn thread_item_status_from_method(method: &str) -> Option<ThreadItemStatus> {
 }
 
 fn thread_item_kind_for_type(item_type: &str) -> ThreadItemKind {
-    match item_type {
+    match canonical_item_type(item_type).as_str() {
         "userMessage" => ThreadItemKind::UserMessage,
         "hookPrompt" => ThreadItemKind::HookPrompt,
         "agentMessage" => ThreadItemKind::AgentMessage,
@@ -307,25 +314,77 @@ fn compact_title(text: &str) -> String {
 }
 
 fn item_type_from_method(method: &str) -> Option<String> {
-    if method.contains("agentMessage") {
+    let canonical = canonical_method_key(method);
+    if canonical.contains("agentmessage") {
         Some("agentMessage".to_string())
-    } else if method.contains("reasoning") {
+    } else if canonical.contains("usermessage") {
+        Some("userMessage".to_string())
+    } else if canonical.contains("hookprompt") {
+        Some("hookPrompt".to_string())
+    } else if canonical.contains("reasoning") {
         Some("reasoning".to_string())
-    } else if method.contains("plan") {
+    } else if canonical.contains("plan") {
         Some("plan".to_string())
-    } else if method.contains("commandExecution") || method.starts_with("command/exec") {
+    } else if canonical.contains("commandexecution") || canonical.starts_with("commandexec") {
         Some("commandExecution".to_string())
-    } else if method.contains("fileChange") {
+    } else if canonical.contains("filechange") {
         Some("fileChange".to_string())
-    } else if method.contains("mcpToolCall") {
+    } else if canonical.contains("mcptoolcall") {
         Some("mcpToolCall".to_string())
-    } else if method.contains("collabAgentToolCall") {
+    } else if canonical.contains("dynamictoolcall") {
+        Some("dynamicToolCall".to_string())
+    } else if canonical.contains("collabagenttoolcall") {
         Some("collabAgentToolCall".to_string())
-    } else if method.contains("subAgentActivity") {
+    } else if canonical.contains("subagentactivity") {
         Some("subAgentActivity".to_string())
+    } else if canonical.contains("websearch") {
+        Some("webSearch".to_string())
+    } else if canonical.contains("imageview") {
+        Some("imageView".to_string())
+    } else if canonical.contains("imagegeneration") {
+        Some("imageGeneration".to_string())
+    } else if canonical.contains("enteredreviewmode") {
+        Some("enteredReviewMode".to_string())
+    } else if canonical.contains("exitedreviewmode") {
+        Some("exitedReviewMode".to_string())
+    } else if canonical.contains("contextcompaction") {
+        Some("contextCompaction".to_string())
     } else {
         None
     }
+}
+
+fn canonical_item_type(item_type: &str) -> String {
+    match canonical_method_key(item_type).as_str() {
+        "user" | "user_message" | "usermessage" => "userMessage".to_string(),
+        "hook" | "hook_prompt" | "hookprompt" => "hookPrompt".to_string(),
+        "assistant" | "agent" | "agent_message" | "agentmessage" => "agentMessage".to_string(),
+        "plan" => "plan".to_string(),
+        "reasoning" => "reasoning".to_string(),
+        "command" | "command_execution" | "commandexecution" => "commandExecution".to_string(),
+        "file" | "file_change" | "filechange" => "fileChange".to_string(),
+        "mcp" | "mcp_tool_call" | "mcptoolcall" => "mcpToolCall".to_string(),
+        "dynamic" | "dynamic_tool_call" | "dynamictoolcall" => "dynamicToolCall".to_string(),
+        "collab" | "collab_agent_tool_call" | "collabagenttoolcall" => {
+            "collabAgentToolCall".to_string()
+        }
+        "subagent" | "sub_agent_activity" | "subagentactivity" => "subAgentActivity".to_string(),
+        "web" | "web_search" | "websearch" => "webSearch".to_string(),
+        "image_view" | "imageview" => "imageView".to_string(),
+        "image_generation" | "imagegeneration" => "imageGeneration".to_string(),
+        "entered_review_mode" | "enteredreviewmode" => "enteredReviewMode".to_string(),
+        "exited_review_mode" | "exitedreviewmode" => "exitedReviewMode".to_string(),
+        "context_compaction" | "contextcompaction" => "contextCompaction".to_string(),
+        _ => item_type.to_string(),
+    }
+}
+
+fn canonical_method_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn string_at(value: &Value, key: &str) -> Option<String> {
@@ -837,6 +896,117 @@ mod tests {
             assert_eq!(item.status, ThreadItemStatus::Updated, "{method}");
             assert_eq!(item.text.as_deref(), Some(expected), "{method}");
             assert_eq!(item.item_id.as_deref(), Some("reasoning-1"), "{method}");
+        }
+    }
+
+    #[test]
+    fn infers_all_codex_item_families_from_method_when_type_is_absent() {
+        for (method, expected_kind, expected_status) in [
+            (
+                "item/userMessage/delta",
+                ThreadItemKind::UserMessage,
+                ThreadItemStatus::Updated,
+            ),
+            (
+                "item/hook_prompt/delta",
+                ThreadItemKind::HookPrompt,
+                ThreadItemStatus::Updated,
+            ),
+            (
+                "item/dynamicToolCall/progress",
+                ThreadItemKind::DynamicToolCall,
+                ThreadItemStatus::Updated,
+            ),
+            (
+                "item/web_search/progress",
+                ThreadItemKind::WebSearch,
+                ThreadItemStatus::Updated,
+            ),
+            (
+                "item/image-view/progress",
+                ThreadItemKind::ImageView,
+                ThreadItemStatus::Updated,
+            ),
+            (
+                "item/imageGeneration/progress",
+                ThreadItemKind::ImageGeneration,
+                ThreadItemStatus::Updated,
+            ),
+            (
+                "item/context_compaction/progress",
+                ThreadItemKind::ContextCompaction,
+                ThreadItemStatus::Updated,
+            ),
+            (
+                "item/enteredReviewMode/delta",
+                ThreadItemKind::EnteredReviewMode,
+                ThreadItemStatus::Updated,
+            ),
+            (
+                "item/exited_review_mode/delta",
+                ThreadItemKind::ExitedReviewMode,
+                ThreadItemStatus::Updated,
+            ),
+        ] {
+            let item = normalize_provider_thread_item(ThreadItemNormalizationInput {
+                provider: "codex".to_string(),
+                method: method.to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "item-1",
+                    "delta": "update"
+                }),
+            })
+            .expect("thread item");
+
+            assert_eq!(item.kind, expected_kind, "{method}");
+            assert_eq!(item.status, expected_status, "{method}");
+            assert_eq!(item.text.as_deref(), Some("update"), "{method}");
+            assert_eq!(item.provider.raw_payload["itemId"], "item-1", "{method}");
+        }
+    }
+
+    #[test]
+    fn accepts_provider_item_type_spelling_variants() {
+        for (item_type, expected_kind) in [
+            ("user_message", ThreadItemKind::UserMessage),
+            ("hook-prompt", ThreadItemKind::HookPrompt),
+            ("agent_message", ThreadItemKind::AgentMessage),
+            ("command-execution", ThreadItemKind::CommandExecution),
+            ("file_change", ThreadItemKind::FileChange),
+            ("mcp-tool-call", ThreadItemKind::McpToolCall),
+            ("dynamic_tool_call", ThreadItemKind::DynamicToolCall),
+            (
+                "collab-agent-tool-call",
+                ThreadItemKind::CollabAgentToolCall,
+            ),
+            ("sub_agent_activity", ThreadItemKind::SubAgentActivity),
+            ("web-search", ThreadItemKind::WebSearch),
+            ("image_view", ThreadItemKind::ImageView),
+            ("image-generation", ThreadItemKind::ImageGeneration),
+            ("entered_review_mode", ThreadItemKind::EnteredReviewMode),
+            ("exited-review-mode", ThreadItemKind::ExitedReviewMode),
+            ("context_compaction", ThreadItemKind::ContextCompaction),
+        ] {
+            let item = normalize_provider_thread_item(ThreadItemNormalizationInput {
+                provider: "future-provider".to_string(),
+                method: "item/completed".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "item": {
+                        "id": "item-1",
+                        "type": item_type,
+                        "text": "done"
+                    }
+                }),
+            })
+            .expect("thread item");
+
+            assert_eq!(item.kind, expected_kind, "{item_type}");
+            assert_eq!(item.status, ThreadItemStatus::Completed, "{item_type}");
+            assert_eq!(item.text.as_deref(), Some("done"), "{item_type}");
+            assert_eq!(item.provider.raw_payload["item"]["type"], item_type);
         }
     }
 }
