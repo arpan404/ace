@@ -1089,6 +1089,15 @@ pub struct ProviderRuntimeProviderStatusSummary {
     pub last_error: Option<String>,
     pub supports_events: bool,
     pub supports_server_request_responses: bool,
+    pub server_requests: usize,
+    pub pending_server_requests: usize,
+    pub resolved_server_requests: usize,
+    #[serde(default)]
+    pub by_server_request_kind: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_server_request_scope: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_server_request_policy: Vec<ProviderRuntimeOperationCount>,
     pub contract_satisfied: bool,
     pub runtime_hooks_satisfied: bool,
     pub runtime_ready_feature_families: usize,
@@ -1155,6 +1164,27 @@ impl ProviderRuntimeProviderStatusSummary {
             last_error: status.last_error.clone(),
             supports_events,
             supports_server_request_responses,
+            server_requests: usize_pointer(&status.metadata, &["/server_requests/total"])
+                .unwrap_or_default(),
+            pending_server_requests: usize_pointer(&status.metadata, &["/server_requests/pending"])
+                .unwrap_or_default(),
+            resolved_server_requests: usize_pointer(
+                &status.metadata,
+                &["/server_requests/resolved"],
+            )
+            .unwrap_or_default(),
+            by_server_request_kind: operation_count_array_pointer(
+                &status.metadata,
+                "/server_requests/by_kind",
+            ),
+            by_server_request_scope: operation_count_array_pointer(
+                &status.metadata,
+                "/server_requests/by_scope",
+            ),
+            by_server_request_policy: operation_count_array_pointer(
+                &status.metadata,
+                "/server_requests/by_selected_policy",
+            ),
             contract_satisfied: contract.satisfies_required,
             runtime_hooks_satisfied: adapter_runtime.satisfies_required_hooks,
             runtime_ready_feature_families: adapter_runtime
@@ -1293,6 +1323,26 @@ fn string_array_pointer(metadata: &serde_json::Value, pointer: &str) -> Vec<Stri
         .flatten()
         .filter_map(serde_json::Value::as_str)
         .map(ToString::to_string)
+        .collect()
+}
+
+fn operation_count_array_pointer(
+    metadata: &serde_json::Value,
+    pointer: &str,
+) -> Vec<ProviderRuntimeOperationCount> {
+    metadata
+        .pointer(pointer)
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let key = entry.get("key")?.as_str()?.to_string();
+            let count = entry
+                .get("count")?
+                .as_u64()
+                .and_then(|count| usize::try_from(count).ok())?;
+            Some(ProviderRuntimeOperationCount { key, count })
+        })
         .collect()
 }
 
@@ -4402,6 +4452,22 @@ mod tests {
                     "client_request_methods": ["thread/read", "turn/start"],
                     "version_gated_client_request_methods": ["process/spawn"],
                     "deferred_client_request_methods": ["cloud/handoff"]
+                },
+                "server_requests": {
+                    "total": 2,
+                    "pending": 1,
+                    "resolved": 1,
+                    "by_kind": [
+                        { "key": "command_approval", "count": 1 },
+                        { "key": "mcp_elicitation", "count": 1 }
+                    ],
+                    "by_scope": [
+                        { "key": "command", "count": 1 },
+                        { "key": "mcp", "count": 1 }
+                    ],
+                    "by_selected_policy": [
+                        { "key": "on-request", "count": 2 }
+                    ]
                 }
             }),
         };
@@ -4443,6 +4509,42 @@ mod tests {
         assert_eq!(summary.advertised_client_request_methods, 2);
         assert_eq!(summary.version_gated_client_request_methods, 1);
         assert_eq!(summary.deferred_client_request_methods, 1);
+        assert_eq!(summary.server_requests, 2);
+        assert_eq!(summary.pending_server_requests, 1);
+        assert_eq!(summary.resolved_server_requests, 1);
+        assert_eq!(
+            summary.by_server_request_kind,
+            [
+                ProviderRuntimeOperationCount {
+                    key: "command_approval".to_string(),
+                    count: 1,
+                },
+                ProviderRuntimeOperationCount {
+                    key: "mcp_elicitation".to_string(),
+                    count: 1,
+                }
+            ]
+        );
+        assert_eq!(
+            summary.by_server_request_scope,
+            [
+                ProviderRuntimeOperationCount {
+                    key: "command".to_string(),
+                    count: 1,
+                },
+                ProviderRuntimeOperationCount {
+                    key: "mcp".to_string(),
+                    count: 1,
+                }
+            ]
+        );
+        assert_eq!(
+            summary.by_server_request_policy,
+            [ProviderRuntimeOperationCount {
+                key: "on-request".to_string(),
+                count: 2,
+            }]
+        );
         assert_eq!(summary.runtime_ready_feature_families, 1);
         assert_eq!(summary.runtime_blocked_feature_families, 0);
 

@@ -18,16 +18,21 @@ use ace_runtime::{
     },
     server_requests::KNOWN_SERVER_REQUEST_METHODS,
     threads::{
-        AgentRuntimeSnapshot, AgentRuntimeState, AgentThread, ApprovalRetryRecord,
-        ExecutionLocation, ForkPoint, HandoffPlan, HandoffStatus, PlanImplementationMode,
-        PlanImplementationRecord, PlanSessionStatus, RemoteConnectionRecord, RuntimeStateError,
-        SideChat, SubagentActionKind, SubagentActionRecord, ThreadLifecycleActionKind,
-        ThreadLifecycleRecord, TurnMode,
+        AgentRuntimeSnapshot, AgentRuntimeState, AgentThread, ApprovalRecord, ApprovalRetryRecord,
+        ApprovalStatus, ExecutionLocation, ForkPoint, HandoffPlan, HandoffStatus,
+        PlanImplementationMode, PlanImplementationRecord, PlanSessionStatus,
+        RemoteConnectionRecord, RuntimeStateError, SideChat, SubagentActionKind,
+        SubagentActionRecord, ThreadLifecycleActionKind, ThreadLifecycleRecord, TurnMode,
     },
 };
 use async_trait::async_trait;
+use serde::Serialize;
 use serde_json::{Value, json};
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -250,6 +255,78 @@ fn codex_method_discovery_response(status: &ProviderDriverStatus) -> Value {
             "initialized": status.initialized,
         }
     })
+}
+
+fn codex_server_request_status_metadata(approvals: &[ApprovalRecord]) -> Value {
+    let mut by_kind = BTreeMap::new();
+    let mut by_scope = BTreeMap::new();
+    let mut by_selected_policy = BTreeMap::new();
+    let mut pending = 0;
+    let mut resolved = 0;
+
+    for approval in approvals {
+        match approval.status {
+            ApprovalStatus::Pending => pending += 1,
+            ApprovalStatus::Resolved => resolved += 1,
+        }
+        increment_metadata_count(&mut by_kind, enum_metadata_key(&approval.request.kind));
+        if let Some(scope) = approval
+            .request
+            .scope
+            .as_deref()
+            .filter(|scope| !scope.is_empty())
+        {
+            increment_metadata_count(&mut by_scope, scope.to_string());
+        }
+        if let Some(policy) = approval
+            .request
+            .selected_policy
+            .as_deref()
+            .filter(|policy| !policy.is_empty())
+            .or_else(|| {
+                approval
+                    .decision
+                    .as_ref()
+                    .and_then(|decision| {
+                        decision
+                            .audit
+                            .get("selected_policy")
+                            .or_else(|| decision.audit.get("selectedPolicy"))
+                            .and_then(Value::as_str)
+                    })
+                    .filter(|policy| !policy.is_empty())
+            })
+        {
+            increment_metadata_count(&mut by_selected_policy, policy.to_string());
+        }
+    }
+
+    json!({
+        "total": approvals.len(),
+        "pending": pending,
+        "resolved": resolved,
+        "by_kind": metadata_counts(by_kind),
+        "by_scope": metadata_counts(by_scope),
+        "by_selected_policy": metadata_counts(by_selected_policy),
+    })
+}
+
+fn increment_metadata_count(counts: &mut BTreeMap<String, usize>, key: String) {
+    *counts.entry(key).or_insert(0) += 1;
+}
+
+fn metadata_counts(counts: BTreeMap<String, usize>) -> Vec<Value> {
+    counts
+        .into_iter()
+        .map(|(key, count)| json!({ "key": key, "count": count }))
+        .collect()
+}
+
+fn enum_metadata_key<T: Serialize>(value: &T) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(ToString::to_string))
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn value_type_name(value: &Value) -> &'static str {
@@ -707,6 +784,18 @@ impl CodexService {
             backend,
             state: Arc::new(Mutex::new(AgentRuntimeState::default())),
         }
+    }
+
+    async fn status_with_runtime_state(&self) -> ProviderDriverStatus {
+        let mut status = self.backend.status().await;
+        let snapshot = self.state.lock().await.snapshot();
+        let server_requests = codex_server_request_status_metadata(&snapshot.approvals);
+        if let Some(metadata) = status.metadata.as_object_mut() {
+            metadata.insert("server_requests".to_string(), server_requests);
+        } else {
+            status.metadata = json!({ "server_requests": server_requests });
+        }
+        status
     }
 
     pub async fn raw_request(
@@ -1524,7 +1613,7 @@ impl ProviderDriver for CodexService {
     }
 
     async fn status(&self) -> ProviderDriverStatus {
-        self.backend.status().await
+        self.status_with_runtime_state().await
     }
 
     async fn lifecycle_action(
@@ -1545,7 +1634,7 @@ impl ProviderDriver for CodexService {
 
         Ok(ProviderLifecycleResult {
             action,
-            status: self.backend.status().await,
+            status: self.status_with_runtime_state().await,
             metadata: json!({
                 "grace_ms": grace.as_millis() as u64
             }),
@@ -1557,7 +1646,7 @@ impl ProviderDriver for CodexService {
         request: ProviderRequest,
     ) -> std::result::Result<Value, ProviderDriverError> {
         if request.method == "codex.methods.list" {
-            let status = self.backend.status().await;
+            let status = self.status_with_runtime_state().await;
             return Ok(codex_method_discovery_response(&status));
         }
         self.raw_request(request.method.clone(), request.params)

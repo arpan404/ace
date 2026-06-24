@@ -12088,6 +12088,55 @@ mod tests {
             GithubService::new(GithubCliClient::with_runner(runner)),
         )
         .with_codex_service(CodexService::new(backend));
+        state
+            .codex
+            .apply_provider_events(&[
+                ProviderEvent::ServerRequest {
+                    request: Box::new(NormalizedServerRequest {
+                        kind: ServerRequestKind::CommandApproval,
+                        request_id: "status-approval-1".to_string(),
+                        method: "command/approvalRequest".to_string(),
+                        thread_id: Some("thread-status".to_string()),
+                        turn_id: Some("turn-status".to_string()),
+                        item_id: Some("cmd-status".to_string()),
+                        scope: Some("command".to_string()),
+                        title: Some("Approval".to_string()),
+                        prompt: Some("Run command?".to_string()),
+                        selected_policy: Some("on-request".to_string()),
+                        detail: Default::default(),
+                        metadata: json!({ "command": "cargo check" }),
+                        provider: ProviderMetadata {
+                            provider: "codex".to_string(),
+                            method: Some("command/approvalRequest".to_string()),
+                            schema_version: None,
+                            raw_payload: json!({ "command": "cargo check" }),
+                        },
+                    }),
+                },
+                ProviderEvent::ServerRequest {
+                    request: Box::new(NormalizedServerRequest {
+                        kind: ServerRequestKind::McpElicitation,
+                        request_id: "status-elicitation-1".to_string(),
+                        method: "mcpServer/elicitation/request".to_string(),
+                        thread_id: Some("thread-status".to_string()),
+                        turn_id: Some("turn-status".to_string()),
+                        item_id: Some("mcp-status".to_string()),
+                        scope: Some("mcp".to_string()),
+                        title: Some("MCP input".to_string()),
+                        prompt: Some("Provide MCP input".to_string()),
+                        selected_policy: Some("on-request".to_string()),
+                        detail: Default::default(),
+                        metadata: json!({ "server": "example" }),
+                        provider: ProviderMetadata {
+                            provider: "codex".to_string(),
+                            method: Some("mcpServer/elicitation/request".to_string()),
+                            schema_version: None,
+                            raw_payload: json!({ "server": "example" }),
+                        },
+                    }),
+                },
+            ])
+            .await;
 
         let statuses = state
             .dispatch_text(
@@ -12121,6 +12170,27 @@ mod tests {
         assert_eq!(codex["summary"]["version"], "fake-codex-1");
         assert_eq!(codex["summary"]["supports_events"], true);
         assert_eq!(codex["summary"]["supports_server_request_responses"], true);
+        assert_eq!(codex["summary"]["server_requests"], 2);
+        assert_eq!(codex["summary"]["pending_server_requests"], 2);
+        assert_eq!(codex["summary"]["resolved_server_requests"], 0);
+        assert_eq!(
+            codex["summary"]["by_server_request_kind"],
+            json!([
+                { "key": "command_approval", "count": 1 },
+                { "key": "mcp_elicitation", "count": 1 }
+            ])
+        );
+        assert_eq!(
+            codex["summary"]["by_server_request_scope"],
+            json!([
+                { "key": "command", "count": 1 },
+                { "key": "mcp", "count": 1 }
+            ])
+        );
+        assert_eq!(
+            codex["summary"]["by_server_request_policy"],
+            json!([{ "key": "on-request", "count": 2 }])
+        );
         assert_eq!(codex["summary"]["contract_satisfied"], true);
         assert_eq!(codex["summary"]["runtime_hooks_satisfied"], true);
         assert_eq!(codex["readiness"]["ready"], true);
@@ -12204,6 +12274,7 @@ mod tests {
             codex["status"]["metadata"]["supported_client_request_methods"],
             Value::Null
         );
+        assert_eq!(codex["status"]["metadata"]["server_requests"]["pending"], 2);
         assert!(
             codex["summary"]["advertised_client_request_methods"]
                 .as_u64()
