@@ -2,7 +2,6 @@
 resolver = "3"
 members = [
   "apps/backend",
-  "apps/desktop",
   "crates/checkpoint",
   "crates/codex",
   "crates/core",
@@ -17,7 +16,6 @@ members = [
   "crates/runtime",
   "crates/server",
   "crates/terminal",
-  "crates/ui",
   "crates/workspace",
 ]
 
@@ -42,7 +40,6 @@ ace-protocol = { path = "crates/protocol" }
 ace-runtime = { path = "crates/runtime" }
 ace-server = { path = "crates/server" }
 ace-terminal = { path = "crates/terminal" }
-ace-ui = { path = "crates/ui" }
 ace-workspace = { path = "crates/workspace" }
 
 axum = { version = "0.8.9", features = ["ws"] }
@@ -53,7 +50,6 @@ clap = { version = "4.6.1", features = ["derive", "env"] }
 criterion = "0.8.2"
 directories = "6.0.0"
 futures-util = "0.3.32"
-gpui = "=0.2.2"
 insta = { version = "1.48.0", features = ["json"] }
 portable-pty = "0.9.0"
 proptest = "1.11.0"

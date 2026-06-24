@@ -1,5 +1,6 @@
 target/
-apps/desktop-swift/.build/
+apps/desktop/.build/
+.vscode/
 .reference/
 .DS_Store
 *.log
