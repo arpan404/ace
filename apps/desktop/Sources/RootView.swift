@@ -1,8 +1,10 @@
+import Inject
 import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var store: AppStore
     @FocusState private var focusedArea: AppFocus?
+    @ObserveInjection private var inject
 
     var body: some View {
         HSplitView {
@@ -49,12 +51,14 @@ struct RootView: View {
         .sheet(isPresented: $store.isShortcutsPresented) {
             ShortcutsSheet()
         }
+        .enableInjection()
     }
 }
 
 struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
     var focusedArea: FocusState<AppFocus?>.Binding
+    @ObserveInjection private var inject
 
     private var pinnedThreads: [SidebarThread] {
         store.sortedThreads.filter { store.pinnedThreadIds.contains($0.id) }
@@ -88,6 +92,7 @@ struct SidebarView: View {
             SidebarFooter()
         }
         .background(Color.sidebarBackground)
+        .enableInjection()
     }
 
     private var pinnedSection: some View {
@@ -383,6 +388,7 @@ struct SidebarFooter: View {
 struct ChatWorkspaceView: View {
     @EnvironmentObject private var store: AppStore
     var focusedArea: FocusState<AppFocus?>.Binding
+    @ObserveInjection private var inject
 
     var body: some View {
         VStack(spacing: 0) {
@@ -393,6 +399,7 @@ struct ChatWorkspaceView: View {
             ComposerBar(focusedArea: focusedArea)
         }
         .background(Color.appBackground)
+        .enableInjection()
     }
 }
 

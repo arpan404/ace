@@ -11,6 +11,7 @@ struct AceDesktopApp: App {
             RootView()
                 .environmentObject(store)
                 .task {
+                    HotReloadSupport.configure()
                     await store.bootstrap()
                 }
                 .frame(minWidth: 980, minHeight: 640)

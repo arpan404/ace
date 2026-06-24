@@ -15,6 +15,11 @@ Run the desktop development app and local Rust backend together:
 ./desktop:dev
 ```
 
+`desktop:dev` launches the SwiftUI desktop in Debug with InjectionIII-compatible
+hot reload enabled. Install InjectionIII at `/Applications/InjectionIII.app` for
+live SwiftUI body/method injection while the app is running; without it, the app
+still launches normally.
+
 The same launcher is also exposed as a package script:
 
 ```bash

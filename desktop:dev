@@ -6,6 +6,8 @@ PORT="${ACE_PORT:-3773}"
 HOST="127.0.0.1"
 BACKEND_PID=""
 STARTED_BACKEND=0
+DESKTOP_DIR="${ROOT_DIR}/apps/desktop"
+INJECTION_ROOT="${ACE_INJECTION_DIRECTORIES:-${DESKTOP_DIR}/Sources}"
 
 cleanup() {
   if [[ "${STARTED_BACKEND}" == "1" && -n "${BACKEND_PID}" ]]; then
@@ -41,4 +43,12 @@ else
   done
 fi
 
-swift run --package-path apps/desktop AceDesktop
+export INJECTION_DIRECTORIES="${INJECTION_ROOT}"
+export ACE_HOT_RELOAD="${ACE_HOT_RELOAD:-1}"
+
+echo "starting AceDesktop with SwiftUI hot reload watching ${INJECTION_DIRECTORIES}"
+swift run \
+  --package-path "${DESKTOP_DIR}" \
+  -c debug \
+  -Xlinker -interposable \
+  AceDesktop
