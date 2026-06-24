@@ -19,7 +19,10 @@ use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    time::Duration,
+};
 use tokio::sync::{Mutex, mpsc};
 
 const ACE_NATIVE_EVENT_QUEUE_CAPACITY: usize = 256;
@@ -370,6 +373,57 @@ impl Default for AceNativeProvider {
     }
 }
 
+fn native_server_request_status_metadata<'a>(
+    requests: impl IntoIterator<Item = &'a NormalizedServerRequest>,
+) -> Value {
+    let mut by_kind = BTreeMap::new();
+    let mut by_scope = BTreeMap::new();
+    let mut by_selected_policy = BTreeMap::new();
+    let mut total = 0;
+
+    for request in requests {
+        total += 1;
+        increment_status_count(&mut by_kind, enum_status_key(&request.kind));
+        if let Some(scope) = request.scope.as_deref().filter(|scope| !scope.is_empty()) {
+            increment_status_count(&mut by_scope, scope.to_string());
+        }
+        if let Some(policy) = request
+            .selected_policy
+            .as_deref()
+            .filter(|policy| !policy.is_empty())
+        {
+            increment_status_count(&mut by_selected_policy, policy.to_string());
+        }
+    }
+
+    json!({
+        "total": total,
+        "pending": total,
+        "resolved": 0,
+        "by_kind": status_counts(by_kind),
+        "by_scope": status_counts(by_scope),
+        "by_selected_policy": status_counts(by_selected_policy),
+    })
+}
+
+fn increment_status_count(counts: &mut BTreeMap<String, usize>, key: String) {
+    *counts.entry(key).or_insert(0) += 1;
+}
+
+fn status_counts(counts: BTreeMap<String, usize>) -> Vec<Value> {
+    counts
+        .into_iter()
+        .map(|(key, count)| json!({ "key": key, "count": count }))
+        .collect()
+}
+
+fn enum_status_key<T: Serialize>(value: &T) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(ToString::to_string))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 trait WithContractCapabilities {
     fn with_contract_capabilities(self) -> Self;
 }
@@ -401,6 +455,7 @@ impl ProviderDriver for AceNativeProvider {
 
     async fn status(&self) -> crate::provider::ProviderDriverStatus {
         let contract = ace_provider_adapter_contract();
+        let pending_server_requests = self.pending_server_requests.lock().await;
         crate::provider::ProviderDriverStatus {
             health: ProviderRuntimeHealth::Ready,
             transport: Some("in_process".to_string()),
@@ -414,6 +469,9 @@ impl ProviderDriver for AceNativeProvider {
                 "event_queue_capacity": ACE_NATIVE_EVENT_QUEUE_CAPACITY,
                 "max_event_batch_size": ACE_NATIVE_MAX_EVENT_BATCH_SIZE,
                 "supported_client_request_methods": Self::supported_client_request_methods_static(),
+                "server_requests": native_server_request_status_metadata(
+                    pending_server_requests.values(),
+                ),
             }),
         }
     }
@@ -1172,12 +1230,55 @@ mod tests {
     #[tokio::test]
     async fn native_provider_reports_ready_status() {
         let provider = AceNativeProvider::new();
+        provider
+            .emit_events(
+                "test.server_request",
+                vec![ProviderEvent::ServerRequest {
+                    request: Box::new(NormalizedServerRequest {
+                        kind: ServerRequestKind::CommandApproval,
+                        request_id: "approval-1".to_string(),
+                        method: "command/approvalRequest".to_string(),
+                        thread_id: Some("thread-1".to_string()),
+                        turn_id: Some("turn-1".to_string()),
+                        item_id: Some("item-1".to_string()),
+                        scope: Some("command".to_string()),
+                        title: Some("Approval".to_string()),
+                        prompt: Some("Run command?".to_string()),
+                        selected_policy: Some("on-request".to_string()),
+                        detail: Default::default(),
+                        metadata: json!({ "command": "cargo check" }),
+                        provider: crate::provider::ProviderMetadata {
+                            provider: "ace".to_string(),
+                            method: Some("command/approvalRequest".to_string()),
+                            schema_version: None,
+                            raw_payload: json!({ "command": "cargo check" }),
+                        },
+                    }),
+                }],
+            )
+            .await
+            .expect("emit server request");
         let status = provider.status().await;
 
         assert_eq!(status.health, ProviderRuntimeHealth::Ready);
         assert_eq!(status.transport.as_deref(), Some("in_process"));
         assert!(status.initialized);
         assert_eq!(status.metadata["websocket_first"], true);
+        assert_eq!(status.metadata["server_requests"]["total"], 1);
+        assert_eq!(status.metadata["server_requests"]["pending"], 1);
+        assert_eq!(status.metadata["server_requests"]["resolved"], 0);
+        assert_eq!(
+            status.metadata["server_requests"]["by_kind"],
+            json!([{ "key": "command_approval", "count": 1 }])
+        );
+        assert_eq!(
+            status.metadata["server_requests"]["by_scope"],
+            json!([{ "key": "command", "count": 1 }])
+        );
+        assert_eq!(
+            status.metadata["server_requests"]["by_selected_policy"],
+            json!([{ "key": "on-request", "count": 1 }])
+        );
     }
 
     #[tokio::test]
