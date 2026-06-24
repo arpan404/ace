@@ -53,6 +53,7 @@ dependencies = [
  "ace-server",
  "ace-ui",
  "clap",
+ "gpui",
  "tracing",
  "tracing-subscriber",
 ]

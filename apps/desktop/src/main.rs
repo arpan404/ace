@@ -1,6 +1,8 @@
 use ace_platform::AppPaths;
 use ace_server::ServerConfig;
+use ace_ui::app_shell;
 use clap::Parser;
+use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, px, size};
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -27,8 +29,18 @@ fn main() {
     };
     let server = ServerConfig::new(bind_addr, args.port);
 
-    info!(state_dir = %paths.state_dir.display(), bind = %server.bind_addr(), "ace scaffold initialized");
-    println!("ace desktop scaffold initialized");
-    println!("state: {}", paths.state_dir.display());
-    println!("server: {}", server.bind_addr());
+    info!(state_dir = %paths.state_dir.display(), bind = %server.bind_addr(), "starting ace desktop shell");
+
+    Application::new().run(move |cx: &mut App| {
+        let bounds = Bounds::centered(None, size(px(1280.0), px(820.0)), cx);
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: None,
+                ..WindowOptions::default()
+            },
+            |_window, cx| app_shell(cx),
+        )
+        .expect("failed to open ace desktop window");
+    });
 }
