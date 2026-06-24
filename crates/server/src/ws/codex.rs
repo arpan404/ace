@@ -12146,6 +12146,16 @@ mod tests {
             codex["summary"]["method_inventory_source"],
             "compiled_codex_adapter_inventory"
         );
+        assert_eq!(codex["summary"]["runtime_pending_requests"], 0);
+        assert_eq!(codex["summary"]["runtime_max_pending_requests"], 256);
+        assert_eq!(codex["summary"]["runtime_outbound_queue_size"], 256);
+        assert_eq!(codex["summary"]["runtime_event_queue_size"], 1024);
+        assert_eq!(
+            codex["summary"]["runtime_max_frame_bytes"],
+            16 * 1024 * 1024
+        );
+        assert_eq!(codex["summary"]["runtime_stderr_tail_lines"], 0);
+        assert_eq!(codex["summary"]["runtime_closed"], false);
         assert_eq!(
             codex["status"]["metadata"]["method_inventory"]["source"],
             "compiled_codex_adapter_inventory"

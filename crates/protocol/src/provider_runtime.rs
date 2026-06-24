@@ -1102,6 +1102,20 @@ pub struct ProviderRuntimeProviderStatusSummary {
     pub deferred_client_request_methods: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method_inventory_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_pending_requests: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_outbound_queue_size: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_event_queue_size: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_max_pending_requests: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_max_frame_bytes: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_stderr_tail_lines: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_closed: Option<bool>,
 }
 
 impl ProviderRuntimeProviderStatusSummary {
@@ -1168,6 +1182,34 @@ impl ProviderRuntimeProviderStatusSummary {
                     "/client_request_methods_source",
                 ],
             ),
+            runtime_pending_requests: usize_pointer(
+                &status.metadata,
+                &["/runtime/pendingRequests"],
+            ),
+            runtime_outbound_queue_size: usize_pointer(
+                &status.metadata,
+                &["/runtime/limits/outboundQueueSize"],
+            ),
+            runtime_event_queue_size: usize_pointer(
+                &status.metadata,
+                &["/runtime/limits/eventQueueSize"],
+            ),
+            runtime_max_pending_requests: usize_pointer(
+                &status.metadata,
+                &["/runtime/limits/maxPendingRequests"],
+            ),
+            runtime_max_frame_bytes: usize_pointer(
+                &status.metadata,
+                &["/runtime/limits/maxFrameBytes"],
+            ),
+            runtime_stderr_tail_lines: usize_pointer(
+                &status.metadata,
+                &[
+                    "/runtime/stderrTailLines",
+                    "/runtime/limits/stderrTailLines",
+                ],
+            ),
+            runtime_closed: bool_pointer(&status.metadata, &["/runtime/closed"]),
         }
     }
 }
@@ -1199,6 +1241,21 @@ fn string_pointer(metadata: &serde_json::Value, pointers: &[&str]) -> Option<Str
     pointers
         .iter()
         .find_map(|pointer| metadata.pointer(pointer)?.as_str().map(ToString::to_string))
+}
+
+fn usize_pointer(metadata: &serde_json::Value, pointers: &[&str]) -> Option<usize> {
+    pointers.iter().find_map(|pointer| {
+        metadata
+            .pointer(pointer)?
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+    })
+}
+
+fn bool_pointer(metadata: &serde_json::Value, pointers: &[&str]) -> Option<bool> {
+    pointers
+        .iter()
+        .find_map(|pointer| metadata.pointer(pointer)?.as_bool())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
