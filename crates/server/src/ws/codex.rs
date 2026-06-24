@@ -12915,6 +12915,46 @@ mod tests {
                     },
                     ProviderEvent::RuntimeSignal {
                         signal: Box::new(NormalizedRuntimeSignal {
+                            kind: RuntimeSignalKind::ThreadTokenUsageUpdated,
+                            thread_id: Some("thread-1".to_string()),
+                            turn_id: None,
+                            item_id: None,
+                            message: None,
+                            from_model: None,
+                            to_model: None,
+                            reason: None,
+                            text: None,
+                            audio: None,
+                            status: Some("token_usage_updated".to_string()),
+                            name: None,
+                            active: None,
+                            archived: None,
+                            diff: None,
+                            files: None,
+                            process_id: None,
+                            exit_code: None,
+                            request_id: None,
+                            metadata: json!({
+                                "tokenUsage": {
+                                    "inputTokens": 40,
+                                    "outputTokens": 12
+                                }
+                            }),
+                            provider: ProviderMetadata {
+                                provider: "codex".to_string(),
+                                method: Some("thread/tokenUsage/updated".to_string()),
+                                schema_version: None,
+                                raw_payload: json!({
+                                    "tokenUsage": {
+                                        "inputTokens": 40,
+                                        "outputTokens": 12
+                                    }
+                                }),
+                            },
+                        }),
+                    },
+                    ProviderEvent::RuntimeSignal {
+                        signal: Box::new(NormalizedRuntimeSignal {
                             kind: RuntimeSignalKind::ProviderStateUpdated,
                             thread_id: None,
                             turn_id: None,
@@ -13028,6 +13068,11 @@ mod tests {
         assert_eq!(summary["realtime_audio"], 1);
         assert_eq!(summary["truncated_realtime_audio"], 0);
         assert_eq!(summary["realtime_audio_truncated_chunks"], 0);
+        assert_eq!(summary["thread_token_usage_records"], 1);
+        assert_eq!(summary["item_token_usage_records"], 0);
+        assert_eq!(summary["token_usage_input_total"], 40);
+        assert_eq!(summary["token_usage_output_total"], 12);
+        assert_eq!(summary["token_usage_total"], 52);
         assert_eq!(summary["remote_connections"], 1);
         assert_eq!(summary["remote_host_connections"], 1);
         assert_eq!(summary["connected_remote_connections"], 1);
@@ -13106,6 +13151,10 @@ mod tests {
             "hello world"
         );
         assert_eq!(snapshot_state["realtime_audio"][0]["chunks"][0], "audio-1");
+        assert_eq!(
+            snapshot_state["threads"][0]["token_usage"]["inputTokens"],
+            40
+        );
         assert_eq!(snapshot_state["remote_connections"][0]["host_id"], "devbox");
     }
 

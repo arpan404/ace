@@ -964,6 +964,68 @@ fn has_remote_projects(projects: &serde_json::Value) -> bool {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TokenUsageSummary {
+    input_tokens: u64,
+    output_tokens: u64,
+    total_tokens: u64,
+}
+
+fn token_usage_summary(value: &serde_json::Value) -> Option<TokenUsageSummary> {
+    if value.is_null() {
+        return None;
+    }
+
+    let input_tokens = token_usage_u64(
+        value,
+        &[
+            "input_tokens",
+            "inputTokens",
+            "prompt_tokens",
+            "promptTokens",
+            "input",
+            "prompt",
+        ],
+    )
+    .unwrap_or(0);
+    let output_tokens = token_usage_u64(
+        value,
+        &[
+            "output_tokens",
+            "outputTokens",
+            "completion_tokens",
+            "completionTokens",
+            "output",
+            "completion",
+        ],
+    )
+    .unwrap_or(0);
+    let total_tokens = token_usage_u64(value, &["total_tokens", "totalTokens", "total"])
+        .unwrap_or_else(|| input_tokens.saturating_add(output_tokens));
+
+    if input_tokens == 0 && output_tokens == 0 && total_tokens == 0 {
+        return None;
+    }
+
+    Some(TokenUsageSummary {
+        input_tokens,
+        output_tokens,
+        total_tokens,
+    })
+}
+
+fn token_usage_u64(value: &serde_json::Value, keys: &[&str]) -> Option<u64> {
+    keys.iter().find_map(|key| {
+        value.get(*key).and_then(|value| {
+            value.as_u64().or_else(|| {
+                value
+                    .as_str()
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+            })
+        })
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeFeaturesListRequest {
     pub provider: Option<String>,
@@ -1205,6 +1267,11 @@ pub struct ProviderRuntimeStateSummary {
     pub thread_lifecycle: usize,
     pub subagent_actions: usize,
     pub thread_items: usize,
+    pub thread_token_usage_records: usize,
+    pub item_token_usage_records: usize,
+    pub token_usage_input_total: u64,
+    pub token_usage_output_total: u64,
+    pub token_usage_total: u64,
     pub tool_timeline: usize,
     pub renderable_tool_assets: usize,
     pub image_tool_assets: usize,
@@ -1375,6 +1442,17 @@ impl ProviderRuntimeStateSummary {
                 &mut by_execution_location,
                 enum_key(&thread.execution_location),
             );
+            if let Some(usage) = token_usage_summary(&thread.token_usage) {
+                summary.thread_token_usage_records += 1;
+                summary.token_usage_input_total = summary
+                    .token_usage_input_total
+                    .saturating_add(usage.input_tokens);
+                summary.token_usage_output_total = summary
+                    .token_usage_output_total
+                    .saturating_add(usage.output_tokens);
+                summary.token_usage_total =
+                    summary.token_usage_total.saturating_add(usage.total_tokens);
+            }
         }
         for turn in &snapshot.active_turns {
             increment_count(&mut by_active_turn_mode, enum_key(&turn.mode));
@@ -1466,6 +1544,18 @@ impl ProviderRuntimeStateSummary {
         for item in &snapshot.thread_items {
             increment_count(&mut by_thread_item_kind, enum_key(&item.kind));
             increment_count(&mut by_thread_item_status, enum_key(&item.status));
+            if let Some(token_usage) = item.token_usage.as_ref().and_then(token_usage_summary) {
+                summary.item_token_usage_records += 1;
+                summary.token_usage_input_total = summary
+                    .token_usage_input_total
+                    .saturating_add(token_usage.input_tokens);
+                summary.token_usage_output_total = summary
+                    .token_usage_output_total
+                    .saturating_add(token_usage.output_tokens);
+                summary.token_usage_total = summary
+                    .token_usage_total
+                    .saturating_add(token_usage.total_tokens);
+            }
         }
         for tool in &snapshot.tool_timeline {
             increment_count(&mut by_tool_status, enum_key(&tool.display.status));
@@ -4429,7 +4519,11 @@ mod tests {
                     active_turn: None,
                     plan_session: None,
                     settings: json!(null),
-                    token_usage: json!(null),
+                    token_usage: json!({
+                        "inputTokens": 100,
+                        "outputTokens": 50,
+                        "totalTokens": 200
+                    }),
                     metadata: json!({}),
                 },
                 AgentThread {
@@ -4634,7 +4728,10 @@ mod tests {
                     files: None,
                     attachments: None,
                     diff: None,
-                    token_usage: None,
+                    token_usage: Some(json!({
+                        "input_tokens": 10,
+                        "output_tokens": 20
+                    })),
                     plan_questions: None,
                     plan_completion: None,
                     metadata: json!({}),
@@ -4697,6 +4794,11 @@ mod tests {
         assert_eq!(summary.remote_connections_with_projects, 1);
         assert_eq!(summary.thread_lifecycle, 1);
         assert_eq!(summary.subagent_actions, 1);
+        assert_eq!(summary.thread_token_usage_records, 1);
+        assert_eq!(summary.item_token_usage_records, 1);
+        assert_eq!(summary.token_usage_input_total, 110);
+        assert_eq!(summary.token_usage_output_total, 70);
+        assert_eq!(summary.token_usage_total, 230);
         assert_eq!(summary.tool_timeline, 2);
         assert_eq!(summary.renderable_tool_assets, 1);
         assert_eq!(summary.image_tool_assets, 1);
