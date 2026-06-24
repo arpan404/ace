@@ -4,6 +4,8 @@ use gpui::{Hsla, Pixels, SharedString, px, rgb, size};
 pub struct Theme {
     pub background: Hsla,
     pub border: Hsla,
+    pub button: Hsla,
+    pub button_hover: Hsla,
     pub foreground: Hsla,
     pub sidebar: Hsla,
     pub sidebar_width: Pixels,
@@ -15,6 +17,8 @@ impl Default for Theme {
         Self {
             background: rgb(0x111111).into(),
             border: rgb(0x2a2a2a).into(),
+            button: rgb(0x242424).into(),
+            button_hover: rgb(0x303030).into(),
             foreground: rgb(0xf2f2f2).into(),
             sidebar: rgb(0x181818).into(),
             sidebar_width: px(280.0),

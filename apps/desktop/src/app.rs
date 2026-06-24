@@ -1,17 +1,18 @@
 use crate::{root::RootView, theme::Theme};
 use gpui::{
-    App, AppContext, Application, Bounds, Menu, MenuItem, SystemMenuType, WindowBounds,
+    App, AppContext, Application, Bounds, KeyBinding, Menu, MenuItem, SystemMenuType, WindowBounds,
     WindowOptions, actions, px, size,
 };
 use tracing_subscriber::{EnvFilter, fmt};
 
-actions!(ace, [Quit]);
+actions!(ace, [Quit, ToggleSidebar]);
 
 pub fn run() {
     init_tracing();
 
     Application::new().run(|cx: &mut App| {
         register_actions(cx);
+        cx.bind_keys([KeyBinding::new("cmd-b", ToggleSidebar, None)]);
         cx.set_menus(app_menus());
 
         cx.open_window(window_options(cx), |window, cx| {
@@ -45,6 +46,8 @@ fn app_menus() -> Vec<Menu> {
         items: vec![
             MenuItem::os_submenu("Services", SystemMenuType::Services),
             MenuItem::separator(),
+            MenuItem::action("Toggle Sidebar", ToggleSidebar),
+            MenuItem::separator(),
             MenuItem::action("Quit Ace", Quit),
         ],
     }]
@@ -75,6 +78,9 @@ mod tests {
         assert_eq!(menus[0].name.as_ref(), "Ace");
         assert!(menus[0].items.iter().any(|item| {
             matches!(item, MenuItem::Action { name, .. } if name.as_ref() == "Quit Ace")
+        }));
+        assert!(menus[0].items.iter().any(|item| {
+            matches!(item, MenuItem::Action { name, .. } if name.as_ref() == "Toggle Sidebar")
         }));
     }
 }
