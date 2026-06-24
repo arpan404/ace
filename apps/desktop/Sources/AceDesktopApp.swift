@@ -16,6 +16,7 @@ struct AceDesktopApp: App {
                 }
                 .frame(minWidth: 980, minHeight: 640)
         }
+        .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Thread") {

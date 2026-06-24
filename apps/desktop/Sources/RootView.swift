@@ -7,25 +7,41 @@ struct RootView: View {
     @ObserveInjection private var inject
 
     var body: some View {
-        HSplitView {
-            if !store.sidebarCollapsed {
-                SidebarView(focusedArea: $focusedArea)
-                    .frame(minWidth: 248, idealWidth: store.sidebarWidth, maxWidth: 440)
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear
-                                .onAppear { store.updateSidebarWidth(proxy.size.width) }
-                                .onChange(of: proxy.size.width) { _, width in
-                                    store.updateSidebarWidth(width)
-                                }
-                        }
-                    }
-            }
+        ZStack {
+            LiquidGlassBackground()
+            WindowChromeConfigurator()
+                .frame(width: 0, height: 0)
 
-            ChatWorkspaceView(focusedArea: $focusedArea)
-                .frame(minWidth: 680)
+            HSplitView {
+                if !store.sidebarCollapsed {
+                    SidebarView(focusedArea: $focusedArea)
+                        .frame(minWidth: 280, idealWidth: store.sidebarWidth, maxWidth: 460)
+                        .background {
+                            GeometryReader { proxy in
+                                Color.clear
+                                    .onAppear { store.updateSidebarWidth(proxy.size.width) }
+                                    .onChange(of: proxy.size.width) { _, width in
+                                        store.updateSidebarWidth(width)
+                                    }
+                            }
+                        }
+                }
+
+                ChatWorkspaceView(focusedArea: $focusedArea)
+                    .frame(minWidth: 700)
+                    .padding(.trailing, AppSpacing.md)
+                    .padding(.vertical, AppSpacing.md)
+                    .padding(.leading, store.sidebarCollapsed ? AppSpacing.md : AppSpacing.xs)
+            }
         }
-        .background(Color.appBackground)
+        .background {
+            if #available(macOS 15.0, *) {
+                Color.clear
+                    .containerBackground(.ultraThinMaterial, for: .window)
+            } else {
+                Color.appBackground
+            }
+        }
         .onAppear { focusedArea = store.focusedArea }
         .onChange(of: store.focusedArea) { _, focus in focusedArea = focus }
         .onChange(of: focusedArea) { _, focus in
@@ -67,7 +83,6 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             SidebarHeader()
-            Divider()
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: AppSpacing.lg) {
@@ -75,23 +90,41 @@ struct SidebarView: View {
                         projectsSection
                         unscopedThreadsSection
                     }
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, AppSpacing.md)
+                    .padding(AppSpacing.md)
                 }
+                .scrollIndicators(.hidden)
                 .focused(focusedArea, equals: .sidebar)
                 .focusable()
                 .onChange(of: store.selectedSidebarItem?.id) { _, id in
                     if let id {
-                        withAnimation(.snappy(duration: 0.16)) {
+                        withAnimation(.snappy(duration: 0.18, extraBounce: 0.08)) {
                             proxy.scrollTo(id, anchor: .center)
                         }
                     }
                 }
             }
-            Divider()
+            GlassDivider()
             SidebarFooter()
         }
-        .background(Color.sidebarBackground)
+        .background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(Color.chromeTint)
+                .overlay(alignment: .topLeading) {
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.24), .clear],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .frame(height: 220)
+                    .blendMode(.screen)
+                }
+        }
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(Color.separatorStrong)
+                .frame(width: 1)
+        }
         .enableInjection()
     }
 
@@ -155,25 +188,26 @@ struct SidebarHeader: View {
     @EnvironmentObject private var store: AppStore
 
     var body: some View {
-        VStack(spacing: AppSpacing.sm) {
-            HStack(spacing: AppSpacing.sm) {
-                Button {
-                    Task { await store.createThread() }
-                } label: {
-                    Label {
-                        Text("New chat")
-                            .fontWeight(.semibold)
-                    } icon: {
-                        AppIcon.newThread.image
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-                .keyboardShortcut("n", modifiers: [.command])
+        VStack(spacing: AppSpacing.md) {
+            HStack(alignment: .center) {
+                WindowTrafficLightReserve()
 
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("ace")
+                        .font(.title3.weight(.semibold))
+                    Text("Native workspace")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
                 IconButton(title: "Hide Sidebar", icon: .collapseSidebar) {
                     store.toggleSidebar()
+                }
+            }
+
+            HStack(spacing: AppSpacing.sm) {
+                NewChatButton {
+                    Task { await store.createThread() }
                 }
             }
 
@@ -186,7 +220,45 @@ struct SidebarHeader: View {
                 }
             }
         }
-        .padding(AppSpacing.md)
+        .padding(.horizontal, AppSpacing.lg)
+        .padding(.top, AppSpacing.md)
+        .padding(.bottom, AppSpacing.lg)
+    }
+}
+
+struct WindowTrafficLightReserve: View {
+    var body: some View {
+        Color.clear
+            .frame(width: 72, height: 28)
+            .contentShape(Rectangle())
+    }
+}
+
+struct NewChatButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Group {
+            if #available(macOS 26.0, *) {
+                Button(action: action) { label }
+                    .buttonStyle(.glassProminent)
+            } else {
+                Button(action: action) { label }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .controlSize(.regular)
+        .keyboardShortcut("n", modifiers: [.command])
+    }
+
+    private var label: some View {
+        Label {
+            Text("New chat")
+                .fontWeight(.semibold)
+        } icon: {
+            AppIcon.newThread.image
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -204,9 +276,8 @@ struct HeaderQuickAction: View {
             }
             .font(.caption)
             .padding(.horizontal, AppSpacing.sm)
-            .frame(height: 28)
-            .background(Color.panelBackground)
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+            .frame(height: 30)
+            .glassPanel(radius: AppRadius.md, tint: Color.white.opacity(0.04))
         }
         .buttonStyle(.plain)
     }
@@ -338,11 +409,24 @@ struct SidebarRow<Accessory: View>: View {
                 accessory()
                     .opacity(hovered || selected ? 1 : 0.68)
             }
-            .padding(.horizontal, AppSpacing.sm)
-            .frame(minHeight: 34)
-            .background(selected ? Color.selectionBackground : hovered ? Color.hoverBackground : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, AppSpacing.sm)
+            .frame(minHeight: 40)
+            .background {
+                if selected || hovered {
+                    RoundedRectangle(cornerRadius: AppRadius.lg, style: .continuous)
+                        .fill(selected ? Color.selectionBackground : Color.hoverBackground)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppRadius.lg, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: AppRadius.lg, style: .continuous)
+                                .strokeBorder(selected ? Color.accentColor.opacity(0.32) : Color.glassInnerStroke, lineWidth: 0.8)
+                        }
+                }
+            }
             .contentShape(Rectangle())
+            .scaleEffect(hovered ? 1.012 : 1.0)
+            .animation(.snappy(duration: 0.16, extraBounce: 0.05), value: hovered)
+            .animation(.snappy(duration: 0.18, extraBounce: 0.08), value: selected)
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
@@ -359,8 +443,7 @@ struct EmptySidebarHint: View {
             .padding(.horizontal, AppSpacing.sm)
             .padding(.vertical, AppSpacing.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.panelBackground.opacity(0.6))
-            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+            .glassPanel(radius: AppRadius.md, tint: Color.white.opacity(0.03))
     }
 }
 
@@ -380,8 +463,8 @@ struct SidebarFooter: View {
         }
         .font(.caption)
         .foregroundStyle(store.errorMessage == nil ? Color.secondary : Color.red)
-        .padding(.horizontal, AppSpacing.md)
-        .frame(height: 42)
+        .padding(.horizontal, AppSpacing.lg)
+        .frame(height: 50)
     }
 }
 
@@ -393,12 +476,11 @@ struct ChatWorkspaceView: View {
     var body: some View {
         VStack(spacing: 0) {
             ChatToolbar()
-            Divider()
+            GlassDivider()
             MessageTranscript()
-            Divider()
             ComposerBar(focusedArea: focusedArea)
         }
-        .background(Color.appBackground)
+        .glassPanel(radius: AppRadius.xl, tint: Color.white.opacity(0.035), elevated: true)
         .enableInjection()
     }
 }
@@ -409,6 +491,8 @@ struct ChatToolbar: View {
     var body: some View {
         HStack(spacing: AppSpacing.md) {
             if store.sidebarCollapsed {
+                WindowTrafficLightReserve()
+
                 IconButton(title: "Show Sidebar", icon: .collapseSidebar, prominent: true) {
                     store.toggleSidebar()
                 }
@@ -434,8 +518,8 @@ struct ChatToolbar: View {
                 store.presentShortcuts()
             }
         }
-        .padding(.horizontal, AppSpacing.lg)
-        .frame(height: 54)
+        .padding(.horizontal, AppSpacing.xl)
+        .frame(height: 64)
     }
 }
 
@@ -458,6 +542,7 @@ struct MessageTranscript: View {
             .frame(maxWidth: 920)
             .frame(maxWidth: .infinity)
         }
+        .scrollContentBackground(.hidden)
     }
 }
 
@@ -465,10 +550,12 @@ struct EmptyConversationView: View {
     var body: some View {
         VStack(spacing: AppSpacing.md) {
             AppIcon.commandPalette.image
-                .font(.system(size: 34, weight: .semibold))
+                .font(.system(size: 36, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
+                .frame(width: 72, height: 72)
+                .glassPanel(radius: AppRadius.xl, tint: Color.accentColor.opacity(0.08), elevated: true)
             Text("Ready for the next change")
-                .font(.title3.weight(.semibold))
+                .font(.title2.weight(.semibold))
             Text("Use the sidebar with ↑ ↓ and Return, or jump straight to the composer with ⌘L.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -476,6 +563,7 @@ struct EmptyConversationView: View {
                 .frame(maxWidth: 420)
         }
         .frame(maxWidth: .infinity, minHeight: 360)
+        .padding(AppSpacing.xl)
     }
 }
 
@@ -490,9 +578,10 @@ struct MessageBubble: View {
                 .font(.body)
                 .foregroundStyle(message.pending ? .secondary : .primary)
                 .textSelection(.enabled)
-                .padding(AppSpacing.md)
-                .background(background)
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+                .padding(.horizontal, AppSpacing.lg)
+                .padding(.vertical, AppSpacing.md)
+                .glassPanel(radius: AppRadius.lg, tint: background)
+                .frame(maxWidth: 620, alignment: message.role == .user ? .trailing : .leading)
             if message.role != .user { Spacer(minLength: 100) }
         }
     }
@@ -542,10 +631,9 @@ struct ComposerBar: View {
                         }
                     ShortcutHint(text: "⌘↩")
                 }
-                .padding(.horizontal, AppSpacing.md)
-                .padding(.vertical, 10)
-                .background(Color.panelBackground)
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+                .padding(.horizontal, AppSpacing.lg)
+                .padding(.vertical, AppSpacing.md)
+                .glassPanel(radius: AppRadius.xl, tint: Color.white.opacity(0.05), elevated: true)
 
                 HStack {
                     Text("⌘1 sidebar  ·  ↑↓ navigate  ·  Return open  ·  ⌘⇧P pin")
@@ -560,14 +648,18 @@ struct ComposerBar: View {
             } label: {
                 AppIcon.send.image
                     .font(.system(size: 24, weight: .semibold))
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
+            .glassPanel(radius: AppRadius.xl, tint: Color.accentColor.opacity(0.10), elevated: true)
             .foregroundStyle(store.composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary : Color.accentColor)
             .disabled(store.composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .keyboardShortcut(.return, modifiers: [.command])
             .help("Send Message")
         }
-        .padding(AppSpacing.lg)
+        .padding(.horizontal, AppSpacing.xl)
+        .padding(.top, AppSpacing.md)
+        .padding(.bottom, AppSpacing.xl)
     }
 }
 
@@ -606,6 +698,7 @@ struct AddProjectSheet: View {
         }
         .padding(AppSpacing.xl)
         .frame(width: 480)
+        .glassPanel(radius: AppRadius.xl, tint: Color.white.opacity(0.05), elevated: true)
         .onAppear { focused = true }
     }
 }
@@ -640,5 +733,6 @@ struct ShortcutsSheet: View {
         }
         .padding(AppSpacing.xl)
         .frame(width: 420)
+        .glassPanel(radius: AppRadius.xl, tint: Color.white.opacity(0.05), elevated: true)
     }
 }
