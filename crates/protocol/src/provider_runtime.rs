@@ -1275,6 +1275,8 @@ pub struct ProviderRuntimeStateSummary {
     pub handoffs: usize,
     pub interrupted_handoffs: usize,
     pub approval_retries: usize,
+    pub approved_approval_retries: usize,
+    pub denied_approval_retries: usize,
     pub plan_implementations: usize,
     pub thread_lifecycle: usize,
     pub subagent_actions: usize,
@@ -1316,6 +1318,7 @@ pub struct ProviderRuntimeStateSummary {
     pub realtime_audio_truncated_chunks: usize,
     pub turn_moderation: usize,
     pub auto_approval_reviews: usize,
+    pub retryable_auto_approval_reviews: usize,
     #[serde(default)]
     pub by_execution_location: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
@@ -1356,6 +1359,14 @@ pub struct ProviderRuntimeStateSummary {
     pub by_model_reroute_to: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
     pub by_model_reroute_reason: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_auto_approval_status: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_auto_approval_decision: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_auto_approval_policy: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_approval_retry_outcome: Vec<ProviderRuntimeOperationCount>,
 }
 
 impl ProviderRuntimeStateSummary {
@@ -1381,6 +1392,10 @@ impl ProviderRuntimeStateSummary {
         let mut by_model_reroute_from = BTreeMap::new();
         let mut by_model_reroute_to = BTreeMap::new();
         let mut by_model_reroute_reason = BTreeMap::new();
+        let mut by_auto_approval_status = BTreeMap::new();
+        let mut by_auto_approval_decision = BTreeMap::new();
+        let mut by_auto_approval_policy = BTreeMap::new();
+        let mut by_approval_retry_outcome = BTreeMap::new();
         let mut summary = Self {
             threads: snapshot.threads.len(),
             active_threads: snapshot
@@ -1634,6 +1649,33 @@ impl ProviderRuntimeStateSummary {
                 );
             }
         }
+        for review in &snapshot.auto_approval_reviews {
+            increment_count(
+                &mut by_auto_approval_status,
+                normalize_auto_approval_decision(&review.status),
+            );
+            if let Some(decision) = review.decision.as_deref() {
+                increment_count(
+                    &mut by_auto_approval_decision,
+                    normalize_auto_approval_decision(decision),
+                );
+            }
+            if let Some(policy) = review.selected_policy.as_deref() {
+                increment_count(&mut by_auto_approval_policy, policy.to_string());
+            }
+            if review.retryable {
+                summary.retryable_auto_approval_reviews += 1;
+            }
+        }
+        for retry in &snapshot.approval_retries {
+            if retry.approved {
+                summary.approved_approval_retries += 1;
+                increment_count(&mut by_approval_retry_outcome, "approved".to_string());
+            } else {
+                summary.denied_approval_retries += 1;
+                increment_count(&mut by_approval_retry_outcome, "denied".to_string());
+            }
+        }
         for connection in &snapshot.remote_connections {
             increment_count(
                 &mut by_remote_connection_location,
@@ -1676,6 +1718,10 @@ impl ProviderRuntimeStateSummary {
         summary.by_model_reroute_from = operation_counts(by_model_reroute_from);
         summary.by_model_reroute_to = operation_counts(by_model_reroute_to);
         summary.by_model_reroute_reason = operation_counts(by_model_reroute_reason);
+        summary.by_auto_approval_status = operation_counts(by_auto_approval_status);
+        summary.by_auto_approval_decision = operation_counts(by_auto_approval_decision);
+        summary.by_auto_approval_policy = operation_counts(by_auto_approval_policy);
+        summary.by_approval_retry_outcome = operation_counts(by_approval_retry_outcome);
         summary
     }
 }
@@ -3668,12 +3714,12 @@ mod tests {
         ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     };
     use ace_runtime::threads::{
-        AgentRuntimeSnapshot, AgentThread, ChildThreadRecord, ChildThreadRelationship,
-        ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus, ModelRerouteRecord,
-        PlanImplementationMode, PlanImplementationRecord, PlanSession, PlanSessionStatus,
-        RealtimeAudioRecord, RealtimeTranscriptRecord, RemoteConnectionRecord, SubagentActionKind,
-        SubagentActionRecord, TerminalOutputRecord, ThreadLifecycleActionKind,
-        ThreadLifecycleRecord, Turn, TurnMode,
+        AgentRuntimeSnapshot, AgentThread, ApprovalRetryRecord, AutoApprovalReviewRecord,
+        ChildThreadRecord, ChildThreadRelationship, ExecutionLocation, GoalState, GoalStatus,
+        HandoffPlan, HandoffStatus, ModelRerouteRecord, PlanImplementationMode,
+        PlanImplementationRecord, PlanSession, PlanSessionStatus, RealtimeAudioRecord,
+        RealtimeTranscriptRecord, RemoteConnectionRecord, SubagentActionKind, SubagentActionRecord,
+        TerminalOutputRecord, ThreadLifecycleActionKind, ThreadLifecycleRecord, Turn, TurnMode,
     };
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
@@ -4621,6 +4667,30 @@ mod tests {
                 tokens_used: Some(10),
                 time_used_seconds: Some(5),
             }],
+            approval_retries: vec![ApprovalRetryRecord {
+                thread_id: "thread-1".to_string(),
+                item_id: Some("item-1".to_string()),
+                action_id: Some("action-1".to_string()),
+                approved: true,
+                reason: Some("user approved retry".to_string()),
+                audit: json!({ "selected_policy": "on-request" }),
+                provider_response: json!({ "approved": true }),
+            }],
+            auto_approval_reviews: vec![AutoApprovalReviewRecord {
+                provider: "codex".to_string(),
+                thread_id: Some("thread-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("review-1".to_string()),
+                status: "denied".to_string(),
+                message: Some("Command needs approval".to_string()),
+                decision: Some("denied".to_string()),
+                action_id: Some("action-1".to_string()),
+                request_id: Some("approval-1".to_string()),
+                selected_policy: Some("on-request".to_string()),
+                decided_by: Some("auto_review".to_string()),
+                retryable: true,
+                metadata: json!({ "decision": "denied" }),
+            }],
             handoffs: vec![HandoffPlan {
                 source_thread_id: "thread-1".to_string(),
                 target_location: ExecutionLocation::Worktree,
@@ -4825,6 +4895,9 @@ mod tests {
         assert_eq!(summary.ephemeral_side_chats, 0);
         assert_eq!(summary.persistent_side_chats, 0);
         assert_eq!(summary.interrupted_handoffs, 1);
+        assert_eq!(summary.approval_retries, 1);
+        assert_eq!(summary.approved_approval_retries, 1);
+        assert_eq!(summary.denied_approval_retries, 0);
         assert_eq!(summary.plan_implementations, 1);
         assert_eq!(summary.terminal_outputs, 2);
         assert_eq!(summary.truncated_terminal_outputs, 1);
@@ -4837,6 +4910,8 @@ mod tests {
         assert_eq!(summary.realtime_audio_truncated_chunks, 3);
         assert_eq!(summary.model_reroutes, 1);
         assert_eq!(summary.model_reroutes_with_reason, 1);
+        assert_eq!(summary.auto_approval_reviews, 1);
+        assert_eq!(summary.retryable_auto_approval_reviews, 1);
         assert_eq!(summary.remote_connections, 2);
         assert_eq!(summary.remote_host_connections, 1);
         assert_eq!(summary.connected_remote_connections, 1);
@@ -4888,6 +4963,10 @@ mod tests {
         assert_eq!(count(&summary.by_model_reroute_from, "gpt-5"), 1);
         assert_eq!(count(&summary.by_model_reroute_to, "gpt-5-mini"), 1);
         assert_eq!(count(&summary.by_model_reroute_reason, "context_limit"), 1);
+        assert_eq!(count(&summary.by_auto_approval_status, "denied"), 1);
+        assert_eq!(count(&summary.by_auto_approval_decision, "denied"), 1);
+        assert_eq!(count(&summary.by_auto_approval_policy, "on-request"), 1);
+        assert_eq!(count(&summary.by_approval_retry_outcome, "approved"), 1);
     }
 
     #[test]

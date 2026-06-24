@@ -13029,6 +13029,98 @@ mod tests {
                             },
                         }),
                     },
+                    ProviderEvent::RuntimeSignal {
+                        signal: Box::new(NormalizedRuntimeSignal {
+                            kind: RuntimeSignalKind::AutoApprovalReviewUpdated,
+                            thread_id: Some("thread-1".to_string()),
+                            turn_id: Some("turn-1".to_string()),
+                            item_id: Some("review-1".to_string()),
+                            message: Some("Command needs approval".to_string()),
+                            from_model: None,
+                            to_model: None,
+                            reason: None,
+                            text: None,
+                            audio: None,
+                            status: Some("denied".to_string()),
+                            name: None,
+                            active: None,
+                            archived: None,
+                            diff: None,
+                            files: None,
+                            process_id: None,
+                            exit_code: None,
+                            request_id: Some("approval-1".to_string()),
+                            metadata: json!({
+                                "decision": "denied",
+                                "actionId": "action-1",
+                                "requestId": "approval-1",
+                                "selectedPolicy": "on-request",
+                                "decidedBy": "auto_review"
+                            }),
+                            provider: ProviderMetadata {
+                                provider: "codex".to_string(),
+                                method: Some("item/autoApprovalReview/completed".to_string()),
+                                schema_version: None,
+                                raw_payload: json!({
+                                    "decision": "denied",
+                                    "actionId": "action-1",
+                                    "requestId": "approval-1",
+                                    "selectedPolicy": "on-request",
+                                    "decidedBy": "auto_review"
+                                }),
+                            },
+                        }),
+                    },
+                    ProviderEvent::RuntimeSignal {
+                        signal: Box::new(NormalizedRuntimeSignal {
+                            kind: RuntimeSignalKind::ApprovalRetryRecorded,
+                            thread_id: Some("thread-1".to_string()),
+                            turn_id: None,
+                            item_id: Some("item-1".to_string()),
+                            message: Some("retry after user approval".to_string()),
+                            from_model: None,
+                            to_model: None,
+                            reason: Some("retry after user approval".to_string()),
+                            text: None,
+                            audio: None,
+                            status: Some("approved".to_string()),
+                            name: None,
+                            active: None,
+                            archived: None,
+                            diff: None,
+                            files: None,
+                            process_id: None,
+                            exit_code: None,
+                            request_id: None,
+                            metadata: json!({
+                                "approval_retry": {
+                                    "thread_id": "thread-1",
+                                    "item_id": "item-1",
+                                    "action_id": "action-1",
+                                    "approved": true,
+                                    "reason": "retry after user approval",
+                                    "audit": { "selected_policy": "on-request" },
+                                    "provider_response": { "approved": true }
+                                }
+                            }),
+                            provider: ProviderMetadata {
+                                provider: "codex".to_string(),
+                                method: Some("ace/approval_retry".to_string()),
+                                schema_version: None,
+                                raw_payload: json!({
+                                    "approval_retry": {
+                                        "thread_id": "thread-1",
+                                        "item_id": "item-1",
+                                        "action_id": "action-1",
+                                        "approved": true,
+                                        "reason": "retry after user approval",
+                                        "audit": { "selected_policy": "on-request" },
+                                        "provider_response": { "approved": true }
+                                    }
+                                }),
+                            },
+                        }),
+                    },
                     ProviderEvent::ServerRequest {
                         request: Box::new(normalized_approval_request("approval-1")),
                     },
@@ -13109,6 +13201,11 @@ mod tests {
         assert_eq!(summary["token_usage_total"], 52);
         assert_eq!(summary["model_reroutes"], 1);
         assert_eq!(summary["model_reroutes_with_reason"], 1);
+        assert_eq!(summary["auto_approval_reviews"], 1);
+        assert_eq!(summary["retryable_auto_approval_reviews"], 1);
+        assert_eq!(summary["approval_retries"], 1);
+        assert_eq!(summary["approved_approval_retries"], 1);
+        assert_eq!(summary["denied_approval_retries"], 0);
         assert_eq!(summary["remote_connections"], 1);
         assert_eq!(summary["remote_host_connections"], 1);
         assert_eq!(summary["connected_remote_connections"], 1);
@@ -13145,6 +13242,22 @@ mod tests {
         assert_eq!(
             summary["by_model_reroute_reason"],
             json!([{ "key": "capacity", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_auto_approval_status"],
+            json!([{ "key": "denied", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_auto_approval_decision"],
+            json!([{ "key": "denied", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_auto_approval_policy"],
+            json!([{ "key": "on-request", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_approval_retry_outcome"],
+            json!([{ "key": "approved", "count": 1 }])
         );
         assert_eq!(snapshot_state["thread_items"].as_array().unwrap().len(), 2);
         assert_eq!(snapshot_state["thread_items"][0]["item_id"], "item-1");
@@ -13206,6 +13319,14 @@ mod tests {
         assert_eq!(
             snapshot_state["model_reroutes"][0]["to_model"],
             "gpt-5-mini"
+        );
+        assert_eq!(
+            snapshot_state["auto_approval_reviews"][0]["decision"],
+            "denied"
+        );
+        assert_eq!(
+            snapshot_state["approval_retries"][0]["action_id"],
+            "action-1"
         );
         assert_eq!(snapshot_state["remote_connections"][0]["host_id"], "devbox");
     }
