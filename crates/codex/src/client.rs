@@ -1,6 +1,6 @@
 use crate::{
-    AppServerTransport, CodexError, CodexStdioTransport, CodexUnixSocketTransport,
-    CodexWebSocketTransport, Result, normalize_codex_inbound_event,
+    AppServerTransport, CodexError, CodexStdioTransport, CodexTransportRuntimeState,
+    CodexUnixSocketTransport, CodexWebSocketTransport, Result, normalize_codex_inbound_event,
 };
 use crate::{
     CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent, CodexPermissionCatalog,
@@ -713,6 +713,14 @@ impl CodexLiveClient {
             Self::Stdio(client) => client.initialize_result(),
             Self::UnixSocket(client) => client.initialize_result(),
             Self::WebSocket(client) => client.initialize_result(),
+        }
+    }
+
+    pub async fn runtime_state(&self) -> CodexTransportRuntimeState {
+        match self {
+            Self::Stdio(client) => client.runtime_state().await,
+            Self::UnixSocket(client) => client.runtime_state().await,
+            Self::WebSocket(client) => client.runtime_state().await,
         }
     }
 
@@ -1701,6 +1709,10 @@ impl<T: AppServerTransport> CodexClient<T> {
             .lock()
             .expect("initialize result lock poisoned")
             .clone()
+    }
+
+    pub async fn runtime_state(&self) -> CodexTransportRuntimeState {
+        self.transport.runtime_state().await
     }
 
     pub async fn respond_tool_result(&self, request_id: i64, result: Value) -> Result<()> {

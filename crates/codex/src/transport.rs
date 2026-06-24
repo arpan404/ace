@@ -30,6 +30,38 @@ const MAX_PENDING_REQUESTS: usize = 256;
 const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
 const STDERR_TAIL_LINES: usize = 128;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexTransportLimits {
+    pub outbound_queue_size: usize,
+    pub event_queue_size: usize,
+    pub max_pending_requests: usize,
+    pub max_frame_bytes: usize,
+    pub stderr_tail_lines: usize,
+}
+
+impl CodexTransportLimits {
+    #[must_use]
+    pub const fn app_server_defaults() -> Self {
+        Self {
+            outbound_queue_size: OUTBOUND_QUEUE_SIZE,
+            event_queue_size: EVENT_QUEUE_SIZE,
+            max_pending_requests: MAX_PENDING_REQUESTS,
+            max_frame_bytes: MAX_LINE_BYTES,
+            stderr_tail_lines: STDERR_TAIL_LINES,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexTransportRuntimeState {
+    pub limits: CodexTransportLimits,
+    pub pending_requests: usize,
+    pub stderr_tail_lines: usize,
+    pub closed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodexJsonRpcError {
     pub code: i64,
@@ -89,6 +121,14 @@ pub trait AppServerTransport: Send + Sync {
     async fn recv(&self) -> Option<CodexInboundEvent>;
     async fn stderr_tail(&self) -> Vec<String>;
     async fn shutdown(&self, timeout: Duration) -> Result<()>;
+    async fn runtime_state(&self) -> CodexTransportRuntimeState {
+        CodexTransportRuntimeState {
+            limits: CodexTransportLimits::app_server_defaults(),
+            pending_requests: 0,
+            stderr_tail_lines: 0,
+            closed: self.is_closed(),
+        }
+    }
 
     fn is_closed(&self) -> bool {
         false
@@ -293,6 +333,15 @@ impl AppServerTransport for CodexStdioTransport {
     fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Relaxed)
     }
+
+    async fn runtime_state(&self) -> CodexTransportRuntimeState {
+        CodexTransportRuntimeState {
+            limits: CodexTransportLimits::app_server_defaults(),
+            pending_requests: self.pending.lock().await.len(),
+            stderr_tail_lines: self.stderr_tail.lock().await.len(),
+            closed: self.is_closed(),
+        }
+    }
 }
 
 impl CodexUnixSocketTransport {
@@ -429,6 +478,15 @@ impl AppServerTransport for CodexUnixSocketTransport {
     fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Relaxed)
     }
+
+    async fn runtime_state(&self) -> CodexTransportRuntimeState {
+        CodexTransportRuntimeState {
+            limits: CodexTransportLimits::app_server_defaults(),
+            pending_requests: self.pending.lock().await.len(),
+            stderr_tail_lines: 0,
+            closed: self.is_closed(),
+        }
+    }
 }
 
 impl CodexWebSocketTransport {
@@ -558,6 +616,15 @@ impl AppServerTransport for CodexWebSocketTransport {
 
     fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Relaxed)
+    }
+
+    async fn runtime_state(&self) -> CodexTransportRuntimeState {
+        CodexTransportRuntimeState {
+            limits: CodexTransportLimits::app_server_defaults(),
+            pending_requests: self.pending.lock().await.len(),
+            stderr_tail_lines: 0,
+            closed: self.is_closed(),
+        }
     }
 }
 

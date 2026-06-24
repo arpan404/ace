@@ -2,9 +2,9 @@ use ace_codex::{
     CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent,
     CodexLiveClient, CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog,
     CodexPermissionPreset, CodexPlanImplementation, CodexReviewStart, CodexSubagentSteer,
-    CodexThreadStart, CodexTransportConfig, CodexTurnPermissions, CodexTurnStart, CodexTurnSteer,
-    Result, classify_codex_method, codex_method_inventory, image_generation_preflight_result,
-    is_image_generation_preflight_request,
+    CodexThreadStart, CodexTransportConfig, CodexTransportLimits, CodexTurnPermissions,
+    CodexTurnStart, CodexTurnSteer, Result, classify_codex_method, codex_method_inventory,
+    image_generation_preflight_result, is_image_generation_preflight_request,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_protocol::codex::CodexRemoteHandoffRequest;
@@ -195,6 +195,17 @@ fn summarize_initialize_result(result: Value) -> Value {
     Value::Object(summary)
 }
 
+fn version_from_initialize_result(result: Option<&Value>) -> Option<String> {
+    let result = result?;
+    result
+        .pointer("/serverInfo/version")
+        .or_else(|| result.get("serverVersion"))
+        .or_else(|| result.get("version"))
+        .or_else(|| result.get("protocolVersion"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
 fn codex_classified_method_metadata() -> Value {
     let mut client_requests = Vec::new();
     let mut raw_client_requests = Vec::new();
@@ -258,6 +269,7 @@ fn codex_method_discovery_response(status: &ProviderDriverStatus) -> Value {
         "installed_client_request_methods_source": installed_source,
         "adapter_contract_version": contract.version,
         "websocket_first": contract.websocket_first,
+        "runtime": status.metadata.get("runtime").cloned(),
         "status": {
             "health": status.health,
             "transport": status.transport,
@@ -409,7 +421,7 @@ fn transport_config_metadata(config: &CodexTransportConfig) -> Value {
 #[async_trait]
 impl CodexBackend for LiveCodexBackend {
     async fn status(&self) -> ProviderDriverStatus {
-        let (has_client, client_closed, client_initialized, initialize_result) = {
+        let (has_client, client_closed, client_initialized, initialize_result, client) = {
             let guard = self.client.lock().await;
             let client = guard.as_ref();
             let client_closed = client.is_some_and(CodexLiveClient::is_closed);
@@ -420,8 +432,27 @@ impl CodexBackend for LiveCodexBackend {
                 client_closed,
                 client_initialized,
                 initialize_result,
+                client.cloned(),
             )
         };
+        let runtime_state = match client {
+            Some(client) => {
+                serde_json::to_value(client.runtime_state().await).unwrap_or_else(|error| {
+                    json!({
+                        "serialization_error": error.to_string(),
+                        "limits": CodexTransportLimits::app_server_defaults()
+                    })
+                })
+            }
+            None => json!({
+                "limits": CodexTransportLimits::app_server_defaults(),
+                "pendingRequests": 0,
+                "stderrTailLines": 0,
+                "closed": false
+            }),
+        };
+        let version = version_from_initialize_result(initialize_result.as_ref());
+        let initialize = initialize_result.map(summarize_initialize_result);
         let initialized = has_client && client_initialized && !client_closed;
         let last_error = self.last_error.lock().await.clone();
         ProviderDriverStatus {
@@ -433,7 +464,7 @@ impl CodexBackend for LiveCodexBackend {
                 (false, false, false) => ProviderRuntimeHealth::Stopped,
             },
             transport: Some(self.config.transport.name().to_string()),
-            version: None,
+            version,
             initialized,
             last_error: last_error
                 .or_else(|| client_closed.then(|| "codex app-server transport closed".to_string())),
@@ -445,9 +476,10 @@ impl CodexBackend for LiveCodexBackend {
                 "spawns_on_first_request": true,
                 "transport_closed": client_closed,
                 "handshake_initialized": client_initialized,
+                "runtime": runtime_state,
                 "method_inventory": codex_classified_method_metadata(),
                 "normalized_server_request_methods": KNOWN_SERVER_REQUEST_METHODS,
-                "initialize": initialize_result.map(summarize_initialize_result)
+                "initialize": initialize
             }),
         }
     }
@@ -1957,6 +1989,12 @@ pub mod tests {
                 metadata: serde_json::json!({
                     "fake": true,
                     "queued_event_batches": self.events.lock().expect("events").len(),
+                    "runtime": {
+                        "limits": CodexTransportLimits::app_server_defaults(),
+                        "pendingRequests": 0,
+                        "stderrTailLines": self.stderr_tail.lock().expect("stderr tail").len(),
+                        "closed": false
+                    },
                     "method_inventory": codex_classified_method_metadata(),
                     "supported_client_request_methods": supported_client_request_methods
                 }),
@@ -2606,6 +2644,11 @@ pub mod tests {
                 .expect("deferred methods")
                 .contains(&json!("cloud/handoff"))
         );
+        assert_eq!(
+            response["runtime"]["limits"]["maxPendingRequests"],
+            CodexTransportLimits::app_server_defaults().max_pending_requests
+        );
+        assert_eq!(response["runtime"]["closed"], false);
         assert_eq!(response["status"]["initialized"], true);
         assert!(backend.calls.lock().expect("calls").is_empty());
     }
@@ -2778,6 +2821,23 @@ pub mod tests {
         assert_eq!(status.metadata["request_timeout_ms"], 25);
         assert_eq!(status.metadata["spawns_on_first_request"], true);
         assert_eq!(
+            status.metadata["runtime"]["limits"]["outboundQueueSize"],
+            256
+        );
+        assert_eq!(status.metadata["runtime"]["limits"]["eventQueueSize"], 1024);
+        assert_eq!(
+            status.metadata["runtime"]["limits"]["maxPendingRequests"],
+            256
+        );
+        assert_eq!(
+            status.metadata["runtime"]["limits"]["maxFrameBytes"],
+            16 * 1024 * 1024
+        );
+        assert_eq!(status.metadata["runtime"]["limits"]["stderrTailLines"], 128);
+        assert_eq!(status.metadata["runtime"]["pendingRequests"], 0);
+        assert_eq!(status.metadata["runtime"]["stderrTailLines"], 0);
+        assert_eq!(status.metadata["runtime"]["closed"], false);
+        assert_eq!(
             status.metadata["method_inventory"]["source"],
             "compiled_codex_adapter_inventory"
         );
@@ -2867,6 +2927,21 @@ pub mod tests {
         assert_eq!(summary["capabilities"]["experimentalApi"], true);
         assert_eq!(summary["top_level_keys"], 3);
         assert!(summary.get("hugeRawField").is_none());
+    }
+
+    #[test]
+    fn initialize_status_extracts_runtime_version_from_handshake() {
+        let result = json!({
+            "serverInfo": {
+                "name": "codex",
+                "version": "0.140.0"
+            }
+        });
+
+        assert_eq!(
+            version_from_initialize_result(Some(&result)).as_deref(),
+            Some("0.140.0")
+        );
     }
 
     #[tokio::test]

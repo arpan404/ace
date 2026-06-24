@@ -34,5 +34,6 @@ pub use schema::{
 };
 pub use transport::{
     AppServerTransport, CodexJsonRpcError, CodexResponse, CodexStdioTransport,
-    CodexUnixSocketTransport, CodexWebSocketTransport, JsonlAppServerTransport,
+    CodexTransportLimits, CodexTransportRuntimeState, CodexUnixSocketTransport,
+    CodexWebSocketTransport, JsonlAppServerTransport,
 };
