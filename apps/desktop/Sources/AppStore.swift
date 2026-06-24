@@ -58,6 +58,18 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
     }
 }
 
+enum SidebarSelection: Hashable, Sendable {
+    case project(String)
+    case thread(String)
+
+    var id: String {
+        switch self {
+        case let .project(id): "project:\(id)"
+        case let .thread(id): "thread:\(id)"
+        }
+    }
+}
+
 @MainActor
 final class AppStore: ObservableObject {
     @Published private(set) var projects: [Project] = []
@@ -72,6 +84,8 @@ final class AppStore: ObservableObject {
     @Published var sidebarWidth: CGFloat = 320
     @Published var status = "Connecting"
     @Published var errorMessage: String?
+    @Published var focusedArea: AppFocus = .composer
+    @Published var isShortcutsPresented = false
 
     @AppStorage("ace.sidebar.pinnedProjectIds") private var pinnedProjectIdsStorage = ""
     @AppStorage("ace.sidebar.pinnedThreadIds") private var pinnedThreadIdsStorage = ""
@@ -112,6 +126,41 @@ final class AppStore: ObservableObject {
         }
     }
 
+    var selectedSidebarItem: SidebarSelection? {
+        if let selectedThreadId {
+            return .thread(selectedThreadId)
+        }
+        if let selectedProjectId {
+            return .project(selectedProjectId)
+        }
+        return nil
+    }
+
+    var sidebarNavigationItems: [SidebarSelection] {
+        var items: [SidebarSelection] = []
+        var seenThreads = Set<String>()
+        let pinned = sortedThreads.filter { pinnedThreadIds.contains($0.id) }
+        for thread in pinned {
+            items.append(.thread(thread.id))
+            seenThreads.insert(thread.id)
+        }
+        for project in sortedProjects {
+            items.append(.project(project.id))
+            for thread in sortedThreads where thread.projectRoot == project.workspaceRoot && !seenThreads.contains(thread.id) {
+                items.append(.thread(thread.id))
+                seenThreads.insert(thread.id)
+            }
+        }
+        for thread in sortedThreads where !seenThreads.contains(thread.id) {
+            items.append(.thread(thread.id))
+        }
+        return items
+    }
+
+    var selectedThreadTitle: String {
+        threads.first { $0.id == selectedThreadId }?.title ?? selectedThreadId ?? "New chat"
+    }
+
     func bootstrap() async {
         await refresh()
     }
@@ -128,10 +177,11 @@ final class AppStore: ObservableObject {
                 method: WsMethod.codexThreadsList,
                 payload: ThreadsListRequest(includeArchived: false, limit: 80)
             )
-            projects = try await projectResponse
-            threads = try await threadResponse.threads
-            selectedProjectId = selectedProjectId ?? projects.first?.id
-            selectedThreadId = selectedThreadId ?? threads.first?.id
+            applySidebarSnapshot(
+                projects: try await projectResponse,
+                threads: try await threadResponse.threads
+            )
+            focusedArea = .composer
             status = "Ready"
         } catch {
             errorMessage = error.localizedDescription
@@ -141,6 +191,17 @@ final class AppStore: ObservableObject {
 
     func presentAddProject() {
         isAddProjectPresented = true
+    }
+
+    func presentShortcuts() {
+        isShortcutsPresented = true
+    }
+
+    func applySidebarSnapshot(projects: [Project], threads: [SidebarThread]) {
+        self.projects = projects
+        self.threads = threads
+        selectedProjectId = selectedProjectId ?? projects.first?.id
+        selectedThreadId = selectedThreadId ?? threads.first?.id
     }
 
     func addProject() async {
@@ -186,6 +247,7 @@ final class AppStore: ObservableObject {
             threads.insert(thread, at: 0)
             selectedThreadId = response.threadId
             messages = []
+            focusedArea = .composer
             status = "Thread ready"
         } catch {
             errorMessage = error.localizedDescription
@@ -194,6 +256,7 @@ final class AppStore: ObservableObject {
 
     func selectThread(_ thread: SidebarThread) async {
         selectedThreadId = thread.id
+        selectedProjectId = projectForThread(thread)?.id ?? selectedProjectId
         messages = []
         do {
             let response: ThreadReadResponse = try await client.request(
@@ -233,6 +296,44 @@ final class AppStore: ObservableObject {
 
     func toggleSidebar() {
         sidebarCollapsed.toggle()
+        focusedArea = sidebarCollapsed ? .composer : .sidebar
+    }
+
+    func focusComposer() {
+        focusedArea = .composer
+    }
+
+    func focusSidebar() {
+        sidebarCollapsed = false
+        focusedArea = .sidebar
+    }
+
+    func selectNextSidebarItem() {
+        moveSidebarSelection(offset: 1)
+    }
+
+    func selectPreviousSidebarItem() {
+        moveSidebarSelection(offset: -1)
+    }
+
+    func activateSelectedSidebarItem() async {
+        guard let item = selectedSidebarItem else {
+            if let first = sidebarNavigationItems.first {
+                await selectSidebarItem(first)
+            }
+            return
+        }
+        await selectSidebarItem(item)
+    }
+
+    func togglePinnedSelectedItem() {
+        guard let item = selectedSidebarItem else { return }
+        switch item {
+        case let .project(id):
+            togglePinnedProject(id)
+        case let .thread(id):
+            togglePinnedThread(id)
+        }
     }
 
     func togglePinnedProject(_ id: String) {
@@ -248,6 +349,41 @@ final class AppStore: ObservableObject {
         if abs(sidebarWidth - clamped) > 0.5 {
             sidebarWidth = clamped
         }
+    }
+
+    private func moveSidebarSelection(offset: Int) {
+        let items = sidebarNavigationItems
+        guard !items.isEmpty else { return }
+        let currentIndex = selectedSidebarItem.flatMap { items.firstIndex(of: $0) } ?? -1
+        let nextIndex = min(max(currentIndex + offset, 0), items.count - 1)
+        let item = items[nextIndex]
+        switch item {
+        case let .project(id):
+            selectedProjectId = id
+            selectedThreadId = nil
+        case let .thread(id):
+            selectedThreadId = id
+            if let thread = threads.first(where: { $0.id == id }) {
+                selectedProjectId = projectForThread(thread)?.id ?? selectedProjectId
+            }
+        }
+    }
+
+    private func selectSidebarItem(_ item: SidebarSelection) async {
+        switch item {
+        case let .project(id):
+            selectedProjectId = id
+            selectedThreadId = nil
+            messages = []
+        case let .thread(id):
+            guard let thread = threads.first(where: { $0.id == id }) else { return }
+            await selectThread(thread)
+        }
+    }
+
+    private func projectForThread(_ thread: SidebarThread) -> Project? {
+        guard let root = thread.projectRoot else { return nil }
+        return projects.first { $0.workspaceRoot == root }
     }
 
     private func toggledCSV(_ csv: String, _ id: String) -> String {
