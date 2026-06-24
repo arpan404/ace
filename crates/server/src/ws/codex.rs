@@ -2653,6 +2653,10 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             self.providers.has_server_request_responder(provider);
         let supports_state_snapshots = self.providers.has_state_source(provider);
         let supports_host_tools = self.providers.has_host_tool_registry(provider);
+        let supports_raw_requests = descriptor
+            .capabilities
+            .iter()
+            .any(|capability| capability.key == "provider.runtime.raw_request");
         let contract = ace_runtime::provider::provider_contract_report(&descriptor);
         let summary = ProviderRuntimeProviderInfoSummary::from_parts(
             &descriptor,
@@ -2664,6 +2668,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 server_request_responses: supports_server_request_responses,
                 state_snapshots: supports_state_snapshots,
                 host_tools: supports_host_tools,
+                raw_requests: supports_raw_requests,
             },
         );
         ProviderRuntimeProviderInfo {
@@ -9758,6 +9763,7 @@ mod tests {
         );
         assert_eq!(codex_runtime["summary"]["supports_state_snapshots"], true);
         assert_eq!(codex_runtime["summary"]["supports_host_tools"], true);
+        assert_eq!(codex_runtime["summary"]["supports_raw_requests"], true);
         assert!(
             codex_runtime["summary"]["runtime_ready_feature_families"]
                 .as_u64()
@@ -9884,6 +9890,7 @@ mod tests {
         );
         assert_eq!(ace_runtime["summary"]["supports_state_snapshots"], true);
         assert_eq!(ace_runtime["summary"]["supports_host_tools"], true);
+        assert_eq!(ace_runtime["summary"]["supports_raw_requests"], true);
         assert!(
             ace_runtime["summary"]["native_capabilities"]
                 .as_array()

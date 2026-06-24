@@ -209,6 +209,10 @@ impl AceNativeProvider {
                     key: "ace.websocket_first".to_string(),
                     version: 1,
                 },
+                ProviderCapability {
+                    key: "provider.runtime.raw_request".to_string(),
+                    version: 1,
+                },
             ],
         }
         .with_contract_capabilities()
@@ -966,6 +970,12 @@ mod tests {
                 .capabilities
                 .iter()
                 .any(|capability| capability.key == "provider.normalized_server_requests")
+        );
+        assert!(
+            descriptor
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "provider.runtime.raw_request")
         );
         assert!(AceNativeProvider::features_static().iter().any(|feature| {
             feature.key == "provider.semantic_tools"

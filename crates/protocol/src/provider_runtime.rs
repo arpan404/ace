@@ -312,6 +312,7 @@ pub struct ProviderRuntimeProviderInfoSummary {
     pub supports_server_request_responses: bool,
     pub supports_state_snapshots: bool,
     pub supports_host_tools: bool,
+    pub supports_raw_requests: bool,
     pub runtime_ready_feature_families: usize,
     pub runtime_blocked_feature_families: usize,
     pub required_operations: usize,
@@ -332,6 +333,7 @@ pub struct ProviderRuntimeProviderSurfaceSupport {
     pub server_request_responses: bool,
     pub state_snapshots: bool,
     pub host_tools: bool,
+    pub raw_requests: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -448,6 +450,7 @@ impl ProviderRuntimeProviderInfoSummary {
             supports_server_request_responses: support.server_request_responses,
             supports_state_snapshots: support.state_snapshots,
             supports_host_tools: support.host_tools,
+            supports_raw_requests: support.raw_requests,
             runtime_ready_feature_families: adapter_runtime
                 .feature_families
                 .iter()
@@ -4415,6 +4418,7 @@ mod tests {
                 server_request_responses: false,
                 state_snapshots: true,
                 host_tools: false,
+                raw_requests: true,
             },
         );
         assert!(!summary.selectable);
@@ -4424,6 +4428,7 @@ mod tests {
         assert!(!summary.supports_server_request_responses);
         assert!(summary.supports_state_snapshots);
         assert!(!summary.supports_host_tools);
+        assert!(summary.supports_raw_requests);
         assert_eq!(summary.runtime_ready_feature_families, 1);
         assert_eq!(summary.runtime_blocked_feature_families, 1);
         assert!(summary.required_operations > 0);
