@@ -1385,6 +1385,120 @@ impl CodexLiveClient {
             Self::WebSocket(client) => client.model_provider_capabilities_read(params).await,
         }
     }
+
+    pub async fn account_login_start(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.account_login_start(params).await,
+            Self::UnixSocket(client) => client.account_login_start(params).await,
+            Self::WebSocket(client) => client.account_login_start(params).await,
+        }
+    }
+
+    pub async fn account_login_cancel(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.account_login_cancel(params).await,
+            Self::UnixSocket(client) => client.account_login_cancel(params).await,
+            Self::WebSocket(client) => client.account_login_cancel(params).await,
+        }
+    }
+
+    pub async fn account_logout(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.account_logout(params).await,
+            Self::UnixSocket(client) => client.account_logout(params).await,
+            Self::WebSocket(client) => client.account_logout(params).await,
+        }
+    }
+
+    pub async fn account_read(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.account_read(params).await,
+            Self::UnixSocket(client) => client.account_read(params).await,
+            Self::WebSocket(client) => client.account_read(params).await,
+        }
+    }
+
+    pub async fn account_rate_limit_reset_credit_consume(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.account_rate_limit_reset_credit_consume(params).await,
+            Self::UnixSocket(client) => {
+                client.account_rate_limit_reset_credit_consume(params).await
+            }
+            Self::WebSocket(client) => client.account_rate_limit_reset_credit_consume(params).await,
+        }
+    }
+
+    pub async fn account_rate_limits_read(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.account_rate_limits_read(params).await,
+            Self::UnixSocket(client) => client.account_rate_limits_read(params).await,
+            Self::WebSocket(client) => client.account_rate_limits_read(params).await,
+        }
+    }
+
+    pub async fn account_usage_read(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.account_usage_read(params).await,
+            Self::UnixSocket(client) => client.account_usage_read(params).await,
+            Self::WebSocket(client) => client.account_usage_read(params).await,
+        }
+    }
+
+    pub async fn account_send_add_credits_nudge_email(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.account_send_add_credits_nudge_email(params).await,
+            Self::UnixSocket(client) => client.account_send_add_credits_nudge_email(params).await,
+            Self::WebSocket(client) => client.account_send_add_credits_nudge_email(params).await,
+        }
+    }
+
+    pub async fn windows_sandbox_readiness(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.windows_sandbox_readiness(params).await,
+            Self::UnixSocket(client) => client.windows_sandbox_readiness(params).await,
+            Self::WebSocket(client) => client.windows_sandbox_readiness(params).await,
+        }
+    }
+
+    pub async fn windows_sandbox_setup_start(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.windows_sandbox_setup_start(params).await,
+            Self::UnixSocket(client) => client.windows_sandbox_setup_start(params).await,
+            Self::WebSocket(client) => client.windows_sandbox_setup_start(params).await,
+        }
+    }
+
+    pub async fn config_read(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.config_read(params).await,
+            Self::UnixSocket(client) => client.config_read(params).await,
+            Self::WebSocket(client) => client.config_read(params).await,
+        }
+    }
+
+    pub async fn config_value_write(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.config_value_write(params).await,
+            Self::UnixSocket(client) => client.config_value_write(params).await,
+            Self::WebSocket(client) => client.config_value_write(params).await,
+        }
+    }
+
+    pub async fn config_batch_write(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.config_batch_write(params).await,
+            Self::UnixSocket(client) => client.config_batch_write(params).await,
+            Self::WebSocket(client) => client.config_batch_write(params).await,
+        }
+    }
+
+    pub async fn config_mcp_server_reload(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.config_mcp_server_reload(params).await,
+            Self::UnixSocket(client) => client.config_mcp_server_reload(params).await,
+            Self::WebSocket(client) => client.config_mcp_server_reload(params).await,
+        }
+    }
 }
 
 impl<T: AppServerTransport> CodexClient<T> {

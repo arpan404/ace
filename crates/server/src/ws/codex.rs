@@ -2752,6 +2752,76 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .model_provider_capabilities_read(params)
                 .await
                 .map_err(WsDispatchError::from),
+            "account/login/start" => self
+                .codex
+                .account_login_start(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "account/login/cancel" => self
+                .codex
+                .account_login_cancel(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "account/logout" => self
+                .codex
+                .account_logout(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "account/read" => self
+                .codex
+                .account_read(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "account/rateLimitResetCredit/consume" => self
+                .codex
+                .account_rate_limit_reset_credit_consume(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "account/rateLimits/read" => self
+                .codex
+                .account_rate_limits_read(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "account/usage/read" => self
+                .codex
+                .account_usage_read(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "account/sendAddCreditsNudgeEmail" => self
+                .codex
+                .account_send_add_credits_nudge_email(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "windowsSandbox/readiness" => self
+                .codex
+                .windows_sandbox_readiness(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "windowsSandbox/setupStart" => self
+                .codex
+                .windows_sandbox_setup_start(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "config/read" => self
+                .codex
+                .config_read(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "config/value/write" => self
+                .codex
+                .config_value_write(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "config/batchWrite" => self
+                .codex
+                .config_batch_write(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "config/mcpServer/reload" => self
+                .codex
+                .config_mcp_server_reload(params)
+                .await
+                .map_err(WsDispatchError::from),
             _ => self
                 .codex
                 .raw_request(codex_method.to_string(), params)

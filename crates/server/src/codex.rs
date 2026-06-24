@@ -433,6 +433,20 @@ pub trait CodexBackend: Send + Sync {
     async fn marketplace_upgrade(&self, request: CodexMarketplaceRequest) -> Result<Value>;
     async fn model_list(&self, params: Value) -> Result<Value>;
     async fn model_provider_capabilities_read(&self, params: Value) -> Result<Value>;
+    async fn account_login_start(&self, params: Value) -> Result<Value>;
+    async fn account_login_cancel(&self, params: Value) -> Result<Value>;
+    async fn account_logout(&self, params: Value) -> Result<Value>;
+    async fn account_read(&self, params: Value) -> Result<Value>;
+    async fn account_rate_limit_reset_credit_consume(&self, params: Value) -> Result<Value>;
+    async fn account_rate_limits_read(&self, params: Value) -> Result<Value>;
+    async fn account_usage_read(&self, params: Value) -> Result<Value>;
+    async fn account_send_add_credits_nudge_email(&self, params: Value) -> Result<Value>;
+    async fn windows_sandbox_readiness(&self, params: Value) -> Result<Value>;
+    async fn windows_sandbox_setup_start(&self, params: Value) -> Result<Value>;
+    async fn config_read(&self, params: Value) -> Result<Value>;
+    async fn config_value_write(&self, params: Value) -> Result<Value>;
+    async fn config_batch_write(&self, params: Value) -> Result<Value>;
+    async fn config_mcp_server_reload(&self, params: Value) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
     async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()>;
     async fn respond_server_request_error(
@@ -943,6 +957,71 @@ impl CodexBackend for LiveCodexBackend {
             .await?
             .model_provider_capabilities_read(params)
             .await
+    }
+
+    async fn account_login_start(&self, params: Value) -> Result<Value> {
+        self.client().await?.account_login_start(params).await
+    }
+
+    async fn account_login_cancel(&self, params: Value) -> Result<Value> {
+        self.client().await?.account_login_cancel(params).await
+    }
+
+    async fn account_logout(&self, params: Value) -> Result<Value> {
+        self.client().await?.account_logout(params).await
+    }
+
+    async fn account_read(&self, params: Value) -> Result<Value> {
+        self.client().await?.account_read(params).await
+    }
+
+    async fn account_rate_limit_reset_credit_consume(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .account_rate_limit_reset_credit_consume(params)
+            .await
+    }
+
+    async fn account_rate_limits_read(&self, params: Value) -> Result<Value> {
+        self.client().await?.account_rate_limits_read(params).await
+    }
+
+    async fn account_usage_read(&self, params: Value) -> Result<Value> {
+        self.client().await?.account_usage_read(params).await
+    }
+
+    async fn account_send_add_credits_nudge_email(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .account_send_add_credits_nudge_email(params)
+            .await
+    }
+
+    async fn windows_sandbox_readiness(&self, params: Value) -> Result<Value> {
+        self.client().await?.windows_sandbox_readiness(params).await
+    }
+
+    async fn windows_sandbox_setup_start(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .windows_sandbox_setup_start(params)
+            .await
+    }
+
+    async fn config_read(&self, params: Value) -> Result<Value> {
+        self.client().await?.config_read(params).await
+    }
+
+    async fn config_value_write(&self, params: Value) -> Result<Value> {
+        self.client().await?.config_value_write(params).await
+    }
+
+    async fn config_batch_write(&self, params: Value) -> Result<Value> {
+        self.client().await?.config_batch_write(params).await
+    }
+
+    async fn config_mcp_server_reload(&self, params: Value) -> Result<Value> {
+        self.client().await?.config_mcp_server_reload(params).await
     }
 
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
@@ -1676,6 +1755,101 @@ impl CodexService {
             .backend
             .model_provider_capabilities_read(params)
             .await?)
+    }
+
+    pub async fn account_login_start(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.account_login_start(params).await?)
+    }
+
+    pub async fn account_login_cancel(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.account_login_cancel(params).await?)
+    }
+
+    pub async fn account_logout(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.account_logout(params).await?)
+    }
+
+    pub async fn account_read(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.account_read(params).await?)
+    }
+
+    pub async fn account_rate_limit_reset_credit_consume(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self
+            .backend
+            .account_rate_limit_reset_credit_consume(params)
+            .await?)
+    }
+
+    pub async fn account_rate_limits_read(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.account_rate_limits_read(params).await?)
+    }
+
+    pub async fn account_usage_read(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.account_usage_read(params).await?)
+    }
+
+    pub async fn account_send_add_credits_nudge_email(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self
+            .backend
+            .account_send_add_credits_nudge_email(params)
+            .await?)
+    }
+
+    pub async fn windows_sandbox_readiness(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.windows_sandbox_readiness(params).await?)
+    }
+
+    pub async fn windows_sandbox_setup_start(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.windows_sandbox_setup_start(params).await?)
+    }
+
+    pub async fn config_read(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.config_read(params).await?)
+    }
+
+    pub async fn config_value_write(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.config_value_write(params).await?)
+    }
+
+    pub async fn config_batch_write(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.config_batch_write(params).await?)
+    }
+
+    pub async fn config_mcp_server_reload(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.config_mcp_server_reload(params).await?)
     }
 
     pub async fn remote_connection_list(
@@ -3198,6 +3372,64 @@ pub mod tests {
                 .await
         }
 
+        async fn account_login_start(&self, params: Value) -> Result<Value> {
+            self.raw_request("account/login/start", params).await
+        }
+
+        async fn account_login_cancel(&self, params: Value) -> Result<Value> {
+            self.raw_request("account/login/cancel", params).await
+        }
+
+        async fn account_logout(&self, params: Value) -> Result<Value> {
+            self.raw_request("account/logout", params).await
+        }
+
+        async fn account_read(&self, params: Value) -> Result<Value> {
+            self.raw_request("account/read", params).await
+        }
+
+        async fn account_rate_limit_reset_credit_consume(&self, params: Value) -> Result<Value> {
+            self.raw_request("account/rateLimitResetCredit/consume", params)
+                .await
+        }
+
+        async fn account_rate_limits_read(&self, params: Value) -> Result<Value> {
+            self.raw_request("account/rateLimits/read", params).await
+        }
+
+        async fn account_usage_read(&self, params: Value) -> Result<Value> {
+            self.raw_request("account/usage/read", params).await
+        }
+
+        async fn account_send_add_credits_nudge_email(&self, params: Value) -> Result<Value> {
+            self.raw_request("account/sendAddCreditsNudgeEmail", params)
+                .await
+        }
+
+        async fn windows_sandbox_readiness(&self, params: Value) -> Result<Value> {
+            self.raw_request("windowsSandbox/readiness", params).await
+        }
+
+        async fn windows_sandbox_setup_start(&self, params: Value) -> Result<Value> {
+            self.raw_request("windowsSandbox/setupStart", params).await
+        }
+
+        async fn config_read(&self, params: Value) -> Result<Value> {
+            self.raw_request("config/read", params).await
+        }
+
+        async fn config_value_write(&self, params: Value) -> Result<Value> {
+            self.raw_request("config/value/write", params).await
+        }
+
+        async fn config_batch_write(&self, params: Value) -> Result<Value> {
+            self.raw_request("config/batchWrite", params).await
+        }
+
+        async fn config_mcp_server_reload(&self, params: Value) -> Result<Value> {
+            self.raw_request("config/mcpServer/reload", params).await
+        }
+
         async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
             Ok(self.events.lock().expect("events").pop_front())
         }
@@ -4169,6 +4401,89 @@ pub mod tests {
                 "mcpServer/resource/read",
                 "mcpServer/oauth/login",
                 "mcpServer/tool/call",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_runs_account_config_and_windows_calls_through_backend() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        service
+            .account_login_start(serde_json::json!({ "provider": "chatgpt" }))
+            .await
+            .expect("login start");
+        service
+            .account_login_cancel(serde_json::json!({ "flowId": "flow-1" }))
+            .await
+            .expect("login cancel");
+        service
+            .account_logout(serde_json::json!({ "accountId": "acct-1" }))
+            .await
+            .expect("logout");
+        service
+            .account_read(serde_json::json!({}))
+            .await
+            .expect("account read");
+        service
+            .account_rate_limit_reset_credit_consume(serde_json::json!({ "accountId": "acct-1" }))
+            .await
+            .expect("reset credit");
+        service
+            .account_rate_limits_read(serde_json::json!({ "accountId": "acct-1" }))
+            .await
+            .expect("rate limits");
+        service
+            .account_usage_read(serde_json::json!({ "accountId": "acct-1" }))
+            .await
+            .expect("usage");
+        service
+            .account_send_add_credits_nudge_email(serde_json::json!({ "accountId": "acct-1" }))
+            .await
+            .expect("nudge");
+        service
+            .windows_sandbox_readiness(serde_json::json!({}))
+            .await
+            .expect("windows readiness");
+        service
+            .windows_sandbox_setup_start(serde_json::json!({ "mode": "default" }))
+            .await
+            .expect("windows setup");
+        service
+            .config_read(serde_json::json!({}))
+            .await
+            .expect("config read");
+        service
+            .config_value_write(serde_json::json!({ "key": "model", "value": "gpt-5" }))
+            .await
+            .expect("config value write");
+        service
+            .config_batch_write(serde_json::json!({ "values": { "model": "gpt-5" } }))
+            .await
+            .expect("config batch write");
+        service
+            .config_mcp_server_reload(serde_json::json!({ "server": "github" }))
+            .await
+            .expect("mcp reload");
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "account/login/start",
+                "account/login/cancel",
+                "account/logout",
+                "account/read",
+                "account/rateLimitResetCredit/consume",
+                "account/rateLimits/read",
+                "account/usage/read",
+                "account/sendAddCreditsNudgeEmail",
+                "windowsSandbox/readiness",
+                "windowsSandbox/setupStart",
+                "config/read",
+                "config/value/write",
+                "config/batchWrite",
+                "config/mcpServer/reload",
             ]
         );
     }
