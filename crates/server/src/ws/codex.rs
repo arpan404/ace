@@ -2536,6 +2536,41 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .process_clean(params)
                 .await
                 .map_err(WsDispatchError::from),
+            "process/spawn" => self
+                .codex
+                .process_spawn(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "process/writeStdin" => self
+                .codex
+                .process_write_stdin(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "process/resizePty" => self
+                .codex
+                .process_resize_pty(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "process/kill" => self
+                .codex
+                .process_kill(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/backgroundTerminals/list" => self
+                .codex
+                .background_terminals_list(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/backgroundTerminals/clean" => self
+                .codex
+                .background_terminals_clean(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/backgroundTerminals/terminate" => self
+                .codex
+                .background_terminal_terminate(params)
+                .await
+                .map_err(WsDispatchError::from),
             "fs/readFile" => self
                 .codex
                 .fs_read_file(params)
@@ -2852,9 +2887,124 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .fuzzy_file_search(params)
                 .await
                 .map_err(WsDispatchError::from),
+            "fuzzyFileSearch/sessionStart" => self
+                .codex
+                .fuzzy_file_search_session_start(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "fuzzyFileSearch/sessionStop" => self
+                .codex
+                .fuzzy_file_search_session_stop(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "fuzzyFileSearch/sessionUpdate" => self
+                .codex
+                .fuzzy_file_search_session_update(params)
+                .await
+                .map_err(WsDispatchError::from),
             "hooks/list" => self
                 .codex
                 .hooks_list(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "remoteControl/client/list" => self
+                .codex
+                .remote_control_client_list(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "remoteControl/client/revoke" => self
+                .codex
+                .remote_control_client_revoke(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "remoteControl/disable" => self
+                .codex
+                .remote_control_disable(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "remoteControl/enable" => self
+                .codex
+                .remote_control_enable(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "remoteControl/pairing/start" => self
+                .codex
+                .remote_control_pairing_start(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "remoteControl/pairing/status" => self
+                .codex
+                .remote_control_pairing_status(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "remoteControl/status/read" => self
+                .codex
+                .remote_control_status_read(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/decrement_elicitation" => self
+                .codex
+                .thread_decrement_elicitation(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/increment_elicitation" => self
+                .codex
+                .thread_increment_elicitation(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/memoryMode/set" => self
+                .codex
+                .thread_memory_mode_set(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/realtime/appendAudio" => self
+                .codex
+                .thread_realtime_append_audio(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/realtime/appendSpeech" => self
+                .codex
+                .thread_realtime_append_speech(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/realtime/appendText" => self
+                .codex
+                .thread_realtime_append_text(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/realtime/listVoices" => self
+                .codex
+                .thread_realtime_list_voices(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/realtime/start" => self
+                .codex
+                .thread_realtime_start(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/realtime/stop" => self
+                .codex
+                .thread_realtime_stop(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/search" => self
+                .codex
+                .thread_search(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/settings/update" => self
+                .codex
+                .thread_settings_update(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/turns/items/list" => self
+                .codex
+                .thread_turns_items_list(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "thread/turns/list" => self
+                .codex
+                .thread_turns_list(params)
                 .await
                 .map_err(WsDispatchError::from),
             _ => self

@@ -395,6 +395,13 @@ pub trait CodexBackend: Send + Sync {
     async fn command_terminate(&self, params: Value) -> Result<Value>;
     async fn process_list(&self, params: Value) -> Result<Value>;
     async fn process_clean(&self, params: Value) -> Result<Value>;
+    async fn process_spawn(&self, params: Value) -> Result<Value>;
+    async fn process_write_stdin(&self, params: Value) -> Result<Value>;
+    async fn process_resize_pty(&self, params: Value) -> Result<Value>;
+    async fn process_kill(&self, params: Value) -> Result<Value>;
+    async fn background_terminals_list(&self, params: Value) -> Result<Value>;
+    async fn background_terminals_clean(&self, params: Value) -> Result<Value>;
+    async fn background_terminal_terminate(&self, params: Value) -> Result<Value>;
     async fn fs_read_file(&self, params: Value) -> Result<Value>;
     async fn fs_write_file(&self, params: Value) -> Result<Value>;
     async fn fs_read_directory(&self, params: Value) -> Result<Value>;
@@ -453,7 +460,30 @@ pub trait CodexBackend: Send + Sync {
     async fn external_agent_config_import(&self, params: Value) -> Result<Value>;
     async fn feedback_upload(&self, params: Value) -> Result<Value>;
     async fn fuzzy_file_search(&self, params: Value) -> Result<Value>;
+    async fn fuzzy_file_search_session_start(&self, params: Value) -> Result<Value>;
+    async fn fuzzy_file_search_session_stop(&self, params: Value) -> Result<Value>;
+    async fn fuzzy_file_search_session_update(&self, params: Value) -> Result<Value>;
     async fn hooks_list(&self, params: Value) -> Result<Value>;
+    async fn remote_control_client_list(&self, params: Value) -> Result<Value>;
+    async fn remote_control_client_revoke(&self, params: Value) -> Result<Value>;
+    async fn remote_control_disable(&self, params: Value) -> Result<Value>;
+    async fn remote_control_enable(&self, params: Value) -> Result<Value>;
+    async fn remote_control_pairing_start(&self, params: Value) -> Result<Value>;
+    async fn remote_control_pairing_status(&self, params: Value) -> Result<Value>;
+    async fn remote_control_status_read(&self, params: Value) -> Result<Value>;
+    async fn thread_decrement_elicitation(&self, params: Value) -> Result<Value>;
+    async fn thread_increment_elicitation(&self, params: Value) -> Result<Value>;
+    async fn thread_memory_mode_set(&self, params: Value) -> Result<Value>;
+    async fn thread_realtime_append_audio(&self, params: Value) -> Result<Value>;
+    async fn thread_realtime_append_speech(&self, params: Value) -> Result<Value>;
+    async fn thread_realtime_append_text(&self, params: Value) -> Result<Value>;
+    async fn thread_realtime_list_voices(&self, params: Value) -> Result<Value>;
+    async fn thread_realtime_start(&self, params: Value) -> Result<Value>;
+    async fn thread_realtime_stop(&self, params: Value) -> Result<Value>;
+    async fn thread_search(&self, params: Value) -> Result<Value>;
+    async fn thread_settings_update(&self, params: Value) -> Result<Value>;
+    async fn thread_turns_items_list(&self, params: Value) -> Result<Value>;
+    async fn thread_turns_list(&self, params: Value) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
     async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()>;
     async fn respond_server_request_error(
@@ -817,6 +847,40 @@ impl CodexBackend for LiveCodexBackend {
         self.client().await?.process_clean(params).await
     }
 
+    async fn process_spawn(&self, params: Value) -> Result<Value> {
+        self.client().await?.process_spawn(params).await
+    }
+
+    async fn process_write_stdin(&self, params: Value) -> Result<Value> {
+        self.client().await?.process_write_stdin(params).await
+    }
+
+    async fn process_resize_pty(&self, params: Value) -> Result<Value> {
+        self.client().await?.process_resize_pty(params).await
+    }
+
+    async fn process_kill(&self, params: Value) -> Result<Value> {
+        self.client().await?.process_kill(params).await
+    }
+
+    async fn background_terminals_list(&self, params: Value) -> Result<Value> {
+        self.client().await?.background_terminals_list(params).await
+    }
+
+    async fn background_terminals_clean(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .background_terminals_clean(params)
+            .await
+    }
+
+    async fn background_terminal_terminate(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .background_terminal_terminate(params)
+            .await
+    }
+
     async fn fs_read_file(&self, params: Value) -> Result<Value> {
         self.client().await?.fs_read_file(params).await
     }
@@ -1064,8 +1128,142 @@ impl CodexBackend for LiveCodexBackend {
         self.client().await?.fuzzy_file_search(params).await
     }
 
+    async fn fuzzy_file_search_session_start(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .fuzzy_file_search_session_start(params)
+            .await
+    }
+
+    async fn fuzzy_file_search_session_stop(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .fuzzy_file_search_session_stop(params)
+            .await
+    }
+
+    async fn fuzzy_file_search_session_update(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .fuzzy_file_search_session_update(params)
+            .await
+    }
+
     async fn hooks_list(&self, params: Value) -> Result<Value> {
         self.client().await?.hooks_list(params).await
+    }
+
+    async fn remote_control_client_list(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .remote_control_client_list(params)
+            .await
+    }
+
+    async fn remote_control_client_revoke(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .remote_control_client_revoke(params)
+            .await
+    }
+
+    async fn remote_control_disable(&self, params: Value) -> Result<Value> {
+        self.client().await?.remote_control_disable(params).await
+    }
+
+    async fn remote_control_enable(&self, params: Value) -> Result<Value> {
+        self.client().await?.remote_control_enable(params).await
+    }
+
+    async fn remote_control_pairing_start(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .remote_control_pairing_start(params)
+            .await
+    }
+
+    async fn remote_control_pairing_status(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .remote_control_pairing_status(params)
+            .await
+    }
+
+    async fn remote_control_status_read(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .remote_control_status_read(params)
+            .await
+    }
+
+    async fn thread_decrement_elicitation(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .thread_decrement_elicitation(params)
+            .await
+    }
+
+    async fn thread_increment_elicitation(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .thread_increment_elicitation(params)
+            .await
+    }
+
+    async fn thread_memory_mode_set(&self, params: Value) -> Result<Value> {
+        self.client().await?.thread_memory_mode_set(params).await
+    }
+
+    async fn thread_realtime_append_audio(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .thread_realtime_append_audio(params)
+            .await
+    }
+
+    async fn thread_realtime_append_speech(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .thread_realtime_append_speech(params)
+            .await
+    }
+
+    async fn thread_realtime_append_text(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .thread_realtime_append_text(params)
+            .await
+    }
+
+    async fn thread_realtime_list_voices(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .thread_realtime_list_voices(params)
+            .await
+    }
+
+    async fn thread_realtime_start(&self, params: Value) -> Result<Value> {
+        self.client().await?.thread_realtime_start(params).await
+    }
+
+    async fn thread_realtime_stop(&self, params: Value) -> Result<Value> {
+        self.client().await?.thread_realtime_stop(params).await
+    }
+
+    async fn thread_search(&self, params: Value) -> Result<Value> {
+        self.client().await?.thread_search(params).await
+    }
+
+    async fn thread_settings_update(&self, params: Value) -> Result<Value> {
+        self.client().await?.thread_settings_update(params).await
+    }
+
+    async fn thread_turns_items_list(&self, params: Value) -> Result<Value> {
+        self.client().await?.thread_turns_items_list(params).await
+    }
+
+    async fn thread_turns_list(&self, params: Value) -> Result<Value> {
+        self.client().await?.thread_turns_list(params).await
     }
 
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
@@ -1583,6 +1781,49 @@ impl CodexService {
         Ok(self.backend.process_clean(params).await?)
     }
 
+    pub async fn process_spawn(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.process_spawn(params).await?)
+    }
+
+    pub async fn process_write_stdin(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.process_write_stdin(params).await?)
+    }
+
+    pub async fn process_resize_pty(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.process_resize_pty(params).await?)
+    }
+
+    pub async fn process_kill(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.process_kill(params).await?)
+    }
+
+    pub async fn background_terminals_list(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.background_terminals_list(params).await?)
+    }
+
+    pub async fn background_terminals_clean(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.background_terminals_clean(params).await?)
+    }
+
+    pub async fn background_terminal_terminate(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.background_terminal_terminate(params).await?)
+    }
+
     pub async fn fs_read_file(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.fs_read_file(params).await?)
     }
@@ -1941,8 +2182,169 @@ impl CodexService {
         Ok(self.backend.fuzzy_file_search(params).await?)
     }
 
+    pub async fn fuzzy_file_search_session_start(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fuzzy_file_search_session_start(params).await?)
+    }
+
+    pub async fn fuzzy_file_search_session_stop(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fuzzy_file_search_session_stop(params).await?)
+    }
+
+    pub async fn fuzzy_file_search_session_update(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self
+            .backend
+            .fuzzy_file_search_session_update(params)
+            .await?)
+    }
+
     pub async fn hooks_list(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.hooks_list(params).await?)
+    }
+
+    pub async fn remote_control_client_list(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.remote_control_client_list(params).await?)
+    }
+
+    pub async fn remote_control_client_revoke(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.remote_control_client_revoke(params).await?)
+    }
+
+    pub async fn remote_control_disable(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.remote_control_disable(params).await?)
+    }
+
+    pub async fn remote_control_enable(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.remote_control_enable(params).await?)
+    }
+
+    pub async fn remote_control_pairing_start(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.remote_control_pairing_start(params).await?)
+    }
+
+    pub async fn remote_control_pairing_status(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.remote_control_pairing_status(params).await?)
+    }
+
+    pub async fn remote_control_status_read(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.remote_control_status_read(params).await?)
+    }
+
+    pub async fn thread_decrement_elicitation(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_decrement_elicitation(params).await?)
+    }
+
+    pub async fn thread_increment_elicitation(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_increment_elicitation(params).await?)
+    }
+
+    pub async fn thread_memory_mode_set(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_memory_mode_set(params).await?)
+    }
+
+    pub async fn thread_realtime_append_audio(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_realtime_append_audio(params).await?)
+    }
+
+    pub async fn thread_realtime_append_speech(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_realtime_append_speech(params).await?)
+    }
+
+    pub async fn thread_realtime_append_text(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_realtime_append_text(params).await?)
+    }
+
+    pub async fn thread_realtime_list_voices(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_realtime_list_voices(params).await?)
+    }
+
+    pub async fn thread_realtime_start(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_realtime_start(params).await?)
+    }
+
+    pub async fn thread_realtime_stop(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_realtime_stop(params).await?)
+    }
+
+    pub async fn thread_search(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_search(params).await?)
+    }
+
+    pub async fn thread_settings_update(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_settings_update(params).await?)
+    }
+
+    pub async fn thread_turns_items_list(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_turns_items_list(params).await?)
+    }
+
+    pub async fn thread_turns_list(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_turns_list(params).await?)
     }
 
     pub async fn remote_connection_list(
@@ -3301,6 +3703,37 @@ pub mod tests {
             self.raw_request("process/clean", params).await
         }
 
+        async fn process_spawn(&self, params: Value) -> Result<Value> {
+            self.raw_request("process/spawn", params).await
+        }
+
+        async fn process_write_stdin(&self, params: Value) -> Result<Value> {
+            self.raw_request("process/writeStdin", params).await
+        }
+
+        async fn process_resize_pty(&self, params: Value) -> Result<Value> {
+            self.raw_request("process/resizePty", params).await
+        }
+
+        async fn process_kill(&self, params: Value) -> Result<Value> {
+            self.raw_request("process/kill", params).await
+        }
+
+        async fn background_terminals_list(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/backgroundTerminals/list", params)
+                .await
+        }
+
+        async fn background_terminals_clean(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/backgroundTerminals/clean", params)
+                .await
+        }
+
+        async fn background_terminal_terminate(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/backgroundTerminals/terminate", params)
+                .await
+        }
+
         async fn fs_read_file(&self, params: Value) -> Result<Value> {
             self.raw_request("fs/readFile", params).await
         }
@@ -3548,8 +3981,110 @@ pub mod tests {
             self.raw_request("fuzzyFileSearch", params).await
         }
 
+        async fn fuzzy_file_search_session_start(&self, params: Value) -> Result<Value> {
+            self.raw_request("fuzzyFileSearch/sessionStart", params)
+                .await
+        }
+
+        async fn fuzzy_file_search_session_stop(&self, params: Value) -> Result<Value> {
+            self.raw_request("fuzzyFileSearch/sessionStop", params)
+                .await
+        }
+
+        async fn fuzzy_file_search_session_update(&self, params: Value) -> Result<Value> {
+            self.raw_request("fuzzyFileSearch/sessionUpdate", params)
+                .await
+        }
+
         async fn hooks_list(&self, params: Value) -> Result<Value> {
             self.raw_request("hooks/list", params).await
+        }
+
+        async fn remote_control_client_list(&self, params: Value) -> Result<Value> {
+            self.raw_request("remoteControl/client/list", params).await
+        }
+
+        async fn remote_control_client_revoke(&self, params: Value) -> Result<Value> {
+            self.raw_request("remoteControl/client/revoke", params)
+                .await
+        }
+
+        async fn remote_control_disable(&self, params: Value) -> Result<Value> {
+            self.raw_request("remoteControl/disable", params).await
+        }
+
+        async fn remote_control_enable(&self, params: Value) -> Result<Value> {
+            self.raw_request("remoteControl/enable", params).await
+        }
+
+        async fn remote_control_pairing_start(&self, params: Value) -> Result<Value> {
+            self.raw_request("remoteControl/pairing/start", params)
+                .await
+        }
+
+        async fn remote_control_pairing_status(&self, params: Value) -> Result<Value> {
+            self.raw_request("remoteControl/pairing/status", params)
+                .await
+        }
+
+        async fn remote_control_status_read(&self, params: Value) -> Result<Value> {
+            self.raw_request("remoteControl/status/read", params).await
+        }
+
+        async fn thread_decrement_elicitation(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/decrement_elicitation", params)
+                .await
+        }
+
+        async fn thread_increment_elicitation(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/increment_elicitation", params)
+                .await
+        }
+
+        async fn thread_memory_mode_set(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/memoryMode/set", params).await
+        }
+
+        async fn thread_realtime_append_audio(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/realtime/appendAudio", params)
+                .await
+        }
+
+        async fn thread_realtime_append_speech(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/realtime/appendSpeech", params)
+                .await
+        }
+
+        async fn thread_realtime_append_text(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/realtime/appendText", params).await
+        }
+
+        async fn thread_realtime_list_voices(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/realtime/listVoices", params).await
+        }
+
+        async fn thread_realtime_start(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/realtime/start", params).await
+        }
+
+        async fn thread_realtime_stop(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/realtime/stop", params).await
+        }
+
+        async fn thread_search(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/search", params).await
+        }
+
+        async fn thread_settings_update(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/settings/update", params).await
+        }
+
+        async fn thread_turns_items_list(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/turns/items/list", params).await
+        }
+
+        async fn thread_turns_list(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/turns/list", params).await
         }
 
         async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
@@ -4448,6 +4983,38 @@ pub mod tests {
             .await
             .expect("process clean");
         service
+            .process_spawn(serde_json::json!({ "command": "bash", "args": ["-lc", "pwd"] }))
+            .await
+            .expect("process spawn");
+        service
+            .process_write_stdin(serde_json::json!({ "processId": "proc-1", "stdin": "q" }))
+            .await
+            .expect("process write stdin");
+        service
+            .process_resize_pty(
+                serde_json::json!({ "processId": "proc-1", "cols": 100, "rows": 32 }),
+            )
+            .await
+            .expect("process resize pty");
+        service
+            .process_kill(serde_json::json!({ "processId": "proc-1" }))
+            .await
+            .expect("process kill");
+        service
+            .background_terminals_list(serde_json::json!({ "threadId": "thread-1" }))
+            .await
+            .expect("background terminals list");
+        service
+            .background_terminals_clean(serde_json::json!({ "threadId": "thread-1" }))
+            .await
+            .expect("background terminals clean");
+        service
+            .background_terminal_terminate(
+                serde_json::json!({ "threadId": "thread-1", "terminalId": "term-1" }),
+            )
+            .await
+            .expect("background terminal terminate");
+        service
             .fs_read_file(serde_json::json!({ "path": "src/lib.rs" }))
             .await
             .expect("fs read file");
@@ -4510,6 +5077,13 @@ pub mod tests {
                 "command/exec/terminate",
                 "process/list",
                 "process/clean",
+                "process/spawn",
+                "process/writeStdin",
+                "process/resizePty",
+                "process/kill",
+                "thread/backgroundTerminals/list",
+                "thread/backgroundTerminals/clean",
+                "thread/backgroundTerminals/terminate",
                 "fs/readFile",
                 "fs/writeFile",
                 "fs/readDirectory",
@@ -4615,9 +5189,109 @@ pub mod tests {
             .await
             .expect("fuzzy search");
         service
+            .fuzzy_file_search_session_start(serde_json::json!({ "query": "main" }))
+            .await
+            .expect("fuzzy search session start");
+        service
+            .fuzzy_file_search_session_update(serde_json::json!({ "query": "main.rs" }))
+            .await
+            .expect("fuzzy search session update");
+        service
+            .fuzzy_file_search_session_stop(serde_json::json!({ "query": "main.rs" }))
+            .await
+            .expect("fuzzy search session stop");
+        service
             .hooks_list(serde_json::json!({}))
             .await
             .expect("hooks list");
+        service
+            .remote_control_client_list(serde_json::json!({}))
+            .await
+            .expect("remote client list");
+        service
+            .remote_control_client_revoke(serde_json::json!({ "clientId": "client-1" }))
+            .await
+            .expect("remote client revoke");
+        service
+            .remote_control_disable(serde_json::json!({}))
+            .await
+            .expect("remote disable");
+        service
+            .remote_control_enable(serde_json::json!({}))
+            .await
+            .expect("remote enable");
+        service
+            .remote_control_pairing_start(serde_json::json!({}))
+            .await
+            .expect("remote pairing start");
+        service
+            .remote_control_pairing_status(serde_json::json!({}))
+            .await
+            .expect("remote pairing status");
+        service
+            .remote_control_status_read(serde_json::json!({}))
+            .await
+            .expect("remote status read");
+        service
+            .thread_decrement_elicitation(serde_json::json!({ "threadId": "thread-1" }))
+            .await
+            .expect("decrement elicitation");
+        service
+            .thread_increment_elicitation(serde_json::json!({ "threadId": "thread-1" }))
+            .await
+            .expect("increment elicitation");
+        service
+            .thread_memory_mode_set(serde_json::json!({ "threadId": "thread-1", "enabled": true }))
+            .await
+            .expect("memory mode set");
+        service
+            .thread_realtime_start(serde_json::json!({ "threadId": "thread-1" }))
+            .await
+            .expect("realtime start");
+        service
+            .thread_realtime_append_audio(
+                serde_json::json!({ "threadId": "thread-1", "audio": "abc" }),
+            )
+            .await
+            .expect("realtime audio");
+        service
+            .thread_realtime_append_speech(
+                serde_json::json!({ "threadId": "thread-1", "text": "hello" }),
+            )
+            .await
+            .expect("realtime speech");
+        service
+            .thread_realtime_append_text(
+                serde_json::json!({ "threadId": "thread-1", "text": "hello" }),
+            )
+            .await
+            .expect("realtime text");
+        service
+            .thread_realtime_list_voices(serde_json::json!({}))
+            .await
+            .expect("realtime voices");
+        service
+            .thread_realtime_stop(serde_json::json!({ "threadId": "thread-1" }))
+            .await
+            .expect("realtime stop");
+        service
+            .thread_search(serde_json::json!({ "query": "adapter" }))
+            .await
+            .expect("thread search");
+        service
+            .thread_settings_update(serde_json::json!({ "threadId": "thread-1", "settings": {} }))
+            .await
+            .expect("thread settings update");
+        service
+            .thread_turns_items_list(
+                serde_json::json!({ "threadId": "thread-1", "turnId": "turn-1" }),
+            )
+            .await
+            .expect("thread turns items list");
+        service
+            .thread_turns_list(serde_json::json!({ "threadId": "thread-1" }))
+            .await
+            .expect("thread turns list");
 
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
@@ -4642,7 +5316,30 @@ pub mod tests {
                 "externalAgentConfig/import",
                 "feedback/upload",
                 "fuzzyFileSearch",
+                "fuzzyFileSearch/sessionStart",
+                "fuzzyFileSearch/sessionUpdate",
+                "fuzzyFileSearch/sessionStop",
                 "hooks/list",
+                "remoteControl/client/list",
+                "remoteControl/client/revoke",
+                "remoteControl/disable",
+                "remoteControl/enable",
+                "remoteControl/pairing/start",
+                "remoteControl/pairing/status",
+                "remoteControl/status/read",
+                "thread/decrement_elicitation",
+                "thread/increment_elicitation",
+                "thread/memoryMode/set",
+                "thread/realtime/start",
+                "thread/realtime/appendAudio",
+                "thread/realtime/appendSpeech",
+                "thread/realtime/appendText",
+                "thread/realtime/listVoices",
+                "thread/realtime/stop",
+                "thread/search",
+                "thread/settings/update",
+                "thread/turns/items/list",
+                "thread/turns/list",
             ]
         );
     }

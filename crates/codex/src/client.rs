@@ -1103,6 +1103,62 @@ impl CodexLiveClient {
         }
     }
 
+    pub async fn process_spawn(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.process_spawn(params).await,
+            Self::UnixSocket(client) => client.process_spawn(params).await,
+            Self::WebSocket(client) => client.process_spawn(params).await,
+        }
+    }
+
+    pub async fn process_write_stdin(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.process_write_stdin(params).await,
+            Self::UnixSocket(client) => client.process_write_stdin(params).await,
+            Self::WebSocket(client) => client.process_write_stdin(params).await,
+        }
+    }
+
+    pub async fn process_resize_pty(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.process_resize_pty(params).await,
+            Self::UnixSocket(client) => client.process_resize_pty(params).await,
+            Self::WebSocket(client) => client.process_resize_pty(params).await,
+        }
+    }
+
+    pub async fn process_kill(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.process_kill(params).await,
+            Self::UnixSocket(client) => client.process_kill(params).await,
+            Self::WebSocket(client) => client.process_kill(params).await,
+        }
+    }
+
+    pub async fn background_terminals_list(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.background_terminals_list(params).await,
+            Self::UnixSocket(client) => client.background_terminals_list(params).await,
+            Self::WebSocket(client) => client.background_terminals_list(params).await,
+        }
+    }
+
+    pub async fn background_terminals_clean(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.background_terminals_clean(params).await,
+            Self::UnixSocket(client) => client.background_terminals_clean(params).await,
+            Self::WebSocket(client) => client.background_terminals_clean(params).await,
+        }
+    }
+
+    pub async fn background_terminal_terminate(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.background_terminal_terminate(params).await,
+            Self::UnixSocket(client) => client.background_terminal_terminate(params).await,
+            Self::WebSocket(client) => client.background_terminal_terminate(params).await,
+        }
+    }
+
     pub async fn fs_read_file(&self, params: Value) -> Result<Value> {
         match self {
             Self::Stdio(client) => client.fs_read_file(params).await,
@@ -1548,11 +1604,195 @@ impl CodexLiveClient {
         }
     }
 
+    pub async fn fuzzy_file_search_session_start(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fuzzy_file_search_session_start(params).await,
+            Self::UnixSocket(client) => client.fuzzy_file_search_session_start(params).await,
+            Self::WebSocket(client) => client.fuzzy_file_search_session_start(params).await,
+        }
+    }
+
+    pub async fn fuzzy_file_search_session_stop(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fuzzy_file_search_session_stop(params).await,
+            Self::UnixSocket(client) => client.fuzzy_file_search_session_stop(params).await,
+            Self::WebSocket(client) => client.fuzzy_file_search_session_stop(params).await,
+        }
+    }
+
+    pub async fn fuzzy_file_search_session_update(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fuzzy_file_search_session_update(params).await,
+            Self::UnixSocket(client) => client.fuzzy_file_search_session_update(params).await,
+            Self::WebSocket(client) => client.fuzzy_file_search_session_update(params).await,
+        }
+    }
+
     pub async fn hooks_list(&self, params: Value) -> Result<Value> {
         match self {
             Self::Stdio(client) => client.hooks_list(params).await,
             Self::UnixSocket(client) => client.hooks_list(params).await,
             Self::WebSocket(client) => client.hooks_list(params).await,
+        }
+    }
+
+    pub async fn remote_control_client_list(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.remote_control_client_list(params).await,
+            Self::UnixSocket(client) => client.remote_control_client_list(params).await,
+            Self::WebSocket(client) => client.remote_control_client_list(params).await,
+        }
+    }
+
+    pub async fn remote_control_client_revoke(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.remote_control_client_revoke(params).await,
+            Self::UnixSocket(client) => client.remote_control_client_revoke(params).await,
+            Self::WebSocket(client) => client.remote_control_client_revoke(params).await,
+        }
+    }
+
+    pub async fn remote_control_disable(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.remote_control_disable(params).await,
+            Self::UnixSocket(client) => client.remote_control_disable(params).await,
+            Self::WebSocket(client) => client.remote_control_disable(params).await,
+        }
+    }
+
+    pub async fn remote_control_enable(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.remote_control_enable(params).await,
+            Self::UnixSocket(client) => client.remote_control_enable(params).await,
+            Self::WebSocket(client) => client.remote_control_enable(params).await,
+        }
+    }
+
+    pub async fn remote_control_pairing_start(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.remote_control_pairing_start(params).await,
+            Self::UnixSocket(client) => client.remote_control_pairing_start(params).await,
+            Self::WebSocket(client) => client.remote_control_pairing_start(params).await,
+        }
+    }
+
+    pub async fn remote_control_pairing_status(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.remote_control_pairing_status(params).await,
+            Self::UnixSocket(client) => client.remote_control_pairing_status(params).await,
+            Self::WebSocket(client) => client.remote_control_pairing_status(params).await,
+        }
+    }
+
+    pub async fn remote_control_status_read(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.remote_control_status_read(params).await,
+            Self::UnixSocket(client) => client.remote_control_status_read(params).await,
+            Self::WebSocket(client) => client.remote_control_status_read(params).await,
+        }
+    }
+
+    pub async fn thread_decrement_elicitation(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_decrement_elicitation(params).await,
+            Self::UnixSocket(client) => client.thread_decrement_elicitation(params).await,
+            Self::WebSocket(client) => client.thread_decrement_elicitation(params).await,
+        }
+    }
+
+    pub async fn thread_increment_elicitation(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_increment_elicitation(params).await,
+            Self::UnixSocket(client) => client.thread_increment_elicitation(params).await,
+            Self::WebSocket(client) => client.thread_increment_elicitation(params).await,
+        }
+    }
+
+    pub async fn thread_memory_mode_set(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_memory_mode_set(params).await,
+            Self::UnixSocket(client) => client.thread_memory_mode_set(params).await,
+            Self::WebSocket(client) => client.thread_memory_mode_set(params).await,
+        }
+    }
+
+    pub async fn thread_realtime_append_audio(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_realtime_append_audio(params).await,
+            Self::UnixSocket(client) => client.thread_realtime_append_audio(params).await,
+            Self::WebSocket(client) => client.thread_realtime_append_audio(params).await,
+        }
+    }
+
+    pub async fn thread_realtime_append_speech(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_realtime_append_speech(params).await,
+            Self::UnixSocket(client) => client.thread_realtime_append_speech(params).await,
+            Self::WebSocket(client) => client.thread_realtime_append_speech(params).await,
+        }
+    }
+
+    pub async fn thread_realtime_append_text(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_realtime_append_text(params).await,
+            Self::UnixSocket(client) => client.thread_realtime_append_text(params).await,
+            Self::WebSocket(client) => client.thread_realtime_append_text(params).await,
+        }
+    }
+
+    pub async fn thread_realtime_list_voices(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_realtime_list_voices(params).await,
+            Self::UnixSocket(client) => client.thread_realtime_list_voices(params).await,
+            Self::WebSocket(client) => client.thread_realtime_list_voices(params).await,
+        }
+    }
+
+    pub async fn thread_realtime_start(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_realtime_start(params).await,
+            Self::UnixSocket(client) => client.thread_realtime_start(params).await,
+            Self::WebSocket(client) => client.thread_realtime_start(params).await,
+        }
+    }
+
+    pub async fn thread_realtime_stop(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_realtime_stop(params).await,
+            Self::UnixSocket(client) => client.thread_realtime_stop(params).await,
+            Self::WebSocket(client) => client.thread_realtime_stop(params).await,
+        }
+    }
+
+    pub async fn thread_search(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_search(params).await,
+            Self::UnixSocket(client) => client.thread_search(params).await,
+            Self::WebSocket(client) => client.thread_search(params).await,
+        }
+    }
+
+    pub async fn thread_settings_update(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_settings_update(params).await,
+            Self::UnixSocket(client) => client.thread_settings_update(params).await,
+            Self::WebSocket(client) => client.thread_settings_update(params).await,
+        }
+    }
+
+    pub async fn thread_turns_items_list(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_turns_items_list(params).await,
+            Self::UnixSocket(client) => client.thread_turns_items_list(params).await,
+            Self::WebSocket(client) => client.thread_turns_items_list(params).await,
+        }
+    }
+
+    pub async fn thread_turns_list(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_turns_list(params).await,
+            Self::UnixSocket(client) => client.thread_turns_list(params).await,
+            Self::WebSocket(client) => client.thread_turns_list(params).await,
         }
     }
 }
@@ -1925,6 +2165,37 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.raw_request("process/clean", params).await
     }
 
+    pub async fn process_spawn(&self, params: Value) -> Result<Value> {
+        self.raw_request("process/spawn", params).await
+    }
+
+    pub async fn process_write_stdin(&self, params: Value) -> Result<Value> {
+        self.raw_request("process/writeStdin", params).await
+    }
+
+    pub async fn process_resize_pty(&self, params: Value) -> Result<Value> {
+        self.raw_request("process/resizePty", params).await
+    }
+
+    pub async fn process_kill(&self, params: Value) -> Result<Value> {
+        self.raw_request("process/kill", params).await
+    }
+
+    pub async fn background_terminals_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/backgroundTerminals/list", params)
+            .await
+    }
+
+    pub async fn background_terminals_clean(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/backgroundTerminals/clean", params)
+            .await
+    }
+
+    pub async fn background_terminal_terminate(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/backgroundTerminals/terminate", params)
+            .await
+    }
+
     pub async fn fs_read_file(&self, params: Value) -> Result<Value> {
         self.raw_request("fs/readFile", params).await
     }
@@ -2156,8 +2427,110 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.raw_request("fuzzyFileSearch", params).await
     }
 
+    pub async fn fuzzy_file_search_session_start(&self, params: Value) -> Result<Value> {
+        self.raw_request("fuzzyFileSearch/sessionStart", params)
+            .await
+    }
+
+    pub async fn fuzzy_file_search_session_stop(&self, params: Value) -> Result<Value> {
+        self.raw_request("fuzzyFileSearch/sessionStop", params)
+            .await
+    }
+
+    pub async fn fuzzy_file_search_session_update(&self, params: Value) -> Result<Value> {
+        self.raw_request("fuzzyFileSearch/sessionUpdate", params)
+            .await
+    }
+
     pub async fn hooks_list(&self, params: Value) -> Result<Value> {
         self.raw_request("hooks/list", params).await
+    }
+
+    pub async fn remote_control_client_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("remoteControl/client/list", params).await
+    }
+
+    pub async fn remote_control_client_revoke(&self, params: Value) -> Result<Value> {
+        self.raw_request("remoteControl/client/revoke", params)
+            .await
+    }
+
+    pub async fn remote_control_disable(&self, params: Value) -> Result<Value> {
+        self.raw_request("remoteControl/disable", params).await
+    }
+
+    pub async fn remote_control_enable(&self, params: Value) -> Result<Value> {
+        self.raw_request("remoteControl/enable", params).await
+    }
+
+    pub async fn remote_control_pairing_start(&self, params: Value) -> Result<Value> {
+        self.raw_request("remoteControl/pairing/start", params)
+            .await
+    }
+
+    pub async fn remote_control_pairing_status(&self, params: Value) -> Result<Value> {
+        self.raw_request("remoteControl/pairing/status", params)
+            .await
+    }
+
+    pub async fn remote_control_status_read(&self, params: Value) -> Result<Value> {
+        self.raw_request("remoteControl/status/read", params).await
+    }
+
+    pub async fn thread_decrement_elicitation(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/decrement_elicitation", params)
+            .await
+    }
+
+    pub async fn thread_increment_elicitation(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/increment_elicitation", params)
+            .await
+    }
+
+    pub async fn thread_memory_mode_set(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/memoryMode/set", params).await
+    }
+
+    pub async fn thread_realtime_append_audio(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/realtime/appendAudio", params)
+            .await
+    }
+
+    pub async fn thread_realtime_append_speech(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/realtime/appendSpeech", params)
+            .await
+    }
+
+    pub async fn thread_realtime_append_text(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/realtime/appendText", params).await
+    }
+
+    pub async fn thread_realtime_list_voices(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/realtime/listVoices", params).await
+    }
+
+    pub async fn thread_realtime_start(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/realtime/start", params).await
+    }
+
+    pub async fn thread_realtime_stop(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/realtime/stop", params).await
+    }
+
+    pub async fn thread_search(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/search", params).await
+    }
+
+    pub async fn thread_settings_update(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/settings/update", params).await
+    }
+
+    pub async fn thread_turns_items_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/turns/items/list", params).await
+    }
+
+    pub async fn thread_turns_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/turns/list", params).await
     }
 
     pub async fn marketplace_add(&self, request: CodexMarketplaceRequest) -> Result<Value> {
