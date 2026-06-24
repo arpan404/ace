@@ -52,8 +52,10 @@ dependencies = [
  "ace-runtime",
  "ace-server",
  "ace-ui",
+ "axum",
  "clap",
  "gpui",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
@@ -229,7 +231,15 @@ name = "ace-ui"
 version = "0.1.0"
 dependencies = [
  "ace-core",
+ "ace-protocol",
+ "futures-util",
  "gpui",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
