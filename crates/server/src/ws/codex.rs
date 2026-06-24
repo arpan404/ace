@@ -156,28 +156,9 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 ToolRunStatus::Started,
             )
             .await?;
-            let response = match codex_method {
-                "remote/connectionList" => self
-                    .codex
-                    .remote_connection_list(params.clone())
-                    .await
-                    .map_err(WsDispatchError::from),
-                "remote/handoff" => {
-                    match serde_json::from_value::<CodexRemoteHandoffRequest>(params.clone()) {
-                        Ok(request) => self
-                            .codex
-                            .remote_handoff(request)
-                            .await
-                            .map_err(WsDispatchError::from),
-                        Err(error) => Err(WsDispatchError::from(error)),
-                    }
-                }
-                _ => self
-                    .codex
-                    .raw_request(codex_method.to_string(), params.clone())
-                    .await
-                    .map_err(WsDispatchError::from),
-            };
+            let response = self
+                .dispatch_codex_versioned_service_request(codex_method, params.clone())
+                .await;
             return match response {
                 Ok(response) => {
                     self.publish_codex_versioned_tool_event(
@@ -2500,6 +2481,173 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 }),
             }],
         )
+    }
+
+    async fn dispatch_codex_versioned_service_request(
+        &self,
+        codex_method: &str,
+        params: Value,
+    ) -> Result<Value, WsDispatchError> {
+        match codex_method {
+            "remote/connectionList" => self
+                .codex
+                .remote_connection_list(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "remote/handoff" => {
+                let request = serde_json::from_value::<CodexRemoteHandoffRequest>(params)?;
+                self.codex
+                    .remote_handoff(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "skills/list" => {
+                let request = serde_json::from_value::<CodexNamedQueryRequest>(params)?;
+                self.codex
+                    .skills_list(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "plugin/skill/read" => {
+                let request = serde_json::from_value::<CodexSkillRequest>(params)?;
+                self.codex
+                    .skills_read(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "skills/install" => {
+                let request = serde_json::from_value::<CodexSkillRequest>(params)?;
+                self.codex
+                    .skills_install(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "skills/config/write" => {
+                let request = serde_json::from_value::<CodexSkillsConfigWriteRequest>(params)?;
+                self.codex
+                    .skills_config_write(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "skills/extraRoots/set" => {
+                let request = serde_json::from_value::<CodexSkillsExtraRootsSetRequest>(params)?;
+                self.codex
+                    .skills_extra_roots_set(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "plugin/installed" => {
+                let request = serde_json::from_value::<CodexNamedQueryRequest>(params)?;
+                self.codex
+                    .plugins_installed(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "plugin/list" => {
+                let request = serde_json::from_value::<CodexNamedQueryRequest>(params)?;
+                self.codex
+                    .plugins_list(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "plugin/read" => {
+                let request = serde_json::from_value::<CodexPluginRequest>(params)?;
+                self.codex
+                    .plugins_read(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "plugin/install" => {
+                let request = serde_json::from_value::<CodexPluginRequest>(params)?;
+                self.codex
+                    .plugins_install(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "plugin/uninstall" => {
+                let request = serde_json::from_value::<CodexPluginRequest>(params)?;
+                self.codex
+                    .plugins_uninstall(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "plugin/share/checkout" => {
+                let request = serde_json::from_value::<CodexPluginShareRequest>(params)?;
+                self.codex
+                    .plugin_share_checkout(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "plugin/share/delete" => {
+                let request = serde_json::from_value::<CodexPluginShareRequest>(params)?;
+                self.codex
+                    .plugin_share_delete(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "plugin/share/list" => {
+                let request = serde_json::from_value::<CodexPluginShareRequest>(params)?;
+                self.codex
+                    .plugin_share_list(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "plugin/share/save" => {
+                let request = serde_json::from_value::<CodexPluginShareSaveRequest>(params)?;
+                self.codex
+                    .plugin_share_save(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "plugin/share/updateTargets" => {
+                let request =
+                    serde_json::from_value::<CodexPluginShareUpdateTargetsRequest>(params)?;
+                self.codex
+                    .plugin_share_update_targets(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "app/list" => {
+                let request = serde_json::from_value::<CodexNamedQueryRequest>(params)?;
+                self.codex
+                    .apps_list(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "apps/configWrite" => {
+                let request = serde_json::from_value::<CodexAppConfigWriteRequest>(params)?;
+                self.codex
+                    .apps_config_write(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "marketplace/add" => {
+                let request = serde_json::from_value::<CodexMarketplaceRequest>(params)?;
+                self.codex
+                    .marketplace_add(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "marketplace/remove" => {
+                let request = serde_json::from_value::<CodexMarketplaceRequest>(params)?;
+                self.codex
+                    .marketplace_remove(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            "marketplace/upgrade" => {
+                let request = serde_json::from_value::<CodexMarketplaceRequest>(params)?;
+                self.codex
+                    .marketplace_upgrade(request)
+                    .await
+                    .map_err(WsDispatchError::from)
+            }
+            _ => self
+                .codex
+                .raw_request(codex_method.to_string(), params)
+                .await
+                .map_err(WsDispatchError::from),
+        }
     }
 
     pub(super) async fn subscribe_provider_runtime_events(
