@@ -1046,6 +1046,169 @@ impl CodexLiveClient {
             Self::WebSocket(client) => client.review_start(request).await,
         }
     }
+
+    pub async fn skills_list(&self, request: CodexNamedQuery) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.skills_list(request).await,
+            Self::UnixSocket(client) => client.skills_list(request).await,
+            Self::WebSocket(client) => client.skills_list(request).await,
+        }
+    }
+
+    pub async fn skills_read(&self, request: CodexSkillRequest) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.skills_read(request).await,
+            Self::UnixSocket(client) => client.skills_read(request).await,
+            Self::WebSocket(client) => client.skills_read(request).await,
+        }
+    }
+
+    pub async fn skills_install(&self, request: CodexSkillRequest) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.skills_install(request).await,
+            Self::UnixSocket(client) => client.skills_install(request).await,
+            Self::WebSocket(client) => client.skills_install(request).await,
+        }
+    }
+
+    pub async fn skills_config_write(&self, request: CodexSkillsConfigWrite) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.skills_config_write(request).await,
+            Self::UnixSocket(client) => client.skills_config_write(request).await,
+            Self::WebSocket(client) => client.skills_config_write(request).await,
+        }
+    }
+
+    pub async fn skills_extra_roots_set(&self, request: CodexSkillsExtraRootsSet) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.skills_extra_roots_set(request).await,
+            Self::UnixSocket(client) => client.skills_extra_roots_set(request).await,
+            Self::WebSocket(client) => client.skills_extra_roots_set(request).await,
+        }
+    }
+
+    pub async fn plugins_installed(&self, request: CodexNamedQuery) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.plugins_installed(request).await,
+            Self::UnixSocket(client) => client.plugins_installed(request).await,
+            Self::WebSocket(client) => client.plugins_installed(request).await,
+        }
+    }
+
+    pub async fn plugins_list(&self, request: CodexNamedQuery) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.plugins_list(request).await,
+            Self::UnixSocket(client) => client.plugins_list(request).await,
+            Self::WebSocket(client) => client.plugins_list(request).await,
+        }
+    }
+
+    pub async fn plugins_read(&self, request: CodexPluginRequest) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.plugins_read(request).await,
+            Self::UnixSocket(client) => client.plugins_read(request).await,
+            Self::WebSocket(client) => client.plugins_read(request).await,
+        }
+    }
+
+    pub async fn plugins_install(&self, request: CodexPluginRequest) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.plugins_install(request).await,
+            Self::UnixSocket(client) => client.plugins_install(request).await,
+            Self::WebSocket(client) => client.plugins_install(request).await,
+        }
+    }
+
+    pub async fn plugins_uninstall(&self, request: CodexPluginRequest) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.plugins_uninstall(request).await,
+            Self::UnixSocket(client) => client.plugins_uninstall(request).await,
+            Self::WebSocket(client) => client.plugins_uninstall(request).await,
+        }
+    }
+
+    pub async fn plugin_share_checkout(&self, request: CodexPluginShareRequest) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.plugin_share_checkout(request).await,
+            Self::UnixSocket(client) => client.plugin_share_checkout(request).await,
+            Self::WebSocket(client) => client.plugin_share_checkout(request).await,
+        }
+    }
+
+    pub async fn plugin_share_delete(&self, request: CodexPluginShareRequest) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.plugin_share_delete(request).await,
+            Self::UnixSocket(client) => client.plugin_share_delete(request).await,
+            Self::WebSocket(client) => client.plugin_share_delete(request).await,
+        }
+    }
+
+    pub async fn plugin_share_list(&self, request: CodexPluginShareRequest) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.plugin_share_list(request).await,
+            Self::UnixSocket(client) => client.plugin_share_list(request).await,
+            Self::WebSocket(client) => client.plugin_share_list(request).await,
+        }
+    }
+
+    pub async fn plugin_share_save(&self, request: CodexPluginShareSave) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.plugin_share_save(request).await,
+            Self::UnixSocket(client) => client.plugin_share_save(request).await,
+            Self::WebSocket(client) => client.plugin_share_save(request).await,
+        }
+    }
+
+    pub async fn plugin_share_update_targets(
+        &self,
+        request: CodexPluginShareUpdateTargets,
+    ) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.plugin_share_update_targets(request).await,
+            Self::UnixSocket(client) => client.plugin_share_update_targets(request).await,
+            Self::WebSocket(client) => client.plugin_share_update_targets(request).await,
+        }
+    }
+
+    pub async fn apps_list(&self, request: CodexNamedQuery) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.apps_list(request).await,
+            Self::UnixSocket(client) => client.apps_list(request).await,
+            Self::WebSocket(client) => client.apps_list(request).await,
+        }
+    }
+
+    pub async fn apps_config_write(&self, request: CodexAppConfigWrite) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.apps_config_write(request).await,
+            Self::UnixSocket(client) => client.apps_config_write(request).await,
+            Self::WebSocket(client) => client.apps_config_write(request).await,
+        }
+    }
+
+    pub async fn marketplace_add(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.marketplace_add(request).await,
+            Self::UnixSocket(client) => client.marketplace_add(request).await,
+            Self::WebSocket(client) => client.marketplace_add(request).await,
+        }
+    }
+
+    pub async fn marketplace_remove(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.marketplace_remove(request).await,
+            Self::UnixSocket(client) => client.marketplace_remove(request).await,
+            Self::WebSocket(client) => client.marketplace_remove(request).await,
+        }
+    }
+
+    pub async fn marketplace_upgrade(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.marketplace_upgrade(request).await,
+            Self::UnixSocket(client) => client.marketplace_upgrade(request).await,
+            Self::WebSocket(client) => client.marketplace_upgrade(request).await,
+        }
+    }
 }
 
 impl<T: AppServerTransport> CodexClient<T> {

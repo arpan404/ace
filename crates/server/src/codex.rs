@@ -1,10 +1,12 @@
 use ace_codex::{
-    CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent,
-    CodexLiveClient, CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog,
-    CodexPermissionPreset, CodexPlanImplementation, CodexReviewStart, CodexSubagentSteer,
-    CodexThreadStart, CodexTransportConfig, CodexTransportLimits, CodexTurnPermissions,
-    CodexTurnStart, CodexTurnSteer, Result, classify_codex_method,
-    codex_adapter_contract_coverage_report, codex_method_inventory_report,
+    CodexAppConfigWrite, CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval,
+    CodexHandoffToAgent, CodexLiveClient, CodexMarketplaceRequest, CodexMethodDirection,
+    CodexMethodSupport, CodexNamedQuery, CodexPermissionCatalog, CodexPermissionPreset,
+    CodexPlanImplementation, CodexPluginRequest, CodexPluginShareRequest, CodexPluginShareSave,
+    CodexPluginShareUpdateTargets, CodexReviewStart, CodexSkillRequest, CodexSkillsConfigWrite,
+    CodexSkillsExtraRootsSet, CodexSubagentSteer, CodexThreadStart, CodexTransportConfig,
+    CodexTransportLimits, CodexTurnPermissions, CodexTurnStart, CodexTurnSteer, Result,
+    classify_codex_method, codex_adapter_contract_coverage_report, codex_method_inventory_report,
     image_generation_preflight_result, is_image_generation_preflight_request,
 };
 use ace_core::{ProviderCapability, ProviderKind};
@@ -386,6 +388,29 @@ pub trait CodexBackend: Send + Sync {
     async fn subagent_close(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value>;
     async fn handoff_to_agent(&self, request: CodexHandoffToAgent) -> Result<Value>;
     async fn review_start(&self, request: CodexReviewStart) -> Result<Value>;
+    async fn skills_list(&self, request: CodexNamedQuery) -> Result<Value>;
+    async fn skills_read(&self, request: CodexSkillRequest) -> Result<Value>;
+    async fn skills_install(&self, request: CodexSkillRequest) -> Result<Value>;
+    async fn skills_config_write(&self, request: CodexSkillsConfigWrite) -> Result<Value>;
+    async fn skills_extra_roots_set(&self, request: CodexSkillsExtraRootsSet) -> Result<Value>;
+    async fn plugins_installed(&self, request: CodexNamedQuery) -> Result<Value>;
+    async fn plugins_list(&self, request: CodexNamedQuery) -> Result<Value>;
+    async fn plugins_read(&self, request: CodexPluginRequest) -> Result<Value>;
+    async fn plugins_install(&self, request: CodexPluginRequest) -> Result<Value>;
+    async fn plugins_uninstall(&self, request: CodexPluginRequest) -> Result<Value>;
+    async fn plugin_share_checkout(&self, request: CodexPluginShareRequest) -> Result<Value>;
+    async fn plugin_share_delete(&self, request: CodexPluginShareRequest) -> Result<Value>;
+    async fn plugin_share_list(&self, request: CodexPluginShareRequest) -> Result<Value>;
+    async fn plugin_share_save(&self, request: CodexPluginShareSave) -> Result<Value>;
+    async fn plugin_share_update_targets(
+        &self,
+        request: CodexPluginShareUpdateTargets,
+    ) -> Result<Value>;
+    async fn apps_list(&self, request: CodexNamedQuery) -> Result<Value>;
+    async fn apps_config_write(&self, request: CodexAppConfigWrite) -> Result<Value>;
+    async fn marketplace_add(&self, request: CodexMarketplaceRequest) -> Result<Value>;
+    async fn marketplace_remove(&self, request: CodexMarketplaceRequest) -> Result<Value>;
+    async fn marketplace_upgrade(&self, request: CodexMarketplaceRequest) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
     async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()>;
     async fn respond_server_request_error(
@@ -719,6 +744,92 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn review_start(&self, request: CodexReviewStart) -> Result<Value> {
         self.client().await?.review_start(request).await
+    }
+
+    async fn skills_list(&self, request: CodexNamedQuery) -> Result<Value> {
+        self.client().await?.skills_list(request).await
+    }
+
+    async fn skills_read(&self, request: CodexSkillRequest) -> Result<Value> {
+        self.client().await?.skills_read(request).await
+    }
+
+    async fn skills_install(&self, request: CodexSkillRequest) -> Result<Value> {
+        self.client().await?.skills_install(request).await
+    }
+
+    async fn skills_config_write(&self, request: CodexSkillsConfigWrite) -> Result<Value> {
+        self.client().await?.skills_config_write(request).await
+    }
+
+    async fn skills_extra_roots_set(&self, request: CodexSkillsExtraRootsSet) -> Result<Value> {
+        self.client().await?.skills_extra_roots_set(request).await
+    }
+
+    async fn plugins_installed(&self, request: CodexNamedQuery) -> Result<Value> {
+        self.client().await?.plugins_installed(request).await
+    }
+
+    async fn plugins_list(&self, request: CodexNamedQuery) -> Result<Value> {
+        self.client().await?.plugins_list(request).await
+    }
+
+    async fn plugins_read(&self, request: CodexPluginRequest) -> Result<Value> {
+        self.client().await?.plugins_read(request).await
+    }
+
+    async fn plugins_install(&self, request: CodexPluginRequest) -> Result<Value> {
+        self.client().await?.plugins_install(request).await
+    }
+
+    async fn plugins_uninstall(&self, request: CodexPluginRequest) -> Result<Value> {
+        self.client().await?.plugins_uninstall(request).await
+    }
+
+    async fn plugin_share_checkout(&self, request: CodexPluginShareRequest) -> Result<Value> {
+        self.client().await?.plugin_share_checkout(request).await
+    }
+
+    async fn plugin_share_delete(&self, request: CodexPluginShareRequest) -> Result<Value> {
+        self.client().await?.plugin_share_delete(request).await
+    }
+
+    async fn plugin_share_list(&self, request: CodexPluginShareRequest) -> Result<Value> {
+        self.client().await?.plugin_share_list(request).await
+    }
+
+    async fn plugin_share_save(&self, request: CodexPluginShareSave) -> Result<Value> {
+        self.client().await?.plugin_share_save(request).await
+    }
+
+    async fn plugin_share_update_targets(
+        &self,
+        request: CodexPluginShareUpdateTargets,
+    ) -> Result<Value> {
+        self.client()
+            .await?
+            .plugin_share_update_targets(request)
+            .await
+    }
+
+    async fn apps_list(&self, request: CodexNamedQuery) -> Result<Value> {
+        self.client().await?.apps_list(request).await
+    }
+
+    async fn apps_config_write(&self, request: CodexAppConfigWrite) -> Result<Value> {
+        self.client().await?.apps_config_write(request).await
+    }
+
+    async fn marketplace_add(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+        self.client().await?.marketplace_add(request).await
+    }
+
+    async fn marketplace_remove(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+        self.client().await?.marketplace_remove(request).await
+    }
+
+    async fn marketplace_upgrade(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+        self.client().await?.marketplace_upgrade(request).await
     }
 
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
@@ -1197,6 +1308,146 @@ impl CodexService {
         let response = self.backend.review_start(request).await?;
         self.state.lock().await.set_review_mode(&thread_id, true);
         Ok(response)
+    }
+
+    pub async fn skills_list(
+        &self,
+        request: CodexNamedQuery,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.skills_list(request).await?)
+    }
+
+    pub async fn skills_read(
+        &self,
+        request: CodexSkillRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.skills_read(request).await?)
+    }
+
+    pub async fn skills_install(
+        &self,
+        request: CodexSkillRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.skills_install(request).await?)
+    }
+
+    pub async fn skills_config_write(
+        &self,
+        request: CodexSkillsConfigWrite,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.skills_config_write(request).await?)
+    }
+
+    pub async fn skills_extra_roots_set(
+        &self,
+        request: CodexSkillsExtraRootsSet,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.skills_extra_roots_set(request).await?)
+    }
+
+    pub async fn plugins_installed(
+        &self,
+        request: CodexNamedQuery,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.plugins_installed(request).await?)
+    }
+
+    pub async fn plugins_list(
+        &self,
+        request: CodexNamedQuery,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.plugins_list(request).await?)
+    }
+
+    pub async fn plugins_read(
+        &self,
+        request: CodexPluginRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.plugins_read(request).await?)
+    }
+
+    pub async fn plugins_install(
+        &self,
+        request: CodexPluginRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.plugins_install(request).await?)
+    }
+
+    pub async fn plugins_uninstall(
+        &self,
+        request: CodexPluginRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.plugins_uninstall(request).await?)
+    }
+
+    pub async fn plugin_share_checkout(
+        &self,
+        request: CodexPluginShareRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.plugin_share_checkout(request).await?)
+    }
+
+    pub async fn plugin_share_delete(
+        &self,
+        request: CodexPluginShareRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.plugin_share_delete(request).await?)
+    }
+
+    pub async fn plugin_share_list(
+        &self,
+        request: CodexPluginShareRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.plugin_share_list(request).await?)
+    }
+
+    pub async fn plugin_share_save(
+        &self,
+        request: CodexPluginShareSave,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.plugin_share_save(request).await?)
+    }
+
+    pub async fn plugin_share_update_targets(
+        &self,
+        request: CodexPluginShareUpdateTargets,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.plugin_share_update_targets(request).await?)
+    }
+
+    pub async fn apps_list(
+        &self,
+        request: CodexNamedQuery,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.apps_list(request).await?)
+    }
+
+    pub async fn apps_config_write(
+        &self,
+        request: CodexAppConfigWrite,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.apps_config_write(request).await?)
+    }
+
+    pub async fn marketplace_add(
+        &self,
+        request: CodexMarketplaceRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.marketplace_add(request).await?)
+    }
+
+    pub async fn marketplace_remove(
+        &self,
+        request: CodexMarketplaceRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.marketplace_remove(request).await?)
+    }
+
+    pub async fn marketplace_upgrade(
+        &self,
+        request: CodexMarketplaceRequest,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.marketplace_upgrade(request).await?)
     }
 
     pub async fn remote_connection_list(
@@ -2527,6 +2778,109 @@ pub mod tests {
             }))
         }
 
+        async fn skills_list(&self, request: CodexNamedQuery) -> Result<Value> {
+            self.raw_request("skills/list", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn skills_read(&self, request: CodexSkillRequest) -> Result<Value> {
+            self.raw_request("plugin/skill/read", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn skills_install(&self, request: CodexSkillRequest) -> Result<Value> {
+            self.raw_request("skills/install", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn skills_config_write(&self, request: CodexSkillsConfigWrite) -> Result<Value> {
+            self.raw_request("skills/config/write", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn skills_extra_roots_set(&self, request: CodexSkillsExtraRootsSet) -> Result<Value> {
+            self.raw_request("skills/extraRoots/set", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn plugins_installed(&self, request: CodexNamedQuery) -> Result<Value> {
+            self.raw_request("plugin/installed", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn plugins_list(&self, request: CodexNamedQuery) -> Result<Value> {
+            self.raw_request("plugin/list", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn plugins_read(&self, request: CodexPluginRequest) -> Result<Value> {
+            self.raw_request("plugin/read", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn plugins_install(&self, request: CodexPluginRequest) -> Result<Value> {
+            self.raw_request("plugin/install", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn plugins_uninstall(&self, request: CodexPluginRequest) -> Result<Value> {
+            self.raw_request("plugin/uninstall", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn plugin_share_checkout(&self, request: CodexPluginShareRequest) -> Result<Value> {
+            self.raw_request("plugin/share/checkout", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn plugin_share_delete(&self, request: CodexPluginShareRequest) -> Result<Value> {
+            self.raw_request("plugin/share/delete", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn plugin_share_list(&self, request: CodexPluginShareRequest) -> Result<Value> {
+            self.raw_request("plugin/share/list", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn plugin_share_save(&self, request: CodexPluginShareSave) -> Result<Value> {
+            self.raw_request("plugin/share/save", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn plugin_share_update_targets(
+            &self,
+            request: CodexPluginShareUpdateTargets,
+        ) -> Result<Value> {
+            self.raw_request("plugin/share/updateTargets", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn apps_list(&self, request: CodexNamedQuery) -> Result<Value> {
+            self.raw_request("app/list", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn apps_config_write(&self, request: CodexAppConfigWrite) -> Result<Value> {
+            self.raw_request("apps/configWrite", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn marketplace_add(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+            self.raw_request("marketplace/add", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn marketplace_remove(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+            self.raw_request("marketplace/remove", serde_json::to_value(request)?)
+                .await
+        }
+
+        async fn marketplace_upgrade(&self, request: CodexMarketplaceRequest) -> Result<Value> {
+            self.raw_request("marketplace/upgrade", serde_json::to_value(request)?)
+                .await
+        }
+
         async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
             Ok(self.events.lock().expect("events").pop_front())
         }
@@ -3382,6 +3736,176 @@ pub mod tests {
                 "thread/goal/set:thread-1:paused",
                 "thread/goal/set:thread-1:active",
                 "thread/goal/clear:thread-1",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_runs_skill_plugin_app_lifecycle_through_backend() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        service
+            .skills_list(CodexNamedQuery::default())
+            .await
+            .expect("skills list");
+        service
+            .skills_read(CodexSkillRequest {
+                skill: "rust".to_string(),
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("skills read");
+        service
+            .skills_install(CodexSkillRequest {
+                skill: "rust".to_string(),
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("skills install");
+        service
+            .skills_config_write(CodexSkillsConfigWrite {
+                config: serde_json::json!({ "enabled": ["rust"] }),
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("skills config write");
+        service
+            .skills_extra_roots_set(CodexSkillsExtraRootsSet {
+                roots: vec!["/tmp/skills".to_string()],
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("skills extra roots set");
+        service
+            .plugins_installed(CodexNamedQuery::default())
+            .await
+            .expect("plugins installed");
+        service
+            .plugins_list(CodexNamedQuery::default())
+            .await
+            .expect("plugins list");
+        service
+            .plugins_read(CodexPluginRequest {
+                plugin: "browser".to_string(),
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("plugins read");
+        service
+            .plugins_install(CodexPluginRequest {
+                plugin: "browser".to_string(),
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("plugins install");
+        service
+            .plugins_uninstall(CodexPluginRequest {
+                plugin: "browser".to_string(),
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("plugins uninstall");
+        service
+            .plugin_share_checkout(CodexPluginShareRequest {
+                plugin: None,
+                share_id: Some("share-1".to_string()),
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("plugin share checkout");
+        service
+            .plugin_share_delete(CodexPluginShareRequest {
+                plugin: None,
+                share_id: Some("share-1".to_string()),
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("plugin share delete");
+        service
+            .plugin_share_list(CodexPluginShareRequest::default())
+            .await
+            .expect("plugin share list");
+        service
+            .plugin_share_save(CodexPluginShareSave {
+                plugin: "browser".to_string(),
+                targets: vec!["team".to_string()],
+                metadata: None,
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("plugin share save");
+        service
+            .plugin_share_update_targets(CodexPluginShareUpdateTargets {
+                share_id: "share-1".to_string(),
+                targets: vec!["team".to_string()],
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("plugin share update targets");
+        service
+            .apps_list(CodexNamedQuery::default())
+            .await
+            .expect("apps list");
+        service
+            .apps_config_write(CodexAppConfigWrite {
+                app: "browser".to_string(),
+                config: serde_json::json!({ "enabled": true }),
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("apps config write");
+        service
+            .marketplace_add(CodexMarketplaceRequest {
+                plugin: "browser".to_string(),
+                target: Some("personal".to_string()),
+                version: None,
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("marketplace add");
+        service
+            .marketplace_remove(CodexMarketplaceRequest {
+                plugin: "browser".to_string(),
+                target: Some("personal".to_string()),
+                version: None,
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("marketplace remove");
+        service
+            .marketplace_upgrade(CodexMarketplaceRequest {
+                plugin: "browser".to_string(),
+                target: None,
+                version: Some("latest".to_string()),
+                extra: serde_json::Map::new(),
+            })
+            .await
+            .expect("marketplace upgrade");
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "skills/list",
+                "plugin/skill/read",
+                "skills/install",
+                "skills/config/write",
+                "skills/extraRoots/set",
+                "plugin/installed",
+                "plugin/list",
+                "plugin/read",
+                "plugin/install",
+                "plugin/uninstall",
+                "plugin/share/checkout",
+                "plugin/share/delete",
+                "plugin/share/list",
+                "plugin/share/save",
+                "plugin/share/updateTargets",
+                "app/list",
+                "apps/configWrite",
+                "marketplace/add",
+                "marketplace/remove",
+                "marketplace/upgrade",
             ]
         );
     }
