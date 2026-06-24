@@ -1499,6 +1499,62 @@ impl CodexLiveClient {
             Self::WebSocket(client) => client.config_mcp_server_reload(params).await,
         }
     }
+
+    pub async fn experimental_feature_list(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.experimental_feature_list(params).await,
+            Self::UnixSocket(client) => client.experimental_feature_list(params).await,
+            Self::WebSocket(client) => client.experimental_feature_list(params).await,
+        }
+    }
+
+    pub async fn experimental_feature_enablement_set(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.experimental_feature_enablement_set(params).await,
+            Self::UnixSocket(client) => client.experimental_feature_enablement_set(params).await,
+            Self::WebSocket(client) => client.experimental_feature_enablement_set(params).await,
+        }
+    }
+
+    pub async fn external_agent_config_detect(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.external_agent_config_detect(params).await,
+            Self::UnixSocket(client) => client.external_agent_config_detect(params).await,
+            Self::WebSocket(client) => client.external_agent_config_detect(params).await,
+        }
+    }
+
+    pub async fn external_agent_config_import(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.external_agent_config_import(params).await,
+            Self::UnixSocket(client) => client.external_agent_config_import(params).await,
+            Self::WebSocket(client) => client.external_agent_config_import(params).await,
+        }
+    }
+
+    pub async fn feedback_upload(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.feedback_upload(params).await,
+            Self::UnixSocket(client) => client.feedback_upload(params).await,
+            Self::WebSocket(client) => client.feedback_upload(params).await,
+        }
+    }
+
+    pub async fn fuzzy_file_search(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fuzzy_file_search(params).await,
+            Self::UnixSocket(client) => client.fuzzy_file_search(params).await,
+            Self::WebSocket(client) => client.fuzzy_file_search(params).await,
+        }
+    }
+
+    pub async fn hooks_list(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.hooks_list(params).await,
+            Self::UnixSocket(client) => client.hooks_list(params).await,
+            Self::WebSocket(client) => client.hooks_list(params).await,
+        }
+    }
 }
 
 impl<T: AppServerTransport> CodexClient<T> {

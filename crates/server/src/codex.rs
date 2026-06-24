@@ -447,6 +447,13 @@ pub trait CodexBackend: Send + Sync {
     async fn config_value_write(&self, params: Value) -> Result<Value>;
     async fn config_batch_write(&self, params: Value) -> Result<Value>;
     async fn config_mcp_server_reload(&self, params: Value) -> Result<Value>;
+    async fn experimental_feature_list(&self, params: Value) -> Result<Value>;
+    async fn experimental_feature_enablement_set(&self, params: Value) -> Result<Value>;
+    async fn external_agent_config_detect(&self, params: Value) -> Result<Value>;
+    async fn external_agent_config_import(&self, params: Value) -> Result<Value>;
+    async fn feedback_upload(&self, params: Value) -> Result<Value>;
+    async fn fuzzy_file_search(&self, params: Value) -> Result<Value>;
+    async fn hooks_list(&self, params: Value) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
     async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()>;
     async fn respond_server_request_error(
@@ -1022,6 +1029,43 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn config_mcp_server_reload(&self, params: Value) -> Result<Value> {
         self.client().await?.config_mcp_server_reload(params).await
+    }
+
+    async fn experimental_feature_list(&self, params: Value) -> Result<Value> {
+        self.client().await?.experimental_feature_list(params).await
+    }
+
+    async fn experimental_feature_enablement_set(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .experimental_feature_enablement_set(params)
+            .await
+    }
+
+    async fn external_agent_config_detect(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .external_agent_config_detect(params)
+            .await
+    }
+
+    async fn external_agent_config_import(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .external_agent_config_import(params)
+            .await
+    }
+
+    async fn feedback_upload(&self, params: Value) -> Result<Value> {
+        self.client().await?.feedback_upload(params).await
+    }
+
+    async fn fuzzy_file_search(&self, params: Value) -> Result<Value> {
+        self.client().await?.fuzzy_file_search(params).await
+    }
+
+    async fn hooks_list(&self, params: Value) -> Result<Value> {
+        self.client().await?.hooks_list(params).await
     }
 
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
@@ -1850,6 +1894,55 @@ impl CodexService {
         params: Value,
     ) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.config_mcp_server_reload(params).await?)
+    }
+
+    pub async fn experimental_feature_list(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.experimental_feature_list(params).await?)
+    }
+
+    pub async fn experimental_feature_enablement_set(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self
+            .backend
+            .experimental_feature_enablement_set(params)
+            .await?)
+    }
+
+    pub async fn external_agent_config_detect(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.external_agent_config_detect(params).await?)
+    }
+
+    pub async fn external_agent_config_import(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.external_agent_config_import(params).await?)
+    }
+
+    pub async fn feedback_upload(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.feedback_upload(params).await?)
+    }
+
+    pub async fn fuzzy_file_search(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fuzzy_file_search(params).await?)
+    }
+
+    pub async fn hooks_list(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.hooks_list(params).await?)
     }
 
     pub async fn remote_connection_list(
@@ -3430,6 +3523,35 @@ pub mod tests {
             self.raw_request("config/mcpServer/reload", params).await
         }
 
+        async fn experimental_feature_list(&self, params: Value) -> Result<Value> {
+            self.raw_request("experimentalFeature/list", params).await
+        }
+
+        async fn experimental_feature_enablement_set(&self, params: Value) -> Result<Value> {
+            self.raw_request("experimentalFeature/enablement/set", params)
+                .await
+        }
+
+        async fn external_agent_config_detect(&self, params: Value) -> Result<Value> {
+            self.raw_request("externalAgentConfig/detect", params).await
+        }
+
+        async fn external_agent_config_import(&self, params: Value) -> Result<Value> {
+            self.raw_request("externalAgentConfig/import", params).await
+        }
+
+        async fn feedback_upload(&self, params: Value) -> Result<Value> {
+            self.raw_request("feedback/upload", params).await
+        }
+
+        async fn fuzzy_file_search(&self, params: Value) -> Result<Value> {
+            self.raw_request("fuzzyFileSearch", params).await
+        }
+
+        async fn hooks_list(&self, params: Value) -> Result<Value> {
+            self.raw_request("hooks/list", params).await
+        }
+
         async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
             Ok(self.events.lock().expect("events").pop_front())
         }
@@ -4466,6 +4588,36 @@ pub mod tests {
             .config_mcp_server_reload(serde_json::json!({ "server": "github" }))
             .await
             .expect("mcp reload");
+        service
+            .experimental_feature_list(serde_json::json!({}))
+            .await
+            .expect("experimental feature list");
+        service
+            .experimental_feature_enablement_set(
+                serde_json::json!({ "feature": "plan_mode", "enabled": true }),
+            )
+            .await
+            .expect("experimental feature enablement");
+        service
+            .external_agent_config_detect(serde_json::json!({ "cwd": "/tmp/repo" }))
+            .await
+            .expect("external detect");
+        service
+            .external_agent_config_import(serde_json::json!({ "agent": "codex" }))
+            .await
+            .expect("external import");
+        service
+            .feedback_upload(serde_json::json!({ "kind": "bug" }))
+            .await
+            .expect("feedback upload");
+        service
+            .fuzzy_file_search(serde_json::json!({ "query": "main" }))
+            .await
+            .expect("fuzzy search");
+        service
+            .hooks_list(serde_json::json!({}))
+            .await
+            .expect("hooks list");
 
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
@@ -4484,6 +4636,13 @@ pub mod tests {
                 "config/value/write",
                 "config/batchWrite",
                 "config/mcpServer/reload",
+                "experimentalFeature/list",
+                "experimentalFeature/enablement/set",
+                "externalAgentConfig/detect",
+                "externalAgentConfig/import",
+                "feedback/upload",
+                "fuzzyFileSearch",
+                "hooks/list",
             ]
         );
     }

@@ -2822,6 +2822,41 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .config_mcp_server_reload(params)
                 .await
                 .map_err(WsDispatchError::from),
+            "experimentalFeature/list" => self
+                .codex
+                .experimental_feature_list(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "experimentalFeature/enablement/set" => self
+                .codex
+                .experimental_feature_enablement_set(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "externalAgentConfig/detect" => self
+                .codex
+                .external_agent_config_detect(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "externalAgentConfig/import" => self
+                .codex
+                .external_agent_config_import(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "feedback/upload" => self
+                .codex
+                .feedback_upload(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "fuzzyFileSearch" => self
+                .codex
+                .fuzzy_file_search(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "hooks/list" => self
+                .codex
+                .hooks_list(params)
+                .await
+                .map_err(WsDispatchError::from),
             _ => self
                 .codex
                 .raw_request(codex_method.to_string(), params)
