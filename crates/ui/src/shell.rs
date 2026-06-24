@@ -1,5 +1,5 @@
 use crate::{
-    backend::DesktopBackend,
+    backend::{BackendError, DesktopBackend},
     shell_regions,
     state::{FocusedField, ShellState, UiThread, extract_thread_id},
     theme::colors,
@@ -103,8 +103,9 @@ impl AppShell {
                 "approvalPolicy": {"preset": "on-request"}
             });
             let result = backend
-                .rpc_value(methods::CODEX_THREAD_START, payload)
-                .await;
+                .rpc_value_task(methods::CODEX_THREAD_START, payload)
+                .await
+                .unwrap_or_else(|error| Err(BackendError::join(error)));
             this.update(cx, |this, cx| {
                 this.state.is_loading = false;
                 match result {
@@ -151,8 +152,9 @@ impl AppShell {
                 default_model_selection: None,
             };
             let result = backend
-                .rpc::<_, Project>(methods::PROJECTS_ADD, request)
-                .await;
+                .rpc_task::<_, Project>(methods::PROJECTS_ADD, request)
+                .await
+                .unwrap_or_else(|error| Err(BackendError::join(error)));
             this.update(cx, |this, cx| {
                 this.state.is_loading = false;
                 match result {
@@ -192,7 +194,10 @@ impl AppShell {
                 "prompt": prompt,
                 "model": "gpt-5.5",
             });
-            let result = backend.rpc_value(methods::CODEX_TURN_START, payload).await;
+            let result = backend
+                .rpc_value_task(methods::CODEX_TURN_START, payload)
+                .await
+                .unwrap_or_else(|error| Err(BackendError::join(error)));
             this.update(cx, |this, cx| {
                 this.state.is_sending = false;
                 match result {
@@ -251,11 +256,13 @@ impl AppShell {
         let backend = self.backend.clone();
         cx.spawn(async move |this: gpui::WeakEntity<AppShell>, cx| {
             let projects = backend
-                .rpc::<_, Vec<Project>>(methods::PROJECTS_LIST, ProjectListRequest {})
-                .await;
+                .rpc_task::<_, Vec<Project>>(methods::PROJECTS_LIST, ProjectListRequest {})
+                .await
+                .unwrap_or_else(|error| Err(BackendError::join(error)));
             let threads = backend
-                .rpc_value(methods::CODEX_THREADS_LIST, json!({ "limit": 80 }))
-                .await;
+                .rpc_value_task(methods::CODEX_THREADS_LIST, json!({ "limit": 80 }))
+                .await
+                .unwrap_or_else(|error| Err(BackendError::join(error)));
             this.update(cx, |this, cx| {
                 this.state.is_loading = false;
                 match projects {
@@ -282,11 +289,12 @@ impl AppShell {
         let backend = self.backend.clone();
         cx.spawn(async move |this: gpui::WeakEntity<AppShell>, cx| {
             let result = backend
-                .rpc_value(
+                .rpc_value_task(
                     methods::CODEX_THREAD_READ,
                     json!({ "thread_id": thread_id }),
                 )
-                .await;
+                .await
+                .unwrap_or_else(|error| Err(BackendError::join(error)));
             this.update(cx, |this, cx| {
                 match result {
                     Ok(value) => this.state.apply_thread_read(&value),

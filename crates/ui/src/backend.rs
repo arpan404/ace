@@ -7,7 +7,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::runtime::Handle;
+use tokio::{runtime::Handle, task::JoinError, task::JoinHandle};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
@@ -36,14 +36,33 @@ impl DesktopBackend {
         }
     }
 
-    pub fn spawn<T>(
-        &self,
-        task: impl Future<Output = T> + Send + 'static,
-    ) -> tokio::task::JoinHandle<T>
+    pub fn spawn<T>(&self, task: impl Future<Output = T> + Send + 'static) -> JoinHandle<T>
     where
         T: Send + 'static,
     {
         self.inner.runtime.spawn(task)
+    }
+
+    pub fn rpc_task<P, T>(
+        &self,
+        method: &'static str,
+        payload: P,
+    ) -> JoinHandle<Result<T, BackendError>>
+    where
+        P: Serialize + Send + 'static,
+        T: DeserializeOwned + Send + 'static,
+    {
+        let backend = self.clone();
+        self.spawn(async move { backend.rpc(method, payload).await })
+    }
+
+    pub fn rpc_value_task(
+        &self,
+        method: &'static str,
+        payload: Value,
+    ) -> JoinHandle<Result<Value, BackendError>> {
+        let backend = self.clone();
+        self.spawn(async move { backend.rpc_value(method, payload).await })
     }
 
     pub async fn rpc<P, T>(&self, method: &str, payload: P) -> Result<T, BackendError>
@@ -106,6 +125,13 @@ impl BackendError {
         Self {
             code: code.to_owned(),
             message,
+        }
+    }
+
+    pub fn join(error: JoinError) -> Self {
+        Self {
+            code: "runtime_task".to_owned(),
+            message: error.to_string(),
         }
     }
 
