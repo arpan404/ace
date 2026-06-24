@@ -2857,6 +2857,21 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .config_mcp_server_reload(params)
                 .await
                 .map_err(WsDispatchError::from),
+            "collaborationMode/list" => self
+                .codex
+                .collaboration_mode_list(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "environment/add" => self
+                .codex
+                .environment_add(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "memory/reset" => self
+                .codex
+                .memory_reset(params)
+                .await
+                .map_err(WsDispatchError::from),
             "experimentalFeature/list" => self
                 .codex
                 .experimental_feature_list(params)

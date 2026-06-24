@@ -1556,6 +1556,30 @@ impl CodexLiveClient {
         }
     }
 
+    pub async fn collaboration_mode_list(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.collaboration_mode_list(params).await,
+            Self::UnixSocket(client) => client.collaboration_mode_list(params).await,
+            Self::WebSocket(client) => client.collaboration_mode_list(params).await,
+        }
+    }
+
+    pub async fn environment_add(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.environment_add(params).await,
+            Self::UnixSocket(client) => client.environment_add(params).await,
+            Self::WebSocket(client) => client.environment_add(params).await,
+        }
+    }
+
+    pub async fn memory_reset(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.memory_reset(params).await,
+            Self::UnixSocket(client) => client.memory_reset(params).await,
+            Self::WebSocket(client) => client.memory_reset(params).await,
+        }
+    }
+
     pub async fn experimental_feature_list(&self, params: Value) -> Result<Value> {
         match self {
             Self::Stdio(client) => client.experimental_feature_list(params).await,
@@ -2400,6 +2424,18 @@ impl<T: AppServerTransport> CodexClient<T> {
 
     pub async fn config_mcp_server_reload(&self, params: Value) -> Result<Value> {
         self.raw_request("config/mcpServer/reload", params).await
+    }
+
+    pub async fn collaboration_mode_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("collaborationMode/list", params).await
+    }
+
+    pub async fn environment_add(&self, params: Value) -> Result<Value> {
+        self.raw_request("environment/add", params).await
+    }
+
+    pub async fn memory_reset(&self, params: Value) -> Result<Value> {
+        self.raw_request("memory/reset", params).await
     }
 
     pub async fn experimental_feature_list(&self, params: Value) -> Result<Value> {

@@ -454,6 +454,9 @@ pub trait CodexBackend: Send + Sync {
     async fn config_value_write(&self, params: Value) -> Result<Value>;
     async fn config_batch_write(&self, params: Value) -> Result<Value>;
     async fn config_mcp_server_reload(&self, params: Value) -> Result<Value>;
+    async fn collaboration_mode_list(&self, params: Value) -> Result<Value>;
+    async fn environment_add(&self, params: Value) -> Result<Value>;
+    async fn memory_reset(&self, params: Value) -> Result<Value>;
     async fn experimental_feature_list(&self, params: Value) -> Result<Value>;
     async fn experimental_feature_enablement_set(&self, params: Value) -> Result<Value>;
     async fn external_agent_config_detect(&self, params: Value) -> Result<Value>;
@@ -1093,6 +1096,18 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn config_mcp_server_reload(&self, params: Value) -> Result<Value> {
         self.client().await?.config_mcp_server_reload(params).await
+    }
+
+    async fn collaboration_mode_list(&self, params: Value) -> Result<Value> {
+        self.client().await?.collaboration_mode_list(params).await
+    }
+
+    async fn environment_add(&self, params: Value) -> Result<Value> {
+        self.client().await?.environment_add(params).await
+    }
+
+    async fn memory_reset(&self, params: Value) -> Result<Value> {
+        self.client().await?.memory_reset(params).await
     }
 
     async fn experimental_feature_list(&self, params: Value) -> Result<Value> {
@@ -2135,6 +2150,24 @@ impl CodexService {
         params: Value,
     ) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.config_mcp_server_reload(params).await?)
+    }
+
+    pub async fn collaboration_mode_list(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.collaboration_mode_list(params).await?)
+    }
+
+    pub async fn environment_add(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.environment_add(params).await?)
+    }
+
+    pub async fn memory_reset(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.memory_reset(params).await?)
     }
 
     pub async fn experimental_feature_list(
@@ -3956,6 +3989,18 @@ pub mod tests {
             self.raw_request("config/mcpServer/reload", params).await
         }
 
+        async fn collaboration_mode_list(&self, params: Value) -> Result<Value> {
+            self.raw_request("collaborationMode/list", params).await
+        }
+
+        async fn environment_add(&self, params: Value) -> Result<Value> {
+            self.raw_request("environment/add", params).await
+        }
+
+        async fn memory_reset(&self, params: Value) -> Result<Value> {
+            self.raw_request("memory/reset", params).await
+        }
+
         async fn experimental_feature_list(&self, params: Value) -> Result<Value> {
             self.raw_request("experimentalFeature/list", params).await
         }
@@ -5163,6 +5208,18 @@ pub mod tests {
             .await
             .expect("mcp reload");
         service
+            .collaboration_mode_list(serde_json::json!({}))
+            .await
+            .expect("collaboration mode list");
+        service
+            .environment_add(serde_json::json!({ "name": "local" }))
+            .await
+            .expect("environment add");
+        service
+            .memory_reset(serde_json::json!({ "threadId": "thread-1" }))
+            .await
+            .expect("memory reset");
+        service
             .experimental_feature_list(serde_json::json!({}))
             .await
             .expect("experimental feature list");
@@ -5310,6 +5367,9 @@ pub mod tests {
                 "config/value/write",
                 "config/batchWrite",
                 "config/mcpServer/reload",
+                "collaborationMode/list",
+                "environment/add",
+                "memory/reset",
                 "experimentalFeature/list",
                 "experimentalFeature/enablement/set",
                 "externalAgentConfig/detect",
