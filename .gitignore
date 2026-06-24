@@ -1,4 +1,5 @@
 target/
+apps/desktop-swift/.build/
 .reference/
 .DS_Store
 *.log

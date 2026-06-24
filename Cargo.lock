@@ -3,6 +3,19 @@
 version = 4
 
 [[package]]
+name = "ace-backend"
+version = "0.1.0"
+dependencies = [
+ "ace-platform",
+ "ace-server",
+ "axum",
+ "clap",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ace-checkpoint"
 version = "0.1.0"
 dependencies = [
