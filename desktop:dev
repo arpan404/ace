@@ -6,8 +6,6 @@ PORT="${ACE_PORT:-3773}"
 HOST="127.0.0.1"
 BACKEND_PID=""
 STARTED_BACKEND=0
-DESKTOP_DIR="${ROOT_DIR}/apps/desktop"
-INJECTION_ROOT="${ACE_INJECTION_DIRECTORIES:-${DESKTOP_DIR}/Sources}"
 
 cleanup() {
   if [[ "${STARTED_BACKEND}" == "1" && -n "${BACKEND_PID}" ]]; then
@@ -20,9 +18,10 @@ trap cleanup EXIT INT TERM
 
 cd "${ROOT_DIR}"
 
-if nc -z "${HOST}" "${PORT}" >/dev/null 2>&1; then
-  echo "ace backend already listening on ${HOST}:${PORT}"
-else
+if [[ "${ACE_START_BACKEND:-0}" == "1" || "${ACE_START_BACKEND:-0}" == "true" ]]; then
+  if nc -z "${HOST}" "${PORT}" >/dev/null 2>&1; then
+    echo "ace backend already listening on ${HOST}:${PORT}"
+  else
   backend_args=(--port "${PORT}")
   if [[ "${ACE_LAN:-}" == "1" || "${ACE_LAN:-}" == "true" ]]; then
     backend_args+=(--lan)
@@ -41,14 +40,8 @@ else
     fi
     sleep 0.1
   done
+  fi
 fi
 
-export INJECTION_DIRECTORIES="${INJECTION_ROOT}"
-export ACE_HOT_RELOAD="${ACE_HOT_RELOAD:-1}"
-
-echo "starting AceDesktop with SwiftUI hot reload watching ${INJECTION_DIRECTORIES}"
-swift run \
-  --package-path "${DESKTOP_DIR}" \
-  -c debug \
-  -Xlinker -interposable \
-  AceDesktop
+echo "starting Ace Desktop (Rust GPUI)"
+CARGO_INCREMENTAL=0 cargo run -p ace-desktop

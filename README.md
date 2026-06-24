@@ -1,7 +1,8 @@
 # ace
 
-ace is being rebuilt as a native Rust monorepo with a SwiftUI desktop app, a
-local runtime/server, and a protocol designed for future mobile clients.
+ace is being rebuilt as a Rust-first monorepo with a native GPUI desktop app,
+an in-process runtime for desktop, and a WebSocket protocol reserved for future
+mobile and remote clients.
 
 The previous TypeScript/Bun implementation lives in `.old/ts-port/` as
 reference-only material. It is not the architecture or code-quality standard for
@@ -9,16 +10,18 @@ new Rust work.
 
 ## Development
 
-Run the desktop development app and local Rust backend together:
+Run the Rust GPUI desktop development app:
 
 ```bash
 ./desktop:dev
 ```
 
-`desktop:dev` launches the SwiftUI desktop in Debug with InjectionIII-compatible
-hot reload enabled. Install InjectionIII at `/Applications/InjectionIII.app` for
-live SwiftUI body/method injection while the app is running; without it, the app
-still launches normally.
+`desktop:dev` launches `ace-desktop` directly. It does not start the standalone
+backend unless remote/mobile WebSocket testing is explicitly requested:
+
+```bash
+ACE_START_BACKEND=1 ./desktop:dev
+```
 
 The same launcher is also exposed as a package script:
 
@@ -29,7 +32,7 @@ npm run desktop:dev
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo test --workspace --all-targets
 cargo check --workspace
 ```
 
