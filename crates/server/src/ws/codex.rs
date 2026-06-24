@@ -2501,6 +2501,61 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     .await
                     .map_err(WsDispatchError::from)
             }
+            "thread/shellCommand" => self
+                .codex
+                .thread_shell_command(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "command/exec" => self
+                .codex
+                .command_exec(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "command/exec/write" => self
+                .codex
+                .command_write_stdin(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "command/exec/resize" => self
+                .codex
+                .command_resize(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "command/exec/terminate" => self
+                .codex
+                .command_terminate(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "process/list" => self
+                .codex
+                .process_list(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "process/clean" => self
+                .codex
+                .process_clean(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "mcpServerStatus/list" => self
+                .codex
+                .mcp_status(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "mcpServer/resource/read" => self
+                .codex
+                .mcp_resource_read(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "mcpServer/oauth/login" => self
+                .codex
+                .mcp_oauth_login(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "mcpServer/tool/call" => self
+                .codex
+                .mcp_tool_call(params)
+                .await
+                .map_err(WsDispatchError::from),
             "skills/list" => {
                 let request = serde_json::from_value::<CodexNamedQueryRequest>(params)?;
                 self.codex

@@ -1047,6 +1047,94 @@ impl CodexLiveClient {
         }
     }
 
+    pub async fn thread_shell_command(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.thread_shell_command(params).await,
+            Self::UnixSocket(client) => client.thread_shell_command(params).await,
+            Self::WebSocket(client) => client.thread_shell_command(params).await,
+        }
+    }
+
+    pub async fn command_exec(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.command_exec(params).await,
+            Self::UnixSocket(client) => client.command_exec(params).await,
+            Self::WebSocket(client) => client.command_exec(params).await,
+        }
+    }
+
+    pub async fn command_write_stdin(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.command_write_stdin(params).await,
+            Self::UnixSocket(client) => client.command_write_stdin(params).await,
+            Self::WebSocket(client) => client.command_write_stdin(params).await,
+        }
+    }
+
+    pub async fn command_resize(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.command_resize(params).await,
+            Self::UnixSocket(client) => client.command_resize(params).await,
+            Self::WebSocket(client) => client.command_resize(params).await,
+        }
+    }
+
+    pub async fn command_terminate(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.command_terminate(params).await,
+            Self::UnixSocket(client) => client.command_terminate(params).await,
+            Self::WebSocket(client) => client.command_terminate(params).await,
+        }
+    }
+
+    pub async fn process_list(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.process_list(params).await,
+            Self::UnixSocket(client) => client.process_list(params).await,
+            Self::WebSocket(client) => client.process_list(params).await,
+        }
+    }
+
+    pub async fn process_clean(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.process_clean(params).await,
+            Self::UnixSocket(client) => client.process_clean(params).await,
+            Self::WebSocket(client) => client.process_clean(params).await,
+        }
+    }
+
+    pub async fn mcp_status(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.mcp_status(params).await,
+            Self::UnixSocket(client) => client.mcp_status(params).await,
+            Self::WebSocket(client) => client.mcp_status(params).await,
+        }
+    }
+
+    pub async fn mcp_resource_read(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.mcp_resource_read(params).await,
+            Self::UnixSocket(client) => client.mcp_resource_read(params).await,
+            Self::WebSocket(client) => client.mcp_resource_read(params).await,
+        }
+    }
+
+    pub async fn mcp_oauth_login(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.mcp_oauth_login(params).await,
+            Self::UnixSocket(client) => client.mcp_oauth_login(params).await,
+            Self::WebSocket(client) => client.mcp_oauth_login(params).await,
+        }
+    }
+
+    pub async fn mcp_tool_call(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.mcp_tool_call(params).await,
+            Self::UnixSocket(client) => client.mcp_tool_call(params).await,
+            Self::WebSocket(client) => client.mcp_tool_call(params).await,
+        }
+    }
+
     pub async fn skills_list(&self, request: CodexNamedQuery) -> Result<Value> {
         match self {
             Self::Stdio(client) => client.skills_list(request).await,

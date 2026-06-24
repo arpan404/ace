@@ -388,6 +388,17 @@ pub trait CodexBackend: Send + Sync {
     async fn subagent_close(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value>;
     async fn handoff_to_agent(&self, request: CodexHandoffToAgent) -> Result<Value>;
     async fn review_start(&self, request: CodexReviewStart) -> Result<Value>;
+    async fn thread_shell_command(&self, params: Value) -> Result<Value>;
+    async fn command_exec(&self, params: Value) -> Result<Value>;
+    async fn command_write_stdin(&self, params: Value) -> Result<Value>;
+    async fn command_resize(&self, params: Value) -> Result<Value>;
+    async fn command_terminate(&self, params: Value) -> Result<Value>;
+    async fn process_list(&self, params: Value) -> Result<Value>;
+    async fn process_clean(&self, params: Value) -> Result<Value>;
+    async fn mcp_status(&self, params: Value) -> Result<Value>;
+    async fn mcp_resource_read(&self, params: Value) -> Result<Value>;
+    async fn mcp_oauth_login(&self, params: Value) -> Result<Value>;
+    async fn mcp_tool_call(&self, params: Value) -> Result<Value>;
     async fn skills_list(&self, request: CodexNamedQuery) -> Result<Value>;
     async fn skills_read(&self, request: CodexSkillRequest) -> Result<Value>;
     async fn skills_install(&self, request: CodexSkillRequest) -> Result<Value>;
@@ -744,6 +755,50 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn review_start(&self, request: CodexReviewStart) -> Result<Value> {
         self.client().await?.review_start(request).await
+    }
+
+    async fn thread_shell_command(&self, params: Value) -> Result<Value> {
+        self.client().await?.thread_shell_command(params).await
+    }
+
+    async fn command_exec(&self, params: Value) -> Result<Value> {
+        self.client().await?.command_exec(params).await
+    }
+
+    async fn command_write_stdin(&self, params: Value) -> Result<Value> {
+        self.client().await?.command_write_stdin(params).await
+    }
+
+    async fn command_resize(&self, params: Value) -> Result<Value> {
+        self.client().await?.command_resize(params).await
+    }
+
+    async fn command_terminate(&self, params: Value) -> Result<Value> {
+        self.client().await?.command_terminate(params).await
+    }
+
+    async fn process_list(&self, params: Value) -> Result<Value> {
+        self.client().await?.process_list(params).await
+    }
+
+    async fn process_clean(&self, params: Value) -> Result<Value> {
+        self.client().await?.process_clean(params).await
+    }
+
+    async fn mcp_status(&self, params: Value) -> Result<Value> {
+        self.client().await?.mcp_status(params).await
+    }
+
+    async fn mcp_resource_read(&self, params: Value) -> Result<Value> {
+        self.client().await?.mcp_resource_read(params).await
+    }
+
+    async fn mcp_oauth_login(&self, params: Value) -> Result<Value> {
+        self.client().await?.mcp_oauth_login(params).await
+    }
+
+    async fn mcp_tool_call(&self, params: Value) -> Result<Value> {
+        self.client().await?.mcp_tool_call(params).await
     }
 
     async fn skills_list(&self, request: CodexNamedQuery) -> Result<Value> {
@@ -1308,6 +1363,65 @@ impl CodexService {
         let response = self.backend.review_start(request).await?;
         self.state.lock().await.set_review_mode(&thread_id, true);
         Ok(response)
+    }
+
+    pub async fn thread_shell_command(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.thread_shell_command(params).await?)
+    }
+
+    pub async fn command_exec(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.command_exec(params).await?)
+    }
+
+    pub async fn command_write_stdin(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.command_write_stdin(params).await?)
+    }
+
+    pub async fn command_resize(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.command_resize(params).await?)
+    }
+
+    pub async fn command_terminate(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.command_terminate(params).await?)
+    }
+
+    pub async fn process_list(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.process_list(params).await?)
+    }
+
+    pub async fn process_clean(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.process_clean(params).await?)
+    }
+
+    pub async fn mcp_status(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.mcp_status(params).await?)
+    }
+
+    pub async fn mcp_resource_read(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.mcp_resource_read(params).await?)
+    }
+
+    pub async fn mcp_oauth_login(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.mcp_oauth_login(params).await?)
+    }
+
+    pub async fn mcp_tool_call(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.mcp_tool_call(params).await?)
     }
 
     pub async fn skills_list(
@@ -2778,6 +2892,50 @@ pub mod tests {
             }))
         }
 
+        async fn thread_shell_command(&self, params: Value) -> Result<Value> {
+            self.raw_request("thread/shellCommand", params).await
+        }
+
+        async fn command_exec(&self, params: Value) -> Result<Value> {
+            self.raw_request("command/exec", params).await
+        }
+
+        async fn command_write_stdin(&self, params: Value) -> Result<Value> {
+            self.raw_request("command/exec/write", params).await
+        }
+
+        async fn command_resize(&self, params: Value) -> Result<Value> {
+            self.raw_request("command/exec/resize", params).await
+        }
+
+        async fn command_terminate(&self, params: Value) -> Result<Value> {
+            self.raw_request("command/exec/terminate", params).await
+        }
+
+        async fn process_list(&self, params: Value) -> Result<Value> {
+            self.raw_request("process/list", params).await
+        }
+
+        async fn process_clean(&self, params: Value) -> Result<Value> {
+            self.raw_request("process/clean", params).await
+        }
+
+        async fn mcp_status(&self, params: Value) -> Result<Value> {
+            self.raw_request("mcpServerStatus/list", params).await
+        }
+
+        async fn mcp_resource_read(&self, params: Value) -> Result<Value> {
+            self.raw_request("mcpServer/resource/read", params).await
+        }
+
+        async fn mcp_oauth_login(&self, params: Value) -> Result<Value> {
+            self.raw_request("mcpServer/oauth/login", params).await
+        }
+
+        async fn mcp_tool_call(&self, params: Value) -> Result<Value> {
+            self.raw_request("mcpServer/tool/call", params).await
+        }
+
         async fn skills_list(&self, request: CodexNamedQuery) -> Result<Value> {
             self.raw_request("skills/list", serde_json::to_value(request)?)
                 .await
@@ -3736,6 +3894,77 @@ pub mod tests {
                 "thread/goal/set:thread-1:paused",
                 "thread/goal/set:thread-1:active",
                 "thread/goal/clear:thread-1",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_runs_command_process_and_mcp_tools_through_backend() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let service = CodexService::new(backend.clone());
+
+        service
+            .thread_shell_command(serde_json::json!({
+                "threadId": "thread-1",
+                "command": "pwd"
+            }))
+            .await
+            .expect("thread shell command");
+        service
+            .command_exec(serde_json::json!({ "command": "cargo test" }))
+            .await
+            .expect("command exec");
+        service
+            .command_write_stdin(serde_json::json!({ "processId": "proc-1", "stdin": "q" }))
+            .await
+            .expect("stdin");
+        service
+            .command_resize(serde_json::json!({ "processId": "proc-1", "cols": 120, "rows": 40 }))
+            .await
+            .expect("resize");
+        service
+            .command_terminate(serde_json::json!({ "processId": "proc-1" }))
+            .await
+            .expect("terminate");
+        service
+            .process_list(serde_json::json!({}))
+            .await
+            .expect("process list");
+        service
+            .process_clean(serde_json::json!({}))
+            .await
+            .expect("process clean");
+        service
+            .mcp_status(serde_json::json!({}))
+            .await
+            .expect("mcp status");
+        service
+            .mcp_resource_read(serde_json::json!({ "server": "docs", "uri": "file://readme" }))
+            .await
+            .expect("mcp resource read");
+        service
+            .mcp_oauth_login(serde_json::json!({ "server": "github" }))
+            .await
+            .expect("mcp oauth login");
+        service
+            .mcp_tool_call(serde_json::json!({ "server": "github", "tool": "list_issues" }))
+            .await
+            .expect("mcp tool call");
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "thread/shellCommand",
+                "command/exec",
+                "command/exec/write",
+                "command/exec/resize",
+                "command/exec/terminate",
+                "process/list",
+                "process/clean",
+                "mcpServerStatus/list",
+                "mcpServer/resource/read",
+                "mcpServer/oauth/login",
+                "mcpServer/tool/call",
             ]
         );
     }
