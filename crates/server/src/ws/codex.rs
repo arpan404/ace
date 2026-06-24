@@ -2536,6 +2536,51 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .process_clean(params)
                 .await
                 .map_err(WsDispatchError::from),
+            "fs/readFile" => self
+                .codex
+                .fs_read_file(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "fs/writeFile" => self
+                .codex
+                .fs_write_file(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "fs/readDirectory" => self
+                .codex
+                .fs_read_directory(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "fs/createDirectory" => self
+                .codex
+                .fs_create_directory(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "fs/copy" => self
+                .codex
+                .fs_copy(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "fs/remove" => self
+                .codex
+                .fs_remove(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "fs/getMetadata" => self
+                .codex
+                .fs_metadata(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "fs/watch" => self
+                .codex
+                .fs_watch(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "fs/unwatch" => self
+                .codex
+                .fs_unwatch(params)
+                .await
+                .map_err(WsDispatchError::from),
             "mcpServerStatus/list" => self
                 .codex
                 .mcp_status(params)

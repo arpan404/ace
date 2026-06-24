@@ -395,6 +395,15 @@ pub trait CodexBackend: Send + Sync {
     async fn command_terminate(&self, params: Value) -> Result<Value>;
     async fn process_list(&self, params: Value) -> Result<Value>;
     async fn process_clean(&self, params: Value) -> Result<Value>;
+    async fn fs_read_file(&self, params: Value) -> Result<Value>;
+    async fn fs_write_file(&self, params: Value) -> Result<Value>;
+    async fn fs_read_directory(&self, params: Value) -> Result<Value>;
+    async fn fs_create_directory(&self, params: Value) -> Result<Value>;
+    async fn fs_copy(&self, params: Value) -> Result<Value>;
+    async fn fs_remove(&self, params: Value) -> Result<Value>;
+    async fn fs_metadata(&self, params: Value) -> Result<Value>;
+    async fn fs_watch(&self, params: Value) -> Result<Value>;
+    async fn fs_unwatch(&self, params: Value) -> Result<Value>;
     async fn mcp_status(&self, params: Value) -> Result<Value>;
     async fn mcp_resource_read(&self, params: Value) -> Result<Value>;
     async fn mcp_oauth_login(&self, params: Value) -> Result<Value>;
@@ -783,6 +792,42 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn process_clean(&self, params: Value) -> Result<Value> {
         self.client().await?.process_clean(params).await
+    }
+
+    async fn fs_read_file(&self, params: Value) -> Result<Value> {
+        self.client().await?.fs_read_file(params).await
+    }
+
+    async fn fs_write_file(&self, params: Value) -> Result<Value> {
+        self.client().await?.fs_write_file(params).await
+    }
+
+    async fn fs_read_directory(&self, params: Value) -> Result<Value> {
+        self.client().await?.fs_read_directory(params).await
+    }
+
+    async fn fs_create_directory(&self, params: Value) -> Result<Value> {
+        self.client().await?.fs_create_directory(params).await
+    }
+
+    async fn fs_copy(&self, params: Value) -> Result<Value> {
+        self.client().await?.fs_copy(params).await
+    }
+
+    async fn fs_remove(&self, params: Value) -> Result<Value> {
+        self.client().await?.fs_remove(params).await
+    }
+
+    async fn fs_metadata(&self, params: Value) -> Result<Value> {
+        self.client().await?.fs_metadata(params).await
+    }
+
+    async fn fs_watch(&self, params: Value) -> Result<Value> {
+        self.client().await?.fs_watch(params).await
+    }
+
+    async fn fs_unwatch(&self, params: Value) -> Result<Value> {
+        self.client().await?.fs_unwatch(params).await
     }
 
     async fn mcp_status(&self, params: Value) -> Result<Value> {
@@ -1400,6 +1445,48 @@ impl CodexService {
 
     pub async fn process_clean(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.process_clean(params).await?)
+    }
+
+    pub async fn fs_read_file(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fs_read_file(params).await?)
+    }
+
+    pub async fn fs_write_file(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fs_write_file(params).await?)
+    }
+
+    pub async fn fs_read_directory(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fs_read_directory(params).await?)
+    }
+
+    pub async fn fs_create_directory(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fs_create_directory(params).await?)
+    }
+
+    pub async fn fs_copy(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fs_copy(params).await?)
+    }
+
+    pub async fn fs_remove(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fs_remove(params).await?)
+    }
+
+    pub async fn fs_metadata(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fs_metadata(params).await?)
+    }
+
+    pub async fn fs_watch(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fs_watch(params).await?)
+    }
+
+    pub async fn fs_unwatch(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fs_unwatch(params).await?)
     }
 
     pub async fn mcp_status(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
@@ -2920,6 +3007,42 @@ pub mod tests {
             self.raw_request("process/clean", params).await
         }
 
+        async fn fs_read_file(&self, params: Value) -> Result<Value> {
+            self.raw_request("fs/readFile", params).await
+        }
+
+        async fn fs_write_file(&self, params: Value) -> Result<Value> {
+            self.raw_request("fs/writeFile", params).await
+        }
+
+        async fn fs_read_directory(&self, params: Value) -> Result<Value> {
+            self.raw_request("fs/readDirectory", params).await
+        }
+
+        async fn fs_create_directory(&self, params: Value) -> Result<Value> {
+            self.raw_request("fs/createDirectory", params).await
+        }
+
+        async fn fs_copy(&self, params: Value) -> Result<Value> {
+            self.raw_request("fs/copy", params).await
+        }
+
+        async fn fs_remove(&self, params: Value) -> Result<Value> {
+            self.raw_request("fs/remove", params).await
+        }
+
+        async fn fs_metadata(&self, params: Value) -> Result<Value> {
+            self.raw_request("fs/getMetadata", params).await
+        }
+
+        async fn fs_watch(&self, params: Value) -> Result<Value> {
+            self.raw_request("fs/watch", params).await
+        }
+
+        async fn fs_unwatch(&self, params: Value) -> Result<Value> {
+            self.raw_request("fs/unwatch", params).await
+        }
+
         async fn mcp_status(&self, params: Value) -> Result<Value> {
             self.raw_request("mcpServerStatus/list", params).await
         }
@@ -3935,6 +4058,42 @@ pub mod tests {
             .await
             .expect("process clean");
         service
+            .fs_read_file(serde_json::json!({ "path": "src/lib.rs" }))
+            .await
+            .expect("fs read file");
+        service
+            .fs_write_file(serde_json::json!({ "path": "src/lib.rs", "contents": "pub fn x() {}" }))
+            .await
+            .expect("fs write file");
+        service
+            .fs_read_directory(serde_json::json!({ "path": "src" }))
+            .await
+            .expect("fs read directory");
+        service
+            .fs_create_directory(serde_json::json!({ "path": "src/generated" }))
+            .await
+            .expect("fs create directory");
+        service
+            .fs_copy(serde_json::json!({ "fromPath": "src/lib.rs", "toPath": "src/lib.copy.rs" }))
+            .await
+            .expect("fs copy");
+        service
+            .fs_remove(serde_json::json!({ "path": "src/lib.copy.rs" }))
+            .await
+            .expect("fs remove");
+        service
+            .fs_metadata(serde_json::json!({ "path": "src/lib.rs" }))
+            .await
+            .expect("fs metadata");
+        service
+            .fs_watch(serde_json::json!({ "path": "src" }))
+            .await
+            .expect("fs watch");
+        service
+            .fs_unwatch(serde_json::json!({ "path": "src" }))
+            .await
+            .expect("fs unwatch");
+        service
             .mcp_status(serde_json::json!({}))
             .await
             .expect("mcp status");
@@ -3961,6 +4120,15 @@ pub mod tests {
                 "command/exec/terminate",
                 "process/list",
                 "process/clean",
+                "fs/readFile",
+                "fs/writeFile",
+                "fs/readDirectory",
+                "fs/createDirectory",
+                "fs/copy",
+                "fs/remove",
+                "fs/getMetadata",
+                "fs/watch",
+                "fs/unwatch",
                 "mcpServerStatus/list",
                 "mcpServer/resource/read",
                 "mcpServer/oauth/login",

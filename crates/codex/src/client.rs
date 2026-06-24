@@ -1103,6 +1103,78 @@ impl CodexLiveClient {
         }
     }
 
+    pub async fn fs_read_file(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fs_read_file(params).await,
+            Self::UnixSocket(client) => client.fs_read_file(params).await,
+            Self::WebSocket(client) => client.fs_read_file(params).await,
+        }
+    }
+
+    pub async fn fs_write_file(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fs_write_file(params).await,
+            Self::UnixSocket(client) => client.fs_write_file(params).await,
+            Self::WebSocket(client) => client.fs_write_file(params).await,
+        }
+    }
+
+    pub async fn fs_read_directory(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fs_read_directory(params).await,
+            Self::UnixSocket(client) => client.fs_read_directory(params).await,
+            Self::WebSocket(client) => client.fs_read_directory(params).await,
+        }
+    }
+
+    pub async fn fs_create_directory(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fs_create_directory(params).await,
+            Self::UnixSocket(client) => client.fs_create_directory(params).await,
+            Self::WebSocket(client) => client.fs_create_directory(params).await,
+        }
+    }
+
+    pub async fn fs_copy(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fs_copy(params).await,
+            Self::UnixSocket(client) => client.fs_copy(params).await,
+            Self::WebSocket(client) => client.fs_copy(params).await,
+        }
+    }
+
+    pub async fn fs_remove(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fs_remove(params).await,
+            Self::UnixSocket(client) => client.fs_remove(params).await,
+            Self::WebSocket(client) => client.fs_remove(params).await,
+        }
+    }
+
+    pub async fn fs_metadata(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fs_metadata(params).await,
+            Self::UnixSocket(client) => client.fs_metadata(params).await,
+            Self::WebSocket(client) => client.fs_metadata(params).await,
+        }
+    }
+
+    pub async fn fs_watch(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fs_watch(params).await,
+            Self::UnixSocket(client) => client.fs_watch(params).await,
+            Self::WebSocket(client) => client.fs_watch(params).await,
+        }
+    }
+
+    pub async fn fs_unwatch(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fs_unwatch(params).await,
+            Self::UnixSocket(client) => client.fs_unwatch(params).await,
+            Self::WebSocket(client) => client.fs_unwatch(params).await,
+        }
+    }
+
     pub async fn mcp_status(&self, params: Value) -> Result<Value> {
         match self {
             Self::Stdio(client) => client.mcp_status(params).await,
