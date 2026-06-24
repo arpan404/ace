@@ -1026,6 +1026,18 @@ fn token_usage_u64(value: &serde_json::Value, keys: &[&str]) -> Option<u64> {
     })
 }
 
+fn normalize_model_reroute_reason(reason: &str) -> String {
+    let normalized = reason.trim().to_ascii_lowercase().replace(['-', ' '], "_");
+    match normalized.as_str() {
+        "context" | "context_window" | "context_limit" | "context_length" => {
+            "context_limit".to_string()
+        }
+        "rate" | "rate_limit" | "quota" | "capacity" => "capacity".to_string(),
+        "policy" | "safety" | "moderation" => "policy".to_string(),
+        _ => normalized,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderRuntimeFeaturesListRequest {
     pub provider: Option<String>,
@@ -1288,6 +1300,7 @@ pub struct ProviderRuntimeStateSummary {
     pub process_exits: usize,
     pub warnings: usize,
     pub model_reroutes: usize,
+    pub model_reroutes_with_reason: usize,
     pub provider_states: usize,
     pub remote_connections: usize,
     pub remote_host_connections: usize,
@@ -1337,6 +1350,12 @@ pub struct ProviderRuntimeStateSummary {
     pub by_remote_connection_status: Vec<ProviderRuntimeOperationCount>,
     #[serde(default)]
     pub by_remote_connection_location: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_model_reroute_from: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_model_reroute_to: Vec<ProviderRuntimeOperationCount>,
+    #[serde(default)]
+    pub by_model_reroute_reason: Vec<ProviderRuntimeOperationCount>,
 }
 
 impl ProviderRuntimeStateSummary {
@@ -1359,6 +1378,9 @@ impl ProviderRuntimeStateSummary {
         let mut by_subagent_action = BTreeMap::new();
         let mut by_remote_connection_status = BTreeMap::new();
         let mut by_remote_connection_location = BTreeMap::new();
+        let mut by_model_reroute_from = BTreeMap::new();
+        let mut by_model_reroute_to = BTreeMap::new();
+        let mut by_model_reroute_reason = BTreeMap::new();
         let mut summary = Self {
             threads: snapshot.threads.len(),
             active_threads: snapshot
@@ -1597,6 +1619,21 @@ impl ProviderRuntimeStateSummary {
         for action in &snapshot.subagent_actions {
             increment_count(&mut by_subagent_action, enum_key(&action.action));
         }
+        for reroute in &snapshot.model_reroutes {
+            if let Some(from_model) = reroute.from_model.as_deref() {
+                increment_count(&mut by_model_reroute_from, from_model.to_string());
+            }
+            if let Some(to_model) = reroute.to_model.as_deref() {
+                increment_count(&mut by_model_reroute_to, to_model.to_string());
+            }
+            if let Some(reason) = reroute.reason.as_deref() {
+                summary.model_reroutes_with_reason += 1;
+                increment_count(
+                    &mut by_model_reroute_reason,
+                    normalize_model_reroute_reason(reason),
+                );
+            }
+        }
         for connection in &snapshot.remote_connections {
             increment_count(
                 &mut by_remote_connection_location,
@@ -1636,6 +1673,9 @@ impl ProviderRuntimeStateSummary {
         summary.by_subagent_action = operation_counts(by_subagent_action);
         summary.by_remote_connection_status = operation_counts(by_remote_connection_status);
         summary.by_remote_connection_location = operation_counts(by_remote_connection_location);
+        summary.by_model_reroute_from = operation_counts(by_model_reroute_from);
+        summary.by_model_reroute_to = operation_counts(by_model_reroute_to);
+        summary.by_model_reroute_reason = operation_counts(by_model_reroute_reason);
         summary
     }
 }
@@ -3629,7 +3669,7 @@ mod tests {
     };
     use ace_runtime::threads::{
         AgentRuntimeSnapshot, AgentThread, ChildThreadRecord, ChildThreadRelationship,
-        ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus,
+        ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus, ModelRerouteRecord,
         PlanImplementationMode, PlanImplementationRecord, PlanSession, PlanSessionStatus,
         RealtimeAudioRecord, RealtimeTranscriptRecord, RemoteConnectionRecord, SubagentActionKind,
         SubagentActionRecord, TerminalOutputRecord, ThreadLifecycleActionKind,
@@ -4661,6 +4701,14 @@ mod tests {
                 chunks: vec!["audio-final".to_string()],
                 truncated_chunks: 3,
             }],
+            model_reroutes: vec![ModelRerouteRecord {
+                provider: "codex".to_string(),
+                thread_id: Some("thread-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                from_model: Some("gpt-5".to_string()),
+                to_model: Some("gpt-5-mini".to_string()),
+                reason: Some("context window".to_string()),
+            }],
             remote_connections: vec![
                 RemoteConnectionRecord {
                     provider: "codex".to_string(),
@@ -4787,6 +4835,8 @@ mod tests {
         assert_eq!(summary.realtime_audio, 1);
         assert_eq!(summary.truncated_realtime_audio, 1);
         assert_eq!(summary.realtime_audio_truncated_chunks, 3);
+        assert_eq!(summary.model_reroutes, 1);
+        assert_eq!(summary.model_reroutes_with_reason, 1);
         assert_eq!(summary.remote_connections, 2);
         assert_eq!(summary.remote_host_connections, 1);
         assert_eq!(summary.connected_remote_connections, 1);
@@ -4835,6 +4885,9 @@ mod tests {
             1
         );
         assert_eq!(count(&summary.by_remote_connection_location, "local"), 1);
+        assert_eq!(count(&summary.by_model_reroute_from, "gpt-5"), 1);
+        assert_eq!(count(&summary.by_model_reroute_to, "gpt-5-mini"), 1);
+        assert_eq!(count(&summary.by_model_reroute_reason, "context_limit"), 1);
     }
 
     #[test]

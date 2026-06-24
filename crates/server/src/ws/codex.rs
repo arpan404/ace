@@ -12955,6 +12955,40 @@ mod tests {
                     },
                     ProviderEvent::RuntimeSignal {
                         signal: Box::new(NormalizedRuntimeSignal {
+                            kind: RuntimeSignalKind::ModelRerouted,
+                            thread_id: Some("thread-1".to_string()),
+                            turn_id: Some("turn-1".to_string()),
+                            item_id: None,
+                            message: None,
+                            from_model: Some("gpt-5".to_string()),
+                            to_model: Some("gpt-5-mini".to_string()),
+                            reason: Some("rate limit".to_string()),
+                            text: None,
+                            audio: None,
+                            status: Some("rerouted".to_string()),
+                            name: None,
+                            active: None,
+                            archived: None,
+                            diff: None,
+                            files: None,
+                            process_id: None,
+                            exit_code: None,
+                            request_id: None,
+                            metadata: json!({ "reason": "rate limit" }),
+                            provider: ProviderMetadata {
+                                provider: "codex".to_string(),
+                                method: Some("model/rerouted".to_string()),
+                                schema_version: None,
+                                raw_payload: json!({
+                                    "fromModel": "gpt-5",
+                                    "toModel": "gpt-5-mini",
+                                    "reason": "rate limit"
+                                }),
+                            },
+                        }),
+                    },
+                    ProviderEvent::RuntimeSignal {
+                        signal: Box::new(NormalizedRuntimeSignal {
                             kind: RuntimeSignalKind::ProviderStateUpdated,
                             thread_id: None,
                             turn_id: None,
@@ -13073,6 +13107,8 @@ mod tests {
         assert_eq!(summary["token_usage_input_total"], 40);
         assert_eq!(summary["token_usage_output_total"], 12);
         assert_eq!(summary["token_usage_total"], 52);
+        assert_eq!(summary["model_reroutes"], 1);
+        assert_eq!(summary["model_reroutes_with_reason"], 1);
         assert_eq!(summary["remote_connections"], 1);
         assert_eq!(summary["remote_host_connections"], 1);
         assert_eq!(summary["connected_remote_connections"], 1);
@@ -13097,6 +13133,18 @@ mod tests {
         assert_eq!(
             summary["by_remote_connection_location"],
             json!([{ "key": "remote_host", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_model_reroute_from"],
+            json!([{ "key": "gpt-5", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_model_reroute_to"],
+            json!([{ "key": "gpt-5-mini", "count": 1 }])
+        );
+        assert_eq!(
+            summary["by_model_reroute_reason"],
+            json!([{ "key": "capacity", "count": 1 }])
         );
         assert_eq!(snapshot_state["thread_items"].as_array().unwrap().len(), 2);
         assert_eq!(snapshot_state["thread_items"][0]["item_id"], "item-1");
@@ -13154,6 +13202,10 @@ mod tests {
         assert_eq!(
             snapshot_state["threads"][0]["token_usage"]["inputTokens"],
             40
+        );
+        assert_eq!(
+            snapshot_state["model_reroutes"][0]["to_model"],
+            "gpt-5-mini"
         );
         assert_eq!(snapshot_state["remote_connections"][0]["host_id"], "devbox");
     }
