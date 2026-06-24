@@ -1369,6 +1369,22 @@ impl CodexLiveClient {
             Self::WebSocket(client) => client.marketplace_upgrade(request).await,
         }
     }
+
+    pub async fn model_list(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.model_list(params).await,
+            Self::UnixSocket(client) => client.model_list(params).await,
+            Self::WebSocket(client) => client.model_list(params).await,
+        }
+    }
+
+    pub async fn model_provider_capabilities_read(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.model_provider_capabilities_read(params).await,
+            Self::UnixSocket(client) => client.model_provider_capabilities_read(params).await,
+            Self::WebSocket(client) => client.model_provider_capabilities_read(params).await,
+        }
+    }
 }
 
 impl<T: AppServerTransport> CodexClient<T> {

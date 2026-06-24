@@ -2742,6 +2742,16 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     .await
                     .map_err(WsDispatchError::from)
             }
+            "model/list" => self
+                .codex
+                .model_list(params)
+                .await
+                .map_err(WsDispatchError::from),
+            "modelProvider/capabilities/read" => self
+                .codex
+                .model_provider_capabilities_read(params)
+                .await
+                .map_err(WsDispatchError::from),
             _ => self
                 .codex
                 .raw_request(codex_method.to_string(), params)

@@ -431,6 +431,8 @@ pub trait CodexBackend: Send + Sync {
     async fn marketplace_add(&self, request: CodexMarketplaceRequest) -> Result<Value>;
     async fn marketplace_remove(&self, request: CodexMarketplaceRequest) -> Result<Value>;
     async fn marketplace_upgrade(&self, request: CodexMarketplaceRequest) -> Result<Value>;
+    async fn model_list(&self, params: Value) -> Result<Value>;
+    async fn model_provider_capabilities_read(&self, params: Value) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
     async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()>;
     async fn respond_server_request_error(
@@ -930,6 +932,17 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn marketplace_upgrade(&self, request: CodexMarketplaceRequest) -> Result<Value> {
         self.client().await?.marketplace_upgrade(request).await
+    }
+
+    async fn model_list(&self, params: Value) -> Result<Value> {
+        self.client().await?.model_list(params).await
+    }
+
+    async fn model_provider_capabilities_read(&self, params: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .model_provider_capabilities_read(params)
+            .await
     }
 
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
@@ -1649,6 +1662,20 @@ impl CodexService {
         request: CodexMarketplaceRequest,
     ) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.marketplace_upgrade(request).await?)
+    }
+
+    pub async fn model_list(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.model_list(params).await?)
+    }
+
+    pub async fn model_provider_capabilities_read(
+        &self,
+        params: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self
+            .backend
+            .model_provider_capabilities_read(params)
+            .await?)
     }
 
     pub async fn remote_connection_list(
@@ -3162,6 +3189,15 @@ pub mod tests {
                 .await
         }
 
+        async fn model_list(&self, params: Value) -> Result<Value> {
+            self.raw_request("model/list", params).await
+        }
+
+        async fn model_provider_capabilities_read(&self, params: Value) -> Result<Value> {
+            self.raw_request("modelProvider/capabilities/read", params)
+                .await
+        }
+
         async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
             Ok(self.events.lock().expect("events").pop_front())
         }
@@ -4279,6 +4315,14 @@ pub mod tests {
             })
             .await
             .expect("marketplace upgrade");
+        service
+            .model_list(serde_json::json!({ "provider": "openai" }))
+            .await
+            .expect("model list");
+        service
+            .model_provider_capabilities_read(serde_json::json!({ "provider": "openai" }))
+            .await
+            .expect("model provider capabilities");
 
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
@@ -4303,6 +4347,8 @@ pub mod tests {
                 "marketplace/add",
                 "marketplace/remove",
                 "marketplace/upgrade",
+                "model/list",
+                "modelProvider/capabilities/read",
             ]
         );
     }
