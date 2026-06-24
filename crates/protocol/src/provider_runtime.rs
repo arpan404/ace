@@ -1103,6 +1103,20 @@ pub struct ProviderRuntimeProviderStatusSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method_inventory_source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_inventory_total_methods: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_contract_operations: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_contract_fully_covered_operations: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_contract_provider_methods: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_contract_fully_covered: Option<bool>,
+    #[serde(default)]
+    pub adapter_contract_missing_methods: Vec<String>,
+    #[serde(default)]
+    pub adapter_contract_support_mismatches: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_pending_requests: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_outbound_queue_size: Option<usize>,
@@ -1182,6 +1196,34 @@ impl ProviderRuntimeProviderStatusSummary {
                     "/client_request_methods_source",
                 ],
             ),
+            method_inventory_total_methods: usize_pointer(
+                &status.metadata,
+                &["/method_inventory/total_methods"],
+            ),
+            adapter_contract_operations: usize_pointer(
+                &status.metadata,
+                &["/method_inventory/adapter_contract_coverage/operations"],
+            ),
+            adapter_contract_fully_covered_operations: usize_pointer(
+                &status.metadata,
+                &["/method_inventory/adapter_contract_coverage/fully_covered_operations"],
+            ),
+            adapter_contract_provider_methods: usize_pointer(
+                &status.metadata,
+                &["/method_inventory/adapter_contract_coverage/provider_methods"],
+            ),
+            adapter_contract_fully_covered: bool_pointer(
+                &status.metadata,
+                &["/method_inventory/adapter_contract_coverage/fully_covered"],
+            ),
+            adapter_contract_missing_methods: string_array_pointer(
+                &status.metadata,
+                "/method_inventory/adapter_contract_coverage/missing_methods",
+            ),
+            adapter_contract_support_mismatches: metadata_array_count(
+                &status.metadata,
+                &["/method_inventory/adapter_contract_coverage/support_mismatches"],
+            ),
             runtime_pending_requests: usize_pointer(
                 &status.metadata,
                 &["/runtime/pendingRequests"],
@@ -1241,6 +1283,17 @@ fn string_pointer(metadata: &serde_json::Value, pointers: &[&str]) -> Option<Str
     pointers
         .iter()
         .find_map(|pointer| metadata.pointer(pointer)?.as_str().map(ToString::to_string))
+}
+
+fn string_array_pointer(metadata: &serde_json::Value, pointer: &str) -> Vec<String> {
+    metadata
+        .pointer(pointer)
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn usize_pointer(metadata: &serde_json::Value, pointers: &[&str]) -> Option<usize> {

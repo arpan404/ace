@@ -12146,6 +12146,34 @@ mod tests {
             codex["summary"]["method_inventory_source"],
             "compiled_codex_adapter_inventory"
         );
+        assert!(
+            codex["summary"]["method_inventory_total_methods"]
+                .as_u64()
+                .expect("method inventory total")
+                > 0
+        );
+        assert!(
+            codex["summary"]["adapter_contract_operations"]
+                .as_u64()
+                .expect("adapter contract operations")
+                > 0
+        );
+        assert_eq!(
+            codex["summary"]["adapter_contract_operations"],
+            codex["summary"]["adapter_contract_fully_covered_operations"]
+        );
+        assert!(
+            codex["summary"]["adapter_contract_provider_methods"]
+                .as_u64()
+                .expect("adapter provider methods")
+                > 0
+        );
+        assert_eq!(codex["summary"]["adapter_contract_fully_covered"], true);
+        assert_eq!(
+            codex["summary"]["adapter_contract_missing_methods"],
+            json!([])
+        );
+        assert_eq!(codex["summary"]["adapter_contract_support_mismatches"], 0);
         assert_eq!(codex["summary"]["runtime_pending_requests"], 0);
         assert_eq!(codex["summary"]["runtime_max_pending_requests"], 256);
         assert_eq!(codex["summary"]["runtime_outbound_queue_size"], 256);
