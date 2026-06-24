@@ -448,13 +448,40 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("command/approvalRequest", ServerRequest, TypedSupported),
     CodexMethodSpec::new("fileChange/approvalRequest", ServerRequest, TypedSupported),
     CodexMethodSpec::new("tool/userInputRequest", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("tool/user_input_request", ServerRequest, TypedSupported),
+    CodexMethodSpec::new(
+        "mcpServer/elicitationRequest",
+        ServerRequest,
+        TypedSupported,
+    ),
     CodexMethodSpec::new("mcp/elicitation", ServerRequest, TypedSupported),
     CodexMethodSpec::new("permission/approvalRequest", ServerRequest, TypedSupported),
+    CodexMethodSpec::new(
+        "item/dynamicToolCall/requestApproval",
+        ServerRequest,
+        TypedSupported,
+    ),
     CodexMethodSpec::new("dynamicTool/call", ServerRequest, TypedSupported),
+    CodexMethodSpec::new("dynamicTool/requestApproval", ServerRequest, TypedSupported),
+    CodexMethodSpec::new(
+        "account/chatgpt_auth_tokens/refresh",
+        ServerRequest,
+        TypedSupported,
+    ),
     CodexMethodSpec::new("account/tokenRefresh", ServerRequest, TypedSupported),
     CodexMethodSpec::new("attestation/request", ServerRequest, TypedSupported),
     CodexMethodSpec::new("applyPatch/approvalRequest", ServerRequest, TypedSupported),
+    CodexMethodSpec::new(
+        "apply_patch/approval_request",
+        ServerRequest,
+        TypedSupported,
+    ),
     CodexMethodSpec::new("exec/approvalRequest", ServerRequest, TypedSupported),
+    CodexMethodSpec::new(
+        "exec_command/approval_request",
+        ServerRequest,
+        TypedSupported,
+    ),
 ];
 
 #[must_use]
