@@ -3,7 +3,8 @@ use ace_codex::{
     CodexLiveClient, CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog,
     CodexPermissionPreset, CodexPlanImplementation, CodexReviewStart, CodexSubagentSteer,
     CodexThreadStart, CodexTransportConfig, CodexTransportLimits, CodexTurnPermissions,
-    CodexTurnStart, CodexTurnSteer, Result, classify_codex_method, codex_method_inventory,
+    CodexTurnStart, CodexTurnSteer, Result, classify_codex_method,
+    codex_adapter_contract_coverage_report, codex_method_inventory_report,
     image_generation_preflight_result, is_image_generation_preflight_request,
 };
 use ace_core::{ProviderCapability, ProviderKind};
@@ -207,46 +208,18 @@ fn version_from_initialize_result(result: Option<&Value>) -> Option<String> {
 }
 
 fn codex_classified_method_metadata() -> Value {
-    let mut client_requests = Vec::new();
-    let mut raw_client_requests = Vec::new();
-    let mut typed_client_requests = Vec::new();
-    let mut version_gated_client_requests = Vec::new();
-    let mut deferred_client_requests = Vec::new();
-    let mut server_notifications = Vec::new();
-    let mut server_requests = Vec::new();
-
-    for spec in codex_method_inventory() {
-        match spec.direction {
-            CodexMethodDirection::ClientRequest => {
-                client_requests.push(spec.method);
-                match spec.support {
-                    CodexMethodSupport::TypedSupported => typed_client_requests.push(spec.method),
-                    CodexMethodSupport::RawSupported => raw_client_requests.push(spec.method),
-                    CodexMethodSupport::VersionGated => {
-                        version_gated_client_requests.push(spec.method);
-                    }
-                    CodexMethodSupport::IntentionallyDeferred => {
-                        deferred_client_requests.push(spec.method);
-                    }
-                }
-            }
-            CodexMethodDirection::ServerNotification => server_notifications.push(spec.method),
-            CodexMethodDirection::ServerRequest => server_requests.push(spec.method),
-            CodexMethodDirection::ClientNotification => {}
-        }
+    let mut inventory = serde_json::to_value(codex_method_inventory_report())
+        .expect("Codex method inventory report serializes");
+    if let Some(object) = inventory.as_object_mut() {
+        object.insert(
+            "adapter_contract_coverage".to_string(),
+            serde_json::to_value(codex_adapter_contract_coverage_report(
+                &ace_provider_adapter_contract(),
+            ))
+            .expect("Codex adapter coverage report serializes"),
+        );
     }
-
-    json!({
-        "source": "compiled_codex_adapter_inventory",
-        "note": "classified methods describe adapter knowledge; installed support is reported separately when available",
-        "client_request_methods": client_requests,
-        "typed_client_request_methods": typed_client_requests,
-        "raw_client_request_methods": raw_client_requests,
-        "version_gated_client_request_methods": version_gated_client_requests,
-        "deferred_client_request_methods": deferred_client_requests,
-        "server_notification_methods": server_notifications,
-        "server_request_methods": server_requests,
-    })
+    inventory
 }
 
 fn codex_method_discovery_response(status: &ProviderDriverStatus) -> Value {
@@ -2840,6 +2813,24 @@ pub mod tests {
         assert_eq!(
             status.metadata["method_inventory"]["source"],
             "compiled_codex_adapter_inventory"
+        );
+        assert!(
+            status.metadata["method_inventory"]["total_methods"]
+                .as_u64()
+                .expect("total methods")
+                > 0
+        );
+        assert_eq!(
+            status.metadata["method_inventory"]["adapter_contract_coverage"]["fully_covered"],
+            true
+        );
+        assert_eq!(
+            status.metadata["method_inventory"]["adapter_contract_coverage"]["missing_methods"],
+            json!([])
+        );
+        assert_eq!(
+            status.metadata["method_inventory"]["adapter_contract_coverage"]["support_mismatches"],
+            json!([])
         );
         assert!(
             status.metadata["method_inventory"]["version_gated_client_request_methods"]

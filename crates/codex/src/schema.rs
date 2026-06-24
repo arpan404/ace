@@ -473,6 +473,93 @@ pub fn classify_codex_method(
         .map(|spec| spec.support)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexMethodInventoryReport {
+    pub source: String,
+    pub note: String,
+    pub total_methods: usize,
+    pub client_request_methods: Vec<String>,
+    pub client_notification_methods: Vec<String>,
+    pub server_notification_methods: Vec<String>,
+    pub server_request_methods: Vec<String>,
+    pub typed_supported_methods: Vec<String>,
+    pub raw_supported_methods: Vec<String>,
+    pub version_gated_methods: Vec<String>,
+    pub deferred_methods: Vec<String>,
+    pub typed_client_request_methods: Vec<String>,
+    pub raw_client_request_methods: Vec<String>,
+    pub version_gated_client_request_methods: Vec<String>,
+    pub deferred_client_request_methods: Vec<String>,
+}
+
+#[must_use]
+pub fn codex_method_inventory_report() -> CodexMethodInventoryReport {
+    let mut report = CodexMethodInventoryReport {
+        source: "compiled_codex_adapter_inventory".to_string(),
+        note: "classified methods describe adapter knowledge; installed support is reported separately when available".to_string(),
+        total_methods: CODEX_METHOD_INVENTORY.len(),
+        client_request_methods: Vec::new(),
+        client_notification_methods: Vec::new(),
+        server_notification_methods: Vec::new(),
+        server_request_methods: Vec::new(),
+        typed_supported_methods: Vec::new(),
+        raw_supported_methods: Vec::new(),
+        version_gated_methods: Vec::new(),
+        deferred_methods: Vec::new(),
+        typed_client_request_methods: Vec::new(),
+        raw_client_request_methods: Vec::new(),
+        version_gated_client_request_methods: Vec::new(),
+        deferred_client_request_methods: Vec::new(),
+    };
+
+    for spec in CODEX_METHOD_INVENTORY {
+        let method = spec.method.to_string();
+        match spec.direction {
+            CodexMethodDirection::ClientRequest => {
+                report.client_request_methods.push(method.clone())
+            }
+            CodexMethodDirection::ClientNotification => {
+                report.client_notification_methods.push(method.clone());
+            }
+            CodexMethodDirection::ServerNotification => {
+                report.server_notification_methods.push(method.clone());
+            }
+            CodexMethodDirection::ServerRequest => {
+                report.server_request_methods.push(method.clone())
+            }
+        }
+
+        match spec.support {
+            CodexMethodSupport::TypedSupported => {
+                report.typed_supported_methods.push(method.clone());
+                if spec.direction == CodexMethodDirection::ClientRequest {
+                    report.typed_client_request_methods.push(method);
+                }
+            }
+            CodexMethodSupport::RawSupported => {
+                report.raw_supported_methods.push(method.clone());
+                if spec.direction == CodexMethodDirection::ClientRequest {
+                    report.raw_client_request_methods.push(method);
+                }
+            }
+            CodexMethodSupport::VersionGated => {
+                report.version_gated_methods.push(method.clone());
+                if spec.direction == CodexMethodDirection::ClientRequest {
+                    report.version_gated_client_request_methods.push(method);
+                }
+            }
+            CodexMethodSupport::IntentionallyDeferred => {
+                report.deferred_methods.push(method.clone());
+                if spec.direction == CodexMethodDirection::ClientRequest {
+                    report.deferred_client_request_methods.push(method);
+                }
+            }
+        }
+    }
+
+    report
+}
+
 #[must_use]
 pub fn codex_provider_features() -> Vec<ProviderFeature> {
     let mut features = CODEX_METHOD_INVENTORY
@@ -519,6 +606,18 @@ pub struct CodexAdapterSupportMismatch {
     pub actual: CodexMethodSupport,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexAdapterContractCoverageReport {
+    pub operations: usize,
+    pub fully_covered_operations: usize,
+    pub provider_methods: usize,
+    #[serde(default)]
+    pub missing_methods: Vec<String>,
+    #[serde(default)]
+    pub support_mismatches: Vec<CodexAdapterSupportMismatch>,
+    pub fully_covered: bool,
+}
+
 #[must_use]
 pub fn codex_adapter_contract_coverage(
     contract: &ProviderAdapterContract,
@@ -528,6 +627,37 @@ pub fn codex_adapter_contract_coverage(
         .iter()
         .map(codex_adapter_operation_coverage)
         .collect()
+}
+
+#[must_use]
+pub fn codex_adapter_contract_coverage_report(
+    contract: &ProviderAdapterContract,
+) -> CodexAdapterContractCoverageReport {
+    let coverage = codex_adapter_contract_coverage(contract);
+    let provider_methods = coverage
+        .iter()
+        .map(|operation| operation.provider_methods.len())
+        .sum();
+    let missing_methods = coverage
+        .iter()
+        .flat_map(|operation| operation.missing_methods.iter().cloned())
+        .collect::<Vec<_>>();
+    let support_mismatches = coverage
+        .iter()
+        .flat_map(|operation| operation.support_mismatches.iter().cloned())
+        .collect::<Vec<_>>();
+    let fully_covered_operations = coverage
+        .iter()
+        .filter(|operation| operation.fully_covered)
+        .count();
+    CodexAdapterContractCoverageReport {
+        operations: coverage.len(),
+        fully_covered_operations,
+        provider_methods,
+        fully_covered: missing_methods.is_empty() && support_mismatches.is_empty(),
+        missing_methods,
+        support_mismatches,
+    }
 }
 
 fn codex_adapter_operation_coverage(
@@ -1313,6 +1443,51 @@ mod tests {
                 .all(|spec| spec.support != CodexMethodSupport::RawSupported),
             "client requests should use typed, version-gated, or deferred contracts"
         );
+    }
+
+    #[test]
+    fn method_inventory_report_counts_directions_support_and_contract_coverage() {
+        let report = codex_method_inventory_report();
+        assert_eq!(report.source, "compiled_codex_adapter_inventory");
+        assert_eq!(report.total_methods, CODEX_METHOD_INVENTORY.len());
+        assert_eq!(
+            report.client_request_methods.len()
+                + report.client_notification_methods.len()
+                + report.server_notification_methods.len()
+                + report.server_request_methods.len(),
+            report.total_methods
+        );
+        assert_eq!(
+            report.typed_supported_methods.len()
+                + report.raw_supported_methods.len()
+                + report.version_gated_methods.len()
+                + report.deferred_methods.len(),
+            report.total_methods
+        );
+        assert!(
+            report
+                .version_gated_client_request_methods
+                .contains(&"command/exec".to_string())
+        );
+        assert!(
+            report
+                .deferred_client_request_methods
+                .contains(&"cloud/handoff".to_string())
+        );
+        assert!(
+            report
+                .server_request_methods
+                .contains(&"item/tool/call".to_string())
+        );
+
+        let contract = ace_runtime::provider::ace_provider_adapter_contract();
+        let coverage = codex_adapter_contract_coverage_report(&contract);
+        assert_eq!(coverage.operations, contract.operations.len());
+        assert_eq!(coverage.fully_covered_operations, coverage.operations);
+        assert!(coverage.provider_methods > 0);
+        assert!(coverage.fully_covered);
+        assert!(coverage.missing_methods.is_empty());
+        assert!(coverage.support_mismatches.is_empty());
     }
 
     #[test]
