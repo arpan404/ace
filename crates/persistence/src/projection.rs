@@ -4,6 +4,7 @@ use crate::{
     migration::{migrate, open_event_store},
 };
 use ace_core::{CheckpointSummary, Project, ProjectId, ReadModel, Thread, ThreadId};
+use ace_runtime::chat::{ComposerDraft, SidebarMetadata, ThreadDraft};
 use rusqlite::{Connection, OptionalExtension, params};
 
 #[derive(Debug)]
@@ -137,6 +138,100 @@ impl ProjectionRepository {
             checkpoints,
         })
     }
+
+    pub fn upsert_composer_draft(&self, draft: &ComposerDraft) -> Result<(), PersistenceError> {
+        self.connection.execute(
+            "INSERT INTO composer_drafts(thread_id, draft_json, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(thread_id) DO UPDATE SET
+               draft_json = excluded.draft_json,
+               updated_at = excluded.updated_at",
+            params![json(&draft.thread_id)?, json(draft)?, draft.updated_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_composer_draft(
+        &self,
+        thread_id: &ThreadId,
+    ) -> Result<Option<ComposerDraft>, PersistenceError> {
+        self.connection
+            .query_row(
+                "SELECT draft_json FROM composer_drafts WHERE thread_id = ?1",
+                [json(thread_id)?],
+                |row| decode_json::<ComposerDraft>(row.get::<_, String>(0)?),
+            )
+            .optional()
+            .map_err(PersistenceError::from)
+    }
+
+    pub fn list_composer_drafts(&self) -> Result<Vec<ComposerDraft>, PersistenceError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT draft_json FROM composer_drafts ORDER BY updated_at DESC")?;
+        let rows = statement.query_map([], |row| {
+            decode_json::<ComposerDraft>(row.get::<_, String>(0)?)
+        })?;
+        rows.map(|row| row.map_err(PersistenceError::from))
+            .collect()
+    }
+
+    pub fn upsert_thread_draft(&self, draft: &ThreadDraft) -> Result<(), PersistenceError> {
+        self.connection.execute(
+            "INSERT INTO thread_drafts(thread_id, project_id, draft_json, created_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(thread_id) DO UPDATE SET
+               project_id = excluded.project_id,
+               draft_json = excluded.draft_json,
+               created_at = excluded.created_at",
+            params![
+                json(&draft.thread_id)?,
+                json(&draft.project_id)?,
+                json(draft)?,
+                draft.created_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_project_thread_draft(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Option<ThreadDraft>, PersistenceError> {
+        self.connection
+            .query_row(
+                "SELECT draft_json FROM thread_drafts WHERE project_id = ?1",
+                [json(&project_id)?],
+                |row| decode_json::<ThreadDraft>(row.get::<_, String>(0)?),
+            )
+            .optional()
+            .map_err(PersistenceError::from)
+    }
+
+    pub fn upsert_sidebar_metadata(
+        &self,
+        metadata: &SidebarMetadata,
+    ) -> Result<(), PersistenceError> {
+        self.connection.execute(
+            "INSERT INTO sidebar_metadata(id, metadata_json)
+             VALUES (1, ?1)
+             ON CONFLICT(id) DO UPDATE SET metadata_json = excluded.metadata_json",
+            [json(metadata)?],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_sidebar_metadata(&self) -> Result<SidebarMetadata, PersistenceError> {
+        self.connection
+            .query_row(
+                "SELECT metadata_json FROM sidebar_metadata WHERE id = 1",
+                [],
+                |row| decode_json::<SidebarMetadata>(row.get::<_, String>(0)?),
+            )
+            .optional()
+            .map(|metadata| metadata.unwrap_or_default())
+            .map_err(PersistenceError::from)
+    }
 }
 
 #[cfg(test)]
@@ -201,5 +296,53 @@ mod tests {
                 .checkpoints
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn persists_chat_drafts_and_sidebar_metadata() {
+        let repo = ProjectionRepository::from_connection(Connection::open_in_memory().expect("db"))
+            .expect("repo");
+        let project_id = ProjectId::new();
+        let thread_id = ThreadId::new();
+        let composer = ComposerDraft::empty(thread_id.clone(), "2026-01-01T00:00:00Z");
+        repo.upsert_composer_draft(&composer).expect("composer");
+        assert_eq!(
+            repo.get_composer_draft(&thread_id)
+                .expect("load composer")
+                .as_ref()
+                .map(|draft| &draft.thread_id),
+            Some(&thread_id)
+        );
+
+        let thread_draft = ThreadDraft {
+            thread_id: thread_id.clone(),
+            project_id,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            runtime_mode: ace_runtime::chat::RuntimeMode::Normal,
+            interaction_mode: ace_runtime::chat::InteractionMode::Chat,
+            branch: None,
+            worktree_path: None,
+            env_mode: ace_runtime::threads::ExecutionLocation::Local,
+        };
+        repo.upsert_thread_draft(&thread_draft)
+            .expect("thread draft");
+        assert_eq!(
+            repo.get_project_thread_draft(project_id)
+                .expect("load thread draft")
+                .as_ref()
+                .map(|draft| &draft.thread_id),
+            Some(&thread_id)
+        );
+
+        let mut metadata = SidebarMetadata {
+            active_thread_id: Some(thread_id.clone()),
+            ..SidebarMetadata::default()
+        };
+        metadata.pinned_thread_ids.insert(thread_id.clone());
+        repo.upsert_sidebar_metadata(&metadata)
+            .expect("sidebar metadata");
+        let loaded = repo.get_sidebar_metadata().expect("load metadata");
+        assert_eq!(loaded.active_thread_id, Some(thread_id.clone()));
+        assert!(loaded.pinned_thread_ids.contains(&thread_id));
     }
 }

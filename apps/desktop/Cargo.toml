@@ -13,6 +13,8 @@ name = "ace-desktop"
 path = "src/main.rs"
 
 [dependencies]
+ace-core.workspace = true
+ace-persistence.workspace = true
 ace-runtime.workspace = true
 gpui.workspace = true
 tracing.workspace = true

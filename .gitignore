@@ -1,5 +1,6 @@
 target/
 apps/desktop/.build/
+apps/mac-app/.build/
 .vscode/
 .reference/
 .DS_Store

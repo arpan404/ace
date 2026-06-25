@@ -16,6 +16,20 @@ Run the Rust GPUI desktop development app:
 ./desktop:dev
 ```
 
+For restart-on-change development, install `cargo-watch` and use:
+
+```bash
+cargo install cargo-watch
+./desktop:watch
+```
+
+The same launchers are exposed as `just` recipes:
+
+```bash
+just desktop-dev
+just desktop-watch
+```
+
 `desktop:dev` launches `ace-desktop` directly. It does not start the standalone
 backend unless remote/mobile WebSocket testing is explicitly requested:
 
@@ -23,10 +37,10 @@ backend unless remote/mobile WebSocket testing is explicitly requested:
 ACE_START_BACKEND=1 ./desktop:dev
 ```
 
-The same launcher is also exposed as a package script:
+The watch launcher honors the same environment:
 
 ```bash
-npm run desktop:dev
+ACE_START_BACKEND=1 ./desktop:watch
 ```
 
 ```bash

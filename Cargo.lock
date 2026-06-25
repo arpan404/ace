@@ -60,6 +60,8 @@ dependencies = [
 name = "ace-desktop"
 version = "0.1.0"
 dependencies = [
+ "ace-core",
+ "ace-persistence",
  "ace-runtime",
  "gpui",
  "insta",

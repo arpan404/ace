@@ -2,6 +2,7 @@ use ace_core::{Command, CommandId};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
+pub mod chat;
 pub mod host_tools;
 pub mod models;
 pub mod native_provider;

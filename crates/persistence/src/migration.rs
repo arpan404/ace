@@ -61,6 +61,26 @@ pub fn migrate(connection: &Connection) -> Result<(), PersistenceError> {
         );
         CREATE INDEX IF NOT EXISTS idx_provider_server_requests_status
         ON provider_server_requests(provider, status, created_at);
+
+        CREATE TABLE IF NOT EXISTS composer_drafts (
+            thread_id TEXT PRIMARY KEY,
+            draft_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS thread_drafts (
+            thread_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            draft_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_thread_drafts_project
+        ON thread_drafts(project_id);
+
+        CREATE TABLE IF NOT EXISTS sidebar_metadata (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            metadata_json TEXT NOT NULL
+        );
         ",
     )?;
     ensure_column(
