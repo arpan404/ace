@@ -9,7 +9,7 @@
  *
  * @module OrchestrationEventStore
  */
-import { OrchestrationEvent } from "@ace/contracts";
+import { OrchestrationEvent, ThreadId } from "@ace/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
@@ -41,6 +41,20 @@ export interface OrchestrationEventStoreShape {
    * Reads in fixed-size pages and normalizes non-integer/negative limits.
    */
   readonly readFromSequence: (
+    sequenceExclusive: number,
+    limit?: number,
+  ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
+
+  /**
+   * Replay events for a single thread aggregate after the provided sequence.
+   *
+   * @param threadId - Thread aggregate stream to replay.
+   * @param sequenceExclusive - Sequence cursor (exclusive).
+   * @param limit - Maximum number of events to emit.
+   * @returns Stream containing ordered thread events.
+   */
+  readonly readThreadFromSequence: (
+    threadId: ThreadId,
     sequenceExclusive: number,
     limit?: number,
   ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;

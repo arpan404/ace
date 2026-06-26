@@ -87,6 +87,19 @@ describe("createThreadHydrationCache", () => {
     expect(fetchThread).toHaveBeenCalledTimes(1);
   });
 
+  it("returns cached hydrated threads when cached data is newer than expected", async () => {
+    const newerUpdatedAt = "2026-04-05T00:00:10.000Z";
+    const fetchThread = vi.fn(async () => makeThread({ updatedAt: newerUpdatedAt }));
+    const cache = createThreadHydrationCache(fetchThread);
+
+    const first = await cache.hydrate(THREAD_ID);
+    const second = await cache.hydrate(THREAD_ID, { expectedUpdatedAt: NOW });
+
+    expect(first.updatedAt).toBe(newerUpdatedAt);
+    expect(second).toBe(first);
+    expect(fetchThread).toHaveBeenCalledTimes(1);
+  });
+
   it("deduplicates concurrent hydration requests for the same thread", async () => {
     let resolveThread!: (thread: OrchestrationReadModel["threads"][number]) => void;
     const fetchThread = vi.fn(

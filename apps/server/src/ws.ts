@@ -11,6 +11,7 @@ import {
   type NewThreadRecommendation,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
+  type OrchestrationThreadShell,
   type OrchestrationShellStreamItem,
   type ProviderKind,
   type ServerProvider,
@@ -145,6 +146,7 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
 function toShellStreamEvent(
   projectionSnapshotQuery: ProjectionSnapshotQueryShape,
   event: OrchestrationEvent,
+  threadShellCache?: Map<ThreadId, OrchestrationThreadShell>,
 ): Effect.Effect<Option.Option<OrchestrationShellStreamItem>, ProjectionRepositoryError> {
   switch (event.type) {
     case "project.created":
@@ -171,6 +173,7 @@ function toShellStreamEvent(
       );
 
     case "thread.deleted":
+      threadShellCache?.delete(event.payload.threadId);
       return Effect.succeed(
         Option.some({
           kind: "thread-removed",
@@ -183,9 +186,28 @@ function toShellStreamEvent(
       if (event.aggregateKind !== "thread") {
         return Effect.succeed(Option.none());
       }
+      if (threadShellCache) {
+        const cached = updateCachedThreadShellFromEvent(threadShellCache, event);
+        if (cached) {
+          return Effect.succeed(
+            Option.some({
+              kind: "thread-upserted",
+              sequence: event.sequence,
+              thread: cached,
+            }),
+          );
+        }
+      }
       return projectionSnapshotQuery
         .getThreadShellById(ThreadId.makeUnsafe(event.aggregateId))
         .pipe(
+          Effect.tap((thread) =>
+            Effect.sync(() => {
+              if (threadShellCache && Option.isSome(thread)) {
+                threadShellCache.set(thread.value.id, thread.value);
+              }
+            }),
+          ),
           Effect.map(
             Option.map(
               (thread): OrchestrationShellStreamItem => ({
@@ -197,6 +219,157 @@ function toShellStreamEvent(
           ),
         );
   }
+}
+
+function newestIso(left: string, right: string): string {
+  return left.localeCompare(right) >= 0 ? left : right;
+}
+
+function shellUpdatedAtFromEvent(event: OrchestrationEvent): string {
+  return "updatedAt" in event.payload ? event.payload.updatedAt : event.occurredAt;
+}
+
+function updateCachedThreadShellFromEvent(
+  cache: Map<ThreadId, OrchestrationThreadShell>,
+  event: OrchestrationEvent,
+): OrchestrationThreadShell | null {
+  const threadId = ThreadId.makeUnsafe(event.aggregateId);
+  const existing = cache.get(threadId);
+  if (!existing) {
+    if (event.type !== "thread.created") {
+      return null;
+    }
+    const created: OrchestrationThreadShell = {
+      id: event.payload.threadId,
+      projectId: event.payload.projectId,
+      title: event.payload.title,
+      modelSelection: event.payload.modelSelection,
+      runtimeMode: event.payload.runtimeMode,
+      interactionMode: event.payload.interactionMode,
+      branch: event.payload.branch,
+      worktreePath: event.payload.worktreePath,
+      ...(event.payload.handoff !== undefined ? { handoff: event.payload.handoff } : {}),
+      ...(event.payload.fork !== undefined ? { fork: event.payload.fork } : {}),
+      latestTurn: null,
+      createdAt: event.payload.createdAt,
+      updatedAt: event.payload.updatedAt,
+      archivedAt: null,
+      deletedAt: null,
+      latestProposedPlanSummary: null,
+      queuedComposerMessages: [],
+      queuedSteerRequest: null,
+      session: null,
+    };
+    cache.set(threadId, created);
+    return created;
+  }
+
+  let next: OrchestrationThreadShell | null = null;
+  switch (event.type) {
+    case "thread.created":
+      next = existing;
+      break;
+    case "thread.archived":
+      next = {
+        ...existing,
+        archivedAt: event.payload.archivedAt,
+        updatedAt: newestIso(existing.updatedAt, event.payload.updatedAt),
+      };
+      break;
+    case "thread.unarchived":
+      next = {
+        ...existing,
+        archivedAt: null,
+        updatedAt: newestIso(existing.updatedAt, event.payload.updatedAt),
+      };
+      break;
+    case "thread.meta-updated":
+      next = {
+        ...existing,
+        ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
+        ...(event.payload.modelSelection !== undefined
+          ? { modelSelection: event.payload.modelSelection }
+          : {}),
+        ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
+        ...(event.payload.worktreePath !== undefined
+          ? { worktreePath: event.payload.worktreePath }
+          : {}),
+        ...(event.payload.queuedComposerMessages !== undefined
+          ? { queuedComposerMessages: event.payload.queuedComposerMessages }
+          : {}),
+        ...(event.payload.queuedSteerRequest !== undefined
+          ? { queuedSteerRequest: event.payload.queuedSteerRequest }
+          : {}),
+        updatedAt: newestIso(existing.updatedAt, event.payload.updatedAt),
+      };
+      break;
+    case "thread.runtime-mode-set":
+      next = {
+        ...existing,
+        runtimeMode: event.payload.runtimeMode,
+        updatedAt: newestIso(existing.updatedAt, event.payload.updatedAt),
+      };
+      break;
+    case "thread.interaction-mode-set":
+      next = {
+        ...existing,
+        interactionMode: event.payload.interactionMode,
+        updatedAt: newestIso(existing.updatedAt, event.payload.updatedAt),
+      };
+      break;
+    case "thread.session-set":
+      next = {
+        ...existing,
+        session: event.payload.session,
+        updatedAt: newestIso(existing.updatedAt, event.payload.session.updatedAt),
+      };
+      break;
+    case "thread.proposed-plan-upserted": {
+      const plan = event.payload.proposedPlan;
+      const existingSummary = existing.latestProposedPlanSummary;
+      next = {
+        ...existing,
+        latestProposedPlanSummary:
+          !existingSummary || existingSummary.updatedAt.localeCompare(plan.updatedAt) <= 0
+            ? {
+                id: plan.id,
+                turnId: plan.turnId,
+                implementedAt: plan.implementedAt,
+                implementationThreadId: plan.implementationThreadId,
+                createdAt: plan.createdAt,
+                updatedAt: plan.updatedAt,
+              }
+            : existingSummary,
+        updatedAt: newestIso(existing.updatedAt, plan.updatedAt),
+      };
+      break;
+    }
+    case "thread.message-sent":
+    case "thread.turn-start-requested":
+    case "thread.subagent-turn-start-requested":
+    case "thread.turn-interrupt-requested":
+    case "thread.approval-response-requested":
+    case "thread.user-input-response-requested":
+    case "thread.checkpoint-revert-requested":
+    case "thread.reverted":
+    case "thread.session-stop-requested":
+    case "thread.workspace-summary-regenerate-requested":
+    case "thread.turn-diff-completed":
+    case "thread.activity-appended":
+      next = {
+        ...existing,
+        updatedAt: newestIso(existing.updatedAt, shellUpdatedAtFromEvent(event)),
+      };
+      break;
+    case "project.created":
+    case "project.meta-updated":
+    case "project.deleted":
+    case "thread.deleted":
+      return null;
+  }
+
+  cache.set(threadId, next);
+  return next;
 }
 
 type WorktreeSizeStats = {
@@ -1048,10 +1221,19 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 }),
           ),
         ),
-      [ORCHESTRATION_WS_METHODS.subscribeShell]: () =>
-        Stream.merge(
+      [ORCHESTRATION_WS_METHODS.subscribeShell]: () => {
+        const threadShellCache = new Map<ThreadId, OrchestrationThreadShell>();
+        return Stream.merge(
           Stream.fromEffect(
             projectionSnapshotQuery.getShellSnapshot().pipe(
+              Effect.tap((snapshot) =>
+                Effect.sync(() => {
+                  threadShellCache.clear();
+                  for (const thread of snapshot.threads) {
+                    threadShellCache.set(thread.id, thread);
+                  }
+                }),
+              ),
               Effect.map((snapshot) => ({ kind: "snapshot" as const, snapshot })),
               Effect.mapError(
                 (cause) =>
@@ -1067,14 +1249,15 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             { label: "orchestration.shell" },
           ).pipe(
             Stream.mapEffect((event) =>
-              toShellStreamEvent(projectionSnapshotQuery, event).pipe(
+              toShellStreamEvent(projectionSnapshotQuery, event, threadShellCache).pipe(
                 Effect.catch(() => Effect.succeed(Option.none<OrchestrationShellStreamItem>())),
               ),
             ),
             Stream.filter(Option.isSome),
             Stream.map((item) => item.value),
           ),
-        ),
+        );
+      },
       [ORCHESTRATION_WS_METHODS.unsubscribeShell]: () => Effect.void,
       [ORCHESTRATION_WS_METHODS.subscribeThread]: (input) =>
         Stream.merge(
@@ -1157,9 +1340,20 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         ),
       [ORCHESTRATION_WS_METHODS.replayEvents]: (input) =>
         Stream.runCollect(
-          orchestrationEngine.readEvents(
-            clamp(input.fromSequenceExclusive, { maximum: Number.MAX_SAFE_INTEGER, minimum: 0 }),
-          ),
+          input.threadId !== undefined
+            ? orchestrationEngine.readThreadEvents(
+                input.threadId,
+                clamp(input.fromSequenceExclusive, {
+                  maximum: Number.MAX_SAFE_INTEGER,
+                  minimum: 0,
+                }),
+              )
+            : orchestrationEngine.readEvents(
+                clamp(input.fromSequenceExclusive, {
+                  maximum: Number.MAX_SAFE_INTEGER,
+                  minimum: 0,
+                }),
+              ),
         ).pipe(
           Effect.map((events) => Array.from(events).map(sanitizeOrchestrationEventForClient)),
           Effect.mapError(

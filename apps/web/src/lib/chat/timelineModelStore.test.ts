@@ -12,6 +12,11 @@ vi.mock("../../nativeApi", () => ({
 }));
 
 import {
+  __resetThreadHydrationCacheForTests,
+  hydrateThreadFromCache,
+} from "../threadHydrationCache";
+
+import {
   fetchThreadTimelineRowsHydration,
   isThreadTimelineRowsFullyHydrated,
   readTimelineRow,
@@ -37,6 +42,7 @@ function readModelThreadForMetadata(input: {
 }): OrchestrationReadModel["threads"][number] {
   return {
     id: input.id,
+    title: `Thread ${input.id}`,
     updatedAt: input.updatedAt,
     messages: Array.from({ length: input.messageCount ?? 0 }, (_, index) => ({
       id: MessageId.makeUnsafe(`metadata-message-${input.id}-${String(index)}`),
@@ -50,10 +56,12 @@ function readModelThreadForMetadata(input: {
     })),
     activities: [],
     proposedPlans: [],
+    checkpoints: [],
   } as unknown as OrchestrationReadModel["threads"][number];
 }
 
 afterEach(() => {
+  __resetThreadHydrationCacheForTests();
   useTimelineModelStore.getState().reset();
   setThreadReadModelObserver(null);
   nativeApiMock.getThread.mockReset();
@@ -1104,7 +1112,7 @@ describe("timelineModelStore", () => {
 
   it("hydrates all thread timeline rows from the thread source model and reuses them", async () => {
     nativeApiMock.getThread.mockResolvedValue({
-      id: threadId,
+      ...readModelThreadForMetadata({ id: threadId, updatedAt: "2026-01-01T00:00:02.000Z" }),
       updatedAt: "2026-01-01T00:00:02.000Z",
       messages: [
         {
@@ -1147,16 +1155,16 @@ describe("timelineModelStore", () => {
     ]);
   });
 
-  it("backs off background open prefetch after a hydration timeout", async () => {
+  it("backs off background open prefetch after a hydration failure", async () => {
     vi.useFakeTimers();
-    nativeApiMock.getThread.mockReturnValue(new Promise(() => undefined));
+    nativeApiMock.getThread.mockRejectedValue(new Error("hydrate failed"));
 
     const firstPrefetch = startThreadTimelineRowsOpenPrefetch({
       threadId,
       priority: "background",
     });
 
-    await vi.advanceTimersByTimeAsync(10_751);
+    await vi.advanceTimersByTimeAsync(751);
     await firstPrefetch.done;
 
     expect(nativeApiMock.getThread).toHaveBeenCalledTimes(1);
@@ -1166,13 +1174,14 @@ describe("timelineModelStore", () => {
       priority: "background",
     });
     await secondPrefetch.done;
-    await vi.advanceTimersByTimeAsync(10_751);
+    await vi.advanceTimersByTimeAsync(751);
 
     expect(nativeApiMock.getThread).toHaveBeenCalledTimes(1);
   });
 
   it("notifies the thread read-model observer with the fetched thread", async () => {
     const fetchedThread = {
+      ...readModelThreadForMetadata({ id: threadId, updatedAt: "2026-01-01T00:00:03.000Z" }),
       id: threadId,
       updatedAt: "2026-01-01T00:00:03.000Z",
       messages: [],
@@ -1192,6 +1201,7 @@ describe("timelineModelStore", () => {
   it("promotes an in-flight background open prefetch to fire immediately", async () => {
     vi.useFakeTimers();
     nativeApiMock.getThread.mockResolvedValue({
+      ...readModelThreadForMetadata({ id: threadId, updatedAt: "2026-01-01T00:00:03.000Z" }),
       id: threadId,
       updatedAt: "2026-01-01T00:00:03.000Z",
       messages: [],
@@ -1221,6 +1231,36 @@ describe("timelineModelStore", () => {
     await immediatePrefetch.done;
     await backgroundPrefetch.done;
     expect(nativeApiMock.getThread).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares the in-flight getThread request with the hydrated thread cache", async () => {
+    nativeApiMock.getThread.mockResolvedValue({
+      ...readModelThreadForMetadata({ id: threadId, updatedAt: "2026-01-01T00:00:02.000Z" }),
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      messages: [
+        {
+          id: messageId,
+          role: "assistant",
+          text: "Shared request",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      ],
+      activities: [],
+      proposedPlans: [],
+    });
+
+    const [timelineSnapshot, hydratedThread] = await Promise.all([
+      fetchThreadTimelineRowsHydration(threadId),
+      hydrateThreadFromCache(threadId),
+    ]);
+
+    expect(nativeApiMock.getThread).toHaveBeenCalledTimes(1);
+    expect(timelineSnapshot.messages.map((message) => message.text)).toEqual(["Shared request"]);
+    expect(hydratedThread.messages.map((message) => message.text)).toEqual(["Shared request"]);
   });
 
   it("refetches timeline rows when a fully populated cache is from an old model version", async () => {
@@ -1288,7 +1328,7 @@ describe("timelineModelStore", () => {
       },
     }));
     nativeApiMock.getThread.mockResolvedValue({
-      id: threadId,
+      ...readModelThreadForMetadata({ id: threadId, updatedAt: "2026-01-01T00:00:03.000Z" }),
       updatedAt: "2026-01-01T00:00:03.000Z",
       messages: [
         {

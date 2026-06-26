@@ -467,6 +467,33 @@ function isThreadLiveWorkActive(
   );
 }
 
+function mergeRuntimeStatePreservingLiveWork(
+  existingThread: Thread | undefined,
+  incomingThread: Thread,
+): Pick<Thread, "latestTurn" | "session"> {
+  if (!existingThread || !threadHasActiveRuntime(existingThread)) {
+    return {
+      latestTurn: incomingThread.latestTurn,
+      session: incomingThread.session,
+    };
+  }
+  if (threadHasActiveRuntime(incomingThread)) {
+    const existingSessionUpdatedAt = existingThread.session?.updatedAt ?? "";
+    const incomingSessionUpdatedAt = incomingThread.session?.updatedAt ?? "";
+    return {
+      latestTurn: incomingThread.latestTurn ?? existingThread.latestTurn,
+      session:
+        incomingSessionUpdatedAt.localeCompare(existingSessionUpdatedAt) >= 0
+          ? incomingThread.session
+          : existingThread.session,
+    };
+  }
+  return {
+    latestTurn: existingThread.latestTurn,
+    session: existingThread.session,
+  };
+}
+
 function mapTurnDiffSummary(
   checkpoint: OrchestrationCheckpointSummary,
 ): Thread["turnDiffSummaries"][number] {
@@ -517,6 +544,7 @@ function mergeThreadPreservingHydratedHistory(
   }
   const mergedThread = {
     ...incomingThread,
+    ...mergeRuntimeStatePreservingLiveWork(existingThread, incomingThread),
     messages: existingThread.messages,
     proposedPlans: existingThread.proposedPlans,
     latestProposedPlanSummary:
@@ -839,8 +867,8 @@ export interface SnapshotSyncOptions {
   connectionUrl?: string;
 }
 
-function resolveThreadHistoryLoaded(_threadId: ThreadId, _options?: SnapshotSyncOptions): boolean {
-  return false;
+function resolveThreadHistoryLoaded(threadId: ThreadId, options?: SnapshotSyncOptions): boolean {
+  return options?.hydrateThreadId === threadId;
 }
 
 function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): Thread {
@@ -1278,6 +1306,7 @@ export function pruneHydratedThreadHistories(
     const metadataThread = toMetadataOnlyThread(thread);
     if (metadataThread !== thread) {
       changed = true;
+      useTimelineModelStore.getState().clearThread(thread.id);
     }
     return metadataThread;
   });

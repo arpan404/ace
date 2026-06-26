@@ -3568,9 +3568,9 @@ function useChatViewComponent({
       ? resolvedSourceTimelineRows.rows
       : null) ??
     staleResolvedSourceTimelineRows;
-  const shouldRenderSourceTimelineRows = sourceTimelineRowsOverride !== null;
+  const shouldUseSourceTimelineRows = sourceTimelineRowsInput !== null;
   const timelineRenderState = useMemo(() => {
-    if (shouldRenderSourceTimelineRows) {
+    if (shouldUseSourceTimelineRows) {
       return {
         timelineEntries: EMPTY_TIMELINE_ENTRIES,
         turnDiffSummaryByAssistantMessageId,
@@ -3585,7 +3585,7 @@ function useChatViewComponent({
       }),
     );
   }, [
-    shouldRenderSourceTimelineRows,
+    shouldUseSourceTimelineRows,
     timelineMessages,
     timelineProposedPlans,
     timelineWorkEntries,
@@ -3653,7 +3653,7 @@ function useChatViewComponent({
   }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaryByAssistantMessageId]);
 
   const completionDividerBeforeEntryId = (() => {
-    if (shouldRenderSourceTimelineRows) {
+    if (shouldUseSourceTimelineRows) {
       return nativeCompletionDividerBeforeEntryId;
     }
     if (!latestTurnSettled) return null;
@@ -3661,7 +3661,7 @@ function useChatViewComponent({
     return deriveCompletionDividerBeforeEntryId(timelineEntries, activeLatestTurn);
   })();
   const timelineCacheScope = useMemo(() => {
-    if (shouldRenderSourceTimelineRows) {
+    if (shouldUseSourceTimelineRows) {
       return null;
     }
     return buildThreadTimelineCacheScope({
@@ -3674,7 +3674,7 @@ function useChatViewComponent({
     });
   }, [
     activeThread,
-    shouldRenderSourceTimelineRows,
+    shouldUseSourceTimelineRows,
     timelineEntries,
     timelineMessages,
     timelineProposedPlans,
@@ -3682,7 +3682,7 @@ function useChatViewComponent({
     turnDiffSummaries,
   ]);
   const fallbackTimelineRows: ReadonlyArray<TimelineRow> = (() => {
-    if (shouldRenderSourceTimelineRows) {
+    if (shouldUseSourceTimelineRows) {
       return EMPTY_TIMELINE_ROWS;
     }
     return measureRenderWork("chat.buildTimelineRows", () =>

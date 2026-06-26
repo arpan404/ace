@@ -46,6 +46,7 @@ import {
   shouldFlushOrchestrationUiEventImmediately,
 } from "../orchestrationUiEvents";
 import { resetWsRpcClient } from "../wsRpcClient";
+import { clearThreadHydrationCache } from "../lib/threadHydrationCache";
 import { getRouteRpcClient, subscribeToRemoteRelayConnectionState } from "../lib/remoteWsRouter";
 import { parseHostConnectionQrPayload, resolveLocalDeviceWsUrl } from "../lib/remoteHosts";
 import { queueDesktopPairingLink } from "../lib/desktopPairingLinks";
@@ -55,6 +56,10 @@ import {
   dispatchDetachedWindowReturnRequest,
   resolveDetachedWindowReturnThreadId,
 } from "../lib/detachedWindowReturn";
+import {
+  ACTIVE_THREAD_REPLAY_INTERVAL_MS,
+  resolveThreadReplayDelayMs,
+} from "../lib/orchestrationReplaySchedule";
 import { DesktopCliInstallToastBridge } from "./-DesktopCliInstallToastBridge";
 import { DetachedBrowserWindow } from "./-DetachedBrowserWindow";
 import { DetachedEditorWindow } from "./-DetachedEditorWindow";
@@ -154,6 +159,8 @@ function MainRootRouteView() {
       return;
     }
     const handleHostChange = () => {
+      useStore.getState().resetToInitialState();
+      clearThreadHydrationCache();
       void resetWsRpcClient().finally(() => {
         setWsHostEpoch((current) => current + 1);
       });
@@ -326,7 +333,6 @@ function useScopedEventRouterLifecycle() {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
-  const appliedEventSequencesRef = useRef<Set<number>>(new Set());
   const appliedShellEventSequencesRef = useRef<Set<number>>(new Set());
   const threadLatestSequenceByIdRef = useRef<Map<ThreadId, number>>(new Map());
   const shellSnapshotSequenceRef = useRef(0);
@@ -359,24 +365,16 @@ function useScopedEventRouterLifecycle() {
 
   const applyScopedEvents = useCallback(
     (events: ReadonlyArray<OrchestrationEvent>) => {
-      const dedupedEvents: OrchestrationEvent[] = [];
-      for (const event of events) {
-        if (appliedEventSequencesRef.current.has(event.sequence)) {
-          continue;
-        }
-        addBoundedSequence(appliedEventSequencesRef.current, event.sequence);
-        dedupedEvents.push(event);
-      }
-      if (dedupedEvents.length === 0) {
+      if (events.length === 0) {
         return;
       }
 
-      const batchEffects = deriveOrchestrationBatchEffects(dedupedEvents);
-      const uiEvents = coalesceOrchestrationUiEvents(dedupedEvents);
+      const batchEffects = deriveOrchestrationBatchEffects(events);
+      const uiEvents = coalesceOrchestrationUiEvents(events);
       unstable_batchedUpdates(() => {
         applyOrchestrationEvents(uiEvents);
         if (
-          dedupedEvents.some(
+          events.some(
             (event) =>
               event.type === "project.created" ||
               event.type === "project.meta-updated" ||
@@ -387,9 +385,7 @@ function useScopedEventRouterLifecycle() {
           syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
         }
         if (
-          dedupedEvents.some(
-            (event) => event.type === "thread.created" || event.type === "thread.deleted",
-          )
+          events.some((event) => event.type === "thread.created" || event.type === "thread.deleted")
         ) {
           const threads = useStore.getState().threads;
           syncThreads(
@@ -473,6 +469,7 @@ function useScopedEventRouterLifecycle() {
       snapshot: Awaited<ReturnType<typeof localRpcClient.orchestration.getShellSnapshot>>,
     ) => {
       shellSnapshotSequenceRef.current = snapshot.snapshotSequence;
+      threadLatestSequenceByIdRef.current.clear();
       syncServerShellSnapshot(snapshot);
       reconcileSnapshotDerivedState();
       appliedShellEventSequencesRef.current.clear();
@@ -499,6 +496,7 @@ function useScopedEventRouterLifecycle() {
       applyTransportConnectionHealthState(state);
       if (state.kind === "disconnected") {
         pendingShellEvents = [];
+        threadLatestSequenceByIdRef.current.clear();
         if (flushHandle !== null) {
           window.clearTimeout(flushHandle);
           flushHandle = null;
@@ -554,17 +552,6 @@ function useScopedEventRouterLifecycle() {
         );
     });
 
-    void localRpcClient.orchestration
-      .getShellSnapshot()
-      .then((snapshot) => {
-        if (!disposed) {
-          applyShellSnapshot(snapshot);
-        }
-      })
-      .catch((error) => {
-        reportBackgroundError("Failed to load orchestration shell snapshot.", error);
-      });
-
     return () => {
       disposed = true;
       if (flushHandle !== null) {
@@ -586,15 +573,22 @@ function useScopedEventRouterLifecycle() {
     }
     const localConnectionUrl = resolveLocalDeviceWsUrl();
     const localRpcClient = getRouteRpcClient(localConnectionUrl);
+    const threadLatestSequenceById = threadLatestSequenceByIdRef.current;
     let threadBootstrapped = false;
     let pendingThreadEvents: OrchestrationEvent[] = [];
     let pendingThreadUiEvents: OrchestrationEvent[] = [];
     let threadUiFlushHandle: number | null = null;
+    let catchupTimeoutHandle: number | null = null;
+    let reconnectReplayRetryHandle: number | null = null;
     const immediatelyFlushedAssistantMessageIds = new Set<string>();
     let replayInFlight = false;
     let bootstrapReplayInFlight = false;
+    let reconnectReplayRequired = false;
+    threadLatestSequenceById.delete(threadId);
+    const readDocumentVisibilityState = (): DocumentVisibilityState | "unsupported" =>
+      typeof document === "undefined" ? "unsupported" : document.visibilityState;
     const applyThreadEvents = (events: ReadonlyArray<OrchestrationEvent>) => {
-      const latestSequence = threadLatestSequenceByIdRef.current.get(threadId) ?? -1;
+      const latestSequence = threadLatestSequenceById.get(threadId) ?? -1;
       const nextEvents = events
         .filter(
           (event) =>
@@ -606,11 +600,8 @@ function useScopedEventRouterLifecycle() {
       if (nextEvents.length === 0) {
         return;
       }
+      threadLatestSequenceById.set(threadId, nextEvents.at(-1)?.sequence ?? latestSequence);
       applyScopedEvents(nextEvents);
-      threadLatestSequenceByIdRef.current.set(
-        threadId,
-        nextEvents.at(-1)?.sequence ?? latestSequence,
-      );
     };
     const flushThreadUiEvents = () => {
       threadUiFlushHandle = null;
@@ -653,11 +644,11 @@ function useScopedEventRouterLifecycle() {
     };
     const replayThreadEvents = async () => {
       if (replayInFlight || !threadBootstrapped) {
-        return;
+        return false;
       }
-      const fromSequenceExclusive = threadLatestSequenceByIdRef.current.get(threadId);
+      const fromSequenceExclusive = threadLatestSequenceById.get(threadId);
       if (fromSequenceExclusive === undefined) {
-        return;
+        return false;
       }
       const replayFromSequenceExclusive = Math.max(
         0,
@@ -667,13 +658,52 @@ function useScopedEventRouterLifecycle() {
       try {
         const replayedEvents = await localRpcClient.orchestration.replayEvents({
           fromSequenceExclusive: replayFromSequenceExclusive,
+          threadId,
         });
         applyThreadEvents(replayedEvents);
+        return true;
       } catch (error) {
         reportBackgroundError("Failed to replay scoped thread events.", error);
+        return false;
       } finally {
         replayInFlight = false;
       }
+    };
+    const drainPendingThreadEvents = () => {
+      if (pendingThreadEvents.length === 0) {
+        return;
+      }
+      const events = pendingThreadEvents;
+      pendingThreadEvents = [];
+      for (const event of events) {
+        queueThreadUiEvent(event);
+      }
+    };
+    const replayAfterReconnect = async () => {
+      if (!reconnectReplayRequired || !threadBootstrapped) {
+        return;
+      }
+      if (replayInFlight) {
+        if (reconnectReplayRetryHandle === null) {
+          reconnectReplayRetryHandle = window.setTimeout(() => {
+            reconnectReplayRetryHandle = null;
+            void replayAfterReconnect();
+          }, 0);
+        }
+        return;
+      }
+      const replaySucceeded = await replayThreadEvents();
+      if (!replaySucceeded) {
+        if (reconnectReplayRetryHandle === null) {
+          reconnectReplayRetryHandle = window.setTimeout(() => {
+            reconnectReplayRetryHandle = null;
+            void replayAfterReconnect();
+          }, ACTIVE_THREAD_REPLAY_INTERVAL_MS);
+        }
+        return;
+      }
+      reconnectReplayRequired = false;
+      drainPendingThreadEvents();
     };
     const recoverThreadBootstrapFromReplay = async () => {
       if (bootstrapReplayInFlight || threadBootstrapped || pendingThreadEvents.length === 0) {
@@ -684,31 +714,37 @@ function useScopedEventRouterLifecycle() {
         return;
       }
       bootstrapReplayInFlight = true;
-      try {
-        const replayedEvents = await localRpcClient.orchestration.replayEvents({
+      const replayedEvents = await localRpcClient.orchestration
+        .replayEvents({
           fromSequenceExclusive: Math.min(
             shellSnapshotSequenceRef.current,
             Math.max(0, firstPendingSequence - PENDING_THREAD_EVENT_BUFFER_LIMIT),
           ),
+          threadId,
+        })
+        .catch((error) => {
+          reportBackgroundError("Failed to recover scoped thread bootstrap events.", error);
+          return null;
         });
+      bootstrapReplayInFlight = false;
+      if (replayedEvents !== null) {
         const events = [...replayedEvents, ...pendingThreadEvents];
         pendingThreadEvents = [];
         if (
           events.some((event) => event.type === "thread.created" && event.aggregateId === threadId)
         ) {
           threadBootstrapped = true;
-          for (const event of events) {
-            queueThreadUiEvent(event);
+          pendingThreadEvents = events;
+          if (reconnectReplayRequired) {
+            void replayAfterReconnect();
+          } else {
+            drainPendingThreadEvents();
           }
         } else {
           pendingThreadEvents = events
             .filter((event) => event.aggregateKind === "thread" && event.aggregateId === threadId)
             .slice(-PENDING_THREAD_EVENT_BUFFER_LIMIT);
         }
-      } catch (error) {
-        reportBackgroundError("Failed to recover scoped thread bootstrap events.", error);
-      } finally {
-        bootstrapReplayInFlight = false;
       }
     };
     const parseTimestampMs = (value: string | null | undefined): number | null => {
@@ -738,11 +774,61 @@ function useScopedEventRouterLifecycle() {
         Date.now() - latestActivityAt <= SCOPED_THREAD_CATCHUP_ACTIVE_WINDOW_MS
       );
     };
-    const catchupInterval = window.setInterval(() => {
-      if (shouldCatchUpThread()) {
-        void replayThreadEvents();
+    const clearCatchupTimeout = () => {
+      if (catchupTimeoutHandle === null) {
+        return;
       }
-    }, 1_500);
+      window.clearTimeout(catchupTimeoutHandle);
+      catchupTimeoutHandle = null;
+    };
+    const scheduleCatchup = (delayMs?: number) => {
+      const visibilityState = readDocumentVisibilityState();
+      if (catchupTimeoutHandle !== null || visibilityState === "hidden") {
+        return;
+      }
+      const replayDelayMs =
+        delayMs ??
+        resolveThreadReplayDelayMs({
+          isThreadActive: shouldCatchUpThread(),
+          visibilityState,
+        });
+      if (replayDelayMs === null) {
+        return;
+      }
+      catchupTimeoutHandle = window.setTimeout(() => {
+        catchupTimeoutHandle = null;
+        void replayThreadEvents().finally(() => {
+          scheduleCatchup();
+        });
+      }, replayDelayMs);
+    };
+    const handleVisibilityChange = () => {
+      if (readDocumentVisibilityState() === "hidden") {
+        clearCatchupTimeout();
+        return;
+      }
+      scheduleCatchup(0);
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    scheduleCatchup();
+    const unsubscribeConnectionState = localRpcClient.subscribeConnectionState((state) => {
+      if (state.kind === "disconnected") {
+        reconnectReplayRequired = true;
+        threadBootstrapped = false;
+        pendingThreadEvents = [];
+        pendingThreadUiEvents = [];
+        threadLatestSequenceById.delete(threadId);
+        clearCatchupTimeout();
+        if (threadUiFlushHandle !== null) {
+          window.clearTimeout(threadUiFlushHandle);
+          threadUiFlushHandle = null;
+        }
+        return;
+      }
+      if (state.kind === "connected" || state.kind === "reconnected") {
+        scheduleCatchup(0);
+      }
+    });
     const unsubscribeThread = localRpcClient.orchestration.subscribeThread({ threadId }, (item) => {
       if (item.kind === "snapshot") {
         syncServerThreadDetailHotPath(item.snapshot.thread, {
@@ -750,19 +836,11 @@ function useScopedEventRouterLifecycle() {
           hydrateThreadId: threadId,
         });
         threadBootstrapped = true;
-        if (pendingThreadEvents.length > 0) {
-          const events = pendingThreadEvents;
-          pendingThreadEvents = [];
-          for (const event of events) {
-            queueThreadUiEvent(event);
-          }
-        }
-        const latestAppliedSequence = threadLatestSequenceByIdRef.current.get(threadId);
-        if (
-          latestAppliedSequence === undefined ||
-          latestAppliedSequence < item.snapshot.snapshotSequence
-        ) {
-          threadLatestSequenceByIdRef.current.set(threadId, item.snapshot.snapshotSequence);
+        threadLatestSequenceById.set(threadId, item.snapshot.snapshotSequence);
+        if (reconnectReplayRequired) {
+          void replayAfterReconnect();
+        } else {
+          drainPendingThreadEvents();
         }
         return;
       }
@@ -780,6 +858,11 @@ function useScopedEventRouterLifecycle() {
         }
         return;
       }
+      if (reconnectReplayRequired) {
+        appendBoundedEvent(pendingThreadEvents, item.event, PENDING_THREAD_EVENT_BUFFER_LIMIT);
+        void replayAfterReconnect();
+        return;
+      }
       try {
         queueThreadUiEvent(item.event);
       } catch (error) {
@@ -787,13 +870,19 @@ function useScopedEventRouterLifecycle() {
       }
     });
     return () => {
-      window.clearInterval(catchupInterval);
+      clearCatchupTimeout();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       pendingThreadEvents = [];
       pendingThreadUiEvents = [];
       if (threadUiFlushHandle !== null) {
         window.clearTimeout(threadUiFlushHandle);
       }
+      if (reconnectReplayRetryHandle !== null) {
+        window.clearTimeout(reconnectReplayRetryHandle);
+      }
+      unsubscribeConnectionState();
       unsubscribeThread();
+      threadLatestSequenceById.delete(threadId);
       void localRpcClient.orchestration.unsubscribeThread({ threadId }).catch(() => undefined);
     };
   }, [applyScopedEvents, routeThreadId, syncServerThreadDetailHotPath]);

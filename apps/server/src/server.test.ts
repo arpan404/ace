@@ -311,6 +311,7 @@ const buildAppUnderTest = (options?: {
         Layer.mock(OrchestrationEngineService)({
           getReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           readEvents: () => Stream.empty,
+          readThreadEvents: () => Stream.empty,
           dispatch: () => Effect.succeed({ sequence: 0 }),
           streamDomainEvents: Stream.empty,
           ...options?.layers?.orchestrationEngine,
@@ -2438,6 +2439,64 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.deepEqual(replayResult, []);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc orchestration.replayEvents to thread-scoped replay", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const threadId = ThreadId.makeUnsafe("thread-scoped-replay");
+      let globalReplayCalled = false;
+      let scopedReplayInput: { readonly threadId: ThreadId; readonly cursor: number } | null = null;
+
+      const event = {
+        sequence: 5,
+        eventId: "event-thread-scoped-replay",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.reverted",
+        payload: {
+          threadId,
+          turnCount: 1,
+        },
+      } as OrchestrationEvent;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            readEvents: () => {
+              globalReplayCalled = true;
+              return Stream.empty;
+            },
+            readThreadEvents: (requestedThreadId, fromSequenceExclusive) => {
+              scopedReplayInput = {
+                threadId: requestedThreadId,
+                cursor: fromSequenceExclusive,
+              };
+              return Stream.make(event);
+            },
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const replayResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.replayEvents]({
+            fromSequenceExclusive: 4,
+            threadId,
+          }),
+        ),
+      );
+
+      assert.equal(globalReplayCalled, false);
+      assert.deepEqual(scopedReplayInput, { threadId, cursor: 4 });
+      assert.deepEqual(replayResult, [event]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

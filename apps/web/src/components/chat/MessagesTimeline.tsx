@@ -819,6 +819,27 @@ export function MessagesTimeline({
     window.getSelection()?.removeAllRanges();
     dispatchUiState({ type: "set-selection-pin-target", selectionPinTarget: null });
   };
+  const noteAssistantMarkdownRendered = useStableCallback((messageId: MessageId) => {
+    const assistantMessageId = String(messageId);
+    dispatchUiState({
+      type: "update-rendered-assistant-markdown-message-ids",
+      update: (current) => {
+        if (current.has(assistantMessageId)) {
+          return current;
+        }
+        const next = new Set<string>([assistantMessageId]);
+        for (const renderedMessageId of current) {
+          if (!next.has(renderedMessageId)) {
+            next.add(renderedMessageId);
+          }
+          if (next.size >= MAX_RENDERED_ASSISTANT_MARKDOWN_MESSAGE_IDS) {
+            break;
+          }
+        }
+        return next;
+      },
+    });
+  });
   useEffect(() => {
     const updateAfterSelectionSettles = () => {
       window.requestAnimationFrame(updateSelectionPinTargetEffect);
@@ -1648,6 +1669,7 @@ export function MessagesTimeline({
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
                   onForkConversation={null}
+                  onMarkdownRendered={noteAssistantMarkdownRendered}
                   onStreamingLayoutChange={onStreamingLayoutChange}
                   timestampFormat={timestampFormat}
                 />
@@ -3407,6 +3429,7 @@ function AssistantMessageTimelineRow(props: {
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
   onForkConversation?: (() => void) | null;
+  onMarkdownRendered?: ((messageId: MessageId) => void) | null;
   onStreamingLayoutChange?: (() => void) | null;
   onTogglePinnedMessage?: (() => void) | null;
   timestampFormat: TimestampFormat;
@@ -3432,6 +3455,14 @@ function AssistantMessageTimelineRow(props: {
         : assistantImages.length > 0
           ? ""
           : "(empty response)";
+  const onMarkdownRendered = props.onMarkdownRendered ?? null;
+  const messageId = props.message.id;
+  useEffect(() => {
+    if (!displayState.renderMarkdown || messageText.length === 0) {
+      return;
+    }
+    onMarkdownRendered?.(messageId);
+  }, [displayState.renderMarkdown, messageId, messageText.length, onMarkdownRendered]);
   const timing = resolveAssistantTurnTiming({
     completedAt: props.message.completedAt ?? null,
     durationStart: props.durationStart,

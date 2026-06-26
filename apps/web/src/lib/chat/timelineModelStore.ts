@@ -9,15 +9,14 @@ import {
 import { compareOrchestrationTimelineSources } from "@ace/shared/orchestrationTimelineSources";
 import { create } from "zustand";
 
-import { ensureNativeApi } from "../../nativeApi";
 import { resolveConnectionForThreadId } from "../connectionRouting";
 import { LRUCache } from "../lruCache";
 import { clampCacheEntryCount } from "../resourceProfile";
+import { hydrateThreadFromCache, primeHydratedThreadCache } from "../threadHydrationCache";
 import { resolveAttachmentPreviewUrl } from "./attachmentPreviewUrls";
 
 const DEFAULT_TIMELINE_TAIL_WINDOW_ROWS = 100;
 const BACKGROUND_TIMELINE_ROWS_PREFETCH_DELAY_MS = 750;
-const THREAD_TIMELINE_HYDRATION_TIMEOUT_MS = 10_000;
 const BACKGROUND_TIMELINE_ROWS_PREFETCH_FAILURE_BACKOFF_MS = 30_000;
 const TIMELINE_MODEL_CACHE_VERSION = "timeline-model:v4";
 const MAX_ROW_HEIGHT_CACHE_ENTRIES = clampCacheEntryCount(32_000, {
@@ -241,6 +240,10 @@ function notifyThreadReadModelFetched(thread: OrchestrationThread): void {
   }
 }
 
+setThreadReadModelObserver((thread) => {
+  primeHydratedThreadCache(thread);
+});
+
 const projectionCacheByThreadId = new Map<string, TimelineRowsProjectionCacheEntry>();
 const liveTimelineRowPatchQueue = new Map<string, PrimeLiveTimelineRowInput>();
 const liveTimelineRowRemovalQueue = new Map<string, RemoveLiveTimelineRowInput>();
@@ -273,6 +276,27 @@ function cancelLiveTimelineRowPatchFrame(): void {
   liveTimelineRowSyncPatchQueue.clear();
   liveTimelineRowSyncRemovalQueue.clear();
   liveTimelineRowSyncBatchDepth = 0;
+}
+
+function flushLiveTimelineRowPatchQueues(): void {
+  if (liveTimelineRowPatchFrame !== null) {
+    cancelScheduledAnimationFrame(liveTimelineRowPatchFrame);
+    liveTimelineRowPatchFrame = null;
+  }
+  const removals = [
+    ...liveTimelineRowRemovalQueue.values(),
+    ...liveTimelineRowSyncRemovalQueue.values(),
+  ];
+  const patches = [
+    ...liveTimelineRowPatchQueue.values(),
+    ...liveTimelineRowSyncPatchQueue.values(),
+  ];
+  liveTimelineRowPatchQueue.clear();
+  liveTimelineRowRemovalQueue.clear();
+  liveTimelineRowSyncPatchQueue.clear();
+  liveTimelineRowSyncRemovalQueue.clear();
+  liveTimelineRowSyncBatchDepth = 0;
+  applyLiveTimelineRowQueue({ removals, patches });
 }
 
 function liveTimelinePatchQueueKey(input: PrimeLiveTimelineRowInput): string {
@@ -333,20 +357,6 @@ function cancelRowHeightRevisionFrame(): void {
   }
   cancelScheduledAnimationFrame(rowHeightRevisionFrame);
   rowHeightRevisionFrame = null;
-}
-
-function createThreadTimelineHydrationTimeout(threadId: ThreadId): Promise<never> {
-  return new Promise((_, reject) => {
-    globalThis.setTimeout(() => {
-      reject(
-        new Error(
-          `Timed out hydrating timeline rows for thread ${String(
-            threadId,
-          )} after ${String(THREAD_TIMELINE_HYDRATION_TIMEOUT_MS)}ms.`,
-        ),
-      );
-    }, THREAD_TIMELINE_HYDRATION_TIMEOUT_MS);
-  });
 }
 
 function rowKey(threadId: ThreadId, rowId: string): string {
@@ -568,6 +578,21 @@ function chooseFreshestProposedPlan(
   return existing.updatedAt.localeCompare(incoming.updatedAt) > 0 ? existing : incoming;
 }
 
+function chooseFreshestActivity(
+  existing: OrchestrationThreadActivity | undefined,
+  incoming: OrchestrationThreadActivity,
+): OrchestrationThreadActivity {
+  if (!existing) {
+    return incoming;
+  }
+  const existingSequence = existing.sequence ?? -1;
+  const incomingSequence = incoming.sequence ?? -1;
+  if (existingSequence !== incomingSequence) {
+    return existingSequence > incomingSequence ? existing : incoming;
+  }
+  return existing.createdAt.localeCompare(incoming.createdAt) > 0 ? existing : incoming;
+}
+
 function compareTimelineRowsBySourceOrder(
   left: TimelineSourceRow,
   right: TimelineSourceRow,
@@ -753,7 +778,10 @@ function primeTimelineRowsSnapshotIntoState(
   }
   const activitiesById = { ...state.activitiesById };
   for (const activity of snapshot.activities) {
-    activitiesById[String(activity.id)] = activity;
+    activitiesById[String(activity.id)] = chooseFreshestActivity(
+      activitiesById[String(activity.id)],
+      activity,
+    );
   }
   const proposedPlansById = { ...state.proposedPlansById };
   for (const proposedPlan of snapshot.proposedPlans) {
@@ -923,6 +951,7 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
     });
   },
   reset: () => {
+    flushLiveTimelineRowPatchQueues();
     rowHeightCache.clear();
     inFlightThreadTimelineHydrationByThreadId.clear();
     inFlightThreadTimelineOpenPrefetchByThreadId.clear();
@@ -1152,8 +1181,11 @@ export function primeThreadTimelineRowsMetadataFromReadModelThreads(
     }
   }
 
-  for (const thread of hydratedThreads) {
-    useTimelineModelStore.getState().primeSnapshot(buildTimelineRowsSnapshotFromThread(thread));
+  if (hydratedThreads.length > 0) {
+    const snapshots = hydratedThreads.map(buildTimelineRowsSnapshotFromThread);
+    useTimelineModelStore.setState((state) =>
+      snapshots.reduce(primeTimelineRowsSnapshotIntoState, state),
+    );
   }
   if (metadataOnlyThreads.length === 0) {
     return;
@@ -1235,21 +1267,17 @@ export async function fetchThreadTimelineRowsHydration(
   }
 
   useTimelineModelStore.getState().beginFetches(threadId, 1);
-  const rpcPromise = ensureNativeApi().orchestration.getThread({ threadId });
-  const hydratedSnapshotPromise = rpcPromise.then((thread) => {
-    notifyThreadReadModelFetched(thread);
-    const snapshot = buildTimelineRowsSnapshotFromThread(thread);
-    useTimelineModelStore.getState().primeSnapshot(snapshot);
-    return snapshot;
-  });
-  void hydratedSnapshotPromise.catch(() => undefined);
-  const promise = Promise.race([
-    hydratedSnapshotPromise,
-    createThreadTimelineHydrationTimeout(threadId),
-  ]).finally(() => {
-    inFlightThreadTimelineHydrationByThreadId.delete(threadId);
-    useTimelineModelStore.getState().finishFetches(threadId, 1);
-  });
+  const promise = hydrateThreadFromCache(threadId)
+    .then((thread) => {
+      notifyThreadReadModelFetched(thread);
+      const snapshot = buildTimelineRowsSnapshotFromThread(thread);
+      useTimelineModelStore.getState().primeSnapshot(snapshot);
+      return snapshot;
+    })
+    .finally(() => {
+      inFlightThreadTimelineHydrationByThreadId.delete(threadId);
+      useTimelineModelStore.getState().finishFetches(threadId, 1);
+    });
   inFlightThreadTimelineHydrationByThreadId.set(threadId, promise);
   return promise;
 }
@@ -1264,8 +1292,7 @@ export function hydrateThreadTimelineRowsInBackground(threadId: ThreadId): void 
   useTimelineModelStore.getState().beginFetches(threadId, 1);
   let promise: Promise<TimelineRowsSnapshot>;
   try {
-    promise = ensureNativeApi()
-      .orchestration.getThread({ threadId })
+    promise = hydrateThreadFromCache(threadId)
       .then((thread) => {
         notifyThreadReadModelFetched(thread);
         const snapshot = buildTimelineRowsSnapshotFromThread(thread);
