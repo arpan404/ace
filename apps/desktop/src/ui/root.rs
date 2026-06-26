@@ -1,12 +1,15 @@
 use crate::{
-    app::{
+    actions::{
         AddCurrentDirectoryProject, ArchiveActiveThread, ArchiveProject, BeginPanelResize,
         InterruptActiveTurn, NewThread, NewThreadForProject, OpenThread, SendActiveComposer,
-        TogglePinActiveThread, ToggleSidebar,
+        ShowLessProjectThreads, ShowMoreProjectThreads, TogglePinActiveThread, ToggleSidebar,
     },
-    layout::{PanelLayout, SplitterKind, shell_layout},
-    state::DesktopStore,
-    theme::Theme,
+    persistence::PersistenceService,
+    stores::{DesktopStore, UiStore},
+    ui::{
+        layout::{PanelLayout, SplitterKind, shell_layout},
+        theme::Theme,
+    },
 };
 use gpui::{
     Context, FocusHandle, IntoElement, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Window,
@@ -15,10 +18,10 @@ use gpui::{
 
 pub struct RootView {
     focus_handle: FocusHandle,
-    panel_layout: PanelLayout,
+    persistence: Option<PersistenceService>,
     store: DesktopStore,
+    ui_store: UiStore,
     resize_drag: Option<ResizeDrag>,
-    sidebar_collapsed: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -32,16 +35,22 @@ impl RootView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window);
-        let theme = Theme::default();
+        let persistence = PersistenceService::ui_state()
+            .inspect_err(|error| tracing::warn!(%error, "failed to open ui state persistence"))
+            .ok();
+        let ui_store = persistence
+            .as_ref()
+            .map(PersistenceService::load_store)
+            .unwrap_or_default();
         Self {
             focus_handle,
-            panel_layout: PanelLayout::new(theme),
+            persistence,
             store: DesktopStore::load_from_ace_db().unwrap_or_else(|error| {
                 tracing::warn!(%error, "failed to load ace db");
                 DesktopStore::new()
             }),
+            ui_store,
             resize_drag: None,
-            sidebar_collapsed: false,
         }
     }
 
@@ -53,7 +62,7 @@ impl RootView {
     ) {
         self.resize_drag = Some(ResizeDrag {
             kind: event.kind,
-            start_layout: self.panel_layout,
+            start_layout: self.ui_store.panel_layout(),
             start_position: event.position,
         });
         cx.notify();
@@ -72,21 +81,24 @@ impl RootView {
 
         let theme = Theme::default();
         let delta_x = event.position.x - drag.start_position.x;
-        self.panel_layout = match drag.kind {
+        let layout = match drag.kind {
             SplitterKind::Sidebar => drag.start_layout.resize_sidebar(delta_x, theme),
             SplitterKind::RightPanel => drag.start_layout.resize_right_panel(delta_x, theme),
         };
+        self.ui_store.set_panel_layout(layout);
         cx.notify();
     }
 
     fn finish_panel_resize(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
         if self.resize_drag.take().is_some() {
+            self.save_ui_state();
             cx.notify();
         }
     }
 
     fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
-        self.sidebar_collapsed = !self.sidebar_collapsed;
+        self.ui_store.toggle_sidebar();
+        self.save_ui_state();
         cx.notify();
     }
 
@@ -164,6 +176,34 @@ impl RootView {
         self.store.archive_or_delete_project(event.project_id);
         cx.notify();
     }
+
+    fn show_more_project_threads(
+        &mut self,
+        event: &ShowMoreProjectThreads,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.store.show_more_project_threads(event.project_id);
+        cx.notify();
+    }
+
+    fn show_less_project_threads(
+        &mut self,
+        event: &ShowLessProjectThreads,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.store.show_less_project_threads(event.project_id);
+        cx.notify();
+    }
+
+    fn save_ui_state(&self) {
+        if let Some(persistence) = &self.persistence
+            && let Err(error) = persistence.save_store(&self.ui_store)
+        {
+            tracing::warn!(%error, "failed to save ui state");
+        }
+    }
 }
 
 impl Render for RootView {
@@ -184,6 +224,8 @@ impl Render for RootView {
             .on_action(cx.listener(Self::toggle_pin_active_thread))
             .on_action(cx.listener(Self::archive_active_thread))
             .on_action(cx.listener(Self::archive_project))
+            .on_action(cx.listener(Self::show_more_project_threads))
+            .on_action(cx.listener(Self::show_less_project_threads))
             .on_mouse_move(cx.listener(Self::resize_panels))
             .on_mouse_up(
                 gpui::MouseButton::Left,
@@ -195,9 +237,11 @@ impl Render for RootView {
             .font_family(theme.font_family)
             .child(shell_layout(
                 theme,
-                self.panel_layout,
-                self.sidebar_collapsed,
+                self.ui_store.panel_layout(),
+                self.ui_store.state().sidebar_collapsed,
                 self.store.projection(),
+                _window,
+                cx,
             ))
     }
 }

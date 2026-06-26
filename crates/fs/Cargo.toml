@@ -1,5 +1,5 @@
 [package]
-name = "ace-platform"
+name = "ace-fs"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -7,6 +7,5 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-directories.workspace = true
-thiserror.workspace = true
-
+home = "0.5.12"
+ace-error.workspace = true

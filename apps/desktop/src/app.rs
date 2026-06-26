@@ -1,75 +1,39 @@
-use crate::{layout::SplitterKind, root::RootView, theme::Theme};
+use crate::{
+    actions::{
+        AddCurrentDirectoryProject, InterruptActiveTurn, NewThread, Quit, SendActiveComposer,
+        ToggleSidebar,
+    },
+    ui::{assets::DesktopAssets, root::RootView, theme::Theme},
+};
 use gpui::{
     App, AppContext, Application, Bounds, KeyBinding, Menu, MenuItem, Point, SystemMenuType,
-    TitlebarOptions, WindowBounds, WindowOptions, actions, px, size,
+    TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
-use tracing_subscriber::{EnvFilter, fmt};
-
-actions!(
-    ace,
-    [
-        Quit,
-        ToggleSidebar,
-        NewThread,
-        SendActiveComposer,
-        InterruptActiveTurn,
-        TogglePinActiveThread,
-        ArchiveActiveThread,
-        AddCurrentDirectoryProject
-    ]
-);
-
-#[derive(Clone, Debug, PartialEq, gpui::Action)]
-#[action(namespace = ace, no_json)]
-pub struct BeginPanelResize {
-    pub kind: SplitterKind,
-    pub position: Point<gpui::Pixels>,
-}
-
-#[derive(Clone, Debug, PartialEq, gpui::Action)]
-#[action(namespace = ace, no_json)]
-pub struct OpenThread {
-    pub thread_id: ace_core::ThreadId,
-}
-
-#[derive(Clone, Debug, PartialEq, gpui::Action)]
-#[action(namespace = ace, no_json)]
-pub struct NewThreadForProject {
-    pub project_id: ace_core::ProjectId,
-}
-
-#[derive(Clone, Debug, PartialEq, gpui::Action)]
-#[action(namespace = ace, no_json)]
-pub struct ArchiveProject {
-    pub project_id: ace_core::ProjectId,
-}
 
 pub fn run() {
-    init_tracing();
+    let _logger = ace_logger::init_logger().expect("failed to initialize ace logger");
 
-    Application::new().run(|cx: &mut App| {
-        register_actions(cx);
-        cx.bind_keys([
-            KeyBinding::new("cmd-b", ToggleSidebar, None),
-            KeyBinding::new("cmd-n", NewThread, None),
-            KeyBinding::new("cmd-enter", SendActiveComposer, None),
-            KeyBinding::new("cmd-.", InterruptActiveTurn, None),
-        ]);
-        cx.set_menus(app_menus());
+    Application::new()
+        .with_assets(DesktopAssets)
+        .run(|cx: &mut App| {
+            gpui_component::init(cx);
+            register_actions(cx);
+            cx.bind_keys([
+                KeyBinding::new("cmd-b", ToggleSidebar, None),
+                KeyBinding::new("cmd-n", NewThread, None),
+                KeyBinding::new("cmd-enter", SendActiveComposer, None),
+                KeyBinding::new("cmd-.", InterruptActiveTurn, None),
+            ]);
+            cx.set_menus(app_menus());
 
-        cx.open_window(window_options(cx), |window, cx| {
-            cx.activate(false);
-            cx.new(|cx| RootView::new(window, cx))
-        })
-        .expect("failed to open Ace desktop window");
+            cx.open_window(window_options(cx), |window, cx| {
+                cx.activate(false);
+                cx.new(|cx| RootView::new(window, cx))
+            })
+            .expect("failed to open Ace desktop window");
 
-        cx.activate(true);
-    });
-}
-
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let _ = fmt().with_env_filter(filter).with_target(false).try_init();
+            cx.activate(true);
+        });
 }
 
 fn register_actions(cx: &mut App) {

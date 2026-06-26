@@ -5,7 +5,10 @@ mod json;
 mod migration;
 mod projection;
 
-pub use ace_db::{AceDbError, AceDbSnapshot, load_ace_db, load_default_ace_db};
+pub use ace_db::{
+    AceDbError, AceDbSnapshot, load_ace_db, load_default_ace_db, load_default_project_threads,
+    load_default_thread_messages, load_thread_messages,
+};
 pub use error::PersistenceError;
 pub use event::{
     ProviderEventLogRepository, ProviderEventRecord, ProviderServerRequestDecision,

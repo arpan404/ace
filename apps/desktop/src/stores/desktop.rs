@@ -1,8 +1,8 @@
 use ace_core::{Project, ProjectId, ThreadId};
 use ace_runtime::{
     chat::{
-        ChatProjection, ComposerDraft, CreationContext, InteractionMode, RuntimeMode,
-        SidebarMetadata, SidebarProjection, ThreadDraft, ThreadStatus, ThreadSummary,
+        ChatMessageProjection, ChatProjection, ComposerDraft, CreationContext, InteractionMode,
+        RuntimeMode, SidebarMetadata, SidebarProjection, ThreadDraft, ThreadStatus, ThreadSummary,
         build_chat_projection, build_sidebar_projection, resolve_thread_creation_options,
     },
     threads::{AgentRuntimeSnapshot, ExecutionLocation},
@@ -19,6 +19,8 @@ pub struct DesktopStore {
     thread_drafts: HashMap<ThreadId, ThreadDraft>,
     project_drafts: HashMap<ProjectId, ThreadId>,
     composer_drafts: HashMap<ThreadId, ComposerDraft>,
+    persisted_messages: HashMap<ThreadId, Vec<ChatMessageProjection>>,
+    thread_counts: HashMap<ProjectId, usize>,
     metadata: SidebarMetadata,
     runtime: AgentRuntimeSnapshot,
     now_counter: u64,
@@ -44,6 +46,8 @@ impl DesktopStore {
             thread_drafts: HashMap::new(),
             project_drafts: HashMap::new(),
             composer_drafts: HashMap::new(),
+            persisted_messages: HashMap::new(),
+            thread_counts: HashMap::new(),
             metadata: SidebarMetadata::default(),
             runtime: AgentRuntimeSnapshot::default(),
             now_counter: now_millis(),
@@ -53,20 +57,38 @@ impl DesktopStore {
     pub fn load_from_ace_db() -> Result<Self, ace_persistence::AceDbError> {
         let snapshot = ace_persistence::load_default_ace_db()?;
         let active_thread_id = snapshot.threads.first().map(|thread| thread.id.clone());
-        Ok(Self {
+        let mut store = Self {
             projects: snapshot.projects,
             threads: snapshot.threads,
+            persisted_messages: HashMap::new(),
+            thread_counts: snapshot.thread_counts,
             metadata: SidebarMetadata {
-                active_thread_id,
+                active_thread_id: active_thread_id.clone(),
                 ..SidebarMetadata::default()
             },
             ..Self::new()
-        })
+        };
+        if let Some(thread_id) = active_thread_id {
+            store.hydrate_thread_messages(&thread_id);
+        }
+        Ok(store)
     }
 
     #[must_use]
     pub fn projection(&self) -> DesktopProjection {
-        let sidebar = build_sidebar_projection(&self.projects, &self.threads, &self.metadata);
+        let mut sidebar = build_sidebar_projection(&self.projects, &self.threads, &self.metadata);
+        sidebar.total_thread_count = 0;
+        for group in &mut sidebar.projects {
+            group.project.thread_count = self
+                .thread_counts
+                .get(&group.project.id)
+                .copied()
+                .unwrap_or(group.threads.len());
+            sidebar.total_thread_count += group.project.thread_count;
+            for thread in &mut group.threads {
+                thread.latest_message_preview = None;
+            }
+        }
         let active_thread = self.active_thread().cloned();
         let composer = self
             .metadata
@@ -74,7 +96,16 @@ impl DesktopStore {
             .as_ref()
             .and_then(|id| self.composer_drafts.get(id))
             .cloned();
-        let chat = build_chat_projection(active_thread, composer, &self.runtime);
+        let mut chat = build_chat_projection(active_thread, composer, &self.runtime);
+        if chat.messages.is_empty()
+            && let Some(thread_id) = chat.active_thread.as_ref().map(|thread| &thread.id)
+        {
+            chat.messages = self
+                .persisted_messages
+                .get(thread_id)
+                .cloned()
+                .unwrap_or_default();
+        }
         DesktopProjection { sidebar, chat }
     }
 
@@ -150,6 +181,7 @@ impl DesktopStore {
     }
 
     pub fn open_thread(&mut self, thread_id: ThreadId) {
+        self.hydrate_thread_messages(&thread_id);
         self.metadata.active_thread_id = Some(thread_id.clone());
         self.metadata.unseen_completed_thread_ids.remove(&thread_id);
     }
@@ -260,6 +292,7 @@ impl DesktopStore {
     pub fn delete_thread(&mut self, thread_id: ThreadId) {
         self.threads.retain(|thread| thread.id != thread_id);
         self.composer_drafts.remove(&thread_id);
+        self.persisted_messages.remove(&thread_id);
         self.thread_drafts.remove(&thread_id);
         self.project_drafts.retain(|_, id| id != &thread_id);
         self.metadata.pinned_thread_ids.remove(&thread_id);
@@ -358,6 +391,8 @@ impl DesktopStore {
             .retain(|_, draft| draft.project_id != project_id);
         self.composer_drafts
             .retain(|thread_id, _| self.threads.iter().any(|thread| &thread.id == thread_id));
+        self.persisted_messages
+            .retain(|thread_id, _| self.threads.iter().any(|thread| &thread.id == thread_id));
         if self
             .metadata
             .active_thread_id
@@ -365,6 +400,54 @@ impl DesktopStore {
             .is_some_and(|active| !self.threads.iter().any(|thread| &thread.id == active))
         {
             self.metadata.active_thread_id = self.threads.first().map(|thread| thread.id.clone());
+        }
+    }
+
+    pub fn show_more_project_threads(&mut self, project_id: ProjectId) {
+        let loaded = self.loaded_project_thread_count(project_id);
+        let total = self
+            .thread_counts
+            .get(&project_id)
+            .copied()
+            .unwrap_or(loaded);
+        self.load_project_threads(project_id, (loaded + 5).min(total));
+    }
+
+    pub fn show_less_project_threads(&mut self, project_id: ProjectId) {
+        self.load_project_threads(project_id, 5);
+    }
+
+    fn loaded_project_thread_count(&self, project_id: ProjectId) -> usize {
+        self.threads
+            .iter()
+            .filter(|thread| thread.project_id == project_id)
+            .count()
+    }
+
+    fn load_project_threads(&mut self, project_id: ProjectId, limit: usize) {
+        match ace_persistence::load_default_project_threads(project_id, limit) {
+            Ok(mut threads) => {
+                self.threads
+                    .retain(|thread| thread.project_id != project_id);
+                self.threads.append(&mut threads);
+            }
+            Err(error) => {
+                tracing::warn!(%error, "failed to load project threads");
+            }
+        }
+    }
+
+    fn hydrate_thread_messages(&mut self, thread_id: &ThreadId) {
+        if self.persisted_messages.contains_key(thread_id) {
+            return;
+        }
+        match ace_persistence::load_default_thread_messages(thread_id, 200) {
+            Ok(messages) => {
+                self.persisted_messages.insert(thread_id.clone(), messages);
+            }
+            Err(error) => {
+                tracing::warn!(%error, thread_id = %thread_id.0, "failed to load thread messages");
+            }
         }
     }
 

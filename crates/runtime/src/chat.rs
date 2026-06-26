@@ -69,7 +69,7 @@ impl ProjectSummary {
             id: project.id,
             name: project.title.clone(),
             workspace_root: project.workspace_root.clone(),
-            icon: project.icon.as_ref().map(|icon| icon.value.clone()),
+            icon: project.icon.as_ref().map(|icon| icon.kind.clone()),
             archived: project.archived_at.is_some(),
             thread_count,
             updated_at: project.updated_at.clone(),

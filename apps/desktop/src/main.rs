@@ -1,10 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod actions;
 mod app;
-mod layout;
-mod root;
-mod state;
-mod theme;
+mod persistence;
+mod stores;
+mod ui;
 
 fn main() {
     app::run();

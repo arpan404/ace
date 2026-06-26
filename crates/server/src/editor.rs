@@ -1,5 +1,5 @@
+use ace_fs::AppDirs;
 use ace_lsp::{LspError, LspSessionManager, LspToolRegistry};
-use ace_platform::AppPaths;
 use ace_process::{ProcessRunner, TokioProcessRunner};
 use ace_protocol::{
     editor::{BufferCloseRequest, BufferSyncRequest, LspRequest, WorkspaceSymbolsRequest},
@@ -30,7 +30,7 @@ pub struct EditorService<R: ProcessRunner = TokioProcessRunner> {
 impl EditorService<TokioProcessRunner> {
     pub fn production() -> Result<Self, EditorApiError> {
         let paths =
-            AppPaths::resolve().map_err(|error| EditorApiError::Unavailable(error.to_string()))?;
+            AppDirs::resolve().map_err(|error| EditorApiError::Unavailable(error.to_string()))?;
         let registry = LspToolRegistry::new(paths.state_dir.join("lsp-tools"))?;
         Ok(Self::new(registry, Arc::new(TokioProcessRunner)))
     }

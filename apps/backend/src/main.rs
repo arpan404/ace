@@ -1,4 +1,4 @@
-use ace_platform::AppPaths;
+use ace_fs::AppDirs;
 use ace_server::{ServerConfig, parse_bind_addr};
 use clap::Parser;
 use tracing::{error, info};
@@ -18,12 +18,10 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    let _logger = ace_logger::init_logger().expect("failed to initialize ace logger");
 
     let args = Args::parse();
-    let paths = AppPaths::resolve().expect("failed to resolve ace app paths");
+    let paths = AppDirs::resolve().expect("failed to resolve ace app paths");
     let host = if args.lan { "0.0.0.0" } else { "127.0.0.1" };
     let server = ServerConfig::new(host.to_owned(), args.port);
     let bind_addr = parse_bind_addr(&server).expect("parse backend bind address");

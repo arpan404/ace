@@ -16,9 +16,9 @@ use crate::git::{GitApiError, GitService};
 use crate::github::{GithubApiError, GithubService};
 use crate::project::{ProjectApiError, ProjectService};
 use ace_core::ProviderKind;
+use ace_fs::AppDirs;
 use ace_git::{GitClient, GithubCliClient, ProcessRunner, TokioProcessRunner};
 use ace_persistence::{PersistenceError, ProviderEventLogRepository};
-use ace_platform::AppPaths;
 use ace_protocol::{
     PROTOCOL_VERSION,
     ws::{WsClientRequest, WsServerPayload, WsServerResponse},
@@ -99,8 +99,7 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
             .with_state_source(ace_core::ProviderKind::Codex, codex.clone())
             .with_host_tool_registry(ace_core::ProviderKind::Ace)
             .with_host_tool_registry(ace_core::ProviderKind::Codex);
-        let paths = AppPaths::resolve().expect("resolve app paths");
-        std::fs::create_dir_all(&paths.state_dir).expect("create app state directory");
+        let paths = AppDirs::resolve().expect("resolve app paths");
         Self {
             checkpoint: Arc::new(CheckpointService::production()),
             codex,

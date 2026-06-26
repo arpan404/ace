@@ -7,7 +7,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-ace-platform.workspace = true
+ace-fs.workspace = true
 ace-process.workspace = true
 async-trait.workspace = true
 serde.workspace = true

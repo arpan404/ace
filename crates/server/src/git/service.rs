@@ -1,9 +1,9 @@
 use super::GitApiError;
+use ace_fs::AppDirs;
 use ace_git::{
     CreatePullRequest, DefaultBranchPolicy, GitClient, GitStackedAction, GitWorkflow,
     GithubCliClient, ProcessRunner, TokioProcessRunner, WorktreeConfig, WorktreeManager,
 };
-use ace_platform::AppPaths;
 use ace_protocol::git::{
     GitBranchesRequest, GitChangedFilesRequest, GitCheckoutBranchRequest, GitCommitRequest,
     GitCommitsCompareRequest, GitCommitsRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
@@ -463,7 +463,7 @@ fn repo_path(raw: &str) -> Result<PathBuf, GitApiError> {
 }
 
 fn default_worktree_root() -> Option<PathBuf> {
-    AppPaths::resolve()
+    AppDirs::resolve()
         .ok()
         .map(|paths| WorktreeConfig::from_app_paths(&paths).root)
 }

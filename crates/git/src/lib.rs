@@ -1,4 +1,4 @@
-use ace_platform::AppPaths;
+use ace_fs::AppDirs;
 pub use ace_process::{CommandOutput, CommandRequest, TokioProcessRunner};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -573,7 +573,7 @@ pub struct WorktreeConfig {
 
 impl WorktreeConfig {
     #[must_use]
-    pub fn from_app_paths(paths: &AppPaths) -> Self {
+    pub fn from_app_paths(paths: &AppDirs) -> Self {
         Self {
             root: paths.state_dir.join("worktrees"),
         }

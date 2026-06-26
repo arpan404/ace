@@ -1,4 +1,4 @@
-use ace_platform::AppPaths;
+use ace_fs::AppDirs;
 use ace_project::{
     AddProject, AddProjectResult, ProjectCreateEntryResult, ProjectDeleteEntryResult,
     ProjectEntriesResult, ProjectError, ProjectFaviconResult, ProjectReadFileResult,
@@ -35,9 +35,7 @@ pub struct ProjectService {
 impl ProjectService {
     pub fn production() -> Result<Self, ProjectApiError> {
         let paths =
-            AppPaths::resolve().map_err(|error| ProjectApiError::Unavailable(error.to_string()))?;
-        std::fs::create_dir_all(&paths.state_dir)
-            .map_err(|error| ProjectApiError::Unavailable(error.to_string()))?;
+            AppDirs::resolve().map_err(|error| ProjectApiError::Unavailable(error.to_string()))?;
         Self::open(paths.state_dir.join("projects.sqlite3"))
     }
 
