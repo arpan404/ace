@@ -378,6 +378,7 @@ function useTerminalViewportComponent({
   const selectionActionRequestIdRef = useRef(0);
   const selectionActionOpenRef = useRef(false);
   const handledFocusRequestIdRef = useRef(0);
+  const terminalSessionReadyRef = useRef(false);
 
   useEffect(() => {
     onSessionExitedRef.current = onSessionExited;
@@ -448,6 +449,7 @@ function useTerminalViewportComponent({
     let pendingTerminalOutput = "";
     let pendingTerminalOutputFrame: number | null = null;
     let selectionActionTimer: number | null = null;
+    terminalSessionReadyRef.current = false;
 
     const fitToViewport = (options: { force?: boolean; syncPty?: boolean } = {}) => {
       const { force = false, syncPty = true } = options;
@@ -487,7 +489,7 @@ function useTerminalViewportComponent({
       if (wasAtBottom) {
         activeTerminal.scrollToBottom();
       }
-      if (!syncPty) return;
+      if (!syncPty || !terminalSessionReadyRef.current) return;
       runAsyncTask(
         api.terminal.resize({
           threadId,
@@ -829,6 +831,7 @@ function useTerminalViewportComponent({
           ...(runtimeEnvRef.current ? { env: runtimeEnvRef.current } : {}),
         });
         if (disposed) return;
+        terminalSessionReadyRef.current = true;
         lastAppliedFitSignature = null;
         scheduleFitToViewport({ force: true });
         activeTerminal.write("\u001bc");
@@ -976,6 +979,7 @@ function useTerminalViewportComponent({
       window.removeEventListener("mouseup", handleMouseUp);
       mount.removeEventListener("pointerdown", handlePointerDown);
       themeObserver.disconnect();
+      terminalSessionReadyRef.current = false;
       terminalRef.current = null;
       fitAddonRef.current = null;
       terminal.dispose();
@@ -1019,6 +1023,7 @@ function useTerminalViewportComponent({
       if (wasAtBottom) {
         terminal.scrollToBottom();
       }
+      if (!terminalSessionReadyRef.current) return;
       runAsyncTask(
         api.terminal.resize({
           threadId,

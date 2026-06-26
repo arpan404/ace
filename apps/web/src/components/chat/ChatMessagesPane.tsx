@@ -1,5 +1,5 @@
 import { ChevronDownIcon } from "lucide-react";
-import { type ComponentProps, type Ref } from "react";
+import { Component, type ComponentProps, type Ref } from "react";
 import { cn } from "~/lib/utils";
 import { APP_FLOATING_CHIP_CLASS_NAME } from "~/lib/appChrome";
 import { Button } from "~/components/ui/button";
@@ -8,22 +8,7 @@ import { ScrollArea } from "~/components/ui/scroll-area";
 import { MessagesTimeline } from "./MessagesTimeline";
 
 type MessagesContainerProps = ComponentProps<"div">;
-
-export function ChatMessagesPane({
-  messagesContainerRef,
-  messagesTimelineProps,
-  onMessagesPointerCancel,
-  onMessagesPointerDown,
-  onMessagesPointerUp,
-  onMessagesScroll,
-  onMessagesTouchEnd,
-  onMessagesTouchMove,
-  onMessagesTouchStart,
-  onMessagesWheel,
-  scrollMessagesToBottom,
-  showScrollToBottom,
-  timelineKey,
-}: {
+type ChatMessagesPaneProps = {
   messagesContainerRef: Ref<HTMLDivElement>;
   messagesTimelineProps: ComponentProps<typeof MessagesTimeline>;
   onMessagesPointerCancel: MessagesContainerProps["onPointerCancel"];
@@ -37,7 +22,54 @@ export function ChatMessagesPane({
   scrollMessagesToBottom: (behavior?: ScrollBehavior) => void;
   showScrollToBottom: boolean;
   timelineKey: string;
-}) {
+};
+
+function shallowObjectEqual(left: object, right: object): boolean {
+  if (left === right) return true;
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => Object.is(leftRecord[key], rightRecord[key]));
+}
+
+function chatMessagesPanePropsEqual(
+  previous: Readonly<ChatMessagesPaneProps>,
+  next: Readonly<ChatMessagesPaneProps>,
+): boolean {
+  return (
+    previous.messagesContainerRef === next.messagesContainerRef &&
+    previous.onMessagesPointerCancel === next.onMessagesPointerCancel &&
+    previous.onMessagesPointerDown === next.onMessagesPointerDown &&
+    previous.onMessagesPointerUp === next.onMessagesPointerUp &&
+    previous.onMessagesScroll === next.onMessagesScroll &&
+    previous.onMessagesTouchEnd === next.onMessagesTouchEnd &&
+    previous.onMessagesTouchMove === next.onMessagesTouchMove &&
+    previous.onMessagesTouchStart === next.onMessagesTouchStart &&
+    previous.onMessagesWheel === next.onMessagesWheel &&
+    previous.scrollMessagesToBottom === next.scrollMessagesToBottom &&
+    previous.showScrollToBottom === next.showScrollToBottom &&
+    previous.timelineKey === next.timelineKey &&
+    shallowObjectEqual(previous.messagesTimelineProps, next.messagesTimelineProps)
+  );
+}
+
+function ChatMessagesPaneContent({
+  messagesContainerRef,
+  messagesTimelineProps,
+  onMessagesPointerCancel,
+  onMessagesPointerDown,
+  onMessagesPointerUp,
+  onMessagesScroll,
+  onMessagesTouchEnd,
+  onMessagesTouchMove,
+  onMessagesTouchStart,
+  onMessagesWheel,
+  scrollMessagesToBottom,
+  showScrollToBottom,
+  timelineKey,
+}: ChatMessagesPaneProps) {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <ScrollArea
@@ -78,4 +110,14 @@ export function ChatMessagesPane({
       )}
     </div>
   );
+}
+
+export class ChatMessagesPane extends Component<ChatMessagesPaneProps> {
+  override shouldComponentUpdate(nextProps: Readonly<ChatMessagesPaneProps>): boolean {
+    return !chatMessagesPanePropsEqual(this.props, nextProps);
+  }
+
+  override render() {
+    return <ChatMessagesPaneContent {...this.props} />;
+  }
 }

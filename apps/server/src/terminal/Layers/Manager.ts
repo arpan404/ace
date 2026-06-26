@@ -1894,13 +1894,14 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
 
     const resize: TerminalManagerShape["resize"] = Effect.fn("terminal.resize")(function* (input) {
       const terminalId = input.terminalId ?? DEFAULT_TERMINAL_ID;
-      const session = yield* requireSession(input.threadId, terminalId);
+      const sessionOption = yield* getSession(input.threadId, terminalId);
+      if (Option.isNone(sessionOption)) {
+        return;
+      }
+      const session = sessionOption.value;
       const process = session.process;
       if (!process || session.status !== "running") {
-        return yield* new TerminalNotRunningError({
-          threadId: input.threadId,
-          terminalId,
-        });
+        return;
       }
       session.cols = input.cols;
       session.rows = input.rows;

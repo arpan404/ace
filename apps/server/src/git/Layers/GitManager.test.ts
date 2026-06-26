@@ -724,6 +724,28 @@ const GitManagerTestLayer = GitCoreLive.pipe(
 );
 
 it.layer(GitManagerTestLayer)("GitManager", (it) => {
+  it.effect("status returns a stable unavailable result for a missing cwd", () =>
+    Effect.gen(function* () {
+      const missingDir = path.join(
+        process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP ?? "/tmp",
+        `ace-missing-worktree-${String(Date.now())}-${Math.random().toString(16).slice(2)}`,
+      );
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [JSON.stringify([{ number: 1 }])],
+        },
+      });
+
+      const status = yield* manager.status({ cwd: missingDir });
+
+      expect(status.availability).toBe("unavailable");
+      expect(status.branch).toBeNull();
+      expect(status.hasWorkingTreeChanges).toBe(false);
+      expect(status.workingTree.files).toEqual([]);
+      expect(ghCalls).toEqual([]);
+    }),
+  );
+
   it.effect("status includes PR metadata when branch already has an open PR", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("ace-git-manager-");

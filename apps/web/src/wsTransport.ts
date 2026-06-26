@@ -314,7 +314,7 @@ export class WsTransport {
       this.queuedProbe = true;
       return;
     }
-    if (this.disconnected || this.hasConnected) {
+    if (this.disconnected) {
       this.emitConnectionState({ kind: "reconnecting" });
     }
     this.probeInFlight = true;

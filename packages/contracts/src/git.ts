@@ -276,6 +276,8 @@ const GitStatusPr = Schema.Struct({
 });
 
 export const GitStatusResult = Schema.Struct({
+  availability: Schema.optional(Schema.Literals(["available", "unavailable"])),
+  unavailableReason: Schema.optional(TrimmedNonEmptyStringSchema),
   branch: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
   hasWorkingTreeChanges: Schema.Boolean,
   workingTree: Schema.Struct({

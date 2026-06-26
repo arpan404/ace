@@ -611,6 +611,101 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("does not emit reconnecting for healthy foreground probes", async () => {
+    const transport = new WsTransport("ws://localhost:3020", {
+      connectionProbeIntervalMs: 0,
+      connectionProbeTimeoutMs: 500,
+    });
+    const connectionListener = vi.fn();
+    const unsubscribeConnection = transport.onConnectionStateChange(connectionListener);
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    const requestPromise = transport.request((client) => client[WS_METHODS.serverGetConfig]({}));
+    socket.open();
+
+    await waitFor(() => {
+      const request = socket.sent
+        .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
+        .find(
+          (message) => message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+        );
+      expect(request).toBeDefined();
+    });
+
+    const initialRequest = socket.sent
+      .map((message) => JSON.parse(message) as { _tag?: string; id?: string; tag?: string })
+      .find(
+        (message): message is { _tag: "Request"; id: string; tag: string } =>
+          message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+      );
+    if (!initialRequest) {
+      throw new Error("Expected an initial server config request");
+    }
+    socket.serverMessage(
+      JSON.stringify({
+        _tag: "Exit",
+        requestId: initialRequest.id,
+        exit: {
+          _tag: "Success",
+          value: mockServerConfig,
+        },
+      }),
+    );
+
+    await expect(requestPromise).resolves.toEqual(mockServerConfig);
+    await waitFor(() => {
+      expect(connectionListener).toHaveBeenCalledWith({
+        kind: "connected",
+      });
+    });
+
+    connectionListener.mockClear();
+    const sentBeforeProbe = socket.sent.length;
+    emitWindowEvent("focus");
+
+    await waitFor(() => {
+      const probeRequest = socket.sent
+        .slice(sentBeforeProbe)
+        .map((message) => JSON.parse(message) as { _tag?: string; id?: string; tag?: string })
+        .find(
+          (message): message is { _tag: "Request"; id: string; tag: string } =>
+            message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+        );
+      expect(probeRequest).toBeDefined();
+    });
+
+    const probeRequest = socket.sent
+      .slice(sentBeforeProbe)
+      .map((message) => JSON.parse(message) as { _tag?: string; id?: string; tag?: string })
+      .find(
+        (message): message is { _tag: "Request"; id: string; tag: string } =>
+          message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+      );
+    if (!probeRequest) {
+      throw new Error("Expected a connection probe request");
+    }
+    socket.serverMessage(
+      JSON.stringify({
+        _tag: "Exit",
+        requestId: probeRequest.id,
+        exit: {
+          _tag: "Success",
+          value: mockServerConfig,
+        },
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(connectionListener).not.toHaveBeenCalled();
+
+    unsubscribeConnection();
+    await transport.dispose();
+  });
+
   it("skips interval probes while the page is visible but unfocused", async () => {
     documentHasFocus = false;
     const transport = new WsTransport("ws://localhost:3020", {

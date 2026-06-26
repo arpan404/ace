@@ -3,7 +3,7 @@ import { CopyIcon, RefreshCwIcon, SquareIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { readNativeApi } from "~/nativeApi";
-import type { ConnectionHealthSnapshot } from "~/lib/reliability/connectionHealth";
+import { useConnectionHealth } from "~/lib/reliability/connectionHealth";
 import { getWsRpcClient } from "~/wsRpcClient";
 import type { Thread } from "~/types";
 import { Button } from "../ui/button";
@@ -23,7 +23,6 @@ type DiagnosticsFocus = "connection" | "provider" | "thread";
 interface ReliabilityDiagnosticsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  connection: ConnectionHealthSnapshot;
   provider: ServerProvider | null;
   thread: Thread | null;
   focus?: DiagnosticsFocus;
@@ -75,13 +74,13 @@ function Section({
 export function ReliabilityDiagnosticsDialog({
   open,
   onOpenChange,
-  connection,
   provider,
   thread,
   focus,
   turnRunning = false,
   onStopTurn = null,
 }: ReliabilityDiagnosticsDialogProps) {
+  const connection = useConnectionHealth();
   const [refreshing, setRefreshing] = useState(false);
   const copyText = buildReliabilityDiagnosticsCopy({ connection, provider, thread });
   const providerLabel = provider

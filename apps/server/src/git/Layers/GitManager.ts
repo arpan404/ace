@@ -8,6 +8,7 @@ import {
   GitRunStackedActionResult,
   GitStackedAction,
   ModelSelection,
+  type GitStatusResult,
 } from "@ace/contracts";
 import {
   resolveAutoFeatureBranchName,
@@ -737,6 +738,24 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const tempDir = process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP ?? "/tmp";
   const normalizeStatusCacheKey = (cwd: string) => canonicalizeExistingPath(cwd);
   const readStatus = Effect.fn("readStatus")(function* (cwd: string) {
+    const cwdExists = yield* fileSystem.exists(cwd).pipe(Effect.catch(() => Effect.succeed(false)));
+    if (!cwdExists) {
+      return {
+        availability: "unavailable" as const,
+        unavailableReason: `Workspace path does not exist: ${cwd}`,
+        branch: null,
+        hasWorkingTreeChanges: false,
+        workingTree: {
+          files: [],
+          insertions: 0,
+          deletions: 0,
+        },
+        hasUpstream: false,
+        aheadCount: 0,
+        behindCount: 0,
+        pr: null,
+      } satisfies GitStatusResult;
+    }
     const details = yield* gitCore.statusDetails(cwd);
 
     const pr =
@@ -751,6 +770,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         : null;
 
     return {
+      availability: "available" as const,
       branch: details.branch,
       hasWorkingTreeChanges: details.hasWorkingTreeChanges,
       workingTree: details.workingTree,
@@ -758,7 +778,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       aheadCount: details.aheadCount,
       behindCount: details.behindCount,
       pr,
-    };
+    } satisfies GitStatusResult;
   });
   const statusResultCache = yield* Cache.makeWith({
     capacity: STATUS_RESULT_CACHE_CAPACITY,

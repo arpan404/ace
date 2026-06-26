@@ -294,6 +294,24 @@ html.native-window-resizing *::after {
   contain-intrinsic-size: auto 32px;
 }
 
+.ace-right-side-panel-shell,
+.ace-bottom-panel-shell,
+.ace-right-side-panel-surface,
+.ace-bottom-panel-surface,
+.ace-panel-content {
+  contain: layout paint style;
+}
+
+.ace-right-side-panel-surface,
+.ace-bottom-panel-surface {
+  backface-visibility: hidden;
+}
+
+.ace-right-side-panel-shell[data-panel-motion="active"] .ace-panel-content,
+.ace-bottom-panel-shell[data-panel-motion="active"] .ace-panel-content {
+  pointer-events: none;
+}
+
 .sidebar-resizing [data-slot="sidebar-content"] {
   pointer-events: none;
 }
@@ -309,6 +327,18 @@ html.native-window-resizing *::after {
 .thread-board-layout-active [data-slot="sidebar"],
 .thread-board-layout-active [data-slot="sidebar"] * {
   transition-duration: 0ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ace-right-side-panel-shell,
+  .ace-bottom-panel-shell,
+  .ace-right-side-panel-surface,
+  .ace-bottom-panel-surface,
+  [data-slot="sidebar-gap"],
+  [data-slot="sidebar-container"] {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
 }
 
 .working-activity-indicator {

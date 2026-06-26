@@ -7,6 +7,12 @@ export interface StuckTurnSnapshot {
   reason: "long-running-no-events" | "long-running" | null;
 }
 
+export const NOT_STUCK_TURN_SNAPSHOT: Readonly<StuckTurnSnapshot> = Object.freeze({
+  isLikelyStuck: false,
+  runningForMs: 0,
+  reason: null,
+});
+
 const NO_EVENT_STUCK_MS = 90_000;
 const LONG_RUNNING_STUCK_MS = 10 * 60_000;
 const RECENT_ACTIVITY_SUPPRESSION_MS = 30_000;
@@ -61,7 +67,7 @@ export function deriveStuckTurnSnapshot(input: {
   const now = input.now ?? Date.now();
   const startedAt = parseTime(input.latestTurn?.startedAt ?? input.latestTurn?.requestedAt);
   if (input.latestTurn?.state !== "running" || startedAt === null) {
-    return { isLikelyStuck: false, runningForMs: 0, reason: null };
+    return NOT_STUCK_TURN_SNAPSHOT;
   }
 
   const runningForMs = Math.max(0, now - startedAt);

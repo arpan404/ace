@@ -91,7 +91,7 @@ import {
   searchLspMarketplace,
   uninstallLspTool,
 } from "./lspTools";
-import { collectRuntimeProfileSnapshot } from "./runtimeProfile";
+import { collectRuntimeProfileSnapshot, recordLiveStreamOverflow } from "./runtimeProfile";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceEditor } from "./workspace/Services/WorkspaceEditor";
@@ -111,7 +111,7 @@ import {
   isCurrentWsClientSession,
   registerWsClientSession,
 } from "./wsClientSessions";
-import { bufferLiveUiStream } from "./wsStreamBackpressure";
+import { bufferLiveUiStream, LiveUiStreamOverflowError } from "./wsStreamBackpressure";
 
 const WS_UPGRADE_RATE_LIMIT_WINDOW_MS = 60_000;
 const WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS = 30;
@@ -1198,6 +1198,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               readonly nextSequence: number;
               readonly pendingBySequence: Map<number, OrchestrationEvent>;
             };
+            type SequenceEmission = {
+              readonly events: Array<OrchestrationEvent>;
+              readonly overflowDroppedEventCount: number | null;
+            };
             const state = yield* Ref.make<SequenceState>({
               nextSequence: fromSequenceExclusive + 1,
               pendingBySequence: new Map<number, OrchestrationEvent>(),
@@ -1210,12 +1214,12 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               Stream.mapEffect((event) =>
                 Ref.modify(
                   state,
-                  ({
-                    nextSequence,
-                    pendingBySequence,
-                  }): [Array<OrchestrationEvent>, SequenceState] => {
+                  ({ nextSequence, pendingBySequence }): [SequenceEmission, SequenceState] => {
                     if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
-                      return [[], { nextSequence, pendingBySequence }];
+                      return [
+                        { events: [], overflowDroppedEventCount: null },
+                        { nextSequence, pendingBySequence },
+                      ];
                     }
 
                     pendingBySequence.set(event.sequence, event);
@@ -1233,24 +1237,32 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                     }
 
                     if (pendingBySequence.size > ORCHESTRATION_EVENT_REORDER_MAX_PENDING) {
-                      let newestPendingEvent: OrchestrationEvent | null = null;
-                      for (const pendingEvent of pendingBySequence.values()) {
-                        if (
-                          newestPendingEvent === null ||
-                          pendingEvent.sequence > newestPendingEvent.sequence
-                        ) {
-                          newestPendingEvent = pendingEvent;
-                        }
-                      }
+                      const overflowDroppedEventCount = pendingBySequence.size;
                       pendingBySequence.clear();
-                      if (newestPendingEvent !== null) {
-                        emit.push(newestPendingEvent);
-                        expected = newestPendingEvent.sequence + 1;
-                      }
+                      return [
+                        { events: emit, overflowDroppedEventCount },
+                        { nextSequence: expected, pendingBySequence },
+                      ];
                     }
 
-                    return [emit, { nextSequence: expected, pendingBySequence }];
+                    return [
+                      { events: emit, overflowDroppedEventCount: null },
+                      { nextSequence: expected, pendingBySequence },
+                    ];
                   },
+                ).pipe(
+                  Effect.flatMap((emission) => {
+                    if (emission.overflowDroppedEventCount === null) {
+                      return Effect.succeed(emission.events);
+                    }
+                    recordLiveStreamOverflow(emission.overflowDroppedEventCount);
+                    return Effect.die(
+                      new LiveUiStreamOverflowError({
+                        droppedEventCount: emission.overflowDroppedEventCount,
+                        label: "orchestration.domain-events.reorder",
+                      }),
+                    );
+                  }),
                 ),
               ),
               Stream.flatMap((events) => Stream.fromIterable(events)),

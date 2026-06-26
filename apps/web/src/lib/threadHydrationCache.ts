@@ -2,6 +2,7 @@ import { type OrchestrationReadModel, type ThreadId } from "@ace/contracts";
 import { DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB } from "@ace/contracts/settings";
 
 import { ensureNativeApi } from "../nativeApi";
+import { setThreadReadModelObserver } from "./chat/timelineModelStore";
 import { runAsyncTask } from "./async";
 import { LRUCache } from "./lruCache";
 import { registerMemoryPressureHandler, shouldBypassNonEssentialCaching } from "./memoryPressure";
@@ -354,3 +355,10 @@ export function __resetThreadHydrationCacheForTests(): void {
   sharedThreadHydrationCacheConfig = resolveThreadHydrationCacheConfig();
   sharedThreadHydrationCache = createSharedThreadHydrationCache(sharedThreadHydrationCacheConfig);
 }
+
+// Prime the shared hydration cache from every fresh timeline `getThread` fetch
+// so opening a thread costs a single round-trip instead of one fetch for the
+// timeline and a second for app-store hydration.
+setThreadReadModelObserver((thread) => {
+  primeHydratedThreadCache(thread);
+});

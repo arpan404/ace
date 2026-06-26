@@ -171,6 +171,7 @@ const EMPTY_ASSISTANT_MARKDOWN_ANALYSIS_PREWARM_JOBS: ReturnType<
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
+const TIMELINE_ACTIVE_WINDOW_SYNC_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
 const EMPTY_PROVIDER_COMMANDS: ReadonlyArray<ProviderSlashCommand> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
@@ -1214,13 +1215,18 @@ export function MessagesTimeline({
     ) {
       return;
     }
-    useTimelineModelStore.getState().setActiveWindow(activeThreadId as ThreadId, {
-      startRowIndex: globalRenderedWindowState.loadedStartIndex,
-      endRowIndexExclusive: globalRenderedWindowState.loadedEndIndexExclusive,
-      overscanStartRowIndex: globalRenderedWindowState.overscanLoadedStartIndex,
-      overscanEndRowIndexExclusive: globalRenderedWindowState.overscanLoadedEndIndexExclusive,
-      revision: timelineCacheScope,
-    });
+    const timeoutId = window.setTimeout(() => {
+      useTimelineModelStore.getState().setActiveWindow(activeThreadId as ThreadId, {
+        startRowIndex: globalRenderedWindowState.loadedStartIndex,
+        endRowIndexExclusive: globalRenderedWindowState.loadedEndIndexExclusive,
+        overscanStartRowIndex: globalRenderedWindowState.overscanLoadedStartIndex,
+        overscanEndRowIndexExclusive: globalRenderedWindowState.overscanLoadedEndIndexExclusive,
+        revision: timelineCacheScope,
+      });
+    }, TIMELINE_ACTIVE_WINDOW_SYNC_DEBOUNCE_MS);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [activeThreadId, globalRenderedWindowState, timelineCacheScope]);
   useEffect(() => {
     if (!activeThreadId || activeTurnInProgress || !renderedWindowState || rows.length === 0) {

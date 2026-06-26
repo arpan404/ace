@@ -64,6 +64,8 @@ const BACKGROUND_DOMAIN_EVENT_FLUSH_DELAY_MS = 100;
 const PENDING_SCOPED_EVENT_BUFFER_LIMIT = 1_024;
 const PENDING_THREAD_EVENT_BUFFER_LIMIT = 512;
 const APPLIED_EVENT_SEQUENCE_CACHE_LIMIT = 4_096;
+const SCOPED_THREAD_CATCHUP_ACTIVE_WINDOW_MS = 120_000;
+const SCOPED_THREAD_REPLAY_OVERLAP_SEQUENCE_WINDOW = PENDING_THREAD_EVENT_BUFFER_LIMIT;
 
 function appendBoundedEvent(
   events: OrchestrationEvent[],
@@ -604,11 +606,11 @@ function useScopedEventRouterLifecycle() {
       if (nextEvents.length === 0) {
         return;
       }
+      applyScopedEvents(nextEvents);
       threadLatestSequenceByIdRef.current.set(
         threadId,
         nextEvents.at(-1)?.sequence ?? latestSequence,
       );
-      applyScopedEvents(nextEvents);
     };
     const flushThreadUiEvents = () => {
       threadUiFlushHandle = null;
@@ -657,10 +659,14 @@ function useScopedEventRouterLifecycle() {
       if (fromSequenceExclusive === undefined) {
         return;
       }
+      const replayFromSequenceExclusive = Math.max(
+        0,
+        fromSequenceExclusive - SCOPED_THREAD_REPLAY_OVERLAP_SEQUENCE_WINDOW,
+      );
       replayInFlight = true;
       try {
         const replayedEvents = await localRpcClient.orchestration.replayEvents({
-          fromSequenceExclusive,
+          fromSequenceExclusive: replayFromSequenceExclusive,
         });
         applyThreadEvents(replayedEvents);
       } catch (error) {
@@ -705,12 +711,31 @@ function useScopedEventRouterLifecycle() {
         bootstrapReplayInFlight = false;
       }
     };
+    const parseTimestampMs = (value: string | null | undefined): number | null => {
+      if (!value) {
+        return null;
+      }
+      const parsed = Date.parse(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
     const shouldCatchUpThread = () => {
       const thread = useStore.getState().threadsById?.[threadId];
-      return (
+      const active =
         thread?.session?.status === "running" ||
         thread?.session?.status === "connecting" ||
-        thread?.latestTurn?.state === "running"
+        thread?.latestTurn?.state === "running";
+      if (!active) {
+        return false;
+      }
+      const latestActivityAt = Math.max(
+        parseTimestampMs(thread?.session?.updatedAt) ?? 0,
+        parseTimestampMs(thread?.latestTurn?.startedAt) ?? 0,
+        parseTimestampMs(thread?.latestTurn?.requestedAt) ?? 0,
+        parseTimestampMs(thread?.updatedAt) ?? 0,
+      );
+      return (
+        latestActivityAt === 0 ||
+        Date.now() - latestActivityAt <= SCOPED_THREAD_CATCHUP_ACTIVE_WINDOW_MS
       );
     };
     const catchupInterval = window.setInterval(() => {

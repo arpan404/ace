@@ -455,6 +455,18 @@ function threadHasActiveRuntime(thread: Pick<Thread, "latestTurn" | "session">):
   );
 }
 
+type ThreadLiveWorkState = Pick<Thread, "latestTurn" | "session">;
+
+function isThreadLiveWorkActive(
+  candidate: ThreadLiveWorkState,
+  existing?: ThreadLiveWorkState,
+): boolean {
+  return (
+    hasLiveTurn(candidate.latestTurn, candidate.session) ||
+    (existing !== undefined && hasLiveTurn(existing.latestTurn, existing.session))
+  );
+}
+
 function mapTurnDiffSummary(
   checkpoint: OrchestrationCheckpointSummary,
 ): Thread["turnDiffSummaries"][number] {
@@ -2523,12 +2535,16 @@ export function syncServerReadModel(
   const projects = preserveProjectArrayIdentity(state.projects, nextProjects);
   const threads: AppState["threads"] = [];
   const timelineMetadataThreads: Array<OrchestrationReadModel["threads"][number]> = [];
+  const liveWorkThreadIds = new Set<ThreadId>();
   for (const thread of readModel.threads) {
     if (thread.deletedAt !== null) {
       continue;
     }
     const mappedThread = mapThread(thread, options);
     timelineMetadataThreads.push(thread);
+    if (isThreadLiveWorkActive(mappedThread, existingThreadsById.get(thread.id))) {
+      liveWorkThreadIds.add(thread.id);
+    }
     const nextThread = mergeThreadPreservingHydratedHistory(
       existingThreadsById.get(thread.id),
       mappedThread,
@@ -2539,7 +2555,9 @@ export function syncServerReadModel(
     }
     threads.push(suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById));
   }
-  primeThreadTimelineRowsMetadataFromReadModelThreads(timelineMetadataThreads);
+  primeThreadTimelineRowsMetadataFromReadModelThreads(timelineMetadataThreads, {
+    preferExistingLiveRowsThreadIds: liveWorkThreadIds,
+  });
   const dismissedThreadErrorKeysById = retainDismissedThreadErrorKeysForThreads(
     state.dismissedThreadErrorKeysById,
     threads,
@@ -2576,23 +2594,31 @@ export function mergeServerReadModel(
       incomingProjects.push(mapProject(project));
     }
   }
+  const existingThreadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
   const incomingThreads: AppState["threads"] = [];
   const timelineMetadataThreads: Array<OrchestrationReadModel["threads"][number]> = [];
+  const liveWorkThreadIds = new Set<ThreadId>();
   for (const thread of readModel.threads) {
     if (thread.deletedAt !== null) {
       continue;
     }
+    const mappedThread = mapThread(thread, options);
     const nextThread = suppressDismissedThreadError(
-      mapThread(thread, options),
+      mappedThread,
       state.dismissedThreadErrorKeysById,
     );
     timelineMetadataThreads.push(thread);
+    if (isThreadLiveWorkActive(mappedThread, existingThreadsById.get(thread.id))) {
+      liveWorkThreadIds.add(thread.id);
+    }
     if (options !== undefined && nextThread.historyLoaded !== false) {
       primeHydratedThreadCache(thread);
     }
     incomingThreads.push(nextThread);
   }
-  primeThreadTimelineRowsMetadataFromReadModelThreads(timelineMetadataThreads);
+  primeThreadTimelineRowsMetadataFromReadModelThreads(timelineMetadataThreads, {
+    preferExistingLiveRowsThreadIds: liveWorkThreadIds,
+  });
 
   const projectsById = new Map(state.projects.map((project) => [project.id, project] as const));
   for (const project of incomingProjects) {
@@ -2677,9 +2703,11 @@ export function hydrateThreadFromReadModel(
   }
 
   primeHydratedThreadCache(readModelThread);
-  primeThreadTimelineRowsMetadataFromReadModelThread(readModelThread);
   const mappedThread = { ...mapThread(readModelThread, options), historyLoaded: true };
   const existingThread = state.threads.find((thread) => thread.id === mappedThread.id);
+  primeThreadTimelineRowsMetadataFromReadModelThread(readModelThread, {
+    preferExistingLiveRows: isThreadLiveWorkActive(mappedThread, existingThread),
+  });
   const nextThread = existingThread
     ? {
         ...mappedThread,

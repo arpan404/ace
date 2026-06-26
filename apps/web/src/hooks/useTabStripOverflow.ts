@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { SIDEBAR_RESIZE_END_EVENT, isLayoutResizeInProgress } from "~/lib/desktopChrome";
 
 function syncTabStripOverflow(
   tabStripRef: RefObject<HTMLElement | null>,
@@ -20,7 +21,19 @@ export function useTabStripOverflow<TElement extends HTMLElement = HTMLDivElemen
   const [tabsOverflow, setTabsOverflow] = useState(false);
 
   useLayoutEffect(() => {
-    syncTabStripOverflow(tabStripRef, tabsOverflowRef, setTabsOverflow);
+    if (!isLayoutResizeInProgress()) {
+      syncTabStripOverflow(tabStripRef, tabsOverflowRef, setTabsOverflow);
+      return;
+    }
+    const syncAfterLayoutResize = () => {
+      syncTabStripOverflow(tabStripRef, tabsOverflowRef, setTabsOverflow);
+    };
+    window.addEventListener(SIDEBAR_RESIZE_END_EVENT, syncAfterLayoutResize, { once: true });
+    window.addEventListener("ace:native-window-resize-end", syncAfterLayoutResize, { once: true });
+    return () => {
+      window.removeEventListener(SIDEBAR_RESIZE_END_EVENT, syncAfterLayoutResize);
+      window.removeEventListener("ace:native-window-resize-end", syncAfterLayoutResize);
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -30,14 +43,26 @@ export function useTabStripOverflow<TElement extends HTMLElement = HTMLDivElemen
     }
 
     let frameId: number | null = null;
+    let pendingDeferredSync = false;
+    const syncOnFrame = () => {
+      frameId = null;
+      pendingDeferredSync = false;
+      syncTabStripOverflow(tabStripRef, tabsOverflowRef, setTabsOverflow);
+    };
     const scheduleTabsOverflowSync = () => {
+      if (isLayoutResizeInProgress()) {
+        pendingDeferredSync = true;
+        return;
+      }
       if (frameId !== null) {
         return;
       }
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        syncTabStripOverflow(tabStripRef, tabsOverflowRef, setTabsOverflow);
-      });
+      frameId = window.requestAnimationFrame(syncOnFrame);
+    };
+    const handleLayoutResizeEnd = () => {
+      if (pendingDeferredSync) {
+        scheduleTabsOverflowSync();
+      }
     };
 
     const resizeObserver =
@@ -54,6 +79,8 @@ export function useTabStripOverflow<TElement extends HTMLElement = HTMLDivElemen
       characterData: true,
       subtree: true,
     });
+    window.addEventListener(SIDEBAR_RESIZE_END_EVENT, handleLayoutResizeEnd);
+    window.addEventListener("ace:native-window-resize-end", handleLayoutResizeEnd);
 
     return () => {
       if (frameId !== null) {
@@ -61,6 +88,8 @@ export function useTabStripOverflow<TElement extends HTMLElement = HTMLDivElemen
       }
       resizeObserver?.disconnect();
       mutationObserver?.disconnect();
+      window.removeEventListener(SIDEBAR_RESIZE_END_EVENT, handleLayoutResizeEnd);
+      window.removeEventListener("ace:native-window-resize-end", handleLayoutResizeEnd);
     };
   }, []);
 
