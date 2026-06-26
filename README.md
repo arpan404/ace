@@ -13,14 +13,14 @@ new Rust work.
 Run the Rust GPUI desktop development app:
 
 ```bash
-./desktop:dev
+./scripts/desktop:dev
 ```
 
 For restart-on-change development, install `cargo-watch` and use:
 
 ```bash
 cargo install cargo-watch
-./desktop:watch
+./scripts/desktop:watch
 ```
 
 The same launchers are exposed as `just` recipes:
@@ -30,17 +30,17 @@ just desktop-dev
 just desktop-watch
 ```
 
-`desktop:dev` launches `ace-desktop` directly. It does not start the standalone
+`scripts/desktop:dev` launches `ace-desktop` directly. It does not start the standalone
 backend unless remote/mobile WebSocket testing is explicitly requested:
 
 ```bash
-ACE_START_BACKEND=1 ./desktop:dev
+ACE_START_BACKEND=1 ./scripts/desktop:dev
 ```
 
 The watch launcher honors the same environment:
 
 ```bash
-ACE_START_BACKEND=1 ./desktop:watch
+ACE_START_BACKEND=1 ./scripts/desktop:watch
 ```
 
 ```bash

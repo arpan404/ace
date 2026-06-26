@@ -4,10 +4,10 @@ default:
     just --list
 
 desktop-dev:
-    ./desktop:dev
+    ./scripts/desktop:dev
 
 desktop-watch:
-    ./desktop:watch
+    ./scripts/desktop:watch
 
 check:
     cargo fmt --all -- --check
