@@ -20,7 +20,11 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
-import { SIDEBAR_RESIZE_END_EVENT, SIDEBAR_RESIZING_CLASS_NAME } from "~/lib/desktopChrome";
+import {
+  beginLayoutResizeInteraction,
+  endLayoutResizeInteraction,
+  resetLayoutResizeInteractions,
+} from "~/lib/desktopChrome";
 import { Schema } from "effect";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
@@ -31,9 +35,9 @@ const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
 const SIDEBAR_CHROME_TRANSITION = {
   type: "spring",
-  stiffness: 360,
-  damping: 42,
-  mass: 0.86,
+  stiffness: 420,
+  damping: 38,
+  mass: 0.9,
 } as const;
 
 type SidebarContextProps = {
@@ -256,6 +260,21 @@ function Sidebar({
     collapsed && collapsible === "icon" ? iconContainerWidth : "var(--sidebar-width)";
   const sidebarContainerX =
     collapsed && collapsible === "offcanvas" ? (side === "left" ? "-100%" : "100%") : "0%";
+  const sidebarMotionActiveRef = React.useRef(false);
+  const handleSidebarMotionStart = () => {
+    if (sidebarMotionActiveRef.current) {
+      return;
+    }
+    sidebarMotionActiveRef.current = true;
+    beginLayoutResizeInteraction();
+  };
+  const handleSidebarMotionComplete = () => {
+    if (!sidebarMotionActiveRef.current) {
+      return;
+    }
+    sidebarMotionActiveRef.current = false;
+    endLayoutResizeInteraction();
+  };
   const motionContainerProps = props as unknown as Omit<
     React.ComponentProps<typeof m.div>,
     "animate" | "children" | "className" | "initial" | "style" | "transition"
@@ -339,6 +358,8 @@ function Sidebar({
             data-slot="sidebar-container"
             initial={false}
             animate={{ width: sidebarContainerWidth, x: sidebarContainerX }}
+            onAnimationComplete={handleSidebarMotionComplete}
+            onAnimationStart={handleSidebarMotionStart}
             transition={SIDEBAR_CHROME_TRANSITION}
             {...(style ? { style: style as MotionStyle } : {})}
             {...motionContainerProps}
@@ -453,12 +474,8 @@ function useSidebarRailInteractions({
     });
     resizeState?.sidebarGap.style.removeProperty("width");
     resizeState?.sidebarContainer.style.removeProperty("width");
-    const hadSidebarResizeClass = document.documentElement.classList.contains(
-      SIDEBAR_RESIZING_CLASS_NAME,
-    );
-    document.documentElement.classList.remove(SIDEBAR_RESIZING_CLASS_NAME);
-    if (hadSidebarResizeClass) {
-      window.dispatchEvent(new Event(SIDEBAR_RESIZE_END_EVENT));
+    if (resizeState) {
+      resetLayoutResizeInteractions();
     }
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
@@ -483,8 +500,7 @@ function useSidebarRailInteractions({
     if (resizeState.rail.hasPointerCapture(pointerId)) {
       resizeState.rail.releasePointerCapture(pointerId);
     }
-    document.documentElement.classList.remove(SIDEBAR_RESIZING_CLASS_NAME);
-    window.dispatchEvent(new Event(SIDEBAR_RESIZE_END_EVENT));
+    endLayoutResizeInteraction();
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
     for (const element of resizeState.transitionTargets) {
@@ -554,7 +570,7 @@ function useSidebarRailInteractions({
     sidebarGap.style.setProperty("width", `${initialWidth}px`);
     sidebarContainer.style.setProperty("width", `${initialWidth}px`);
     event.currentTarget.setPointerCapture(event.pointerId);
-    document.documentElement.classList.add(SIDEBAR_RESIZING_CLASS_NAME);
+    beginLayoutResizeInteraction();
     Object.assign(document.body.style, { cursor: "col-resize", userSelect: "none" });
   };
 

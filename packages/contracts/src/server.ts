@@ -291,6 +291,25 @@ export const ServerRuntimeProfileProviderRuntimeIngestionCaches = Schema.Struct(
 export type ServerRuntimeProfileProviderRuntimeIngestionCaches =
   typeof ServerRuntimeProfileProviderRuntimeIngestionCaches.Type;
 
+export const ServerRuntimeProfileOrchestration = Schema.Struct({
+  commandQueueDepth: NonNegativeInt,
+  partitionQueueDepths: Schema.Array(NonNegativeInt),
+});
+export type ServerRuntimeProfileOrchestration = typeof ServerRuntimeProfileOrchestration.Type;
+
+export const ServerRuntimeProfileProviderRuntimeIngestion = Schema.Struct({
+  queueDepth: NonNegativeInt,
+});
+export type ServerRuntimeProfileProviderRuntimeIngestion =
+  typeof ServerRuntimeProfileProviderRuntimeIngestion.Type;
+
+export const ServerRuntimeProfileLiveStreams = Schema.Struct({
+  activeSubscriptions: NonNegativeInt,
+  overflowCount: NonNegativeInt,
+  droppedEventCount: NonNegativeInt,
+});
+export type ServerRuntimeProfileLiveStreams = typeof ServerRuntimeProfileLiveStreams.Type;
+
 export const ServerRuntimeProfileCaches = Schema.Struct({
   snapshotView: ServerRuntimeProfileSnapshotViewCache,
   providerRuntimeIngestion: ServerRuntimeProfileProviderRuntimeIngestionCaches,
@@ -308,6 +327,9 @@ export const ServerRuntimeProfile = Schema.Struct({
   generatedAt: IsoDateTime,
   process: ServerRuntimeProfileProcess,
   caches: ServerRuntimeProfileCaches,
+  orchestration: ServerRuntimeProfileOrchestration,
+  providerRuntimeIngestion: ServerRuntimeProfileProviderRuntimeIngestion,
+  liveStreams: ServerRuntimeProfileLiveStreams,
   providerSessions: Schema.Array(ServerRuntimeProfileProviderSessionCount),
 });
 export type ServerRuntimeProfile = typeof ServerRuntimeProfile.Type;

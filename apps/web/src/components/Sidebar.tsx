@@ -183,8 +183,8 @@ import type {
 } from "./sidebar/sidebarTypes";
 import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
 import {
-  prefetchThreadTimelineRows,
   primeThreadTimelineRowsMetadataFromReadModelThread,
+  startThreadTimelineRowsOpenPrefetch,
 } from "../lib/chat/timelineModelStore";
 import { isThreadLiveWorkActive } from "../lib/chat/activeThreadHydration";
 import { shouldAvoidSpeculativeWork } from "../lib/resourceProfile";
@@ -4327,7 +4327,8 @@ function useSidebarComponent() {
         if (!shouldPrewarmRows) {
           return Promise.resolve();
         }
-        return prefetchThreadTimelineRows({ threadId })
+        const prefetch = startThreadTimelineRowsOpenPrefetch({ threadId, priority });
+        return prefetch.done
           .then(() => undefined)
           .catch((error) => {
             reportBackgroundError("Failed to prefetch thread timeline rows.", error);

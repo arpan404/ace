@@ -2,6 +2,7 @@ import {
   type GitActionProgressEvent,
   type GitRunStackedActionInput,
   type GitStackedAction,
+  type GitStatusResult,
 } from "@ace/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
@@ -10,6 +11,7 @@ import { withRpcRouteConnection } from "./connectionRouting";
 
 const GIT_STATUS_STALE_TIME_MS = 5_000;
 const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
+const GIT_STATUS_UNAVAILABLE_REFETCH_INTERVAL_MS = 60_000;
 const GIT_WORKING_TREE_DIFF_STALE_TIME_MS = 1_000;
 const GIT_BRANCHES_STALE_TIME_MS = 15_000;
 const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
@@ -94,7 +96,12 @@ export function gitStatusQueryOptions(cwd: string | null, connectionUrl?: string
     staleTime: GIT_STATUS_STALE_TIME_MS,
     refetchOnWindowFocus: "always",
     refetchOnReconnect: "always",
-    refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
+    refetchInterval: (query) => {
+      const data = query.state.data as GitStatusResult | undefined;
+      return data?.availability === "unavailable"
+        ? GIT_STATUS_UNAVAILABLE_REFETCH_INTERVAL_MS
+        : GIT_STATUS_REFETCH_INTERVAL_MS;
+    },
   });
 }
 

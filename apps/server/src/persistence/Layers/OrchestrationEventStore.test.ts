@@ -1,4 +1,4 @@
-import { CommandId, EventId, ProjectId } from "@ace/contracts";
+import { CommandId, EventId, ProjectId, ThreadId } from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -114,6 +114,90 @@ layer("OrchestrationEventStore", (it) => {
           ),
         );
       }
+    }),
+  );
+
+  it.effect("replays only events for the requested thread stream", () =>
+    Effect.gen(function* () {
+      const eventStore = yield* OrchestrationEventStore;
+      const now = new Date().toISOString();
+      const threadA = ThreadId.makeUnsafe("thread-stream-a");
+      const threadB = ThreadId.makeUnsafe("thread-stream-b");
+
+      yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("evt-stream-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.makeUnsafe("project-stream"),
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-stream-project"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-stream-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.makeUnsafe("project-stream"),
+          title: "Stream Project",
+          workspaceRoot: "/tmp/project-stream",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.reverted",
+        eventId: EventId.makeUnsafe("evt-stream-thread-a-1"),
+        aggregateKind: "thread",
+        aggregateId: threadA,
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-stream-thread-a-1"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-stream-thread-a-1"),
+        metadata: {},
+        payload: {
+          threadId: threadA,
+          turnCount: 1,
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.reverted",
+        eventId: EventId.makeUnsafe("evt-stream-thread-b"),
+        aggregateKind: "thread",
+        aggregateId: threadB,
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-stream-thread-b"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-stream-thread-b"),
+        metadata: {},
+        payload: {
+          threadId: threadB,
+          turnCount: 1,
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.reverted",
+        eventId: EventId.makeUnsafe("evt-stream-thread-a-2"),
+        aggregateKind: "thread",
+        aggregateId: threadA,
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-stream-thread-a-2"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-stream-thread-a-2"),
+        metadata: {},
+        payload: {
+          threadId: threadA,
+          turnCount: 2,
+        },
+      });
+
+      const replayed = yield* Stream.runCollect(
+        eventStore.readThreadFromSequence(threadA, 1, 10),
+      ).pipe(Effect.map((chunk) => Array.from(chunk)));
+
+      assert.deepEqual(
+        replayed.map((event) => event.eventId),
+        [EventId.makeUnsafe("evt-stream-thread-a-1"), EventId.makeUnsafe("evt-stream-thread-a-2")],
+      );
     }),
   );
 });

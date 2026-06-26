@@ -22,6 +22,20 @@ import {
 } from "./gitReactQuery";
 import { getWsRpcClient } from "../wsRpcClient";
 
+describe("gitStatusQueryOptions", () => {
+  it("backs off polling when status reports an unavailable workspace", () => {
+    const options = gitStatusQueryOptions("/repo/missing");
+    expect(typeof options.refetchInterval).toBe("function");
+
+    const refetchInterval = options.refetchInterval as (query: {
+      state: { data?: { availability?: "available" | "unavailable" } };
+    }) => number;
+
+    expect(refetchInterval({ state: { data: { availability: "unavailable" } } })).toBe(60_000);
+    expect(refetchInterval({ state: { data: { availability: "available" } } })).toBe(15_000);
+  });
+});
+
 describe("gitMutationKeys", () => {
   it("scopes stacked action keys by cwd", () => {
     expect(gitMutationKeys.runStackedAction("/repo/a")).not.toEqual(

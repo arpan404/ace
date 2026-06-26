@@ -21,7 +21,7 @@ let nextRequestId = 1;
 let sourceTimelineRowsWorker: Worker | null = null;
 const pendingRequests = new Map<number, PendingSourceTimelineRowsRequest>();
 const MAX_SOURCE_TIMELINE_ROWS_CACHE_ENTRIES = 8;
-const SOURCE_TIMELINE_ROWS_CACHE_VERSION = "source-timeline-rows:v7";
+const SOURCE_TIMELINE_ROWS_CACHE_VERSION = "source-timeline-rows:v8";
 const sourceTimelineRowsCache = new Map<string, TimelineRow[]>();
 
 export interface SourceTimelineRowsCacheKeyInput {
@@ -54,7 +54,7 @@ export function createSourceTimelineRowsCacheKey(
     SOURCE_TIMELINE_ROWS_CACHE_VERSION,
     input.threadId,
     input.snapshotRevision ?? "live",
-    input.isActiveTurnRunning ? "active" : input.threadRevision,
+    input.threadRevision,
     input.snapshotTotalRows ?? input.rowCount,
     input.rowCount,
     input.rowContentKey,

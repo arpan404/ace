@@ -169,7 +169,7 @@ export function createThreadHydrationCache(
     if (
       expectedUpdatedAt !== undefined &&
       expectedUpdatedAt !== null &&
-      cached.updatedAt !== expectedUpdatedAt
+      cached.updatedAt.localeCompare(expectedUpdatedAt) < 0
     ) {
       return null;
     }
@@ -348,6 +348,10 @@ export function hydrateThreadFromCache(
   options?: ThreadHydrationOptions,
 ): Promise<HydratedReadModelThread> {
   return sharedThreadHydrationCache.hydrate(threadId, options);
+}
+
+export function clearThreadHydrationCache(): void {
+  sharedThreadHydrationCache.clear();
 }
 
 export function __resetThreadHydrationCacheForTests(): void {

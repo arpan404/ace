@@ -27,6 +27,7 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
+import { updateOrchestrationRuntimeProfile } from "../../runtimeProfile.ts";
 
 interface CommandEnvelope {
   command: OrchestrationCommand;
@@ -124,6 +125,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     Array.from({ length: ORCHESTRATION_ENGINE_WORKER_COUNT }, () => null),
     () => Queue.bounded<CommandEnvelope>(ORCHESTRATION_ENGINE_PARTITION_QUEUE_CAPACITY),
   );
+  let commandQueueDepth = 0;
+  const partitionQueueDepths = Array.from({ length: ORCHESTRATION_ENGINE_WORKER_COUNT }, () => 0);
+  const publishQueueProfile = () => {
+    updateOrchestrationRuntimeProfile({
+      commandQueueDepth,
+      partitionQueueDepths,
+    });
+  };
+  publishQueueProfile();
 
   const reconcilePersistedReadModel = readModelReconcileSemaphore.withPermits(1)(
     Effect.gen(function* () {
@@ -312,12 +322,27 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   const fanoutWorker = Effect.forever(
     Queue.take(commandQueue).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          commandQueueDepth = Math.max(0, commandQueueDepth - 1);
+          publishQueueProfile();
+        }),
+      ),
       Effect.flatMap((envelope) =>
-        Queue.offer(
-          queueByPartition[
-            partitionIndexForCommand(envelope.command, ORCHESTRATION_ENGINE_WORKER_COUNT)
-          ]!,
-          envelope,
+        Effect.sync(() =>
+          partitionIndexForCommand(envelope.command, ORCHESTRATION_ENGINE_WORKER_COUNT),
+        ).pipe(
+          Effect.flatMap((partitionIndex) =>
+            Queue.offer(queueByPartition[partitionIndex]!, envelope).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  partitionQueueDepths[partitionIndex] =
+                    (partitionQueueDepths[partitionIndex] ?? 0) + 1;
+                  publishQueueProfile();
+                }),
+              ),
+            ),
+          ),
         ),
       ),
     ),
@@ -325,10 +350,21 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   yield* Effect.forkScoped(fanoutWorker);
   yield* Effect.forEach(
     queueByPartition,
-    (partitionQueue) =>
-      Effect.forever(Queue.take(partitionQueue).pipe(Effect.flatMap(processEnvelope))).pipe(
-        Effect.forkScoped,
-      ),
+    (partitionQueue, partitionIndex) =>
+      Effect.forever(
+        Queue.take(partitionQueue).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              partitionQueueDepths[partitionIndex] = Math.max(
+                0,
+                (partitionQueueDepths[partitionIndex] ?? 0) - 1,
+              );
+              publishQueueProfile();
+            }),
+          ),
+          Effect.flatMap(processEnvelope),
+        ),
+      ).pipe(Effect.forkScoped),
     { concurrency: "unbounded" },
   );
   yield* Effect.logDebug("orchestration engine started").pipe(
@@ -346,16 +382,29 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const readEvents: OrchestrationEngineShape["readEvents"] = (fromSequenceExclusive) =>
     eventStore.readFromSequence(fromSequenceExclusive);
 
+  const readThreadEvents: OrchestrationEngineShape["readThreadEvents"] = (
+    threadId,
+    fromSequenceExclusive,
+  ) => eventStore.readThreadFromSequence(threadId, fromSequenceExclusive);
+
   const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
     Effect.gen(function* () {
       const result = yield* Deferred.make<{ sequence: number }, OrchestrationDispatchError>();
-      yield* Queue.offer(commandQueue, { command, result });
+      yield* Queue.offer(commandQueue, { command, result }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            commandQueueDepth += 1;
+            publishQueueProfile();
+          }),
+        ),
+      );
       return yield* Deferred.await(result);
     });
 
   return {
     getReadModel,
     readEvents,
+    readThreadEvents,
     dispatch,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (wsServer, ProviderRuntimeIngestion, CheckpointReactor, etc.)

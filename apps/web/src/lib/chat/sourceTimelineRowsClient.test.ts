@@ -86,9 +86,9 @@ describe("sourceTimelineRowsClient", () => {
     });
 
     expect(firstKey).not.toBeNull();
-    expect(firstKey?.startsWith("source-timeline-rows:v7\0")).toBe(true);
+    expect(firstKey?.startsWith("source-timeline-rows:v8\0")).toBe(true);
     expect(firstKey).toContain("live");
-    expect(secondKey).toBe(firstKey);
+    expect(secondKey).not.toBe(firstKey);
   });
 
   it("does not create a cache key before any timeline rows exist", () => {

@@ -548,7 +548,7 @@ describe("store read model sync", () => {
     });
   });
 
-  it("marks all snapshot threads as metadata-only during snapshot sync", () => {
+  it("marks only the requested snapshot thread as hydrated during snapshot sync", () => {
     const initialState = makeState(makeThread());
     const firstThreadId = ThreadId.makeUnsafe("thread-1");
     const secondThreadId = ThreadId.makeUnsafe("thread-2");
@@ -587,7 +587,7 @@ describe("store read model sync", () => {
       hydrateThreadId: firstThreadId,
     });
 
-    expect(next.threads.find((thread) => thread.id === firstThreadId)?.historyLoaded).toBe(false);
+    expect(next.threads.find((thread) => thread.id === firstThreadId)?.historyLoaded).toBe(true);
     expect(next.threads.find((thread) => thread.id === secondThreadId)?.historyLoaded).toBe(false);
   });
 
@@ -651,7 +651,7 @@ describe("store read model sync", () => {
     ).toHaveLength(2);
   });
 
-  it("does not prime the shared hydration cache during metadata snapshot sync", () => {
+  it("only primes the shared hydration cache for the requested hydrated snapshot thread", () => {
     const firstThreadId = ThreadId.makeUnsafe("thread-1");
     const secondThreadId = ThreadId.makeUnsafe("thread-2");
     const readModel = makeReadModelFromThreads([
@@ -691,7 +691,9 @@ describe("store read model sync", () => {
       hydrateThreadId: firstThreadId,
     });
 
-    expect(readCachedHydratedThread(firstThreadId, "2026-02-27T00:00:00.000Z")).toBeNull();
+    expect(
+      readCachedHydratedThread(firstThreadId, "2026-02-27T00:00:00.000Z")?.messages,
+    ).toHaveLength(1);
     expect(readCachedHydratedThread(secondThreadId, "2026-02-27T00:01:00.000Z")).toBeNull();
   });
 
@@ -840,6 +842,47 @@ describe("store read model sync", () => {
       bootstrapComplete: true,
     };
 
+    useTimelineModelStore.getState().primeSnapshot({
+      threadId: completedThreadId,
+      revision: "rev:completed",
+      updatedAt: "2026-02-27T00:00:03.000Z",
+      totalRows: 1,
+      rows: [
+        {
+          id: "message:completed-assistant",
+          kind: "message",
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+          contentVersion: "snapshot:completed",
+          startSourceIndex: 0,
+          endSourceIndexExclusive: 1,
+          turnId: completedTurnId,
+          sourceRefs: [
+            {
+              kind: "message",
+              id: "completed-assistant",
+              createdAt: "2026-02-27T00:00:01.000Z",
+              sourceIndex: 0,
+              turnId: completedTurnId,
+            },
+          ],
+        },
+      ],
+      messages: [
+        {
+          id: MessageId.makeUnsafe("completed-assistant"),
+          role: "assistant",
+          text: "Full assistant history",
+          turnId: completedTurnId,
+          streaming: false,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+      ],
+      activities: [],
+      proposedPlans: [],
+    });
+
     const next = pruneHydratedThreadHistories(state, [activeThreadId]);
     const completedThread = next.threads.find((thread) => thread.id === completedThreadId);
     const runningThread = next.threads.find((thread) => thread.id === runningThreadId);
@@ -850,6 +893,7 @@ describe("store read model sync", () => {
     expect(completedThread?.latestProposedPlanSummary?.id).toBe("plan-1");
     expect(completedThread?.turnDiffSummaries).toEqual([]);
     expect(completedThread?.activities).toEqual([]);
+    expect(readTimelineRowsProjection(completedThreadId).rowIds).toEqual([]);
     expect(runningThread?.historyLoaded).toBe(true);
     expect(runningThread?.messages).toHaveLength(2);
   });
@@ -1355,6 +1399,67 @@ describe("store shell hot path", () => {
     expect(next.threads[0]?.messages.map((message) => message.id)).toEqual([
       MessageId.makeUnsafe("message-1"),
     ]);
+  });
+
+  it("preserves active runtime state when a shell snapshot contains stale idle metadata", () => {
+    const threadId = ThreadId.makeUnsafe("thread-live-shell");
+    const turnId = TurnId.makeUnsafe("turn-live-shell");
+    const runningThread = makeThread({
+      id: threadId,
+      historyLoaded: true,
+      latestTurn: {
+        turnId,
+        state: "running",
+        requestedAt: "2026-02-27T00:00:00.000Z",
+        startedAt: "2026-02-27T00:00:01.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+      session: {
+        provider: "codex",
+        status: "running",
+        orchestrationStatus: "running",
+        activeTurnId: turnId,
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:05.000Z",
+      },
+      messages: [
+        {
+          id: MessageId.makeUnsafe("live-message"),
+          role: "assistant",
+          text: "Still streaming",
+          turnId,
+          streaming: true,
+          createdAt: "2026-02-27T00:00:02.000Z",
+        },
+      ],
+    });
+
+    const next = syncServerShellSnapshot(
+      makeState(runningThread),
+      makeShellSnapshot({
+        snapshotSequence: 20,
+        threads: [
+          makeShellThread({
+            id: threadId,
+            latestTurn: null,
+            session: {
+              threadId,
+              status: "idle",
+              providerName: "codex",
+              runtimeMode: DEFAULT_RUNTIME_MODE,
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: "2026-02-27T00:00:03.000Z",
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(next.threads[0]?.latestTurn?.state).toBe("running");
+    expect(next.threads[0]?.session?.status).toBe("running");
+    expect(next.threads[0]?.historyLoaded).toBe(true);
   });
 
   it("preserves hydrated messages when applying a shell upsert event", () => {

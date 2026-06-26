@@ -9,15 +9,15 @@ import {
 import { compareOrchestrationTimelineSources } from "@ace/shared/orchestrationTimelineSources";
 import { create } from "zustand";
 
-import { ensureNativeApi } from "../../nativeApi";
 import { resolveConnectionForThreadId } from "../connectionRouting";
 import { LRUCache } from "../lruCache";
 import { clampCacheEntryCount } from "../resourceProfile";
+import { hydrateThreadFromCache, primeHydratedThreadCache } from "../threadHydrationCache";
 import { resolveAttachmentPreviewUrl } from "./attachmentPreviewUrls";
 
 const DEFAULT_TIMELINE_TAIL_WINDOW_ROWS = 100;
 const BACKGROUND_TIMELINE_ROWS_PREFETCH_DELAY_MS = 750;
-const THREAD_TIMELINE_HYDRATION_TIMEOUT_MS = 10_000;
+const BACKGROUND_TIMELINE_ROWS_PREFETCH_FAILURE_BACKOFF_MS = 30_000;
 const TIMELINE_MODEL_CACHE_VERSION = "timeline-model:v4";
 const MAX_ROW_HEIGHT_CACHE_ENTRIES = clampCacheEntryCount(32_000, {
   moderateCapEntries: 16_000,
@@ -209,6 +209,41 @@ const inFlightThreadTimelineHydrationByThreadId = new Map<
   ThreadId,
   Promise<TimelineRowsSnapshot>
 >();
+type OpenPrefetchRecord = {
+  readonly promise: Promise<void>;
+  immediate: boolean;
+  promoteToImmediate: () => void;
+};
+const inFlightThreadTimelineOpenPrefetchByThreadId = new Map<ThreadId, OpenPrefetchRecord>();
+const backgroundThreadTimelinePrefetchRetryAfterByThreadId = new Map<ThreadId, number>();
+type ThreadReadModelObserver = (thread: OrchestrationThread) => void;
+let threadReadModelObserver: ThreadReadModelObserver | null = null;
+
+/**
+ * Registers a sink that receives every freshly fetched thread read model so a
+ * single `getThread` round-trip can hydrate both the timeline and the app-level
+ * thread caches. Used to unify the duplicate `getThread` RPCs that previously
+ * fired when opening a thread (one for the timeline, one for store hydration).
+ */
+export function setThreadReadModelObserver(observer: ThreadReadModelObserver | null): void {
+  threadReadModelObserver = observer;
+}
+
+function notifyThreadReadModelFetched(thread: OrchestrationThread): void {
+  if (!threadReadModelObserver) {
+    return;
+  }
+  try {
+    threadReadModelObserver(thread);
+  } catch {
+    // Observer side effects (cache priming) must never break timeline hydration.
+  }
+}
+
+setThreadReadModelObserver((thread) => {
+  primeHydratedThreadCache(thread);
+});
+
 const projectionCacheByThreadId = new Map<string, TimelineRowsProjectionCacheEntry>();
 const liveTimelineRowPatchQueue = new Map<string, PrimeLiveTimelineRowInput>();
 const liveTimelineRowRemovalQueue = new Map<string, RemoveLiveTimelineRowInput>();
@@ -241,6 +276,27 @@ function cancelLiveTimelineRowPatchFrame(): void {
   liveTimelineRowSyncPatchQueue.clear();
   liveTimelineRowSyncRemovalQueue.clear();
   liveTimelineRowSyncBatchDepth = 0;
+}
+
+function flushLiveTimelineRowPatchQueues(): void {
+  if (liveTimelineRowPatchFrame !== null) {
+    cancelScheduledAnimationFrame(liveTimelineRowPatchFrame);
+    liveTimelineRowPatchFrame = null;
+  }
+  const removals = [
+    ...liveTimelineRowRemovalQueue.values(),
+    ...liveTimelineRowSyncRemovalQueue.values(),
+  ];
+  const patches = [
+    ...liveTimelineRowPatchQueue.values(),
+    ...liveTimelineRowSyncPatchQueue.values(),
+  ];
+  liveTimelineRowPatchQueue.clear();
+  liveTimelineRowRemovalQueue.clear();
+  liveTimelineRowSyncPatchQueue.clear();
+  liveTimelineRowSyncRemovalQueue.clear();
+  liveTimelineRowSyncBatchDepth = 0;
+  applyLiveTimelineRowQueue({ removals, patches });
 }
 
 function liveTimelinePatchQueueKey(input: PrimeLiveTimelineRowInput): string {
@@ -301,20 +357,6 @@ function cancelRowHeightRevisionFrame(): void {
   }
   cancelScheduledAnimationFrame(rowHeightRevisionFrame);
   rowHeightRevisionFrame = null;
-}
-
-function createThreadTimelineHydrationTimeout(threadId: ThreadId): Promise<never> {
-  return new Promise((_, reject) => {
-    globalThis.setTimeout(() => {
-      reject(
-        new Error(
-          `Timed out hydrating timeline rows for thread ${String(
-            threadId,
-          )} after ${String(THREAD_TIMELINE_HYDRATION_TIMEOUT_MS)}ms.`,
-        ),
-      );
-    }, THREAD_TIMELINE_HYDRATION_TIMEOUT_MS);
-  });
 }
 
 function rowKey(threadId: ThreadId, rowId: string): string {
@@ -536,6 +578,21 @@ function chooseFreshestProposedPlan(
   return existing.updatedAt.localeCompare(incoming.updatedAt) > 0 ? existing : incoming;
 }
 
+function chooseFreshestActivity(
+  existing: OrchestrationThreadActivity | undefined,
+  incoming: OrchestrationThreadActivity,
+): OrchestrationThreadActivity {
+  if (!existing) {
+    return incoming;
+  }
+  const existingSequence = existing.sequence ?? -1;
+  const incomingSequence = incoming.sequence ?? -1;
+  if (existingSequence !== incomingSequence) {
+    return existingSequence > incomingSequence ? existing : incoming;
+  }
+  return existing.createdAt.localeCompare(incoming.createdAt) > 0 ? existing : incoming;
+}
+
 function compareTimelineRowsBySourceOrder(
   left: TimelineSourceRow,
   right: TimelineSourceRow,
@@ -721,7 +778,10 @@ function primeTimelineRowsSnapshotIntoState(
   }
   const activitiesById = { ...state.activitiesById };
   for (const activity of snapshot.activities) {
-    activitiesById[String(activity.id)] = activity;
+    activitiesById[String(activity.id)] = chooseFreshestActivity(
+      activitiesById[String(activity.id)],
+      activity,
+    );
   }
   const proposedPlansById = { ...state.proposedPlansById };
   for (const proposedPlan of snapshot.proposedPlans) {
@@ -891,8 +951,11 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
     });
   },
   reset: () => {
+    flushLiveTimelineRowPatchQueues();
     rowHeightCache.clear();
     inFlightThreadTimelineHydrationByThreadId.clear();
+    inFlightThreadTimelineOpenPrefetchByThreadId.clear();
+    backgroundThreadTimelinePrefetchRetryAfterByThreadId.clear();
     projectionCacheByThreadId.clear();
     cancelLiveTimelineRowPatchFrame();
     cancelRowHeightRevisionFrame();
@@ -1049,9 +1112,29 @@ function timelineRowsActiveWindowEquals(
   );
 }
 
+export type PrimeThreadTimelineRowsMetadataOptions = {
+  /**
+   * When true and the thread already holds live rows, skip replacing them with
+   * the (possibly stale) read-model snapshot. While a turn is actively
+   * streaming, the server read-model projection lags behind the live event
+   * stream; reconciling that stale snapshot against newer live rows can briefly
+   * drop or revert freshly streamed content (the "come and go" flicker). Letting
+   * the live patch queue stay authoritative until the turn settles avoids that.
+   */
+  readonly preferExistingLiveRows?: boolean;
+};
+
+function threadHasLoadedTimelineRows(threadId: ThreadId): boolean {
+  return (useTimelineModelStore.getState().rowIdsByThreadId[threadId]?.length ?? 0) > 0;
+}
+
 export function primeThreadTimelineRowsMetadataFromReadModelThread(
   thread: OrchestrationReadModel["threads"][number],
+  options?: PrimeThreadTimelineRowsMetadataOptions,
 ): void {
+  if (options?.preferExistingLiveRows && threadHasLoadedTimelineRows(thread.id)) {
+    return;
+  }
   if (
     thread.messages.length > 0 ||
     thread.activities.length > 0 ||
@@ -1063,16 +1146,30 @@ export function primeThreadTimelineRowsMetadataFromReadModelThread(
   useTimelineModelStore.getState().primeMetadata(timelineRowsMetadataFromReadModelThread(thread));
 }
 
+export type PrimeThreadTimelineRowsMetadataThreadsOptions = {
+  /**
+   * Threads that are actively streaming a turn. Snapshot reconciliation for
+   * these threads is skipped while they already hold live rows, keeping the
+   * live event stream authoritative (see {@link PrimeThreadTimelineRowsMetadataOptions}).
+   */
+  readonly preferExistingLiveRowsThreadIds?: ReadonlySet<ThreadId>;
+};
+
 export function primeThreadTimelineRowsMetadataFromReadModelThreads(
   threads: ReadonlyArray<OrchestrationReadModel["threads"][number]>,
+  options?: PrimeThreadTimelineRowsMetadataThreadsOptions,
 ): void {
   if (threads.length === 0) {
     return;
   }
 
+  const preferExistingLiveRowsThreadIds = options?.preferExistingLiveRowsThreadIds;
   const hydratedThreads: OrchestrationThread[] = [];
   const metadataOnlyThreads: OrchestrationThread[] = [];
   for (const thread of threads) {
+    if (preferExistingLiveRowsThreadIds?.has(thread.id) && threadHasLoadedTimelineRows(thread.id)) {
+      continue;
+    }
     if (
       thread.messages.length > 0 ||
       thread.activities.length > 0 ||
@@ -1084,8 +1181,11 @@ export function primeThreadTimelineRowsMetadataFromReadModelThreads(
     }
   }
 
-  for (const thread of hydratedThreads) {
-    useTimelineModelStore.getState().primeSnapshot(buildTimelineRowsSnapshotFromThread(thread));
+  if (hydratedThreads.length > 0) {
+    const snapshots = hydratedThreads.map(buildTimelineRowsSnapshotFromThread);
+    useTimelineModelStore.setState((state) =>
+      snapshots.reduce(primeTimelineRowsSnapshotIntoState, state),
+    );
   }
   if (metadataOnlyThreads.length === 0) {
     return;
@@ -1167,20 +1267,17 @@ export async function fetchThreadTimelineRowsHydration(
   }
 
   useTimelineModelStore.getState().beginFetches(threadId, 1);
-  const rpcPromise = ensureNativeApi().orchestration.getThread({ threadId });
-  const hydratedSnapshotPromise = rpcPromise.then((thread) => {
-    const snapshot = buildTimelineRowsSnapshotFromThread(thread);
-    useTimelineModelStore.getState().primeSnapshot(snapshot);
-    return snapshot;
-  });
-  void hydratedSnapshotPromise.catch(() => undefined);
-  const promise = Promise.race([
-    hydratedSnapshotPromise,
-    createThreadTimelineHydrationTimeout(threadId),
-  ]).finally(() => {
-    inFlightThreadTimelineHydrationByThreadId.delete(threadId);
-    useTimelineModelStore.getState().finishFetches(threadId, 1);
-  });
+  const promise = hydrateThreadFromCache(threadId)
+    .then((thread) => {
+      notifyThreadReadModelFetched(thread);
+      const snapshot = buildTimelineRowsSnapshotFromThread(thread);
+      useTimelineModelStore.getState().primeSnapshot(snapshot);
+      return snapshot;
+    })
+    .finally(() => {
+      inFlightThreadTimelineHydrationByThreadId.delete(threadId);
+      useTimelineModelStore.getState().finishFetches(threadId, 1);
+    });
   inFlightThreadTimelineHydrationByThreadId.set(threadId, promise);
   return promise;
 }
@@ -1195,9 +1292,9 @@ export function hydrateThreadTimelineRowsInBackground(threadId: ThreadId): void 
   useTimelineModelStore.getState().beginFetches(threadId, 1);
   let promise: Promise<TimelineRowsSnapshot>;
   try {
-    promise = ensureNativeApi()
-      .orchestration.getThread({ threadId })
+    promise = hydrateThreadFromCache(threadId)
       .then((thread) => {
+        notifyThreadReadModelFetched(thread);
         const snapshot = buildTimelineRowsSnapshotFromThread(thread);
         useTimelineModelStore.getState().primeSnapshot(snapshot);
         return snapshot;
@@ -1233,13 +1330,62 @@ export function startThreadTimelineRowsOpenPrefetch(input: {
   readonly threadId: ThreadId;
   readonly priority?: "background" | "immediate";
 }): ThreadTimelineRowsOpenPrefetchHandle {
+  const immediate = input.priority === "immediate";
   let canceled = false;
-  const done = (async () => {
-    if (input.priority !== "immediate") {
-      await new Promise((resolve) =>
-        globalThis.setTimeout(resolve, BACKGROUND_TIMELINE_ROWS_PREFETCH_DELAY_MS),
-      );
+
+  if (isThreadTimelineRowsFullyHydrated(input.threadId)) {
+    backgroundThreadTimelinePrefetchRetryAfterByThreadId.delete(input.threadId);
+    return {
+      done: Promise.resolve(),
+      stop: () => {
+        canceled = true;
+      },
+    };
+  }
+
+  const existing = inFlightThreadTimelineOpenPrefetchByThreadId.get(input.threadId);
+  if (existing) {
+    // A background prefetch that is still sitting in its startup delay must not
+    // block an immediate open behind that delay. Promote it so the underlying
+    // fetch fires right away instead of waiting out the background timer.
+    if (immediate && !existing.immediate) {
+      existing.immediate = true;
+      existing.promoteToImmediate();
     }
+    return {
+      done: immediate ? existing.promise : existing.promise.catch(() => undefined),
+      stop: () => {
+        canceled = true;
+      },
+    };
+  }
+
+  if (!immediate) {
+    const retryAfter =
+      backgroundThreadTimelinePrefetchRetryAfterByThreadId.get(input.threadId) ?? 0;
+    if (retryAfter > Date.now()) {
+      return {
+        done: Promise.resolve(),
+        stop: () => {
+          canceled = true;
+        },
+      };
+    }
+  }
+
+  let promoteBackgroundDelay: (() => void) | null = null;
+  const backgroundDelay = immediate
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => {
+        const timerId = globalThis.setTimeout(resolve, BACKGROUND_TIMELINE_ROWS_PREFETCH_DELAY_MS);
+        promoteBackgroundDelay = () => {
+          globalThis.clearTimeout(timerId);
+          resolve();
+        };
+      });
+
+  const promise = (async () => {
+    await backgroundDelay;
     if (canceled) {
       return;
     }
@@ -1247,9 +1393,34 @@ export function startThreadTimelineRowsOpenPrefetch(input: {
     if (canceled) {
       return;
     }
-  })();
+    backgroundThreadTimelinePrefetchRetryAfterByThreadId.delete(input.threadId);
+  })()
+    .catch((error) => {
+      backgroundThreadTimelinePrefetchRetryAfterByThreadId.set(
+        input.threadId,
+        Date.now() + BACKGROUND_TIMELINE_ROWS_PREFETCH_FAILURE_BACKOFF_MS,
+      );
+      throw error;
+    })
+    .finally(() => {
+      if (inFlightThreadTimelineOpenPrefetchByThreadId.get(input.threadId) === record) {
+        inFlightThreadTimelineOpenPrefetchByThreadId.delete(input.threadId);
+      }
+    });
+
+  const record: OpenPrefetchRecord = {
+    promise,
+    immediate,
+    promoteToImmediate: () => {
+      promoteBackgroundDelay?.();
+      promoteBackgroundDelay = null;
+    },
+  };
+
+  inFlightThreadTimelineOpenPrefetchByThreadId.set(input.threadId, record);
+
   return {
-    done,
+    done: immediate ? promise : promise.catch(() => undefined),
     stop: () => {
       canceled = true;
     },

@@ -14,6 +14,7 @@ import type {
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
+  ThreadId,
 } from "@ace/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
@@ -39,6 +40,19 @@ export interface OrchestrationEngineShape {
    * @returns Stream containing ordered events.
    */
   readonly readEvents: (
+    fromSequenceExclusive: number,
+  ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
+
+  /**
+   * Replay persisted orchestration events for a single thread from an exclusive
+   * sequence cursor.
+   *
+   * @param threadId - Thread aggregate stream to replay.
+   * @param fromSequenceExclusive - Sequence cursor (exclusive).
+   * @returns Stream containing ordered thread events.
+   */
+  readonly readThreadEvents: (
+    threadId: ThreadId,
     fromSequenceExclusive: number,
   ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
 

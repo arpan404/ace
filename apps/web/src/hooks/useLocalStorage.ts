@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as Record from "effect/Record";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 const isomorphicLocalStorage: Storage =
   typeof window !== "undefined"
@@ -114,32 +114,41 @@ export function useLocalStorage<T, E>(
   initialValue: T,
   schema: Schema.Codec<T, E>,
 ): [T, (value: T | ((val: T) => T)) => void, Error | null] {
-  let initialStorageError: Error | null = null;
-  const initialStoredValue = (() => {
+  const initialRead = useMemo((): { storageError: Error | null; storedValue: T } => {
     try {
       const item = getLocalStorageItem(key, schema);
-      return item ?? initialValue;
+      return { storageError: null, storedValue: item ?? initialValue };
     } catch (error) {
-      initialStorageError = reportLocalStorageError(key, "read", error);
-      return initialValue;
+      return {
+        storageError: reportLocalStorageError(key, "read", error),
+        storedValue: initialValue,
+      };
     }
-  })();
+  }, [initialValue, key, schema]);
 
   const [state, dispatch] = useReducer(localStorageReducer<T>, {
-    storageError: initialStorageError,
+    storageError: initialRead.storageError,
     storedValueState: {
       key,
-      value: initialStoredValue,
+      value: initialRead.storedValue,
     },
   });
   const { storageError, storedValueState } = state;
   const [sourceId] = useState(createLocalStorageSourceId);
-  const storedValue = resolveLocalStorageStoredValue(storedValueState, key, initialStoredValue);
+  const storedValue = resolveLocalStorageStoredValue(
+    storedValueState,
+    key,
+    initialRead.storedValue,
+  );
 
   // Return a wrapped version of useState's setter function that persists the new value to localStorage
   const setValue = (value: T | ((val: T) => T)) => {
     try {
-      const previousValue = getLocalStorageItem(key, schema) ?? initialStoredValue;
+      const previousValue = resolveLocalStorageStoredValue(
+        storedValueState,
+        key,
+        initialRead.storedValue,
+      );
       const valueToStore =
         typeof value === "function" ? (value as (val: T) => T)(previousValue) : value;
       if (Object.is(valueToStore, previousValue)) {

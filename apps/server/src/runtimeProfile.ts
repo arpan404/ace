@@ -15,6 +15,30 @@ const providerRuntimeIngestionCaches: ServerRuntimeProfileProviderRuntimeIngesti
   queueCapacity: 0,
 };
 
+const orchestrationProfile: {
+  commandQueueDepth: number;
+  partitionQueueDepths: number[];
+} = {
+  commandQueueDepth: 0,
+  partitionQueueDepths: [],
+};
+
+const providerRuntimeIngestionProfile: {
+  queueDepth: number;
+} = {
+  queueDepth: 0,
+};
+
+const liveStreamsProfile: {
+  activeSubscriptions: number;
+  overflowCount: number;
+  droppedEventCount: number;
+} = {
+  activeSubscriptions: 0,
+  overflowCount: 0,
+  droppedEventCount: 0,
+};
+
 const snapshotViewCache: ServerRuntimeProfileSnapshotViewCache = {
   maxEntries: 0,
   currentEntries: 0,
@@ -36,6 +60,43 @@ export function updateProviderRuntimeIngestionCacheStats(
       Object.entries(patch).map(([key, value]) => [key, asNonNegativeInt(value)]),
     ),
   });
+}
+
+export function updateOrchestrationRuntimeProfile(
+  patch: Partial<{
+    readonly commandQueueDepth: number;
+    readonly partitionQueueDepths: readonly number[];
+  }>,
+): void {
+  if (patch.commandQueueDepth !== undefined) {
+    orchestrationProfile.commandQueueDepth = asNonNegativeInt(patch.commandQueueDepth);
+  }
+  if (patch.partitionQueueDepths !== undefined) {
+    orchestrationProfile.partitionQueueDepths = patch.partitionQueueDepths.map(asNonNegativeInt);
+  }
+}
+
+export function updateProviderRuntimeIngestionProfile(
+  patch: Partial<{
+    readonly queueDepth: number;
+  }>,
+): void {
+  if (patch.queueDepth !== undefined) {
+    providerRuntimeIngestionProfile.queueDepth = asNonNegativeInt(patch.queueDepth);
+  }
+}
+
+export function recordLiveStreamSubscriptionStarted(): void {
+  liveStreamsProfile.activeSubscriptions += 1;
+}
+
+export function recordLiveStreamSubscriptionEnded(): void {
+  liveStreamsProfile.activeSubscriptions = Math.max(0, liveStreamsProfile.activeSubscriptions - 1);
+}
+
+export function recordLiveStreamOverflow(droppedEventCount: number): void {
+  liveStreamsProfile.overflowCount += 1;
+  liveStreamsProfile.droppedEventCount += asNonNegativeInt(droppedEventCount);
 }
 
 export function collectRuntimeProfileSnapshot(input?: {
@@ -72,6 +133,18 @@ export function collectRuntimeProfileSnapshot(input?: {
         trackedSessionPids: providerRuntimeIngestionCaches.trackedSessionPids,
         queueCapacity: providerRuntimeIngestionCaches.queueCapacity,
       },
+    },
+    orchestration: {
+      commandQueueDepth: orchestrationProfile.commandQueueDepth,
+      partitionQueueDepths: [...orchestrationProfile.partitionQueueDepths],
+    },
+    providerRuntimeIngestion: {
+      queueDepth: providerRuntimeIngestionProfile.queueDepth,
+    },
+    liveStreams: {
+      activeSubscriptions: liveStreamsProfile.activeSubscriptions,
+      overflowCount: liveStreamsProfile.overflowCount,
+      droppedEventCount: liveStreamsProfile.droppedEventCount,
     },
     providerSessions:
       input?.providerSessions?.map((entry) => ({

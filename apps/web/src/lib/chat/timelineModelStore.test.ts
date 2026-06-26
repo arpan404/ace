@@ -12,12 +12,20 @@ vi.mock("../../nativeApi", () => ({
 }));
 
 import {
+  __resetThreadHydrationCacheForTests,
+  hydrateThreadFromCache,
+} from "../threadHydrationCache";
+
+import {
   fetchThreadTimelineRowsHydration,
   isThreadTimelineRowsFullyHydrated,
   readTimelineRow,
   readTimelineRowsProjection,
   readTimelineRowsWindowProjection,
+  primeThreadTimelineRowsMetadataFromReadModelThread,
   primeThreadTimelineRowsMetadataFromReadModelThreads,
+  setThreadReadModelObserver,
+  startThreadTimelineRowsOpenPrefetch,
   useTimelineModelStore,
 } from "./timelineModelStore";
 
@@ -34,6 +42,7 @@ function readModelThreadForMetadata(input: {
 }): OrchestrationReadModel["threads"][number] {
   return {
     id: input.id,
+    title: `Thread ${input.id}`,
     updatedAt: input.updatedAt,
     messages: Array.from({ length: input.messageCount ?? 0 }, (_, index) => ({
       id: MessageId.makeUnsafe(`metadata-message-${input.id}-${String(index)}`),
@@ -47,11 +56,14 @@ function readModelThreadForMetadata(input: {
     })),
     activities: [],
     proposedPlans: [],
+    checkpoints: [],
   } as unknown as OrchestrationReadModel["threads"][number];
 }
 
 afterEach(() => {
+  __resetThreadHydrationCacheForTests();
   useTimelineModelStore.getState().reset();
+  setThreadReadModelObserver(null);
   nativeApiMock.getThread.mockReset();
   vi.useRealTimers();
 });
@@ -1100,7 +1112,7 @@ describe("timelineModelStore", () => {
 
   it("hydrates all thread timeline rows from the thread source model and reuses them", async () => {
     nativeApiMock.getThread.mockResolvedValue({
-      id: threadId,
+      ...readModelThreadForMetadata({ id: threadId, updatedAt: "2026-01-01T00:00:02.000Z" }),
       updatedAt: "2026-01-01T00:00:02.000Z",
       messages: [
         {
@@ -1141,6 +1153,114 @@ describe("timelineModelStore", () => {
       "Hi",
       "Hello",
     ]);
+  });
+
+  it("backs off background open prefetch after a hydration failure", async () => {
+    vi.useFakeTimers();
+    nativeApiMock.getThread.mockRejectedValue(new Error("hydrate failed"));
+
+    const firstPrefetch = startThreadTimelineRowsOpenPrefetch({
+      threadId,
+      priority: "background",
+    });
+
+    await vi.advanceTimersByTimeAsync(751);
+    await firstPrefetch.done;
+
+    expect(nativeApiMock.getThread).toHaveBeenCalledTimes(1);
+
+    const secondPrefetch = startThreadTimelineRowsOpenPrefetch({
+      threadId,
+      priority: "background",
+    });
+    await secondPrefetch.done;
+    await vi.advanceTimersByTimeAsync(751);
+
+    expect(nativeApiMock.getThread).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies the thread read-model observer with the fetched thread", async () => {
+    const fetchedThread = {
+      ...readModelThreadForMetadata({ id: threadId, updatedAt: "2026-01-01T00:00:03.000Z" }),
+      id: threadId,
+      updatedAt: "2026-01-01T00:00:03.000Z",
+      messages: [],
+      activities: [],
+      proposedPlans: [],
+    };
+    nativeApiMock.getThread.mockResolvedValue(fetchedThread);
+    const observer = vi.fn();
+    setThreadReadModelObserver(observer);
+
+    await fetchThreadTimelineRowsHydration(threadId);
+
+    expect(observer).toHaveBeenCalledTimes(1);
+    expect(observer).toHaveBeenCalledWith(fetchedThread);
+  });
+
+  it("promotes an in-flight background open prefetch to fire immediately", async () => {
+    vi.useFakeTimers();
+    nativeApiMock.getThread.mockResolvedValue({
+      ...readModelThreadForMetadata({ id: threadId, updatedAt: "2026-01-01T00:00:03.000Z" }),
+      id: threadId,
+      updatedAt: "2026-01-01T00:00:03.000Z",
+      messages: [],
+      activities: [],
+      proposedPlans: [],
+    });
+
+    const backgroundPrefetch = startThreadTimelineRowsOpenPrefetch({
+      threadId,
+      priority: "background",
+    });
+
+    // The background prefetch is still parked in its startup delay; nothing has
+    // fetched yet.
+    await vi.advanceTimersByTimeAsync(16);
+    expect(nativeApiMock.getThread).not.toHaveBeenCalled();
+
+    // An immediate open (e.g. the user clicks the thread) must not wait out the
+    // remaining background delay.
+    const immediatePrefetch = startThreadTimelineRowsOpenPrefetch({
+      threadId,
+      priority: "immediate",
+    });
+    await vi.advanceTimersByTimeAsync(16);
+    expect(nativeApiMock.getThread).toHaveBeenCalledTimes(1);
+
+    await immediatePrefetch.done;
+    await backgroundPrefetch.done;
+    expect(nativeApiMock.getThread).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares the in-flight getThread request with the hydrated thread cache", async () => {
+    nativeApiMock.getThread.mockResolvedValue({
+      ...readModelThreadForMetadata({ id: threadId, updatedAt: "2026-01-01T00:00:02.000Z" }),
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      messages: [
+        {
+          id: messageId,
+          role: "assistant",
+          text: "Shared request",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      ],
+      activities: [],
+      proposedPlans: [],
+    });
+
+    const [timelineSnapshot, hydratedThread] = await Promise.all([
+      fetchThreadTimelineRowsHydration(threadId),
+      hydrateThreadFromCache(threadId),
+    ]);
+
+    expect(nativeApiMock.getThread).toHaveBeenCalledTimes(1);
+    expect(timelineSnapshot.messages.map((message) => message.text)).toEqual(["Shared request"]);
+    expect(hydratedThread.messages.map((message) => message.text)).toEqual(["Shared request"]);
   });
 
   it("refetches timeline rows when a fully populated cache is from an old model version", async () => {
@@ -1208,7 +1328,7 @@ describe("timelineModelStore", () => {
       },
     }));
     nativeApiMock.getThread.mockResolvedValue({
-      id: threadId,
+      ...readModelThreadForMetadata({ id: threadId, updatedAt: "2026-01-01T00:00:03.000Z" }),
       updatedAt: "2026-01-01T00:00:03.000Z",
       messages: [
         {
@@ -1487,5 +1607,183 @@ describe("timelineModelStore", () => {
       text: "I checked contracts and adapters.",
       streaming: false,
     });
+  });
+
+  it("keeps live streaming rows authoritative when a stale snapshot arrives mid-turn", async () => {
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+
+    // Live streamed assistant content is ahead of the server projection.
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:05.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 2,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "I checked contracts and adapters.",
+          turnId,
+          streaming: true,
+          sequence: 2,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:05.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    const stateBeforeSnapshot = useTimelineModelStore.getState();
+
+    // A lagging read-model snapshot arrives while the turn is still streaming.
+    // With preferExistingLiveRows the snapshot must not clobber live rows.
+    primeThreadTimelineRowsMetadataFromReadModelThread(
+      {
+        id: threadId,
+        updatedAt: "2026-01-01T00:00:02.000Z",
+        messages: [
+          {
+            id: messageId,
+            role: "assistant",
+            text: "I checked",
+            turnId,
+            streaming: false,
+            sequence: 2,
+            createdAt: "2026-01-01T00:00:01.000Z",
+            updatedAt: "2026-01-01T00:00:02.000Z",
+          },
+        ],
+        activities: [],
+        proposedPlans: [],
+      } as unknown as OrchestrationReadModel["threads"][number],
+      { preferExistingLiveRows: true },
+    );
+
+    expect(useTimelineModelStore.getState()).toBe(stateBeforeSnapshot);
+    expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
+      "I checked contracts and adapters.",
+    ]);
+  });
+
+  it("reconciles a snapshot when the thread is not actively streaming", async () => {
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:05.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 2,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "I checked contracts and adapters.",
+          turnId,
+          streaming: true,
+          sequence: 2,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:05.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    const stateBeforeSnapshot = useTimelineModelStore.getState();
+
+    // Without the live-rows preference (turn settled), the snapshot reconciles.
+    primeThreadTimelineRowsMetadataFromReadModelThread({
+      id: threadId,
+      updatedAt: "2026-01-01T00:00:06.000Z",
+      messages: [
+        {
+          id: messageId,
+          role: "assistant",
+          text: "I checked contracts and adapters.",
+          turnId,
+          streaming: false,
+          sequence: 2,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:06.000Z",
+        },
+      ],
+      activities: [],
+      proposedPlans: [],
+    } as unknown as OrchestrationReadModel["threads"][number]);
+
+    expect(useTimelineModelStore.getState()).not.toBe(stateBeforeSnapshot);
+    expect(readTimelineRowsProjection(threadId).messages[0]).toMatchObject({
+      text: "I checked contracts and adapters.",
+      streaming: false,
+    });
+  });
+
+  it("skips snapshot reconciliation for streaming threads in the batch path", async () => {
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:05.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 2,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "Streaming answer in progress",
+          turnId,
+          streaming: true,
+          sequence: 2,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:05.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    const stateBeforeSnapshot = useTimelineModelStore.getState();
+
+    primeThreadTimelineRowsMetadataFromReadModelThreads(
+      [
+        {
+          id: threadId,
+          updatedAt: "2026-01-01T00:00:02.000Z",
+          messages: [
+            {
+              id: messageId,
+              role: "assistant",
+              text: "Streaming",
+              turnId,
+              streaming: false,
+              sequence: 2,
+              createdAt: "2026-01-01T00:00:01.000Z",
+              updatedAt: "2026-01-01T00:00:02.000Z",
+            },
+          ],
+          activities: [],
+          proposedPlans: [],
+        } as unknown as OrchestrationReadModel["threads"][number],
+      ],
+      { preferExistingLiveRowsThreadIds: new Set([threadId]) },
+    );
+
+    expect(useTimelineModelStore.getState()).toBe(stateBeforeSnapshot);
+    expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
+      "Streaming answer in progress",
+    ]);
   });
 });

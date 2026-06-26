@@ -13,6 +13,42 @@ export const SIDEBAR_RESIZING_CLASS_NAME = "sidebar-resizing";
 export const SIDEBAR_RESIZE_END_EVENT = "ace:sidebar-resize-end";
 export const THREAD_BOARD_LAYOUT_ACTIVE_CLASS_NAME = "thread-board-layout-active";
 
+let activeLayoutResizeInteractionCount = 0;
+
+export function beginLayoutResizeInteraction(): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  activeLayoutResizeInteractionCount += 1;
+  document.documentElement.classList.add(SIDEBAR_RESIZING_CLASS_NAME);
+}
+
+export function endLayoutResizeInteraction(): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  activeLayoutResizeInteractionCount = Math.max(0, activeLayoutResizeInteractionCount - 1);
+  if (activeLayoutResizeInteractionCount > 0) {
+    return;
+  }
+  document.documentElement.classList.remove(SIDEBAR_RESIZING_CLASS_NAME);
+  window.dispatchEvent(new Event(SIDEBAR_RESIZE_END_EVENT));
+}
+
+export function resetLayoutResizeInteractions(): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  const hadLayoutResizeClass = document.documentElement.classList.contains(
+    SIDEBAR_RESIZING_CLASS_NAME,
+  );
+  activeLayoutResizeInteractionCount = 0;
+  document.documentElement.classList.remove(SIDEBAR_RESIZING_CLASS_NAME);
+  if (hadLayoutResizeClass) {
+    window.dispatchEvent(new Event(SIDEBAR_RESIZE_END_EVENT));
+  }
+}
+
 export function isLayoutResizeInProgress(): boolean {
   if (typeof document === "undefined") {
     return false;

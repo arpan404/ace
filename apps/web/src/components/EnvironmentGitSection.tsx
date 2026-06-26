@@ -542,7 +542,8 @@ function useEnvironmentGitSection({
     void invalidateGitQueries(queryClient, { cwd: gitCwd });
   }, [gitCwd, isGitStatusOutOfSync, queryClient]);
 
-  const gitStatusForActions = isGitStatusOutOfSync ? null : gitStatus;
+  const gitStatusUnavailable = gitStatus?.availability === "unavailable";
+  const gitStatusForActions = isGitStatusOutOfSync || gitStatusUnavailable ? null : gitStatus;
 
   const allFiles = gitStatusForActions?.workingTree.files ?? [];
   const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));
@@ -1043,6 +1044,11 @@ function useEnvironmentGitSection({
         <div className="space-y-2">
           {isGitStatusOutOfSync ? (
             <EnvironmentGitStatusMessage>Refreshing git state</EnvironmentGitStatusMessage>
+          ) : null}
+          {gitStatusUnavailable ? (
+            <EnvironmentGitStatusMessage tone="warning">
+              {gitStatus?.unavailableReason ?? "Workspace path is unavailable."}
+            </EnvironmentGitStatusMessage>
           ) : null}
           <div className="flex min-h-8 w-full overflow-hidden rounded-[var(--control-radius)]">
             <button

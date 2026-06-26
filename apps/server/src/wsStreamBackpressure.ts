@@ -1,5 +1,11 @@
 import { Effect, Stream } from "effect";
 
+import {
+  recordLiveStreamOverflow,
+  recordLiveStreamSubscriptionEnded,
+  recordLiveStreamSubscriptionStarted,
+} from "./runtimeProfile.ts";
+
 const DEFAULT_LIVE_UI_STREAM_BUFFER_CAPACITY = 1_024;
 const DROP_REPORT_GROWTH_STEP = 500;
 
@@ -12,6 +18,22 @@ interface LiveUiStreamLagState {
 interface BufferLiveUiStreamOptions {
   readonly capacity?: number;
   readonly label?: string;
+}
+
+export class LiveUiStreamOverflowError extends Error {
+  readonly droppedEventCount: number;
+  readonly label: string;
+
+  constructor(input: { readonly droppedEventCount: number; readonly label: string }) {
+    super(
+      `Live UI stream "${input.label}" overflowed; retrying from durable state (dropped at least ${String(
+        input.droppedEventCount,
+      )} events).`,
+    );
+    this.name = "LiveUiStreamOverflowError";
+    this.droppedEventCount = input.droppedEventCount;
+    this.label = input.label;
+  }
 }
 
 function normalizeLiveUiStreamBufferCapacity(capacity: number): number {
@@ -52,16 +74,27 @@ export function bufferLiveUiStream<A, E, R>(
         egressCount: 0,
         reportedDroppedAtLeast: 0,
       };
+      recordLiveStreamSubscriptionStarted();
       return stream.pipe(
         Stream.tap(() => {
           const droppedAtLeast = recordLiveUiStreamIngress(lagState, capacity);
           if (droppedAtLeast === null) {
             return Effect.void;
           }
+          recordLiveStreamOverflow(droppedAtLeast);
           return Effect.logWarning(
-            `[ws-stream] slow "${label}" subscriber: dropped at least ${String(
+            `[ws-stream] slow "${label}" subscriber overflowed; restarting stream after at least ${String(
               droppedAtLeast,
-            )} oldest events (capacity=${String(capacity)})`,
+            )} pending events exceeded capacity=${String(capacity)}`,
+          ).pipe(
+            Effect.andThen(
+              Effect.die(
+                new LiveUiStreamOverflowError({
+                  droppedEventCount: droppedAtLeast,
+                  label,
+                }),
+              ),
+            ),
           );
         }),
         Stream.buffer({ capacity, strategy: "sliding" }),
@@ -70,6 +103,7 @@ export function bufferLiveUiStream<A, E, R>(
             lagState.egressCount += 1;
           }),
         ),
+        Stream.ensuring(Effect.sync(recordLiveStreamSubscriptionEnded)),
       );
     }),
   );

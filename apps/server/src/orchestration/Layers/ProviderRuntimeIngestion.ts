@@ -42,7 +42,10 @@ import {
   type ProviderRuntimeIngestionShape,
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { updateProviderRuntimeIngestionCacheStats } from "../../runtimeProfile.ts";
+import {
+  updateProviderRuntimeIngestionCacheStats,
+  updateProviderRuntimeIngestionProfile,
+} from "../../runtimeProfile.ts";
 import { resolveProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
 import { ServerConfig } from "../../config.ts";
 import { createAttachmentId, resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -2015,6 +2018,7 @@ const make = Effect.fn("make")(function* () {
   const liveTurnDiffByTurnKey = new Map<string, LiveTurnDiffAggregate>();
   const lastActivityFingerprintByThread = new Map<ThreadId, string>();
   const sessionProcessPidByThread = new Map<ThreadId, number>();
+  let runtimeIngestionQueueDepth = 0;
   let runtimeEventsSinceMemoryPressureCheck = 0;
 
   const bufferedProposedPlanById = yield* Cache.make<string, { text: string; createdAt: string }>({
@@ -2032,6 +2036,9 @@ const make = Effect.fn("make")(function* () {
       lastActivityFingerprints: lastActivityFingerprintByThread.size,
       trackedSessionPids: sessionProcessPidByThread.size,
       queueCapacity: PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY,
+    });
+    updateProviderRuntimeIngestionProfile({
+      queueDepth: runtimeIngestionQueueDepth,
     });
   };
   publishRuntimeIngestionProfileStats();
@@ -3658,11 +3665,22 @@ const make = Effect.fn("make")(function* () {
           cause: Cause.pretty(cause),
         });
       }),
+      Effect.ensuring(
+        Effect.sync(() => {
+          runtimeIngestionQueueDepth = Math.max(0, runtimeIngestionQueueDepth - 1);
+          publishRuntimeIngestionProfileStats();
+        }),
+      ),
     );
 
   const worker = yield* makeDrainableWorker(processInputSafely, {
     capacity: PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY,
   });
+  const enqueueRuntimeIngestion = (input: RuntimeIngestionInput) =>
+    Effect.sync(() => {
+      runtimeIngestionQueueDepth += 1;
+      publishRuntimeIngestionProfileStats();
+    }).pipe(Effect.andThen(worker.enqueue(input)));
 
   const flushBufferedThinkingActivitiesSafely = (phase: "drain" | "shutdown") =>
     flushAllBufferedThinkingActivities().pipe(
@@ -3692,7 +3710,7 @@ const make = Effect.fn("make")(function* () {
     yield* Effect.addFinalizer(() => flushBufferedStateOnShutdownSafely);
     yield* Effect.forkScoped(
       Stream.runForEach(providerService.streamEvents, (event) =>
-        worker.enqueue({ source: "runtime", event }),
+        enqueueRuntimeIngestion({ source: "runtime", event }),
       ),
     );
     yield* Effect.forkScoped(
@@ -3700,7 +3718,7 @@ const make = Effect.fn("make")(function* () {
         if (event.type !== "thread.turn-start-requested") {
           return Effect.void;
         }
-        return worker.enqueue({ source: "domain", event });
+        return enqueueRuntimeIngestion({ source: "domain", event });
       }),
     );
   });

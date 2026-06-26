@@ -22,6 +22,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import {
   GitCommandError,
   type GitRemoveWorktreeInput,
+  type GitStatusResult,
   type GitWorkingTreeFileStatus,
 } from "@ace/contracts";
 import {
@@ -1586,16 +1587,41 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   });
 
   const status: GitCoreShape["status"] = (input) =>
-    statusDetails(input.cwd).pipe(
-      Effect.map((details) => ({
-        branch: details.branch,
-        hasWorkingTreeChanges: details.hasWorkingTreeChanges,
-        workingTree: details.workingTree,
-        hasUpstream: details.hasUpstream,
-        aheadCount: details.aheadCount,
-        behindCount: details.behindCount,
-        pr: null,
-      })),
+    pathExists(input.cwd).pipe(
+      Effect.flatMap((cwdExists) => {
+        if (!cwdExists) {
+          const unavailableStatus: GitStatusResult = {
+            availability: "unavailable" as const,
+            unavailableReason: `Workspace path does not exist: ${input.cwd}`,
+            branch: null,
+            hasWorkingTreeChanges: false,
+            workingTree: {
+              files: [],
+              insertions: 0,
+              deletions: 0,
+            },
+            hasUpstream: false,
+            aheadCount: 0,
+            behindCount: 0,
+            pr: null,
+          };
+          return Effect.succeed(unavailableStatus);
+        }
+        return statusDetails(input.cwd).pipe(
+          Effect.map(
+            (details): GitStatusResult => ({
+              availability: "available" as const,
+              branch: details.branch,
+              hasWorkingTreeChanges: details.hasWorkingTreeChanges,
+              workingTree: details.workingTree,
+              hasUpstream: details.hasUpstream,
+              aheadCount: details.aheadCount,
+              behindCount: details.behindCount,
+              pr: null,
+            }),
+          ),
+        );
+      }),
     );
 
   const hasHeadCommit = (cwd: string): Effect.Effect<boolean, GitCommandError> =>

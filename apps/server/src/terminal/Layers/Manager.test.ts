@@ -348,6 +348,21 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
     }),
   );
 
+  it.effect("ignores stale resize requests for missing terminal sessions", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+
+      yield* manager.resize({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        cols: 120,
+        rows: 30,
+      });
+
+      expect(ptyAdapter.processes).toHaveLength(0);
+    }),
+  );
+
   it.effect("resizes running terminal on open when a different size is requested", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
