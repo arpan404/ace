@@ -1,25 +1,64 @@
-use crate::ui::{components::*, theme::Theme};
+use crate::{
+    actions::{ToggleBottomPanel, ToggleEnvironmentPanel, ToggleRightPanel, ToggleSidebar},
+    stores::ui::UiState,
+    ui::{components::*, right_panel::environment_card, theme::Theme},
+};
 use ace_runtime::chat::{ChatMessageProjection, ChatMessageRole, ChatProjection};
 use gpui::{AnyElement, App, IntoElement, Window, div, prelude::*, px};
 use gpui_component::{IconName, scroll::ScrollableElement as _, text::TextView};
 
 pub(super) fn workspace_panel(
     theme: Theme,
-    sidebar_collapsed: bool,
+    ui_state: &UiState,
     chat: ChatProjection,
+    reserve_titlebar_controls: bool,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
+    let show_inline_environment_card = has_room_for_environment_card(ui_state, window);
     div()
         .id("ace-workspace")
+        .relative()
         .flex_1()
         .min_h_0()
         .bg(theme.background)
         .flex()
         .flex_col()
-        .child(workspace_chrome(theme, sidebar_collapsed))
+        .child(workspace_chrome(
+            theme,
+            ui_state,
+            &chat,
+            reserve_titlebar_controls,
+            show_inline_environment_card,
+        ))
+        .when(
+            ui_state.environment_panel_visible && show_inline_environment_card,
+            |this| {
+                this.child(
+                    div().px_6().pt_3().flex().justify_end().child(
+                        div()
+                            .w(px(360.0))
+                            .child(environment_card(theme, chat.active_thread.as_ref())),
+                    ),
+                )
+            },
+        )
+        .when(
+            ui_state.environment_panel_visible && !show_inline_environment_card,
+            |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .top(px(60.0))
+                        .right(px(16.0))
+                        .w(px(360.0))
+                        .child(environment_card(theme, chat.active_thread.as_ref())),
+                )
+            },
+        )
         .child(
             div()
+                .relative()
                 .flex_1()
                 .min_h_0()
                 .flex()
@@ -30,10 +69,21 @@ pub(super) fn workspace_panel(
         .into_any_element()
 }
 
-fn workspace_chrome(theme: Theme, sidebar_collapsed: bool) -> AnyElement {
+fn workspace_chrome(
+    theme: Theme,
+    ui_state: &UiState,
+    chat: &ChatProjection,
+    reserve_titlebar_controls: bool,
+    _show_inline_environment_card: bool,
+) -> AnyElement {
+    let title = chat
+        .active_thread
+        .as_ref()
+        .map(|thread| thread.title.as_str())
+        .unwrap_or("New chat");
     div()
         .id("workspace-chrome")
-        .h(px(46.0))
+        .h(px(48.0))
         .border_b_1()
         .border_color(theme.border_subtle)
         .px_3()
@@ -47,10 +97,32 @@ fn workspace_chrome(theme: Theme, sidebar_collapsed: bool) -> AnyElement {
                 .flex_row()
                 .items_center()
                 .gap_2()
-                .when(sidebar_collapsed, |this| {
-                    this.child(collapse_button(IconName::PanelLeftOpen, theme))
+                .when(ui_state.sidebar_collapsed, |this| {
+                    this.when(reserve_titlebar_controls, |this| {
+                        this.child(div().w(px(64.0)))
+                    })
+                    .child(ace_icon_toggle_button(
+                        AceIconName::PanelLeftOpen,
+                        false,
+                        theme,
+                        "Toggle sidebar",
+                        ToggleSidebar,
+                        || Box::new(ToggleSidebar),
+                    ))
+                    .child(nav_button(IconName::ChevronLeft, theme))
+                    .child(nav_button(IconName::ChevronRight, theme))
                 })
-                .child(icon_button(IconName::Bot, theme)),
+                .child(icon_tile(IconName::Bot, theme))
+                .child(
+                    div()
+                        .max_w(px(520.0))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_size(px(13.0))
+                        .text_color(theme.foreground.opacity(0.82))
+                        .child(title.to_string()),
+                ),
         )
         .child(
             div()
@@ -58,11 +130,49 @@ fn workspace_chrome(theme: Theme, sidebar_collapsed: bool) -> AnyElement {
                 .flex_row()
                 .items_center()
                 .gap_1()
-                .child(icon_button(IconName::Plus, theme))
-                .child(icon_button(IconName::Maximize, theme))
-                .child(icon_button(IconName::PanelRight, theme)),
+                .child(ace_icon_toggle_button(
+                    AceIconName::Environment,
+                    ui_state.environment_panel_visible,
+                    theme,
+                    "Toggle environment",
+                    ToggleEnvironmentPanel,
+                    || Box::new(ToggleEnvironmentPanel),
+                ))
+                .when(!ui_state.right_panel_visible, |this| {
+                    this.child(ace_icon_toggle_button(
+                        if ui_state.bottom_panel_visible {
+                            AceIconName::PanelBottomOpen
+                        } else {
+                            AceIconName::PanelBottomClosed
+                        },
+                        ui_state.bottom_panel_visible,
+                        theme,
+                        "Toggle bottom panel",
+                        ToggleBottomPanel,
+                        || Box::new(ToggleBottomPanel),
+                    ))
+                    .child(ace_icon_toggle_button(
+                        AceIconName::PanelRightClosed,
+                        false,
+                        theme,
+                        "Toggle right panel",
+                        ToggleRightPanel,
+                        || Box::new(ToggleRightPanel),
+                    ))
+                }),
         )
         .into_any_element()
+}
+
+fn has_room_for_environment_card(ui_state: &UiState, window: &Window) -> bool {
+    let mut available_width = f32::from(window.bounds().size.width);
+    if !ui_state.sidebar_collapsed {
+        available_width -= ui_state.sidebar_width + 4.0;
+    }
+    if ui_state.right_panel_visible {
+        available_width -= ui_state.right_panel_width + 4.0;
+    }
+    available_width >= 980.0
 }
 
 fn message_timeline(
@@ -71,14 +181,14 @@ fn message_timeline(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    const MAX_RENDERED_MESSAGES: usize = 200;
+    const MAX_RENDERED_MESSAGES: usize = 120;
     let skipped = chat.messages.len().saturating_sub(MAX_RENDERED_MESSAGES);
 
     div()
         .id("chat-timeline")
         .flex_1()
         .min_h_0()
-        .px_5()
+        .px_6()
         .pt_5()
         .pb_4()
         .flex()
@@ -257,9 +367,43 @@ fn tool_call_card(
 }
 
 fn markdown_render(id: u64, text: &str, window: &mut Window, cx: &mut App) -> AnyElement {
+    if !needs_markdown_renderer(text) {
+        return plain_text_render(text);
+    }
+
     TextView::markdown(("markdown", id), text.to_string(), window, cx)
         .selectable(true)
         .into_any_element()
+}
+
+fn plain_text_render(text: &str) -> AnyElement {
+    div()
+        .text_size(px(12.0))
+        .line_height(px(18.0))
+        .children(text.lines().map(|line| div().child(line.to_string())))
+        .into_any_element()
+}
+
+fn needs_markdown_renderer(text: &str) -> bool {
+    text.contains("```")
+        || text.contains('`')
+        || text.contains('[')
+        || text.contains('<')
+        || text.contains('|')
+        || text.lines().any(|line| {
+            let trimmed = line.trim_start();
+            trimmed.starts_with("# ")
+                || trimmed.starts_with("##")
+                || trimmed.starts_with("> ")
+                || trimmed.starts_with("- ")
+                || trimmed.starts_with("* ")
+                || trimmed.starts_with("+ ")
+                || trimmed.starts_with("---")
+                || trimmed
+                    .chars()
+                    .next()
+                    .is_some_and(|first| first.is_ascii_digit() && trimmed.contains(". "))
+        })
 }
 
 fn stable_id(value: &str) -> u64 {
@@ -378,7 +522,8 @@ fn chat_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
         .id("chat-composer")
         .border_t_1()
         .border_color(theme.border_subtle)
-        .p_3()
+        .px_6()
+        .py_4()
         .bg(theme.background)
         .child(
             div()
@@ -386,6 +531,7 @@ fn chat_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
                 .border_1()
                 .border_color(theme.border)
                 .bg(theme.background_elevated)
+                .max_w(px(860.0))
                 .p_3()
                 .flex()
                 .flex_col()

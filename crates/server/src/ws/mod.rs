@@ -387,7 +387,9 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         method: &str,
         payload: Value,
     ) -> Result<Value, WsDispatchError> {
-        if method.starts_with("codex.") {
+        if method == ace_protocol::ws::methods::SERVER_STATUS {
+            self.dispatch_server_method(method, payload).await
+        } else if method.starts_with("codex.") {
             self.dispatch_codex_method(method, payload).await
         } else if method.starts_with("provider_runtime.") {
             self.dispatch_provider_runtime_method(method, payload).await
@@ -409,6 +411,23 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             self.dispatch_lsp_tools_method(method, payload).await
         } else {
             Err(WsDispatchError::UnknownMethod(method.to_string()))
+        }
+    }
+
+    async fn dispatch_server_method(
+        &self,
+        method: &str,
+        payload: Value,
+    ) -> Result<Value, WsDispatchError> {
+        match method {
+            ace_protocol::ws::methods::SERVER_STATUS => {
+                serde_json::from_value::<()>(payload)?;
+                Ok(serde_json::json!({
+                    "ok": true,
+                    "protocol_version": ace_protocol::PROTOCOL_VERSION,
+                }))
+            }
+            _ => Err(WsDispatchError::UnknownMethod(method.to_string())),
         }
     }
 
@@ -563,6 +582,8 @@ enum WsDispatchError {
     Terminal(#[from] TerminalError),
     #[error("{0}")]
     Editor(#[from] EditorApiError),
+    #[error("{0}")]
+    AceDb(#[from] ace_persistence::AceDbError),
 }
 
 impl WsDispatchError {
@@ -583,6 +604,7 @@ impl WsDispatchError {
             Self::Persistence(_) => "persistence_error",
             Self::Terminal(_) => "terminal_error",
             Self::Editor(_) => "editor_error",
+            Self::AceDb(_) => "ace_db_error",
         }
     }
 }

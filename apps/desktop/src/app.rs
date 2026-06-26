@@ -1,34 +1,50 @@
 use crate::{
     actions::{
-        AddCurrentDirectoryProject, InterruptActiveTurn, NewThread, Quit, SendActiveComposer,
-        ToggleSidebar,
+        AddCurrentDirectoryProject, NewThread, Quit, ToggleBottomPanel, ToggleEnvironmentPanel,
+        ToggleRightPanel, ToggleSidebar,
     },
+    backend::DesktopBackend,
+    keyboard,
     ui::{assets::DesktopAssets, root::RootView, theme::Theme},
 };
 use gpui::{
-    App, AppContext, Application, Bounds, KeyBinding, Menu, MenuItem, Point, SystemMenuType,
-    TitlebarOptions, WindowBounds, WindowOptions, px, size,
+    App, AppContext, Application, Bounds, Menu, MenuItem, Point, SystemMenuType, TitlebarOptions,
+    WindowBounds, WindowOptions, px, size,
 };
 
 pub fn run() {
     let _logger = ace_logger::init_logger().expect("failed to initialize ace logger");
+    let backend = match DesktopBackend::connect_or_spawn() {
+        Ok(backend) => {
+            match backend.check_status() {
+                Ok(status) => tracing::info!(
+                    ok = status.ok,
+                    protocol_version = status.protocol_version,
+                    launch_mode = ?backend.launch_mode(),
+                    "connected to ace backend"
+                ),
+                Err(error) => tracing::warn!(%error, "ace backend status check failed"),
+            }
+            Some(backend)
+        }
+        Err(error) => {
+            tracing::warn!(%error, "failed to start or connect to ace backend");
+            None
+        }
+    };
 
     Application::new()
         .with_assets(DesktopAssets)
-        .run(|cx: &mut App| {
+        .run(move |cx: &mut App| {
             gpui_component::init(cx);
             register_actions(cx);
-            cx.bind_keys([
-                KeyBinding::new("cmd-b", ToggleSidebar, None),
-                KeyBinding::new("cmd-n", NewThread, None),
-                KeyBinding::new("cmd-enter", SendActiveComposer, None),
-                KeyBinding::new("cmd-.", InterruptActiveTurn, None),
-            ]);
+            cx.bind_keys(keyboard::app_key_bindings());
             cx.set_menus(app_menus());
 
-            cx.open_window(window_options(cx), |window, cx| {
+            let backend = backend;
+            cx.open_window(window_options(cx), move |window, cx| {
                 cx.activate(false);
-                cx.new(|cx| RootView::new(window, cx))
+                cx.new(|cx| RootView::new(window, cx, backend))
             })
             .expect("failed to open Ace desktop window");
 
@@ -55,6 +71,9 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::action("New Chat", NewThread),
             MenuItem::action("Add Current Directory Project", AddCurrentDirectoryProject),
             MenuItem::action("Toggle Sidebar", ToggleSidebar),
+            MenuItem::action("Toggle Environment", ToggleEnvironmentPanel),
+            MenuItem::action("Toggle Bottom Panel", ToggleBottomPanel),
+            MenuItem::action("Toggle Right Panel", ToggleRightPanel),
             MenuItem::separator(),
             MenuItem::action("Quit Ace", Quit),
         ],

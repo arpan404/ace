@@ -1,0 +1,13 @@
+<svg
+      aria-hidden="true"
+      class=""
+      fill="none"
+      viewBox="0 0 20 20"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M7 7h6M7 13h6M7 7v6M13 7v6" stroke="currentColor" stroke-linecap="round" />
+      <rect height="4" rx="1.25" stroke="currentColor" width="4" x="3" y="3" />
+      <rect height="4" rx="1.25" stroke="currentColor" width="4" x="13" y="3" />
+      <rect height="4" rx="1.25" stroke="currentColor" width="4" x="3" y="13" />
+      <rect height="4" rx="1.25" stroke="currentColor" width="4" x="13" y="13" />
+    </svg>

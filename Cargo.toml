@@ -14,6 +14,7 @@ members = [
   "crates/project",
   "crates/protocol",
   "crates/runtime",
+  "crates/rpc",
   "crates/server",
   "crates/terminal",
   "crates/workspace",
@@ -40,6 +41,7 @@ ace-provider-commands = { path = "crates/provider_commands" }
 ace-project = { path = "crates/project" }
 ace-protocol = { path = "crates/protocol" }
 ace-runtime = { path = "crates/runtime" }
+ace-rpc = { path = "crates/rpc" }
 ace-server = { path = "crates/server" }
 ace-terminal = { path = "crates/terminal" }
 ace-workspace = { path = "crates/workspace" }

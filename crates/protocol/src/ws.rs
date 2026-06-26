@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod methods {
+    pub const SERVER_STATUS: &str = "server.status";
     pub const CODEX_RAW_REQUEST: &str = "codex.raw_request";
     pub const CODEX_THREAD_START: &str = "codex.thread.start";
     pub const CODEX_THREAD_RESUME: &str = "codex.thread.resume";
@@ -210,6 +211,9 @@ pub mod methods {
     pub const GIT_WORKFLOW_RUN: &str = "git.workflow.run";
 
     pub const PROJECTS_LIST: &str = "projects.list";
+    pub const PROJECTS_SNAPSHOT: &str = "projects.snapshot";
+    pub const PROJECTS_THREAD_MESSAGES: &str = "projects.thread_messages";
+    pub const PROJECTS_PROJECT_THREADS: &str = "projects.project_threads";
     pub const PROJECTS_ADD: &str = "projects.add";
     pub const PROJECTS_UPDATE: &str = "projects.update";
     pub const PROJECTS_DELETE: &str = "projects.delete";

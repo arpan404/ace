@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="-rotate-90 absolute inset-0 h-full w-full transform-gpu" aria-hidden="true">
+  <circle cx="12" cy="12" r="9.75" fill="none" stroke="color-mix(in oklab, var(--color-muted) 50%, transparent)" stroke-width="2.5" />
+  <circle cx="12" cy="12" r="9.75" fill="none" stroke="var(--color-primary)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="61.261056745000964" stroke-dashoffset="61.261056745000964" class="transition-[stroke-dashoffset] duration-700 ease-out motion-reduce:transition-none" style="opacity:0.7" />
+</svg>

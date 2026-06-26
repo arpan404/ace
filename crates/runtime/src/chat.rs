@@ -57,6 +57,8 @@ pub struct ProjectSummary {
     pub name: String,
     pub workspace_root: String,
     pub icon: Option<String>,
+    #[serde(default)]
+    pub icon_color: Option<String>,
     pub archived: bool,
     pub thread_count: usize,
     pub updated_at: IsoDateTime,
@@ -70,6 +72,7 @@ impl ProjectSummary {
             name: project.title.clone(),
             workspace_root: project.workspace_root.clone(),
             icon: project.icon.as_ref().map(|icon| icon.kind.clone()),
+            icon_color: project.icon.as_ref().map(|icon| icon.value.clone()),
             archived: project.archived_at.is_some(),
             thread_count,
             updated_at: project.updated_at.clone(),

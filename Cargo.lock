@@ -65,12 +65,17 @@ dependencies = [
  "ace-fs",
  "ace-logger",
  "ace-persistence",
+ "ace-project",
+ "ace-protocol",
+ "ace-rpc",
  "ace-runtime",
  "gpui",
  "gpui-component",
  "insta",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 
@@ -193,6 +198,21 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "ace-rpc"
+version = "0.1.0"
+dependencies = [
+ "ace-protocol",
+ "axum",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
 ]
 
 [[package]]

@@ -1,0 +1,480 @@
+use crate::{
+    actions::SelectSearchPaletteItem,
+    stores::ui::BottomPanelTab,
+    ui::{components::*, theme::Theme},
+};
+use ace_core::{ProjectId, ThreadId};
+use ace_runtime::chat::SidebarProjection;
+use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
+use gpui_component::{IconName, scroll::ScrollableElement as _};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchPaletteMode {
+    Root,
+    NewThreadProject,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SearchPaletteItem {
+    NewThread,
+    NewProject,
+    OpenSettings,
+    OpenTerminals,
+    Project {
+        project_id: ProjectId,
+        label: String,
+        description: String,
+    },
+    Thread {
+        thread_id: ThreadId,
+        label: String,
+        description: String,
+    },
+}
+
+impl SearchPaletteItem {
+    fn label(&self) -> &str {
+        match self {
+            Self::NewThread => "New thread in...",
+            Self::NewProject => "New project",
+            Self::OpenSettings => "Open settings",
+            Self::OpenTerminals => "Open terminals",
+            Self::Project { label, .. } | Self::Thread { label, .. } => label,
+        }
+    }
+
+    fn description(&self) -> &str {
+        match self {
+            Self::NewThread => "Choose a project for a new thread.",
+            Self::NewProject => "Add the current workspace as a project.",
+            Self::OpenSettings => "Settings",
+            Self::OpenTerminals => "Manage running terminal processes.",
+            Self::Project { description, .. } | Self::Thread { description, .. } => description,
+        }
+    }
+
+    fn kind(&self) -> PaletteItemKind {
+        match self {
+            Self::NewThread | Self::NewProject | Self::OpenSettings | Self::OpenTerminals => {
+                PaletteItemKind::Action
+            }
+            Self::Project { .. } => PaletteItemKind::Project,
+            Self::Thread { .. } => PaletteItemKind::Thread,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PaletteItemKind {
+    Action,
+    Project,
+    Thread,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchPaletteState {
+    pub open: bool,
+    pub mode: SearchPaletteMode,
+    pub query: String,
+    pub active_index: usize,
+}
+
+impl Default for SearchPaletteState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            mode: SearchPaletteMode::Root,
+            query: String::new(),
+            active_index: 0,
+        }
+    }
+}
+
+impl SearchPaletteState {
+    pub fn open(&mut self) {
+        self.open = true;
+        self.mode = SearchPaletteMode::Root;
+        self.query.clear();
+        self.active_index = 0;
+    }
+
+    pub fn close(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn back(&mut self) {
+        self.mode = SearchPaletteMode::Root;
+        self.query.clear();
+        self.active_index = 0;
+    }
+}
+
+pub fn palette_items(
+    projection: &SidebarProjection,
+    mode: SearchPaletteMode,
+    query: &str,
+) -> Vec<SearchPaletteItem> {
+    let normalized = query.trim().to_lowercase();
+    let mut project_items = Vec::new();
+    let mut thread_items = Vec::new();
+
+    for group in &projection.projects {
+        project_items.push(SearchPaletteItem::Project {
+            project_id: group.project.id,
+            label: group.project.name.clone(),
+            description: group.project.workspace_root.clone(),
+        });
+
+        for thread in &group.threads {
+            thread_items.push(SearchPaletteItem::Thread {
+                thread_id: thread.id.clone(),
+                label: thread.title.clone(),
+                description: group.project.name.clone(),
+            });
+        }
+    }
+
+    project_items.sort_by(|left, right| left.label().cmp(right.label()));
+    thread_items.sort_by(|left, right| right.label().cmp(left.label()));
+
+    let matches = |item: &SearchPaletteItem| {
+        normalized.is_empty()
+            || item.label().to_lowercase().contains(&normalized)
+            || item.description().to_lowercase().contains(&normalized)
+    };
+
+    if mode == SearchPaletteMode::NewThreadProject {
+        return project_items
+            .into_iter()
+            .filter(matches)
+            .take(if normalized.is_empty() { 12 } else { 24 })
+            .collect();
+    }
+
+    let actions = [
+        SearchPaletteItem::NewThread,
+        SearchPaletteItem::NewProject,
+        SearchPaletteItem::OpenSettings,
+        SearchPaletteItem::OpenTerminals,
+    ];
+
+    if normalized.is_empty() {
+        return actions
+            .into_iter()
+            .chain(project_items.into_iter().take(8))
+            .chain(thread_items.into_iter().take(8))
+            .collect();
+    }
+
+    actions
+        .into_iter()
+        .chain(project_items)
+        .chain(thread_items)
+        .filter(matches)
+        .take(40)
+        .collect()
+}
+
+pub(super) fn search_palette_overlay(
+    theme: Theme,
+    state: &SearchPaletteState,
+    projection: &SidebarProjection,
+) -> AnyElement {
+    if !state.open {
+        return div().into_any_element();
+    }
+
+    let items = palette_items(projection, state.mode, &state.query);
+    let active_index = state.active_index.min(items.len().saturating_sub(1));
+    let normalized_empty = state.query.trim().is_empty();
+    let mut rendered_index = 0usize;
+
+    div()
+        .absolute()
+        .top(px(0.0))
+        .left(px(0.0))
+        .right(px(0.0))
+        .bottom(px(0.0))
+        .bg(theme.background.opacity(0.66))
+        .flex()
+        .items_start()
+        .justify_center()
+        .pt(px(96.0))
+        .child(
+            div()
+                .w(px(720.0))
+                .max_w(px(720.0))
+                .max_h(px(560.0))
+                .rounded_xl()
+                .border_1()
+                .border_color(theme.border)
+                .bg(theme.background_elevated.opacity(0.98))
+                .shadow_lg()
+                .overflow_hidden()
+                .flex()
+                .flex_col()
+                .child(palette_header(theme, state))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h(px(300.0))
+                        .max_h(px(420.0))
+                        .overflow_y_scrollbar()
+                        .px_4()
+                        .py_3()
+                        .children(section(
+                            theme,
+                            "Actions",
+                            PaletteItemKind::Action,
+                            &items,
+                            &mut rendered_index,
+                            active_index,
+                            normalized_empty,
+                            state.mode,
+                        ))
+                        .children(section(
+                            theme,
+                            if state.mode == SearchPaletteMode::NewThreadProject {
+                                "Projects"
+                            } else if normalized_empty {
+                                "Recent Projects"
+                            } else {
+                                "Projects"
+                            },
+                            PaletteItemKind::Project,
+                            &items,
+                            &mut rendered_index,
+                            active_index,
+                            normalized_empty,
+                            state.mode,
+                        ))
+                        .children(section(
+                            theme,
+                            if normalized_empty {
+                                "Recent Threads"
+                            } else {
+                                "Threads"
+                            },
+                            PaletteItemKind::Thread,
+                            &items,
+                            &mut rendered_index,
+                            active_index,
+                            normalized_empty,
+                            state.mode,
+                        ))
+                        .when(items.is_empty(), |this| {
+                            this.child(
+                                div()
+                                    .h(px(160.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_size(px(13.0))
+                                    .text_color(theme.muted)
+                                    .child("No matching results"),
+                            )
+                        }),
+                )
+                .child(palette_footer(theme)),
+        )
+        .into_any_element()
+}
+
+fn palette_header(theme: Theme, state: &SearchPaletteState) -> AnyElement {
+    let display_text = if state.query.is_empty() {
+        if state.mode == SearchPaletteMode::NewThreadProject {
+            "Select project for a new thread...".to_string()
+        } else {
+            "Search commands, projects, and threads...".to_string()
+        }
+    } else {
+        state.query.clone()
+    };
+
+    div()
+        .h(px(72.0))
+        .border_b_1()
+        .border_color(theme.border_subtle)
+        .px_5()
+        .flex()
+        .items_center()
+        .gap_3()
+        .child(if state.mode == SearchPaletteMode::NewThreadProject {
+            ace_icon_svg(AceIconName::PanelLeftOpen, theme.muted)
+        } else {
+            icon_svg(IconName::Search, theme.muted)
+        })
+        .child(
+            div()
+                .h(px(40.0))
+                .flex_1()
+                .rounded_lg()
+                .border_1()
+                .border_color(if state.open {
+                    theme.accent_blue.opacity(0.62)
+                } else {
+                    theme.border
+                })
+                .bg(theme.panel)
+                .px_3()
+                .flex()
+                .items_center()
+                .text_size(px(18.0))
+                .text_color(theme.foreground)
+                .child(display_text),
+        )
+        .into_any_element()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn section(
+    theme: Theme,
+    title: &'static str,
+    kind: PaletteItemKind,
+    items: &[SearchPaletteItem],
+    rendered_index: &mut usize,
+    active_index: usize,
+    normalized_empty: bool,
+    mode: SearchPaletteMode,
+) -> Vec<AnyElement> {
+    if mode == SearchPaletteMode::NewThreadProject && kind != PaletteItemKind::Project {
+        return Vec::new();
+    }
+
+    let section_items = items
+        .iter()
+        .filter(|item| item.kind() == kind)
+        .cloned()
+        .collect::<Vec<_>>();
+    if section_items.is_empty() {
+        return Vec::new();
+    }
+    if kind == PaletteItemKind::Action && !normalized_empty {
+        // Keep filtered actions visually grouped only when they are present.
+    }
+
+    let mut children = vec![
+        div()
+            .pt(if *rendered_index == 0 {
+                px(0.0)
+            } else {
+                px(14.0)
+            })
+            .pb_2()
+            .text_size(px(11.0))
+            .font_weight(gpui::FontWeight::SEMIBOLD)
+            .text_color(theme.muted_subtle)
+            .child(title)
+            .into_any_element(),
+    ];
+
+    for item in section_items {
+        let index = *rendered_index;
+        *rendered_index += 1;
+        children.push(palette_row(theme, item, index == active_index));
+    }
+
+    children
+}
+
+fn palette_row(theme: Theme, item: SearchPaletteItem, active: bool) -> AnyElement {
+    let action_item = item.clone();
+    div()
+        .h(px(46.0))
+        .rounded_lg()
+        .px_3()
+        .flex()
+        .items_center()
+        .gap_3()
+        .bg(if active {
+            theme.button_hover
+        } else {
+            theme.background_elevated
+        })
+        .text_color(if active {
+            theme.foreground
+        } else {
+            theme.foreground.opacity(0.78)
+        })
+        .hover(|this| this.bg(theme.button))
+        .child(palette_icon(theme, &item, active))
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .text_size(px(14.0))
+                        .line_height(px(18.0))
+                        .child(item.label().to_string()),
+                )
+                .when(item.kind() != PaletteItemKind::Action, |this| {
+                    this.child(
+                        div()
+                            .text_size(px(12.0))
+                            .line_height(px(16.0))
+                            .text_color(theme.muted)
+                            .child(item.description().to_string()),
+                    )
+                }),
+        )
+        .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(
+                Box::new(SelectSearchPaletteItem {
+                    item: action_item.clone(),
+                }),
+                cx,
+            );
+        })
+        .into_any_element()
+}
+
+fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElement {
+    let color = if active {
+        theme.accent_blue
+    } else {
+        theme.muted
+    };
+    match item {
+        SearchPaletteItem::NewThread | SearchPaletteItem::Thread { .. } => {
+            ace_icon_svg(AceIconName::Editor, color)
+        }
+        SearchPaletteItem::NewProject | SearchPaletteItem::Project { .. } => {
+            icon_svg(IconName::Folder, color)
+        }
+        SearchPaletteItem::OpenSettings => ace_icon_svg(AceIconName::TablerSettings, color),
+        SearchPaletteItem::OpenTerminals => ace_icon_svg(AceIconName::Terminal, color),
+    }
+}
+
+fn palette_footer(theme: Theme) -> AnyElement {
+    div()
+        .h(px(44.0))
+        .border_t_1()
+        .border_color(theme.border_subtle)
+        .px_4()
+        .flex()
+        .items_center()
+        .gap_4()
+        .text_size(px(12.0))
+        .text_color(theme.muted)
+        .child(hint("↑ ↓", "Navigate", theme))
+        .child(hint("Enter", "Select", theme))
+        .child(hint("Esc", "Close", theme))
+        .into_any_element()
+}
+
+fn hint(keys: &'static str, label: &'static str, theme: Theme) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(kbd(keys, theme))
+        .child(label)
+        .into_any_element()
+}
+
+#[allow(dead_code)]
+fn _bottom_panel_tab_reference(_: BottomPanelTab) {}

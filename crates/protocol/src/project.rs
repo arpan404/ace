@@ -1,9 +1,38 @@
-use ace_core::{ModelSelection, ProjectIcon, ProjectId, ProjectScript};
+use ace_core::{ModelSelection, Project, ProjectIcon, ProjectId, ProjectScript, ThreadId};
 use ace_project::{ProjectEntryKind, UpdateProject};
+use ace_runtime::chat::{ChatMessageProjection, ThreadSummary};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectListRequest {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectSnapshotRequest {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectSnapshotResponse {
+    pub projects: Vec<Project>,
+    pub threads: Vec<ThreadSummary>,
+    pub thread_counts: HashMap<ProjectId, usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectThreadsRequest {
+    pub project_id: ProjectId,
+    pub limit: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThreadMessagesRequest {
+    pub thread_id: ThreadId,
+    pub limit: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThreadMessagesResponse {
+    pub messages: Vec<ChatMessageProjection>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectAddRequest {

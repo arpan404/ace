@@ -14,7 +14,10 @@ path = "src/main.rs"
 
 [dependencies]
 ace-core.workspace = true
+ace-protocol.workspace = true
 ace-persistence.workspace = true
+ace-project.workspace = true
+ace-rpc.workspace = true
 ace-runtime.workspace = true
 ace-error.workspace = true
 ace-fs.workspace = true
@@ -23,6 +26,8 @@ gpui.workspace = true
 gpui-component.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

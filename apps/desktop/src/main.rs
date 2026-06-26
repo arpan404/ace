@@ -2,6 +2,8 @@
 
 mod actions;
 mod app;
+mod backend;
+mod keyboard;
 mod persistence;
 mod stores;
 mod ui;

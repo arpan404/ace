@@ -4,11 +4,16 @@ use gpui::{Hsla, Pixels, SharedString, px, rgb, size};
 pub struct Theme {
     pub background: Hsla,
     pub background_elevated: Hsla,
+    pub bottom_panel_height: Pixels,
+    pub bottom_panel_max_height: Pixels,
+    pub bottom_panel_min_height: Pixels,
     pub border: Hsla,
     pub border_subtle: Hsla,
     pub button: Hsla,
     pub button_hover: Hsla,
-    pub accent: Hsla,
+    pub accent_blue: Hsla,
+    pub accent_danger: Hsla,
+    pub accent_success: Hsla,
     pub accent_warning: Hsla,
     pub accent_pink: Hsla,
     pub foreground: Hsla,
@@ -32,11 +37,16 @@ impl Default for Theme {
         Self {
             background: rgb(0x111111).into(),
             background_elevated: rgb(0x202020).into(),
+            bottom_panel_height: px(260.0),
+            bottom_panel_max_height: px(560.0),
+            bottom_panel_min_height: px(160.0),
             border: rgb(0x2e2e2e).into(),
             border_subtle: rgb(0x202020).into(),
             button: rgb(0x242424).into(),
             button_hover: rgb(0x303030).into(),
-            accent: rgb(0x8ab4f8).into(),
+            accent_blue: rgb(0x38bdf8).into(),
+            accent_danger: rgb(0xfb7185).into(),
+            accent_success: rgb(0x34d399).into(),
             accent_warning: rgb(0xf0b429).into(),
             accent_pink: rgb(0xf2a2b8).into(),
             foreground: rgb(0xe7e7e7).into(),
@@ -76,6 +86,7 @@ mod tests {
         let theme = Theme::default();
         assert_eq!(theme.sidebar_width, px(330.0));
         assert_eq!(theme.right_panel_width, px(430.0));
+        assert_eq!(theme.bottom_panel_height, px(260.0));
         assert_eq!(Theme::default_window_size().width, px(1440.0));
         assert_eq!(Theme::app_name().as_ref(), "Ace");
     }

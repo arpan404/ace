@@ -1,6 +1,11 @@
 use crate::{
-    stores::DesktopProjection,
-    ui::{chat::workspace_panel, right_panel::right_panel, sidebar::sidebar_panel, theme::Theme},
+    stores::{DesktopProjection, ui::UiState},
+    ui::{
+        chat::workspace_panel,
+        right_panel::{bottom_panel, right_panel},
+        sidebar::sidebar_panel,
+        theme::Theme,
+    },
 };
 use ace_runtime::chat::ChatProjection;
 use gpui::{AnyElement, App, CursorStyle, IntoElement, MouseButton, Window, div, prelude::*, px};
@@ -9,17 +14,26 @@ use gpui::{AnyElement, App, CursorStyle, IntoElement, MouseButton, Window, div, 
 pub enum SplitterKind {
     Sidebar,
     RightPanel,
+    BottomPanel,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PanelLayout {
+    pub bottom_panel_height: gpui::Pixels,
     pub sidebar_width: gpui::Pixels,
     pub right_panel_width: gpui::Pixels,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ShellChrome {
+    pub active_splitter: Option<SplitterKind>,
+    pub reserve_titlebar_controls: bool,
 }
 
 impl PanelLayout {
     pub fn new(theme: Theme) -> Self {
         Self {
+            bottom_panel_height: theme.bottom_panel_height,
             sidebar_width: theme.sidebar_width,
             right_panel_width: theme.right_panel_width,
         }
@@ -40,13 +54,22 @@ impl PanelLayout {
             ..self
         }
     }
+
+    pub fn resize_bottom_panel(self, delta_y: gpui::Pixels, theme: Theme) -> Self {
+        Self {
+            bottom_panel_height: (self.bottom_panel_height - delta_y)
+                .clamp(theme.bottom_panel_min_height, theme.bottom_panel_max_height),
+            ..self
+        }
+    }
 }
 
 pub fn shell_layout(
     theme: Theme,
     layout: PanelLayout,
-    sidebar_collapsed: bool,
+    ui_state: UiState,
     projection: DesktopProjection,
+    chrome: ShellChrome,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -59,36 +82,124 @@ pub fn shell_layout(
         .flex()
         .flex_row()
         .bg(theme.background)
-        .when(!sidebar_collapsed, |this| {
-            this.child(sidebar_panel(theme, layout, sidebar))
-                .child(vertical_splitter(
-                    "sidebar-splitter",
-                    SplitterKind::Sidebar,
-                    theme,
-                ))
+        .when(!ui_state.sidebar_collapsed, |this| {
+            this.child(sidebar_panel(
+                theme,
+                layout,
+                sidebar,
+                chrome.active_splitter == Some(SplitterKind::Sidebar),
+                chrome.reserve_titlebar_controls,
+            ))
+            .child(vertical_splitter(
+                "sidebar-splitter",
+                SplitterKind::Sidebar,
+                theme,
+                chrome.active_splitter == Some(SplitterKind::Sidebar),
+            ))
         })
-        .child(center_column(
+        .child(main_column(
             theme,
             layout,
-            sidebar_collapsed,
+            ui_state.clone(),
             chat.clone(),
+            chrome,
             window,
             cx,
         ))
-        .child(vertical_splitter(
-            "right-panel-splitter",
-            SplitterKind::RightPanel,
+        .into_any_element()
+}
+
+fn main_column(
+    theme: Theme,
+    layout: PanelLayout,
+    ui_state: UiState,
+    chat: ChatProjection,
+    chrome: ShellChrome,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let bottom_tab = ui_state.bottom_panel_tab;
+    div()
+        .id("ace-main-column")
+        .flex_1()
+        .h_full()
+        .min_w(px(420.0))
+        .flex()
+        .flex_col()
+        .child(main_content_row(
             theme,
+            layout,
+            ui_state.clone(),
+            chat.clone(),
+            chrome,
+            window,
+            cx,
         ))
-        .child(right_panel(theme, layout, chat))
+        .when(ui_state.bottom_panel_visible, |this| {
+            this.child(horizontal_splitter(
+                "bottom-panel-splitter",
+                SplitterKind::BottomPanel,
+                theme,
+                chrome.active_splitter == Some(SplitterKind::BottomPanel),
+            ))
+            .child(bottom_panel(
+                theme,
+                layout,
+                bottom_tab,
+                chrome.active_splitter == Some(SplitterKind::BottomPanel),
+                chat,
+            ))
+        })
+        .into_any_element()
+}
+
+fn main_content_row(
+    theme: Theme,
+    layout: PanelLayout,
+    ui_state: UiState,
+    chat: ChatProjection,
+    chrome: ShellChrome,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    div()
+        .id("ace-main-content-row")
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_row()
+        .child(center_column(
+            theme,
+            ui_state.clone(),
+            chat.clone(),
+            chrome.reserve_titlebar_controls,
+            window,
+            cx,
+        ))
+        .when(ui_state.right_panel_visible, |this| {
+            this.child(vertical_splitter(
+                "right-panel-splitter",
+                SplitterKind::RightPanel,
+                theme,
+                chrome.active_splitter == Some(SplitterKind::RightPanel),
+            ))
+            .child(right_panel(
+                theme,
+                layout,
+                ui_state.right_panel_tab,
+                ui_state.bottom_panel_visible,
+                chrome.active_splitter == Some(SplitterKind::RightPanel),
+                chat,
+            ))
+        })
         .into_any_element()
 }
 
 fn center_column(
     theme: Theme,
-    _layout: PanelLayout,
-    sidebar_collapsed: bool,
+    ui_state: UiState,
     chat: ChatProjection,
+    reserve_titlebar_controls: bool,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -99,23 +210,57 @@ fn center_column(
         .min_w(px(420.0))
         .flex()
         .flex_col()
-        .child(workspace_panel(theme, sidebar_collapsed, chat, window, cx))
+        .child(workspace_panel(
+            theme,
+            &ui_state,
+            chat.clone(),
+            reserve_titlebar_controls,
+            window,
+            cx,
+        ))
         .into_any_element()
 }
 
-fn vertical_splitter(id: &'static str, kind: SplitterKind, theme: Theme) -> AnyElement {
-    splitter(id, kind, theme)
-        .w(px(4.0))
-        .h_full()
-        .cursor(CursorStyle::ResizeLeftRight)
-        .into_any_element()
-}
-
-fn splitter(id: &'static str, kind: SplitterKind, theme: Theme) -> gpui::Stateful<gpui::Div> {
+fn vertical_splitter(
+    id: &'static str,
+    kind: SplitterKind,
+    theme: Theme,
+    active: bool,
+) -> AnyElement {
     div()
         .id(id)
-        .bg(theme.border_subtle)
-        .hover(|this| this.bg(theme.accent.opacity(0.65)))
+        .relative()
+        .w(px(0.0))
+        .h_full()
+        .child(splitter_hit_target(kind, theme, active).w(px(8.0)).h_full())
+        .into_any_element()
+}
+
+fn horizontal_splitter(
+    id: &'static str,
+    kind: SplitterKind,
+    theme: Theme,
+    active: bool,
+) -> AnyElement {
+    div()
+        .id(id)
+        .relative()
+        .w_full()
+        .h(px(0.0))
+        .child(splitter_hit_target(kind, theme, active).w_full().h(px(8.0)))
+        .into_any_element()
+}
+
+fn splitter_hit_target(kind: SplitterKind, _theme: Theme, _active: bool) -> gpui::Div {
+    let cursor = match kind {
+        SplitterKind::BottomPanel => CursorStyle::ResizeUpDown,
+        SplitterKind::Sidebar | SplitterKind::RightPanel => CursorStyle::ResizeLeftRight,
+    };
+    div()
+        .absolute()
+        .top(px(-4.0))
+        .left(px(-4.0))
+        .cursor(cursor)
         .on_mouse_down(MouseButton::Left, move |event, window, cx| {
             window.dispatch_action(
                 Box::new(crate::actions::BeginPanelResize {
@@ -153,6 +298,12 @@ mod tests {
                 .resize_right_panel(px(-1000.0), theme)
                 .right_panel_width,
             theme.right_panel_max_width
+        );
+        assert_eq!(
+            layout
+                .resize_bottom_panel(px(-1000.0), theme)
+                .bottom_panel_height,
+            theme.bottom_panel_max_height
         );
     }
 }

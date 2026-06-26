@@ -1,4 +1,7 @@
-use crate::ui::layout::SplitterKind;
+use crate::{
+    stores::ui::{BottomPanelTab, RightPanelTab},
+    ui::layout::SplitterKind,
+};
 use gpui::{Point, actions};
 
 actions!(
@@ -6,20 +9,43 @@ actions!(
     [
         Quit,
         ToggleSidebar,
+        ToggleEnvironmentPanel,
+        ToggleRightPanel,
+        ToggleBottomPanel,
         NewThread,
         SendActiveComposer,
         InterruptActiveTurn,
         TogglePinActiveThread,
         ArchiveActiveThread,
-        AddCurrentDirectoryProject
+        AddCurrentDirectoryProject,
+        OpenSearchPalette,
+        CloseSearchPalette
     ]
 );
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SelectSearchPaletteItem {
+    pub item: crate::ui::search_palette::SearchPaletteItem,
+}
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
 pub struct BeginPanelResize {
     pub kind: SplitterKind,
     pub position: Point<gpui::Pixels>,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SelectRightPanelTab {
+    pub tab: RightPanelTab,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SelectBottomPanelTab {
+    pub tab: BottomPanelTab,
 }
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]

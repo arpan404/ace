@@ -1,10 +1,15 @@
 use super::{WsApiState, WsDispatchError};
 use ace_git::ProcessRunner;
+use ace_persistence::{
+    load_default_ace_db, load_default_project_threads, load_default_thread_messages,
+};
 use ace_protocol::{
     project::{
         ProjectAddRequest, ProjectCreateEntryRequest, ProjectCwdRequest, ProjectDeleteRequest,
         ProjectEntryPathRequest, ProjectListRequest, ProjectRenameEntryRequest,
-        ProjectSearchEntriesRequest, ProjectUpdateRequest, ProjectWriteFileRequest,
+        ProjectSearchEntriesRequest, ProjectSnapshotRequest, ProjectSnapshotResponse,
+        ProjectThreadsRequest, ProjectUpdateRequest, ProjectWriteFileRequest,
+        ThreadMessagesRequest, ThreadMessagesResponse,
     },
     ws::methods,
 };
@@ -24,6 +29,28 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     |service, _request| async move { service.list().await },
                 )
                 .await
+            }
+            methods::PROJECTS_SNAPSHOT => {
+                serde_json::from_value::<ProjectSnapshotRequest>(payload)?;
+                let snapshot = load_default_ace_db()?;
+                Ok(serde_json::to_value(ProjectSnapshotResponse {
+                    projects: snapshot.projects,
+                    threads: snapshot.threads,
+                    thread_counts: snapshot.thread_counts,
+                })?)
+            }
+            methods::PROJECTS_PROJECT_THREADS => {
+                let request = serde_json::from_value::<ProjectThreadsRequest>(payload)?;
+                Ok(serde_json::to_value(load_default_project_threads(
+                    request.project_id,
+                    request.limit,
+                )?)?)
+            }
+            methods::PROJECTS_THREAD_MESSAGES => {
+                let request = serde_json::from_value::<ThreadMessagesRequest>(payload)?;
+                Ok(serde_json::to_value(ThreadMessagesResponse {
+                    messages: load_default_thread_messages(&request.thread_id, request.limit)?,
+                })?)
             }
             methods::PROJECTS_ADD => {
                 self.project_json::<ProjectAddRequest, _, _, _>(
