@@ -1697,8 +1697,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private handleServerRequest(context: CodexSessionContext, request: JsonRpcRequest): void {
     const rawRoute = this.readRouteFields(request.params);
     const childParentTurnId = this.readChildParentTurnId(context, request.params);
-    const isChildConversation =
-      childParentTurnId !== undefined || this.hasChildConversationRoute(context, request.params);
     const effectiveTurnId = rawRoute.turnId;
     const requestKind = this.requestKindForMethod(request.method);
     let requestId: ApprovalRequestId | undefined;

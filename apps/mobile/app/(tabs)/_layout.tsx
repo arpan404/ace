@@ -5,6 +5,24 @@ import { Bell, Bot, FolderTree, Settings2 } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
 
+type TabIconProps = { color: string; size?: number };
+
+function ProjectsTabIcon({ color, size }: TabIconProps) {
+  return <FolderTree size={size ?? 20} color={color} />;
+}
+
+function ThreadsTabIcon({ color, size }: TabIconProps) {
+  return <Bot size={size ?? 20} color={color} />;
+}
+
+function NotificationsTabIcon({ color, size }: TabIconProps) {
+  return <Bell size={size ?? 20} color={color} />;
+}
+
+function SettingsTabIcon({ color, size }: TabIconProps) {
+  return <Settings2 size={size ?? 20} color={color} />;
+}
+
 export default function TabsLayout() {
   const { colors, isDark } = useTheme();
 
@@ -50,28 +68,28 @@ export default function TabsLayout() {
         name="projects"
         options={{
           title: "Projects",
-          tabBarIcon: ({ color, size }) => <FolderTree size={size ?? 20} color={color} />,
+          tabBarIcon: ProjectsTabIcon,
         }}
       />
       <Tabs.Screen
         name="index"
         options={{
           title: "Threads",
-          tabBarIcon: ({ color, size }) => <Bot size={size ?? 20} color={color} />,
+          tabBarIcon: ThreadsTabIcon,
         }}
       />
       <Tabs.Screen
         name="notifications"
         options={{
           title: "Notifications",
-          tabBarIcon: ({ color, size }) => <Bell size={size ?? 20} color={color} />,
+          tabBarIcon: NotificationsTabIcon,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: "Settings",
-          tabBarIcon: ({ color, size }) => <Settings2 size={size ?? 20} color={color} />,
+          tabBarIcon: SettingsTabIcon,
         }}
       />
       <Tabs.Screen

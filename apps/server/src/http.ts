@@ -310,19 +310,6 @@ function resolveAdvertisedRequestUrl(requestUrl: URL): URL {
   return advertised;
 }
 
-function resolvePairingClaimUrl(requestUrl: URL): URL | null {
-  const advertised = resolveAdvertisedRequestUrl(requestUrl);
-  if (isLoopbackHostname(advertised.hostname)) {
-    return null;
-  }
-  return new URL("/api/pairing/claims", advertised);
-}
-
-function resolveSessionPollingUrl(sessionId: string, requestUrl: URL): string {
-  const advertised = resolveAdvertisedRequestUrl(requestUrl);
-  return new URL(`/api/pairing/sessions/${encodeURIComponent(sessionId)}`, advertised).toString();
-}
-
 function parsePairingWsUrl(value: string): URL | null {
   try {
     const parsed = new URL(value);
