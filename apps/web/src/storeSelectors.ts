@@ -3,7 +3,6 @@ import {
   selectProjectById,
   selectSidebarThreadSummariesByProjectId,
   selectSidebarThreadSummaryById,
-  selectThreadIdsByProjectId,
   selectThreadById,
   useStore,
 } from "./store";
@@ -23,11 +22,6 @@ export function useSidebarThreadSummaryById(
   threadId: ThreadId | null | undefined,
 ): SidebarThreadSummary | undefined {
   const selector = selectSidebarThreadSummaryById(threadId);
-  return useStore(selector);
-}
-
-function useThreadIdsByProjectId(projectId: Project["id"] | null | undefined): readonly ThreadId[] {
-  const selector = selectThreadIdsByProjectId(projectId);
   return useStore(selector);
 }
 

@@ -1,11 +1,9 @@
 import { type ProjectId } from "@ace/contracts";
 import { ChevronDownIcon } from "lucide-react";
-import { memo, useMemo } from "react";
 
 import { orderItemsByPreferredIds } from "~/lib/sidebar";
 import { cn } from "~/lib/utils";
 import { useStore } from "~/store";
-import type { Project } from "~/types";
 import { useUiStateStore } from "~/uiStateStore";
 
 import { ProjectAvatar } from "../ProjectAvatar";
@@ -25,8 +23,6 @@ import {
   MenuRadioItem,
   MenuTrigger,
 } from "../ui/menu";
-
-type ProjectContextProject = Pick<Project, "cwd" | "icon" | "id" | "name">;
 
 interface ProjectContextSwitcherProps {
   activeProjectId: ProjectId | null;

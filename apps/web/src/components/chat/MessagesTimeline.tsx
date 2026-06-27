@@ -4,131 +4,57 @@ import {
   type ThreadId,
   type TurnId,
 } from "@ace/contracts";
-import { IconStack2, IconTerminal } from "@tabler/icons-react";
+import { type TimestampFormat } from "@ace/contracts/settings";
 import {
   normalizeProviderSlashCommandName,
   providerSlashCommandExtensionKind,
   type ProviderExtensionCommandKind,
 } from "@ace/shared/providerSlashCommands";
+import { IconStack2, IconTerminal } from "@tabler/icons-react";
 import { type VirtualItem } from "@tanstack/react-virtual";
-import {
-  Fragment,
-  createElement,
-  startTransition,
-  useEffect,
-  useLayoutEffect,
-  useReducer,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ComponentType,
-  type ReactNode,
-} from "react";
-import { estimateTimelineMessageHeight } from "../../lib/chat/timelineHeight";
-import { scrollContainerToBottom } from "../../chat-scroll";
-import {
-  COMPOSER_INLINE_CHIP_CLASS_NAME,
-  COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
-  COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME,
-} from "~/lib/composer/inlineChip";
-import { formatCommandDisplayLabel } from "~/lib/commandDisplay";
-import {
-  getChatMessageRenderableText,
-  resolveAssistantMessageRenderHint,
-} from "../../lib/chat/messageText";
-import { buildMarkdownRenderAnalysisCacheKey } from "../../lib/chat/markdownRenderAnalysis";
-import { prewarmMarkdownRenderAnalysis } from "../../lib/chat/markdownRenderAnalysisClient";
-import {
-  prefetchThreadTimelineRows,
-  readTimelineModelRowHeight,
-  useTimelineModelStore,
-  writeTimelineModelRowHeight,
-} from "../../lib/chat/timelineModelStore";
-import { type TurnDiffSummary } from "../../types";
-import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
-import ChatMarkdown from "../ChatMarkdown";
-import { useReactCompilerSafeVirtualizer } from "~/hooks/useReactCompilerSafeVirtualizer";
-import { useEffectEvent } from "~/hooks/useEffectEvent";
-import { useStableCallback } from "~/hooks/useStableCallback";
 import {
   ArrowLeftRightIcon,
   BrainIcon,
   CheckIcon,
-  CircleAlertIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ChevronsDownUpIcon,
   ChevronsUpDownIcon,
+  CircleAlertIcon,
   Clock3Icon,
   EyeIcon,
   FileDiffIcon,
   GlobeIcon,
   HammerIcon,
   PinIcon,
-  SplitIcon,
-  type LucideIcon,
   PlugIcon,
+  SplitIcon,
   SquarePenIcon,
   TargetIcon,
   Undo2Icon,
   WrenchIcon,
   ZapIcon,
+  type LucideIcon,
 } from "lucide-react";
-import { Button } from "../ui/button";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
-import { ProposedPlanCard } from "./ProposedPlanCard";
-import { ChangedFilesTree } from "./ChangedFilesTree";
-import { DiffStatLabel } from "./DiffStatLabel";
-import { hasNonZeroStat } from "./diffStat";
-import { MessageCopyButton } from "./MessageCopyButton";
 import {
-  EMPTY_PINNED_MESSAGES,
-  getPinnedMessageId,
-  PINNED_MESSAGES_STORAGE_KEY,
-  PinnedMessagesSchema,
-  removePinnedMessage,
-  upsertPinnedMessage,
-  upsertPinnedSelectionMessage,
-  type PinnedMessages,
-} from "./pinnedMessagesStore";
-import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
-import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
-import { VscodeEntryIcon } from "./VscodeEntryIcon";
+  createElement,
+  Fragment,
+  startTransition,
+  useEffect,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+  type ComponentType,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
-import {
-  deriveDisplayedUserMessageState,
-  type ParsedTerminalContextEntry,
-} from "~/lib/terminalContext";
+import { useReactCompilerSafeVirtualizer } from "~/hooks/useReactCompilerSafeVirtualizer";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { APP_USER_BUBBLE_CLASS_NAME, APP_WORKSPACE_INSET_CLASS_NAME } from "~/lib/appChrome";
-import { cn } from "~/lib/utils";
-import { type TimestampFormat } from "@ace/contracts/settings";
-import { formatTimestamp } from "../../timestampFormat";
-import { basenameOfPath, inferEntryKindFromPath } from "../../vscode-icons";
-import {
-  buildInlineTerminalContextText,
-  formatInlineTerminalContextLabel,
-  findTextIndexOf,
-  textContainsInlineTerminalContextLabels,
-} from "~/lib/chat/userMessageTerminalContexts";
-import {
-  isCompletedAssistantMessageRow,
-  isEventInActiveTurn,
-  type AssistantTimelineMessage,
-  type TimelineCompletedWorkDiagnosticRow,
-  type SystemTimelineMessage,
-  type TimelineCompletedWorkDetailRow,
-  type TimelineMetaTone,
-  type TimelineMetaGroupEntry,
-  type TimelineMessage,
-  type TimelineProposedPlan,
-  type TimelineRow,
-  type TimelineWorkEntry,
-  type TimelineWorkGroupIconKey,
-  type TimelineWorkGroupSummaryProjection,
-  type TimelineWorkLogRow,
-  type UserTimelineMessage,
-} from "~/lib/chat/timelineRows";
+import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
 import {
   commandOutputDisclosureKey,
   completedWorkDetailGroupDisclosureKey,
@@ -140,8 +66,72 @@ import {
   type TimelineDisclosureExpansionState,
   type TimelineDisclosureKey,
 } from "~/lib/chat/timelineDisclosureState";
+import {
+  isCompletedAssistantMessageRow,
+  isEventInActiveTurn,
+  type AssistantTimelineMessage,
+  type SystemTimelineMessage,
+  type TimelineCompletedWorkDetailRow,
+  type TimelineCompletedWorkDiagnosticRow,
+  type TimelineMessage,
+  type TimelineMetaGroupEntry,
+  type TimelineMetaTone,
+  type TimelineProposedPlan,
+  type TimelineRow,
+  type TimelineWorkEntry,
+  type TimelineWorkGroupIconKey,
+  type TimelineWorkGroupSummaryProjection,
+  type TimelineWorkLogRow,
+  type UserTimelineMessage,
+} from "~/lib/chat/timelineRows";
+import {
+  buildInlineTerminalContextText,
+  findTextIndexOf,
+  formatInlineTerminalContextLabel,
+  textContainsInlineTerminalContextLabels,
+} from "~/lib/chat/userMessageTerminalContexts";
+import { formatCommandDisplayLabel } from "~/lib/commandDisplay";
+import {
+  COMPOSER_INLINE_CHIP_CLASS_NAME,
+  COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
+  COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME,
+} from "~/lib/composer/inlineChip";
 import type { StuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
+import {
+  deriveDisplayedUserMessageState,
+  type ParsedTerminalContextEntry,
+} from "~/lib/terminalContext";
+import { cn } from "~/lib/utils";
+import { scrollContainerToBottom } from "../../chat-scroll";
+import { buildMarkdownRenderAnalysisCacheKey } from "../../lib/chat/markdownRenderAnalysis";
+import { prewarmMarkdownRenderAnalysis } from "../../lib/chat/markdownRenderAnalysisClient";
+import {
+  getChatMessageRenderableText,
+  resolveAssistantMessageRenderHint,
+} from "../../lib/chat/messageText";
+import { estimateTimelineMessageHeight } from "../../lib/chat/timelineHeight";
+import {
+  prefetchThreadTimelineRows,
+  readTimelineModelRowHeight,
+  useTimelineModelStore,
+  writeTimelineModelRowHeight,
+} from "../../lib/chat/timelineModelStore";
+import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
+import { formatTimestamp } from "../../timestampFormat";
+import { type TurnDiffSummary } from "../../types";
+import { basenameOfPath, inferEntryKindFromPath } from "../../vscode-icons";
+import ChatMarkdown from "../ChatMarkdown";
+import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { ChangedFilesTree } from "./ChangedFilesTree";
+import { DiffStatLabel } from "./DiffStatLabel";
+import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
+import { MessageCopyButton } from "./MessageCopyButton";
+import { ProposedPlanCard } from "./ProposedPlanCard";
+import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { TimelineViewport } from "./TimelineViewport";
+import { VscodeEntryIcon } from "./VscodeEntryIcon";
+import { hasNonZeroStat } from "./diffStat";
 import {
   ASSISTANT_MARKDOWN_PENDING_LOOKBACK_ROWS,
   buildAssistantMarkdownAnalysisPrewarmJobs,
@@ -157,17 +147,22 @@ import {
   TIMELINE_BASE_PREFETCH_EDGE_ROWS,
   TIMELINE_VIRTUALIZER_OVERSCAN,
 } from "./messagesTimelineUtils";
+import {
+  EMPTY_PINNED_MESSAGES,
+  getPinnedMessageId,
+  PINNED_MESSAGES_STORAGE_KEY,
+  PinnedMessagesSchema,
+  removePinnedMessage,
+  upsertPinnedMessage,
+  upsertPinnedSelectionMessage,
+  type PinnedMessages,
+} from "./pinnedMessagesStore";
 
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
 const ASSISTANT_MARKDOWN_PENDING_MESSAGE_LIMIT = 64;
 const MAX_RENDERED_ASSISTANT_MARKDOWN_MESSAGE_IDS = 512;
 const DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED = false;
-const EMPTY_ASSISTANT_MARKDOWN_MESSAGE_IDS: string[] = [];
-const EMPTY_ASSISTANT_MARKDOWN_PREWARM_ROWS: TimelineRow[] = [];
-const EMPTY_ASSISTANT_MARKDOWN_ANALYSIS_PREWARM_JOBS: ReturnType<
-  typeof buildAssistantMarkdownAnalysisPrewarmJobs
-> = [];
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
@@ -711,14 +706,11 @@ export function MessagesTimeline({
   backgroundMarkdownPrewarm = true,
   getScrollContainer,
   onStreamingLayoutChange = null,
-  hideCompletedWorkMessages = false,
   liveTimers = true,
   timelineCacheScope = null,
   rows,
   timelineRowsLoading = false,
   timelineIndexByEntryId = null,
-  completionDividerBeforeEntryId,
-  completionSummary,
   turnDiffSummaryByAssistantMessageId,
   expandedWorkGroups,
   onToggleWorkGroup,
@@ -737,7 +729,6 @@ export function MessagesTimeline({
   providerCommands = EMPTY_PROVIDER_COMMANDS,
   onForkConversation = null,
   isForkConversationDisabled = false,
-  enableGoalWorkingState = false,
   resolvedTheme,
   timestampFormat,
   workspaceRoot,

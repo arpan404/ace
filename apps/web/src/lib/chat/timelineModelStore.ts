@@ -126,7 +126,7 @@ export interface TimelineRowsWindowProjection {
   readonly slots: readonly TimelineRowsWindowSlot[];
 }
 
-interface PrimeLiveTimelineRowInput {
+export interface PrimeLiveTimelineRowInput {
   readonly threadId: ThreadId;
   readonly updatedAt: string;
   readonly entry: {
@@ -145,7 +145,7 @@ interface PrimeLiveTimelineRowOptions {
   readonly flush?: "frame" | "sync";
 }
 
-interface RemoveLiveTimelineRowInput {
+export interface RemoveLiveTimelineRowInput {
   readonly threadId: ThreadId;
   readonly kind: TimelineSourceKind;
   readonly id: string;
@@ -873,15 +873,20 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
       };
     }),
   primeMetadata: (metadata) =>
-    set((state) => ({
-      ...state,
-      metadataByThreadId: {
-        ...state.metadataByThreadId,
-        [metadata.threadId]: metadata,
-      },
-      revisionByThreadId: bumpThreadRevision(state, metadata.threadId),
-      revision: state.revision + 1,
-    })),
+    set((state) => {
+      if (timelineRowsMetadataEquals(state.metadataByThreadId[metadata.threadId], metadata)) {
+        return state;
+      }
+      return {
+        ...state,
+        metadataByThreadId: {
+          ...state.metadataByThreadId,
+          [metadata.threadId]: metadata,
+        },
+        revisionByThreadId: bumpThreadRevision(state, metadata.threadId),
+        revision: state.revision + 1,
+      };
+    }),
   primeSnapshot: (snapshot) => set((state) => primeTimelineRowsSnapshotIntoState(state, snapshot)),
   patchRow: (threadId, row) =>
     set((state) => {
@@ -1534,6 +1539,13 @@ export function readTimelineRowsWindowProjection(input: {
     endRowIndexExclusive,
     slots,
   };
+}
+
+export function applyLiveTimelineRowUpdates(input: {
+  readonly patches?: readonly PrimeLiveTimelineRowInput[];
+  readonly removals?: readonly RemoveLiveTimelineRowInput[];
+}): void {
+  applyLiveTimelineRowQueue({ removals: input.removals ?? [], patches: input.patches ?? [] });
 }
 
 export function primeLiveTimelineRow(

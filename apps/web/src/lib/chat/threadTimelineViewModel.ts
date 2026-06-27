@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { MessageId, type ThreadId } from "@ace/contracts";
+import { useShallow } from "zustand/react/shallow";
 
 import { deriveTimelineEntries } from "../../session-logic";
 import type { WorkLogEntry } from "../../session-logic/types";
@@ -88,17 +89,13 @@ export function useThreadTimelineViewModel(
   input: UseThreadTimelineViewModelInput,
 ): ThreadTimelineViewModel {
   const threadId = input.enabled ? (input.threadId ?? null) : null;
-  const rowIds = useTimelineModelStore((store) =>
-    threadId ? (store.rowIdsByThreadId[threadId] ?? EMPTY_ROW_IDS) : EMPTY_ROW_IDS,
-  );
-  const revision = useTimelineModelStore((store) =>
-    threadId ? (store.revisionByThreadId[threadId] ?? 0) : 0,
-  );
-  const completeSnapshot = useTimelineModelStore((store) =>
-    threadId ? (store.completeSnapshotByThreadId[threadId] ?? null) : null,
-  );
-  const fetchState = useTimelineModelStore((store) =>
-    threadId ? (store.fetchStateByThreadId[threadId] ?? null) : null,
+  const { rowIds, revision, completeSnapshot, fetchState } = useTimelineModelStore(
+    useShallow((store) => ({
+      rowIds: threadId ? (store.rowIdsByThreadId[threadId] ?? EMPTY_ROW_IDS) : EMPTY_ROW_IDS,
+      revision: threadId ? (store.revisionByThreadId[threadId] ?? 0) : 0,
+      completeSnapshot: threadId ? (store.completeSnapshotByThreadId[threadId] ?? null) : null,
+      fetchState: threadId ? (store.fetchStateByThreadId[threadId] ?? null) : null,
+    })),
   );
 
   const projection = useMemo(() => {

@@ -132,6 +132,30 @@ describe("timelineModelStore", () => {
     }
   });
 
+  it("does not notify subscribers for unchanged timeline metadata", () => {
+    const metadata = {
+      threadId,
+      revision: "rev:metadata",
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      totalRows: 10_000,
+      tailStartRowIndex: 9_900,
+    };
+
+    useTimelineModelStore.getState().primeMetadata(metadata);
+    const stateAfterFirstWrite = useTimelineModelStore.getState();
+    const listener = vi.fn();
+    const unsubscribe = useTimelineModelStore.subscribe(listener);
+
+    try {
+      useTimelineModelStore.getState().primeMetadata({ ...metadata });
+
+      expect(useTimelineModelStore.getState()).toBe(stateAfterFirstWrite);
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("primes local snapshot metadata without deriving timeline rows", () => {
     useTimelineModelStore.getState().primeMetadata({
       threadId,

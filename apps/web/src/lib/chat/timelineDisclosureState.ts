@@ -134,9 +134,7 @@ function collectCompletedWorkDetailRowDisclosureKeys(
   collectWorkLogRowDisclosureKeys(keys, row);
 }
 
-export function collectTimelineRowDisclosureKeys(
-  row: TimelineRow,
-): ReadonlySet<TimelineDisclosureKey> {
+function collectTimelineRowDisclosureKeys(row: TimelineRow): ReadonlySet<TimelineDisclosureKey> {
   const keys = new Set<TimelineDisclosureKey>();
   if (row.kind === "completed-work-summary") {
     keys.add(completedWorkSummaryDisclosureKey(row.id));

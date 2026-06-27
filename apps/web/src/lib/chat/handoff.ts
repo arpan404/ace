@@ -127,6 +127,7 @@ export type HandoffTimelineResult = {
 export function buildHandoffTimeline(input: {
   readonly activeThread: Thread;
   readonly activeThreadMessages: ReadonlyArray<ChatMessage>;
+  readonly activeThreadProposedPlans?: ReadonlyArray<ProposedPlan>;
   readonly activeThreadWorkEntries: ReadonlyArray<WorkLogEntry>;
   readonly handoffLineage?: HandoffLineageResult | null | undefined;
   readonly activityVisibility?: ActivityVisibilitySettings | undefined;
@@ -135,6 +136,8 @@ export function buildHandoffTimeline(input: {
   const proposedPlans: ProposedPlan[] = [];
   const workEntries: WorkLogEntry[] = [];
   const historicalMessageIds = new Set<MessageId>();
+  const activeThreadProposedPlans =
+    input.activeThreadProposedPlans ?? input.activeThread.proposedPlans;
 
   if (!input.handoffLineage || input.handoffLineage.hasCycle) {
     if (input.handoffLineage?.hasCycle) {
@@ -150,7 +153,7 @@ export function buildHandoffTimeline(input: {
       });
     }
     messages.push(...input.activeThreadMessages);
-    proposedPlans.push(...input.activeThread.proposedPlans);
+    proposedPlans.push(...activeThreadProposedPlans);
     workEntries.push(...input.activeThreadWorkEntries);
     return { messages, proposedPlans, workEntries, historicalMessageIds };
   }
@@ -175,7 +178,7 @@ export function buildHandoffTimeline(input: {
         historicalMessageIds.add(message.id);
       }
     }
-    proposedPlans.push(...thread.proposedPlans);
+    proposedPlans.push(...(isActive ? activeThreadProposedPlans : thread.proposedPlans));
     const threadWorkEntries = isActive
       ? input.activeThreadWorkEntries
       : deriveWorkLogEntries(
