@@ -3,7 +3,6 @@
 import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
 import { ChevronsUpDownIcon, XIcon } from "lucide-react";
 
-import { GLASS_SURFACE_CLASS_NAME } from "~/components/ui/glass";
 import { cn } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -76,53 +75,6 @@ function AutocompleteInput({
   );
 }
 
-function AutocompletePopup({
-  className,
-  children,
-  side = "bottom",
-  sideOffset = 4,
-  alignOffset,
-  align = "start",
-  anchor,
-  ...props
-}: AutocompletePrimitive.Popup.Props & {
-  align?: AutocompletePrimitive.Positioner.Props["align"];
-  sideOffset?: AutocompletePrimitive.Positioner.Props["sideOffset"];
-  alignOffset?: AutocompletePrimitive.Positioner.Props["alignOffset"];
-  side?: AutocompletePrimitive.Positioner.Props["side"];
-  anchor?: AutocompletePrimitive.Positioner.Props["anchor"];
-}) {
-  return (
-    <AutocompletePrimitive.Portal>
-      <AutocompletePrimitive.Positioner
-        align={align}
-        alignOffset={alignOffset}
-        anchor={anchor}
-        className="z-50 select-none"
-        data-slot="autocomplete-positioner"
-        side={side}
-        sideOffset={sideOffset}
-      >
-        <span
-          className={cn(
-            "relative flex max-h-full min-w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) rounded-[var(--panel-radius)] transition-[scale,opacity]",
-            GLASS_SURFACE_CLASS_NAME,
-            className,
-          )}
-        >
-          <AutocompletePrimitive.Popup
-            className="flex max-h-[min(var(--available-height),23rem)] flex-1 flex-col text-foreground"
-            data-slot="autocomplete-popup"
-            {...props}
-          >
-            {children}
-          </AutocompletePrimitive.Popup>
-        </span>
-      </AutocompletePrimitive.Positioner>
-    </AutocompletePrimitive.Portal>
-  );
-}
-
 function AutocompleteItem({ className, children, ...props }: AutocompletePrimitive.Item.Props) {
   return (
     <AutocompletePrimitive.Item
@@ -181,16 +133,6 @@ function AutocompleteEmpty({ className, ...props }: AutocompletePrimitive.Empty.
   );
 }
 
-function AutocompleteRow({ className, ...props }: AutocompletePrimitive.Row.Props) {
-  return (
-    <AutocompletePrimitive.Row className={className} data-slot="autocomplete-row" {...props} />
-  );
-}
-
-function AutocompleteValue({ ...props }: AutocompletePrimitive.Value.Props) {
-  return <AutocompletePrimitive.Value data-slot="autocomplete-value" {...props} />;
-}
-
 function AutocompleteList({ className, ...props }: AutocompletePrimitive.List.Props) {
   return (
     <ScrollArea scrollbarGutter scrollFade>
@@ -218,19 +160,6 @@ function AutocompleteClear({ className, ...props }: AutocompletePrimitive.Clear.
   );
 }
 
-function AutocompleteStatus({ className, ...props }: AutocompletePrimitive.Status.Props) {
-  return (
-    <AutocompletePrimitive.Status
-      className={cn(
-        "px-3 py-2 font-medium text-muted-foreground text-xs empty:m-0 empty:p-0",
-        className,
-      )}
-      data-slot="autocomplete-status"
-      {...props}
-    />
-  );
-}
-
 function AutocompleteCollection({ ...props }: AutocompletePrimitive.Collection.Props) {
   return <AutocompletePrimitive.Collection data-slot="autocomplete-collection" {...props} />;
 }
@@ -250,8 +179,6 @@ function AutocompleteTrigger({
     </AutocompletePrimitive.Trigger>
   );
 }
-
-const useAutocompleteFilter = AutocompletePrimitive.useFilter;
 
 export {
   Autocomplete,

@@ -176,7 +176,6 @@ interface PendingElementCommentWheel {
   deltaY: number;
 }
 
-const MIN_CAPTURE_SIZE_PX = 24;
 const MIN_ELEMENT_CAPTURE_SIZE_PX = 8;
 const DESIGN_REQUEST_PANEL_WIDTH_PX = 360;
 const DESIGN_REQUEST_PANEL_HEIGHT_PX = 56;

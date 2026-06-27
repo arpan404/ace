@@ -1,4 +1,4 @@
-import { ThreadId } from "@ace/contracts";
+import { type ThreadId } from "@ace/contracts";
 
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "./connectionRouting";
 import { normalizeWsUrl, resolveLocalDeviceWsUrl } from "./remoteHosts";
@@ -35,48 +35,6 @@ function encodeThreadBoardRoutePane(input: ChatThreadBoardRoutePane): string {
     return input.threadId;
   }
   return `${input.threadId}${THREAD_BOARD_CONNECTION_SEPARATOR}${connectionUrl}`;
-}
-
-function decodeThreadBoardRoutePane(value: string): ChatThreadBoardRoutePane | null {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const [threadIdRaw, ...connectionParts] = trimmed.split(THREAD_BOARD_CONNECTION_SEPARATOR);
-  const threadId = threadIdRaw?.trim();
-  if (!threadId) {
-    return null;
-  }
-  const connectionRaw = connectionParts.join(THREAD_BOARD_CONNECTION_SEPARATOR).trim();
-  try {
-    return {
-      connectionUrl: normalizeRouteConnectionUrl(connectionRaw),
-      threadId: ThreadId.makeUnsafe(threadId),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function parseThreadBoardRoutePanes(value: string | undefined): ChatThreadBoardRoutePane[] {
-  if (!value) {
-    return [];
-  }
-  const panes: ChatThreadBoardRoutePane[] = [];
-  const seen = new Set<string>();
-  for (const token of value.split(THREAD_BOARD_PANE_SEPARATOR)) {
-    const pane = decodeThreadBoardRoutePane(token);
-    if (!pane) {
-      continue;
-    }
-    const key = encodeThreadBoardRoutePane(pane);
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    panes.push(pane);
-  }
-  return panes;
 }
 
 function serializeThreadBoardRoutePanes(

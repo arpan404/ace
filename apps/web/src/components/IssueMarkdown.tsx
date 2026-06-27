@@ -1,6 +1,6 @@
 "use client";
 
-import type { ImgHTMLAttributes } from "react";
+import { createContext, type ImgHTMLAttributes, use } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkBreaks from "remark-breaks";
@@ -11,6 +11,15 @@ import { cn } from "~/lib/utils";
 
 const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 const REHYPE_PLUGINS = [rehypeRaw];
+const IssueMarkdownCwdContext = createContext<string | null>(null);
+const ISSUE_MARKDOWN_COMPONENTS = {
+  img: IssueMarkdownImage,
+};
+
+function IssueMarkdownImage(props: ImgHTMLAttributes<HTMLImageElement>) {
+  const cwd = use(IssueMarkdownCwdContext);
+  return <IssueImage {...props} cwd={cwd} />;
+}
 
 /**
  * Regex to match GitHub-specific `<img>` HTML tags in issue/comment bodies.
@@ -54,11 +63,6 @@ interface IssueMarkdownProps {
 
 function IssueMarkdownInner({ text, className, cwd }: IssueMarkdownProps) {
   const normalized = normalizeGitHubIssueMarkdown(text);
-  const components = {
-    img: (props: ImgHTMLAttributes<HTMLImageElement>) => (
-      <IssueImage {...props} cwd={cwd ?? null} />
-    ),
-  };
 
   return (
     <div
@@ -80,13 +84,15 @@ function IssueMarkdownInner({ text, className, cwd }: IssueMarkdownProps) {
         className,
       )}
     >
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={REHYPE_PLUGINS}
-        components={components}
-      >
-        {normalized}
-      </ReactMarkdown>
+      <IssueMarkdownCwdContext value={cwd ?? null}>
+        <ReactMarkdown
+          remarkPlugins={REMARK_PLUGINS}
+          rehypePlugins={REHYPE_PLUGINS}
+          components={ISSUE_MARKDOWN_COMPONENTS}
+        >
+          {normalized}
+        </ReactMarkdown>
+      </IssueMarkdownCwdContext>
     </div>
   );
 }

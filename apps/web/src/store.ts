@@ -42,12 +42,12 @@ import {
 import { resolveAttachmentPreviewUrl } from "./lib/chat/attachmentPreviewUrls";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import {
-  batchLiveTimelineRowUpdates,
-  primeLiveTimelineRow,
+  applyLiveTimelineRowUpdates,
   primeThreadTimelineRowsMetadataFromReadModelThread,
   primeThreadTimelineRowsMetadataFromReadModelThreads,
-  removeLiveTimelineRows,
   useTimelineModelStore,
+  type PrimeLiveTimelineRowInput,
+  type RemoveLiveTimelineRowInput,
 } from "./lib/chat/timelineModelStore";
 import { resolveConnectionForThreadId } from "./lib/connectionRouting";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
@@ -89,6 +89,46 @@ const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
+
+let pendingTimelineMutations: {
+  patches: PrimeLiveTimelineRowInput[];
+  removals: RemoveLiveTimelineRowInput[];
+} | null = null;
+
+function recordLiveTimelineRowPatch(input: PrimeLiveTimelineRowInput): void {
+  if (pendingTimelineMutations) {
+    pendingTimelineMutations.patches.push(input);
+    return;
+  }
+  applyLiveTimelineRowUpdates({ patches: [input] });
+}
+
+function recordLiveTimelineRowRemovals(inputs: readonly RemoveLiveTimelineRowInput[]): void {
+  if (inputs.length === 0) {
+    return;
+  }
+  if (pendingTimelineMutations) {
+    pendingTimelineMutations.removals.push(...inputs);
+    return;
+  }
+  applyLiveTimelineRowUpdates({ removals: inputs });
+}
+
+function withTimelineMutationBatch<TResult>(callback: () => TResult): TResult {
+  if (pendingTimelineMutations) {
+    return callback();
+  }
+  pendingTimelineMutations = { patches: [], removals: [] };
+  try {
+    return callback();
+  } finally {
+    const mutations = pendingTimelineMutations;
+    pendingTimelineMutations = null;
+    if (mutations && (mutations.patches.length > 0 || mutations.removals.length > 0)) {
+      applyLiveTimelineRowUpdates(mutations);
+    }
+  }
+}
 const EMPTY_SIDEBAR_THREAD_SUMMARIES: SidebarThreadSummary[] = [];
 const SIDEBAR_SUMMARY_TIMESTAMP_GRANULARITY_MS = 1_000;
 const threadLookupCache = new WeakMap<ReadonlyArray<Thread>, Map<ThreadId, Thread>>();
@@ -1671,21 +1711,18 @@ function primeThreadActivityTimelineRow(input: {
   readonly activity: Thread["activities"][number];
   readonly updatedAt: string;
 }): void {
-  primeLiveTimelineRow(
-    {
-      threadId: input.threadId,
-      updatedAt: input.updatedAt,
-      entry: {
-        kind: "activity",
-        id: input.activity.id,
-        createdAt: input.activity.createdAt,
-        turnId: input.activity.turnId,
-        ...(input.activity.sequence !== undefined ? { sequence: input.activity.sequence } : {}),
-      },
-      activity: input.activity,
+  recordLiveTimelineRowPatch({
+    threadId: input.threadId,
+    updatedAt: input.updatedAt,
+    entry: {
+      kind: "activity",
+      id: input.activity.id,
+      createdAt: input.activity.createdAt,
+      turnId: input.activity.turnId,
+      ...(input.activity.sequence !== undefined ? { sequence: input.activity.sequence } : {}),
     },
-    { flush: "sync" },
-  );
+    activity: input.activity,
+  });
 }
 
 function applyThreadActivityBatch(
@@ -1723,7 +1760,7 @@ function compactSettledTurnActivities(thread: Thread, turnId: string, updatedAt:
   const retainedActivityIds = new Set(
     compactedSettledActivities.map((activity) => String(activity.id)),
   );
-  removeLiveTimelineRows(
+  recordLiveTimelineRowRemovals(
     [...originalActivityIds].flatMap((activityId) =>
       retainedActivityIds.has(activityId)
         ? []
@@ -1735,7 +1772,6 @@ function compactSettledTurnActivities(thread: Thread, turnId: string, updatedAt:
             },
           ],
     ),
-    { flush: "sync" },
   );
 
   const compactedById = new Map(
@@ -2053,21 +2089,18 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         createdAt: event.payload.createdAt,
         updatedAt: event.payload.updatedAt,
       } satisfies OrchestrationMessage;
-      primeLiveTimelineRow(
-        {
-          threadId: event.payload.threadId,
-          updatedAt: event.occurredAt,
-          entry: {
-            kind: "message",
-            id: event.payload.messageId,
-            createdAt: event.payload.createdAt,
-            turnId: event.payload.turnId,
-            sequence: event.payload.sequence ?? event.sequence,
-          },
-          message: mapOrchestrationMessageForClient(orchestrationMessage, connectionUrl),
+      recordLiveTimelineRowPatch({
+        threadId: event.payload.threadId,
+        updatedAt: event.occurredAt,
+        entry: {
+          kind: "message",
+          id: event.payload.messageId,
+          createdAt: event.payload.createdAt,
+          turnId: event.payload.turnId,
+          sequence: event.payload.sequence ?? event.sequence,
         },
-        { flush: "sync" },
-      );
+        message: mapOrchestrationMessageForClient(orchestrationMessage, connectionUrl),
+      });
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const message = mapTimelineMessage(orchestrationMessage, connectionUrl);
         const existingMessageIndex = thread.messages.findIndex((entry) => entry.id === message.id);
@@ -2211,20 +2244,17 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.proposed-plan-upserted": {
-      primeLiveTimelineRow(
-        {
-          threadId: event.payload.threadId,
-          updatedAt: event.occurredAt,
-          entry: {
-            kind: "proposed-plan",
-            id: event.payload.proposedPlan.id,
-            createdAt: event.payload.proposedPlan.createdAt,
-            turnId: event.payload.proposedPlan.turnId,
-          },
-          proposedPlan: event.payload.proposedPlan,
+      recordLiveTimelineRowPatch({
+        threadId: event.payload.threadId,
+        updatedAt: event.occurredAt,
+        entry: {
+          kind: "proposed-plan",
+          id: event.payload.proposedPlan.id,
+          createdAt: event.payload.proposedPlan.createdAt,
+          turnId: event.payload.proposedPlan.turnId,
         },
-        { flush: "sync" },
-      );
+        proposedPlan: event.payload.proposedPlan,
+      });
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const proposedPlan = mapProposedPlan(event.payload.proposedPlan);
         const proposedPlans =
@@ -2781,13 +2811,15 @@ export function hydrateThreadFromReadModel(
 }
 
 export function applyOrchestrationEvent(state: AppState, event: OrchestrationEvent): AppState {
-  const projectState = applyProjectEvent(state, event);
-  if (projectState !== null) {
-    return projectState;
-  }
+  return withTimelineMutationBatch(() => {
+    const projectState = applyProjectEvent(state, event);
+    if (projectState !== null) {
+      return projectState;
+    }
 
-  const threadState = applyThreadEvent(state, event);
-  return threadState ?? state;
+    const threadState = applyThreadEvent(state, event);
+    return threadState ?? state;
+  });
 }
 
 export function applyOrchestrationEvents(
@@ -2798,7 +2830,7 @@ export function applyOrchestrationEvents(
     return state;
   }
 
-  return batchLiveTimelineRowUpdates(() => {
+  return withTimelineMutationBatch(() => {
     let nextState = state;
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index];

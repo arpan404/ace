@@ -1,6 +1,5 @@
 import { DEFAULT_RUNTIME_MODE, type ProjectId, ThreadId } from "@ace/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   type DraftThreadEnvMode,

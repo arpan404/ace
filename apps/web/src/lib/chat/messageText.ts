@@ -187,12 +187,6 @@ export function getChatMessageRenderableText(
   return stripPlanMarkers(message.text);
 }
 
-function getChatMessageTextLength(
-  message: Pick<ChatMessage, "text" | "streamingTextState">,
-): number {
-  return message.streamingTextState?.totalLength ?? message.text.length;
-}
-
 export function getChatMessageFullText(
   message: Pick<ChatMessage, "text" | "streamingTextState">,
 ): string {

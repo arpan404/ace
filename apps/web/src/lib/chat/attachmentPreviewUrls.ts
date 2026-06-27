@@ -1,6 +1,6 @@
 import { resolveServerUrl } from "../utils";
 
-export function attachmentPreviewRoutePath(attachmentId: string): string {
+function attachmentPreviewRoutePath(attachmentId: string): string {
   return `/attachments/${encodeURIComponent(attachmentId)}`;
 }
 

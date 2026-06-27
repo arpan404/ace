@@ -4,7 +4,6 @@ import {
   buildTerminalContextBlock,
   formatInlineTerminalContextLabel,
   formatTerminalContextLabel,
-  formatTerminalContextRange,
   hasTerminalContextText,
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   materializeInlineTerminalContextPrompt,

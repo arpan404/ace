@@ -1,5 +1,5 @@
 import { type VirtualItem } from "@tanstack/react-virtual";
-import { memo, type CSSProperties, type ReactNode } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 
 import type { TimelineRow } from "~/lib/chat/timelineRows";
 

@@ -3,7 +3,7 @@ import {
   type KeybindingShortcut,
   type StaticKeybindingCommand,
 } from "@ace/contracts";
-import { formatShortcutLabel, type ShortcutMatchContext } from "~/keybindings";
+import { type ShortcutMatchContext } from "~/keybindings";
 
 type KeybindingCategory =
   | "Sidebar"
@@ -551,11 +551,3 @@ export const KEYBINDING_COMMAND_DEFINITIONS: readonly KeybindingCommandDefinitio
   }
   return definitions;
 })();
-
-function defaultShortcutLabelForCommand(
-  command: StaticKeybindingCommand,
-  platform?: string,
-): string | null {
-  const shortcut = KEYBINDING_DEFINITION_BY_COMMAND[command].defaultShortcut;
-  return shortcut ? formatShortcutLabel(shortcut, platform) : null;
-}

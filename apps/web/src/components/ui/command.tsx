@@ -6,31 +6,19 @@ import type * as React from "react";
 import { cn } from "~/lib/utils";
 import {
   Autocomplete,
-  AutocompleteCollection,
   AutocompleteEmpty,
   AutocompleteGroup,
   AutocompleteGroupLabel,
   AutocompleteInput,
   AutocompleteItem,
   AutocompleteList,
-  AutocompleteSeparator,
 } from "~/components/ui/autocomplete";
-import {
-  GLASS_BACKDROP_CLASS_NAME,
-  GLASS_FOOTER_CLASS_NAME,
-  GLASS_SURFACE_CLASS_NAME,
-} from "~/components/ui/glass";
+import { GLASS_BACKDROP_CLASS_NAME, GLASS_SURFACE_CLASS_NAME } from "~/components/ui/glass";
 import { MODAL_LAYER_CLASS_NAME } from "~/components/ui/layers";
 
 const CommandDialog = CommandDialogPrimitive.Root;
 
 const CommandDialogPortal = CommandDialogPrimitive.Portal;
-
-const CommandCreateHandle = CommandDialogPrimitive.createHandle;
-
-function CommandDialogTrigger(props: CommandDialogPrimitive.Trigger.Props) {
-  return <CommandDialogPrimitive.Trigger data-slot="command-dialog-trigger" {...props} />;
-}
 
 function CommandDialogBackdrop({ className, ...props }: CommandDialogPrimitive.Backdrop.Props) {
   return (
@@ -164,26 +152,9 @@ function CommandGroupLabel({
   );
 }
 
-function CommandCollection({ ...props }: React.ComponentProps<typeof AutocompleteCollection>) {
-  return <AutocompleteCollection data-slot="command-collection" {...props} />;
-}
-
 function CommandItem({ className, ...props }: React.ComponentProps<typeof AutocompleteItem>) {
   return (
     <AutocompleteItem className={cn("py-1.5", className)} data-slot="command-item" {...props} />
-  );
-}
-
-function CommandSeparator({
-  className,
-  ...props
-}: React.ComponentProps<typeof AutocompleteSeparator>) {
-  return (
-    <AutocompleteSeparator
-      className={cn("my-2", className)}
-      data-slot="command-separator"
-      {...props}
-    />
   );
 }
 
@@ -195,20 +166,6 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<"kbd">) {
         className,
       )}
       data-slot="command-shortcut"
-      {...props}
-    />
-  );
-}
-
-function CommandFooter({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      className={cn(
-        "flex items-center justify-between gap-2 rounded-b-[calc(var(--panel-radius)-1px)] px-4 py-2.5 text-muted-foreground text-xs sm:px-5 sm:py-3",
-        GLASS_FOOTER_CLASS_NAME,
-        className,
-      )}
-      data-slot="command-footer"
       {...props}
     />
   );

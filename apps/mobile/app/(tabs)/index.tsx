@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bot, LoaderCircle } from "lucide-react-native";
+import { LoaderCircle } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { Layout, Radius, withAlpha } from "../../src/design/system";
 import {

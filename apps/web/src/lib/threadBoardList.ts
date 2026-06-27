@@ -1,5 +1,3 @@
-import type { ThreadId } from "@ace/contracts";
-
 import {
   orderBoardPanes,
   type ChatThreadBoardLayoutNode,
@@ -145,11 +143,4 @@ export function buildSidebarBoardListItem(input: {
     threadCountLabel: formatThreadCountLabel(orderedPanes.length),
     threadPreview: buildThreadBoardPreview(titles),
   };
-}
-
-function createThreadBoardPreviewTitles(
-  threadIds: ReadonlyArray<ThreadId>,
-  threadById: Readonly<Record<string, SidebarThreadSummary | undefined>>,
-): string[] {
-  return threadIds.map((threadId) => threadById[threadId]?.title?.trim() || "Untitled thread");
 }

@@ -1,10 +1,9 @@
-import { memo } from "react";
-import { Alert, AlertDescription } from "../ui/alert";
 import { CircleAlertIcon, RotateCcwIcon, WrenchIcon, XIcon } from "lucide-react";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { cn } from "~/lib/utils";
+import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { GLASS_BANNER_CLASS_NAME, GLASS_BANNER_ERROR_CLASS_NAME } from "../ui/glass";
-import { cn } from "~/lib/utils";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 interface ThreadErrorBannerProps {
   error: string | null;

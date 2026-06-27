@@ -74,7 +74,7 @@ export interface QueuedComposerMessage {
   interactionMode: ProviderInteractionMode;
 }
 
-interface QueuedSteerRequest {
+export interface QueuedSteerRequest {
   messageId: MessageId;
   baselineWorkLogEntryCount: number;
   interruptRequested: boolean;

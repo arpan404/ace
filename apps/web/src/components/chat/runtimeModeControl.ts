@@ -1,6 +1,6 @@
 import type { RuntimeMode } from "@ace/contracts";
 
-export function nextRuntimeMode(mode: RuntimeMode): RuntimeMode {
+function nextRuntimeMode(mode: RuntimeMode): RuntimeMode {
   switch (mode) {
     case "approval-required":
       return "full-access";

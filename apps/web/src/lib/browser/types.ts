@@ -3,11 +3,6 @@ import type { BrowserSearchEngine } from "@ace/contracts/settings";
 import type { BrowserSuggestion } from "~/lib/browser/history";
 
 export { IN_APP_BROWSER_PARTITION } from "./storage";
-const PIP_MARGIN_PX = 16;
-const MIN_PIP_WIDTH_PX = 320;
-const MIN_PIP_HEIGHT_PX = 216;
-const DEFAULT_PIP_WIDTH_PX = 440;
-const DEFAULT_PIP_HEIGHT_PX = 280;
 
 type BrowserWebviewMouseWheelInputEvent = {
   type: "mouseWheel";
@@ -179,29 +174,6 @@ export type BrowserTabHandle = {
   zoomOut: () => void;
   zoomReset: () => void;
 };
-
-type BrowserWebviewContextMenuAction =
-  | "back"
-  | "copy-address"
-  | "devtools"
-  | "forward"
-  | "new-tab"
-  | "open-external"
-  | "reload";
-
-type BrowserTabContextMenuAction =
-  | "close"
-  | "close-others"
-  | "close-right"
-  | "copy-address"
-  | "duplicate"
-  | "move-left"
-  | "move-right"
-  | "new-tab"
-  | "open-external"
-  | "pin-page"
-  | "reload"
-  | "unpin-page";
 
 export const DEFAULT_BROWSER_TAB_RUNTIME_STATE: BrowserTabRuntimeState = {
   canGoBack: false,

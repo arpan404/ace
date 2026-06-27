@@ -76,9 +76,7 @@ export function revokeBlobPreviewUrl(previewUrl: string | undefined): void {
   URL.revokeObjectURL(previewUrl);
 }
 
-export function revokeComposerImagePreviewUrls(
-  images: ReadonlyArray<{ previewUrl?: string }>,
-): void {
+function revokeComposerImagePreviewUrls(images: ReadonlyArray<{ previewUrl?: string }>): void {
   for (const image of images) {
     revokeBlobPreviewUrl(image.previewUrl);
   }

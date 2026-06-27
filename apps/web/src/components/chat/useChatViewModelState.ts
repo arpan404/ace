@@ -9,8 +9,8 @@ import {
   getProviderSnapshot,
   resolveSelectableProvider,
 } from "../../providerModels";
-import { AVAILABLE_PROVIDER_OPTIONS } from "./providerModelPickerOptions";
 import { getComposerProviderState } from "./composerProviderRegistry";
+import { AVAILABLE_PROVIDER_OPTIONS } from "./providerModelPickerOptions";
 
 type ComposerModelDraftState =
   | Pick<ComposerThreadDraftState, "modelSelectionByProvider" | "activeProvider">
@@ -29,10 +29,6 @@ interface ChatViewProviderSelectionInput {
   readonly threadModelSelection: ModelSelection | null | undefined;
 }
 
-interface UseChatViewModelStateInput extends ChatViewProviderSelectionInput {
-  readonly prompt: string;
-}
-
 export interface ChatViewProviderSelectionState {
   readonly activeProviderStatus: ServerProvider | null;
   readonly composerModelOptions: ReturnType<
@@ -46,11 +42,6 @@ export interface ChatViewProviderSelectionState {
   readonly selectedModelSelection: ModelSelection;
   readonly selectedProvider: ProviderKind;
   readonly selectedProviderModels: ReturnType<typeof getProviderModels>;
-}
-
-interface UseChatViewModelStateResult extends ChatViewProviderSelectionState {
-  readonly composerProviderState: ReturnType<typeof getComposerProviderState>;
-  readonly selectedPromptEffort: ReturnType<typeof getComposerProviderState>["promptEffort"];
 }
 
 export function deriveChatViewProviderSelectionState(
@@ -181,21 +172,4 @@ export function useChatViewProviderSelectionState(
     sessionProvider,
     threadModelSelection,
   });
-}
-
-function useChatViewModelState(input: UseChatViewModelStateInput): UseChatViewModelStateResult {
-  const selectionState = useChatViewProviderSelectionState(input);
-  const composerProviderState = getComposerProviderState({
-    provider: selectionState.selectedProvider,
-    model: selectionState.selectedModel,
-    models: selectionState.selectedProviderModels,
-    prompt: input.prompt,
-    modelOptions: selectionState.composerModelOptions,
-  });
-
-  return {
-    ...selectionState,
-    composerProviderState,
-    selectedPromptEffort: composerProviderState.promptEffort,
-  };
 }

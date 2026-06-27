@@ -28,7 +28,6 @@ type ConnectionTab = "scan" | "paste" | "manual";
 
 const SCAN_AREA_SIZE = 260;
 const SCAN_LINE_PERIOD = 2400;
-const PAIRING_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_REQUESTER_NAME = `ace mobile (${Platform.OS})`;
 
 const TAB_META: { key: ConnectionTab; label: string; Icon: React.ElementType }[] = [

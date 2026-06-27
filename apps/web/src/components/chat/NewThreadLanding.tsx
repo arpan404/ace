@@ -154,16 +154,6 @@ function hashString(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
-function buildRecommendationFingerprint(input: {
-  readonly cwd: string;
-  readonly modelSelection: ModelSelection;
-  readonly turns: ReadonlyArray<RecommendationContextTurn>;
-}): string {
-  return hashString(
-    JSON.stringify({ cwd: input.cwd, model: input.modelSelection, turns: input.turns }),
-  );
-}
-
 function cleanupLegacyBrowserRecommendationCache() {
   if (typeof window === "undefined") {
     return;
@@ -184,27 +174,24 @@ function cleanupLegacyBrowserRecommendationCache() {
 }
 
 function useProjectThreads(projectId: ProjectId | null): ReadonlyArray<Thread> {
-  const threadIdsSelector = useMemo(() => selectThreadIdsByProjectId(projectId), [projectId]);
-  const threadIds = useStore(threadIdsSelector);
+  const threadIds = useStore(selectThreadIdsByProjectId(projectId));
   const threadsById = useStore((state) => state.threadsById);
   const threads = useStore((state) => state.threads);
 
-  return useMemo(() => {
-    if (!projectId || threadIds.length === 0) {
-      return EMPTY_PROJECT_THREADS;
-    }
+  if (!projectId || threadIds.length === 0) {
+    return EMPTY_PROJECT_THREADS;
+  }
 
-    const lookup =
-      threadsById ?? Object.fromEntries(threads.map((thread) => [thread.id, thread] as const));
-    const projectThreads: Thread[] = [];
-    for (const threadId of threadIds) {
-      const thread = lookup[threadId];
-      if (thread) {
-        projectThreads.push(thread);
-      }
+  const lookup =
+    threadsById ?? Object.fromEntries(threads.map((thread) => [thread.id, thread] as const));
+  const projectThreads: Thread[] = [];
+  for (const threadId of threadIds) {
+    const thread = lookup[threadId];
+    if (thread) {
+      projectThreads.push(thread);
     }
-    return projectThreads.length > 0 ? projectThreads : EMPTY_PROJECT_THREADS;
-  }, [projectId, threadIds, threads, threadsById]);
+  }
+  return projectThreads.length > 0 ? projectThreads : EMPTY_PROJECT_THREADS;
 }
 
 function buildRecommendationContextTurns(input: {
@@ -284,38 +271,22 @@ export function useNewThreadRecommendedPrompts(
 ): ReadonlyArray<NewThreadRecommendedPrompt> {
   const allProjectThreads = useSidebarThreadSummariesByProjectId(activeProjectId);
   const projectThreads = useProjectThreads(activeProjectId);
-  const contextTurns = useMemo(
-    () =>
-      buildRecommendationContextTurns({
-        projectThreads,
-        sidebarThreads: allProjectThreads,
-      }),
-    [allProjectThreads, projectThreads],
-  );
-  const contextTurnsSignature = useMemo(() => JSON.stringify(contextTurns), [contextTurns]);
-  const stableContextTurns = useMemo(
-    () => JSON.parse(contextTurnsSignature) as ReadonlyArray<RecommendationContextTurn>,
-    [contextTurnsSignature],
-  );
-  const modelSelectionSignature = useMemo(
-    () => (modelSelection ? JSON.stringify(modelSelection) : null),
-    [modelSelection],
-  );
-  const stableModelSelection = useMemo(
-    () =>
-      modelSelectionSignature ? (JSON.parse(modelSelectionSignature) as ModelSelection) : null,
-    [modelSelectionSignature],
-  );
-  const fingerprint = useMemo(() => {
-    if (!stableModelSelection || !activeProjectCwd) {
-      return null;
-    }
-    return buildRecommendationFingerprint({
-      cwd: activeProjectCwd,
-      modelSelection: stableModelSelection,
-      turns: stableContextTurns,
-    });
-  }, [activeProjectCwd, stableContextTurns, stableModelSelection]);
+  const contextTurns = buildRecommendationContextTurns({
+    projectThreads,
+    sidebarThreads: allProjectThreads,
+  });
+  const contextTurnsSignature = JSON.stringify(contextTurns);
+  const modelSelectionSignature = modelSelection ? JSON.stringify(modelSelection) : null;
+  const fingerprint =
+    modelSelectionSignature && activeProjectCwd
+      ? hashString(
+          JSON.stringify({
+            cwd: activeProjectCwd,
+            model: modelSelectionSignature,
+            turns: contextTurnsSignature,
+          }),
+        )
+      : null;
   const requestKey = activeProjectId && fingerprint ? `${activeProjectId}:${fingerprint}` : null;
   const lastCompletedRequestKeyRef = useRef<string | null>(null);
   const [generatedRecommendations, setGeneratedRecommendations] = useState<{
@@ -336,7 +307,7 @@ export function useNewThreadRecommendedPrompts(
     if (
       !activeProjectId ||
       !activeProjectCwd ||
-      !stableModelSelection ||
+      !modelSelectionSignature ||
       !fingerprint ||
       !requestKey
     ) {
@@ -359,8 +330,8 @@ export function useNewThreadRecommendedPrompts(
     let cancelled = false;
     void requestGeneratedRecommendations({
       cwd: activeProjectCwd,
-      modelSelection: stableModelSelection,
-      turns: stableContextTurns,
+      modelSelection: JSON.parse(modelSelectionSignature) as ModelSelection,
+      turns: JSON.parse(contextTurnsSignature) as ReadonlyArray<RecommendationContextTurn>,
       fingerprint,
     })
       .then((generatedRecommendations) => {
@@ -393,8 +364,7 @@ export function useNewThreadRecommendedPrompts(
     contextTurnsSignature,
     fingerprint,
     requestKey,
-    stableContextTurns,
-    stableModelSelection,
+    modelSelectionSignature,
   ]);
 
   return recommendations;

@@ -849,7 +849,10 @@ export class RelayRpcTransport {
     const maxRetryDelayMs = Math.max(baseRetryDelayMs, DEFAULT_SUBSCRIPTION_MAX_RETRY_DELAY_MS);
 
     const loop = async () => {
-      while (active && !this.disposed) {
+      for (;;) {
+        if (!active || this.disposed) {
+          return;
+        }
         try {
           const clientState = await this.clientStatePromise;
           sawValueSinceRetry = false;
