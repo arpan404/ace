@@ -11,7 +11,7 @@ import {
   WrenchIcon,
   XIcon,
 } from "lucide-react";
-import React, { type FormEvent, type KeyboardEvent, useCallback, useReducer } from "react";
+import React, { type FormEvent, type KeyboardEvent, useReducer } from "react";
 
 import {
   keybindingValueForCommand,

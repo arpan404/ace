@@ -357,11 +357,21 @@ function Sidebar({
             )}
             data-slot="sidebar-container"
             initial={false}
-            animate={{ width: sidebarContainerWidth, x: sidebarContainerX }}
+            animate={{
+              opacity: collapsed && collapsible === "offcanvas" ? 0 : 1,
+              scale: collapsed && collapsible === "offcanvas" ? 0.985 : 1,
+              width: sidebarContainerWidth,
+              x: sidebarContainerX,
+            }}
             onAnimationComplete={handleSidebarMotionComplete}
             onAnimationStart={handleSidebarMotionStart}
             transition={SIDEBAR_CHROME_TRANSITION}
-            {...(style ? { style: style as MotionStyle } : {})}
+            style={
+              {
+                transformOrigin: side === "left" ? "left center" : "right center",
+                ...style,
+              } as MotionStyle
+            }
             {...motionContainerProps}
           >
             <div

@@ -1072,12 +1072,32 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     setFindState((current) => ({ ...current, ...patch }));
   };
 
+  const visibleFindCaseSensitive = visibleFindState.caseSensitive;
+  const visibleFindRegexp = visibleFindState.regexp;
+  const visibleFindReplace = visibleFindState.replace;
+  const visibleFindSearch = visibleFindState.search;
+  const visibleFindWholeWord = visibleFindState.wholeWord;
   useEffect(() => {
     if (!visibleFindOpen) {
       return;
     }
-    editorRef.current?.updateFindQuery(visibleFindState);
-  }, [activeFileContents, editorMountVersion, visibleFindOpen, visibleFindState]);
+    editorRef.current?.updateFindQuery({
+      caseSensitive: visibleFindCaseSensitive,
+      regexp: visibleFindRegexp,
+      replace: visibleFindReplace,
+      search: visibleFindSearch,
+      wholeWord: visibleFindWholeWord,
+    });
+  }, [
+    activeFileContents,
+    editorMountVersion,
+    visibleFindCaseSensitive,
+    visibleFindOpen,
+    visibleFindRegexp,
+    visibleFindReplace,
+    visibleFindSearch,
+    visibleFindWholeWord,
+  ]);
 
   useEffect(() => {
     const editor = editorRef.current;

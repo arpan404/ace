@@ -1,7 +1,6 @@
 import { cn } from "~/lib/utils";
 import {
   APP_SETTINGS_FIELD_CLASS_NAME,
-  APP_SETTINGS_PICKER_TRIGGER_CLASS_NAME,
   APP_SHELL_CLASS_NAME,
   APP_WORKSPACE_INSET_CLASS_NAME,
 } from "~/lib/appChrome";

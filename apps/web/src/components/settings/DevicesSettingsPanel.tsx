@@ -10,7 +10,7 @@ import {
 import { DEFAULT_MANAGED_RELAY_URL } from "@ace/contracts";
 import { describeHostConnection } from "@ace/shared/hostConnections";
 import QRCode from "qrcode";
-import { type ReactNode, useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { validateRelayWebSocketUrl } from "@ace/shared/relay";
 
 import { isElectron } from "../../env";
@@ -62,12 +62,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
-import {
-  SettingsInput,
-  SettingsPageContainer,
-  SettingsRow,
-  SettingsSection,
-} from "./SettingsPanelPrimitives";
+import { SettingsInput, SettingsPageContainer } from "./SettingsPanelPrimitives";
 import { SETTINGS_FIELD_CLASS, SETTINGS_COMPACT_ACTION_BUTTON_CLASS } from "./settingsUi";
 import { DeviceSection } from "./DeviceSection";
 import { DeviceStatusBadge } from "./DeviceStatusBadge";
