@@ -941,12 +941,27 @@ export function useChatViewComposerActions(
 
     let turnStartSucceeded = false;
     await (async () => {
-      if (isFirstMessage && isServerThread) {
+      const titleSeed = truncate(strippedPrompt.length > 0 ? strippedPrompt : DEFAULT_THREAD_TITLE);
+      if (!isServerThread) {
+        await api.orchestration.dispatchCommand({
+          type: "thread.create",
+          commandId: newCommandId(),
+          threadId: threadIdForSend,
+          projectId: activeProject.id,
+          title: titleSeed,
+          modelSelection: submission.modelSelection,
+          runtimeMode: submission.runtimeMode,
+          interactionMode: submission.interactionMode,
+          branch: activeThread.branch,
+          worktreePath: activeThread.worktreePath,
+          createdAt: activeThread.createdAt,
+        });
+      } else if (isFirstMessage) {
         await api.orchestration.dispatchCommand({
           type: "thread.meta.update",
           commandId: newCommandId(),
           threadId: threadIdForSend,
-          title: truncate(strippedPrompt.length > 0 ? strippedPrompt : DEFAULT_THREAD_TITLE),
+          title: titleSeed,
         });
       }
 
@@ -963,7 +978,7 @@ export function useChatViewComposerActions(
           attachments: turnAttachments,
         },
         modelSelection: submission.modelSelection,
-        titleSeed: truncate(strippedPrompt.length > 0 ? strippedPrompt : DEFAULT_THREAD_TITLE),
+        titleSeed,
         runtimeMode: submission.runtimeMode,
         interactionMode: submission.interactionMode,
         createdAt: messageCreatedAt,
