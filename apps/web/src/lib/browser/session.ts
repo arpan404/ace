@@ -1,13 +1,12 @@
 import * as Schema from "effect/Schema";
 
-import { getLocalStorageItem, removeLocalStorageItem } from "~/hooks/useLocalStorage";
+import { removeLocalStorageItem } from "~/hooks/useLocalStorage";
 import { randomUUID } from "~/lib/utils";
 import { DEFAULT_BROWSER_HOME_URL, normalizeBrowserHttpUrl } from "~/lib/browser/url";
 import { normalizeBrowserStorageScopeId, resolveScopedBrowserStorageKey } from "./storage";
 
 export const BROWSER_SESSION_STORAGE_KEY = "ace:browser:session:v1";
 const BROWSER_SCOPED_SESSION_STORAGE_KEY = "ace:browser:session:v2";
-const LEGACY_BROWSER_LAST_URL_STORAGE_KEY = "ace:browser:last-url";
 export const BROWSER_NEW_TAB_URL = "ace://browser/new-tab";
 export const BROWSER_NEW_TAB_TITLE = "New tab";
 export const DEFAULT_BROWSER_PANEL_HEIGHT = 360;
@@ -129,13 +128,6 @@ export function createBrowserSessionState(initialUrl = BROWSER_NEW_TAB_URL): Bro
     panelHeight: DEFAULT_BROWSER_PANEL_HEIGHT,
     tabs: [initialTab],
   };
-}
-
-function resolveLegacyBrowserUrl(): string {
-  return (
-    getLocalStorageItem(LEGACY_BROWSER_LAST_URL_STORAGE_KEY, Schema.String) ??
-    DEFAULT_BROWSER_HOME_URL
-  );
 }
 
 export function normalizeBrowserSessionState(

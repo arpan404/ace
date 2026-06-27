@@ -38,7 +38,7 @@ export function measureRenderWork<T>(name: string, work: () => T): T {
   }
 }
 
-export function recordRenderProfileEvent(name: string, detail?: Record<string, unknown>): void {
+function recordRenderProfileEvent(name: string, detail?: Record<string, unknown>): void {
   if (!isRenderProfilingEnabled() || typeof performance === "undefined") {
     return;
   }

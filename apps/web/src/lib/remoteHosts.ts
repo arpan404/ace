@@ -6,8 +6,6 @@ import {
   buildPairingPayload,
   normalizeWsUrl,
   parseHostConnectionQrPayload,
-  parseHostDraftFromQrPayload,
-  readPairingClaim,
   requestPairingClaim,
   resolveHostDisplayName,
   splitWsUrlAuthToken,
@@ -19,7 +17,7 @@ import {
 import { parseRelayConnectionUrl, relayConnectionStorageKey } from "@ace/shared/relay";
 import { RelayRpcTransport } from "@ace/shared/relayRpcTransport";
 
-import { clearActiveWsUrlOverride, resolveServerUrl } from "./utils";
+import { resolveServerUrl } from "./utils";
 import { loadWebRelayDeviceIdentity } from "./relayDeviceIdentity";
 import {
   deleteWebRelayConnectionSecrets,
@@ -344,14 +342,6 @@ export function persistConnectedRemoteHostIds(hostIds: ReadonlyArray<string>): v
   emitRemoteHostStorageChange(CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT);
 }
 
-function loadPinnedRemoteHostIds(): string[] {
-  return loadConnectedRemoteHostIds();
-}
-
-function persistPinnedRemoteHostIds(hostIds: ReadonlyArray<string>): void {
-  persistConnectedRemoteHostIds(hostIds);
-}
-
 function resolveActiveWsUrl(): string {
   const resolved = resolveServerUrl({
     protocol: resolveWsProtocol(),
@@ -386,27 +376,6 @@ export function isHostConnectionActive(
   activeWsUrl: string,
 ): boolean {
   return resolveHostConnectionWsUrl(host) === normalizeWsUrl(activeWsUrl);
-}
-
-function connectToWsHost(
-  _targetWsUrl: string,
-  options?: { readonly path?: string; readonly reload?: boolean },
-): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  const requestedPath = options?.path?.trim() ?? "";
-  const nextUrl =
-    requestedPath.length > 0
-      ? requestedPath
-      : `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  clearActiveWsUrlOverride();
-  if (options?.reload === false || requestedPath.length > 0) {
-    window.history.pushState(window.history.state, "", nextUrl);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-    return;
-  }
-  window.location.assign(nextUrl);
 }
 
 async function probeNativeWebSocketConnection(
@@ -575,26 +544,6 @@ export async function verifyWsHostConnection(
   }
 
   throw new Error(probeErrors.filter((message) => message.trim().length > 0).join(" "));
-}
-
-function buildHostSharePayload(input: {
-  readonly name?: string;
-  readonly wsUrl: string;
-  readonly authToken?: string;
-}): string {
-  const normalized = normalizeWsUrl(input.wsUrl);
-  const { wsUrl, authToken: embeddedAuthToken } = splitWsUrlAuthToken(normalized);
-  const name = input.name?.trim() ?? "";
-  const authToken = input.authToken?.trim() || embeddedAuthToken;
-  return JSON.stringify(
-    {
-      ...(name.length > 0 ? { name } : {}),
-      wsUrl,
-      ...(authToken.length > 0 ? { token: authToken } : {}),
-    },
-    null,
-    2,
-  );
 }
 
 function resolvePairingApiBaseUrl(wsUrl: string): string {
@@ -797,9 +746,7 @@ export async function createHostPairingSession(input: {
     {
       method: "POST",
       path: "/api/pairing/sessions",
-      body: {
-        ...(input.name?.trim() ? { name: input.name.trim() } : {}),
-      },
+      body: input.name?.trim() ? { name: input.name.trim() } : {},
     },
   );
   return assertPairingSessionCreated(payload);
@@ -908,28 +855,6 @@ export async function listHostPairingSessions(input: {
     },
   );
   return assertPairingSessionSummaryList(payload);
-}
-
-async function resolveHostPairingSession(input: {
-  readonly wsUrl: string;
-  readonly authToken?: string;
-  readonly sessionId: string;
-  readonly approve: boolean;
-}): Promise<HostPairingSessionStatus> {
-  const payload = await requestPairingSessionJson(
-    {
-      wsUrl: input.wsUrl,
-      ...(input.authToken ? { authToken: input.authToken } : {}),
-    },
-    {
-      method: "POST",
-      path: `/api/pairing/sessions/${encodeURIComponent(input.sessionId)}/resolve`,
-      body: {
-        approve: input.approve,
-      },
-    },
-  );
-  return assertPairingSessionStatus(payload);
 }
 
 export async function revokeHostPairingSession(input: {

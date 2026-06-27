@@ -35,19 +35,13 @@ import { normalizeCustomModelSlugs } from "~/modelSelection";
 import { Predicate, Schema, Struct } from "effect";
 import { DeepMutable } from "effect/Types";
 import { deepMerge } from "@ace/shared/Struct";
-import {
-  applySettingsUpdated,
-  getServerConfig,
-  onServerConfigUpdated,
-  useServerSettingsValue,
-} from "~/rpc/serverState";
+import { applySettingsUpdated, getServerConfig, onServerConfigUpdated } from "~/rpc/serverState";
 
 const CLIENT_SETTINGS_STORAGE_KEY = "ace:client-settings:v1";
 const OLD_SETTINGS_KEY = "ace:app-settings:v1";
 const LOCAL_STORAGE_CHANGE_EVENT = "ace:local_storage_change";
 const JsonObjectSchema = Schema.Record(Schema.String, Schema.Unknown);
 const decodeJsonObject = Schema.decodeSync(Schema.fromJsonString(JsonObjectSchema));
-const CLIENT_SETTINGS_KEYS = new Set<string>(Struct.keys(ClientSettingsSchema.fields));
 type ClientSettingsPatch = Partial<ClientSettings>;
 
 export function decodeClientSettingsPatch(rawPatch: Record<string, unknown>): ClientSettingsPatch {
@@ -255,31 +249,6 @@ function subscribeToUnifiedSettings(listener: () => void): () => void {
     window.removeEventListener("storage", handleStorageChange);
     window.removeEventListener(LOCAL_STORAGE_CHANGE_EVENT, handleLocalStorageChange);
   };
-}
-
-function useClientSettingsValue<T>(selector: (settings: ClientSettings) => T): T {
-  return useSyncExternalStore(
-    subscribeToUnifiedSettings,
-    () => selector(readClientSettingsSnapshot()),
-    () => selector(DEFAULT_CLIENT_SETTINGS),
-  );
-}
-
-function useClientSetting<K extends keyof ClientSettings>(key: K): ClientSettings[K] {
-  return useClientSettingsValue((settings) => settings[key]);
-}
-
-function useScopedSetting<K extends keyof UnifiedSettings>(key: K): UnifiedSettings[K] {
-  const clientValue = useClientSettingsValue(
-    (settings) => settings[key as keyof ClientSettings] as UnifiedSettings[K] | undefined,
-  );
-  const serverValue = useServerSettingsValue(
-    (settings) => settings[key as keyof ServerSettings] as UnifiedSettings[K] | undefined,
-  );
-  return (
-    (CLIENT_SETTINGS_KEYS.has(String(key)) ? clientValue : serverValue) ??
-    DEFAULT_UNIFIED_SETTINGS[key]
-  );
 }
 
 /**

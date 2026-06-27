@@ -1,6 +1,5 @@
 import { cn } from "./lib/utils";
 import {
-  PROVIDER_INSTANCE_BADGE_COLORS,
   PROVIDER_INSTANCE_BADGE_ICONS,
   type ProviderInstanceBadgeColor,
   normalizeProviderInstanceBadgeColor,
@@ -18,16 +17,6 @@ const BADGE_COLOR_BG_CLASS: Record<ProviderInstanceBadgeColor, string> = {
 };
 
 const DEFAULT_BADGE_COLOR: ProviderInstanceBadgeColor = "slate";
-const DEFAULT_BADGE_COLOR_HEX = "#64748b";
-
-function getProviderInstanceBadgeColorHex(value: string | undefined): string {
-  const normalized = normalizeProviderInstanceBadgeColor(value);
-  return (
-    PROVIDER_INSTANCE_BADGE_COLORS.find((color) => color.value === normalized)?.hex ??
-    DEFAULT_BADGE_COLOR_HEX
-  );
-}
-
 function getProviderInstanceBadgeColorClass(value: string | undefined): string {
   const normalized = normalizeProviderInstanceBadgeColor(value);
   return BADGE_COLOR_BG_CLASS[normalized] ?? BADGE_COLOR_BG_CLASS[DEFAULT_BADGE_COLOR];

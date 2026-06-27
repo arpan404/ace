@@ -7,21 +7,15 @@ const WorkspaceDesignerToolSchema = Schema.Literals([
   "diagnostic-fix",
   "symbol-explain",
 ]);
-type WorkspaceDesignerTool = typeof WorkspaceDesignerToolSchema.Type;
-
 const WorkspaceDesignerPillPositionSchema = Schema.Struct({
   x: Schema.Number,
   y: Schema.Number,
 });
-type WorkspaceDesignerPillPosition = typeof WorkspaceDesignerPillPositionSchema.Type;
-
 const WorkspaceDesignerStateSchema = Schema.Struct({
   active: Schema.Boolean,
   pillPosition: Schema.NullOr(WorkspaceDesignerPillPositionSchema),
   tool: WorkspaceDesignerToolSchema,
 });
-type WorkspaceDesignerState = typeof WorkspaceDesignerStateSchema.Type;
-
 export type WorkspaceCodeCommentStatus = "open" | "queued" | "resolved";
 export type WorkspaceCodeCommentSource = "user" | "agent";
 
@@ -51,14 +45,6 @@ interface WorkspaceCodePromptContext {
   readonly code: string;
   readonly cwd: string;
   readonly range: WorkspaceEditorLocation;
-}
-
-function createWorkspaceDesignerState(): WorkspaceDesignerState {
-  return {
-    active: false,
-    pillPosition: null,
-    tool: "code-comment",
-  };
 }
 
 export function formatWorkspaceRangeLabel(location: WorkspaceEditorLocation): string {

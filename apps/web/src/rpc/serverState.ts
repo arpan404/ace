@@ -52,8 +52,7 @@ const selectAvailableEditors = (config: ServerConfig | null): ReadonlyArray<Edit
 const selectEmptyAvailableEditors = (): ReadonlyArray<EditorId> => EMPTY_AVAILABLE_EDITORS;
 const selectKeybindings = (config: ServerConfig | null) => config?.keybindings ?? EMPTY_KEYBINDINGS;
 const selectEmptyKeybindings = (): ServerConfig["keybindings"] => EMPTY_KEYBINDINGS;
-const selectKeybindingsConfigPath = (config: ServerConfig | null) =>
-  config?.keybindingsConfigPath ?? null;
+
 const selectProviders = (config: ServerConfig | null) =>
   config?.providers ?? EMPTY_SERVER_PROVIDERS;
 const selectEmptyProviders = (): ReadonlyArray<ServerProvider> => EMPTY_SERVER_PROVIDERS;
@@ -322,11 +321,7 @@ export function useServerConfig(): ServerConfig | null {
   return useAtomValue(serverConfigAtom);
 }
 
-function useServerSettings(): ServerSettings {
-  return useAtomValue(serverConfigAtom, selectSettings);
-}
-
-export function useServerSettingsValue<T>(selector: (settings: ServerSettings) => T): T {
+function useServerSettingsValue<T>(selector: (settings: ServerSettings) => T): T {
   return useAtomValue(serverConfigAtom, (config) => selector(selectSettings(config)));
 }
 
@@ -353,17 +348,13 @@ export function useServerAvailableEditors(options?: {
   );
 }
 
-function useServerKeybindingsConfigPath(): string | null {
-  return useAtomValue(serverConfigAtom, selectKeybindingsConfigPath);
-}
-
-export function useServerWelcomeSubscription(
+function useServerWelcomeSubscription(
   listener: (payload: ServerLifecycleWelcomePayload) => void,
 ): void {
   useLatestAtomSubscription(welcomeAtom, listener);
 }
 
-export function useServerConfigUpdatedSubscription(
+function useServerConfigUpdatedSubscription(
   listener: (notification: ServerConfigUpdatedNotification) => void,
 ): void {
   useLatestAtomSubscription(serverConfigUpdatedAtom, listener);

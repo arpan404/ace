@@ -1,10 +1,4 @@
-import {
-  DEFAULT_SERVER_SETTINGS,
-  type ServerConfig,
-  type ServerConfigStreamEvent,
-  type ServerProvider,
-  type ServerSettings,
-} from "@ace/contracts";
+import { type ServerConfig, type ServerConfigStreamEvent } from "@ace/contracts";
 import { useEffect, useState } from "react";
 
 import { reportBackgroundError } from "../lib/async";
@@ -13,7 +7,6 @@ import { getRouteRpcClient } from "../lib/remoteWsRouter";
 import { normalizeWsUrl } from "../lib/remoteHosts";
 import { useServerConfig } from "../rpc/serverState";
 
-const EMPTY_SERVER_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 const remoteServerConfigByConnectionUrl = new Map<string, ServerConfig>();
 
 function normalizeConnectionUrl(connectionUrl: string | null | undefined): string | null {
@@ -139,30 +132,4 @@ export function useConnectionServerConfig(
   }
 
   return remoteConfig;
-}
-
-function useConnectionServerProviders(
-  connectionUrl: string | null | undefined,
-): ReadonlyArray<ServerProvider> {
-  const connectionServerConfig = useConnectionServerConfig(connectionUrl);
-  return connectionServerConfig?.providers ?? EMPTY_SERVER_PROVIDERS;
-}
-
-function useConnectionServerProviderSettings(
-  connectionUrl: string | null | undefined,
-): ServerSettings["providers"] {
-  const connectionServerConfig = useConnectionServerConfig(connectionUrl);
-  return connectionServerConfig?.settings.providers ?? DEFAULT_SERVER_SETTINGS.providers;
-}
-
-function clearRemoteConnectionServerConfigCache(): void {
-  remoteServerConfigByConnectionUrl.clear();
-}
-
-function getCachedRemoteConnectionServerConfig(connectionUrl: string): ServerConfig | null {
-  const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
-  if (!normalizedConnectionUrl) {
-    return null;
-  }
-  return remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null;
 }
