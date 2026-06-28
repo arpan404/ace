@@ -227,6 +227,13 @@ fn workbench_panel(
                 "Environment",
                 || environment_body(theme, projection),
             ),
+            RightPanelTab::Terminal => service_panel_body(
+                theme,
+                &services.terminal,
+                AceIconName::Terminal,
+                "Terminal",
+                || terminal_inspector_body(theme, projection),
+            ),
             RightPanelTab::Browser => service_panel_body(
                 theme,
                 &services.browser,
@@ -355,6 +362,12 @@ fn right_tab_strip(
             active_tab,
             RightPanelTab::Review,
             &services.diff_review,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Terminal,
+            &services.terminal,
         ))
         .child(right_tab(
             theme,
@@ -497,6 +510,7 @@ fn right_tab_meta(tab: RightPanelTab) -> (AceIconName, &'static str) {
     match tab {
         RightPanelTab::Review => (AceIconName::Review, "Review"),
         RightPanelTab::Environment => (AceIconName::Environment, "Environment"),
+        RightPanelTab::Terminal => (AceIconName::Terminal, "Terminal"),
         RightPanelTab::Browser => (AceIconName::Browser, "Browser"),
         RightPanelTab::Editor => (AceIconName::Editor, "Editor"),
         RightPanelTab::Summary => (AceIconName::Summary, "Summary"),
@@ -513,6 +527,7 @@ fn right_tab_id(tab: RightPanelTab) -> &'static str {
     match tab {
         RightPanelTab::Review => "right-tab-review",
         RightPanelTab::Environment => "right-tab-environment",
+        RightPanelTab::Terminal => "right-tab-terminal",
         RightPanelTab::Browser => "right-tab-browser",
         RightPanelTab::Editor => "right-tab-editor",
         RightPanelTab::Summary => "right-tab-summary",
@@ -1892,38 +1907,34 @@ fn annotation_card(
 }
 
 fn terminal_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
-    if let Some(reason) = projection.services.terminal.missing_reason() {
-        return div()
-            .flex_1()
-            .min_h_0()
-            .p_3()
-            .child(empty_panel_body(
-                theme,
-                AceIconName::Terminal,
-                "Terminal",
-                reason,
-            ))
-            .into_any_element();
-    }
-
-    if projection.chat.active_thread.is_none() {
-        return div()
-            .flex_1()
-            .min_h_0()
-            .p_3()
-            .child(empty_panel_body(
-                theme,
-                AceIconName::Terminal,
-                "Terminal",
-                "Select a thread to attach a PTY-backed terminal session.",
-            ))
-            .into_any_element();
-    }
-
     div()
         .flex_1()
         .min_h_0()
         .p_3()
+        .child(terminal_content(theme, projection))
+        .into_any_element()
+}
+
+fn terminal_inspector_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    terminal_content(theme, projection)
+}
+
+fn terminal_content(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    if let Some(reason) = projection.services.terminal.missing_reason() {
+        return empty_panel_body(theme, AceIconName::Terminal, "Terminal", reason);
+    }
+
+    if projection.chat.active_thread.is_none() {
+        return empty_panel_body(
+            theme,
+            AceIconName::Terminal,
+            "Terminal",
+            "Select a thread to attach a PTY-backed terminal session.",
+        );
+    }
+
+    div()
+        .size_full()
         .flex()
         .flex_col()
         .gap_2()

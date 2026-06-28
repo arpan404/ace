@@ -92,6 +92,9 @@ impl RootView {
                     ) {
                         store.refresh_active_review(Some(host));
                     }
+                    if ui_store.state().right_panel_tab == RightPanelTab::Terminal {
+                        store.ensure_active_terminal(Some(host));
+                    }
                     host_stores.insert(host.id().clone(), store);
                 }
                 Err(error) => {
@@ -295,6 +298,7 @@ impl RootView {
             RightPanelTab::Environment | RightPanelTab::Summary | RightPanelTab::Providers => {
                 self.refresh_provider_registry();
             }
+            RightPanelTab::Terminal => self.ensure_active_terminal(),
             RightPanelTab::Plugins => self.refresh_plugin_registry(),
             RightPanelTab::Skills => self.refresh_skill_registry(),
             RightPanelTab::Browser
@@ -461,8 +465,10 @@ impl RootView {
     }
 
     fn terminal_owns_keyboard(&self) -> bool {
-        self.ui_store.state().bottom_panel_visible
+        (self.ui_store.state().bottom_panel_visible
             && self.ui_store.state().bottom_panel_tab == BottomPanelTab::Terminal
+            || self.ui_store.state().right_panel_visible
+                && self.ui_store.state().right_panel_tab == RightPanelTab::Terminal)
             && self
                 .active_store()
                 .projection()
@@ -490,8 +496,7 @@ impl RootView {
             }
             SearchPaletteItem::OpenTerminals => {
                 self.search_palette.close();
-                self.ui_store
-                    .select_bottom_panel_tab(BottomPanelTab::Terminal);
+                self.apply_right_panel_tab(RightPanelTab::Terminal);
                 self.ensure_active_terminal();
                 self.save_ui_state();
             }
@@ -653,9 +658,13 @@ impl RootView {
         }
         if matches!(
             self.ui_store.state().right_panel_tab,
-            RightPanelTab::Review | RightPanelTab::Sources
+            RightPanelTab::Review | RightPanelTab::Sources | RightPanelTab::Terminal
         ) {
-            self.refresh_active_review();
+            if self.ui_store.state().right_panel_tab == RightPanelTab::Terminal {
+                self.ensure_active_terminal();
+            } else {
+                self.refresh_active_review();
+            }
         }
         cx.notify();
     }

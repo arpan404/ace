@@ -8,6 +8,7 @@ pub enum RightPanelTab {
     #[default]
     Review,
     Environment,
+    Terminal,
     Browser,
     Editor,
     Summary,
