@@ -1,5 +1,8 @@
 use crate::{
-    actions::{ToggleBottomPanel, ToggleEnvironmentPanel, ToggleRightPanel, ToggleSidebar},
+    actions::{
+        CreateTodoFromTimelineItem, PinTimelineItem, ToggleBottomPanel, ToggleEnvironmentPanel,
+        ToggleHighlightTimelineItem, ToggleRightPanel, ToggleSidebar,
+    },
     stores::{ThreadAnnotationsProjection, ui::UiState},
     ui::{components::*, right_panel::environment_card, theme::Theme},
 };
@@ -183,6 +186,7 @@ fn message_timeline(
 ) -> AnyElement {
     const MAX_RENDERED_MESSAGES: usize = 120;
     let skipped = chat.messages.len().saturating_sub(MAX_RENDERED_MESSAGES);
+    let active_thread_id = chat.active_thread.as_ref().map(|thread| thread.id.clone());
 
     div()
         .id("chat-timeline")
@@ -255,10 +259,51 @@ fn message_timeline(
                             window,
                             cx,
                         ))
+                        .when_some(active_thread_id.clone(), |this, thread_id| {
+                            this.child(message_actions(theme, thread_id, message.id.clone()))
+                        })
                 })
                 .collect::<Vec<_>>(),
         )
         .overflow_y_scrollbar()
+        .into_any_element()
+}
+
+fn message_actions(theme: Theme, thread_id: ace_core::ThreadId, message_id: String) -> AnyElement {
+    div()
+        .mt_1()
+        .mb_1()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .text_color(theme.muted)
+        .child(action_button(IconName::Star, "Pin", theme, {
+            let thread_id = thread_id.clone();
+            let message_id = message_id.clone();
+            move || {
+                Box::new(PinTimelineItem {
+                    thread_id: thread_id.clone(),
+                    message_id: message_id.clone(),
+                })
+            }
+        }))
+        .child(action_button(IconName::Star, "Highlight", theme, {
+            let thread_id = thread_id.clone();
+            let message_id = message_id.clone();
+            move || {
+                Box::new(ToggleHighlightTimelineItem {
+                    thread_id: thread_id.clone(),
+                    message_id: message_id.clone(),
+                })
+            }
+        }))
+        .child(action_button(IconName::Plus, "Todo", theme, move || {
+            Box::new(CreateTodoFromTimelineItem {
+                thread_id: thread_id.clone(),
+                message_id: message_id.clone(),
+            })
+        }))
         .into_any_element()
 }
 

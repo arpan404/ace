@@ -526,6 +526,13 @@ impl DesktopStore {
         let Some((thread_id, message)) = self.latest_active_message() else {
             return;
         };
+        self.pin_timeline_item(thread_id, &message.id);
+    }
+
+    pub fn pin_timeline_item(&mut self, thread_id: ThreadId, message_id: &str) {
+        let Some(message) = self.message_for_thread(&thread_id, message_id) else {
+            return;
+        };
         if self
             .pinned_items
             .iter()
@@ -550,6 +557,13 @@ impl DesktopStore {
 
     pub fn toggle_highlight_latest_timeline_item(&mut self) {
         let Some((thread_id, message)) = self.latest_active_message() else {
+            return;
+        };
+        self.toggle_highlight_timeline_item(thread_id, &message.id);
+    }
+
+    pub fn toggle_highlight_timeline_item(&mut self, thread_id: ThreadId, message_id: &str) {
+        let Some(message) = self.message_for_thread(&thread_id, message_id) else {
             return;
         };
         if let Some(index) = self
@@ -581,6 +595,13 @@ impl DesktopStore {
 
     pub fn create_todo_from_latest_timeline_item(&mut self) {
         let Some((thread_id, message)) = self.latest_active_message() else {
+            return;
+        };
+        self.create_todo_from_timeline_item(thread_id, &message.id);
+    }
+
+    pub fn create_todo_from_timeline_item(&mut self, thread_id: ThreadId, message_id: &str) {
+        let Some(message) = self.message_for_thread(&thread_id, message_id) else {
             return;
         };
         let title = message_excerpt(&message);
@@ -1752,7 +1773,7 @@ impl DesktopStore {
                         id: item
                             .item_id
                             .clone()
-                            .unwrap_or_else(|| format!("thread-item:{:?}", item.kind)),
+                            .unwrap_or_else(|| thread_item_fallback_id(item.kind)),
                         role: chat_role_from_thread_item(item.kind),
                         status: item.status,
                         title: item.title.clone(),
@@ -1760,6 +1781,45 @@ impl DesktopStore {
                     })
             })?;
         Some((thread_id, message))
+    }
+
+    fn message_for_thread(
+        &self,
+        thread_id: &ThreadId,
+        message_id: &str,
+    ) -> Option<ChatMessageProjection> {
+        self.persisted_messages
+            .get(thread_id)
+            .and_then(|messages| messages.iter().find(|message| message.id == message_id))
+            .cloned()
+            .or_else(|| {
+                self.runtime
+                    .thread_items
+                    .iter()
+                    .rev()
+                    .find(|item| {
+                        let fallback;
+                        let id = if let Some(id) = item.item_id.as_deref() {
+                            id
+                        } else {
+                            fallback = thread_item_fallback_id(item.kind);
+                            fallback.as_str()
+                        };
+                        id == message_id
+                            && (item.thread_id.as_deref() == Some(thread_id.0.as_str())
+                                || item.thread_id.is_none())
+                    })
+                    .map(|item| ChatMessageProjection {
+                        id: item
+                            .item_id
+                            .clone()
+                            .unwrap_or_else(|| thread_item_fallback_id(item.kind)),
+                        role: chat_role_from_thread_item(item.kind),
+                        status: item.status,
+                        title: item.title.clone(),
+                        text: item.text.clone(),
+                    })
+            })
     }
 
     fn active_terminal_cwd(&self, thread_id: &ThreadId) -> Option<String> {
@@ -1905,6 +1965,10 @@ fn chat_role_from_thread_item(kind: ThreadItemKind) -> ChatMessageRole {
         | ThreadItemKind::ContextCompaction
         | ThreadItemKind::Unknown => ChatMessageRole::Activity,
     }
+}
+
+fn thread_item_fallback_id(kind: ThreadItemKind) -> String {
+    format!("thread-item:{kind:?}")
 }
 
 fn chat_message(id: String, role: ChatMessageRole, text: String) -> ChatMessageProjection {
@@ -2199,19 +2263,27 @@ mod tests {
                 prompt: "Capture the deployment follow-up".to_string(),
             },
         );
+        let first_message_id = store.projection().chat.messages[0].id.clone();
+        store.send_message(
+            thread_id.clone(),
+            ComposerPayload {
+                prompt: "Second message should stay latest".to_string(),
+            },
+        );
 
-        store.pin_latest_timeline_item();
-        store.toggle_highlight_latest_timeline_item();
-        store.create_todo_from_latest_timeline_item();
+        store.pin_timeline_item(thread_id.clone(), &first_message_id);
+        store.toggle_highlight_timeline_item(thread_id.clone(), &first_message_id);
+        store.create_todo_from_timeline_item(thread_id.clone(), &first_message_id);
         let projection = store.projection().annotations;
         assert_eq!(projection.pinned_items.len(), 1);
         assert_eq!(projection.highlighted_items.len(), 1);
         assert_eq!(projection.todos.len(), 1);
         assert_eq!(projection.open_todo_count, 1);
+        assert_eq!(projection.pinned_items[0].message_id, first_message_id);
 
-        store.toggle_highlight_latest_timeline_item();
+        store.toggle_highlight_timeline_item(thread_id.clone(), &first_message_id);
         assert!(store.projection().annotations.highlighted_items.is_empty());
-        store.toggle_highlight_latest_timeline_item();
+        store.toggle_highlight_timeline_item(thread_id.clone(), &first_message_id);
 
         store.toggle_first_open_todo();
         let snapshot = store.annotations_snapshot();

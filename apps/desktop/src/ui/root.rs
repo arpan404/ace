@@ -1,11 +1,12 @@
 use crate::{
     actions::{
         AddCurrentDirectoryProject, ArchiveActiveThread, ArchiveProject, BeginPanelResize,
-        CloseSearchPalette, CreateTodoFromLatestTimelineItem, InterruptActiveTurn, NewThread,
-        NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem, RefreshReview,
-        SelectBottomPanelTab, SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer,
-        ShowLessProjectThreads, ShowMoreProjectThreads, StageReviewAll, ToggleBottomPanel,
-        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        CloseSearchPalette, CreateTodoFromLatestTimelineItem, CreateTodoFromTimelineItem,
+        InterruptActiveTurn, NewThread, NewThreadForProject, OpenSearchPalette, OpenThread,
+        PinLatestTimelineItem, PinTimelineItem, RefreshReview, SelectBottomPanelTab,
+        SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer, ShowLessProjectThreads,
+        ShowMoreProjectThreads, StageReviewAll, ToggleBottomPanel, ToggleEnvironmentPanel,
+        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem,
         TogglePinActiveThread, ToggleRightPanel, ToggleSidebar, UnstageReviewAll,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
@@ -640,6 +641,18 @@ impl RootView {
         cx.notify();
     }
 
+    fn pin_timeline_item(
+        &mut self,
+        event: &PinTimelineItem,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .pin_timeline_item(event.thread_id.clone(), &event.message_id);
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
     fn create_todo_from_latest_timeline_item(
         &mut self,
         _: &CreateTodoFromLatestTimelineItem,
@@ -652,6 +665,18 @@ impl RootView {
         cx.notify();
     }
 
+    fn create_todo_from_timeline_item(
+        &mut self,
+        event: &CreateTodoFromTimelineItem,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .create_todo_from_timeline_item(event.thread_id.clone(), &event.message_id);
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
     fn toggle_highlight_latest_timeline_item(
         &mut self,
         _: &ToggleHighlightLatestTimelineItem,
@@ -660,6 +685,18 @@ impl RootView {
     ) {
         self.active_store_mut()
             .toggle_highlight_latest_timeline_item();
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
+    fn toggle_highlight_timeline_item(
+        &mut self,
+        event: &ToggleHighlightTimelineItem,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .toggle_highlight_timeline_item(event.thread_id.clone(), &event.message_id);
         self.save_thread_annotations();
         cx.notify();
     }
@@ -757,8 +794,11 @@ impl Render for RootView {
             .on_action(cx.listener(Self::interrupt_active_turn))
             .on_action(cx.listener(Self::toggle_pin_active_thread))
             .on_action(cx.listener(Self::pin_latest_timeline_item))
+            .on_action(cx.listener(Self::pin_timeline_item))
             .on_action(cx.listener(Self::toggle_highlight_latest_timeline_item))
+            .on_action(cx.listener(Self::toggle_highlight_timeline_item))
             .on_action(cx.listener(Self::create_todo_from_latest_timeline_item))
+            .on_action(cx.listener(Self::create_todo_from_timeline_item))
             .on_action(cx.listener(Self::toggle_first_open_todo))
             .on_action(cx.listener(Self::refresh_review))
             .on_action(cx.listener(Self::stage_review_all))

@@ -57,6 +57,27 @@ pub struct SelectBottomPanelTab {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct PinTimelineItem {
+    pub thread_id: ace_core::ThreadId,
+    pub message_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct ToggleHighlightTimelineItem {
+    pub thread_id: ace_core::ThreadId,
+    pub message_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct CreateTodoFromTimelineItem {
+    pub thread_id: ace_core::ThreadId,
+    pub message_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct OpenThread {
     pub thread_id: ace_core::ThreadId,
 }
