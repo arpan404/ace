@@ -292,11 +292,12 @@ impl RootView {
         self.ui_store.select_right_panel_tab(tab);
         match tab {
             RightPanelTab::Review | RightPanelTab::Sources => self.refresh_active_review(),
-            RightPanelTab::Summary | RightPanelTab::Providers => self.refresh_provider_registry(),
+            RightPanelTab::Environment | RightPanelTab::Summary | RightPanelTab::Providers => {
+                self.refresh_provider_registry();
+            }
             RightPanelTab::Plugins => self.refresh_plugin_registry(),
             RightPanelTab::Skills => self.refresh_skill_registry(),
-            RightPanelTab::Environment
-            | RightPanelTab::Browser
+            RightPanelTab::Browser
             | RightPanelTab::Editor
             | RightPanelTab::Pinned
             | RightPanelTab::Todos => {}

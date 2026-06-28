@@ -193,6 +193,64 @@ pub fn palette_items(
         });
     }
 
+    if projection.runtime_status.providers > 0
+        || projection.runtime_status.threads > 0
+        || projection.runtime_status.error.is_some()
+    {
+        registry_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Environment,
+            label: "Runtime status".to_string(),
+            description: format!(
+                "{} provider{} · {} active thread{} · {} warning{}",
+                projection.runtime_status.providers,
+                plural(projection.runtime_status.providers),
+                projection.runtime_status.active_threads,
+                plural(projection.runtime_status.active_threads),
+                projection.runtime_status.warnings,
+                plural(projection.runtime_status.warnings)
+            ),
+            result_kind: SearchPaletteResultKind::Registry,
+        });
+    }
+    if projection.runtime_status.remote_connections > 0 {
+        registry_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Environment,
+            label: "Remote connections".to_string(),
+            description: format!(
+                "{} connected / {} total · {} remote host{}",
+                projection.runtime_status.connected_remote_connections,
+                projection.runtime_status.remote_connections,
+                projection.runtime_status.remote_host_connections,
+                plural(projection.runtime_status.remote_host_connections)
+            ),
+            result_kind: SearchPaletteResultKind::Registry,
+        });
+    }
+    if projection.runtime_status.pending_approvals > 0 {
+        registry_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Environment,
+            label: "Pending approvals".to_string(),
+            description: format!(
+                "{} runtime approval{} awaiting action",
+                projection.runtime_status.pending_approvals,
+                plural(projection.runtime_status.pending_approvals)
+            ),
+            result_kind: SearchPaletteResultKind::Registry,
+        });
+    }
+    if projection.runtime_status.handoffs > 0 {
+        registry_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Environment,
+            label: "Runtime handoffs".to_string(),
+            description: format!(
+                "{} handoff{} recorded",
+                projection.runtime_status.handoffs,
+                plural(projection.runtime_status.handoffs)
+            ),
+            result_kind: SearchPaletteResultKind::Registry,
+        });
+    }
+
     for provider in &projection.providers.providers {
         registry_items.push(SearchPaletteItem::Panel {
             tab: crate::stores::ui::RightPanelTab::Providers,
@@ -269,6 +327,10 @@ pub fn palette_items(
         .filter(matches)
         .take(40)
         .collect()
+}
+
+fn plural(count: usize) -> &'static str {
+    if count == 1 { "" } else { "s" }
 }
 
 pub(super) fn search_palette_overlay(

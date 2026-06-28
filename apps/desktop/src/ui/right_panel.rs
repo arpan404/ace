@@ -846,6 +846,22 @@ fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement 
         .child(info_row(theme, "Terminal", terminal))
         .child(info_row(
             theme,
+            "Runtime state",
+            &runtime_state_label(projection),
+        ))
+        .child(info_row(theme, "Remote", &runtime_remote_label(projection)))
+        .child(info_row(
+            theme,
+            "Handoffs",
+            &projection.runtime_status.handoffs.to_string(),
+        ))
+        .child(info_row(
+            theme,
+            "Pending approvals",
+            &projection.runtime_status.pending_approvals.to_string(),
+        ))
+        .child(info_row(
+            theme,
             "Sources",
             &projection.sources.items.len().to_string(),
         ))
@@ -860,6 +876,9 @@ fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement 
             "Open todos",
             &projection.annotations.open_todo_count.to_string(),
         ))
+        .when_some(projection.runtime_status.error.as_deref(), |this, error| {
+            this.child(registry_error_card(theme, error))
+        })
         .into_any_element()
 }
 
@@ -918,6 +937,22 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
             theme,
             "Terminal",
             terminal_summary_label(projection),
+        ))
+        .child(info_row(
+            theme,
+            "Runtime state",
+            &runtime_state_label(projection),
+        ))
+        .child(info_row(theme, "Remote", &runtime_remote_label(projection)))
+        .child(info_row(
+            theme,
+            "Handoffs",
+            &projection.runtime_status.handoffs.to_string(),
+        ))
+        .child(info_row(
+            theme,
+            "Pending approvals",
+            &projection.runtime_status.pending_approvals.to_string(),
         ))
         .child(info_row(
             theme,
@@ -1074,6 +1109,41 @@ fn terminal_summary_label(projection: &DesktopProjection) -> &'static str {
         Some(TerminalSessionStatus::Starting) => "Starting",
         None => "Not attached",
     }
+}
+
+fn runtime_state_label(projection: &DesktopProjection) -> String {
+    let runtime = &projection.runtime_status;
+    if runtime.providers == 0 && runtime.threads == 0 && runtime.error.is_some() {
+        return "Unavailable".to_string();
+    }
+
+    format!(
+        "{} provider{} · {} active / {} thread{}",
+        runtime.providers,
+        plural(runtime.providers),
+        runtime.active_threads,
+        runtime.threads,
+        plural(runtime.threads)
+    )
+}
+
+fn runtime_remote_label(projection: &DesktopProjection) -> String {
+    let runtime = &projection.runtime_status;
+    if runtime.remote_connections == 0 {
+        return "No remote connections".to_string();
+    }
+
+    format!(
+        "{} connected / {} total · {} host{}",
+        runtime.connected_remote_connections,
+        runtime.remote_connections,
+        runtime.remote_host_connections,
+        plural(runtime.remote_host_connections)
+    )
+}
+
+fn plural(count: usize) -> &'static str {
+    if count == 1 { "" } else { "s" }
 }
 
 fn summary_latest_message(theme: Theme, chat: &ChatProjection) -> AnyElement {
@@ -1240,10 +1310,27 @@ fn providers_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
             "Slash commands",
             &projection.providers.total_slash_commands.to_string(),
         ))
+        .child(info_row(
+            theme,
+            "Runtime threads",
+            &format!(
+                "{} active / {} total",
+                projection.runtime_status.active_threads, projection.runtime_status.threads
+            ),
+        ))
+        .child(info_row(theme, "Remote", &runtime_remote_label(projection)))
+        .child(info_row(
+            theme,
+            "Pending approvals",
+            &projection.runtime_status.pending_approvals.to_string(),
+        ))
         .when_some(
             projection.providers.updated_at.as_deref(),
             |this, updated| this.child(info_row(theme, "Updated", updated)),
         )
+        .when_some(projection.runtime_status.error.as_deref(), |this, error| {
+            this.child(registry_error_card(theme, error))
+        })
         .child(summary_provider_registry(theme, projection))
         .into_any_element()
 }

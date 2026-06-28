@@ -14,7 +14,8 @@ use ace_protocol::{
         ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeProvidersList,
         ProviderRuntimeRawEventMode, ProviderRuntimeRecentEventsRequest,
         ProviderRuntimeRecentEventsResponse, ProviderRuntimeSlashCommandsListRequest,
-        ProviderRuntimeSlashCommandsListResponse, ProviderRuntimeStatusListRequest,
+        ProviderRuntimeSlashCommandsListResponse, ProviderRuntimeStateGetRequest,
+        ProviderRuntimeStateGetResponse, ProviderRuntimeStatusListRequest,
         ProviderRuntimeStatusListResponse,
     },
     terminal::{
@@ -61,6 +62,7 @@ pub struct DesktopStore {
     terminal_errors: HashMap<ThreadId, String>,
     review_snapshots: HashMap<ProjectId, ReviewProjection>,
     provider_registry: ProviderRegistryProjection,
+    runtime_status: RuntimeStatusProjection,
     plugin_registry: ToolRegistryProjection,
     skill_registry: ToolRegistryProjection,
     pinned_items: Vec<PinnedTimelineItem>,
@@ -82,6 +84,7 @@ pub struct DesktopProjection {
     pub review: ReviewProjection,
     pub sources: SourcesProjection,
     pub providers: ProviderRegistryProjection,
+    pub runtime_status: RuntimeStatusProjection,
     pub plugins: ToolRegistryProjection,
     pub skills: ToolRegistryProjection,
     pub annotations: ThreadAnnotationsProjection,
@@ -217,6 +220,24 @@ pub struct ProviderRegistryProjection {
     pub updated_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeStatusProjection {
+    pub providers: usize,
+    pub threads: usize,
+    pub active_threads: usize,
+    pub active_turns: usize,
+    pub handoffs: usize,
+    pub pending_approvals: usize,
+    pub warnings: usize,
+    pub remote_connections: usize,
+    pub remote_host_connections: usize,
+    pub connected_remote_connections: usize,
+    pub disconnected_remote_connections: usize,
+    pub remote_connections_with_projects: usize,
+    pub error: Option<String>,
+    pub updated_at: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderSummaryProjection {
     pub runtime_id: String,
@@ -339,6 +360,7 @@ impl DesktopStore {
             terminal_errors: HashMap::new(),
             review_snapshots: HashMap::new(),
             provider_registry: ProviderRegistryProjection::default(),
+            runtime_status: RuntimeStatusProjection::default(),
             plugin_registry: ToolRegistryProjection {
                 source: "plugin/installed",
                 ..ToolRegistryProjection::default()
@@ -441,6 +463,7 @@ impl DesktopStore {
             review: self.review_projection(),
             sources: self.sources_projection(),
             providers: self.provider_registry.clone(),
+            runtime_status: self.runtime_status.clone(),
             plugins: self.plugin_registry.clone(),
             skills: self.skill_registry.clone(),
             annotations: self.annotations_projection(),
@@ -839,11 +862,19 @@ impl DesktopStore {
 
     pub fn refresh_provider_registry(&mut self, host: Option<&BackendHostClient>) {
         let Some(host) = self.host.clone().or_else(|| host.cloned()) else {
+            let error =
+                "Connect to a local or remote host runtime to inspect provider runtime state."
+                    .to_string();
             self.provider_registry = ProviderRegistryProjection {
                 error: Some(
                     "Connect to a local or remote host runtime to inspect providers.".to_string(),
                 ),
                 ..ProviderRegistryProjection::default()
+            };
+            self.runtime_status = RuntimeStatusProjection {
+                error: Some(error),
+                updated_at: Some(self.next_timestamp()),
+                ..RuntimeStatusProjection::default()
             };
             return;
         };
@@ -860,6 +891,11 @@ impl DesktopStore {
                     updated_at: Some(now),
                     ..ProviderRegistryProjection::default()
                 };
+                self.runtime_status = RuntimeStatusProjection {
+                    error: Some(format!("Provider runtime state unavailable: {error}")),
+                    updated_at: self.provider_registry.updated_at.clone(),
+                    ..RuntimeStatusProjection::default()
+                };
                 return;
             }
         };
@@ -872,6 +908,22 @@ impl DesktopStore {
             Ok(response) => Some(response),
             Err(error) => {
                 partial_errors.push(format!("status unavailable: {error}"));
+                None
+            }
+        };
+        let state_response = match host.call::<_, ProviderRuntimeStateGetResponse>(
+            methods::PROVIDER_RUNTIME_STATE_GET,
+            &ProviderRuntimeStateGetRequest::default(),
+        ) {
+            Ok(response) => Some(response),
+            Err(error) => {
+                partial_errors.push(format!("runtime state unavailable: {error}"));
+                self.runtime_status = RuntimeStatusProjection {
+                    providers: providers_response.runtime.len(),
+                    error: Some(format!("Provider runtime state unavailable: {error}")),
+                    updated_at: Some(now.clone()),
+                    ..RuntimeStatusProjection::default()
+                };
                 None
             }
         };
@@ -946,6 +998,16 @@ impl DesktopStore {
             error: (!partial_errors.is_empty()).then(|| partial_errors.join("; ")),
             updated_at: Some(now),
         };
+        if let Some(response) = state_response {
+            self.runtime_status = runtime_status_projection_from_state(
+                &response,
+                providers_response.runtime.len(),
+                self.provider_registry
+                    .updated_at
+                    .clone()
+                    .unwrap_or_default(),
+            );
+        }
     }
 
     pub fn refresh_plugin_registry(&mut self, host: Option<&BackendHostClient>) {
@@ -2204,6 +2266,35 @@ fn provider_health_label(health: ProviderRuntimeHealth) -> &'static str {
     }
 }
 
+fn runtime_status_projection_from_state(
+    response: &ProviderRuntimeStateGetResponse,
+    provider_count: usize,
+    updated_at: String,
+) -> RuntimeStatusProjection {
+    let mut projection = RuntimeStatusProjection {
+        providers: response.providers.len().max(provider_count),
+        updated_at: Some(updated_at),
+        ..RuntimeStatusProjection::default()
+    };
+
+    for provider in &response.providers {
+        let summary = &provider.summary;
+        projection.threads += summary.threads;
+        projection.active_threads += summary.active_threads;
+        projection.active_turns += summary.active_turns;
+        projection.handoffs += summary.handoffs;
+        projection.pending_approvals += summary.pending_approvals;
+        projection.warnings += summary.warnings;
+        projection.remote_connections += summary.remote_connections;
+        projection.remote_host_connections += summary.remote_host_connections;
+        projection.connected_remote_connections += summary.connected_remote_connections;
+        projection.disconnected_remote_connections += summary.disconnected_remote_connections;
+        projection.remote_connections_with_projects += summary.remote_connections_with_projects;
+    }
+
+    projection
+}
+
 fn short_status(status: &TerminalSessionStatus) -> &'static str {
     match status {
         TerminalSessionStatus::Starting => "starting",
@@ -2578,6 +2669,52 @@ mod tests {
         assert_eq!(skills[0].id, "rust");
         assert_eq!(skills[0].name, "rust");
         assert_eq!(skills[0].status, "installed");
+    }
+
+    #[test]
+    fn runtime_status_projection_aggregates_provider_state() {
+        let response = ProviderRuntimeStateGetResponse {
+            providers: vec![
+                ace_protocol::provider_runtime::ProviderRuntimeProviderState {
+                    provider: ace_core::ProviderKind::Codex,
+                    runtime_id: "codex".to_string(),
+                    display_name: "Codex".to_string(),
+                    source: ace_protocol::provider_runtime::ProviderRuntimeStateSource::Live,
+                    persisted_replay_available: false,
+                    last_persisted_sequence: None,
+                    summary: ace_protocol::provider_runtime::ProviderRuntimeStateSummary {
+                        threads: 8,
+                        active_threads: 3,
+                        active_turns: 2,
+                        handoffs: 4,
+                        pending_approvals: 1,
+                        warnings: 5,
+                        remote_connections: 6,
+                        remote_host_connections: 2,
+                        connected_remote_connections: 3,
+                        disconnected_remote_connections: 1,
+                        remote_connections_with_projects: 4,
+                        ..ace_protocol::provider_runtime::ProviderRuntimeStateSummary::default()
+                    },
+                    state: AgentRuntimeSnapshot::default(),
+                },
+            ],
+        };
+
+        let projection = runtime_status_projection_from_state(&response, 2, "updated".to_string());
+
+        assert_eq!(projection.providers, 2);
+        assert_eq!(projection.threads, 8);
+        assert_eq!(projection.active_threads, 3);
+        assert_eq!(projection.active_turns, 2);
+        assert_eq!(projection.handoffs, 4);
+        assert_eq!(projection.pending_approvals, 1);
+        assert_eq!(projection.remote_connections, 6);
+        assert_eq!(projection.remote_host_connections, 2);
+        assert_eq!(projection.connected_remote_connections, 3);
+        assert_eq!(projection.disconnected_remote_connections, 1);
+        assert_eq!(projection.remote_connections_with_projects, 4);
+        assert_eq!(projection.updated_at.as_deref(), Some("updated"));
     }
 
     #[test]
