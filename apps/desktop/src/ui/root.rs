@@ -1,14 +1,14 @@
 use crate::{
     actions::{
         AddCurrentDirectoryProject, ArchiveActiveThread, ArchiveProject, BeginPanelResize,
-        CloseSearchPalette, CreateTodoFromLatestTimelineItem, CreateTodoFromTimelineItem,
-        InterruptActiveTurn, NewThread, NewThreadForProject, OpenSearchPalette, OpenThread,
-        PinLatestTimelineItem, PinTimelineItem, RefreshReview, SelectBottomPanelTab,
-        SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer, ShowLessProjectThreads,
-        ShowMoreProjectThreads, StageReviewAll, StageReviewFile, ToggleBottomPanel,
-        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
-        ToggleHighlightTimelineItem, TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
-        UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
+        CloseSearchPalette, CommitReview, CreateTodoFromLatestTimelineItem,
+        CreateTodoFromTimelineItem, InterruptActiveTurn, NewThread, NewThreadForProject,
+        OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem, PushReview,
+        RefreshReview, SelectBottomPanelTab, SelectRightPanelTab, SelectSearchPaletteItem,
+        SendActiveComposer, ShowLessProjectThreads, ShowMoreProjectThreads, StageReviewAll,
+        StageReviewFile, ToggleBottomPanel, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
+        ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
+        ToggleRightPanel, ToggleSidebar, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -618,6 +618,20 @@ impl RootView {
         cx.notify();
     }
 
+    fn commit_review(&mut self, _: &CommitReview, _: &mut Window, cx: &mut Context<Self>) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .commit_active_review(active_host.as_ref());
+        cx.notify();
+    }
+
+    fn push_review(&mut self, _: &PushReview, _: &mut Window, cx: &mut Context<Self>) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .push_active_review(active_host.as_ref());
+        cx.notify();
+    }
+
     fn new_thread(&mut self, _: &NewThread, _: &mut Window, cx: &mut Context<Self>) {
         self.active_store_mut().new_thread_for_first_project();
         if self.terminal_owns_keyboard() {
@@ -888,6 +902,8 @@ impl Render for RootView {
             .on_action(cx.listener(Self::unstage_review_all))
             .on_action(cx.listener(Self::stage_review_file))
             .on_action(cx.listener(Self::unstage_review_file))
+            .on_action(cx.listener(Self::commit_review))
+            .on_action(cx.listener(Self::push_review))
             .on_action(cx.listener(Self::archive_active_thread))
             .on_action(cx.listener(Self::archive_project))
             .on_action(cx.listener(Self::show_more_project_threads))

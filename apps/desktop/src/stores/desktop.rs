@@ -5,7 +5,10 @@ use crate::backend::{
 use ace_core::{Project, ProjectId, ThreadId};
 use ace_project::ProjectSummary;
 use ace_protocol::{
-    git::{GitChangedFilesRequest, GitDiffRequest, GitStageRequest, GitUnstageRequest},
+    git::{
+        GitChangedFilesRequest, GitCommitRequest, GitDiffRequest, GitPushRequest, GitStageRequest,
+        GitUnstageRequest,
+    },
     project::{
         ProjectAddRequest, ProjectDeleteRequest, ProjectSnapshotRequest, ProjectThreadsRequest,
         ThreadMessagesRequest,
@@ -1135,6 +1138,28 @@ impl DesktopStore {
                     repo_path,
                     paths: vec![path],
                     all: false,
+                },
+            )
+        });
+    }
+
+    pub fn commit_active_review(&mut self, host: Option<&BackendHostClient>) {
+        let message = generated_review_commit_message(&self.review_projection());
+        self.run_active_review_git_action(host, "commit staged changes", |host, repo_path| {
+            host.call::<_, serde_json::Value>(
+                methods::GIT_COMMIT,
+                &GitCommitRequest { repo_path, message },
+            )
+        });
+    }
+
+    pub fn push_active_review(&mut self, host: Option<&BackendHostClient>) {
+        self.run_active_review_git_action(host, "push branch", |host, repo_path| {
+            host.call::<_, serde_json::Value>(
+                methods::GIT_PUSH,
+                &GitPushRequest {
+                    repo_path,
+                    set_upstream: true,
                 },
             )
         });
@@ -2574,6 +2599,14 @@ fn truncate_diff_preview(diff: &str) -> (String, bool) {
     (diff[..end].to_string(), true)
 }
 
+fn generated_review_commit_message(review: &ReviewProjection) -> String {
+    match review.files.as_slice() {
+        [] => "Update project".to_string(),
+        [file] => format!("Update {}", file.path),
+        files => format!("Update {} files", files.len()),
+    }
+}
+
 fn message_excerpt(message: &ChatMessageProjection) -> String {
     let raw = message
         .text
@@ -2883,6 +2916,48 @@ mod tests {
         assert_eq!(files[0].additions, Some(3));
         assert_eq!(files[0].deletions, Some(1));
         assert_eq!(files[1].original_path.as_deref(), Some("old.rs"));
+    }
+
+    #[test]
+    fn generated_review_commit_message_describes_changed_files() {
+        let empty = ReviewProjection::default();
+        assert_eq!(generated_review_commit_message(&empty), "Update project");
+
+        let single = ReviewProjection {
+            files: vec![ReviewFileProjection {
+                path: "src/lib.rs".to_string(),
+                original_path: None,
+                status: "modified".to_string(),
+                additions: Some(1),
+                deletions: Some(0),
+            }],
+            ..ReviewProjection::default()
+        };
+        assert_eq!(
+            generated_review_commit_message(&single),
+            "Update src/lib.rs"
+        );
+
+        let many = ReviewProjection {
+            files: vec![
+                ReviewFileProjection {
+                    path: "src/lib.rs".to_string(),
+                    original_path: None,
+                    status: "modified".to_string(),
+                    additions: Some(1),
+                    deletions: Some(0),
+                },
+                ReviewFileProjection {
+                    path: "src/main.rs".to_string(),
+                    original_path: None,
+                    status: "modified".to_string(),
+                    additions: Some(2),
+                    deletions: Some(1),
+                },
+            ],
+            ..ReviewProjection::default()
+        };
+        assert_eq!(generated_review_commit_message(&many), "Update 2 files");
     }
 
     #[test]

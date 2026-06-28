@@ -23,6 +23,8 @@ actions!(
         RefreshReview,
         StageReviewAll,
         UnstageReviewAll,
+        CommitReview,
+        PushReview,
         ArchiveActiveThread,
         AddCurrentDirectoryProject,
         OpenSearchPalette,
