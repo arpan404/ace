@@ -193,6 +193,17 @@ pub fn palette_items(
         });
     }
 
+    registry_items.push(SearchPaletteItem::Panel {
+        tab: crate::stores::ui::RightPanelTab::Environment,
+        label: projection.host.label.clone(),
+        description: projection
+            .host
+            .endpoint
+            .clone()
+            .unwrap_or_else(|| "Host runtime is not connected".to_string()),
+        result_kind: SearchPaletteResultKind::Registry,
+    });
+
     if projection.runtime_status.providers > 0
         || projection.runtime_status.threads > 0
         || projection.runtime_status.error.is_some()

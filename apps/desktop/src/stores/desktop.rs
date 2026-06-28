@@ -82,6 +82,7 @@ pub struct DesktopStore {
 pub struct DesktopProjection {
     pub sidebar: SidebarProjection,
     pub chat: ChatProjection,
+    pub host: HostProjection,
     pub services: ServiceReadiness,
     pub terminal: TerminalProjection,
     pub review: ReviewProjection,
@@ -91,6 +92,23 @@ pub struct DesktopProjection {
     pub plugins: ToolRegistryProjection,
     pub skills: ToolRegistryProjection,
     pub annotations: ThreadAnnotationsProjection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostProjection {
+    pub id: String,
+    pub label: String,
+    pub endpoint: Option<String>,
+}
+
+impl Default for HostProjection {
+    fn default() -> Self {
+        Self {
+            id: "disconnected".to_string(),
+            label: "No host".to_string(),
+            endpoint: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -461,6 +479,7 @@ impl DesktopStore {
         DesktopProjection {
             sidebar,
             chat,
+            host: self.host_projection(),
             services: self.service_readiness(),
             terminal: self.terminal_projection(),
             review: self.review_projection(),
@@ -471,6 +490,23 @@ impl DesktopStore {
             skills: self.skill_registry.clone(),
             annotations: self.annotations_projection(),
         }
+    }
+
+    #[must_use]
+    pub fn host_projection(&self) -> HostProjection {
+        self.host
+            .as_ref()
+            .map_or_else(HostProjection::default, |host| {
+                let endpoint = host.endpoint();
+                HostProjection {
+                    id: host.id().as_str().to_string(),
+                    label: host.label().to_string(),
+                    endpoint: Some(format!(
+                        "{}:{}{}",
+                        endpoint.host, endpoint.port, endpoint.path
+                    )),
+                }
+            })
     }
 
     #[must_use]

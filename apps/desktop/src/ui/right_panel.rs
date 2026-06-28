@@ -876,7 +876,10 @@ fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement 
         .flex_col()
         .gap_3()
         .child(environment_card(theme, Some(thread)))
-        .child(info_row(theme, "Host", "Local runtime"))
+        .child(info_row(theme, "Host", &projection.host.label))
+        .when_some(projection.host.endpoint.as_deref(), |this, endpoint| {
+            this.child(info_row(theme, "Endpoint", endpoint))
+        })
         .child(info_row(theme, "Branch", branch))
         .child(info_row(theme, "Worktree", &worktree))
         .child(info_row(
@@ -945,6 +948,7 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         .gap_3()
         .child(info_row(theme, "Title", &thread.title))
         .child(info_row(theme, "Status", thread.status_label()))
+        .child(info_row(theme, "Host", &projection.host.label))
         .child(info_row(theme, "Provider", thread.provider.display_name()))
         .child(info_row(
             theme,
