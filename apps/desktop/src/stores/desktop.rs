@@ -61,6 +61,8 @@ pub struct DesktopStore {
     terminal_errors: HashMap<ThreadId, String>,
     review_snapshots: HashMap<ProjectId, ReviewProjection>,
     provider_registry: ProviderRegistryProjection,
+    plugin_registry: ToolRegistryProjection,
+    skill_registry: ToolRegistryProjection,
     pinned_items: Vec<PinnedTimelineItem>,
     highlighted_items: Vec<HighlightedTimelineItem>,
     todos: Vec<TodoItem>,
@@ -79,6 +81,8 @@ pub struct DesktopProjection {
     pub terminal: TerminalProjection,
     pub review: ReviewProjection,
     pub providers: ProviderRegistryProjection,
+    pub plugins: ToolRegistryProjection,
+    pub skills: ToolRegistryProjection,
     pub annotations: ThreadAnnotationsProjection,
 }
 
@@ -208,6 +212,25 @@ pub struct ProviderSummaryProjection {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ToolRegistryProjection {
+    pub entries: Vec<ToolRegistryEntryProjection>,
+    pub source: &'static str,
+    pub error: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolRegistryEntryProjection {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub version: Option<String>,
+    pub source: Option<String>,
+    pub status: String,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ThreadAnnotationsProjection {
     pub pinned_items: Vec<PinnedTimelineItem>,
     pub highlighted_items: Vec<HighlightedTimelineItem>,
@@ -298,6 +321,14 @@ impl DesktopStore {
             terminal_errors: HashMap::new(),
             review_snapshots: HashMap::new(),
             provider_registry: ProviderRegistryProjection::default(),
+            plugin_registry: ToolRegistryProjection {
+                source: "plugin/installed",
+                ..ToolRegistryProjection::default()
+            },
+            skill_registry: ToolRegistryProjection {
+                source: "skills/list",
+                ..ToolRegistryProjection::default()
+            },
             pinned_items: Vec::new(),
             highlighted_items: Vec::new(),
             todos: Vec::new(),
@@ -391,6 +422,8 @@ impl DesktopStore {
             terminal: self.terminal_projection(),
             review: self.review_projection(),
             providers: self.provider_registry.clone(),
+            plugins: self.plugin_registry.clone(),
+            skills: self.skill_registry.clone(),
             annotations: self.annotations_projection(),
         }
     }
@@ -823,6 +856,68 @@ impl DesktopStore {
             error: (!partial_errors.is_empty()).then(|| partial_errors.join("; ")),
             updated_at: Some(now),
         };
+    }
+
+    pub fn refresh_plugin_registry(&mut self, host: Option<&BackendHostClient>) {
+        self.plugin_registry = self.refresh_tool_registry(
+            host,
+            methods::CODEX_PLUGINS_INSTALLED,
+            "plugin/installed",
+            "Plugin registry",
+            RegistrySurface::Plugin,
+        );
+    }
+
+    pub fn refresh_skill_registry(&mut self, host: Option<&BackendHostClient>) {
+        self.skill_registry = self.refresh_tool_registry(
+            host,
+            methods::CODEX_SKILLS_LIST,
+            "skills/list",
+            "Skill registry",
+            RegistrySurface::Skill,
+        );
+    }
+
+    pub fn refresh_developer_registries(&mut self, host: Option<&BackendHostClient>) {
+        self.refresh_provider_registry(host);
+        self.refresh_plugin_registry(host);
+        self.refresh_skill_registry(host);
+    }
+
+    fn refresh_tool_registry(
+        &mut self,
+        host: Option<&BackendHostClient>,
+        method: &'static str,
+        source: &'static str,
+        label: &'static str,
+        surface: RegistrySurface,
+    ) -> ToolRegistryProjection {
+        let Some(host) = self.host.clone().or_else(|| host.cloned()) else {
+            return ToolRegistryProjection {
+                source,
+                error: Some(format!(
+                    "Connect to a local or remote host runtime to inspect {label}."
+                )),
+                updated_at: Some(self.next_timestamp()),
+                ..ToolRegistryProjection::default()
+            };
+        };
+
+        let now = self.next_timestamp();
+        match host.call::<_, serde_json::Value>(method, &serde_json::json!({})) {
+            Ok(value) => ToolRegistryProjection {
+                entries: parse_tool_registry_entries(value, surface),
+                source,
+                error: None,
+                updated_at: Some(now),
+            },
+            Err(error) => ToolRegistryProjection {
+                source,
+                error: Some(format!("{label} unavailable via {source}: {error}")),
+                updated_at: Some(now),
+                ..ToolRegistryProjection::default()
+            },
+        }
     }
 
     pub fn stage_active_review_all(&mut self, host: Option<&BackendHostClient>) {
@@ -2094,6 +2189,173 @@ fn parse_review_files(value: serde_json::Value) -> Vec<ReviewFileProjection> {
         .unwrap_or_default()
 }
 
+#[derive(Debug, Clone, Copy)]
+enum RegistrySurface {
+    Plugin,
+    Skill,
+}
+
+fn parse_tool_registry_entries(
+    value: serde_json::Value,
+    surface: RegistrySurface,
+) -> Vec<ToolRegistryEntryProjection> {
+    let mut entries = Vec::new();
+    collect_tool_registry_entries(&value, surface, &mut entries);
+    let mut unique = Vec::new();
+    for entry in entries {
+        if !unique
+            .iter()
+            .any(|existing: &ToolRegistryEntryProjection| existing.id == entry.id)
+        {
+            unique.push(entry);
+        }
+    }
+    unique
+}
+
+fn collect_tool_registry_entries(
+    value: &serde_json::Value,
+    surface: RegistrySurface,
+    entries: &mut Vec<ToolRegistryEntryProjection>,
+) {
+    match value {
+        serde_json::Value::Array(items) => {
+            entries.extend(
+                items
+                    .iter()
+                    .filter_map(|item| parse_tool_registry_entry(item, surface, None)),
+            );
+        }
+        serde_json::Value::Object(object) => {
+            for key in registry_list_keys(surface) {
+                if let Some(nested) = object.get(*key) {
+                    collect_tool_registry_entries(nested, surface, entries);
+                    return;
+                }
+            }
+            if let Some(entry) = parse_tool_registry_entry(value, surface, None) {
+                entries.push(entry);
+                return;
+            }
+            entries.extend(object.iter().filter_map(|(key, nested)| {
+                parse_tool_registry_entry(nested, surface, Some(key.as_str()))
+            }));
+        }
+        serde_json::Value::String(name) => {
+            entries.push(simple_tool_registry_entry(name, surface));
+        }
+        _ => {}
+    }
+}
+
+fn registry_list_keys(surface: RegistrySurface) -> &'static [&'static str] {
+    match surface {
+        RegistrySurface::Plugin => &[
+            "plugins",
+            "installed_plugins",
+            "installedPlugins",
+            "installed",
+            "items",
+            "entries",
+            "results",
+        ],
+        RegistrySurface::Skill => &[
+            "skills",
+            "installed_skills",
+            "installedSkills",
+            "items",
+            "entries",
+            "results",
+        ],
+    }
+}
+
+fn parse_tool_registry_entry(
+    value: &serde_json::Value,
+    surface: RegistrySurface,
+    fallback_id: Option<&str>,
+) -> Option<ToolRegistryEntryProjection> {
+    match value {
+        serde_json::Value::String(name) => Some(simple_tool_registry_entry(name, surface)),
+        serde_json::Value::Object(object) => {
+            let name = string_field(
+                object,
+                match surface {
+                    RegistrySurface::Plugin => &[
+                        "display_name",
+                        "displayName",
+                        "name",
+                        "title",
+                        "plugin",
+                        "id",
+                    ],
+                    RegistrySurface::Skill => &[
+                        "display_name",
+                        "displayName",
+                        "name",
+                        "title",
+                        "skill",
+                        "id",
+                    ],
+                },
+            )
+            .or_else(|| fallback_id.map(ToString::to_string))?;
+            let id = string_field(object, &["id", "slug", "key"])
+                .or_else(|| fallback_id.map(ToString::to_string))
+                .unwrap_or_else(|| name.clone());
+            let enabled = object.get("enabled").and_then(serde_json::Value::as_bool);
+            let status =
+                string_field(object, &["status", "state", "health"]).unwrap_or_else(|| {
+                    enabled.map_or_else(
+                        || "available".to_string(),
+                        |enabled| {
+                            if enabled {
+                                "enabled".to_string()
+                            } else {
+                                "disabled".to_string()
+                            }
+                        },
+                    )
+                });
+
+            Some(ToolRegistryEntryProjection {
+                id,
+                name,
+                description: string_field(object, &["description", "summary"]),
+                version: string_field(object, &["version"]),
+                source: string_field(object, &["source", "origin"]),
+                status,
+                enabled,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn simple_tool_registry_entry(
+    name: &str,
+    _surface: RegistrySurface,
+) -> ToolRegistryEntryProjection {
+    ToolRegistryEntryProjection {
+        id: name.to_string(),
+        name: name.to_string(),
+        description: None,
+        version: None,
+        source: None,
+        status: "available".to_string(),
+        enabled: None,
+    }
+}
+
+fn string_field(
+    object: &serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<String> {
+    keys.iter()
+        .find_map(|key| object.get(*key).and_then(serde_json::Value::as_str))
+        .map(ToString::to_string)
+}
+
 fn truncate_diff_preview(diff: &str) -> (String, bool) {
     if diff.len() <= DESKTOP_DIFF_PREVIEW_LIMIT {
         return (diff.to_string(), false);
@@ -2179,6 +2441,44 @@ mod tests {
         let second = store.add_project("/tmp/project".to_string());
         assert_eq!(first, second);
         assert_eq!(store.projects.len(), 1);
+    }
+
+    #[test]
+    fn tool_registry_parser_reads_common_shapes() {
+        let plugins = parse_tool_registry_entries(
+            serde_json::json!({
+                "installedPlugins": [
+                    {
+                        "id": "browser",
+                        "displayName": "Browser",
+                        "description": "Chromium control",
+                        "version": "1.2.3",
+                        "source": "builtin",
+                        "enabled": true
+                    },
+                    "browser"
+                ]
+            }),
+            RegistrySurface::Plugin,
+        );
+        assert_eq!(plugins.len(), 1);
+        assert_eq!(plugins[0].id, "browser");
+        assert_eq!(plugins[0].name, "Browser");
+        assert_eq!(plugins[0].status, "enabled");
+
+        let skills = parse_tool_registry_entries(
+            serde_json::json!({
+                "rust": {
+                    "description": "Rust workflow context",
+                    "state": "installed"
+                }
+            }),
+            RegistrySurface::Skill,
+        );
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].id, "rust");
+        assert_eq!(skills[0].name, "rust");
+        assert_eq!(skills[0].status, "installed");
     }
 
     #[test]

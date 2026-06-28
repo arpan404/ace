@@ -85,7 +85,7 @@ impl RootView {
             match DesktopStore::load_from_host(host) {
                 Ok(mut store) => {
                     store.restore_annotations(annotations.clone());
-                    store.refresh_provider_registry(Some(host));
+                    store.refresh_developer_registries(Some(host));
                     if ui_store.state().right_panel_tab == RightPanelTab::Review {
                         store.refresh_active_review(Some(host));
                     }
@@ -282,10 +282,15 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.ui_store.select_right_panel_tab(event.tab);
-        if event.tab == RightPanelTab::Review {
-            self.refresh_active_review();
-        } else if event.tab == RightPanelTab::Summary {
-            self.refresh_provider_registry();
+        match event.tab {
+            RightPanelTab::Review => self.refresh_active_review(),
+            RightPanelTab::Summary | RightPanelTab::Providers => self.refresh_provider_registry(),
+            RightPanelTab::Plugins => self.refresh_plugin_registry(),
+            RightPanelTab::Skills => self.refresh_skill_registry(),
+            RightPanelTab::Browser
+            | RightPanelTab::Editor
+            | RightPanelTab::Pinned
+            | RightPanelTab::Todos => {}
         }
         self.save_ui_state();
         cx.notify();
@@ -536,6 +541,18 @@ impl RootView {
         let active_host = self.active_host.clone();
         self.active_store_mut()
             .refresh_provider_registry(active_host.as_ref());
+    }
+
+    fn refresh_plugin_registry(&mut self) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .refresh_plugin_registry(active_host.as_ref());
+    }
+
+    fn refresh_skill_registry(&mut self) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .refresh_skill_registry(active_host.as_ref());
     }
 
     fn refresh_review(&mut self, _: &RefreshReview, _: &mut Window, cx: &mut Context<Self>) {

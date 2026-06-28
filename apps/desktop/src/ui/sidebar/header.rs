@@ -1,6 +1,8 @@
 use crate::ui::{components::*, theme::Theme};
-use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
-use gpui_component::IconName;
+use gpui::{
+    AnyElement, IntoElement, MouseButton, StatefulInteractiveElement as _, div, prelude::*, px,
+};
+use gpui_component::{IconName, tooltip::Tooltip};
 
 pub(super) fn sidebar_header(theme: Theme, reserve_titlebar_controls: bool) -> AnyElement {
     div()
@@ -41,6 +43,52 @@ pub(super) fn sidebar_header(theme: Theme, reserve_titlebar_controls: bool) -> A
                     Box::new(crate::actions::NewThread)
                 }))
                 .child(sidebar_search(theme)),
+        )
+        .child(
+            div()
+                .px_3()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(disabled_command_row(
+                    IconName::Calendar,
+                    "Scheduled",
+                    "Scheduled tasks need a host scheduler service.",
+                    theme,
+                ))
+                .child(ace_command_row(
+                    AceIconName::Box,
+                    "Plugins",
+                    None,
+                    theme,
+                    || {
+                        Box::new(crate::actions::SelectRightPanelTab {
+                            tab: crate::stores::ui::RightPanelTab::Plugins,
+                        })
+                    },
+                ))
+                .child(ace_command_row(
+                    AceIconName::FlaskConical,
+                    "Skills",
+                    None,
+                    theme,
+                    || {
+                        Box::new(crate::actions::SelectRightPanelTab {
+                            tab: crate::stores::ui::RightPanelTab::Skills,
+                        })
+                    },
+                ))
+                .child(ace_command_row(
+                    AceIconName::Code2,
+                    "Providers",
+                    None,
+                    theme,
+                    || {
+                        Box::new(crate::actions::SelectRightPanelTab {
+                            tab: crate::stores::ui::RightPanelTab::Providers,
+                        })
+                    },
+                )),
         )
         .into_any_element()
 }
@@ -119,6 +167,36 @@ where
     F: Fn() -> Box<dyn gpui::Action> + 'static,
 {
     row(theme, label, suffix, icon_tile(icon, theme), action)
+}
+
+fn disabled_command_row(
+    icon: IconName,
+    label: &'static str,
+    reason: &'static str,
+    theme: Theme,
+) -> AnyElement {
+    div()
+        .id("sidebar-scheduled-disabled")
+        .h(px(34.0))
+        .rounded_md()
+        .px_3()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .text_size(px(13.0))
+        .text_color(theme.muted_subtle.opacity(0.62))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(icon_svg(icon, theme.muted_subtle.opacity(0.62)))
+                .child(label),
+        )
+        .tooltip(move |window, cx| Tooltip::new(reason).build(window, cx))
+        .into_any_element()
 }
 
 fn row<F>(

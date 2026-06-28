@@ -10,6 +10,9 @@ pub enum RightPanelTab {
     Browser,
     Editor,
     Summary,
+    Providers,
+    Plugins,
+    Skills,
     Pinned,
     Todos,
 }

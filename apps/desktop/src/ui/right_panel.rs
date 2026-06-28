@@ -7,7 +7,7 @@ use crate::{
     },
     stores::{
         DesktopProjection, ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
-        TodoStatus,
+        TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{components::*, layout::PanelLayout, theme::Theme},
@@ -217,6 +217,24 @@ fn workbench_panel(
                 .child(right_tab(
                     theme,
                     active_tab,
+                    RightPanelTab::Providers,
+                    &services.providers,
+                ))
+                .child(right_tab(
+                    theme,
+                    active_tab,
+                    RightPanelTab::Plugins,
+                    &services.plugins,
+                ))
+                .child(right_tab(
+                    theme,
+                    active_tab,
+                    RightPanelTab::Skills,
+                    &services.skills,
+                ))
+                .child(right_tab(
+                    theme,
+                    active_tab,
                     RightPanelTab::Pinned,
                     &services.summary,
                 ))
@@ -290,6 +308,43 @@ fn workbench_panel(
                 AceIconName::Summary,
                 "Summary",
                 || summary_body(theme, projection),
+            ),
+            RightPanelTab::Providers => service_panel_body(
+                theme,
+                &services.providers,
+                AceIconName::Code2,
+                "Providers",
+                || providers_body(theme, projection),
+            ),
+            RightPanelTab::Plugins => service_panel_body(
+                theme,
+                &services.plugins,
+                AceIconName::Box,
+                "Plugins",
+                || {
+                    tool_registry_body(
+                        theme,
+                        &projection.plugins,
+                        AceIconName::Box,
+                        "Plugins",
+                        "No plugins are reported by the active provider runtime.",
+                    )
+                },
+            ),
+            RightPanelTab::Skills => service_panel_body(
+                theme,
+                &services.skills,
+                AceIconName::FlaskConical,
+                "Skills",
+                || {
+                    tool_registry_body(
+                        theme,
+                        &projection.skills,
+                        AceIconName::FlaskConical,
+                        "Skills",
+                        "No skills are reported by the active provider runtime.",
+                    )
+                },
             ),
             RightPanelTab::Pinned => service_panel_body(
                 theme,
@@ -400,6 +455,9 @@ fn right_tab_meta(tab: RightPanelTab) -> (AceIconName, &'static str) {
         RightPanelTab::Browser => (AceIconName::Browser, "Browser"),
         RightPanelTab::Editor => (AceIconName::Editor, "Editor"),
         RightPanelTab::Summary => (AceIconName::Summary, "Summary"),
+        RightPanelTab::Providers => (AceIconName::Code2, "Providers"),
+        RightPanelTab::Plugins => (AceIconName::Box, "Plugins"),
+        RightPanelTab::Skills => (AceIconName::FlaskConical, "Skills"),
         RightPanelTab::Pinned => (AceIconName::PinFilled, "Pinned"),
         RightPanelTab::Todos => (AceIconName::ListChecks, "Todos"),
     }
@@ -411,6 +469,9 @@ fn right_tab_id(tab: RightPanelTab) -> &'static str {
         RightPanelTab::Browser => "right-tab-browser",
         RightPanelTab::Editor => "right-tab-editor",
         RightPanelTab::Summary => "right-tab-summary",
+        RightPanelTab::Providers => "right-tab-providers",
+        RightPanelTab::Plugins => "right-tab-plugins",
+        RightPanelTab::Skills => "right-tab-skills",
         RightPanelTab::Pinned => "right-tab-pinned",
         RightPanelTab::Todos => "right-tab-todos",
     }
@@ -760,6 +821,16 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         ))
         .child(info_row(
             theme,
+            "Plugins",
+            &projection.plugins.entries.len().to_string(),
+        ))
+        .child(info_row(
+            theme,
+            "Skills",
+            &projection.skills.entries.len().to_string(),
+        ))
+        .child(info_row(
+            theme,
             "Pinned",
             &projection.annotations.pinned_items.len().to_string(),
         ))
@@ -936,6 +1007,178 @@ fn summary_provider_registry(theme: Theme, projection: &DesktopProjection) -> An
                 .collect::<Vec<_>>(),
         )
         .into_any_element()
+}
+
+fn providers_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    if projection.providers.providers.is_empty() && projection.providers.error.is_none() {
+        return empty_panel_body(
+            theme,
+            AceIconName::Code2,
+            "Providers",
+            "No providers are reported by the active provider runtime.",
+        );
+    }
+
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(info_row(
+            theme,
+            "Providers",
+            &projection.providers.providers.len().to_string(),
+        ))
+        .child(info_row(
+            theme,
+            "Slash commands",
+            &projection.providers.total_slash_commands.to_string(),
+        ))
+        .when_some(
+            projection.providers.updated_at.as_deref(),
+            |this, updated| this.child(info_row(theme, "Updated", updated)),
+        )
+        .child(summary_provider_registry(theme, projection))
+        .into_any_element()
+}
+
+fn tool_registry_body(
+    theme: Theme,
+    registry: &ToolRegistryProjection,
+    icon: AceIconName,
+    label: &'static str,
+    empty_message: &'static str,
+) -> AnyElement {
+    if registry.entries.is_empty() && registry.error.is_none() {
+        return empty_panel_body(theme, icon, label, empty_message);
+    }
+
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(info_row(theme, "Source", registry.source))
+        .child(info_row(
+            theme,
+            "Entries",
+            &registry.entries.len().to_string(),
+        ))
+        .when_some(registry.updated_at.as_deref(), |this, updated| {
+            this.child(info_row(theme, "Updated", updated))
+        })
+        .when_some(registry.error.as_deref(), |this, error| {
+            this.child(registry_error_card(theme, error))
+        })
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .children(
+                    registry
+                        .entries
+                        .iter()
+                        .take(80)
+                        .map(|entry| tool_registry_entry_card(theme, entry))
+                        .collect::<Vec<_>>(),
+                )
+                .when(registry.entries.len() > 80, |this| {
+                    this.child(
+                        div()
+                            .pt_1()
+                            .text_size(px(11.0))
+                            .text_color(theme.muted_subtle)
+                            .child(format!("{} more entries", registry.entries.len() - 80)),
+                    )
+                })
+                .overflow_y_scrollbar(),
+        )
+        .into_any_element()
+}
+
+fn registry_error_card(theme: Theme, error: &str) -> AnyElement {
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.accent_warning.opacity(0.42))
+        .bg(theme.panel)
+        .px_2()
+        .py_2()
+        .text_size(px(12.0))
+        .line_height(px(17.0))
+        .text_color(theme.accent_warning)
+        .child(clamp_text(error, 280))
+        .into_any_element()
+}
+
+fn tool_registry_entry_card(theme: Theme, entry: &ToolRegistryEntryProjection) -> AnyElement {
+    let status_color = match entry.enabled {
+        Some(true) => theme.accent_success,
+        Some(false) => theme.muted_subtle,
+        None if entry.status.eq_ignore_ascii_case("enabled")
+            || entry.status.eq_ignore_ascii_case("installed")
+            || entry.status.eq_ignore_ascii_case("available") =>
+        {
+            theme.accent_success
+        }
+        None if entry.status.eq_ignore_ascii_case("disabled")
+            || entry.status.eq_ignore_ascii_case("unavailable") =>
+        {
+            theme.accent_warning
+        }
+        None => theme.muted,
+    };
+
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_size(px(12.0))
+                .text_color(theme.foreground.opacity(0.84))
+                .child(div().w(px(6.0)).h(px(6.0)).rounded_full().bg(status_color))
+                .child(clamp_text(&entry.name, 120)),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(theme.muted)
+                .child(registry_entry_meta(entry)),
+        )
+        .when_some(entry.description.as_deref(), |this, description| {
+            this.child(
+                div()
+                    .text_size(px(11.0))
+                    .line_height(px(16.0))
+                    .text_color(theme.foreground.opacity(0.72))
+                    .child(clamp_text(description, 180)),
+            )
+        })
+        .into_any_element()
+}
+
+fn registry_entry_meta(entry: &ToolRegistryEntryProjection) -> String {
+    let mut parts = vec![entry.status.clone()];
+    if let Some(version) = entry.version.as_deref().filter(|value| !value.is_empty()) {
+        parts.push(format!("v{version}"));
+    }
+    if let Some(source) = entry.source.as_deref().filter(|value| !value.is_empty()) {
+        parts.push(source.to_string());
+    }
+    parts.join(" · ")
 }
 
 fn summary_annotation_actions(theme: Theme, projection: &DesktopProjection) -> AnyElement {
