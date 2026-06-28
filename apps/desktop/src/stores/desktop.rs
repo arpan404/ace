@@ -14,13 +14,15 @@ use ace_protocol::{
         ThreadMessagesRequest,
     },
     provider_runtime::{
-        ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeProvidersList,
-        ProviderRuntimeRawEventMode, ProviderRuntimeRecentEventsRequest,
-        ProviderRuntimeRecentEventsResponse, ProviderRuntimeSlashCommandsListRequest,
-        ProviderRuntimeSlashCommandsListResponse, ProviderRuntimeStateGetRequest,
-        ProviderRuntimeStateGetResponse, ProviderRuntimeStatusListRequest,
-        ProviderRuntimeStatusListResponse, ProviderServerRequestAudit, ProviderServerRequestError,
-        ProviderServerRequestErrorInfo, ProviderServerRequestResult,
+        ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeModelsListRequest,
+        ProviderRuntimeModelsListResponse, ProviderRuntimeProviderInfo,
+        ProviderRuntimeProvidersList, ProviderRuntimeRawEventMode,
+        ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
+        ProviderRuntimeSlashCommandsListRequest, ProviderRuntimeSlashCommandsListResponse,
+        ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
+        ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
+        ProviderServerRequestAudit, ProviderServerRequestError, ProviderServerRequestErrorInfo,
+        ProviderServerRequestResult,
     },
     terminal::{
         DEFAULT_TERMINAL_ID, SequencedTerminalEvent, TerminalEvent, TerminalOpenRequest,
@@ -72,6 +74,7 @@ pub struct DesktopStore {
     provider_registry: ProviderRegistryProjection,
     runtime_status: RuntimeStatusProjection,
     approval_registry: ApprovalRegistryProjection,
+    model_registry: ModelRegistryProjection,
     plugin_registry: ToolRegistryProjection,
     skill_registry: ToolRegistryProjection,
     pinned_items: Vec<PinnedTimelineItem>,
@@ -97,6 +100,7 @@ pub struct DesktopProjection {
     pub providers: ProviderRegistryProjection,
     pub runtime_status: RuntimeStatusProjection,
     pub approvals: ApprovalRegistryProjection,
+    pub models: ModelRegistryProjection,
     pub plugins: ToolRegistryProjection,
     pub skills: ToolRegistryProjection,
     pub annotations: ThreadAnnotationsProjection,
@@ -312,6 +316,36 @@ pub struct ApprovalItemProjection {
     pub detail: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModelRegistryProjection {
+    pub providers: Vec<ModelProviderProjection>,
+    pub total_models: usize,
+    pub error: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelProviderProjection {
+    pub runtime_id: String,
+    pub display_name: String,
+    pub provider: String,
+    pub models: Vec<ModelProjection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelProjection {
+    pub id: String,
+    pub display_name: String,
+    pub provider: Option<String>,
+    pub family: Option<String>,
+    pub context_window: Option<u64>,
+    pub max_output_tokens: Option<u64>,
+    pub supports_reasoning: bool,
+    pub supports_vision: bool,
+    pub supports_tools: bool,
+    pub supports_attachments: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderSummaryProjection {
     pub runtime_id: String,
@@ -437,6 +471,7 @@ impl DesktopStore {
             provider_registry: ProviderRegistryProjection::default(),
             runtime_status: RuntimeStatusProjection::default(),
             approval_registry: ApprovalRegistryProjection::default(),
+            model_registry: ModelRegistryProjection::default(),
             plugin_registry: ToolRegistryProjection {
                 source: "plugin/installed",
                 ..ToolRegistryProjection::default()
@@ -543,6 +578,7 @@ impl DesktopStore {
             providers: self.provider_registry.clone(),
             runtime_status: self.runtime_status.clone(),
             approvals: self.approval_registry.clone(),
+            models: self.model_registry.clone(),
             plugins: self.plugin_registry.clone(),
             skills: self.skill_registry.clone(),
             annotations: self.annotations_projection(),
@@ -1011,6 +1047,13 @@ impl DesktopStore {
                 updated_at: self.runtime_status.updated_at.clone(),
                 ..ApprovalRegistryProjection::default()
             };
+            self.model_registry = ModelRegistryProjection {
+                error: Some(
+                    "Connect to a local or remote host runtime to inspect models.".to_string(),
+                ),
+                updated_at: self.runtime_status.updated_at.clone(),
+                ..ModelRegistryProjection::default()
+            };
             return;
         };
 
@@ -1035,6 +1078,11 @@ impl DesktopStore {
                     error: Some(format!("Provider approval state unavailable: {error}")),
                     updated_at: self.provider_registry.updated_at.clone(),
                     ..ApprovalRegistryProjection::default()
+                };
+                self.model_registry = ModelRegistryProjection {
+                    error: Some(format!("Provider model catalog unavailable: {error}")),
+                    updated_at: self.provider_registry.updated_at.clone(),
+                    ..ModelRegistryProjection::default()
                 };
                 return;
             }
@@ -1143,6 +1191,14 @@ impl DesktopStore {
             error: (!partial_errors.is_empty()).then(|| partial_errors.join("; ")),
             updated_at: Some(now),
         };
+        self.model_registry = self.refresh_model_registry_for_providers(
+            &host,
+            &providers_response.runtime,
+            self.provider_registry
+                .updated_at
+                .clone()
+                .unwrap_or_default(),
+        );
         if let Some(response) = state_response {
             let updated_at = self
                 .provider_registry
@@ -1176,6 +1232,43 @@ impl DesktopStore {
             "Skill registry",
             RegistrySurface::Skill,
         );
+    }
+
+    fn refresh_model_registry_for_providers(
+        &self,
+        host: &BackendHostClient,
+        providers: &[ProviderRuntimeProviderInfo],
+        updated_at: String,
+    ) -> ModelRegistryProjection {
+        let mut model_providers = Vec::new();
+        let mut errors = Vec::new();
+        for provider in providers
+            .iter()
+            .filter(|provider| provider.readiness.ready || provider.summary.selectable)
+        {
+            match host.call::<_, ProviderRuntimeModelsListResponse>(
+                methods::PROVIDER_RUNTIME_MODELS_LIST,
+                &ProviderRuntimeModelsListRequest {
+                    provider: provider.runtime_id.clone(),
+                    params: serde_json::Value::Null,
+                    timeout_ms: 30_000,
+                },
+            ) {
+                Ok(response) => model_providers.push(model_provider_projection(response)),
+                Err(error) => errors.push(format!("{}: {error}", provider.display_name)),
+            }
+        }
+        let total_models = model_providers
+            .iter()
+            .map(|provider| provider.models.len())
+            .sum();
+
+        ModelRegistryProjection {
+            providers: model_providers,
+            total_models,
+            error: (!errors.is_empty()).then(|| errors.join("; ")),
+            updated_at: Some(updated_at),
+        }
     }
 
     pub fn refresh_developer_registries(&mut self, host: Option<&BackendHostClient>) {
@@ -2858,6 +2951,35 @@ fn approval_audit(reason: &'static str) -> ProviderServerRequestAudit {
     }
 }
 
+fn model_provider_projection(
+    response: ProviderRuntimeModelsListResponse,
+) -> ModelProviderProjection {
+    let models = response
+        .catalog
+        .models
+        .into_iter()
+        .map(|model| ModelProjection {
+            id: model.id,
+            display_name: model.display_name,
+            provider: model.provider,
+            family: model.family,
+            context_window: model.capabilities.context_window,
+            max_output_tokens: model.capabilities.max_output_tokens,
+            supports_reasoning: model.capabilities.supports_reasoning,
+            supports_vision: model.capabilities.supports_vision,
+            supports_tools: model.capabilities.supports_tools,
+            supports_attachments: model.capabilities.supports_attachments,
+        })
+        .collect();
+
+    ModelProviderProjection {
+        runtime_id: response.runtime_id,
+        display_name: response.display_name,
+        provider: response.catalog.provider,
+        models,
+    }
+}
+
 fn short_status(status: &TerminalSessionStatus) -> &'static str {
     match status {
         TerminalSessionStatus::Starting => "starting",
@@ -3600,6 +3722,46 @@ mod tests {
         assert_eq!(projection.pending[0].detail.as_deref(), Some("cargo test"));
         assert_eq!(projection.resolved, 0);
         assert_eq!(projection.updated_at.as_deref(), Some("updated"));
+    }
+
+    #[test]
+    fn model_provider_projection_reads_catalog_capabilities() {
+        let projection = model_provider_projection(ProviderRuntimeModelsListResponse {
+            provider: ace_core::ProviderKind::Codex,
+            runtime_id: "codex".to_string(),
+            display_name: "Codex".to_string(),
+            catalog: ace_runtime::models::ProviderModelCatalog {
+                provider: "codex".to_string(),
+                models: vec![ace_runtime::models::ProviderModel {
+                    id: "gpt-5".to_string(),
+                    display_name: "GPT-5".to_string(),
+                    provider: Some("openai".to_string()),
+                    family: Some("gpt".to_string()),
+                    capabilities: ace_runtime::models::ProviderModelCapabilities {
+                        context_window: Some(256_000),
+                        max_output_tokens: Some(32_000),
+                        supports_reasoning: true,
+                        supports_vision: false,
+                        supports_tools: true,
+                        supports_parallel_tool_calls: true,
+                        supports_subagents: false,
+                        supports_attachments: true,
+                        default_reasoning_effort: Some("medium".to_string()),
+                    },
+                    metadata: Default::default(),
+                    raw: serde_json::json!({ "id": "gpt-5" }),
+                }],
+                metadata: Default::default(),
+                raw_payload: serde_json::json!({ "models": [] }),
+            },
+        });
+
+        assert_eq!(projection.runtime_id, "codex");
+        assert_eq!(projection.models.len(), 1);
+        assert_eq!(projection.models[0].display_name, "GPT-5");
+        assert_eq!(projection.models[0].context_window, Some(256_000));
+        assert!(projection.models[0].supports_tools);
+        assert!(projection.models[0].supports_attachments);
     }
 
     #[test]

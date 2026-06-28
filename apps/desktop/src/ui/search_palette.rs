@@ -289,6 +289,16 @@ pub fn palette_items(
             result_kind: SearchPaletteResultKind::Registry,
         });
     }
+    for provider in &projection.models.providers {
+        for model in &provider.models {
+            registry_items.push(SearchPaletteItem::Panel {
+                tab: crate::stores::ui::RightPanelTab::Providers,
+                label: model.display_name.clone(),
+                description: format!("Model · {} · {}", provider.display_name, model.id),
+                result_kind: SearchPaletteResultKind::Registry,
+            });
+        }
+    }
     for plugin in &projection.plugins.entries {
         registry_items.push(SearchPaletteItem::Panel {
             tab: crate::stores::ui::RightPanelTab::Plugins,

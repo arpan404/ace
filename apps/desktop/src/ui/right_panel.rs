@@ -8,10 +8,11 @@ use crate::{
         UpdateTodoStatus,
     },
     stores::{
-        ApprovalItemProjection, ApprovalRegistryProjection, DesktopProjection,
-        ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
-        SourceItemProjection, TodoItem, TodoStatus, ToolRegistryEntryProjection,
-        ToolRegistryProjection, WorktreeEntryProjection, WorktreeProjection,
+        ApprovalItemProjection, ApprovalRegistryProjection, DesktopProjection, ModelProjection,
+        ModelProviderProjection, ModelRegistryProjection, ReviewFileProjection, ReviewProjection,
+        ServiceReadiness, ServiceStatus, SourceItemProjection, TodoItem, TodoStatus,
+        ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
+        WorktreeProjection,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{components::*, layout::PanelLayout, theme::Theme},
@@ -1403,6 +1404,11 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         ))
         .child(info_row(
             theme,
+            "Models",
+            &projection.models.total_models.to_string(),
+        ))
+        .child(info_row(
+            theme,
             "Slash commands",
             &projection.providers.total_slash_commands.to_string(),
         ))
@@ -1754,6 +1760,11 @@ fn providers_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         ))
         .child(info_row(
             theme,
+            "Models",
+            &projection.models.total_models.to_string(),
+        ))
+        .child(info_row(
+            theme,
             "Runtime threads",
             &format!(
                 "{} active / {} total",
@@ -1774,7 +1785,157 @@ fn providers_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
             this.child(registry_error_card(theme, error))
         })
         .child(summary_provider_registry(theme, projection))
+        .child(model_registry_body(theme, &projection.models))
         .into_any_element()
+}
+
+fn model_registry_body(theme: Theme, registry: &ModelRegistryProjection) -> AnyElement {
+    if registry.providers.is_empty() && registry.error.is_none() {
+        return div().into_any_element();
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .when_some(registry.error.as_deref(), |this, error| {
+            this.child(registry_error_card(theme, error))
+        })
+        .children(
+            registry
+                .providers
+                .iter()
+                .map(|provider| model_provider_card(theme, provider))
+                .collect::<Vec<_>>(),
+        )
+        .into_any_element()
+}
+
+fn model_provider_card(theme: Theme, provider: &ModelProviderProjection) -> AnyElement {
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .text_size(px(12.0))
+                .text_color(theme.foreground.opacity(0.84))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(icon_svg(IconName::Bot, theme.muted))
+                        .child(clamp_text(&provider.display_name, 120)),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(theme.muted)
+                        .child(format!(
+                            "{} model{}",
+                            provider.models.len(),
+                            plural(provider.models.len())
+                        )),
+                ),
+        )
+        .children(
+            provider
+                .models
+                .iter()
+                .take(8)
+                .map(|model| model_card(theme, model))
+                .collect::<Vec<_>>(),
+        )
+        .when(provider.models.len() > 8, |this| {
+            this.child(
+                div()
+                    .pt_1()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(format!("{} more models", provider.models.len() - 8)),
+            )
+        })
+        .into_any_element()
+}
+
+fn model_card(theme: Theme, model: &ModelProjection) -> AnyElement {
+    let mut capabilities = Vec::new();
+    if model.supports_reasoning {
+        capabilities.push("reasoning");
+    }
+    if model.supports_tools {
+        capabilities.push("tools");
+    }
+    if model.supports_vision {
+        capabilities.push("vision");
+    }
+    if model.supports_attachments {
+        capabilities.push("attachments");
+    }
+
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_size(px(12.0))
+                .text_color(theme.foreground.opacity(0.82))
+                .child(clamp_text(&model.display_name, 130)),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(theme.muted)
+                .child(model_meta(model)),
+        )
+        .when(!capabilities.is_empty(), |this| {
+            this.child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(capabilities.join(" · ")),
+            )
+        })
+        .into_any_element()
+}
+
+fn model_meta(model: &ModelProjection) -> String {
+    let mut parts = vec![model.id.clone()];
+    if let Some(provider) = model.provider.as_deref() {
+        parts.push(provider.to_string());
+    }
+    if let Some(family) = model.family.as_deref() {
+        parts.push(family.to_string());
+    }
+    if let Some(context_window) = model.context_window {
+        parts.push(format!("{}k context", context_window / 1_000));
+    }
+    if let Some(max_output_tokens) = model.max_output_tokens {
+        parts.push(format!("{}k output", max_output_tokens / 1_000));
+    }
+    parts.join(" · ")
 }
 
 fn tool_registry_body(
