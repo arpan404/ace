@@ -74,13 +74,13 @@ pub(super) fn access_chip(theme: Theme) -> AnyElement {
         .items_center()
         .gap_1()
         .text_size(px(12.0))
-        .text_color(theme.accent_warning)
-        .child(icon_svg(IconName::TriangleAlert, theme.accent_warning))
-        .child("Full access")
+        .text_color(theme.muted)
+        .child(icon_svg(IconName::TriangleAlert, theme.muted))
+        .child("Default permissions")
         .into_any_element()
 }
 
-pub(super) fn model_chip(theme: Theme, model: &'static str, effort: &'static str) -> AnyElement {
+pub(super) fn model_chip(theme: Theme, model: &str, effort: &str) -> AnyElement {
     div()
         .h(px(28.0))
         .rounded_md()
@@ -92,12 +92,12 @@ pub(super) fn model_chip(theme: Theme, model: &'static str, effort: &'static str
         .text_size(px(12.0))
         .text_color(theme.muted)
         .child(icon_svg(IconName::Bot, theme.muted))
-        .child(model)
-        .child(effort)
+        .child(model.to_string())
+        .child(effort.to_string())
         .into_any_element()
 }
 
-pub(super) fn meta_chip(icon: IconName, label: &'static str, theme: Theme) -> AnyElement {
+pub(super) fn meta_chip(icon: IconName, label: &str, theme: Theme) -> AnyElement {
     div()
         .h(px(24.0))
         .rounded_md()
@@ -109,7 +109,7 @@ pub(super) fn meta_chip(icon: IconName, label: &'static str, theme: Theme) -> An
         .text_size(px(12.0))
         .text_color(theme.muted)
         .child(icon_svg(icon, theme.muted))
-        .child(label)
+        .child(label.to_string())
         .into_any_element()
 }
 

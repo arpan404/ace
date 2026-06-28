@@ -6,7 +6,9 @@ use crate::{
     stores::{ThreadAnnotationsProjection, ui::UiState},
     ui::{components::*, right_panel::environment_card, theme::Theme},
 };
-use ace_runtime::chat::{ChatMessageProjection, ChatMessageRole, ChatProjection};
+use ace_runtime::chat::{
+    ChatMessageProjection, ChatMessageRole, ChatProjection, InteractionMode, RuntimeMode,
+};
 use gpui::{AnyElement, App, IntoElement, Window, div, prelude::*, px};
 use gpui_component::{IconName, scroll::ScrollableElement as _, text::TextView};
 
@@ -560,6 +562,10 @@ fn new_thread_landing(theme: Theme, chat: &ChatProjection) -> AnyElement {
 
 fn landing_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
     let prompt = composer_prompt(chat);
+    let provider = composer_provider_label(chat);
+    let model = composer_model_label(chat);
+    let mode = composer_mode_label(chat);
+    let branch = composer_branch_label(chat);
     div()
         .rounded_lg()
         .border_1()
@@ -608,7 +614,7 @@ fn landing_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
                                 .flex_row()
                                 .items_center()
                                 .gap_3()
-                                .child(model_chip(theme, "GPT-5.3 Codex", "Spark"))
+                                .child(model_chip(theme, &model, &provider))
                                 .child(send_button(theme)),
                         ),
                 ),
@@ -625,15 +631,11 @@ fn landing_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
                 .gap_4()
                 .text_size(px(13.0))
                 .text_color(theme.muted)
-                .child(meta_chip(IconName::Bot, "ace", theme))
-                .child(meta_chip(IconName::SquareTerminal, "Locally", theme))
-                .child(meta_chip(
-                    IconName::GitHub,
-                    "fix/heavy-load-optimization",
-                    theme,
-                ))
+                .child(meta_chip(IconName::Bot, &provider, theme))
+                .child(meta_chip(IconName::SquareTerminal, mode, theme))
+                .child(meta_chip(IconName::FolderOpen, &branch, theme))
                 .child(div().flex_1())
-                .child(meta_chip(IconName::Globe, "GitHub", theme)),
+                .child(meta_chip(IconName::Globe, "This computer", theme)),
         )
         .into_any_element()
 }
@@ -645,12 +647,89 @@ fn composer_prompt(chat: &ChatProjection) -> String {
         .unwrap_or_default()
 }
 
+fn composer_provider_label(chat: &ChatProjection) -> String {
+    chat.composer
+        .as_ref()
+        .map(|draft| draft.model_selection.provider.display_name().to_string())
+        .or_else(|| {
+            chat.active_thread
+                .as_ref()
+                .map(|thread| thread.provider.display_name().to_string())
+        })
+        .unwrap_or_else(|| "Codex".to_string())
+}
+
+fn composer_model_label(chat: &ChatProjection) -> String {
+    chat.composer
+        .as_ref()
+        .map(|draft| draft.model_selection.model.clone())
+        .or_else(|| {
+            chat.active_thread
+                .as_ref()
+                .and_then(|thread| thread.model.clone())
+        })
+        .unwrap_or_else(|| "gpt-5.3-codex".to_string())
+}
+
+fn composer_mode_label(chat: &ChatProjection) -> &'static str {
+    let runtime_mode = chat
+        .composer
+        .as_ref()
+        .map(|draft| draft.runtime_mode)
+        .unwrap_or_else(|| {
+            if chat
+                .active_thread
+                .as_ref()
+                .and_then(|thread| thread.worktree_path.as_ref())
+                .is_some()
+            {
+                RuntimeMode::Worktree
+            } else {
+                RuntimeMode::Normal
+            }
+        });
+    let interaction_mode = chat
+        .composer
+        .as_ref()
+        .map(|draft| draft.interaction_mode)
+        .unwrap_or(InteractionMode::Chat);
+
+    match (runtime_mode, interaction_mode) {
+        (RuntimeMode::Worktree, _) => "Worktree",
+        (RuntimeMode::Local, _) => "Local",
+        (RuntimeMode::Normal, InteractionMode::Plan) => "Plan",
+        (RuntimeMode::Normal, InteractionMode::Chat) => "Chat",
+    }
+}
+
+fn composer_branch_label(chat: &ChatProjection) -> String {
+    chat.active_thread
+        .as_ref()
+        .and_then(|thread| thread.branch.clone())
+        .or_else(|| {
+            chat.active_thread
+                .as_ref()
+                .and_then(|thread| thread.worktree_path.clone())
+                .map(|path| {
+                    path.rsplit('/')
+                        .next()
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or("Worktree")
+                        .to_string()
+                })
+        })
+        .unwrap_or_else(|| "No branch".to_string())
+}
+
 fn chat_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
     if chat.messages.is_empty() {
         return div().into_any_element();
     }
 
     let prompt = composer_prompt(chat);
+    let provider = composer_provider_label(chat);
+    let model = composer_model_label(chat);
+    let mode = composer_mode_label(chat);
     div()
         .id("chat-composer")
         .border_t_1()
@@ -697,7 +776,8 @@ fn chat_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
                                 .items_center()
                                 .gap_2()
                                 .child(access_chip(theme))
-                                .child(meta_chip(IconName::SquareTerminal, "Locally", theme)),
+                                .child(meta_chip(IconName::SquareTerminal, mode, theme))
+                                .child(model_chip(theme, &model, &provider)),
                         )
                         .child(
                             div()
