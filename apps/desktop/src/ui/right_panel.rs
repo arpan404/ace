@@ -1116,13 +1116,15 @@ fn pinned_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
     if projection.annotations.pinned_items.is_empty() {
         return annotation_empty_body(
             theme,
-            AceIconName::PinFilled,
-            "Pinned",
-            "No pinned context yet.",
-            IconName::Star,
-            "Pin latest",
-            || Box::new(PinLatestTimelineItem),
-            !projection.chat.messages.is_empty(),
+            AnnotationEmptyState {
+                icon: AceIconName::PinFilled,
+                label: "Pinned",
+                message: "No pinned context yet.",
+                action_icon: IconName::Star,
+                action_label: "Pin latest",
+                action: || Box::new(PinLatestTimelineItem),
+                action_enabled: !projection.chat.messages.is_empty(),
+            },
         );
     }
 
@@ -1177,13 +1179,15 @@ fn todos_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
     if projection.annotations.todos.is_empty() {
         return annotation_empty_body(
             theme,
-            AceIconName::ListChecks,
-            "Todos",
-            "No structured todos yet.",
-            IconName::Plus,
-            "Add todo",
-            || Box::new(CreateTodoFromLatestTimelineItem),
-            !projection.chat.messages.is_empty(),
+            AnnotationEmptyState {
+                icon: AceIconName::ListChecks,
+                label: "Todos",
+                message: "No structured todos yet.",
+                action_icon: IconName::Plus,
+                action_label: "Add todo",
+                action: || Box::new(CreateTodoFromLatestTimelineItem),
+                action_enabled: !projection.chat.messages.is_empty(),
+            },
         );
     }
 
@@ -1254,8 +1258,10 @@ fn todos_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         .into_any_element()
 }
 
-fn annotation_empty_body<A>(
-    theme: Theme,
+struct AnnotationEmptyState<A>
+where
+    A: Fn() -> Box<dyn gpui::Action> + 'static,
+{
     icon: AceIconName,
     label: &'static str,
     message: &'static str,
@@ -1263,7 +1269,9 @@ fn annotation_empty_body<A>(
     action_label: &'static str,
     action: A,
     action_enabled: bool,
-) -> AnyElement
+}
+
+fn annotation_empty_body<A>(theme: Theme, state: AnnotationEmptyState<A>) -> AnyElement
 where
     A: Fn() -> Box<dyn gpui::Action> + 'static,
 {
@@ -1279,22 +1287,27 @@ where
         .justify_center()
         .gap_3()
         .text_align(gpui::TextAlign::Center)
-        .child(ace_icon_svg(icon, theme.muted))
+        .child(ace_icon_svg(state.icon, theme.muted))
         .child(
             div()
                 .text_size(px(13.0))
                 .text_color(theme.foreground.opacity(0.78))
-                .child(label),
+                .child(state.label),
         )
         .child(
             div()
                 .max_w(px(240.0))
                 .text_size(px(12.0))
                 .text_color(theme.muted)
-                .child(message),
+                .child(state.message),
         )
-        .when(action_enabled, |this| {
-            this.child(action_button(action_icon, action_label, theme, action))
+        .when(state.action_enabled, |this| {
+            this.child(action_button(
+                state.action_icon,
+                state.action_label,
+                theme,
+                state.action,
+            ))
         })
         .into_any_element()
 }
