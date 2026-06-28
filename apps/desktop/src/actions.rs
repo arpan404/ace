@@ -78,6 +78,13 @@ pub struct CreateTodoFromTimelineItem {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct UpdateTodoStatus {
+    pub todo_id: String,
+    pub status: crate::stores::TodoStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct StageReviewFile {
     pub path: String,
 }

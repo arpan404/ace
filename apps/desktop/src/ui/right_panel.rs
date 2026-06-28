@@ -3,11 +3,12 @@ use crate::{
         CreateTodoFromLatestTimelineItem, PinLatestTimelineItem, RefreshReview,
         SelectBottomPanelTab, SelectRightPanelTab, StageReviewAll, StageReviewFile,
         ToggleBottomPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
-        ToggleRightPanel, UnstageReviewAll, UnstageReviewFile,
+        ToggleRightPanel, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
     },
     stores::{
         DesktopProjection, ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
-        SourceItemProjection, TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
+        SourceItemProjection, TodoItem, TodoStatus, ToolRegistryEntryProjection,
+        ToolRegistryProjection,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{components::*, layout::PanelLayout, theme::Theme},
@@ -1776,36 +1777,169 @@ fn todos_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
                 .min_h_0()
                 .flex()
                 .flex_col()
-                .gap_2()
-                .children(
-                    projection
-                        .annotations
-                        .todos
-                        .iter()
-                        .map(|todo| {
-                            let done = todo.status == TodoStatus::Done;
-                            annotation_card(
-                                theme,
-                                if done {
-                                    IconName::CircleCheck
-                                } else {
-                                    IconName::Check
-                                },
-                                match todo.status {
-                                    TodoStatus::Open => "Open",
-                                    TodoStatus::InProgress => "In progress",
-                                    TodoStatus::Blocked => "Blocked",
-                                    TodoStatus::Done => "Done",
-                                    TodoStatus::Canceled => "Canceled",
-                                },
-                                &todo.title,
-                                &format!("Updated {}", todo.updated_at),
-                            )
-                        })
-                        .collect::<Vec<_>>(),
-                )
+                .gap_3()
+                .child(todo_section(
+                    theme,
+                    "Open",
+                    TodoStatus::Open,
+                    &projection.annotations.todos,
+                ))
+                .child(todo_section(
+                    theme,
+                    "In progress",
+                    TodoStatus::InProgress,
+                    &projection.annotations.todos,
+                ))
+                .child(todo_section(
+                    theme,
+                    "Blocked",
+                    TodoStatus::Blocked,
+                    &projection.annotations.todos,
+                ))
+                .child(todo_section(
+                    theme,
+                    "Done",
+                    TodoStatus::Done,
+                    &projection.annotations.todos,
+                ))
+                .child(todo_section(
+                    theme,
+                    "Canceled",
+                    TodoStatus::Canceled,
+                    &projection.annotations.todos,
+                ))
                 .overflow_y_scrollbar(),
         )
+        .into_any_element()
+}
+
+fn todo_section(
+    theme: Theme,
+    label: &'static str,
+    status: TodoStatus,
+    todos: &[TodoItem],
+) -> AnyElement {
+    let items = todos
+        .iter()
+        .filter(|todo| todo.status == status)
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        return div().into_any_element();
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .text_size(px(11.0))
+                .text_color(theme.muted)
+                .child(label)
+                .child(items.len().to_string()),
+        )
+        .children(
+            items
+                .into_iter()
+                .map(|todo| todo_card(theme, todo))
+                .collect::<Vec<_>>(),
+        )
+        .into_any_element()
+}
+
+fn todo_card(theme: Theme, todo: &TodoItem) -> AnyElement {
+    let (icon, title, color) = match todo.status {
+        TodoStatus::Open => (IconName::Check, "Open", theme.muted),
+        TodoStatus::InProgress => (IconName::LoaderCircle, "In progress", theme.accent_success),
+        TodoStatus::Blocked => (IconName::TriangleAlert, "Blocked", theme.accent_warning),
+        TodoStatus::Done => (IconName::CircleCheck, "Done", theme.accent_success),
+        TodoStatus::Canceled => (IconName::CircleX, "Canceled", theme.muted_subtle),
+    };
+    let todo_id = todo.id.clone();
+
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_3()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_start()
+                .gap_2()
+                .child(icon_svg(icon, color))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .line_height(px(18.0))
+                                .text_color(theme.foreground.opacity(0.82))
+                                .child(clamp_text(&todo.title, 220)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(theme.muted)
+                                .child(format!("{title} · Updated {}", todo.updated_at)),
+                        ),
+                ),
+        )
+        .child(todo_status_actions(theme, &todo_id, todo.status))
+        .into_any_element()
+}
+
+fn todo_status_actions(theme: Theme, todo_id: &str, status: TodoStatus) -> AnyElement {
+    let actions: Vec<(IconName, &'static str, TodoStatus)> = match status {
+        TodoStatus::Open => vec![
+            (IconName::LoaderCircle, "Start", TodoStatus::InProgress),
+            (IconName::CircleCheck, "Done", TodoStatus::Done),
+            (IconName::CircleX, "Cancel", TodoStatus::Canceled),
+        ],
+        TodoStatus::InProgress => vec![
+            (IconName::TriangleAlert, "Block", TodoStatus::Blocked),
+            (IconName::CircleCheck, "Done", TodoStatus::Done),
+            (IconName::CircleX, "Cancel", TodoStatus::Canceled),
+        ],
+        TodoStatus::Blocked => vec![
+            (IconName::LoaderCircle, "Start", TodoStatus::InProgress),
+            (IconName::CircleCheck, "Done", TodoStatus::Done),
+            (IconName::CircleX, "Cancel", TodoStatus::Canceled),
+        ],
+        TodoStatus::Done | TodoStatus::Canceled => vec![
+            (IconName::Check, "Open", TodoStatus::Open),
+            (IconName::LoaderCircle, "Start", TodoStatus::InProgress),
+        ],
+    };
+
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .children(actions.into_iter().map(|(icon, label, status)| {
+            let todo_id = todo_id.to_string();
+            action_button(icon, label, theme, move || {
+                Box::new(UpdateTodoStatus {
+                    todo_id: todo_id.clone(),
+                    status,
+                })
+            })
+        }))
         .into_any_element()
 }
 

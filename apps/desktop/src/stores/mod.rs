@@ -4,6 +4,6 @@ pub mod ui;
 pub use desktop::{
     DesktopProjection, DesktopStore, ReviewFileProjection, ReviewProjection, ServiceReadiness,
     ServiceStatus, SourceItemProjection, ThreadAnnotationsProjection, ThreadAnnotationsSnapshot,
-    TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
+    TodoItem, TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
 };
 pub use ui::UiStore;

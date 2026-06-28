@@ -8,7 +8,7 @@ use crate::{
         ShowMoreProjectThreads, StageReviewAll, StageReviewFile, ToggleBottomPanel,
         ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
         ToggleHighlightTimelineItem, TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
-        UnstageReviewAll, UnstageReviewFile,
+        UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -781,6 +781,18 @@ impl RootView {
         cx.notify();
     }
 
+    fn update_todo_status(
+        &mut self,
+        event: &UpdateTodoStatus,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .update_todo_status(&event.todo_id, event.status);
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
     fn archive_active_thread(
         &mut self,
         _: &ArchiveActiveThread,
@@ -870,6 +882,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::create_todo_from_latest_timeline_item))
             .on_action(cx.listener(Self::create_todo_from_timeline_item))
             .on_action(cx.listener(Self::toggle_first_open_todo))
+            .on_action(cx.listener(Self::update_todo_status))
             .on_action(cx.listener(Self::refresh_review))
             .on_action(cx.listener(Self::stage_review_all))
             .on_action(cx.listener(Self::unstage_review_all))

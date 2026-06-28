@@ -785,6 +785,22 @@ impl DesktopStore {
         }
     }
 
+    pub fn update_todo_status(&mut self, todo_id: &str, status: TodoStatus) {
+        let Some(thread_id) = self.metadata.active_thread_id.clone() else {
+            return;
+        };
+        let now = self.next_timestamp();
+        if let Some(todo) = self
+            .todos
+            .iter_mut()
+            .find(|todo| todo.thread_id == thread_id && todo.id == todo_id)
+        {
+            todo.status = status;
+            todo.updated_at = now.clone();
+            todo.completed_at = (status == TodoStatus::Done).then_some(now);
+        }
+    }
+
     pub fn refresh_active_review(&mut self, host: Option<&BackendHostClient>) {
         let Some(thread) = self.active_thread().cloned() else {
             return;
@@ -2907,6 +2923,25 @@ mod tests {
         assert_eq!(projection.todos.len(), 1);
         assert_eq!(projection.open_todo_count, 1);
         assert_eq!(projection.pinned_items[0].message_id, first_message_id);
+        let todo_id = projection.todos[0].id.clone();
+
+        store.update_todo_status(&todo_id, TodoStatus::InProgress);
+        let projection = store.projection().annotations;
+        assert_eq!(projection.todos[0].status, TodoStatus::InProgress);
+        assert_eq!(projection.open_todo_count, 1);
+        assert!(projection.todos[0].completed_at.is_none());
+
+        store.update_todo_status(&todo_id, TodoStatus::Done);
+        let projection = store.projection().annotations;
+        assert_eq!(projection.todos[0].status, TodoStatus::Done);
+        assert_eq!(projection.open_todo_count, 0);
+        assert!(projection.todos[0].completed_at.is_some());
+
+        store.update_todo_status(&todo_id, TodoStatus::Open);
+        let projection = store.projection().annotations;
+        assert_eq!(projection.todos[0].status, TodoStatus::Open);
+        assert_eq!(projection.open_todo_count, 1);
+        assert!(projection.todos[0].completed_at.is_none());
 
         store.toggle_highlight_timeline_item(thread_id.clone(), &first_message_id);
         assert!(store.projection().annotations.highlighted_items.is_empty());
