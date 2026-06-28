@@ -19,7 +19,8 @@ use ace_protocol::{
         ProviderRuntimeRecentEventsResponse, ProviderRuntimeSlashCommandsListRequest,
         ProviderRuntimeSlashCommandsListResponse, ProviderRuntimeStateGetRequest,
         ProviderRuntimeStateGetResponse, ProviderRuntimeStatusListRequest,
-        ProviderRuntimeStatusListResponse,
+        ProviderRuntimeStatusListResponse, ProviderServerRequestAudit, ProviderServerRequestError,
+        ProviderServerRequestErrorInfo, ProviderServerRequestResult,
     },
     terminal::{
         DEFAULT_TERMINAL_ID, SequencedTerminalEvent, TerminalEvent, TerminalOpenRequest,
@@ -34,8 +35,11 @@ use ace_runtime::{
         ThreadStatus, ThreadSummary, build_chat_projection, build_sidebar_projection,
         resolve_thread_creation_options,
     },
-    provider::{ProviderRuntimeHealth, ThreadItemKind, ThreadItemStatus},
-    threads::{AgentRuntimeSnapshot, ExecutionLocation},
+    provider::{
+        NormalizedServerRequest, ProviderRuntimeHealth, ServerRequestKind, ThreadItemKind,
+        ThreadItemStatus,
+    },
+    threads::{AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -67,6 +71,7 @@ pub struct DesktopStore {
     worktree_snapshots: HashMap<ProjectId, WorktreeProjection>,
     provider_registry: ProviderRegistryProjection,
     runtime_status: RuntimeStatusProjection,
+    approval_registry: ApprovalRegistryProjection,
     plugin_registry: ToolRegistryProjection,
     skill_registry: ToolRegistryProjection,
     pinned_items: Vec<PinnedTimelineItem>,
@@ -91,6 +96,7 @@ pub struct DesktopProjection {
     pub sources: SourcesProjection,
     pub providers: ProviderRegistryProjection,
     pub runtime_status: RuntimeStatusProjection,
+    pub approvals: ApprovalRegistryProjection,
     pub plugins: ToolRegistryProjection,
     pub skills: ToolRegistryProjection,
     pub annotations: ThreadAnnotationsProjection,
@@ -119,6 +125,7 @@ pub struct ServiceReadiness {
     pub terminal: ServiceStatus,
     pub diff_review: ServiceStatus,
     pub worktrees: ServiceStatus,
+    pub approvals: ServiceStatus,
     pub browser: ServiceStatus,
     pub editor: ServiceStatus,
     pub summary: ServiceStatus,
@@ -157,6 +164,7 @@ impl ServiceReadiness {
             terminal: ServiceStatus::Missing { reason },
             diff_review: ServiceStatus::Missing { reason },
             worktrees: ServiceStatus::Missing { reason },
+            approvals: ServiceStatus::Missing { reason },
             browser: ServiceStatus::Missing { reason },
             editor: ServiceStatus::Missing { reason },
             summary: ServiceStatus::Ready,
@@ -283,6 +291,27 @@ pub struct RuntimeStatusProjection {
     pub updated_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ApprovalRegistryProjection {
+    pub pending: Vec<ApprovalItemProjection>,
+    pub resolved: usize,
+    pub error: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalItemProjection {
+    pub provider: String,
+    pub request_id: String,
+    pub title: String,
+    pub prompt: String,
+    pub kind: String,
+    pub method: String,
+    pub scope: Option<String>,
+    pub selected_policy: Option<String>,
+    pub detail: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderSummaryProjection {
     pub runtime_id: String,
@@ -407,6 +436,7 @@ impl DesktopStore {
             worktree_snapshots: HashMap::new(),
             provider_registry: ProviderRegistryProjection::default(),
             runtime_status: RuntimeStatusProjection::default(),
+            approval_registry: ApprovalRegistryProjection::default(),
             plugin_registry: ToolRegistryProjection {
                 source: "plugin/installed",
                 ..ToolRegistryProjection::default()
@@ -512,6 +542,7 @@ impl DesktopStore {
             sources: self.sources_projection(),
             providers: self.provider_registry.clone(),
             runtime_status: self.runtime_status.clone(),
+            approvals: self.approval_registry.clone(),
             plugins: self.plugin_registry.clone(),
             skills: self.skill_registry.clone(),
             annotations: self.annotations_projection(),
@@ -546,6 +577,7 @@ impl DesktopStore {
             terminal: ServiceStatus::Ready,
             diff_review: ServiceStatus::Ready,
             worktrees: ServiceStatus::Ready,
+            approvals: ServiceStatus::Ready,
             browser: ServiceStatus::Missing {
                 reason: "Browser sessions need a host-driven Chromium frame service.",
             },
@@ -972,6 +1004,13 @@ impl DesktopStore {
                 updated_at: Some(self.next_timestamp()),
                 ..RuntimeStatusProjection::default()
             };
+            self.approval_registry = ApprovalRegistryProjection {
+                error: Some(
+                    "Connect to a local or remote host runtime to inspect approvals.".to_string(),
+                ),
+                updated_at: self.runtime_status.updated_at.clone(),
+                ..ApprovalRegistryProjection::default()
+            };
             return;
         };
 
@@ -991,6 +1030,11 @@ impl DesktopStore {
                     error: Some(format!("Provider runtime state unavailable: {error}")),
                     updated_at: self.provider_registry.updated_at.clone(),
                     ..RuntimeStatusProjection::default()
+                };
+                self.approval_registry = ApprovalRegistryProjection {
+                    error: Some(format!("Provider approval state unavailable: {error}")),
+                    updated_at: self.provider_registry.updated_at.clone(),
+                    ..ApprovalRegistryProjection::default()
                 };
                 return;
             }
@@ -1019,6 +1063,11 @@ impl DesktopStore {
                     error: Some(format!("Provider runtime state unavailable: {error}")),
                     updated_at: Some(now.clone()),
                     ..RuntimeStatusProjection::default()
+                };
+                self.approval_registry = ApprovalRegistryProjection {
+                    error: Some(format!("Provider approval state unavailable: {error}")),
+                    updated_at: Some(now.clone()),
+                    ..ApprovalRegistryProjection::default()
                 };
                 None
             }
@@ -1095,14 +1144,17 @@ impl DesktopStore {
             updated_at: Some(now),
         };
         if let Some(response) = state_response {
+            let updated_at = self
+                .provider_registry
+                .updated_at
+                .clone()
+                .unwrap_or_default();
             self.runtime_status = runtime_status_projection_from_state(
                 &response,
                 providers_response.runtime.len(),
-                self.provider_registry
-                    .updated_at
-                    .clone()
-                    .unwrap_or_default(),
+                updated_at.clone(),
             );
+            self.approval_registry = approval_registry_projection_from_state(&response, updated_at);
         }
     }
 
@@ -1130,6 +1182,77 @@ impl DesktopStore {
         self.refresh_provider_registry(host);
         self.refresh_plugin_registry(host);
         self.refresh_skill_registry(host);
+    }
+
+    pub fn refresh_approvals(&mut self, host: Option<&BackendHostClient>) {
+        self.refresh_provider_registry(host);
+    }
+
+    pub fn approve_provider_request(
+        &mut self,
+        host: Option<&BackendHostClient>,
+        provider: String,
+        request_id: String,
+    ) {
+        self.resolve_provider_request(host, provider, request_id, true);
+    }
+
+    pub fn deny_provider_request(
+        &mut self,
+        host: Option<&BackendHostClient>,
+        provider: String,
+        request_id: String,
+    ) {
+        self.resolve_provider_request(host, provider, request_id, false);
+    }
+
+    fn resolve_provider_request(
+        &mut self,
+        host: Option<&BackendHostClient>,
+        provider: String,
+        request_id: String,
+        approved: bool,
+    ) {
+        let Some(host) = self.host.clone().or_else(|| host.cloned()) else {
+            self.approval_registry.error =
+                Some("Connect to a host runtime before resolving approvals.".to_string());
+            self.approval_registry.updated_at = Some(self.next_timestamp());
+            return;
+        };
+
+        let response = if approved {
+            host.call::<_, serde_json::Value>(
+                methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT,
+                &ProviderServerRequestResult {
+                    provider: provider.clone(),
+                    request_id: request_id.clone(),
+                    result: serde_json::json!({ "approved": true }),
+                    audit: approval_audit("approved from desktop"),
+                },
+            )
+        } else {
+            host.call::<_, serde_json::Value>(
+                methods::PROVIDER_RUNTIME_SERVER_REQUEST_ERROR,
+                &ProviderServerRequestError {
+                    provider: provider.clone(),
+                    request_id: request_id.clone(),
+                    error: ProviderServerRequestErrorInfo {
+                        code: 403,
+                        message: "Denied by user from desktop".to_string(),
+                    },
+                    audit: approval_audit("denied from desktop"),
+                },
+            )
+        };
+
+        match response {
+            Ok(_) => self.refresh_provider_registry(Some(&host)),
+            Err(error) => {
+                self.approval_registry.error =
+                    Some(format!("Failed to resolve approval {request_id}: {error}"));
+                self.approval_registry.updated_at = Some(self.next_timestamp());
+            }
+        }
     }
 
     fn refresh_tool_registry(
@@ -1886,9 +2009,29 @@ impl DesktopStore {
     }
 
     fn apply_provider_runtime_event(&mut self, event: ProviderRuntimeEvent, sequence: Option<i64>) {
-        let ProviderRuntimeEvent::ThreadItem { item } = event else {
-            return;
-        };
+        match event {
+            ProviderRuntimeEvent::ThreadItem { item } => {
+                self.apply_provider_thread_item(*item, sequence)
+            }
+            ProviderRuntimeEvent::ServerRequest { request } => {
+                self.upsert_pending_approval(*request);
+            }
+            ProviderRuntimeEvent::ServerRequestResolved {
+                provider,
+                request_id,
+                ..
+            } => {
+                self.resolve_pending_approval(&provider, &request_id);
+            }
+            _ => {}
+        }
+    }
+
+    fn apply_provider_thread_item(
+        &mut self,
+        item: ace_runtime::provider::NormalizedThreadItem,
+        sequence: Option<i64>,
+    ) {
         let Some(thread_id) = item
             .thread_id
             .as_deref()
@@ -1923,6 +2066,31 @@ impl DesktopStore {
             text: Some(text),
         });
         self.mark_thread_status(&thread_id, ThreadStatus::Working);
+    }
+
+    fn upsert_pending_approval(&mut self, request: NormalizedServerRequest) {
+        let item = approval_item_from_request(&request);
+        if let Some(existing) = self.approval_registry.pending.iter_mut().find(|approval| {
+            approval.provider == item.provider && approval.request_id == item.request_id
+        }) {
+            *existing = item;
+        } else {
+            self.approval_registry.pending.push(item);
+        }
+        self.runtime_status.pending_approvals = self.approval_registry.pending.len();
+        self.approval_registry.updated_at = Some(self.next_timestamp());
+    }
+
+    fn resolve_pending_approval(&mut self, provider: &str, request_id: &str) {
+        let before = self.approval_registry.pending.len();
+        self.approval_registry.pending.retain(|approval| {
+            !(approval.provider == provider && approval.request_id == request_id)
+        });
+        if self.approval_registry.pending.len() != before {
+            self.approval_registry.resolved += 1;
+        }
+        self.runtime_status.pending_approvals = self.approval_registry.pending.len();
+        self.approval_registry.updated_at = Some(self.next_timestamp());
     }
 
     fn local_thread_id_for_provider(&self, id: &str) -> Option<ThreadId> {
@@ -2597,6 +2765,99 @@ fn runtime_status_projection_from_state(
     projection
 }
 
+fn approval_registry_projection_from_state(
+    response: &ProviderRuntimeStateGetResponse,
+    updated_at: String,
+) -> ApprovalRegistryProjection {
+    let mut pending = Vec::new();
+    let mut resolved = 0;
+    for provider in &response.providers {
+        for approval in &provider.state.approvals {
+            match approval.status {
+                ApprovalStatus::Pending => pending.push(approval_item_projection(approval)),
+                ApprovalStatus::Resolved => resolved += 1,
+            }
+        }
+    }
+    pending.sort_by(|left, right| {
+        left.provider
+            .cmp(&right.provider)
+            .then_with(|| left.request_id.cmp(&right.request_id))
+    });
+
+    ApprovalRegistryProjection {
+        pending,
+        resolved,
+        error: None,
+        updated_at: Some(updated_at),
+    }
+}
+
+fn approval_item_projection(approval: &ApprovalRecord) -> ApprovalItemProjection {
+    approval_item_from_request(&approval.request)
+}
+
+fn approval_item_from_request(request: &NormalizedServerRequest) -> ApprovalItemProjection {
+    ApprovalItemProjection {
+        provider: request.provider.provider.clone(),
+        request_id: request.request_id.clone(),
+        title: request
+            .title
+            .clone()
+            .unwrap_or_else(|| server_request_kind_label(request.kind).to_string()),
+        prompt: request
+            .prompt
+            .clone()
+            .or_else(|| approval_detail_label(request))
+            .unwrap_or_else(|| "Provider request is awaiting a decision.".to_string()),
+        kind: server_request_kind_label(request.kind).to_string(),
+        method: request.method.clone(),
+        scope: request.scope.clone(),
+        selected_policy: request.selected_policy.clone(),
+        detail: approval_detail_label(request),
+    }
+}
+
+fn server_request_kind_label(kind: ServerRequestKind) -> &'static str {
+    match kind {
+        ServerRequestKind::CommandApproval => "Command approval",
+        ServerRequestKind::FileChangeApproval => "File change approval",
+        ServerRequestKind::ToolUserInput => "Tool input",
+        ServerRequestKind::McpElicitation => "MCP elicitation",
+        ServerRequestKind::PermissionApproval => "Permission approval",
+        ServerRequestKind::DynamicToolCall => "Dynamic tool",
+        ServerRequestKind::AccountTokenRefresh => "Account token refresh",
+        ServerRequestKind::Attestation => "Attestation",
+        ServerRequestKind::ApplyPatchApproval => "Patch approval",
+        ServerRequestKind::ExecApproval => "Command approval",
+        ServerRequestKind::Unknown => "Provider request",
+    }
+}
+
+fn approval_detail_label(request: &NormalizedServerRequest) -> Option<String> {
+    request
+        .detail
+        .command
+        .clone()
+        .or_else(|| request.detail.argv.as_ref().map(|argv| argv.join(" ")))
+        .or_else(|| request.detail.path.clone())
+        .or_else(|| request.detail.paths.as_ref().map(|paths| paths.join(", ")))
+        .or_else(|| request.detail.tool_name.clone())
+        .or_else(|| request.detail.server_name.clone())
+        .or_else(|| request.detail.operation.clone())
+        .or_else(|| request.detail.permission.clone())
+        .or_else(|| request.detail.resource.clone())
+}
+
+fn approval_audit(reason: &'static str) -> ProviderServerRequestAudit {
+    ProviderServerRequestAudit {
+        decided_by: Some("user".to_string()),
+        reason: Some(reason.to_string()),
+        metadata: serde_json::json!({ "surface": "desktop" }),
+        ..ProviderServerRequestAudit::default()
+    }
+}
+
 fn short_status(status: &TerminalSessionStatus) -> &'static str {
     match status {
         TerminalSessionStatus::Starting => "starting",
@@ -3106,6 +3367,7 @@ mod tests {
         assert!(!services.terminal.is_ready());
         assert!(!services.diff_review.is_ready());
         assert!(!services.worktrees.is_ready());
+        assert!(!services.approvals.is_ready());
         assert!(!services.browser.is_ready());
         assert!(services.summary.is_ready());
     }
@@ -3279,6 +3541,65 @@ mod tests {
         assert!(!entries[1].primary);
         assert!(entries[1].active_thread);
         assert_eq!(entries[1].branch.as_deref(), Some("feature/task"));
+    }
+
+    #[test]
+    fn approval_registry_projection_reads_pending_requests() {
+        let request = NormalizedServerRequest {
+            kind: ServerRequestKind::CommandApproval,
+            request_id: "approval-1".to_string(),
+            method: "command/approvalRequest".to_string(),
+            thread_id: Some("thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some("item-1".to_string()),
+            scope: Some("command".to_string()),
+            title: Some("Approve command execution".to_string()),
+            prompt: Some("Run cargo test?".to_string()),
+            selected_policy: Some("on-request".to_string()),
+            detail: ace_runtime::provider::ServerRequestDetail {
+                command: Some("cargo test".to_string()),
+                ..ace_runtime::provider::ServerRequestDetail::default()
+            },
+            metadata: serde_json::Value::Null,
+            provider: ace_runtime::provider::ProviderMetadata {
+                provider: "codex".to_string(),
+                method: Some("command/approvalRequest".to_string()),
+                schema_version: None,
+                raw_payload: serde_json::json!({ "command": "cargo test" }),
+            },
+        };
+        let response = ProviderRuntimeStateGetResponse {
+            providers: vec![
+                ace_protocol::provider_runtime::ProviderRuntimeProviderState {
+                    provider: ace_core::ProviderKind::Codex,
+                    runtime_id: "codex".to_string(),
+                    display_name: "Codex".to_string(),
+                    source: ace_protocol::provider_runtime::ProviderRuntimeStateSource::Live,
+                    persisted_replay_available: false,
+                    last_persisted_sequence: None,
+                    summary: ace_protocol::provider_runtime::ProviderRuntimeStateSummary::default(),
+                    state: AgentRuntimeSnapshot {
+                        approvals: vec![ApprovalRecord {
+                            provider: "codex".to_string(),
+                            request_id: "approval-1".to_string(),
+                            request,
+                            status: ApprovalStatus::Pending,
+                            decision: None,
+                        }],
+                        ..AgentRuntimeSnapshot::default()
+                    },
+                },
+            ],
+        };
+
+        let projection = approval_registry_projection_from_state(&response, "updated".to_string());
+
+        assert_eq!(projection.pending.len(), 1);
+        assert_eq!(projection.pending[0].provider, "codex");
+        assert_eq!(projection.pending[0].request_id, "approval-1");
+        assert_eq!(projection.pending[0].detail.as_deref(), Some("cargo test"));
+        assert_eq!(projection.resolved, 0);
+        assert_eq!(projection.updated_at.as_deref(), Some("updated"));
     }
 
     #[test]

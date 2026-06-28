@@ -27,6 +27,7 @@ actions!(
         PushReview,
         RefreshWorktrees,
         CreateWorktree,
+        RefreshApprovals,
         ArchiveActiveThread,
         AddCurrentDirectoryProject,
         OpenSearchPalette,
@@ -104,6 +105,20 @@ pub struct UnstageReviewFile {
 pub struct RemoveWorktree {
     pub path: String,
     pub force: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct ApproveProviderRequest {
+    pub provider: String,
+    pub request_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct DenyProviderRequest {
+    pub provider: String,
+    pub request_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]

@@ -1,13 +1,15 @@
 use crate::{
     actions::{
-        CommitReview, CreateTodoFromLatestTimelineItem, CreateWorktree, PinLatestTimelineItem,
-        PushReview, RefreshReview, RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab,
-        SelectRightPanelTab, StageReviewAll, StageReviewFile, ToggleBottomPanel,
-        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleRightPanel, UnstageReviewAll,
-        UnstageReviewFile, UpdateTodoStatus,
+        ApproveProviderRequest, CommitReview, CreateTodoFromLatestTimelineItem, CreateWorktree,
+        DenyProviderRequest, PinLatestTimelineItem, PushReview, RefreshApprovals, RefreshReview,
+        RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab,
+        StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleFirstOpenTodo,
+        ToggleHighlightLatestTimelineItem, ToggleRightPanel, UnstageReviewAll, UnstageReviewFile,
+        UpdateTodoStatus,
     },
     stores::{
-        DesktopProjection, ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
+        ApprovalItemProjection, ApprovalRegistryProjection, DesktopProjection,
+        ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
         SourceItemProjection, TodoItem, TodoStatus, ToolRegistryEntryProjection,
         ToolRegistryProjection, WorktreeEntryProjection, WorktreeProjection,
         ui::{BottomPanelTab, RightPanelTab},
@@ -243,6 +245,13 @@ fn workbench_panel(
                 "Worktrees",
                 || worktrees_body(theme, projection),
             ),
+            RightPanelTab::Approvals => service_panel_body(
+                theme,
+                &services.approvals,
+                AceIconName::ListChecks,
+                "Approvals",
+                || approvals_body(theme, projection),
+            ),
             RightPanelTab::Browser => service_panel_body(
                 theme,
                 &services.browser,
@@ -387,6 +396,12 @@ fn right_tab_strip(
         .child(right_tab(
             theme,
             active_tab,
+            RightPanelTab::Approvals,
+            &services.approvals,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
             RightPanelTab::Browser,
             &services.browser,
         ))
@@ -527,6 +542,7 @@ fn right_tab_meta(tab: RightPanelTab) -> (AceIconName, &'static str) {
         RightPanelTab::Environment => (AceIconName::Environment, "Environment"),
         RightPanelTab::Terminal => (AceIconName::Terminal, "Terminal"),
         RightPanelTab::Worktrees => (AceIconName::Review, "Worktrees"),
+        RightPanelTab::Approvals => (AceIconName::ListChecks, "Approvals"),
         RightPanelTab::Browser => (AceIconName::Browser, "Browser"),
         RightPanelTab::Editor => (AceIconName::Editor, "Editor"),
         RightPanelTab::Summary => (AceIconName::Summary, "Summary"),
@@ -545,6 +561,7 @@ fn right_tab_id(tab: RightPanelTab) -> &'static str {
         RightPanelTab::Environment => "right-tab-environment",
         RightPanelTab::Terminal => "right-tab-terminal",
         RightPanelTab::Worktrees => "right-tab-worktrees",
+        RightPanelTab::Approvals => "right-tab-approvals",
         RightPanelTab::Browser => "right-tab-browser",
         RightPanelTab::Editor => "right-tab-editor",
         RightPanelTab::Summary => "right-tab-summary",
@@ -1041,6 +1058,172 @@ fn worktree_entry_card(theme: Theme, entry: &WorktreeEntryProjection) -> AnyElem
         .into_any_element()
 }
 
+fn approvals_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    let approvals = &projection.approvals;
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(info_row(
+            theme,
+            "Pending",
+            &approvals.pending.len().to_string(),
+        ))
+        .child(info_row(theme, "Resolved", &approvals.resolved.to_string()))
+        .when_some(approvals.updated_at.as_deref(), |this, updated| {
+            this.child(info_row(theme, "Updated", updated))
+        })
+        .child(approval_actions(theme))
+        .when_some(approvals.error.as_deref(), |this, error| {
+            this.child(registry_error_card(theme, error))
+        })
+        .child(approval_list(theme, approvals))
+        .into_any_element()
+}
+
+fn approval_actions(theme: Theme) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(action_button(IconName::Info, "Refresh", theme, || {
+            Box::new(RefreshApprovals)
+        }))
+        .into_any_element()
+}
+
+fn approval_list(theme: Theme, approvals: &ApprovalRegistryProjection) -> AnyElement {
+    if approvals.pending.is_empty() {
+        return div()
+            .rounded_md()
+            .border_1()
+            .border_color(theme.border_subtle)
+            .bg(theme.panel)
+            .px_2()
+            .py_2()
+            .text_size(px(12.0))
+            .text_color(theme.muted)
+            .child("No pending approvals")
+            .into_any_element();
+    }
+
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .children(
+            approvals
+                .pending
+                .iter()
+                .map(|approval| approval_card(theme, approval))
+                .collect::<Vec<_>>(),
+        )
+        .overflow_y_scrollbar()
+        .into_any_element()
+}
+
+fn approval_card(theme: Theme, approval: &ApprovalItemProjection) -> AnyElement {
+    let provider = approval.provider.clone();
+    let request_id = approval.request_id.clone();
+    let deny_provider = provider.clone();
+    let deny_request_id = request_id.clone();
+
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_size(px(12.0))
+                .text_color(theme.foreground.opacity(0.84))
+                .child(icon_svg(IconName::Bell, theme.accent_warning))
+                .child(clamp_text(&approval.title, 130)),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .line_height(px(16.0))
+                .text_color(theme.foreground.opacity(0.74))
+                .child(clamp_text(&approval.prompt, 220)),
+        )
+        .when_some(approval.detail.as_deref(), |this, detail| {
+            this.child(
+                div()
+                    .font_family("Menlo")
+                    .text_size(px(11.0))
+                    .line_height(px(16.0))
+                    .text_color(theme.muted)
+                    .child(clamp_text(detail, 180)),
+            )
+        })
+        .child(
+            div()
+                .text_size(px(11.0))
+                .line_height(px(16.0))
+                .text_color(theme.muted_subtle)
+                .child(approval_meta(approval)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(action_button(
+                    IconName::ThumbsUp,
+                    "Approve",
+                    theme,
+                    move || {
+                        Box::new(ApproveProviderRequest {
+                            provider: provider.clone(),
+                            request_id: request_id.clone(),
+                        })
+                    },
+                ))
+                .child(action_button(
+                    IconName::ThumbsDown,
+                    "Deny",
+                    theme,
+                    move || {
+                        Box::new(DenyProviderRequest {
+                            provider: deny_provider.clone(),
+                            request_id: deny_request_id.clone(),
+                        })
+                    },
+                )),
+        )
+        .into_any_element()
+}
+
+fn approval_meta(approval: &ApprovalItemProjection) -> String {
+    let mut parts = vec![
+        approval.provider.clone(),
+        approval.kind.clone(),
+        approval.method.clone(),
+    ];
+    if let Some(scope) = approval.scope.as_deref() {
+        parts.push(scope.to_string());
+    }
+    if let Some(policy) = approval.selected_policy.as_deref() {
+        parts.push(policy.to_string());
+    }
+    parts.push(format!("request {}", approval.request_id));
+    parts.join(" · ")
+}
+
 fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
     let Some(thread) = projection.chat.active_thread.as_ref() else {
         return empty_panel_body(
@@ -1102,6 +1285,11 @@ fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement 
             theme,
             "Pending approvals",
             &projection.runtime_status.pending_approvals.to_string(),
+        ))
+        .child(info_row(
+            theme,
+            "Resolved approvals",
+            &projection.approvals.resolved.to_string(),
         ))
         .child(info_row(
             theme,
@@ -1202,6 +1390,11 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
             theme,
             "Pending approvals",
             &projection.runtime_status.pending_approvals.to_string(),
+        ))
+        .child(info_row(
+            theme,
+            "Resolved approvals",
+            &projection.approvals.resolved.to_string(),
         ))
         .child(info_row(
             theme,

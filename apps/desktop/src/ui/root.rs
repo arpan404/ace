@@ -1,15 +1,15 @@
 use crate::{
     actions::{
-        AddCurrentDirectoryProject, ArchiveActiveThread, ArchiveProject, BeginPanelResize,
-        CloseSearchPalette, CommitReview, CreateTodoFromLatestTimelineItem,
-        CreateTodoFromTimelineItem, CreateWorktree, InterruptActiveTurn, NewThread,
-        NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem,
-        PushReview, RefreshReview, RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab,
-        SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer, ShowLessProjectThreads,
-        ShowMoreProjectThreads, StageReviewAll, StageReviewFile, ToggleBottomPanel,
-        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
-        ToggleHighlightTimelineItem, TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
-        UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
+        AddCurrentDirectoryProject, ApproveProviderRequest, ArchiveActiveThread, ArchiveProject,
+        BeginPanelResize, CloseSearchPalette, CommitReview, CreateTodoFromLatestTimelineItem,
+        CreateTodoFromTimelineItem, CreateWorktree, DenyProviderRequest, InterruptActiveTurn,
+        NewThread, NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem,
+        PinTimelineItem, PushReview, RefreshApprovals, RefreshReview, RefreshWorktrees,
+        RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab, SelectSearchPaletteItem,
+        SendActiveComposer, ShowLessProjectThreads, ShowMoreProjectThreads, StageReviewAll,
+        StageReviewFile, ToggleBottomPanel, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
+        ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
+        ToggleRightPanel, ToggleSidebar, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -300,9 +300,10 @@ impl RootView {
         match tab {
             RightPanelTab::Review | RightPanelTab::Sources => self.refresh_active_review(),
             RightPanelTab::Worktrees => self.refresh_active_worktrees(),
-            RightPanelTab::Environment | RightPanelTab::Summary | RightPanelTab::Providers => {
-                self.refresh_provider_registry();
-            }
+            RightPanelTab::Environment
+            | RightPanelTab::Summary
+            | RightPanelTab::Providers
+            | RightPanelTab::Approvals => self.refresh_provider_registry(),
             RightPanelTab::Terminal => self.ensure_active_terminal(),
             RightPanelTab::Plugins => self.refresh_plugin_registry(),
             RightPanelTab::Skills => self.refresh_skill_registry(),
@@ -526,10 +527,15 @@ impl RootView {
                 }
                 if matches!(
                     self.ui_store.state().right_panel_tab,
-                    RightPanelTab::Review | RightPanelTab::Sources | RightPanelTab::Worktrees
+                    RightPanelTab::Review
+                        | RightPanelTab::Sources
+                        | RightPanelTab::Worktrees
+                        | RightPanelTab::Approvals
                 ) {
                     if self.ui_store.state().right_panel_tab == RightPanelTab::Worktrees {
                         self.refresh_active_worktrees();
+                    } else if self.ui_store.state().right_panel_tab == RightPanelTab::Approvals {
+                        self.refresh_provider_registry();
                     } else {
                         self.refresh_active_review();
                     }
@@ -576,6 +582,13 @@ impl RootView {
         let active_host = self.active_host.clone();
         self.active_store_mut()
             .refresh_provider_registry(active_host.as_ref());
+    }
+
+    fn refresh_approvals(&mut self, _: &RefreshApprovals, _: &mut Window, cx: &mut Context<Self>) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .refresh_approvals(active_host.as_ref());
+        cx.notify();
     }
 
     fn refresh_plugin_registry(&mut self) {
@@ -669,6 +682,36 @@ impl RootView {
         cx.notify();
     }
 
+    fn approve_provider_request(
+        &mut self,
+        event: &ApproveProviderRequest,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut().approve_provider_request(
+            active_host.as_ref(),
+            event.provider.clone(),
+            event.request_id.clone(),
+        );
+        cx.notify();
+    }
+
+    fn deny_provider_request(
+        &mut self,
+        event: &DenyProviderRequest,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut().deny_provider_request(
+            active_host.as_ref(),
+            event.provider.clone(),
+            event.request_id.clone(),
+        );
+        cx.notify();
+    }
+
     fn new_thread(&mut self, _: &NewThread, _: &mut Window, cx: &mut Context<Self>) {
         self.active_store_mut().new_thread_for_first_project();
         if self.terminal_owns_keyboard() {
@@ -713,11 +756,14 @@ impl RootView {
                 | RightPanelTab::Sources
                 | RightPanelTab::Terminal
                 | RightPanelTab::Worktrees
+                | RightPanelTab::Approvals
         ) {
             if self.ui_store.state().right_panel_tab == RightPanelTab::Terminal {
                 self.ensure_active_terminal();
             } else if self.ui_store.state().right_panel_tab == RightPanelTab::Worktrees {
                 self.refresh_active_worktrees();
+            } else if self.ui_store.state().right_panel_tab == RightPanelTab::Approvals {
+                self.refresh_provider_registry();
             } else {
                 self.refresh_active_review();
             }
@@ -949,6 +995,9 @@ impl Render for RootView {
             .on_action(cx.listener(Self::refresh_worktrees))
             .on_action(cx.listener(Self::create_worktree))
             .on_action(cx.listener(Self::remove_worktree))
+            .on_action(cx.listener(Self::refresh_approvals))
+            .on_action(cx.listener(Self::approve_provider_request))
+            .on_action(cx.listener(Self::deny_provider_request))
             .on_action(cx.listener(Self::archive_active_thread))
             .on_action(cx.listener(Self::archive_project))
             .on_action(cx.listener(Self::show_more_project_threads))

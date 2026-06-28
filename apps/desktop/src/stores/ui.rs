@@ -10,6 +10,7 @@ pub enum RightPanelTab {
     Environment,
     Terminal,
     Worktrees,
+    Approvals,
     Browser,
     Editor,
     Summary,

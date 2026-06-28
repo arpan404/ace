@@ -203,6 +203,14 @@ pub fn palette_items(
             result_kind: SearchPaletteResultKind::Context,
         });
     }
+    for approval in &projection.approvals.pending {
+        context_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Approvals,
+            label: approval.title.clone(),
+            description: format!("{} · {}", approval.provider, approval.prompt),
+            result_kind: SearchPaletteResultKind::Context,
+        });
+    }
 
     registry_items.push(SearchPaletteItem::Panel {
         tab: crate::stores::ui::RightPanelTab::Environment,
@@ -250,7 +258,7 @@ pub fn palette_items(
     }
     if projection.runtime_status.pending_approvals > 0 {
         registry_items.push(SearchPaletteItem::Panel {
-            tab: crate::stores::ui::RightPanelTab::Environment,
+            tab: crate::stores::ui::RightPanelTab::Approvals,
             label: "Pending approvals".to_string(),
             description: format!(
                 "{} runtime approval{} awaiting action",
