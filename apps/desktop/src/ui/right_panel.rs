@@ -1,8 +1,8 @@
 use crate::{
     actions::{
-        CreateTodoFromLatestTimelineItem, PinLatestTimelineItem, SelectBottomPanelTab,
-        SelectRightPanelTab, ToggleBottomPanel, ToggleFirstOpenTodo,
-        ToggleHighlightLatestTimelineItem, ToggleRightPanel,
+        CreateTodoFromLatestTimelineItem, PinLatestTimelineItem, RefreshReview,
+        SelectBottomPanelTab, SelectRightPanelTab, StageReviewAll, ToggleBottomPanel,
+        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleRightPanel, UnstageReviewAll,
     },
     stores::{
         DesktopProjection, ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
@@ -474,6 +474,7 @@ fn review_body(
                 "Loaded"
             },
         ))
+        .child(review_actions(theme, review))
         .when_some(review.error.as_deref(), |this, error| {
             this.child(
                 div()
@@ -509,6 +510,26 @@ fn review_body(
                 "No"
             },
         ))
+        .into_any_element()
+}
+
+fn review_actions(theme: Theme, review: &ReviewProjection) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(action_button(IconName::Info, "Refresh", theme, || {
+            Box::new(RefreshReview)
+        }))
+        .when(review.repo_path.is_some(), |this| {
+            this.child(action_button(IconName::Plus, "Stage all", theme, || {
+                Box::new(StageReviewAll)
+            }))
+            .child(action_button(IconName::Check, "Unstage all", theme, || {
+                Box::new(UnstageReviewAll)
+            }))
+        })
         .into_any_element()
 }
 

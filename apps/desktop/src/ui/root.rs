@@ -2,11 +2,11 @@ use crate::{
     actions::{
         AddCurrentDirectoryProject, ArchiveActiveThread, ArchiveProject, BeginPanelResize,
         CloseSearchPalette, CreateTodoFromLatestTimelineItem, InterruptActiveTurn, NewThread,
-        NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem,
+        NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem, RefreshReview,
         SelectBottomPanelTab, SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer,
-        ShowLessProjectThreads, ShowMoreProjectThreads, ToggleBottomPanel, ToggleEnvironmentPanel,
-        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, TogglePinActiveThread,
-        ToggleRightPanel, ToggleSidebar,
+        ShowLessProjectThreads, ShowMoreProjectThreads, StageReviewAll, ToggleBottomPanel,
+        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        TogglePinActiveThread, ToggleRightPanel, ToggleSidebar, UnstageReviewAll,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -536,6 +536,25 @@ impl RootView {
             .refresh_provider_registry(active_host.as_ref());
     }
 
+    fn refresh_review(&mut self, _: &RefreshReview, _: &mut Window, cx: &mut Context<Self>) {
+        self.refresh_active_review();
+        cx.notify();
+    }
+
+    fn stage_review_all(&mut self, _: &StageReviewAll, _: &mut Window, cx: &mut Context<Self>) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .stage_active_review_all(active_host.as_ref());
+        cx.notify();
+    }
+
+    fn unstage_review_all(&mut self, _: &UnstageReviewAll, _: &mut Window, cx: &mut Context<Self>) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .unstage_active_review_all(active_host.as_ref());
+        cx.notify();
+    }
+
     fn new_thread(&mut self, _: &NewThread, _: &mut Window, cx: &mut Context<Self>) {
         self.active_store_mut().new_thread_for_first_project();
         if self.terminal_owns_keyboard() {
@@ -741,6 +760,9 @@ impl Render for RootView {
             .on_action(cx.listener(Self::toggle_highlight_latest_timeline_item))
             .on_action(cx.listener(Self::create_todo_from_latest_timeline_item))
             .on_action(cx.listener(Self::toggle_first_open_todo))
+            .on_action(cx.listener(Self::refresh_review))
+            .on_action(cx.listener(Self::stage_review_all))
+            .on_action(cx.listener(Self::unstage_review_all))
             .on_action(cx.listener(Self::archive_active_thread))
             .on_action(cx.listener(Self::archive_project))
             .on_action(cx.listener(Self::show_more_project_threads))

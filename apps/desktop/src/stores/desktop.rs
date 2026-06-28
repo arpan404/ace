@@ -5,7 +5,7 @@ use crate::backend::{
 use ace_core::{Project, ProjectId, ThreadId};
 use ace_project::ProjectSummary;
 use ace_protocol::{
-    git::{GitChangedFilesRequest, GitDiffRequest},
+    git::{GitChangedFilesRequest, GitDiffRequest, GitStageRequest, GitUnstageRequest},
     project::{
         ProjectAddRequest, ProjectDeleteRequest, ProjectSnapshotRequest, ProjectThreadsRequest,
         ThreadMessagesRequest,
@@ -802,6 +802,32 @@ impl DesktopStore {
             error: (!partial_errors.is_empty()).then(|| partial_errors.join("; ")),
             updated_at: Some(now),
         };
+    }
+
+    pub fn stage_active_review_all(&mut self, host: Option<&BackendHostClient>) {
+        self.run_active_review_git_action(host, "stage all", |host, repo_path| {
+            host.call::<_, serde_json::Value>(
+                methods::GIT_STAGE,
+                &GitStageRequest {
+                    repo_path,
+                    paths: Vec::new(),
+                    all: true,
+                },
+            )
+        });
+    }
+
+    pub fn unstage_active_review_all(&mut self, host: Option<&BackendHostClient>) {
+        self.run_active_review_git_action(host, "unstage all", |host, repo_path| {
+            host.call::<_, serde_json::Value>(
+                methods::GIT_UNSTAGE,
+                &GitUnstageRequest {
+                    repo_path,
+                    paths: Vec::new(),
+                    all: true,
+                },
+            )
+        });
     }
 
     pub fn ensure_active_terminal(&mut self, host: Option<&BackendHostClient>) {
@@ -1656,6 +1682,54 @@ impl DesktopStore {
             .active_thread_id
             .as_ref()
             .and_then(|active| self.threads.iter().find(|thread| &thread.id == active))
+    }
+
+    fn run_active_review_git_action<F>(
+        &mut self,
+        host: Option<&BackendHostClient>,
+        label: &'static str,
+        action: F,
+    ) where
+        F: FnOnce(&BackendHostClient, String) -> Result<serde_json::Value, BackendError>,
+    {
+        let Some(thread) = self.active_thread().cloned() else {
+            return;
+        };
+        let Some(repo_path) = self.review_repo_path(&thread) else {
+            self.review_snapshots.insert(
+                thread.project_id,
+                ReviewProjection {
+                    error: Some("No project workspace is available for this thread.".to_string()),
+                    ..ReviewProjection::default()
+                },
+            );
+            return;
+        };
+        let Some(host) = self.host.clone().or_else(|| host.cloned()) else {
+            self.review_snapshots.insert(
+                thread.project_id,
+                ReviewProjection {
+                    repo_path: Some(repo_path),
+                    error: Some(format!("Connect to a host runtime before running {label}.")),
+                    ..ReviewProjection::default()
+                },
+            );
+            return;
+        };
+
+        match action(&host, repo_path.clone()) {
+            Ok(_) => self.refresh_active_review(Some(&host)),
+            Err(error) => {
+                self.review_snapshots.insert(
+                    thread.project_id,
+                    ReviewProjection {
+                        repo_path: Some(repo_path),
+                        error: Some(format!("Failed to {label}: {error}")),
+                        ..ReviewProjection::default()
+                    },
+                );
+            }
+        }
     }
 
     fn latest_active_message(&self) -> Option<(ThreadId, ChatMessageProjection)> {
