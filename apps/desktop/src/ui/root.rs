@@ -5,9 +5,10 @@ use crate::{
         InterruptActiveTurn, NewThread, NewThreadForProject, OpenSearchPalette, OpenThread,
         PinLatestTimelineItem, PinTimelineItem, RefreshReview, SelectBottomPanelTab,
         SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer, ShowLessProjectThreads,
-        ShowMoreProjectThreads, StageReviewAll, ToggleBottomPanel, ToggleEnvironmentPanel,
-        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem,
-        TogglePinActiveThread, ToggleRightPanel, ToggleSidebar, UnstageReviewAll,
+        ShowMoreProjectThreads, StageReviewAll, StageReviewFile, ToggleBottomPanel,
+        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        ToggleHighlightTimelineItem, TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
+        UnstageReviewAll, UnstageReviewFile,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -556,6 +557,30 @@ impl RootView {
         cx.notify();
     }
 
+    fn stage_review_file(
+        &mut self,
+        event: &StageReviewFile,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .stage_active_review_file(active_host.as_ref(), event.path.clone());
+        cx.notify();
+    }
+
+    fn unstage_review_file(
+        &mut self,
+        event: &UnstageReviewFile,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .unstage_active_review_file(active_host.as_ref(), event.path.clone());
+        cx.notify();
+    }
+
     fn new_thread(&mut self, _: &NewThread, _: &mut Window, cx: &mut Context<Self>) {
         self.active_store_mut().new_thread_for_first_project();
         if self.terminal_owns_keyboard() {
@@ -803,6 +828,8 @@ impl Render for RootView {
             .on_action(cx.listener(Self::refresh_review))
             .on_action(cx.listener(Self::stage_review_all))
             .on_action(cx.listener(Self::unstage_review_all))
+            .on_action(cx.listener(Self::stage_review_file))
+            .on_action(cx.listener(Self::unstage_review_file))
             .on_action(cx.listener(Self::archive_active_thread))
             .on_action(cx.listener(Self::archive_project))
             .on_action(cx.listener(Self::show_more_project_threads))

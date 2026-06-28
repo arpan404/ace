@@ -851,6 +851,32 @@ impl DesktopStore {
         });
     }
 
+    pub fn stage_active_review_file(&mut self, host: Option<&BackendHostClient>, path: String) {
+        self.run_active_review_git_action(host, "stage file", |host, repo_path| {
+            host.call::<_, serde_json::Value>(
+                methods::GIT_STAGE,
+                &GitStageRequest {
+                    repo_path,
+                    paths: vec![path],
+                    all: false,
+                },
+            )
+        });
+    }
+
+    pub fn unstage_active_review_file(&mut self, host: Option<&BackendHostClient>, path: String) {
+        self.run_active_review_git_action(host, "unstage file", |host, repo_path| {
+            host.call::<_, serde_json::Value>(
+                methods::GIT_UNSTAGE,
+                &GitUnstageRequest {
+                    repo_path,
+                    paths: vec![path],
+                    all: false,
+                },
+            )
+        });
+    }
+
     pub fn ensure_active_terminal(&mut self, host: Option<&BackendHostClient>) {
         let Some(thread_id) = self.metadata.active_thread_id.clone() else {
             return;

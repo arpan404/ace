@@ -1,8 +1,9 @@
 use crate::{
     actions::{
         CreateTodoFromLatestTimelineItem, PinLatestTimelineItem, RefreshReview,
-        SelectBottomPanelTab, SelectRightPanelTab, StageReviewAll, ToggleBottomPanel,
-        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleRightPanel, UnstageReviewAll,
+        SelectBottomPanelTab, SelectRightPanelTab, StageReviewAll, StageReviewFile,
+        ToggleBottomPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        ToggleRightPanel, UnstageReviewAll, UnstageReviewFile,
     },
     stores::{
         DesktopProjection, ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
@@ -612,7 +613,38 @@ fn review_file_row(theme: Theme, file: &ReviewFileProjection) -> AnyElement {
         )
         .child(div().text_color(theme.accent_success).child(additions))
         .child(div().text_color(theme.accent_danger).child(deletions))
+        .child(review_file_action(
+            theme,
+            IconName::Plus,
+            "Stage",
+            file.path.clone(),
+            true,
+        ))
+        .child(review_file_action(
+            theme,
+            IconName::Check,
+            "Unstage",
+            file.path.clone(),
+            false,
+        ))
         .into_any_element()
+}
+
+fn review_file_action(
+    theme: Theme,
+    icon: IconName,
+    label: &'static str,
+    path: String,
+    stage: bool,
+) -> AnyElement {
+    action_button(icon, label, theme, move || {
+        let action: Box<dyn gpui::Action> = if stage {
+            Box::new(StageReviewFile { path: path.clone() })
+        } else {
+            Box::new(UnstageReviewFile { path: path.clone() })
+        };
+        action
+    })
 }
 
 fn review_diff_preview(theme: Theme, review: &ReviewProjection) -> AnyElement {

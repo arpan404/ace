@@ -78,6 +78,18 @@ pub struct CreateTodoFromTimelineItem {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct StageReviewFile {
+    pub path: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct UnstageReviewFile {
+    pub path: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct OpenThread {
     pub thread_id: ace_core::ThreadId,
 }
