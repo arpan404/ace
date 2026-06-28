@@ -1,10 +1,9 @@
 use crate::{
     actions::SelectSearchPaletteItem,
-    stores::ui::BottomPanelTab,
+    stores::{DesktopProjection, ui::BottomPanelTab},
     ui::{components::*, theme::Theme},
 };
 use ace_core::{ProjectId, ThreadId};
-use ace_runtime::chat::SidebarProjection;
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
 use gpui_component::{IconName, scroll::ScrollableElement as _};
 
@@ -20,6 +19,12 @@ pub enum SearchPaletteItem {
     NewProject,
     OpenSettings,
     OpenTerminals,
+    Panel {
+        tab: crate::stores::ui::RightPanelTab,
+        label: String,
+        description: String,
+        result_kind: SearchPaletteResultKind,
+    },
     Project {
         project_id: ProjectId,
         label: String,
@@ -32,6 +37,13 @@ pub enum SearchPaletteItem {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchPaletteResultKind {
+    Source,
+    Context,
+    Registry,
+}
+
 impl SearchPaletteItem {
     fn label(&self) -> &str {
         match self {
@@ -39,6 +51,7 @@ impl SearchPaletteItem {
             Self::NewProject => "New project",
             Self::OpenSettings => "Open settings",
             Self::OpenTerminals => "Open terminals",
+            Self::Panel { label, .. } => label,
             Self::Project { label, .. } | Self::Thread { label, .. } => label,
         }
     }
@@ -49,6 +62,7 @@ impl SearchPaletteItem {
             Self::NewProject => "Add the current workspace as a project.",
             Self::OpenSettings => "Settings",
             Self::OpenTerminals => "Manage running terminal processes.",
+            Self::Panel { description, .. } => description,
             Self::Project { description, .. } | Self::Thread { description, .. } => description,
         }
     }
@@ -58,6 +72,11 @@ impl SearchPaletteItem {
             Self::NewThread | Self::NewProject | Self::OpenSettings | Self::OpenTerminals => {
                 PaletteItemKind::Action
             }
+            Self::Panel { result_kind, .. } => match result_kind {
+                SearchPaletteResultKind::Source => PaletteItemKind::Source,
+                SearchPaletteResultKind::Context => PaletteItemKind::Context,
+                SearchPaletteResultKind::Registry => PaletteItemKind::Registry,
+            },
             Self::Project { .. } => PaletteItemKind::Project,
             Self::Thread { .. } => PaletteItemKind::Thread,
         }
@@ -69,6 +88,9 @@ enum PaletteItemKind {
     Action,
     Project,
     Thread,
+    Source,
+    Context,
+    Registry,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -110,15 +132,18 @@ impl SearchPaletteState {
 }
 
 pub fn palette_items(
-    projection: &SidebarProjection,
+    projection: &DesktopProjection,
     mode: SearchPaletteMode,
     query: &str,
 ) -> Vec<SearchPaletteItem> {
     let normalized = query.trim().to_lowercase();
     let mut project_items = Vec::new();
     let mut thread_items = Vec::new();
+    let mut source_items = Vec::new();
+    let mut context_items = Vec::new();
+    let mut registry_items = Vec::new();
 
-    for group in &projection.projects {
+    for group in &projection.sidebar.projects {
         project_items.push(SearchPaletteItem::Project {
             project_id: group.project.id,
             label: group.project.name.clone(),
@@ -134,8 +159,76 @@ pub fn palette_items(
         }
     }
 
+    for source in &projection.sources.items {
+        source_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Sources,
+            label: source.title.clone(),
+            description: format!("{} · {}", source.kind, source.detail),
+            result_kind: SearchPaletteResultKind::Source,
+        });
+    }
+
+    for item in &projection.annotations.pinned_items {
+        context_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Pinned,
+            label: item.display_title.clone(),
+            description: item.display_excerpt.clone(),
+            result_kind: SearchPaletteResultKind::Context,
+        });
+    }
+    for item in &projection.annotations.highlighted_items {
+        context_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Summary,
+            label: item.display_title.clone(),
+            description: format!("Highlighted · {}", item.display_excerpt),
+            result_kind: SearchPaletteResultKind::Context,
+        });
+    }
+    for todo in &projection.annotations.todos {
+        context_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Todos,
+            label: todo.title.clone(),
+            description: format!("Todo · {:?}", todo.status),
+            result_kind: SearchPaletteResultKind::Context,
+        });
+    }
+
+    for provider in &projection.providers.providers {
+        registry_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Providers,
+            label: provider.display_name.clone(),
+            description: format!("Provider · {}", provider.health),
+            result_kind: SearchPaletteResultKind::Registry,
+        });
+    }
+    for plugin in &projection.plugins.entries {
+        registry_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Plugins,
+            label: plugin.name.clone(),
+            description: plugin
+                .description
+                .clone()
+                .unwrap_or_else(|| format!("Plugin · {}", plugin.status)),
+            result_kind: SearchPaletteResultKind::Registry,
+        });
+    }
+    for skill in &projection.skills.entries {
+        registry_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Skills,
+            label: skill.name.clone(),
+            description: skill
+                .description
+                .clone()
+                .unwrap_or_else(|| format!("Skill · {}", skill.status)),
+            result_kind: SearchPaletteResultKind::Registry,
+        });
+    }
+
     project_items.sort_by(|left, right| left.label().cmp(right.label()));
     thread_items.sort_by(|left, right| right.label().cmp(left.label()));
+    source_items.sort_by(|left, right| left.label().cmp(right.label()));
+    context_items.sort_by(|left, right| left.label().cmp(right.label()));
+    registry_items.sort_by(|left, right| left.label().cmp(right.label()));
 
     let matches = |item: &SearchPaletteItem| {
         normalized.is_empty()
@@ -170,6 +263,9 @@ pub fn palette_items(
         .into_iter()
         .chain(project_items)
         .chain(thread_items)
+        .chain(source_items)
+        .chain(context_items)
+        .chain(registry_items)
         .filter(matches)
         .take(40)
         .collect()
@@ -178,7 +274,7 @@ pub fn palette_items(
 pub(super) fn search_palette_overlay(
     theme: Theme,
     state: &SearchPaletteState,
-    projection: &SidebarProjection,
+    projection: &DesktopProjection,
 ) -> AnyElement {
     if !state.open {
         return div().into_any_element();
@@ -262,6 +358,36 @@ pub(super) fn search_palette_overlay(
                             normalized_empty,
                             state.mode,
                         ))
+                        .children(section(
+                            theme,
+                            "Sources",
+                            PaletteItemKind::Source,
+                            &items,
+                            &mut rendered_index,
+                            active_index,
+                            normalized_empty,
+                            state.mode,
+                        ))
+                        .children(section(
+                            theme,
+                            "Pinned & Todos",
+                            PaletteItemKind::Context,
+                            &items,
+                            &mut rendered_index,
+                            active_index,
+                            normalized_empty,
+                            state.mode,
+                        ))
+                        .children(section(
+                            theme,
+                            "Registries",
+                            PaletteItemKind::Registry,
+                            &items,
+                            &mut rendered_index,
+                            active_index,
+                            normalized_empty,
+                            state.mode,
+                        ))
                         .when(items.is_empty(), |this| {
                             this.child(
                                 div()
@@ -285,7 +411,7 @@ fn palette_header(theme: Theme, state: &SearchPaletteState) -> AnyElement {
         if state.mode == SearchPaletteMode::NewThreadProject {
             "Select project for a new thread...".to_string()
         } else {
-            "Search commands, projects, and threads...".to_string()
+            "Search commands, projects, threads, sources, and registries...".to_string()
         }
     } else {
         state.query.clone()
@@ -446,6 +572,11 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
         }
         SearchPaletteItem::OpenSettings => ace_icon_svg(AceIconName::TablerSettings, color),
         SearchPaletteItem::OpenTerminals => ace_icon_svg(AceIconName::Terminal, color),
+        SearchPaletteItem::Panel { result_kind, .. } => match result_kind {
+            SearchPaletteResultKind::Source => icon_svg(IconName::File, color),
+            SearchPaletteResultKind::Context => icon_svg(IconName::Star, color),
+            SearchPaletteResultKind::Registry => ace_icon_svg(AceIconName::Box, color),
+        },
     }
 }
 
@@ -478,3 +609,33 @@ fn hint(keys: &'static str, label: &'static str, theme: Theme) -> AnyElement {
 
 #[allow(dead_code)]
 fn _bottom_panel_tab_reference(_: BottomPanelTab) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stores::desktop::{ComposerPayload, DesktopStore};
+
+    #[test]
+    fn palette_search_includes_persisted_context_results() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id.clone(),
+            ComposerPayload {
+                prompt: "Keep this context".to_string(),
+            },
+        );
+        let user_message_id = store.projection().chat.messages[0].id.clone();
+        store.pin_timeline_item(thread_id, &user_message_id);
+
+        let items = palette_items(&store.projection(), SearchPaletteMode::Root, "context");
+        assert!(items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::Panel {
+                result_kind: SearchPaletteResultKind::Context,
+                ..
+            }
+        )));
+    }
+}

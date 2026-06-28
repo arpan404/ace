@@ -284,8 +284,13 @@ impl RootView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.ui_store.select_right_panel_tab(event.tab);
-        match event.tab {
+        self.apply_right_panel_tab(event.tab);
+        cx.notify();
+    }
+
+    fn apply_right_panel_tab(&mut self, tab: RightPanelTab) {
+        self.ui_store.select_right_panel_tab(tab);
+        match tab {
             RightPanelTab::Review | RightPanelTab::Sources => self.refresh_active_review(),
             RightPanelTab::Summary | RightPanelTab::Providers => self.refresh_provider_registry(),
             RightPanelTab::Plugins => self.refresh_plugin_registry(),
@@ -297,7 +302,6 @@ impl RootView {
             | RightPanelTab::Todos => {}
         }
         self.save_ui_state();
-        cx.notify();
     }
 
     fn select_bottom_panel_tab(
@@ -347,7 +351,7 @@ impl RootView {
             }
             "down" => {
                 let items = palette_items(
-                    &self.active_store().projection().sidebar,
+                    &self.active_store().projection(),
                     self.search_palette.mode,
                     &self.search_palette.query,
                 );
@@ -359,7 +363,7 @@ impl RootView {
             }
             "enter" => {
                 let items = palette_items(
-                    &self.active_store().projection().sidebar,
+                    &self.active_store().projection(),
                     self.search_palette.mode,
                     &self.search_palette.query,
                 );
@@ -481,8 +485,7 @@ impl RootView {
             }
             SearchPaletteItem::OpenSettings => {
                 self.search_palette.close();
-                self.ui_store.select_right_panel_tab(RightPanelTab::Summary);
-                self.save_ui_state();
+                self.apply_right_panel_tab(RightPanelTab::Summary);
             }
             SearchPaletteItem::OpenTerminals => {
                 self.search_palette.close();
@@ -490,6 +493,10 @@ impl RootView {
                     .select_bottom_panel_tab(BottomPanelTab::Terminal);
                 self.ensure_active_terminal();
                 self.save_ui_state();
+            }
+            SearchPaletteItem::Panel { tab, .. } => {
+                self.search_palette.close();
+                self.apply_right_panel_tab(tab);
             }
             SearchPaletteItem::Project { project_id, .. } => {
                 let mode = self.search_palette.mode;
@@ -824,6 +831,7 @@ impl RootView {
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::default();
+        let projection = self.active_store().projection();
 
         div()
             .id("ace-root")
@@ -876,7 +884,7 @@ impl Render for RootView {
                 theme,
                 self.ui_store.panel_layout(),
                 self.ui_store.state().clone(),
-                self.active_store().projection(),
+                projection.clone(),
                 ShellChrome {
                     active_splitter: self.resize_drag.map(|drag| drag.kind),
                     reserve_titlebar_controls: !_window.is_fullscreen(),
@@ -887,7 +895,7 @@ impl Render for RootView {
             .child(search_palette_overlay(
                 theme,
                 &self.search_palette,
-                &self.active_store().projection().sidebar,
+                &projection,
             ))
     }
 }
