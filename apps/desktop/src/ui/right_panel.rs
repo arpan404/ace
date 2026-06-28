@@ -7,7 +7,7 @@ use crate::{
     },
     stores::{
         DesktopProjection, ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
-        TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
+        SourceItemProjection, TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{components::*, layout::PanelLayout, theme::Theme},
@@ -189,62 +189,8 @@ fn workbench_panel(
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap_1()
-                .child(right_tab(
-                    theme,
-                    active_tab,
-                    RightPanelTab::Review,
-                    &services.diff_review,
-                ))
-                .child(right_tab(
-                    theme,
-                    active_tab,
-                    RightPanelTab::Browser,
-                    &services.browser,
-                ))
-                .child(right_tab(
-                    theme,
-                    active_tab,
-                    RightPanelTab::Editor,
-                    &services.editor,
-                ))
-                .child(right_tab(
-                    theme,
-                    active_tab,
-                    RightPanelTab::Summary,
-                    &services.summary,
-                ))
-                .child(right_tab(
-                    theme,
-                    active_tab,
-                    RightPanelTab::Providers,
-                    &services.providers,
-                ))
-                .child(right_tab(
-                    theme,
-                    active_tab,
-                    RightPanelTab::Plugins,
-                    &services.plugins,
-                ))
-                .child(right_tab(
-                    theme,
-                    active_tab,
-                    RightPanelTab::Skills,
-                    &services.skills,
-                ))
-                .child(right_tab(
-                    theme,
-                    active_tab,
-                    RightPanelTab::Pinned,
-                    &services.summary,
-                ))
-                .child(right_tab(
-                    theme,
-                    active_tab,
-                    RightPanelTab::Todos,
-                    &services.summary,
-                ))
-                .child(div().flex_1())
+                .gap_2()
+                .child(right_tab_strip(theme, active_tab, services))
                 .child(ace_icon_toggle_button(
                     if bottom_panel_visible {
                         AceIconName::PanelBottomOpen
@@ -273,6 +219,13 @@ fn workbench_panel(
                 AceIconName::Review,
                 "Review",
                 || review_body(theme, &projection.chat, services, &projection.review),
+            ),
+            RightPanelTab::Environment => service_panel_body(
+                theme,
+                &services.summary,
+                AceIconName::Environment,
+                "Environment",
+                || environment_body(theme, projection),
             ),
             RightPanelTab::Browser => service_panel_body(
                 theme,
@@ -308,6 +261,13 @@ fn workbench_panel(
                 AceIconName::Summary,
                 "Summary",
                 || summary_body(theme, projection),
+            ),
+            RightPanelTab::Sources => service_panel_body(
+                theme,
+                &services.summary,
+                AceIconName::Box,
+                "Sources",
+                || sources_body(theme, projection),
             ),
             RightPanelTab::Providers => service_panel_body(
                 theme,
@@ -361,6 +321,90 @@ fn workbench_panel(
                 || todos_body(theme, projection),
             ),
         }))
+        .into_any_element()
+}
+
+fn right_tab_strip(
+    theme: Theme,
+    active_tab: RightPanelTab,
+    services: &ServiceReadiness,
+) -> AnyElement {
+    div()
+        .id("right-panel-tab-strip")
+        .flex_1()
+        .min_w_0()
+        .h(px(36.0))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Environment,
+            &services.summary,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Summary,
+            &services.summary,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Review,
+            &services.diff_review,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Browser,
+            &services.browser,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Sources,
+            &services.summary,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Pinned,
+            &services.summary,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Todos,
+            &services.summary,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Providers,
+            &services.providers,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Plugins,
+            &services.plugins,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Skills,
+            &services.skills,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Editor,
+            &services.editor,
+        ))
+        .overflow_x_scrollbar()
         .into_any_element()
 }
 
@@ -452,9 +496,11 @@ fn bottom_tab(theme: Theme, active: BottomPanelTab, tab: BottomPanelTab) -> AnyE
 fn right_tab_meta(tab: RightPanelTab) -> (AceIconName, &'static str) {
     match tab {
         RightPanelTab::Review => (AceIconName::Review, "Review"),
+        RightPanelTab::Environment => (AceIconName::Environment, "Environment"),
         RightPanelTab::Browser => (AceIconName::Browser, "Browser"),
         RightPanelTab::Editor => (AceIconName::Editor, "Editor"),
         RightPanelTab::Summary => (AceIconName::Summary, "Summary"),
+        RightPanelTab::Sources => (AceIconName::Box, "Sources"),
         RightPanelTab::Providers => (AceIconName::Code2, "Providers"),
         RightPanelTab::Plugins => (AceIconName::Box, "Plugins"),
         RightPanelTab::Skills => (AceIconName::FlaskConical, "Skills"),
@@ -466,9 +512,11 @@ fn right_tab_meta(tab: RightPanelTab) -> (AceIconName, &'static str) {
 fn right_tab_id(tab: RightPanelTab) -> &'static str {
     match tab {
         RightPanelTab::Review => "right-tab-review",
+        RightPanelTab::Environment => "right-tab-environment",
         RightPanelTab::Browser => "right-tab-browser",
         RightPanelTab::Editor => "right-tab-editor",
         RightPanelTab::Summary => "right-tab-summary",
+        RightPanelTab::Sources => "right-tab-sources",
         RightPanelTab::Providers => "right-tab-providers",
         RightPanelTab::Plugins => "right-tab-plugins",
         RightPanelTab::Skills => "right-tab-skills",
@@ -758,6 +806,63 @@ fn review_diff_preview(theme: Theme, review: &ReviewProjection) -> AnyElement {
         .into_any_element()
 }
 
+fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    let Some(thread) = projection.chat.active_thread.as_ref() else {
+        return empty_panel_body(
+            theme,
+            AceIconName::Environment,
+            "Environment",
+            "No active thread is selected.",
+        );
+    };
+
+    let branch = thread.branch.as_deref().unwrap_or("No branch");
+    let worktree = thread
+        .worktree_path
+        .as_deref()
+        .map(short_path)
+        .unwrap_or_else(|| "Project workspace".to_string());
+    let terminal = terminal_summary_label(projection);
+
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(environment_card(theme, Some(thread)))
+        .child(info_row(theme, "Host", "Local runtime"))
+        .child(info_row(theme, "Branch", branch))
+        .child(info_row(theme, "Worktree", &worktree))
+        .child(info_row(
+            theme,
+            "Changes",
+            &format!(
+                "{} files · +{} -{}",
+                projection.review.files.len(),
+                projection.review.total_additions,
+                projection.review.total_deletions
+            ),
+        ))
+        .child(info_row(theme, "Terminal", terminal))
+        .child(info_row(
+            theme,
+            "Sources",
+            &projection.sources.items.len().to_string(),
+        ))
+        .child(info_row(theme, "Provider", thread.provider.display_name()))
+        .child(info_row(
+            theme,
+            "Model",
+            thread.model.as_deref().unwrap_or("No model selected"),
+        ))
+        .child(info_row(
+            theme,
+            "Open todos",
+            &projection.annotations.open_todo_count.to_string(),
+        ))
+        .into_any_element()
+}
+
 fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
     let chat = &projection.chat;
     let Some(thread) = chat.active_thread.as_ref() else {
@@ -795,6 +900,11 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
             theme,
             "Changed files",
             &projection.review.files.len().to_string(),
+        ))
+        .child(info_row(
+            theme,
+            "Sources",
+            &projection.sources.items.len().to_string(),
         ))
         .child(info_row(
             theme,
@@ -851,6 +961,102 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         .child(summary_todos(theme, projection))
         .when(!chat.messages.is_empty(), |this| {
             this.child(summary_latest_message(theme, chat))
+        })
+        .into_any_element()
+}
+
+fn sources_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    if projection.sources.items.is_empty() {
+        return empty_panel_body(
+            theme,
+            AceIconName::Box,
+            "Sources",
+            "No files, terminal sessions, or context annotations are attached yet.",
+        );
+    }
+
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(info_row(
+            theme,
+            "Changed files",
+            &projection.sources.changed_files.to_string(),
+        ))
+        .child(info_row(
+            theme,
+            "Terminal sessions",
+            &projection.sources.terminal_sessions.to_string(),
+        ))
+        .child(info_row(
+            theme,
+            "Context items",
+            &projection.sources.context_items.to_string(),
+        ))
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .children(
+                    projection
+                        .sources
+                        .items
+                        .iter()
+                        .map(|source| source_item_card(theme, source))
+                        .collect::<Vec<_>>(),
+                )
+                .overflow_y_scrollbar(),
+        )
+        .into_any_element()
+}
+
+fn source_item_card(theme: Theme, source: &SourceItemProjection) -> AnyElement {
+    let icon = match source.kind.as_str() {
+        "file" => IconName::File,
+        "terminal" => IconName::SquareTerminal,
+        "pinned" | "highlight" => IconName::Star,
+        "todo" => IconName::Check,
+        _ => IconName::Inbox,
+    };
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_3()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_size(px(12.0))
+                .text_color(theme.foreground.opacity(0.84))
+                .child(icon_svg(icon, theme.muted))
+                .child(clamp_text(&source.title, 140)),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .line_height(px(16.0))
+                .text_color(theme.muted)
+                .child(clamp_text(&source.detail, 220)),
+        )
+        .when(!source.added_at.is_empty(), |this| {
+            this.child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(format!("Observed {}", source.added_at)),
+            )
         })
         .into_any_element()
 }

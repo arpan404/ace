@@ -7,9 +7,11 @@ use serde::{Deserialize, Serialize};
 pub enum RightPanelTab {
     #[default]
     Review,
+    Environment,
     Browser,
     Editor,
     Summary,
+    Sources,
     Providers,
     Plugins,
     Skills,

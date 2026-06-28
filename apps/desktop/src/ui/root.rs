@@ -86,7 +86,10 @@ impl RootView {
                 Ok(mut store) => {
                     store.restore_annotations(annotations.clone());
                     store.refresh_developer_registries(Some(host));
-                    if ui_store.state().right_panel_tab == RightPanelTab::Review {
+                    if matches!(
+                        ui_store.state().right_panel_tab,
+                        RightPanelTab::Review | RightPanelTab::Sources
+                    ) {
                         store.refresh_active_review(Some(host));
                     }
                     host_stores.insert(host.id().clone(), store);
@@ -283,11 +286,12 @@ impl RootView {
     ) {
         self.ui_store.select_right_panel_tab(event.tab);
         match event.tab {
-            RightPanelTab::Review => self.refresh_active_review(),
+            RightPanelTab::Review | RightPanelTab::Sources => self.refresh_active_review(),
             RightPanelTab::Summary | RightPanelTab::Providers => self.refresh_provider_registry(),
             RightPanelTab::Plugins => self.refresh_plugin_registry(),
             RightPanelTab::Skills => self.refresh_skill_registry(),
-            RightPanelTab::Browser
+            RightPanelTab::Environment
+            | RightPanelTab::Browser
             | RightPanelTab::Editor
             | RightPanelTab::Pinned
             | RightPanelTab::Todos => {}
@@ -502,7 +506,10 @@ impl RootView {
                 if self.terminal_owns_keyboard() {
                     self.ensure_active_terminal();
                 }
-                if self.ui_store.state().right_panel_tab == RightPanelTab::Review {
+                if matches!(
+                    self.ui_store.state().right_panel_tab,
+                    RightPanelTab::Review | RightPanelTab::Sources
+                ) {
                     self.refresh_active_review();
                 }
             }
@@ -636,7 +643,10 @@ impl RootView {
         if self.terminal_owns_keyboard() {
             self.ensure_active_terminal();
         }
-        if self.ui_store.state().right_panel_tab == RightPanelTab::Review {
+        if matches!(
+            self.ui_store.state().right_panel_tab,
+            RightPanelTab::Review | RightPanelTab::Sources
+        ) {
             self.refresh_active_review();
         }
         cx.notify();

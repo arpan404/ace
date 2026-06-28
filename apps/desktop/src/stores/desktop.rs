@@ -80,6 +80,7 @@ pub struct DesktopProjection {
     pub services: ServiceReadiness,
     pub terminal: TerminalProjection,
     pub review: ReviewProjection,
+    pub sources: SourcesProjection,
     pub providers: ProviderRegistryProjection,
     pub plugins: ToolRegistryProjection,
     pub skills: ToolRegistryProjection,
@@ -189,6 +190,23 @@ pub struct ReviewFileProjection {
     pub status: String,
     pub additions: Option<u32>,
     pub deletions: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SourcesProjection {
+    pub items: Vec<SourceItemProjection>,
+    pub changed_files: usize,
+    pub terminal_sessions: usize,
+    pub context_items: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceItemProjection {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub detail: String,
+    pub added_at: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -421,6 +439,7 @@ impl DesktopStore {
             services: self.service_readiness(),
             terminal: self.terminal_projection(),
             review: self.review_projection(),
+            sources: self.sources_projection(),
             providers: self.provider_registry.clone(),
             plugins: self.plugin_registry.clone(),
             skills: self.skill_registry.clone(),
@@ -497,6 +516,77 @@ impl DesktopStore {
                 repo_path: self.review_repo_path(thread),
                 ..ReviewProjection::default()
             })
+    }
+
+    #[must_use]
+    pub fn sources_projection(&self) -> SourcesProjection {
+        let review = self.review_projection();
+        let terminal = self.terminal_projection();
+        let annotations = self.annotations_projection();
+        let mut items = Vec::new();
+
+        for file in &review.files {
+            let stat = match (file.additions, file.deletions) {
+                (Some(additions), Some(deletions)) => format!("+{additions} -{deletions}"),
+                _ => "diff stat unavailable".to_string(),
+            };
+            items.push(SourceItemProjection {
+                id: format!("file:{}", file.path),
+                kind: "file".to_string(),
+                title: file.path.clone(),
+                detail: format!("{} · {stat}", file.status),
+                added_at: review.updated_at.clone().unwrap_or_default(),
+            });
+        }
+
+        if let Some(session) = terminal.session.as_ref() {
+            items.push(SourceItemProjection {
+                id: format!("terminal:{}:{}", session.thread_id, session.terminal_id),
+                kind: "terminal".to_string(),
+                title: "Terminal session".to_string(),
+                detail: format!("{} · {}", short_status(&session.status), session.cwd),
+                added_at: session.updated_at.clone(),
+            });
+        }
+
+        for item in &annotations.pinned_items {
+            items.push(SourceItemProjection {
+                id: format!("pin:{}", item.id),
+                kind: "pinned".to_string(),
+                title: item.display_title.clone(),
+                detail: item.display_excerpt.clone(),
+                added_at: item.pinned_at.clone(),
+            });
+        }
+
+        for item in &annotations.highlighted_items {
+            items.push(SourceItemProjection {
+                id: format!("highlight:{}", item.id),
+                kind: "highlight".to_string(),
+                title: item.display_title.clone(),
+                detail: item.display_excerpt.clone(),
+                added_at: item.highlighted_at.clone(),
+            });
+        }
+
+        for todo in &annotations.todos {
+            items.push(SourceItemProjection {
+                id: format!("todo:{}", todo.id),
+                kind: "todo".to_string(),
+                title: todo.title.clone(),
+                detail: format!("{:?}", todo.status),
+                added_at: todo.created_at.clone(),
+            });
+        }
+
+        SourcesProjection {
+            changed_files: review.files.len(),
+            terminal_sessions: usize::from(terminal.session.is_some()),
+            context_items: annotations.pinned_items.len()
+                + annotations.highlighted_items.len()
+                + annotations.todos.len(),
+            items,
+        }
     }
 
     #[must_use]
@@ -2114,6 +2204,15 @@ fn provider_health_label(health: ProviderRuntimeHealth) -> &'static str {
     }
 }
 
+fn short_status(status: &TerminalSessionStatus) -> &'static str {
+    match status {
+        TerminalSessionStatus::Starting => "starting",
+        TerminalSessionStatus::Running => "running",
+        TerminalSessionStatus::Exited => "exited",
+        TerminalSessionStatus::Error => "error",
+    }
+}
+
 fn title_from_prompt(prompt: &str) -> String {
     let mut title = prompt
         .split_whitespace()
@@ -2539,6 +2638,71 @@ mod tests {
         assert_eq!(session.pid, Some(42));
         assert_eq!(session.history, "hello\n");
         assert_eq!(session.next_sequence, 3);
+    }
+
+    #[test]
+    fn sources_projection_reads_review_terminal_and_annotations() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.review_snapshots.insert(
+            project_id,
+            ReviewProjection {
+                repo_path: Some("/tmp/project".to_string()),
+                files: vec![ReviewFileProjection {
+                    path: "src/lib.rs".to_string(),
+                    original_path: None,
+                    status: "modified".to_string(),
+                    additions: Some(2),
+                    deletions: Some(1),
+                }],
+                diff_preview: String::new(),
+                diff_truncated: false,
+                total_additions: 2,
+                total_deletions: 1,
+                error: None,
+                updated_at: Some("reviewed".to_string()),
+            },
+        );
+        store.apply_terminal_event(SequencedTerminalEvent {
+            sequence: 1,
+            event: TerminalEvent::Started {
+                thread_id: thread_id.0.clone(),
+                terminal_id: DEFAULT_TERMINAL_ID.to_string(),
+                created_at: "now".to_string(),
+                snapshot: TerminalSessionSnapshot {
+                    thread_id: thread_id.0.clone(),
+                    terminal_id: DEFAULT_TERMINAL_ID.to_string(),
+                    cwd: "/tmp/project".to_string(),
+                    title: None,
+                    status: TerminalSessionStatus::Running,
+                    pid: Some(42),
+                    history: String::new(),
+                    exit_code: None,
+                    exit_signal: None,
+                    cols: 120,
+                    rows: 32,
+                    updated_at: "terminal".to_string(),
+                    next_sequence: 2,
+                    truncated_before_sequence: None,
+                },
+            },
+        });
+        store.send_message(
+            thread_id,
+            ComposerPayload {
+                prompt: "Keep this context".to_string(),
+            },
+        );
+        store.pin_latest_timeline_item();
+
+        let sources = store.projection().sources;
+        assert_eq!(sources.changed_files, 1);
+        assert_eq!(sources.terminal_sessions, 1);
+        assert_eq!(sources.context_items, 1);
+        assert!(sources.items.iter().any(|item| item.kind == "file"));
+        assert!(sources.items.iter().any(|item| item.kind == "terminal"));
+        assert!(sources.items.iter().any(|item| item.kind == "pinned"));
     }
 
     #[test]
