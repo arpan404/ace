@@ -2,13 +2,14 @@ use crate::{
     actions::{
         AddCurrentDirectoryProject, ArchiveActiveThread, ArchiveProject, BeginPanelResize,
         CloseSearchPalette, CommitReview, CreateTodoFromLatestTimelineItem,
-        CreateTodoFromTimelineItem, InterruptActiveTurn, NewThread, NewThreadForProject,
-        OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem, PushReview,
-        RefreshReview, SelectBottomPanelTab, SelectRightPanelTab, SelectSearchPaletteItem,
-        SendActiveComposer, ShowLessProjectThreads, ShowMoreProjectThreads, StageReviewAll,
-        StageReviewFile, ToggleBottomPanel, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
-        ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
-        ToggleRightPanel, ToggleSidebar, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
+        CreateTodoFromTimelineItem, CreateWorktree, InterruptActiveTurn, NewThread,
+        NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem,
+        PushReview, RefreshReview, RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab,
+        SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer, ShowLessProjectThreads,
+        ShowMoreProjectThreads, StageReviewAll, StageReviewFile, ToggleBottomPanel,
+        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        ToggleHighlightTimelineItem, TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
+        UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -91,6 +92,9 @@ impl RootView {
                         RightPanelTab::Review | RightPanelTab::Sources
                     ) {
                         store.refresh_active_review(Some(host));
+                    }
+                    if ui_store.state().right_panel_tab == RightPanelTab::Worktrees {
+                        store.refresh_active_worktrees(Some(host));
                     }
                     if ui_store.state().right_panel_tab == RightPanelTab::Terminal {
                         store.ensure_active_terminal(Some(host));
@@ -295,6 +299,7 @@ impl RootView {
         self.ui_store.select_right_panel_tab(tab);
         match tab {
             RightPanelTab::Review | RightPanelTab::Sources => self.refresh_active_review(),
+            RightPanelTab::Worktrees => self.refresh_active_worktrees(),
             RightPanelTab::Environment | RightPanelTab::Summary | RightPanelTab::Providers => {
                 self.refresh_provider_registry();
             }
@@ -521,9 +526,13 @@ impl RootView {
                 }
                 if matches!(
                     self.ui_store.state().right_panel_tab,
-                    RightPanelTab::Review | RightPanelTab::Sources
+                    RightPanelTab::Review | RightPanelTab::Sources | RightPanelTab::Worktrees
                 ) {
-                    self.refresh_active_review();
+                    if self.ui_store.state().right_panel_tab == RightPanelTab::Worktrees {
+                        self.refresh_active_worktrees();
+                    } else {
+                        self.refresh_active_review();
+                    }
                 }
             }
         }
@@ -555,6 +564,12 @@ impl RootView {
         let active_host = self.active_host.clone();
         self.active_store_mut()
             .refresh_active_review(active_host.as_ref());
+    }
+
+    fn refresh_active_worktrees(&mut self) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .refresh_active_worktrees(active_host.as_ref());
     }
 
     fn refresh_provider_registry(&mut self) {
@@ -632,6 +647,28 @@ impl RootView {
         cx.notify();
     }
 
+    fn refresh_worktrees(&mut self, _: &RefreshWorktrees, _: &mut Window, cx: &mut Context<Self>) {
+        self.refresh_active_worktrees();
+        cx.notify();
+    }
+
+    fn create_worktree(&mut self, _: &CreateWorktree, _: &mut Window, cx: &mut Context<Self>) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .create_active_worktree(active_host.as_ref());
+        cx.notify();
+    }
+
+    fn remove_worktree(&mut self, event: &RemoveWorktree, _: &mut Window, cx: &mut Context<Self>) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut().remove_active_worktree(
+            active_host.as_ref(),
+            event.path.clone(),
+            event.force,
+        );
+        cx.notify();
+    }
+
     fn new_thread(&mut self, _: &NewThread, _: &mut Window, cx: &mut Context<Self>) {
         self.active_store_mut().new_thread_for_first_project();
         if self.terminal_owns_keyboard() {
@@ -672,10 +709,15 @@ impl RootView {
         }
         if matches!(
             self.ui_store.state().right_panel_tab,
-            RightPanelTab::Review | RightPanelTab::Sources | RightPanelTab::Terminal
+            RightPanelTab::Review
+                | RightPanelTab::Sources
+                | RightPanelTab::Terminal
+                | RightPanelTab::Worktrees
         ) {
             if self.ui_store.state().right_panel_tab == RightPanelTab::Terminal {
                 self.ensure_active_terminal();
+            } else if self.ui_store.state().right_panel_tab == RightPanelTab::Worktrees {
+                self.refresh_active_worktrees();
             } else {
                 self.refresh_active_review();
             }
@@ -904,6 +946,9 @@ impl Render for RootView {
             .on_action(cx.listener(Self::unstage_review_file))
             .on_action(cx.listener(Self::commit_review))
             .on_action(cx.listener(Self::push_review))
+            .on_action(cx.listener(Self::refresh_worktrees))
+            .on_action(cx.listener(Self::create_worktree))
+            .on_action(cx.listener(Self::remove_worktree))
             .on_action(cx.listener(Self::archive_active_thread))
             .on_action(cx.listener(Self::archive_project))
             .on_action(cx.listener(Self::show_more_project_threads))

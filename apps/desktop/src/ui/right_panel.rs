@@ -1,14 +1,15 @@
 use crate::{
     actions::{
-        CommitReview, CreateTodoFromLatestTimelineItem, PinLatestTimelineItem, PushReview,
-        RefreshReview, SelectBottomPanelTab, SelectRightPanelTab, StageReviewAll, StageReviewFile,
-        ToggleBottomPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
-        ToggleRightPanel, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
+        CommitReview, CreateTodoFromLatestTimelineItem, CreateWorktree, PinLatestTimelineItem,
+        PushReview, RefreshReview, RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab,
+        SelectRightPanelTab, StageReviewAll, StageReviewFile, ToggleBottomPanel,
+        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleRightPanel, UnstageReviewAll,
+        UnstageReviewFile, UpdateTodoStatus,
     },
     stores::{
         DesktopProjection, ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
         SourceItemProjection, TodoItem, TodoStatus, ToolRegistryEntryProjection,
-        ToolRegistryProjection,
+        ToolRegistryProjection, WorktreeEntryProjection, WorktreeProjection,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{components::*, layout::PanelLayout, theme::Theme},
@@ -235,6 +236,13 @@ fn workbench_panel(
                 "Terminal",
                 || terminal_inspector_body(theme, projection),
             ),
+            RightPanelTab::Worktrees => service_panel_body(
+                theme,
+                &services.worktrees,
+                AceIconName::Review,
+                "Worktrees",
+                || worktrees_body(theme, projection),
+            ),
             RightPanelTab::Browser => service_panel_body(
                 theme,
                 &services.browser,
@@ -369,6 +377,12 @@ fn right_tab_strip(
             active_tab,
             RightPanelTab::Terminal,
             &services.terminal,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Worktrees,
+            &services.worktrees,
         ))
         .child(right_tab(
             theme,
@@ -512,6 +526,7 @@ fn right_tab_meta(tab: RightPanelTab) -> (AceIconName, &'static str) {
         RightPanelTab::Review => (AceIconName::Review, "Review"),
         RightPanelTab::Environment => (AceIconName::Environment, "Environment"),
         RightPanelTab::Terminal => (AceIconName::Terminal, "Terminal"),
+        RightPanelTab::Worktrees => (AceIconName::Review, "Worktrees"),
         RightPanelTab::Browser => (AceIconName::Browser, "Browser"),
         RightPanelTab::Editor => (AceIconName::Editor, "Editor"),
         RightPanelTab::Summary => (AceIconName::Summary, "Summary"),
@@ -529,6 +544,7 @@ fn right_tab_id(tab: RightPanelTab) -> &'static str {
         RightPanelTab::Review => "right-tab-review",
         RightPanelTab::Environment => "right-tab-environment",
         RightPanelTab::Terminal => "right-tab-terminal",
+        RightPanelTab::Worktrees => "right-tab-worktrees",
         RightPanelTab::Browser => "right-tab-browser",
         RightPanelTab::Editor => "right-tab-editor",
         RightPanelTab::Summary => "right-tab-summary",
@@ -852,6 +868,179 @@ fn review_diff_preview(theme: Theme, review: &ReviewProjection) -> AnyElement {
         .into_any_element()
 }
 
+fn worktrees_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    if projection.chat.active_thread.is_none() {
+        return empty_panel_body(
+            theme,
+            AceIconName::Review,
+            "Worktrees",
+            "No active thread is selected.",
+        );
+    }
+
+    let worktrees = &projection.worktrees;
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(info_row(
+            theme,
+            "Repository",
+            worktrees
+                .repo_path
+                .as_deref()
+                .map(short_path)
+                .unwrap_or_else(|| "No repository".to_string())
+                .as_str(),
+        ))
+        .child(info_row(
+            theme,
+            "Worktrees",
+            &worktrees.entries.len().to_string(),
+        ))
+        .when_some(worktrees.updated_at.as_deref(), |this, updated| {
+            this.child(info_row(theme, "Updated", updated))
+        })
+        .when_some(worktrees.last_created_path.as_deref(), |this, path| {
+            this.child(info_row(theme, "Created", &short_path(path)))
+        })
+        .child(worktree_actions(theme, worktrees))
+        .when_some(worktrees.error.as_deref(), |this, error| {
+            this.child(registry_error_card(theme, error))
+        })
+        .child(worktree_list(theme, worktrees))
+        .into_any_element()
+}
+
+fn worktree_actions(theme: Theme, worktrees: &WorktreeProjection) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(action_button(IconName::Info, "Refresh", theme, || {
+            Box::new(RefreshWorktrees)
+        }))
+        .when(worktrees.repo_path.is_some(), |this| {
+            this.child(action_button(IconName::Plus, "Create", theme, || {
+                Box::new(CreateWorktree)
+            }))
+        })
+        .into_any_element()
+}
+
+fn worktree_list(theme: Theme, worktrees: &WorktreeProjection) -> AnyElement {
+    if worktrees.entries.is_empty() {
+        return div()
+            .rounded_md()
+            .border_1()
+            .border_color(theme.border_subtle)
+            .bg(theme.panel)
+            .px_2()
+            .py_2()
+            .text_size(px(12.0))
+            .text_color(theme.muted)
+            .child("No worktrees loaded")
+            .into_any_element();
+    }
+
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .children(
+            worktrees
+                .entries
+                .iter()
+                .map(|entry| worktree_entry_card(theme, entry))
+                .collect::<Vec<_>>(),
+        )
+        .overflow_y_scrollbar()
+        .into_any_element()
+}
+
+fn worktree_entry_card(theme: Theme, entry: &WorktreeEntryProjection) -> AnyElement {
+    let status_color = if entry.active_thread {
+        theme.accent_success
+    } else if entry.detached || entry.bare {
+        theme.accent_warning
+    } else {
+        theme.muted_subtle
+    };
+    let branch = entry
+        .branch
+        .as_deref()
+        .or(entry.head.as_deref())
+        .unwrap_or("detached");
+    let mut badges = Vec::new();
+    if entry.primary {
+        badges.push("primary");
+    }
+    if entry.active_thread {
+        badges.push("active");
+    }
+    if entry.bare {
+        badges.push("bare");
+    } else if entry.detached {
+        badges.push("detached");
+    }
+
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_size(px(12.0))
+                .text_color(theme.foreground.opacity(0.84))
+                .child(div().w(px(6.0)).h(px(6.0)).rounded_full().bg(status_color))
+                .child(icon_svg(IconName::FolderOpen, theme.muted))
+                .child(clamp_text(branch, 120)),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .line_height(px(16.0))
+                .text_color(theme.muted)
+                .child(short_path(&entry.path)),
+        )
+        .when(!badges.is_empty(), |this| {
+            this.child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(badges.join(" · ")),
+            )
+        })
+        .when(!entry.primary, |this| {
+            let path = entry.path.clone();
+            this.child(action_button(
+                IconName::Delete,
+                "Remove",
+                theme,
+                move || {
+                    Box::new(RemoveWorktree {
+                        path: path.clone(),
+                        force: false,
+                    })
+                },
+            ))
+        })
+        .into_any_element()
+}
+
 fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
     let Some(thread) = projection.chat.active_thread.as_ref() else {
         return empty_panel_body(
@@ -882,6 +1071,11 @@ fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement 
         })
         .child(info_row(theme, "Branch", branch))
         .child(info_row(theme, "Worktree", &worktree))
+        .child(info_row(
+            theme,
+            "Known worktrees",
+            &projection.worktrees.entries.len().to_string(),
+        ))
         .child(info_row(
             theme,
             "Changes",
@@ -969,6 +1163,11 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
             theme,
             "Changed files",
             &projection.review.files.len().to_string(),
+        ))
+        .child(info_row(
+            theme,
+            "Worktrees",
+            &projection.worktrees.entries.len().to_string(),
         ))
         .child(info_row(
             theme,

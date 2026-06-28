@@ -25,6 +25,8 @@ actions!(
         UnstageReviewAll,
         CommitReview,
         PushReview,
+        RefreshWorktrees,
+        CreateWorktree,
         ArchiveActiveThread,
         AddCurrentDirectoryProject,
         OpenSearchPalette,
@@ -95,6 +97,13 @@ pub struct StageReviewFile {
 #[action(namespace = ace, no_json)]
 pub struct UnstageReviewFile {
     pub path: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct RemoveWorktree {
+    pub path: String,
+    pub force: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]

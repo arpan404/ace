@@ -167,6 +167,17 @@ pub fn palette_items(
             result_kind: SearchPaletteResultKind::Source,
         });
     }
+    for worktree in &projection.worktrees.entries {
+        source_items.push(SearchPaletteItem::Panel {
+            tab: crate::stores::ui::RightPanelTab::Worktrees,
+            label: worktree
+                .branch
+                .clone()
+                .unwrap_or_else(|| short_path(&worktree.path)),
+            description: format!("Worktree · {}", worktree.path),
+            result_kind: SearchPaletteResultKind::Source,
+        });
+    }
 
     for item in &projection.annotations.pinned_items {
         context_items.push(SearchPaletteItem::Panel {
@@ -342,6 +353,13 @@ pub fn palette_items(
 
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
+}
+
+fn short_path(path: &str) -> String {
+    path.rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .unwrap_or(path)
+        .to_string()
 }
 
 pub(super) fn search_palette_overlay(

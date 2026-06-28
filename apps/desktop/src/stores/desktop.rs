@@ -7,7 +7,7 @@ use ace_project::ProjectSummary;
 use ace_protocol::{
     git::{
         GitChangedFilesRequest, GitCommitRequest, GitDiffRequest, GitPushRequest, GitStageRequest,
-        GitUnstageRequest,
+        GitUnstageRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest, GitWorktreesRequest,
     },
     project::{
         ProjectAddRequest, ProjectDeleteRequest, ProjectSnapshotRequest, ProjectThreadsRequest,
@@ -64,6 +64,7 @@ pub struct DesktopStore {
     terminal_inputs: HashMap<ThreadId, String>,
     terminal_errors: HashMap<ThreadId, String>,
     review_snapshots: HashMap<ProjectId, ReviewProjection>,
+    worktree_snapshots: HashMap<ProjectId, WorktreeProjection>,
     provider_registry: ProviderRegistryProjection,
     runtime_status: RuntimeStatusProjection,
     plugin_registry: ToolRegistryProjection,
@@ -86,6 +87,7 @@ pub struct DesktopProjection {
     pub services: ServiceReadiness,
     pub terminal: TerminalProjection,
     pub review: ReviewProjection,
+    pub worktrees: WorktreeProjection,
     pub sources: SourcesProjection,
     pub providers: ProviderRegistryProjection,
     pub runtime_status: RuntimeStatusProjection,
@@ -116,6 +118,7 @@ pub struct ServiceReadiness {
     pub host_connected: bool,
     pub terminal: ServiceStatus,
     pub diff_review: ServiceStatus,
+    pub worktrees: ServiceStatus,
     pub browser: ServiceStatus,
     pub editor: ServiceStatus,
     pub summary: ServiceStatus,
@@ -153,6 +156,7 @@ impl ServiceReadiness {
             host_connected: false,
             terminal: ServiceStatus::Missing { reason },
             diff_review: ServiceStatus::Missing { reason },
+            worktrees: ServiceStatus::Missing { reason },
             browser: ServiceStatus::Missing { reason },
             editor: ServiceStatus::Missing { reason },
             summary: ServiceStatus::Ready,
@@ -214,6 +218,26 @@ pub struct ReviewFileProjection {
     pub status: String,
     pub additions: Option<u32>,
     pub deletions: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorktreeProjection {
+    pub repo_path: Option<String>,
+    pub entries: Vec<WorktreeEntryProjection>,
+    pub error: Option<String>,
+    pub updated_at: Option<String>,
+    pub last_created_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeEntryProjection {
+    pub path: String,
+    pub branch: Option<String>,
+    pub head: Option<String>,
+    pub detached: bool,
+    pub bare: bool,
+    pub active_thread: bool,
+    pub primary: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -380,6 +404,7 @@ impl DesktopStore {
             terminal_inputs: HashMap::new(),
             terminal_errors: HashMap::new(),
             review_snapshots: HashMap::new(),
+            worktree_snapshots: HashMap::new(),
             provider_registry: ProviderRegistryProjection::default(),
             runtime_status: RuntimeStatusProjection::default(),
             plugin_registry: ToolRegistryProjection {
@@ -483,6 +508,7 @@ impl DesktopStore {
             services: self.service_readiness(),
             terminal: self.terminal_projection(),
             review: self.review_projection(),
+            worktrees: self.worktree_projection(),
             sources: self.sources_projection(),
             providers: self.provider_registry.clone(),
             runtime_status: self.runtime_status.clone(),
@@ -519,6 +545,7 @@ impl DesktopStore {
             host_connected: true,
             terminal: ServiceStatus::Ready,
             diff_review: ServiceStatus::Ready,
+            worktrees: ServiceStatus::Ready,
             browser: ServiceStatus::Missing {
                 reason: "Browser sessions need a host-driven Chromium frame service.",
             },
@@ -577,6 +604,20 @@ impl DesktopStore {
             .unwrap_or_else(|| ReviewProjection {
                 repo_path: self.review_repo_path(thread),
                 ..ReviewProjection::default()
+            })
+    }
+
+    #[must_use]
+    pub fn worktree_projection(&self) -> WorktreeProjection {
+        let Some(thread) = self.active_thread() else {
+            return WorktreeProjection::default();
+        };
+        self.worktree_snapshots
+            .get(&thread.project_id)
+            .cloned()
+            .unwrap_or_else(|| WorktreeProjection {
+                repo_path: self.review_repo_path(thread),
+                ..WorktreeProjection::default()
             })
     }
 
@@ -1199,6 +1240,190 @@ impl DesktopStore {
                 },
             )
         });
+    }
+
+    pub fn refresh_active_worktrees(&mut self, host: Option<&BackendHostClient>) {
+        let Some(thread) = self.active_thread().cloned() else {
+            return;
+        };
+        let Some(repo_path) = self.review_repo_path(&thread) else {
+            self.worktree_snapshots.insert(
+                thread.project_id,
+                WorktreeProjection {
+                    error: Some("No project workspace is available for this thread.".to_string()),
+                    ..WorktreeProjection::default()
+                },
+            );
+            return;
+        };
+
+        let Some(host) = self.host.clone().or_else(|| host.cloned()) else {
+            self.worktree_snapshots.insert(
+                thread.project_id,
+                WorktreeProjection {
+                    repo_path: Some(repo_path),
+                    error: Some(
+                        "Connect to a host runtime before listing Git worktrees.".to_string(),
+                    ),
+                    ..WorktreeProjection::default()
+                },
+            );
+            return;
+        };
+
+        let now = self.next_timestamp();
+        let response = host.call::<_, serde_json::Value>(
+            methods::GIT_WORKTREES,
+            &GitWorktreesRequest {
+                repo_path: repo_path.clone(),
+            },
+        );
+        let projection = match response {
+            Ok(value) => WorktreeProjection {
+                entries: parse_worktree_entries(value, &repo_path, thread.worktree_path.as_deref()),
+                repo_path: Some(repo_path),
+                error: None,
+                updated_at: Some(now),
+                last_created_path: self
+                    .worktree_snapshots
+                    .get(&thread.project_id)
+                    .and_then(|projection| projection.last_created_path.clone()),
+            },
+            Err(error) => WorktreeProjection {
+                repo_path: Some(repo_path),
+                error: Some(format!("Failed to list Git worktrees: {error}")),
+                updated_at: Some(now),
+                ..WorktreeProjection::default()
+            },
+        };
+        self.worktree_snapshots
+            .insert(thread.project_id, projection);
+    }
+
+    pub fn create_active_worktree(&mut self, host: Option<&BackendHostClient>) {
+        let Some(thread) = self.active_thread().cloned() else {
+            return;
+        };
+        let Some(repo_path) = self.review_repo_path(&thread) else {
+            self.worktree_snapshots.insert(
+                thread.project_id,
+                WorktreeProjection {
+                    error: Some("No project workspace is available for this thread.".to_string()),
+                    ..WorktreeProjection::default()
+                },
+            );
+            return;
+        };
+        let Some(host) = self.host.clone().or_else(|| host.cloned()) else {
+            self.worktree_snapshots.insert(
+                thread.project_id,
+                WorktreeProjection {
+                    repo_path: Some(repo_path),
+                    error: Some(
+                        "Connect to a host runtime before creating a Git worktree.".to_string(),
+                    ),
+                    ..WorktreeProjection::default()
+                },
+            );
+            return;
+        };
+
+        let preferred_branch = suggested_worktree_branch(&thread);
+        let start_point = thread.branch.clone();
+        match host.call::<_, serde_json::Value>(
+            methods::GIT_WORKTREES_CREATE,
+            &GitWorktreeCreateRequest {
+                repo_path: repo_path.clone(),
+                preferred_branch,
+                start_point,
+            },
+        ) {
+            Ok(value) => {
+                let created_path = value
+                    .get("path")
+                    .and_then(serde_json::Value::as_str)
+                    .map(ToString::to_string);
+                self.refresh_active_worktrees(Some(&host));
+                if let Some(created_path) = created_path {
+                    self.worktree_snapshots
+                        .entry(thread.project_id)
+                        .or_insert_with(|| WorktreeProjection {
+                            repo_path: Some(repo_path),
+                            ..WorktreeProjection::default()
+                        })
+                        .last_created_path = Some(created_path);
+                }
+            }
+            Err(error) => {
+                let updated_at = self.next_timestamp();
+                self.worktree_snapshots.insert(
+                    thread.project_id,
+                    WorktreeProjection {
+                        repo_path: Some(repo_path),
+                        error: Some(format!("Failed to create Git worktree: {error}")),
+                        updated_at: Some(updated_at),
+                        ..WorktreeProjection::default()
+                    },
+                );
+            }
+        }
+    }
+
+    pub fn remove_active_worktree(
+        &mut self,
+        host: Option<&BackendHostClient>,
+        path: String,
+        force: bool,
+    ) {
+        let Some(thread) = self.active_thread().cloned() else {
+            return;
+        };
+        let Some(repo_path) = self.review_repo_path(&thread) else {
+            self.worktree_snapshots.insert(
+                thread.project_id,
+                WorktreeProjection {
+                    error: Some("No project workspace is available for this thread.".to_string()),
+                    ..WorktreeProjection::default()
+                },
+            );
+            return;
+        };
+        let Some(host) = self.host.clone().or_else(|| host.cloned()) else {
+            self.worktree_snapshots.insert(
+                thread.project_id,
+                WorktreeProjection {
+                    repo_path: Some(repo_path),
+                    error: Some(
+                        "Connect to a host runtime before removing a Git worktree.".to_string(),
+                    ),
+                    ..WorktreeProjection::default()
+                },
+            );
+            return;
+        };
+
+        match host.call::<_, serde_json::Value>(
+            methods::GIT_WORKTREES_REMOVE,
+            &GitWorktreeRemoveRequest {
+                repo_path: repo_path.clone(),
+                path,
+                force,
+            },
+        ) {
+            Ok(_) => self.refresh_active_worktrees(Some(&host)),
+            Err(error) => {
+                let updated_at = self.next_timestamp();
+                self.worktree_snapshots.insert(
+                    thread.project_id,
+                    WorktreeProjection {
+                        repo_path: Some(repo_path),
+                        error: Some(format!("Failed to remove Git worktree: {error}")),
+                        updated_at: Some(updated_at),
+                        ..WorktreeProjection::default()
+                    },
+                );
+            }
+        }
     }
 
     pub fn ensure_active_terminal(&mut self, host: Option<&BackendHostClient>) {
@@ -2456,6 +2681,76 @@ fn parse_review_files(value: serde_json::Value) -> Vec<ReviewFileProjection> {
         .unwrap_or_default()
 }
 
+fn parse_worktree_entries(
+    value: serde_json::Value,
+    repo_path: &str,
+    active_worktree_path: Option<&str>,
+) -> Vec<WorktreeEntryProjection> {
+    value
+        .as_array()
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| {
+                    let path = entry.get("path")?.as_str()?.to_string();
+                    let primary = path == repo_path;
+                    let active_thread =
+                        active_worktree_path.map_or(primary, |active_path| active_path == path);
+                    Some(WorktreeEntryProjection {
+                        path,
+                        branch: entry
+                            .get("branch")
+                            .and_then(serde_json::Value::as_str)
+                            .map(ToString::to_string),
+                        head: entry
+                            .get("head")
+                            .and_then(serde_json::Value::as_str)
+                            .map(ToString::to_string),
+                        detached: entry
+                            .get("detached")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false),
+                        bare: entry
+                            .get("bare")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false),
+                        active_thread,
+                        primary,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn suggested_worktree_branch(thread: &ThreadSummary) -> String {
+    let title = thread
+        .title
+        .split_whitespace()
+        .take(6)
+        .collect::<Vec<_>>()
+        .join("-");
+    let normalized = title
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '/') {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if normalized.is_empty() {
+        format!("ace/{}", thread.id.0)
+    } else {
+        format!("ace/{normalized}")
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum RegistrySurface {
     Plugin,
@@ -2810,6 +3105,7 @@ mod tests {
         assert!(!services.host_connected);
         assert!(!services.terminal.is_ready());
         assert!(!services.diff_review.is_ready());
+        assert!(!services.worktrees.is_ready());
         assert!(!services.browser.is_ready());
         assert!(services.summary.is_ready());
     }
@@ -2952,6 +3248,65 @@ mod tests {
         assert_eq!(files[0].additions, Some(3));
         assert_eq!(files[0].deletions, Some(1));
         assert_eq!(files[1].original_path.as_deref(), Some("old.rs"));
+    }
+
+    #[test]
+    fn worktree_parser_marks_primary_and_active_entries() {
+        let entries = parse_worktree_entries(
+            serde_json::json!([
+                {
+                    "path": "/repo",
+                    "branch": "main",
+                    "head": "abc",
+                    "detached": false,
+                    "bare": false
+                },
+                {
+                    "path": "/repo-worktrees/feature",
+                    "branch": "feature/task",
+                    "head": "def",
+                    "detached": false,
+                    "bare": false
+                }
+            ]),
+            "/repo",
+            Some("/repo-worktrees/feature"),
+        );
+
+        assert_eq!(entries.len(), 2);
+        assert!(entries[0].primary);
+        assert!(!entries[0].active_thread);
+        assert!(!entries[1].primary);
+        assert!(entries[1].active_thread);
+        assert_eq!(entries[1].branch.as_deref(), Some("feature/task"));
+    }
+
+    #[test]
+    fn suggested_worktree_branch_uses_thread_title() {
+        let thread = ThreadSummary {
+            id: ThreadId("thread-1".to_string()),
+            provider_thread_id: None,
+            project_id: ProjectId::new(),
+            title: "Implement Worktree Manager!".to_string(),
+            status: ThreadStatus::Idle,
+            provider: ace_core::ProviderKind::Codex,
+            model: None,
+            pinned: false,
+            archived: false,
+            unseen_completion: false,
+            latest_activity_at: "now".to_string(),
+            latest_message_preview: None,
+            pending_approvals: 0,
+            pending_user_inputs: 0,
+            has_actionable_plan: false,
+            branch: Some("main".to_string()),
+            worktree_path: None,
+        };
+
+        assert_eq!(
+            suggested_worktree_branch(&thread),
+            "ace/implement-worktree-manager"
+        );
     }
 
     #[test]

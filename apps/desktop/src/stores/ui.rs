@@ -9,6 +9,7 @@ pub enum RightPanelTab {
     Review,
     Environment,
     Terminal,
+    Worktrees,
     Browser,
     Editor,
     Summary,
