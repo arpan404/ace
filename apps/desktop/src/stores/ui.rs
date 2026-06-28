@@ -10,6 +10,8 @@ pub enum RightPanelTab {
     Browser,
     Editor,
     Summary,
+    Pinned,
+    Todos,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

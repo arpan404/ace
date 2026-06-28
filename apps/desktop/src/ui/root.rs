@@ -1,15 +1,17 @@
 use crate::{
     actions::{
         AddCurrentDirectoryProject, ArchiveActiveThread, ArchiveProject, BeginPanelResize,
-        CloseSearchPalette, InterruptActiveTurn, NewThread, NewThreadForProject, OpenSearchPalette,
-        OpenThread, SelectBottomPanelTab, SelectRightPanelTab, SelectSearchPaletteItem,
-        SendActiveComposer, ShowLessProjectThreads, ShowMoreProjectThreads, ToggleBottomPanel,
-        ToggleEnvironmentPanel, TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
+        CloseSearchPalette, CreateTodoFromLatestTimelineItem, InterruptActiveTurn, NewThread,
+        NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem,
+        SelectBottomPanelTab, SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer,
+        ShowLessProjectThreads, ShowMoreProjectThreads, ToggleBottomPanel, ToggleEnvironmentPanel,
+        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, TogglePinActiveThread,
+        ToggleRightPanel, ToggleSidebar,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
     stores::{
-        DesktopStore, UiStore,
+        DesktopStore, ThreadAnnotationsSnapshot, UiStore,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{
@@ -21,11 +23,17 @@ use crate::{
         theme::Theme,
     },
 };
+use ace_protocol::{
+    provider_runtime::{PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeEventBatch},
+    terminal::{SequencedTerminalEvent, TERMINAL_EVENT_TOPIC},
+};
 use gpui::{
-    Context, FocusHandle, IntoElement, KeyDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
-    Render, Window, div, prelude::*, px,
+    AsyncApp, Context, FocusHandle, IntoElement, KeyDownEvent, MouseMoveEvent, MouseUpEvent,
+    Pixels, Point, Render, Task, WeakEntity, Window, div, prelude::*, px,
 };
 use std::collections::HashMap;
+
+const THREAD_ANNOTATIONS_KEY: &str = "thread-annotations";
 
 pub struct RootView {
     focus_handle: FocusHandle,
@@ -37,6 +45,8 @@ pub struct RootView {
     ui_store: UiStore,
     resize_drag: Option<ResizeDrag>,
     search_palette: SearchPaletteState,
+    _provider_events_task: Option<Task<()>>,
+    _terminal_events_task: Option<Task<()>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -57,15 +67,26 @@ impl RootView {
         let persistence = PersistenceService::ui_state()
             .inspect_err(|error| tracing::warn!(%error, "failed to open ui state persistence"))
             .ok();
-        let ui_store = persistence
+        let ui_store: UiStore = persistence
             .as_ref()
             .map(PersistenceService::load_store)
+            .unwrap_or_default();
+        let annotations = persistence
+            .as_ref()
+            .map(|persistence| {
+                persistence.load_snapshot::<ThreadAnnotationsSnapshot>(THREAD_ANNOTATIONS_KEY)
+            })
             .unwrap_or_default();
         let active_host = backend.as_ref().map(DesktopBackend::active_host);
         let mut host_stores = HashMap::new();
         if let Some(host) = &active_host {
             match DesktopStore::load_from_host(host) {
-                Ok(store) => {
+                Ok(mut store) => {
+                    store.restore_annotations(annotations.clone());
+                    store.refresh_provider_registry(Some(host));
+                    if ui_store.state().right_panel_tab == RightPanelTab::Review {
+                        store.refresh_active_review(Some(host));
+                    }
                     host_stores.insert(host.id().clone(), store);
                 }
                 Err(error) => {
@@ -73,16 +94,63 @@ impl RootView {
                 }
             }
         }
+        let provider_events_task = active_host.clone().map(|host| {
+            cx.spawn(async move |view: WeakEntity<RootView>, cx: &mut AsyncApp| {
+                let Ok(mut events) = host.subscribe_provider_runtime_events() else {
+                    return;
+                };
+                while let Ok(event) = events.recv().await {
+                    if event.topic != PROVIDER_RUNTIME_EVENT_TOPIC {
+                        continue;
+                    }
+                    let Ok(batch) = serde_json::from_value::<ProviderRuntimeEventBatch>(event.body)
+                    else {
+                        continue;
+                    };
+                    let _ = view.update(cx, |view, cx| {
+                        view.active_store_mut()
+                            .apply_provider_runtime_event_batch(batch);
+                        cx.notify();
+                    });
+                }
+            })
+        });
+        let terminal_events_task = active_host.clone().map(|host| {
+            cx.spawn(async move |view: WeakEntity<RootView>, cx: &mut AsyncApp| {
+                let Ok(mut events) = host.subscribe_terminal_events() else {
+                    return;
+                };
+                while let Ok(event) = events.recv().await {
+                    if event.topic != TERMINAL_EVENT_TOPIC {
+                        continue;
+                    }
+                    let Ok(event) = serde_json::from_value::<SequencedTerminalEvent>(event.body)
+                    else {
+                        continue;
+                    };
+                    let _ = view.update(cx, |view, cx| {
+                        view.active_store_mut().apply_terminal_event(event);
+                        cx.notify();
+                    });
+                }
+            })
+        });
         Self {
             focus_handle,
             active_host,
             host_stores,
-            fallback_store: DesktopStore::new(),
+            fallback_store: {
+                let mut store = DesktopStore::new();
+                store.restore_annotations(annotations);
+                store
+            },
             _backend: backend,
             persistence,
             ui_store,
             resize_drag: None,
             search_palette: SearchPaletteState::default(),
+            _provider_events_task: provider_events_task,
+            _terminal_events_task: terminal_events_task,
         }
     }
 
@@ -187,6 +255,9 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.ui_store.toggle_bottom_panel();
+        if self.ui_store.state().bottom_panel_visible {
+            self.ensure_active_terminal();
+        }
         self.save_ui_state();
         cx.notify();
     }
@@ -209,6 +280,11 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.ui_store.select_right_panel_tab(event.tab);
+        if event.tab == RightPanelTab::Review {
+            self.refresh_active_review();
+        } else if event.tab == RightPanelTab::Summary {
+            self.refresh_provider_registry();
+        }
         self.save_ui_state();
         cx.notify();
     }
@@ -220,6 +296,9 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.ui_store.select_bottom_panel_tab(event.tab);
+        if event.tab == BottomPanelTab::Terminal {
+            self.ensure_active_terminal();
+        }
         self.save_ui_state();
         cx.notify();
     }
@@ -236,6 +315,11 @@ impl RootView {
 
     fn handle_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         if !self.search_palette.open {
+            if self.terminal_owns_keyboard() && self.handle_terminal_key_down(event) {
+                cx.notify();
+                return;
+            }
+            self.handle_composer_key_down(event, cx);
             return;
         }
 
@@ -304,6 +388,73 @@ impl RootView {
         }
     }
 
+    fn handle_composer_key_down(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        let key = event.keystroke.key.as_str();
+        match key {
+            "enter" if !event.keystroke.modifiers.shift => {
+                self.active_store_mut().send_active_composer();
+                cx.notify();
+            }
+            "enter" => {
+                self.active_store_mut().push_active_composer_input("\n");
+                cx.notify();
+            }
+            "backspace" => {
+                self.active_store_mut().pop_active_composer_input();
+                cx.notify();
+            }
+            _ => {
+                if !event.keystroke.modifiers.modified()
+                    && let Some(input) = &event.keystroke.key_char
+                    && !input.chars().any(char::is_control)
+                {
+                    self.active_store_mut().push_active_composer_input(input);
+                    cx.notify();
+                }
+            }
+        }
+    }
+
+    fn handle_terminal_key_down(&mut self, event: &KeyDownEvent) -> bool {
+        if event.keystroke.modifiers.modified() {
+            return false;
+        }
+
+        let active_host = self.active_host.clone();
+        match event.keystroke.key.as_str() {
+            "enter" => {
+                self.active_store_mut()
+                    .send_active_terminal_input(active_host.as_ref());
+                true
+            }
+            "backspace" => {
+                self.active_store_mut().pop_active_terminal_input();
+                true
+            }
+            _ => {
+                let Some(input) = &event.keystroke.key_char else {
+                    return false;
+                };
+                if input.chars().any(char::is_control) {
+                    return false;
+                }
+                self.active_store_mut().push_active_terminal_input(input);
+                true
+            }
+        }
+    }
+
+    fn terminal_owns_keyboard(&self) -> bool {
+        self.ui_store.state().bottom_panel_visible
+            && self.ui_store.state().bottom_panel_tab == BottomPanelTab::Terminal
+            && self
+                .active_store()
+                .projection()
+                .chat
+                .active_thread
+                .is_some()
+    }
+
     fn activate_search_palette_item(&mut self, item: SearchPaletteItem) {
         match item {
             SearchPaletteItem::NewThread => {
@@ -326,6 +477,7 @@ impl RootView {
                 self.search_palette.close();
                 self.ui_store
                     .select_bottom_panel_tab(BottomPanelTab::Terminal);
+                self.ensure_active_terminal();
                 self.save_ui_state();
             }
             SearchPaletteItem::Project { project_id, .. } => {
@@ -340,6 +492,12 @@ impl RootView {
             SearchPaletteItem::Thread { thread_id, .. } => {
                 self.search_palette.close();
                 self.active_store_mut().open_thread(thread_id);
+                if self.terminal_owns_keyboard() {
+                    self.ensure_active_terminal();
+                }
+                if self.ui_store.state().right_panel_tab == RightPanelTab::Review {
+                    self.refresh_active_review();
+                }
             }
         }
     }
@@ -360,8 +518,29 @@ impl RootView {
         }
     }
 
+    fn ensure_active_terminal(&mut self) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .ensure_active_terminal(active_host.as_ref());
+    }
+
+    fn refresh_active_review(&mut self) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .refresh_active_review(active_host.as_ref());
+    }
+
+    fn refresh_provider_registry(&mut self) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .refresh_provider_registry(active_host.as_ref());
+    }
+
     fn new_thread(&mut self, _: &NewThread, _: &mut Window, cx: &mut Context<Self>) {
         self.active_store_mut().new_thread_for_first_project();
+        if self.terminal_owns_keyboard() {
+            self.ensure_active_terminal();
+        }
         cx.notify();
     }
 
@@ -372,6 +551,9 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.active_store_mut().new_thread(event.project_id);
+        if self.terminal_owns_keyboard() {
+            self.ensure_active_terminal();
+        }
         cx.notify();
     }
 
@@ -389,6 +571,12 @@ impl RootView {
 
     fn open_thread(&mut self, event: &OpenThread, _: &mut Window, cx: &mut Context<Self>) {
         self.active_store_mut().open_thread(event.thread_id.clone());
+        if self.terminal_owns_keyboard() {
+            self.ensure_active_terminal();
+        }
+        if self.ui_store.state().right_panel_tab == RightPanelTab::Review {
+            self.refresh_active_review();
+        }
         cx.notify();
     }
 
@@ -419,6 +607,52 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.active_store_mut().toggle_pin_active_thread();
+        cx.notify();
+    }
+
+    fn pin_latest_timeline_item(
+        &mut self,
+        _: &PinLatestTimelineItem,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut().pin_latest_timeline_item();
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
+    fn create_todo_from_latest_timeline_item(
+        &mut self,
+        _: &CreateTodoFromLatestTimelineItem,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .create_todo_from_latest_timeline_item();
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
+    fn toggle_highlight_latest_timeline_item(
+        &mut self,
+        _: &ToggleHighlightLatestTimelineItem,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .toggle_highlight_latest_timeline_item();
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
+    fn toggle_first_open_todo(
+        &mut self,
+        _: &ToggleFirstOpenTodo,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut().toggle_first_open_todo();
+        self.save_thread_annotations();
         cx.notify();
     }
 
@@ -468,6 +702,15 @@ impl RootView {
             tracing::warn!(%error, "failed to save ui state");
         }
     }
+
+    fn save_thread_annotations(&self) {
+        if let Some(persistence) = &self.persistence {
+            let snapshot = self.active_store().annotations_snapshot();
+            if let Err(error) = persistence.save_snapshot(THREAD_ANNOTATIONS_KEY, &snapshot) {
+                tracing::warn!(%error, "failed to save thread annotations");
+            }
+        }
+    }
 }
 
 impl Render for RootView {
@@ -494,6 +737,10 @@ impl Render for RootView {
             .on_action(cx.listener(Self::send_active_composer))
             .on_action(cx.listener(Self::interrupt_active_turn))
             .on_action(cx.listener(Self::toggle_pin_active_thread))
+            .on_action(cx.listener(Self::pin_latest_timeline_item))
+            .on_action(cx.listener(Self::toggle_highlight_latest_timeline_item))
+            .on_action(cx.listener(Self::create_todo_from_latest_timeline_item))
+            .on_action(cx.listener(Self::toggle_first_open_todo))
             .on_action(cx.listener(Self::archive_active_thread))
             .on_action(cx.listener(Self::archive_project))
             .on_action(cx.listener(Self::show_more_project_threads))

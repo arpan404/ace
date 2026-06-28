@@ -48,8 +48,18 @@ pub fn run() {
             })
             .expect("failed to open Ace desktop window");
 
-            cx.activate(true);
+            if should_activate_on_startup() {
+                cx.activate(true);
+            }
         });
+}
+
+fn should_activate_on_startup() -> bool {
+    startup_activation_enabled(std::env::var("ACE_NO_STARTUP_ACTIVATE").as_deref().ok())
+}
+
+fn startup_activation_enabled(value: Option<&str>) -> bool {
+    !matches!(value, Some("1" | "true"))
 }
 
 fn register_actions(cx: &mut App) {
@@ -89,6 +99,7 @@ fn window_options(cx: &App) -> WindowOptions {
         ))),
         window_min_size: Some(size(px(980.0), px(640.0))),
         titlebar: Some(titlebar_options()),
+        focus: should_activate_on_startup(),
         app_id: Some("dev.ace.desktop".to_string()),
         ..Default::default()
     }
@@ -126,6 +137,13 @@ mod tests {
         assert!(menus[0].items.iter().any(
             |item| matches!(item, MenuItem::Action { name, .. } if name.as_ref() == "Add Current Directory Project")
         ));
+    }
+
+    #[test]
+    fn startup_activation_can_be_disabled_for_watch_restarts() {
+        assert!(!startup_activation_enabled(Some("1")));
+        assert!(!startup_activation_enabled(Some("true")));
+        assert!(startup_activation_enabled(None));
     }
 
     #[test]

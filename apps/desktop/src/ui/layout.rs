@@ -1,5 +1,5 @@
 use crate::{
-    stores::{DesktopProjection, ui::UiState},
+    stores::{DesktopProjection, ThreadAnnotationsProjection, ui::UiState},
     ui::{
         chat::workspace_panel,
         right_panel::{bottom_panel, right_panel},
@@ -74,7 +74,6 @@ pub fn shell_layout(
     cx: &mut App,
 ) -> AnyElement {
     let sidebar = projection.sidebar.clone();
-    let chat = projection.chat.clone();
 
     div()
         .id("ace-shell")
@@ -101,7 +100,7 @@ pub fn shell_layout(
             theme,
             layout,
             ui_state.clone(),
-            chat.clone(),
+            projection,
             chrome,
             window,
             cx,
@@ -113,7 +112,7 @@ fn main_column(
     theme: Theme,
     layout: PanelLayout,
     ui_state: UiState,
-    chat: ChatProjection,
+    projection: DesktopProjection,
     chrome: ShellChrome,
     window: &mut Window,
     cx: &mut App,
@@ -130,7 +129,7 @@ fn main_column(
             theme,
             layout,
             ui_state.clone(),
-            chat.clone(),
+            projection.clone(),
             chrome,
             window,
             cx,
@@ -147,7 +146,7 @@ fn main_column(
                 layout,
                 bottom_tab,
                 chrome.active_splitter == Some(SplitterKind::BottomPanel),
-                chat,
+                projection,
             ))
         })
         .into_any_element()
@@ -157,11 +156,12 @@ fn main_content_row(
     theme: Theme,
     layout: PanelLayout,
     ui_state: UiState,
-    chat: ChatProjection,
+    projection: DesktopProjection,
     chrome: ShellChrome,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
+    let chat = projection.chat.clone();
     div()
         .id("ace-main-content-row")
         .flex_1()
@@ -172,6 +172,7 @@ fn main_content_row(
             theme,
             ui_state.clone(),
             chat.clone(),
+            projection.annotations.clone(),
             chrome.reserve_titlebar_controls,
             window,
             cx,
@@ -189,7 +190,7 @@ fn main_content_row(
                 ui_state.right_panel_tab,
                 ui_state.bottom_panel_visible,
                 chrome.active_splitter == Some(SplitterKind::RightPanel),
-                chat,
+                projection,
             ))
         })
         .into_any_element()
@@ -199,6 +200,7 @@ fn center_column(
     theme: Theme,
     ui_state: UiState,
     chat: ChatProjection,
+    annotations: ThreadAnnotationsProjection,
     reserve_titlebar_controls: bool,
     window: &mut Window,
     cx: &mut App,
@@ -214,6 +216,7 @@ fn center_column(
             theme,
             &ui_state,
             chat.clone(),
+            annotations,
             reserve_titlebar_controls,
             window,
             cx,

@@ -36,7 +36,7 @@ impl Default for ProviderModelSelection {
     fn default() -> Self {
         Self {
             provider: ProviderKind::Codex,
-            model: "gpt-5-codex".to_string(),
+            model: "gpt-5.3-codex".to_string(),
         }
     }
 }
@@ -529,7 +529,7 @@ mod tests {
             title: title.to_string(),
             status,
             provider: ProviderKind::Codex,
-            model: Some("gpt-5-codex".to_string()),
+            model: Some("gpt-5.3-codex".to_string()),
             pinned,
             archived: false,
             unseen_completion: false,

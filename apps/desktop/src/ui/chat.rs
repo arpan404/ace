@@ -1,6 +1,6 @@
 use crate::{
     actions::{ToggleBottomPanel, ToggleEnvironmentPanel, ToggleRightPanel, ToggleSidebar},
-    stores::ui::UiState,
+    stores::{ThreadAnnotationsProjection, ui::UiState},
     ui::{components::*, right_panel::environment_card, theme::Theme},
 };
 use ace_runtime::chat::{ChatMessageProjection, ChatMessageRole, ChatProjection};
@@ -11,6 +11,7 @@ pub(super) fn workspace_panel(
     theme: Theme,
     ui_state: &UiState,
     chat: ChatProjection,
+    annotations: ThreadAnnotationsProjection,
     reserve_titlebar_controls: bool,
     window: &mut Window,
     cx: &mut App,
@@ -63,7 +64,7 @@ pub(super) fn workspace_panel(
                 .min_h_0()
                 .flex()
                 .flex_col()
-                .child(message_timeline(theme, &chat, window, cx))
+                .child(message_timeline(theme, &chat, &annotations, window, cx))
                 .child(chat_composer(theme, &chat)),
         )
         .into_any_element()
@@ -109,8 +110,6 @@ fn workspace_chrome(
                         ToggleSidebar,
                         || Box::new(ToggleSidebar),
                     ))
-                    .child(nav_button(IconName::ChevronLeft, theme))
-                    .child(nav_button(IconName::ChevronRight, theme))
                 })
                 .child(icon_tile(IconName::Bot, theme))
                 .child(
@@ -178,6 +177,7 @@ fn has_room_for_environment_card(ui_state: &UiState, window: &Window) -> bool {
 fn message_timeline(
     theme: Theme,
     chat: &ChatProjection,
+    annotations: &ThreadAnnotationsProjection,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -194,7 +194,7 @@ fn message_timeline(
         .flex()
         .flex_col()
         .when(chat.messages.is_empty(), |this| {
-            this.child(new_thread_landing(theme))
+            this.child(new_thread_landing(theme, chat))
         })
         .when(skipped > 0, |this| {
             this.child(
@@ -221,11 +221,88 @@ fn message_timeline(
                         .and_then(|previous_index| chat.messages.get(skipped + previous_index))
                         .map(|message| message.role);
 
-                    timeline_message_card(theme, previous_role, message, window, cx)
+                    let pinned = annotations
+                        .pinned_items
+                        .iter()
+                        .any(|item| item.message_id == message.id);
+                    let highlighted = annotations
+                        .highlighted_items
+                        .iter()
+                        .any(|item| item.message_id == message.id);
+                    let todo_count = annotations
+                        .todos
+                        .iter()
+                        .filter(|todo| {
+                            todo.source_message_id.as_deref() == Some(message.id.as_str())
+                        })
+                        .count();
+
+                    div()
+                        .flex()
+                        .flex_col()
+                        .when(pinned || highlighted || todo_count > 0, |this| {
+                            this.child(message_annotation_bar(
+                                theme,
+                                pinned,
+                                highlighted,
+                                todo_count,
+                            ))
+                        })
+                        .child(timeline_message_card(
+                            theme,
+                            previous_role,
+                            message,
+                            window,
+                            cx,
+                        ))
                 })
                 .collect::<Vec<_>>(),
         )
         .overflow_y_scrollbar()
+        .into_any_element()
+}
+
+fn message_annotation_bar(
+    theme: Theme,
+    pinned: bool,
+    highlighted: bool,
+    todo_count: usize,
+) -> AnyElement {
+    div()
+        .mt_3()
+        .mb_1()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .text_size(px(11.0))
+        .text_color(theme.muted)
+        .when(pinned, |this| {
+            this.child(annotation_chip(theme, IconName::Star, "Pinned"))
+        })
+        .when(highlighted, |this| {
+            this.child(annotation_chip(theme, IconName::Star, "Highlighted"))
+        })
+        .when(todo_count > 0, |this| {
+            this.child(annotation_chip(theme, IconName::Check, "Todo"))
+        })
+        .into_any_element()
+}
+
+fn annotation_chip(theme: Theme, icon: IconName, label: &'static str) -> AnyElement {
+    div()
+        .h(px(22.0))
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .px_2()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .child(icon_svg(icon, theme.muted))
+        .child(label)
         .into_any_element()
 }
 
@@ -412,7 +489,7 @@ fn stable_id(value: &str) -> u64 {
     })
 }
 
-fn new_thread_landing(theme: Theme) -> AnyElement {
+fn new_thread_landing(theme: Theme, chat: &ChatProjection) -> AnyElement {
     div()
         .size_full()
         .flex()
@@ -431,12 +508,13 @@ fn new_thread_landing(theme: Theme) -> AnyElement {
                         .text_color(theme.foreground.opacity(0.86))
                         .child("What should we build in ace?"),
                 )
-                .child(landing_composer(theme)),
+                .child(landing_composer(theme, chat)),
         )
         .into_any_element()
 }
 
-fn landing_composer(theme: Theme) -> AnyElement {
+fn landing_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
+    let prompt = composer_prompt(chat);
     div()
         .rounded_lg()
         .border_1()
@@ -454,8 +532,16 @@ fn landing_composer(theme: Theme) -> AnyElement {
                 .child(
                     div()
                         .text_size(px(14.0))
-                        .text_color(theme.muted_subtle)
-                        .child("Do anything"),
+                        .text_color(if prompt.is_empty() {
+                            theme.muted_subtle
+                        } else {
+                            theme.foreground
+                        })
+                        .child(if prompt.is_empty() {
+                            "Do anything".to_string()
+                        } else {
+                            prompt.clone()
+                        }),
                 )
                 .child(
                     div()
@@ -469,7 +555,6 @@ fn landing_composer(theme: Theme) -> AnyElement {
                                 .flex_row()
                                 .items_center()
                                 .gap_3()
-                                .child(icon_button(IconName::Plus, theme))
                                 .child(access_chip(theme)),
                         )
                         .child(
@@ -478,7 +563,7 @@ fn landing_composer(theme: Theme) -> AnyElement {
                                 .flex_row()
                                 .items_center()
                                 .gap_3()
-                                .child(model_chip(theme, "GPT-5.5", "Medium"))
+                                .child(model_chip(theme, "GPT-5.3 Codex", "Spark"))
                                 .child(send_button(theme)),
                         ),
                 ),
@@ -508,16 +593,19 @@ fn landing_composer(theme: Theme) -> AnyElement {
         .into_any_element()
 }
 
+fn composer_prompt(chat: &ChatProjection) -> String {
+    chat.composer
+        .as_ref()
+        .map(|draft| draft.prompt.clone())
+        .unwrap_or_default()
+}
+
 fn chat_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
     if chat.messages.is_empty() {
         return div().into_any_element();
     }
 
-    let prompt = chat
-        .composer
-        .as_ref()
-        .map(|draft| draft.prompt.clone())
-        .unwrap_or_default();
+    let prompt = composer_prompt(chat);
     div()
         .id("chat-composer")
         .border_t_1()
@@ -563,7 +651,6 @@ fn chat_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
                                 .flex_row()
                                 .items_center()
                                 .gap_2()
-                                .child(icon_button(IconName::Plus, theme))
                                 .child(access_chip(theme))
                                 .child(meta_chip(IconName::SquareTerminal, "Locally", theme)),
                         )

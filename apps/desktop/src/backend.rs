@@ -4,9 +4,11 @@ use ace_protocol::{
         ProjectAddRequest, ProjectDeleteRequest, ProjectSnapshotRequest, ProjectSnapshotResponse,
         ProjectThreadsRequest, ThreadMessagesRequest, ThreadMessagesResponse,
     },
+    provider_runtime::{ProviderRuntimeRawEventMode, ProviderRuntimeSubscribeRequest},
+    terminal::TerminalSubscribeRequest,
     ws::methods,
 };
-use ace_rpc::{RpcEndpoint, RpcError, RpcMethod, WsRpcClient};
+use ace_rpc::{RpcEndpoint, RpcError, RpcEvent, RpcMethod, WsRpcClient};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     collections::HashMap,
@@ -16,7 +18,7 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
-use tokio::{net::TcpStream, runtime::Handle, runtime::Runtime, time};
+use tokio::{net::TcpStream, runtime::Handle, runtime::Runtime, sync::broadcast, time};
 
 const DEFAULT_BACKEND_PORT: u16 = 3773;
 const STARTUP_ATTEMPTS: usize = 1200;
@@ -268,6 +270,33 @@ impl BackendHostClient {
         self.runtime
             .block_on(self.rpc.request::<M>(payload))
             .map_err(BackendError::Rpc)
+    }
+
+    pub fn subscribe_provider_runtime_events(
+        &self,
+    ) -> Result<broadcast::Receiver<RpcEvent>, BackendError> {
+        let receiver = self.rpc.subscribe_events();
+        self.runtime
+            .block_on(self.rpc.call::<_, serde_json::Value>(
+                methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                &ProviderRuntimeSubscribeRequest {
+                    provider: None,
+                    from_sequence_exclusive: None,
+                    replay_limit: 100,
+                    raw_event_mode: ProviderRuntimeRawEventMode::Compact,
+                },
+            ))?;
+        Ok(receiver)
+    }
+
+    pub fn subscribe_terminal_events(&self) -> Result<broadcast::Receiver<RpcEvent>, BackendError> {
+        let receiver = self.rpc.subscribe_events();
+        self.runtime
+            .block_on(self.rpc.call::<_, serde_json::Value>(
+                methods::TERMINAL_EVENTS_SUBSCRIBE,
+                &TerminalSubscribeRequest::default(),
+            ))?;
+        Ok(receiver)
     }
 
     #[allow(dead_code)]

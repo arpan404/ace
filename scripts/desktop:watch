@@ -11,6 +11,7 @@ if ! command -v cargo-watch >/dev/null 2>&1; then
 fi
 
 echo "watching Ace Desktop (Rust GPUI)"
+export ACE_NO_STARTUP_ACTIVATE=1
 cargo watch \
   --watch Cargo.toml \
   --watch Cargo.lock \
