@@ -4,12 +4,14 @@ use crate::{
         BeginPanelResize, CloseSearchPalette, CommitReview, CreateTodoFromLatestTimelineItem,
         CreateTodoFromTimelineItem, CreateWorktree, DenyProviderRequest, InterruptActiveTurn,
         NewThread, NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem,
-        PinTimelineItem, PushReview, RefreshApprovals, RefreshReview, RefreshWorktrees,
-        RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab, SelectSearchPaletteItem,
-        SendActiveComposer, ShowLessProjectThreads, ShowMoreProjectThreads, StageReviewAll,
-        StageReviewFile, ToggleBottomPanel, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
-        ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
-        ToggleRightPanel, ToggleSidebar, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
+        PinTimelineItem, PushReview, RefreshActiveTab, RefreshApprovals, RefreshReview,
+        RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab,
+        SelectSearchPaletteItem, SendActiveComposer, ShowBrowserTab, ShowLessProjectThreads,
+        ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab,
+        ShowTodosTab, StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleEnvironmentPanel,
+        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem,
+        TogglePinActiveThread, ToggleRightPanel, ToggleSidebar, UnstageReviewAll,
+        UnstageReviewFile, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -295,6 +297,36 @@ impl RootView {
         cx.notify();
     }
 
+    fn show_browser_tab(&mut self, _: &ShowBrowserTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Browser);
+        cx.notify();
+    }
+
+    fn show_pinned_tab(&mut self, _: &ShowPinnedTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Pinned);
+        cx.notify();
+    }
+
+    fn show_todos_tab(&mut self, _: &ShowTodosTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Todos);
+        cx.notify();
+    }
+
+    fn show_providers_tab(&mut self, _: &ShowProvidersTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Providers);
+        cx.notify();
+    }
+
+    fn show_plugins_tab(&mut self, _: &ShowPluginsTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Plugins);
+        cx.notify();
+    }
+
+    fn show_skills_tab(&mut self, _: &ShowSkillsTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Skills);
+        cx.notify();
+    }
+
     fn apply_right_panel_tab(&mut self, tab: RightPanelTab) {
         self.ui_store.select_right_panel_tab(tab);
         match tab {
@@ -313,6 +345,29 @@ impl RootView {
             | RightPanelTab::Todos => {}
         }
         self.save_ui_state();
+    }
+
+    fn refresh_active_tab(&mut self, _: &RefreshActiveTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.refresh_selected_right_panel_tab();
+        cx.notify();
+    }
+
+    fn refresh_selected_right_panel_tab(&mut self) {
+        match self.ui_store.state().right_panel_tab {
+            RightPanelTab::Review | RightPanelTab::Sources => self.refresh_active_review(),
+            RightPanelTab::Worktrees => self.refresh_active_worktrees(),
+            RightPanelTab::Environment
+            | RightPanelTab::Summary
+            | RightPanelTab::Providers
+            | RightPanelTab::Approvals => self.refresh_provider_registry(),
+            RightPanelTab::Terminal => self.ensure_active_terminal(),
+            RightPanelTab::Plugins => self.refresh_plugin_registry(),
+            RightPanelTab::Skills => self.refresh_skill_registry(),
+            RightPanelTab::Browser
+            | RightPanelTab::Editor
+            | RightPanelTab::Pinned
+            | RightPanelTab::Todos => {}
+        }
     }
 
     fn select_bottom_panel_tab(
@@ -484,6 +539,10 @@ impl RootView {
     }
 
     fn activate_search_palette_item(&mut self, item: SearchPaletteItem) {
+        if item.disabled_reason().is_some() {
+            return;
+        }
+
         match item {
             SearchPaletteItem::NewThread => {
                 self.search_palette.mode = SearchPaletteMode::NewThreadProject;
@@ -498,13 +557,62 @@ impl RootView {
             }
             SearchPaletteItem::OpenSettings => {
                 self.search_palette.close();
-                self.apply_right_panel_tab(RightPanelTab::Summary);
             }
             SearchPaletteItem::OpenTerminals => {
                 self.search_palette.close();
                 self.apply_right_panel_tab(RightPanelTab::Terminal);
                 self.ensure_active_terminal();
                 self.save_ui_state();
+            }
+            SearchPaletteItem::OpenBrowser => {
+                self.search_palette.close();
+                self.apply_right_panel_tab(RightPanelTab::Browser);
+            }
+            SearchPaletteItem::ToggleRightPanel => {
+                self.search_palette.close();
+                self.ui_store.toggle_right_panel();
+                self.save_ui_state();
+            }
+            SearchPaletteItem::RefreshActiveTab => {
+                self.search_palette.close();
+                self.refresh_selected_right_panel_tab();
+            }
+            SearchPaletteItem::CreateWorktree => {
+                self.search_palette.close();
+                self.apply_right_panel_tab(RightPanelTab::Worktrees);
+                let active_host = self.active_host.clone();
+                self.active_store_mut()
+                    .create_active_worktree(active_host.as_ref());
+            }
+            SearchPaletteItem::ShowPinned => {
+                self.search_palette.close();
+                self.apply_right_panel_tab(RightPanelTab::Pinned);
+            }
+            SearchPaletteItem::ShowTodos => {
+                self.search_palette.close();
+                self.apply_right_panel_tab(RightPanelTab::Todos);
+            }
+            SearchPaletteItem::ManagePlugins => {
+                self.search_palette.close();
+                self.apply_right_panel_tab(RightPanelTab::Plugins);
+            }
+            SearchPaletteItem::ManageSkills => {
+                self.search_palette.close();
+                self.apply_right_panel_tab(RightPanelTab::Skills);
+            }
+            SearchPaletteItem::ConfigureProviders => {
+                self.search_palette.close();
+                self.apply_right_panel_tab(RightPanelTab::Providers);
+            }
+            SearchPaletteItem::ShowApprovals => {
+                self.search_palette.close();
+                self.apply_right_panel_tab(RightPanelTab::Approvals);
+            }
+            SearchPaletteItem::ConnectRemoteHost
+            | SearchPaletteItem::SwitchModel
+            | SearchPaletteItem::RunTests
+            | SearchPaletteItem::RunLint => {
+                self.search_palette.close();
             }
             SearchPaletteItem::Panel { tab, .. } => {
                 self.search_palette.close();
@@ -968,6 +1076,13 @@ impl Render for RootView {
             .on_action(cx.listener(Self::toggle_right_panel))
             .on_action(cx.listener(Self::toggle_bottom_panel))
             .on_action(cx.listener(Self::select_right_panel_tab))
+            .on_action(cx.listener(Self::show_browser_tab))
+            .on_action(cx.listener(Self::show_pinned_tab))
+            .on_action(cx.listener(Self::show_todos_tab))
+            .on_action(cx.listener(Self::show_providers_tab))
+            .on_action(cx.listener(Self::show_plugins_tab))
+            .on_action(cx.listener(Self::show_skills_tab))
+            .on_action(cx.listener(Self::refresh_active_tab))
             .on_action(cx.listener(Self::select_bottom_panel_tab))
             .on_action(cx.listener(Self::select_search_palette_item))
             .on_action(cx.listener(Self::new_thread))

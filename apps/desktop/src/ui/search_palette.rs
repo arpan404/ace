@@ -1,6 +1,9 @@
 use crate::{
     actions::SelectSearchPaletteItem,
-    stores::{DesktopProjection, ui::BottomPanelTab},
+    stores::{
+        DesktopProjection,
+        ui::{BottomPanelTab, RightPanelTab},
+    },
     ui::{components::*, theme::Theme},
 };
 use ace_core::{ProjectId, ThreadId};
@@ -19,8 +22,22 @@ pub enum SearchPaletteItem {
     NewProject,
     OpenSettings,
     OpenTerminals,
+    OpenBrowser,
+    ToggleRightPanel,
+    RefreshActiveTab,
+    CreateWorktree,
+    ShowPinned,
+    ShowTodos,
+    ManagePlugins,
+    ManageSkills,
+    ConfigureProviders,
+    ShowApprovals,
+    ConnectRemoteHost,
+    SwitchModel,
+    RunTests,
+    RunLint,
     Panel {
-        tab: crate::stores::ui::RightPanelTab,
+        tab: RightPanelTab,
         label: String,
         description: String,
         result_kind: SearchPaletteResultKind,
@@ -51,6 +68,20 @@ impl SearchPaletteItem {
             Self::NewProject => "New project",
             Self::OpenSettings => "Open settings",
             Self::OpenTerminals => "Open terminals",
+            Self::OpenBrowser => "Open browser",
+            Self::ToggleRightPanel => "Toggle right panel",
+            Self::RefreshActiveTab => "Refresh active tab",
+            Self::CreateWorktree => "Create worktree",
+            Self::ShowPinned => "Show pinned messages",
+            Self::ShowTodos => "Show todos",
+            Self::ManagePlugins => "Manage plugins",
+            Self::ManageSkills => "Manage skills",
+            Self::ConfigureProviders => "Configure providers/models",
+            Self::ShowApprovals => "Show approvals",
+            Self::ConnectRemoteHost => "Connect remote host",
+            Self::SwitchModel => "Switch model",
+            Self::RunTests => "Run tests",
+            Self::RunLint => "Run lint",
             Self::Panel { label, .. } => label,
             Self::Project { label, .. } | Self::Thread { label, .. } => label,
         }
@@ -60,8 +91,30 @@ impl SearchPaletteItem {
         match self {
             Self::NewThread => "Choose a project for a new thread.",
             Self::NewProject => "Add the current workspace as a project.",
-            Self::OpenSettings => "Settings",
+            Self::OpenSettings => "Settings storage and forms are not implemented yet.",
             Self::OpenTerminals => "Manage running terminal processes.",
+            Self::OpenBrowser => {
+                "Open the browser inspector; Chromium service state is shown there."
+            }
+            Self::ToggleRightPanel => "Show or hide the contextual inspector.",
+            Self::RefreshActiveTab => "Refresh data for the selected inspector tab.",
+            Self::CreateWorktree => "Create a Git worktree for the active thread.",
+            Self::ShowPinned => "Open pinned timeline context.",
+            Self::ShowTodos => "Open structured thread todos.",
+            Self::ManagePlugins => "Open the plugin registry.",
+            Self::ManageSkills => "Open the skill registry.",
+            Self::ConfigureProviders => "Open provider and model settings.",
+            Self::ShowApprovals => "Open pending provider approvals.",
+            Self::ConnectRemoteHost => "Remote host manager is not implemented yet.",
+            Self::SwitchModel => {
+                "Model selection persistence is not implemented yet; inspect models in Providers."
+            }
+            Self::RunTests => {
+                "Project action runner is not implemented yet; open Terminal to run tests."
+            }
+            Self::RunLint => {
+                "Project action runner is not implemented yet; open Terminal to run lint."
+            }
             Self::Panel { description, .. } => description,
             Self::Project { description, .. } | Self::Thread { description, .. } => description,
         }
@@ -69,9 +122,24 @@ impl SearchPaletteItem {
 
     fn kind(&self) -> PaletteItemKind {
         match self {
-            Self::NewThread | Self::NewProject | Self::OpenSettings | Self::OpenTerminals => {
-                PaletteItemKind::Action
-            }
+            Self::NewThread
+            | Self::NewProject
+            | Self::OpenSettings
+            | Self::OpenTerminals
+            | Self::OpenBrowser
+            | Self::ToggleRightPanel
+            | Self::RefreshActiveTab
+            | Self::CreateWorktree
+            | Self::ShowPinned
+            | Self::ShowTodos
+            | Self::ManagePlugins
+            | Self::ManageSkills
+            | Self::ConfigureProviders
+            | Self::ShowApprovals
+            | Self::ConnectRemoteHost
+            | Self::SwitchModel
+            | Self::RunTests
+            | Self::RunLint => PaletteItemKind::Action,
             Self::Panel { result_kind, .. } => match result_kind {
                 SearchPaletteResultKind::Source => PaletteItemKind::Source,
                 SearchPaletteResultKind::Context => PaletteItemKind::Context,
@@ -79,6 +147,23 @@ impl SearchPaletteItem {
             },
             Self::Project { .. } => PaletteItemKind::Project,
             Self::Thread { .. } => PaletteItemKind::Thread,
+        }
+    }
+
+    pub fn disabled_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::OpenSettings => Some("Settings storage and forms are not implemented yet."),
+            Self::ConnectRemoteHost => Some("Remote host manager is not implemented yet."),
+            Self::SwitchModel => Some(
+                "Model selection persistence is not implemented yet; inspect models in Providers.",
+            ),
+            Self::RunTests => {
+                Some("Project action runner is not implemented yet; open Terminal to run tests.")
+            }
+            Self::RunLint => {
+                Some("Project action runner is not implemented yet; open Terminal to run lint.")
+            }
+            _ => None,
         }
     }
 }
@@ -347,6 +432,20 @@ pub fn palette_items(
         SearchPaletteItem::NewProject,
         SearchPaletteItem::OpenSettings,
         SearchPaletteItem::OpenTerminals,
+        SearchPaletteItem::OpenBrowser,
+        SearchPaletteItem::ToggleRightPanel,
+        SearchPaletteItem::RefreshActiveTab,
+        SearchPaletteItem::CreateWorktree,
+        SearchPaletteItem::ShowPinned,
+        SearchPaletteItem::ShowTodos,
+        SearchPaletteItem::ManagePlugins,
+        SearchPaletteItem::ManageSkills,
+        SearchPaletteItem::ConfigureProviders,
+        SearchPaletteItem::ShowApprovals,
+        SearchPaletteItem::ConnectRemoteHost,
+        SearchPaletteItem::SwitchModel,
+        SearchPaletteItem::RunTests,
+        SearchPaletteItem::RunLint,
     ];
 
     if normalized.is_empty() {
@@ -614,6 +713,7 @@ fn section(
 
 fn palette_row(theme: Theme, item: SearchPaletteItem, active: bool) -> AnyElement {
     let action_item = item.clone();
+    let disabled = item.disabled_reason().is_some();
     div()
         .h(px(46.0))
         .rounded_lg()
@@ -621,17 +721,19 @@ fn palette_row(theme: Theme, item: SearchPaletteItem, active: bool) -> AnyElemen
         .flex()
         .items_center()
         .gap_3()
-        .bg(if active {
+        .bg(if active && !disabled {
             theme.button_hover
         } else {
             theme.background_elevated
         })
-        .text_color(if active {
+        .text_color(if disabled {
+            theme.muted_subtle
+        } else if active {
             theme.foreground
         } else {
             theme.foreground.opacity(0.78)
         })
-        .hover(|this| this.bg(theme.button))
+        .when(!disabled, |this| this.hover(|this| this.bg(theme.button)))
         .child(palette_icon(theme, &item, active))
         .child(
             div()
@@ -645,7 +747,7 @@ fn palette_row(theme: Theme, item: SearchPaletteItem, active: bool) -> AnyElemen
                         .line_height(px(18.0))
                         .child(item.label().to_string()),
                 )
-                .when(item.kind() != PaletteItemKind::Action, |this| {
+                .when(disabled || item.kind() != PaletteItemKind::Action, |this| {
                     this.child(
                         div()
                             .text_size(px(12.0))
@@ -655,19 +757,23 @@ fn palette_row(theme: Theme, item: SearchPaletteItem, active: bool) -> AnyElemen
                     )
                 }),
         )
-        .on_mouse_up(MouseButton::Left, move |_, window, cx| {
-            window.dispatch_action(
-                Box::new(SelectSearchPaletteItem {
-                    item: action_item.clone(),
-                }),
-                cx,
-            );
+        .when(!disabled, |this| {
+            this.on_mouse_up(MouseButton::Left, move |_, window, cx| {
+                window.dispatch_action(
+                    Box::new(SelectSearchPaletteItem {
+                        item: action_item.clone(),
+                    }),
+                    cx,
+                );
+            })
         })
         .into_any_element()
 }
 
 fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElement {
-    let color = if active {
+    let color = if item.disabled_reason().is_some() {
+        theme.muted_subtle
+    } else if active {
         theme.accent_blue
     } else {
         theme.muted
@@ -681,6 +787,22 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
         }
         SearchPaletteItem::OpenSettings => ace_icon_svg(AceIconName::TablerSettings, color),
         SearchPaletteItem::OpenTerminals => ace_icon_svg(AceIconName::Terminal, color),
+        SearchPaletteItem::OpenBrowser => ace_icon_svg(AceIconName::Browser, color),
+        SearchPaletteItem::ToggleRightPanel => ace_icon_svg(AceIconName::PanelRightOpen, color),
+        SearchPaletteItem::RefreshActiveTab => ace_icon_svg(AceIconName::Summary, color),
+        SearchPaletteItem::CreateWorktree => ace_icon_svg(AceIconName::Review, color),
+        SearchPaletteItem::ShowPinned => ace_icon_svg(AceIconName::PinFilled, color),
+        SearchPaletteItem::ShowTodos => ace_icon_svg(AceIconName::ListChecks, color),
+        SearchPaletteItem::ManagePlugins => ace_icon_svg(AceIconName::Box, color),
+        SearchPaletteItem::ManageSkills => ace_icon_svg(AceIconName::FlaskConical, color),
+        SearchPaletteItem::ConfigureProviders | SearchPaletteItem::SwitchModel => {
+            ace_icon_svg(AceIconName::Code2, color)
+        }
+        SearchPaletteItem::ShowApprovals => ace_icon_svg(AceIconName::ListChecks, color),
+        SearchPaletteItem::ConnectRemoteHost => ace_icon_svg(AceIconName::Environment, color),
+        SearchPaletteItem::RunTests | SearchPaletteItem::RunLint => {
+            ace_icon_svg(AceIconName::TablerTerminal, color)
+        }
         SearchPaletteItem::Panel { result_kind, .. } => match result_kind {
             SearchPaletteResultKind::Source => icon_svg(IconName::File, color),
             SearchPaletteResultKind::Context => icon_svg(IconName::Star, color),
@@ -746,5 +868,56 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn palette_root_includes_command_center_actions() {
+        let store = DesktopStore::new();
+        let items = palette_items(&store.projection(), SearchPaletteMode::Root, "");
+
+        for expected in [
+            SearchPaletteItem::NewThread,
+            SearchPaletteItem::NewProject,
+            SearchPaletteItem::OpenTerminals,
+            SearchPaletteItem::OpenBrowser,
+            SearchPaletteItem::ToggleRightPanel,
+            SearchPaletteItem::RefreshActiveTab,
+            SearchPaletteItem::CreateWorktree,
+            SearchPaletteItem::ShowPinned,
+            SearchPaletteItem::ShowTodos,
+            SearchPaletteItem::ManagePlugins,
+            SearchPaletteItem::ManageSkills,
+            SearchPaletteItem::ConfigureProviders,
+            SearchPaletteItem::ShowApprovals,
+        ] {
+            assert!(items.contains(&expected), "missing {expected:?}");
+        }
+    }
+
+    #[test]
+    fn unavailable_palette_commands_explain_missing_service() {
+        let store = DesktopStore::new();
+        let items = palette_items(&store.projection(), SearchPaletteMode::Root, "remote");
+
+        let remote = items
+            .iter()
+            .find(|item| matches!(item, SearchPaletteItem::ConnectRemoteHost))
+            .expect("remote host command remains searchable");
+        assert_eq!(
+            remote.disabled_reason(),
+            Some("Remote host manager is not implemented yet.")
+        );
+
+        for command in [
+            SearchPaletteItem::OpenSettings,
+            SearchPaletteItem::SwitchModel,
+            SearchPaletteItem::RunTests,
+            SearchPaletteItem::RunLint,
+        ] {
+            assert!(
+                command.disabled_reason().is_some(),
+                "{command:?} should explain why it is disabled"
+            );
+        }
     }
 }
