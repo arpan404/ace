@@ -273,6 +273,13 @@ pub struct OpenThread {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct OpenThreadRightPanelTab {
+    pub thread_id: ace_core::ThreadId,
+    pub tab: RightPanelTab,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct TogglePinThread {
     pub thread_id: ace_core::ThreadId,
 }

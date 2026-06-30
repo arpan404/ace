@@ -1,4 +1,7 @@
-use crate::ui::{components::*, theme::Theme};
+use crate::{
+    stores::ui::RightPanelTab,
+    ui::{components::*, theme::Theme},
+};
 use ace_runtime::chat::{ThreadStatus, ThreadSummary};
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
 use gpui_component::{IconName, tooltip::Tooltip};
@@ -235,11 +238,18 @@ fn thread_status_label(status: ThreadStatus) -> &'static str {
 fn thread_annotation_badges(theme: Theme, thread: &ThreadSummary) -> Vec<AnyElement> {
     let mut badges = Vec::new();
     if thread.pinned_item_count > 0 {
-        badges.push(thread_count_badge(
+        let thread_id = thread.id.clone();
+        badges.push(thread_action_count_badge(
             theme,
             AceIconName::PinFilled,
             thread.pinned_item_count,
-            "Pinned timeline items",
+            "Show pinned messages",
+            move || {
+                Box::new(crate::actions::OpenThreadRightPanelTab {
+                    thread_id: thread_id.clone(),
+                    tab: RightPanelTab::Pinned,
+                })
+            },
         ));
     }
     if thread.highlighted_count > 0 {
@@ -251,18 +261,32 @@ fn thread_annotation_badges(theme: Theme, thread: &ThreadSummary) -> Vec<AnyElem
         ));
     }
     if thread.open_todo_count > 0 {
-        badges.push(thread_count_badge(
+        let thread_id = thread.id.clone();
+        badges.push(thread_action_count_badge(
             theme,
             AceIconName::ListChecks,
             thread.open_todo_count,
-            "Open todos",
+            "Show todos",
+            move || {
+                Box::new(crate::actions::OpenThreadRightPanelTab {
+                    thread_id: thread_id.clone(),
+                    tab: RightPanelTab::Todos,
+                })
+            },
         ));
     } else if thread.todo_count > 0 {
-        badges.push(thread_count_badge(
+        let thread_id = thread.id.clone();
+        badges.push(thread_action_count_badge(
             theme,
             AceIconName::ListChecks,
             thread.todo_count,
-            "Completed or canceled todos",
+            "Show todos",
+            move || {
+                Box::new(crate::actions::OpenThreadRightPanelTab {
+                    thread_id: thread_id.clone(),
+                    tab: RightPanelTab::Todos,
+                })
+            },
         ));
     }
     badges
@@ -293,6 +317,42 @@ fn thread_count_badge(
         .child(ace_icon_svg(icon, theme.muted_subtle))
         .child(count.to_string())
         .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
+        .into_any_element()
+}
+
+fn thread_action_count_badge<F>(
+    theme: Theme,
+    icon: AceIconName,
+    count: usize,
+    tooltip: &'static str,
+    action: F,
+) -> AnyElement
+where
+    F: Fn() -> Box<dyn gpui::Action> + 'static,
+{
+    div()
+        .id(tooltip)
+        .h(px(18.0))
+        .min_w(px(22.0))
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .px_1()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .gap_1()
+        .text_size(px(10.0))
+        .text_color(theme.muted)
+        .hover(|this| this.bg(theme.button_hover).text_color(theme.foreground))
+        .child(ace_icon_svg(icon, theme.muted_subtle))
+        .child(count.to_string())
+        .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
+        .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(action(), cx);
+        })
         .into_any_element()
 }
 

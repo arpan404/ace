@@ -5,10 +5,11 @@ use crate::{
         CreateReviewComment, CreateTodoFromLatestTimelineItem, CreateTodoFromTimelineItem,
         CreateWorktree, DenyProviderRequest, FocusPanel, InterruptActiveTurn,
         LinkTodoToCurrentDiff, NewThread, NewThreadForProject, OpenSearchPalette, OpenThread,
-        PinLatestTimelineItem, PinTimelineItem, PushReview, RefreshActiveTab, RefreshApprovals,
-        RefreshReview, RefreshWorktrees, RemoveWorktree, RunLint, RunTests, SelectBottomPanelTab,
-        SelectComposerHost, SelectComposerModel, SelectRightPanelTab, SelectSearchPaletteItem,
-        SendActiveComposer, SetActiveProjectDefaultModel, SetCodeFont, SetComposerInteractionMode,
+        OpenThreadRightPanelTab, PinLatestTimelineItem, PinTimelineItem, PushReview,
+        RefreshActiveTab, RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree,
+        RunLint, RunTests, SelectBottomPanelTab, SelectComposerHost, SelectComposerModel,
+        SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer,
+        SetActiveProjectDefaultModel, SetCodeFont, SetComposerInteractionMode,
         SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, SetThemeAccent,
         SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, ShowBrowserTab,
         ShowLessProjectThreads, ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab,
@@ -1294,6 +1295,17 @@ impl RootView {
         cx.notify();
     }
 
+    fn open_thread_right_panel_tab(
+        &mut self,
+        event: &OpenThreadRightPanelTab,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_thread_with_context_refresh(event.thread_id.clone());
+        self.apply_right_panel_tab(event.tab);
+        cx.notify();
+    }
+
     fn send_active_composer(
         &mut self,
         _: &SendActiveComposer,
@@ -1695,6 +1707,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::new_thread_for_project))
             .on_action(cx.listener(Self::add_current_directory_project))
             .on_action(cx.listener(Self::open_thread))
+            .on_action(cx.listener(Self::open_thread_right_panel_tab))
             .on_action(cx.listener(Self::send_active_composer))
             .on_action(cx.listener(Self::select_composer_model))
             .on_action(cx.listener(Self::set_active_project_default_model))
