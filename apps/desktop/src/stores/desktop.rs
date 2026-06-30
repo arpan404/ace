@@ -2093,6 +2093,9 @@ impl DesktopStore {
         if let Some(context) = self.composer_context_text(thread_id, &draft.context) {
             input.push(serde_json::json!({ "type": "text", "text": context }));
         }
+        if let Some(context) = self.composer_mention_context_text(thread_id, prompt) {
+            input.push(serde_json::json!({ "type": "text", "text": context }));
+        }
         input.push(serde_json::json!({ "type": "text", "text": prompt }));
         input
     }
@@ -2159,6 +2162,91 @@ impl DesktopStore {
         (!sections.is_empty()).then(|| {
             format!(
                 "Attached composer context for this turn:\n\n{}",
+                sections.join("\n\n")
+            )
+        })
+    }
+
+    fn composer_mention_context_text(&self, thread_id: &ThreadId, prompt: &str) -> Option<String> {
+        let mentions = composer_mentions(prompt);
+        if mentions.is_empty() {
+            return None;
+        }
+
+        let mut sections = Vec::new();
+        for mention in mentions {
+            if let Some(id) = mention.strip_prefix("@todo:") {
+                if let Some(todo) = self
+                    .todos
+                    .iter()
+                    .find(|todo| &todo.thread_id == thread_id && todo.id == id)
+                {
+                    sections.push(format!(
+                        "Mentioned todo {}: [{}] {}",
+                        todo.id,
+                        todo_status_label(todo.status),
+                        todo.title
+                    ));
+                }
+            } else if let Some(id) = mention.strip_prefix("@pin:") {
+                if let Some(item) = self
+                    .pinned_items
+                    .iter()
+                    .find(|item| &item.thread_id == thread_id && item.id == id)
+                {
+                    sections.push(format!(
+                        "Mentioned pinned context {}: {} - {}",
+                        item.id, item.display_title, item.display_excerpt
+                    ));
+                }
+            } else if let Some(id) = mention.strip_prefix("@highlight:") {
+                if let Some(item) = self
+                    .highlighted_items
+                    .iter()
+                    .find(|item| &item.thread_id == thread_id && item.id == id)
+                {
+                    sections.push(format!(
+                        "Mentioned highlighted context {}: {} - {}",
+                        item.id, item.display_title, item.display_excerpt
+                    ));
+                }
+            } else if mention == "@terminal" {
+                if let Some(session) = self
+                    .terminal_sessions
+                    .get(&TerminalKey::default_for_thread(thread_id))
+                    .filter(|session| !session.history.trim().is_empty())
+                {
+                    sections.push(format!(
+                        "Mentioned terminal output from {}:\n{}",
+                        session.cwd,
+                        tail_chars(&session.history, 4_000)
+                    ));
+                }
+            } else if mention == "@diff"
+                && let Some(thread) = self.threads.iter().find(|thread| &thread.id == thread_id)
+                && let Some(review) = self.review_snapshots.get(&thread.project_id)
+                && !review.files.is_empty()
+            {
+                let files = review
+                    .files
+                    .iter()
+                    .map(|file| {
+                        format!(
+                            "- {} (+{} -{})",
+                            file.path,
+                            file.additions.unwrap_or_default(),
+                            file.deletions.unwrap_or_default()
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                sections.push(format!("Mentioned diff context:\n{files}"));
+            }
+        }
+
+        (!sections.is_empty()).then(|| {
+            format!(
+                "Mentioned composer context for this turn:\n\n{}",
                 sections.join("\n\n")
             )
         })
@@ -3953,6 +4041,33 @@ fn composer_traits_text(traits: &[ComposerTrait]) -> Option<String> {
     ))
 }
 
+fn composer_mentions(prompt: &str) -> Vec<String> {
+    prompt
+        .split_whitespace()
+        .filter_map(|token| {
+            let token = token.trim_matches(|ch: char| {
+                matches!(
+                    ch,
+                    ',' | '.'
+                        | ';'
+                        | ':'
+                        | '!'
+                        | '?'
+                        | ')'
+                        | '('
+                        | '['
+                        | ']'
+                        | '{'
+                        | '}'
+                        | '"'
+                        | '\''
+                )
+            });
+            token.starts_with('@').then(|| token.to_string())
+        })
+        .collect()
+}
+
 struct PermissionPayload {
     sandbox_policy: serde_json::Value,
     approval_policy: serde_json::Value,
@@ -4724,6 +4839,78 @@ mod tests {
         assert!(joined.contains("Pinned context"));
         assert!(joined.contains("Todo context"));
         assert!(joined.contains("Use the selected context"));
+    }
+
+    #[test]
+    fn composer_turn_input_includes_mentioned_thread_context() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id.clone(),
+            ComposerPayload {
+                prompt: "Investigate the regression".to_string(),
+            },
+        );
+        let first_message_id = store.projection().chat.messages[0].id.clone();
+        store.pin_timeline_item(thread_id.clone(), &first_message_id);
+        store.create_todo_from_timeline_item(thread_id.clone(), &first_message_id);
+        let pin_id = store.projection().annotations.pinned_items[0].id.clone();
+        let todo_id = store.projection().annotations.todos[0].id.clone();
+        store.terminal_sessions.insert(
+            TerminalKey::default_for_thread(&thread_id),
+            TerminalSessionProjection {
+                thread_id: thread_id.0.clone(),
+                terminal_id: DEFAULT_TERMINAL_ID.to_string(),
+                cwd: "/tmp/project".to_string(),
+                title: None,
+                status: TerminalSessionStatus::Running,
+                pid: Some(42),
+                history: "cargo test failed".to_string(),
+                exit_code: None,
+                exit_signal: None,
+                cols: DEFAULT_TERMINAL_COLS,
+                rows: DEFAULT_TERMINAL_ROWS,
+                updated_at: "now".to_string(),
+                next_sequence: 1,
+                truncated_before_sequence: None,
+            },
+        );
+        store.review_snapshots.insert(
+            project_id,
+            ReviewProjection {
+                repo_path: Some("/tmp/project".to_string()),
+                files: vec![ReviewFileProjection {
+                    path: "src/lib.rs".to_string(),
+                    original_path: None,
+                    status: "modified".to_string(),
+                    additions: Some(3),
+                    deletions: Some(1),
+                }],
+                total_additions: 3,
+                total_deletions: 1,
+                ..ReviewProjection::default()
+            },
+        );
+
+        let draft = store
+            .composer_drafts
+            .get(&thread_id)
+            .expect("composer draft")
+            .clone();
+        let prompt = format!("Use @todo:{todo_id} @pin:{pin_id} @terminal @diff");
+        let input = store.composer_turn_input(&thread_id, &prompt, &draft);
+        let joined = input
+            .iter()
+            .filter_map(|item| item.get("text").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(joined.contains("Mentioned composer context"));
+        assert!(joined.contains("Mentioned todo"));
+        assert!(joined.contains("Mentioned pinned context"));
+        assert!(joined.contains("cargo test failed"));
+        assert!(joined.contains("src/lib.rs"));
     }
 
     #[test]

@@ -1018,14 +1018,85 @@ fn composer_suggestions_for_trigger(
             .iter()
             .map(|entry| registry_suggestion('$', entry, IconName::Star))
             .collect(),
-        '@' => projection
-            .plugins
-            .entries
-            .iter()
-            .map(|entry| registry_suggestion('@', entry, IconName::Bot))
-            .collect(),
+        '@' => {
+            let mut suggestions = projection
+                .plugins
+                .entries
+                .iter()
+                .map(|entry| registry_suggestion('@', entry, IconName::Bot))
+                .collect::<Vec<_>>();
+            suggestions.extend(composer_context_mention_suggestions(projection));
+            suggestions
+        }
         _ => Vec::new(),
     }
+}
+
+fn composer_context_mention_suggestions(
+    projection: &DesktopProjection,
+) -> Vec<ComposerCommandSuggestion> {
+    let mut suggestions = Vec::new();
+    suggestions.extend(projection.annotations.todos.iter().take(8).map(|todo| {
+        ComposerCommandSuggestion {
+            label: format!("@todo {}", todo.title),
+            detail: format!("{} · {}", todo_status_text(todo.status), todo.id),
+            completion: format!("@todo:{}", todo.id),
+            icon: IconName::Check,
+        }
+    }));
+    suggestions.extend(
+        projection
+            .annotations
+            .pinned_items
+            .iter()
+            .take(8)
+            .map(|item| ComposerCommandSuggestion {
+                label: format!("@pin {}", item.display_title),
+                detail: item.display_excerpt.clone(),
+                completion: format!("@pin:{}", item.id),
+                icon: IconName::Star,
+            }),
+    );
+    suggestions.extend(
+        projection
+            .annotations
+            .highlighted_items
+            .iter()
+            .take(8)
+            .map(|item| ComposerCommandSuggestion {
+                label: format!("@highlight {}", item.display_title),
+                detail: item.display_excerpt.clone(),
+                completion: format!("@highlight:{}", item.id),
+                icon: IconName::Star,
+            }),
+    );
+    if let Some(session) = projection
+        .terminal
+        .session
+        .as_ref()
+        .filter(|session| !session.history.trim().is_empty())
+    {
+        suggestions.push(ComposerCommandSuggestion {
+            label: "@terminal".to_string(),
+            detail: format!("Recent terminal output · {}", session.cwd),
+            completion: "@terminal".to_string(),
+            icon: IconName::SquareTerminal,
+        });
+    }
+    if !projection.review.files.is_empty() {
+        suggestions.push(ComposerCommandSuggestion {
+            label: "@diff".to_string(),
+            detail: format!(
+                "{} files · +{} -{}",
+                projection.review.files.len(),
+                projection.review.total_additions,
+                projection.review.total_deletions
+            ),
+            completion: "@diff".to_string(),
+            icon: IconName::File,
+        });
+    }
+    suggestions
 }
 
 fn provider_command_suggestion(
@@ -1843,6 +1914,16 @@ fn context_count_detail(count: usize) -> &'static str {
         0 => "No context available",
         1 => "Attach 1 context item",
         _ => "Attach available context items",
+    }
+}
+
+fn todo_status_text(status: TodoStatus) -> &'static str {
+    match status {
+        TodoStatus::Open => "open",
+        TodoStatus::InProgress => "in progress",
+        TodoStatus::Blocked => "blocked",
+        TodoStatus::Done => "done",
+        TodoStatus::Canceled => "canceled",
     }
 }
 
