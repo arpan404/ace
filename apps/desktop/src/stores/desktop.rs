@@ -44,8 +44,8 @@ use ace_runtime::{
         ThreadItemStatus,
     },
     threads::{
-        AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation, HandoffStatus,
-        PlanSessionStatus, RemoteConnectionRecord, SubagentActionKind, TurnMode,
+        AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation, GoalStatus,
+        HandoffStatus, PlanSessionStatus, RemoteConnectionRecord, SubagentActionKind, TurnMode,
     },
     tools::{SemanticToolCall, ToolRunStatus, ToolSurface},
 };
@@ -369,6 +369,7 @@ pub struct SummaryProjection {
     pub run_status: Option<String>,
     pub composer_status: Option<String>,
     pub runtime_relationships: Vec<String>,
+    pub runtime_signals: Vec<String>,
     pub plan: Vec<String>,
     pub todos: Vec<String>,
     pub pinned_context: Vec<String>,
@@ -1339,6 +1340,124 @@ impl DesktopStore {
         relationships
     }
 
+    fn runtime_signals_for_thread(&self, thread: &ThreadSummary) -> Vec<String> {
+        let keys = self.runtime_thread_keys(thread);
+        let matches_thread = |id: &str| keys.iter().any(|key| key == id);
+        let matches_optional_thread = |id: Option<&str>| id.is_some_and(&matches_thread);
+        let mut signals = Vec::new();
+
+        signals.extend(
+            self.runtime
+                .goals
+                .iter()
+                .filter(|goal| matches_thread(&goal.thread_id))
+                .map(goal_signal_summary),
+        );
+
+        signals.extend(
+            self.runtime
+                .warnings
+                .iter()
+                .filter(|warning| matches_optional_thread(warning.thread_id.as_deref()))
+                .map(|warning| format!("Warning {} · {}", warning.provider, warning.message)),
+        );
+
+        signals.extend(
+            self.runtime
+                .model_reroutes
+                .iter()
+                .filter(|reroute| matches_optional_thread(reroute.thread_id.as_deref()))
+                .map(|reroute| {
+                    let from = reroute.from_model.as_deref().unwrap_or("unknown model");
+                    let to = reroute.to_model.as_deref().unwrap_or("unknown model");
+                    let reason = reroute
+                        .reason
+                        .as_deref()
+                        .map(|reason| format!(" · {reason}"))
+                        .unwrap_or_default();
+                    format!("Model reroute {from} -> {to}{reason}")
+                }),
+        );
+
+        signals.extend(
+            self.runtime
+                .process_exits
+                .iter()
+                .filter(|process| matches_optional_thread(process.thread_id.as_deref()))
+                .map(|process| {
+                    let process_id = process.process_id.as_deref().unwrap_or("process");
+                    let code = process
+                        .exit_code
+                        .map_or("unknown".to_string(), |code| code.to_string());
+                    format!("Process exit {process_id} · code {code}")
+                }),
+        );
+
+        signals.extend(
+            self.runtime
+                .turn_diffs
+                .iter()
+                .filter(|diff| matches_thread(&diff.thread_id))
+                .map(|diff| {
+                    let file_count = json_collection_len(&diff.files);
+                    let detail = if file_count > 0 {
+                        format!("{file_count} file{}", plural(file_count))
+                    } else if diff
+                        .diff
+                        .as_ref()
+                        .is_some_and(|diff| !diff.trim().is_empty())
+                    {
+                        "diff available".to_string()
+                    } else {
+                        "diff metadata".to_string()
+                    };
+                    let turn = diff
+                        .turn_id
+                        .as_deref()
+                        .map(|turn| format!(" · turn {turn}"))
+                        .unwrap_or_default();
+                    format!("Turn diff updated · {detail}{turn}")
+                }),
+        );
+
+        signals.extend(
+            self.runtime
+                .approval_retries
+                .iter()
+                .filter(|retry| matches_thread(&retry.thread_id))
+                .map(|retry| {
+                    let outcome = if retry.approved { "approved" } else { "denied" };
+                    let reason = retry
+                        .reason
+                        .as_deref()
+                        .map(|reason| format!(" · {reason}"))
+                        .unwrap_or_default();
+                    format!("Approval retry {outcome}{reason}")
+                }),
+        );
+
+        signals.extend(
+            self.runtime
+                .realtime_sessions
+                .iter()
+                .filter(|session| matches_optional_thread(session.thread_id.as_deref()))
+                .map(|session| {
+                    let message = session
+                        .message
+                        .as_deref()
+                        .map(|message| format!(" · {message}"))
+                        .unwrap_or_default();
+                    format!(
+                        "Realtime session {} · {}{}",
+                        session.provider, session.status, message
+                    )
+                }),
+        );
+
+        signals.truncate(16);
+        signals
+    }
+
     #[must_use]
     pub fn summary_projection(&self) -> SummaryProjection {
         let Some(thread) = self.active_thread() else {
@@ -1358,6 +1477,7 @@ impl DesktopStore {
             .get(&thread.id)
             .map(composer_status_line);
         let runtime_relationships = self.runtime_relationships_for_thread(thread);
+        let runtime_signals = self.runtime_signals_for_thread(thread);
         let messages = self
             .persisted_messages
             .get(&thread.id)
@@ -1532,6 +1652,7 @@ impl DesktopStore {
             run_status,
             composer_status,
             runtime_relationships,
+            runtime_signals,
             plan,
             todos,
             pinned_context,
@@ -5512,6 +5633,47 @@ fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
 }
 
+fn goal_signal_summary(goal: &ace_runtime::threads::GoalState) -> String {
+    let objective = goal.objective.as_deref().unwrap_or("No objective");
+    let budget = match (goal.tokens_used, goal.token_budget) {
+        (Some(used), Some(budget)) => format!(" · {used}/{budget} tokens"),
+        (Some(used), None) => format!(" · {used} tokens used"),
+        (None, Some(budget)) => format!(" · {budget} token budget"),
+        (None, None) => String::new(),
+    };
+    let time = goal
+        .time_used_seconds
+        .map(|seconds| format!(" · {seconds}s"))
+        .unwrap_or_default();
+    format!(
+        "Goal {} · {}{}{}",
+        goal_status_label(goal.status),
+        objective,
+        budget,
+        time
+    )
+}
+
+fn goal_status_label(status: GoalStatus) -> &'static str {
+    match status {
+        GoalStatus::Active => "active",
+        GoalStatus::Paused => "paused",
+        GoalStatus::Blocked => "blocked",
+        GoalStatus::UsageLimited => "usage limited",
+        GoalStatus::BudgetLimited => "budget limited",
+        GoalStatus::Complete => "complete",
+        GoalStatus::Cleared => "cleared",
+    }
+}
+
+fn json_collection_len(value: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::Array(items) => items.len(),
+        serde_json::Value::Object(entries) => entries.len(),
+        _ => 0,
+    }
+}
+
 fn message_excerpt(message: &ChatMessageProjection) -> String {
     let raw = message
         .text
@@ -6619,6 +6781,110 @@ mod tests {
             relationships
                 .iter()
                 .any(|item| { item == "Subagent action steer · provider-thread-1 -> subagent-1" })
+        );
+    }
+
+    #[test]
+    fn summary_projection_surfaces_runtime_operational_signals() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+        store.runtime.goals = vec![ace_runtime::threads::GoalState {
+            thread_id: "provider-thread-1".to_string(),
+            status: GoalStatus::UsageLimited,
+            objective: Some("finish adapter parity".to_string()),
+            token_budget: Some(1000),
+            tokens_used: Some(1200),
+            time_used_seconds: Some(55),
+        }];
+        store.runtime.warnings = vec![ace_runtime::threads::RuntimeWarningRecord {
+            provider: "codex".to_string(),
+            thread_id: Some("provider-thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            message: "event stream lagged".to_string(),
+            metadata: serde_json::Value::Null,
+        }];
+        store.runtime.model_reroutes = vec![ace_runtime::threads::ModelRerouteRecord {
+            provider: "codex".to_string(),
+            thread_id: Some("provider-thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            from_model: Some("gpt-5".to_string()),
+            to_model: Some("gpt-5-mini".to_string()),
+            reason: Some("context_limit".to_string()),
+        }];
+        store.runtime.process_exits = vec![ace_runtime::threads::ProcessExitRecord {
+            thread_id: Some("provider-thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            process_id: Some("cargo-test".to_string()),
+            exit_code: Some(101),
+            metadata: serde_json::Value::Null,
+        }];
+        store.runtime.turn_diffs = vec![ace_runtime::threads::TurnDiffRecord {
+            thread_id: "provider-thread-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            diff: None,
+            files: serde_json::json!([{ "path": "src/lib.rs" }]),
+            metadata: serde_json::Value::Null,
+        }];
+        store.runtime.approval_retries = vec![ace_runtime::threads::ApprovalRetryRecord {
+            thread_id: "provider-thread-1".to_string(),
+            item_id: Some("approval-1".to_string()),
+            action_id: Some("run-tests".to_string()),
+            approved: true,
+            reason: Some("retry after approval".to_string()),
+            audit: serde_json::Value::Null,
+            provider_response: serde_json::Value::Null,
+        }];
+        store.runtime.realtime_sessions = vec![ace_runtime::threads::RealtimeSessionRecord {
+            provider: "codex".to_string(),
+            thread_id: Some("provider-thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            status: "failed".to_string(),
+            message: Some("Realtime session failed".to_string()),
+            metadata: serde_json::Value::Null,
+        }];
+
+        let signals = store.summary_projection().runtime_signals;
+
+        assert!(
+            signals.iter().any(|item| item
+                == "Goal usage limited · finish adapter parity · 1200/1000 tokens · 55s")
+        );
+        assert!(
+            signals
+                .iter()
+                .any(|item| item == "Warning codex · event stream lagged")
+        );
+        assert!(
+            signals
+                .iter()
+                .any(|item| item == "Model reroute gpt-5 -> gpt-5-mini · context_limit")
+        );
+        assert!(
+            signals
+                .iter()
+                .any(|item| item == "Process exit cargo-test · code 101")
+        );
+        assert!(
+            signals
+                .iter()
+                .any(|item| item == "Turn diff updated · 1 file · turn turn-1")
+        );
+        assert!(
+            signals
+                .iter()
+                .any(|item| item == "Approval retry approved · retry after approval")
+        );
+        assert!(
+            signals.iter().any(|item| {
+                item == "Realtime session codex · failed · Realtime session failed"
+            })
         );
     }
 

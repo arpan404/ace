@@ -1897,6 +1897,12 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         ))
         .child(summary_section(
             theme,
+            "Runtime signals",
+            &projection.summary.runtime_signals,
+            "No runtime warnings, goal updates, reroutes, process exits, or realtime state observed.",
+        ))
+        .child(summary_section(
+            theme,
             "Artifacts",
             &projection.summary.artifacts,
             "No provider artifacts observed.",
