@@ -785,22 +785,42 @@ fn browser_body(theme: Theme, browser: &BrowserProjection) -> AnyElement {
                     .child(error.to_string()),
             )
         })
-        .when(browser.activities.is_empty() && browser.previews.is_empty(), |this| {
-            this.child(
-                div()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(theme.border_subtle)
-                    .bg(theme.panel)
-                    .px_2()
-                    .py_2()
-                    .text_size(px(12.0))
-                    .line_height(px(17.0))
-                    .text_color(theme.muted)
-                    .child("No browser viewport session is attached yet. Provider tools can use the connected bridge; frame streaming will appear here once the host publishes BrowserFrame events."),
-            )
-        })
+        .when(
+            browser.activities.is_empty() && browser.previews.is_empty(),
+            |this| {
+                this.child(
+                    div()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(theme.border_subtle)
+                        .bg(theme.panel)
+                        .px_2()
+                        .py_2()
+                        .text_size(px(12.0))
+                        .line_height(px(17.0))
+                        .text_color(theme.muted)
+                        .child(browser_empty_frame_notice(bridge)),
+                )
+            },
+        )
         .into_any_element()
+}
+
+fn browser_empty_frame_notice(bridge: &BrowserBridgeProjection) -> &'static str {
+    match bridge.status.as_str() {
+        "connected" => {
+            "Browser bridge is connected, but no viewport frames or preview artifacts are attached to this thread. Use provider browser tools to navigate or capture a viewport before frame output is shown."
+        }
+        "missing" => {
+            "Browser bridge is missing from the host runtime. Attach a browser-capable host tool bridge before browser frames or input controls can run."
+        }
+        "unavailable" => {
+            "Browser bridge is registered but unavailable on this host. Check host runtime capabilities before requesting browser navigation or frame capture."
+        }
+        _ => {
+            "Browser bridge status is unknown. Refresh the provider runtime before requesting browser navigation or frame capture."
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4695,6 +4715,23 @@ mod tests {
         assert!(browser_control_supported(&bridge, *screenshot));
         assert!(browser_control_supported(&bridge, *logs));
         assert!(!browser_control_supported(&bridge, *input));
+    }
+
+    #[test]
+    fn browser_empty_frame_notice_reflects_bridge_status() {
+        let bridge = |status: &str| BrowserBridgeProjection {
+            status: status.to_string(),
+            descriptor_name: None,
+            aliases: Vec::new(),
+            actions: Vec::new(),
+            capability_keys: Vec::new(),
+        };
+
+        assert!(browser_empty_frame_notice(&bridge("connected")).contains("connected"));
+        assert!(browser_empty_frame_notice(&bridge("connected")).contains("viewport frames"));
+        assert!(browser_empty_frame_notice(&bridge("missing")).contains("missing"));
+        assert!(browser_empty_frame_notice(&bridge("unavailable")).contains("unavailable"));
+        assert!(browser_empty_frame_notice(&bridge("other")).contains("unknown"));
     }
 
     #[test]
