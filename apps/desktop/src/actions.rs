@@ -146,6 +146,12 @@ pub struct SetComposerInteractionMode {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct CompleteComposerToken {
+    pub completion: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct PinTimelineItem {
     pub thread_id: ace_core::ThreadId,
     pub message_id: String,

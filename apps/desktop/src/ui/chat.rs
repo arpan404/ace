@@ -1,13 +1,14 @@
 use crate::{
     actions::{
-        CreateTodoFromTimelineItem, PinTimelineItem, SelectComposerModel,
+        CompleteComposerToken, CreateTodoFromTimelineItem, PinTimelineItem, SelectComposerModel,
         SetComposerInteractionMode, SetComposerPermission, SetComposerReasoning,
         SetComposerRuntimeMode, ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait,
         ToggleEnvironmentPanel, ToggleHighlightTimelineItem, ToggleRightPanel, ToggleSidebar,
     },
     stores::{
         DesktopProjection, ModelProjection, ModelProviderProjection, ModelRegistryProjection,
-        ThreadAnnotationsProjection, TodoStatus, ui::UiState,
+        ProviderSlashCommandProjection, ThreadAnnotationsProjection, TodoStatus,
+        ToolRegistryEntryProjection, ui::UiState,
     },
     ui::{components::*, right_panel::environment_card, theme::Theme},
 };
@@ -912,6 +913,10 @@ fn composer_selector_surface(
         .flex_col()
         .gap_3()
         .font_family(theme.ui_font_family)
+        .when_some(
+            composer_command_suggestions(theme, projection, draft),
+            |this, suggestions| this.child(suggestions),
+        )
         .child(composer_mode_selector(theme, draft))
         .child(composer_permission_selector(theme, draft))
         .child(model_selector(theme, &projection.models, draft, compact))
@@ -924,6 +929,194 @@ fn composer_selector_surface(
             this.child(context_selector(theme, projection, draft))
         })
         .into_any_element()
+}
+
+#[derive(Clone)]
+struct ComposerCommandSuggestion {
+    label: String,
+    detail: String,
+    completion: String,
+    icon: IconName,
+}
+
+fn composer_command_suggestions(
+    theme: Theme,
+    projection: &DesktopProjection,
+    draft: &ComposerDraft,
+) -> Option<AnyElement> {
+    let token = active_composer_token(&draft.prompt)?;
+    let trigger = token.chars().next()?;
+    if !matches!(trigger, '/' | '$' | '@') {
+        return None;
+    }
+
+    let normalized = token.to_ascii_lowercase();
+    let suggestions = composer_suggestions_for_trigger(projection, trigger)
+        .into_iter()
+        .filter(|suggestion| {
+            suggestion
+                .completion
+                .to_ascii_lowercase()
+                .starts_with(&normalized)
+        })
+        .take(6)
+        .collect::<Vec<_>>();
+
+    if suggestions.is_empty() {
+        return None;
+    }
+
+    Some(
+        div()
+            .rounded_md()
+            .border_1()
+            .border_color(theme.border_subtle)
+            .bg(theme.panel_deep)
+            .p_2()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(theme.muted_subtle)
+                    .child(match trigger {
+                        '/' => "Slash commands",
+                        '$' => "Skills",
+                        '@' => "Plugins",
+                        _ => "Suggestions",
+                    }),
+            )
+            .children(
+                suggestions
+                    .into_iter()
+                    .map(|suggestion| composer_suggestion_row(theme, suggestion))
+                    .collect::<Vec<_>>(),
+            )
+            .into_any_element(),
+    )
+}
+
+fn composer_suggestions_for_trigger(
+    projection: &DesktopProjection,
+    trigger: char,
+) -> Vec<ComposerCommandSuggestion> {
+    match trigger {
+        '/' => projection
+            .providers
+            .commands
+            .iter()
+            .map(provider_command_suggestion)
+            .collect(),
+        '$' => projection
+            .skills
+            .entries
+            .iter()
+            .map(|entry| registry_suggestion('$', entry, IconName::Star))
+            .collect(),
+        '@' => projection
+            .plugins
+            .entries
+            .iter()
+            .map(|entry| registry_suggestion('@', entry, IconName::Bot))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn provider_command_suggestion(
+    command: &ProviderSlashCommandProjection,
+) -> ComposerCommandSuggestion {
+    let completion = command
+        .prompt_prefix
+        .clone()
+        .unwrap_or_else(|| format!("/{}", command.name));
+    let detail = command.input_hint.as_ref().map_or_else(
+        || format!("{} · {}", command.provider, command.description),
+        |hint| format!("{} · {} · {}", command.provider, command.description, hint),
+    );
+    ComposerCommandSuggestion {
+        label: completion.clone(),
+        detail,
+        completion,
+        icon: IconName::SquareTerminal,
+    }
+}
+
+fn registry_suggestion(
+    trigger: char,
+    entry: &ToolRegistryEntryProjection,
+    icon: IconName,
+) -> ComposerCommandSuggestion {
+    let completion = format!("{trigger}{}", entry.name);
+    ComposerCommandSuggestion {
+        label: completion.clone(),
+        detail: entry.description.clone().unwrap_or_else(|| {
+            format!(
+                "{} · {}",
+                entry.source.as_deref().unwrap_or("registry"),
+                entry.status
+            )
+        }),
+        completion,
+        icon,
+    }
+}
+
+fn composer_suggestion_row(theme: Theme, suggestion: ComposerCommandSuggestion) -> AnyElement {
+    div()
+        .id(("composer-suggestion", stable_id(&suggestion.completion)))
+        .min_h(px(34.0))
+        .rounded_md()
+        .px_2()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .hover(|this| this.bg(theme.button_hover))
+        .child(icon_svg(suggestion.icon, theme.accent_blue))
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(theme.foreground.opacity(0.84))
+                        .child(suggestion.label),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(theme.muted)
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .child(suggestion.detail),
+                ),
+        )
+        .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(
+                Box::new(CompleteComposerToken {
+                    completion: suggestion.completion.clone(),
+                }),
+                cx,
+            );
+        })
+        .into_any_element()
+}
+
+fn active_composer_token(prompt: &str) -> Option<&str> {
+    let start = prompt
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| ch.is_whitespace())
+        .map_or(0, |(index, ch)| index + ch.len_utf8());
+    let token = prompt[start..].trim();
+    (!token.is_empty()).then_some(token)
 }
 
 fn composer_mode_selector(theme: Theme, draft: &ComposerDraft) -> AnyElement {

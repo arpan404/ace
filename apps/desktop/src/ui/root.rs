@@ -1,20 +1,20 @@
 use crate::{
     actions::{
         AddCurrentDirectoryProject, ApproveProviderRequest, ArchiveActiveThread, ArchiveProject,
-        BeginPanelResize, CloseSearchPalette, CommitReview, CreateTodoFromLatestTimelineItem,
-        CreateTodoFromTimelineItem, CreateWorktree, DenyProviderRequest, InterruptActiveTurn,
-        NewThread, NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem,
-        PinTimelineItem, PushReview, RefreshActiveTab, RefreshApprovals, RefreshReview,
-        RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectComposerModel,
-        SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer, SetCodeFont,
-        SetComposerInteractionMode, SetComposerPermission, SetComposerReasoning,
-        SetComposerRuntimeMode, SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont,
-        ShowBrowserTab, ShowLessProjectThreads, ShowMoreProjectThreads, ShowPinnedTab,
-        ShowPluginsTab, ShowProvidersTab, ShowSkillsTab, ShowTodosTab, StageReviewAll,
-        StageReviewFile, ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait,
-        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
-        ToggleHighlightTimelineItem, TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
-        UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
+        BeginPanelResize, CloseSearchPalette, CommitReview, CompleteComposerToken,
+        CreateTodoFromLatestTimelineItem, CreateTodoFromTimelineItem, CreateWorktree,
+        DenyProviderRequest, InterruptActiveTurn, NewThread, NewThreadForProject,
+        OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem, PushReview,
+        RefreshActiveTab, RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree,
+        SelectBottomPanelTab, SelectComposerModel, SelectRightPanelTab, SelectSearchPaletteItem,
+        SendActiveComposer, SetCodeFont, SetComposerInteractionMode, SetComposerPermission,
+        SetComposerReasoning, SetComposerRuntimeMode, SetThemeDensity, SetThemeMotion,
+        SetThemePreset, SetUiFont, ShowBrowserTab, ShowLessProjectThreads, ShowMoreProjectThreads,
+        ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab, ShowTodosTab,
+        StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleComposerContext,
+        ToggleComposerTrait, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
+        ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
+        ToggleRightPanel, ToggleSidebar, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -1036,6 +1036,17 @@ impl RootView {
         cx.notify();
     }
 
+    fn complete_composer_token(
+        &mut self,
+        event: &CompleteComposerToken,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .complete_active_composer_token(&event.completion);
+        cx.notify();
+    }
+
     fn interrupt_active_turn(
         &mut self,
         _: &InterruptActiveTurn,
@@ -1249,6 +1260,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::toggle_composer_context))
             .on_action(cx.listener(Self::set_composer_runtime_mode))
             .on_action(cx.listener(Self::set_composer_interaction_mode))
+            .on_action(cx.listener(Self::complete_composer_token))
             .on_action(cx.listener(Self::interrupt_active_turn))
             .on_action(cx.listener(Self::toggle_pin_active_thread))
             .on_action(cx.listener(Self::pin_latest_timeline_item))

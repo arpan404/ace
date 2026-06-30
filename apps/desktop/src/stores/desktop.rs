@@ -276,6 +276,7 @@ pub struct SourceItemProjection {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProviderRegistryProjection {
     pub providers: Vec<ProviderSummaryProjection>,
+    pub commands: Vec<ProviderSlashCommandProjection>,
     pub total_slash_commands: usize,
     pub error: Option<String>,
     pub updated_at: Option<String>,
@@ -360,6 +361,16 @@ pub struct ProviderSummaryProjection {
     pub slash_commands: usize,
     pub missing: Vec<String>,
     pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderSlashCommandProjection {
+    pub provider: String,
+    pub name: String,
+    pub description: String,
+    pub prompt_prefix: Option<String>,
+    pub input_hint: Option<String>,
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1191,9 +1202,14 @@ impl DesktopStore {
             .iter()
             .map(|provider| provider.slash_commands)
             .sum();
+        let commands = slash_response
+            .as_ref()
+            .map(slash_command_projections)
+            .unwrap_or_default();
 
         self.provider_registry = ProviderRegistryProjection {
             providers,
+            commands,
             total_slash_commands,
             error: (!partial_errors.is_empty()).then(|| partial_errors.join("; ")),
             updated_at: Some(now),
@@ -2419,6 +2435,35 @@ impl DesktopStore {
         draft.updated_at = now;
     }
 
+    pub fn complete_active_composer_token(&mut self, completion: &str) {
+        let completion = completion.trim();
+        if completion.is_empty() {
+            return;
+        }
+        let now = self.next_timestamp();
+        let Some(thread_id) = ({
+            let draft = self.ensure_active_composer_draft(now.clone());
+            draft.map(|draft| {
+                let token_start = draft
+                    .prompt
+                    .char_indices()
+                    .rev()
+                    .find(|(_, ch)| ch.is_whitespace())
+                    .map_or(0, |(index, ch)| index + ch.len_utf8());
+                draft.prompt.truncate(token_start);
+                draft.prompt.push_str(completion);
+                if !draft.prompt.ends_with(' ') {
+                    draft.prompt.push(' ');
+                }
+                draft.updated_at = now;
+                draft.thread_id.clone()
+            })
+        }) else {
+            return;
+        };
+        self.clear_composer_history_cursor(&thread_id);
+    }
+
     pub fn set_active_composer_model(&mut self, provider: ProviderKind, model: String) {
         let supports_reasoning = self.model_supports_reasoning(provider, &model);
         let now = self.next_timestamp();
@@ -3310,6 +3355,31 @@ fn model_provider_projection(
         provider: response.catalog.provider,
         models,
     }
+}
+
+fn slash_command_projections(
+    response: &ProviderRuntimeSlashCommandsListResponse,
+) -> Vec<ProviderSlashCommandProjection> {
+    response
+        .providers
+        .iter()
+        .flat_map(|provider| {
+            provider
+                .commands
+                .iter()
+                .map(|command| ProviderSlashCommandProjection {
+                    provider: provider.runtime_id.clone(),
+                    name: command.name.clone(),
+                    description: command
+                        .description
+                        .clone()
+                        .unwrap_or_else(|| "Provider command".to_string()),
+                    prompt_prefix: command.prompt_prefix.clone(),
+                    input_hint: command.input_hint.clone(),
+                    kind: command.kind.as_ref().map(|kind| format!("{kind:?}")),
+                })
+        })
+        .collect()
 }
 
 fn short_status(status: &TerminalSessionStatus) -> &'static str {
@@ -4479,6 +4549,20 @@ mod tests {
         assert_eq!(
             store.projection().chat.composer.unwrap().prompt,
             "scratch prompt"
+        );
+    }
+
+    #[test]
+    fn composer_token_completion_replaces_active_token() {
+        let mut store = DesktopStore::new();
+        store.add_project("/tmp/project".to_string());
+        store.push_active_composer_input("please /mo");
+
+        store.complete_active_composer_token("/model");
+
+        assert_eq!(
+            store.projection().chat.composer.unwrap().prompt,
+            "please /model "
         );
     }
 
