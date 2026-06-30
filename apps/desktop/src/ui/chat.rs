@@ -3,7 +3,7 @@ use crate::{
         CreateTodoFromTimelineItem, PinTimelineItem, ToggleBottomPanel, ToggleEnvironmentPanel,
         ToggleHighlightTimelineItem, ToggleRightPanel, ToggleSidebar,
     },
-    stores::{ThreadAnnotationsProjection, ui::UiState},
+    stores::{DesktopProjection, ThreadAnnotationsProjection, TodoStatus, ui::UiState},
     ui::{components::*, right_panel::environment_card, theme::Theme},
 };
 use ace_runtime::chat::{
@@ -15,13 +15,13 @@ use gpui_component::{IconName, scroll::ScrollableElement as _, text::TextView};
 pub(super) fn workspace_panel(
     theme: Theme,
     ui_state: &UiState,
-    chat: ChatProjection,
-    annotations: ThreadAnnotationsProjection,
+    projection: DesktopProjection,
     reserve_titlebar_controls: bool,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let show_inline_environment_card = has_room_for_environment_card(ui_state, window);
+    let show_inline_environment_card = has_room_for_environment_card(theme, ui_state, window);
+    let chat = &projection.chat;
     div()
         .id("ace-workspace")
         .relative()
@@ -33,7 +33,7 @@ pub(super) fn workspace_panel(
         .child(workspace_chrome(
             theme,
             ui_state,
-            &chat,
+            &projection,
             reserve_titlebar_controls,
             show_inline_environment_card,
         ))
@@ -43,7 +43,7 @@ pub(super) fn workspace_panel(
                 this.child(
                     div().px_6().pt_3().flex().justify_end().child(
                         div()
-                            .w(px(360.0))
+                            .w(theme.environment_card_width)
                             .child(environment_card(theme, chat.active_thread.as_ref())),
                     ),
                 )
@@ -55,9 +55,9 @@ pub(super) fn workspace_panel(
                 this.child(
                     div()
                         .absolute()
-                        .top(px(60.0))
-                        .right(px(16.0))
-                        .w(px(360.0))
+                        .top(theme.environment_card_floating_top)
+                        .right(theme.environment_card_floating_right)
+                        .w(theme.environment_card_width)
                         .child(environment_card(theme, chat.active_thread.as_ref())),
                 )
             },
@@ -69,8 +69,14 @@ pub(super) fn workspace_panel(
                 .min_h_0()
                 .flex()
                 .flex_col()
-                .child(message_timeline(theme, &chat, &annotations, window, cx))
-                .child(chat_composer(theme, &chat)),
+                .child(message_timeline(
+                    theme,
+                    chat,
+                    &projection.annotations,
+                    window,
+                    cx,
+                ))
+                .child(chat_composer(theme, chat)),
         )
         .into_any_element()
 }
@@ -78,18 +84,27 @@ pub(super) fn workspace_panel(
 fn workspace_chrome(
     theme: Theme,
     ui_state: &UiState,
-    chat: &ChatProjection,
+    projection: &DesktopProjection,
     reserve_titlebar_controls: bool,
     _show_inline_environment_card: bool,
 ) -> AnyElement {
+    let chat = &projection.chat;
     let title = chat
         .active_thread
         .as_ref()
         .map(|thread| thread.title.as_str())
         .unwrap_or("New chat");
+    let project = active_project_label(projection);
+    let branch = composer_branch_label(chat);
+    let mode = composer_mode_label(chat);
+    let status = thread_status_label(chat);
+    let todos = todo_progress_label(&projection.annotations);
+    let provider = composer_provider_label(chat);
+    let model = composer_model_label(chat);
+    let host = projection.host.label.as_str();
     div()
         .id("workspace-chrome")
-        .h(px(48.0))
+        .h(theme.center_header_height)
         .border_b_1()
         .border_color(theme.border_subtle)
         .px_3()
@@ -105,7 +120,7 @@ fn workspace_chrome(
                 .gap_2()
                 .when(ui_state.sidebar_collapsed, |this| {
                     this.when(reserve_titlebar_controls, |this| {
-                        this.child(div().w(px(64.0)))
+                        this.child(div().w(theme.titlebar_control_reserve_width))
                     })
                     .child(ace_icon_toggle_button(
                         AceIconName::PanelLeftOpen,
@@ -119,13 +134,39 @@ fn workspace_chrome(
                 .child(icon_tile(IconName::Bot, theme))
                 .child(
                     div()
-                        .max_w(px(520.0))
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .whitespace_nowrap()
-                        .text_size(px(13.0))
-                        .text_color(theme.foreground.opacity(0.82))
-                        .child(title.to_string()),
+                        .min_w_0()
+                        .max_w(theme.center_header_title_max_width)
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            div()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .whitespace_nowrap()
+                                .text_size(px(13.0))
+                                .text_color(theme.foreground.opacity(0.86))
+                                .child(title.to_string()),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_2()
+                                .child(header_meta_chip(theme, IconName::FolderOpen, project))
+                                .child(header_meta_chip(theme, IconName::SquareTerminal, mode))
+                                .child(header_meta_chip(theme, IconName::FolderOpen, branch))
+                                .child(header_meta_chip(theme, IconName::Check, status))
+                                .child(header_meta_chip(theme, IconName::Check, todos))
+                                .child(header_meta_chip(
+                                    theme,
+                                    IconName::Bot,
+                                    format!("{provider} · {model}"),
+                                ))
+                                .child(header_meta_chip(theme, IconName::Globe, host.to_string())),
+                        ),
                 ),
         )
         .child(
@@ -168,15 +209,76 @@ fn workspace_chrome(
         .into_any_element()
 }
 
-fn has_room_for_environment_card(ui_state: &UiState, window: &Window) -> bool {
+fn header_meta_chip(theme: Theme, icon: IconName, label: impl Into<String>) -> AnyElement {
+    let meta_opacity = theme.micro_interaction_opacity();
+    div()
+        .min_w_0()
+        .max_w(theme.center_header_meta_max_width)
+        .h(theme.center_header_meta_height)
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .text_size(px(11.0))
+        .text_color(theme.muted.opacity(meta_opacity))
+        .child(icon_svg(icon, theme.muted_subtle.opacity(meta_opacity)))
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .child(label.into()),
+        )
+        .into_any_element()
+}
+
+fn active_project_label(projection: &DesktopProjection) -> String {
+    projection
+        .chat
+        .active_thread
+        .as_ref()
+        .and_then(|thread| {
+            projection
+                .sidebar
+                .projects
+                .iter()
+                .find(|group| group.project.id == thread.project_id)
+                .map(|group| group.project.name.clone())
+        })
+        .unwrap_or_else(|| "No project".to_string())
+}
+
+fn thread_status_label(chat: &ChatProjection) -> String {
+    chat.active_thread
+        .as_ref()
+        .map(|thread| thread.status.label().to_string())
+        .unwrap_or_else(|| "Draft".to_string())
+}
+
+fn todo_progress_label(annotations: &ThreadAnnotationsProjection) -> String {
+    let total = annotations.todos.len();
+    if total == 0 {
+        return "0 todos".to_string();
+    }
+
+    let completed = annotations
+        .todos
+        .iter()
+        .filter(|todo| matches!(todo.status, TodoStatus::Done | TodoStatus::Canceled))
+        .count();
+    format!("{completed}/{total} todos")
+}
+
+fn has_room_for_environment_card(theme: Theme, ui_state: &UiState, window: &Window) -> bool {
     let mut available_width = f32::from(window.bounds().size.width);
     if !ui_state.sidebar_collapsed {
-        available_width -= ui_state.sidebar_width + 4.0;
+        available_width -= ui_state.sidebar_width + theme.panel_gutter_width;
     }
     if ui_state.right_panel_visible {
-        available_width -= ui_state.right_panel_width + 4.0;
+        available_width -= ui_state.right_panel_width + theme.panel_gutter_width;
     }
-    available_width >= 980.0
+    available_width >= theme.environment_card_inline_min_width
 }
 
 fn message_timeline(
@@ -186,8 +288,8 @@ fn message_timeline(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    const MAX_RENDERED_MESSAGES: usize = 120;
-    let skipped = chat.messages.len().saturating_sub(MAX_RENDERED_MESSAGES);
+    let max_rendered_messages = theme.timeline_max_rendered_messages;
+    let skipped = chat.messages.len().saturating_sub(max_rendered_messages);
     let active_thread_id = chat.active_thread.as_ref().map(|thread| thread.id.clone());
 
     div()
@@ -213,7 +315,7 @@ fn message_timeline(
                     .py_2()
                     .text_size(px(12.0))
                     .text_color(theme.muted)
-                    .child(format!("Showing latest {MAX_RENDERED_MESSAGES} messages")),
+                    .child(format!("Showing latest {max_rendered_messages} messages")),
             )
         })
         .children(
@@ -800,4 +902,58 @@ fn chat_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
                 ),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stores::desktop::{ComposerPayload, DesktopStore};
+
+    #[test]
+    fn center_header_labels_use_active_thread_projection() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/ace".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id,
+            ComposerPayload {
+                prompt: "Build the workstation".to_string(),
+            },
+        );
+
+        let projection = store.projection();
+
+        assert_eq!(active_project_label(&projection), "ace");
+        assert_eq!(thread_status_label(&projection.chat), "Completed");
+        assert_eq!(composer_mode_label(&projection.chat), "Chat");
+        assert_eq!(composer_branch_label(&projection.chat), "No branch");
+    }
+
+    #[test]
+    fn center_header_todo_progress_counts_completed_items() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/ace".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id.clone(),
+            ComposerPayload {
+                prompt: "Track this".to_string(),
+            },
+        );
+        let message_id = store.projection().chat.messages[0].id.clone();
+        store.create_todo_from_timeline_item(thread_id, &message_id);
+        let todo_id = store.projection().annotations.todos[0].id.clone();
+
+        assert_eq!(
+            todo_progress_label(&store.projection().annotations),
+            "0/1 todos"
+        );
+
+        store.update_todo_status(&todo_id, TodoStatus::Done);
+
+        assert_eq!(
+            todo_progress_label(&store.projection().annotations),
+            "1/1 todos"
+        );
+    }
 }

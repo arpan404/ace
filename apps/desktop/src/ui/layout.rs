@@ -1,5 +1,5 @@
 use crate::{
-    stores::{DesktopProjection, ThreadAnnotationsProjection, ui::UiState},
+    stores::{DesktopProjection, ui::UiState},
     ui::{
         chat::workspace_panel,
         right_panel::{bottom_panel, right_panel},
@@ -7,7 +7,6 @@ use crate::{
         theme::Theme,
     },
 };
-use ace_runtime::chat::ChatProjection;
 use gpui::{AnyElement, App, CursorStyle, IntoElement, MouseButton, Window, div, prelude::*, px};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,7 +160,6 @@ fn main_content_row(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let chat = projection.chat.clone();
     div()
         .id("ace-main-content-row")
         .flex_1()
@@ -171,8 +169,7 @@ fn main_content_row(
         .child(center_column(
             theme,
             ui_state.clone(),
-            chat.clone(),
-            projection.annotations.clone(),
+            projection.clone(),
             chrome.reserve_titlebar_controls,
             window,
             cx,
@@ -199,8 +196,7 @@ fn main_content_row(
 fn center_column(
     theme: Theme,
     ui_state: UiState,
-    chat: ChatProjection,
-    annotations: ThreadAnnotationsProjection,
+    projection: DesktopProjection,
     reserve_titlebar_controls: bool,
     window: &mut Window,
     cx: &mut App,
@@ -215,8 +211,7 @@ fn center_column(
         .child(workspace_panel(
             theme,
             &ui_state,
-            chat.clone(),
-            annotations,
+            projection,
             reserve_titlebar_controls,
             window,
             cx,

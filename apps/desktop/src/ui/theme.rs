@@ -11,6 +11,19 @@ pub struct Theme {
     pub border_subtle: Hsla,
     pub button: Hsla,
     pub button_hover: Hsla,
+    pub center_header_height: Pixels,
+    pub center_header_title_max_width: Pixels,
+    pub center_header_meta_max_width: Pixels,
+    pub center_header_meta_height: Pixels,
+    pub environment_card_width: Pixels,
+    pub environment_card_floating_top: Pixels,
+    pub environment_card_floating_right: Pixels,
+    pub environment_card_inline_min_width: f32,
+    pub titlebar_control_reserve_width: Pixels,
+    pub panel_gutter_width: f32,
+    pub timeline_max_rendered_messages: usize,
+    pub motion_fast_ms: u64,
+    pub motion_standard_ms: u64,
     pub accent_blue: Hsla,
     pub accent_danger: Hsla,
     pub accent_success: Hsla,
@@ -44,6 +57,19 @@ impl Default for Theme {
             border_subtle: rgb(0x202020).into(),
             button: rgb(0x242424).into(),
             button_hover: rgb(0x303030).into(),
+            center_header_height: px(58.0),
+            center_header_title_max_width: px(920.0),
+            center_header_meta_max_width: px(150.0),
+            center_header_meta_height: px(18.0),
+            environment_card_width: px(360.0),
+            environment_card_floating_top: px(60.0),
+            environment_card_floating_right: px(16.0),
+            environment_card_inline_min_width: 980.0,
+            titlebar_control_reserve_width: px(64.0),
+            panel_gutter_width: 4.0,
+            timeline_max_rendered_messages: 120,
+            motion_fast_ms: 90,
+            motion_standard_ms: 160,
             accent_blue: rgb(0x38bdf8).into(),
             accent_danger: rgb(0xfb7185).into(),
             accent_success: rgb(0x34d399).into(),
@@ -75,6 +101,15 @@ impl Theme {
     pub fn app_name() -> SharedString {
         "Ace".into()
     }
+
+    pub fn micro_interaction_opacity(self) -> f32 {
+        let ratio = if self.motion_standard_ms == 0 {
+            1.0
+        } else {
+            self.motion_fast_ms as f32 / self.motion_standard_ms as f32
+        };
+        (0.72 + ratio.clamp(0.0, 1.0) * 0.12).clamp(0.72, 0.84)
+    }
 }
 
 #[cfg(test)]
@@ -87,6 +122,13 @@ mod tests {
         assert_eq!(theme.sidebar_width, px(330.0));
         assert_eq!(theme.right_panel_width, px(430.0));
         assert_eq!(theme.bottom_panel_height, px(260.0));
+        assert_eq!(theme.center_header_height, px(58.0));
+        assert_eq!(theme.center_header_meta_height, px(18.0));
+        assert_eq!(theme.environment_card_width, px(360.0));
+        assert_eq!(theme.timeline_max_rendered_messages, 120);
+        assert_eq!(theme.motion_fast_ms, 90);
+        assert_eq!(theme.motion_standard_ms, 160);
+        assert!((theme.micro_interaction_opacity() - 0.7875).abs() < 0.0001);
         assert_eq!(Theme::default_window_size().width, px(1440.0));
         assert_eq!(Theme::app_name().as_ref(), "Ace");
     }
