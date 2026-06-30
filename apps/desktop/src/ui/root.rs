@@ -96,6 +96,22 @@ fn right_panel_refresh_target(tab: RightPanelTab) -> RightPanelRefreshTarget {
     }
 }
 
+fn thread_change_refresh_targets(
+    right_tab: RightPanelTab,
+    terminal_context_active: bool,
+) -> Vec<RightPanelRefreshTarget> {
+    let mut targets = Vec::new();
+    if terminal_context_active {
+        targets.push(RightPanelRefreshTarget::Terminal);
+    }
+
+    let right_target = right_panel_refresh_target(right_tab);
+    if right_target != RightPanelRefreshTarget::None && !targets.contains(&right_target) {
+        targets.push(right_target);
+    }
+    targets
+}
+
 impl RootView {
     pub fn new(
         window: &mut Window,
@@ -803,25 +819,7 @@ impl RootView {
             }
             SearchPaletteItem::Thread { thread_id, .. } => {
                 self.search_palette.close();
-                self.active_store_mut().open_thread(thread_id);
-                if self.terminal_owns_keyboard() {
-                    self.ensure_active_terminal();
-                }
-                if matches!(
-                    self.ui_store.state().right_panel_tab,
-                    RightPanelTab::Review
-                        | RightPanelTab::Sources
-                        | RightPanelTab::Worktrees
-                        | RightPanelTab::Approvals
-                ) {
-                    if self.ui_store.state().right_panel_tab == RightPanelTab::Worktrees {
-                        self.refresh_active_worktrees();
-                    } else if self.ui_store.state().right_panel_tab == RightPanelTab::Approvals {
-                        self.refresh_provider_registry();
-                    } else {
-                        self.refresh_active_review();
-                    }
-                }
+                self.open_thread_with_context_refresh(thread_id);
             }
         }
     }
@@ -836,9 +834,20 @@ impl RootView {
             .and_then(|group| group.threads.first())
             .map(|thread| thread.id.clone());
         if let Some(thread_id) = thread_id {
-            self.active_store_mut().open_thread(thread_id);
+            self.open_thread_with_context_refresh(thread_id);
         } else {
             self.active_store_mut().new_thread(project_id);
+        }
+    }
+
+    fn open_thread_with_context_refresh(&mut self, thread_id: ace_core::ThreadId) {
+        self.active_store_mut().open_thread(thread_id);
+        let targets = thread_change_refresh_targets(
+            self.ui_store.state().right_panel_tab,
+            self.terminal_owns_keyboard(),
+        );
+        for target in targets {
+            self.refresh_right_panel_target(target);
         }
     }
 
@@ -1066,28 +1075,7 @@ impl RootView {
     }
 
     fn open_thread(&mut self, event: &OpenThread, _: &mut Window, cx: &mut Context<Self>) {
-        self.active_store_mut().open_thread(event.thread_id.clone());
-        if self.terminal_owns_keyboard() {
-            self.ensure_active_terminal();
-        }
-        if matches!(
-            self.ui_store.state().right_panel_tab,
-            RightPanelTab::Review
-                | RightPanelTab::Sources
-                | RightPanelTab::Terminal
-                | RightPanelTab::Worktrees
-                | RightPanelTab::Approvals
-        ) {
-            if self.ui_store.state().right_panel_tab == RightPanelTab::Terminal {
-                self.ensure_active_terminal();
-            } else if self.ui_store.state().right_panel_tab == RightPanelTab::Worktrees {
-                self.refresh_active_worktrees();
-            } else if self.ui_store.state().right_panel_tab == RightPanelTab::Approvals {
-                self.refresh_provider_registry();
-            } else {
-                self.refresh_active_review();
-            }
-        }
+        self.open_thread_with_context_refresh(event.thread_id.clone());
         cx.notify();
     }
 
@@ -1612,6 +1600,44 @@ mod tests {
         assert_eq!(
             right_panel_refresh_target(RightPanelTab::Settings),
             RightPanelRefreshTarget::None
+        );
+    }
+
+    #[test]
+    fn thread_change_refreshes_selected_backed_tab() {
+        assert_eq!(
+            thread_change_refresh_targets(RightPanelTab::Browser, false),
+            vec![RightPanelRefreshTarget::ProviderRuntime]
+        );
+        assert_eq!(
+            thread_change_refresh_targets(RightPanelTab::Worktrees, false),
+            vec![RightPanelRefreshTarget::Worktrees]
+        );
+        assert_eq!(
+            thread_change_refresh_targets(RightPanelTab::Pinned, false),
+            Vec::<RightPanelRefreshTarget>::new()
+        );
+    }
+
+    #[test]
+    fn thread_change_keeps_terminal_context_fresh_without_duplicates() {
+        assert_eq!(
+            thread_change_refresh_targets(RightPanelTab::Review, true),
+            vec![
+                RightPanelRefreshTarget::Terminal,
+                RightPanelRefreshTarget::Review
+            ]
+        );
+        assert_eq!(
+            thread_change_refresh_targets(RightPanelTab::Terminal, true),
+            vec![RightPanelRefreshTarget::Terminal]
+        );
+        assert_eq!(
+            thread_change_refresh_targets(RightPanelTab::Browser, true),
+            vec![
+                RightPanelRefreshTarget::Terminal,
+                RightPanelRefreshTarget::ProviderRuntime
+            ]
         );
     }
 }
