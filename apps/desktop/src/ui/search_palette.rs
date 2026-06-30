@@ -1940,6 +1940,22 @@ mod tests {
             description.contains("Implement rich palette metadata"),
             "{description}"
         );
+
+        let mut projection = store.projection();
+        projection.sidebar.projects[0].threads[0].branch =
+            Some("feature/palette-branch".to_string());
+        let branch_items = palette_items(
+            &projection,
+            SearchPaletteMode::Root,
+            "feature/palette-branch",
+        );
+        assert!(branch_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::Thread {
+                thread_id: item_thread_id,
+                ..
+            } if *item_thread_id == thread_id
+        )));
     }
 
     #[test]

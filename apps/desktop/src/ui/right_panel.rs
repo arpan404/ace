@@ -2,12 +2,13 @@ use crate::{
     actions::{
         ApproveProviderRequest, CommitReview, CreateReviewComment,
         CreateTodoFromLatestTimelineItem, CreateWorktree, DenyProviderRequest,
-        LinkTodoToCurrentDiff, PinLatestTimelineItem, PushReview, RefreshApprovals, RefreshReview,
-        RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab, SetCodeFont,
-        SetThemeAccent, SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll,
-        StageReviewFile, ToggleBottomPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
-        ToggleReviewCommentResolved, ToggleRightPanel, UnstageReviewAll, UnstageReviewFile,
-        UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
+        LinkTodoToCurrentDiff, PinLatestTimelineItem, PushReview, RefreshActiveTab,
+        RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab,
+        SelectRightPanelTab, SetCodeFont, SetThemeAccent, SetThemeDensity, SetThemeMotion,
+        SetThemePreset, SetUiFont, StageReviewAll, StageReviewFile, ToggleBottomPanel,
+        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleReviewCommentResolved,
+        ToggleRightPanel, UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee,
+        UpdateTodoPriority, UpdateTodoStatus,
     },
     stores::{
         ApprovalItemProjection, ApprovalRegistryProjection, BrowserActivityProjection,
@@ -213,6 +214,10 @@ fn workbench_panel(
                 .items_center()
                 .gap_2()
                 .child(right_tab_strip(theme, active_tab, services))
+                .when_some(
+                    right_panel_primary_action(active_tab, projection),
+                    |this, action| this.child(right_panel_primary_action_button(theme, action)),
+                )
                 .child(ace_icon_toggle_button(
                     if bottom_panel_visible {
                         AceIconName::PanelBottomOpen
@@ -359,6 +364,93 @@ fn workbench_panel(
             RightPanelTab::Settings => settings_body(theme, &ui_state.theme),
         }))
         .into_any_element()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RightPanelPrimaryAction {
+    RefreshActiveTab,
+    RefreshReview,
+    RefreshWorktrees,
+    CreateWorktree,
+    RefreshApprovals,
+    PinLatest,
+    AddTodo,
+}
+
+impl RightPanelPrimaryAction {
+    fn icon(self) -> IconName {
+        match self {
+            Self::CreateWorktree | Self::AddTodo => IconName::Plus,
+            Self::PinLatest => IconName::Star,
+            Self::RefreshActiveTab
+            | Self::RefreshReview
+            | Self::RefreshWorktrees
+            | Self::RefreshApprovals => IconName::Info,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::RefreshActiveTab => "Refresh",
+            Self::RefreshReview => "Refresh",
+            Self::RefreshWorktrees => "Refresh",
+            Self::CreateWorktree => "Create",
+            Self::RefreshApprovals => "Refresh",
+            Self::PinLatest => "Pin latest",
+            Self::AddTodo => "Add todo",
+        }
+    }
+}
+
+fn right_panel_primary_action(
+    active_tab: RightPanelTab,
+    projection: &DesktopProjection,
+) -> Option<RightPanelPrimaryAction> {
+    match active_tab {
+        RightPanelTab::Review | RightPanelTab::Sources => {
+            Some(RightPanelPrimaryAction::RefreshReview)
+        }
+        RightPanelTab::Worktrees => {
+            if projection.worktrees.repo_path.is_some() {
+                Some(RightPanelPrimaryAction::CreateWorktree)
+            } else {
+                Some(RightPanelPrimaryAction::RefreshWorktrees)
+            }
+        }
+        RightPanelTab::Approvals => Some(RightPanelPrimaryAction::RefreshApprovals),
+        RightPanelTab::Environment
+        | RightPanelTab::Summary
+        | RightPanelTab::Terminal
+        | RightPanelTab::Browser
+        | RightPanelTab::Providers
+        | RightPanelTab::Plugins
+        | RightPanelTab::Skills => Some(RightPanelPrimaryAction::RefreshActiveTab),
+        RightPanelTab::Pinned => {
+            (!projection.chat.messages.is_empty()).then_some(RightPanelPrimaryAction::PinLatest)
+        }
+        RightPanelTab::Todos => {
+            (!projection.chat.messages.is_empty()).then_some(RightPanelPrimaryAction::AddTodo)
+        }
+        RightPanelTab::Editor | RightPanelTab::Settings | RightPanelTab::Scheduled => None,
+    }
+}
+
+fn right_panel_primary_action_button(theme: Theme, action: RightPanelPrimaryAction) -> AnyElement {
+    action_button(action.icon(), action.label(), theme, move || {
+        right_panel_primary_action_dispatch(action)
+    })
+}
+
+fn right_panel_primary_action_dispatch(action: RightPanelPrimaryAction) -> Box<dyn gpui::Action> {
+    match action {
+        RightPanelPrimaryAction::RefreshActiveTab => Box::new(RefreshActiveTab),
+        RightPanelPrimaryAction::RefreshReview => Box::new(RefreshReview),
+        RightPanelPrimaryAction::RefreshWorktrees => Box::new(RefreshWorktrees),
+        RightPanelPrimaryAction::CreateWorktree => Box::new(CreateWorktree),
+        RightPanelPrimaryAction::RefreshApprovals => Box::new(RefreshApprovals),
+        RightPanelPrimaryAction::PinLatest => Box::new(PinLatestTimelineItem),
+        RightPanelPrimaryAction::AddTodo => Box::new(CreateTodoFromLatestTimelineItem),
+    }
 }
 
 fn right_tab_strip(
@@ -3964,5 +4056,75 @@ trait ThreadSummaryExt {
 impl ThreadSummaryExt for ThreadSummary {
     fn status_label(&self) -> &'static str {
         self.status.label()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stores::{DesktopStore, desktop::ComposerPayload};
+
+    #[test]
+    fn right_panel_header_primary_actions_are_backed_by_active_tab() {
+        let store = DesktopStore::new();
+        let projection = store.projection();
+
+        assert_eq!(
+            right_panel_primary_action(RightPanelTab::Review, &projection),
+            Some(RightPanelPrimaryAction::RefreshReview)
+        );
+        assert_eq!(
+            right_panel_primary_action(RightPanelTab::Approvals, &projection),
+            Some(RightPanelPrimaryAction::RefreshApprovals)
+        );
+        assert_eq!(
+            right_panel_primary_action(RightPanelTab::Terminal, &projection),
+            Some(RightPanelPrimaryAction::RefreshActiveTab)
+        );
+        assert_eq!(
+            right_panel_primary_action(RightPanelTab::Pinned, &projection),
+            None
+        );
+        assert_eq!(
+            right_panel_primary_action(RightPanelTab::Todos, &projection),
+            None
+        );
+        assert_eq!(
+            right_panel_primary_action(RightPanelTab::Settings, &projection),
+            None
+        );
+    }
+
+    #[test]
+    fn right_panel_header_primary_actions_use_contextual_creates() {
+        let empty_projection = DesktopStore::new().projection();
+        assert_eq!(
+            right_panel_primary_action(RightPanelTab::Worktrees, &empty_projection),
+            Some(RightPanelPrimaryAction::RefreshWorktrees)
+        );
+
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id,
+            ComposerPayload {
+                prompt: "Create backed header actions".to_string(),
+            },
+        );
+        let projection = store.projection();
+
+        assert_eq!(
+            right_panel_primary_action(RightPanelTab::Pinned, &projection),
+            Some(RightPanelPrimaryAction::PinLatest)
+        );
+        assert_eq!(
+            right_panel_primary_action(RightPanelTab::Todos, &projection),
+            Some(RightPanelPrimaryAction::AddTodo)
+        );
+        assert_eq!(
+            right_panel_primary_action(RightPanelTab::Worktrees, &projection),
+            Some(RightPanelPrimaryAction::CreateWorktree)
+        );
     }
 }
