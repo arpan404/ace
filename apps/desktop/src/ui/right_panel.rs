@@ -2970,6 +2970,9 @@ fn model_card(theme: Theme, model: &ModelProjection) -> AnyElement {
     if model.supports_vision {
         capabilities.push("vision");
     }
+    if model.supports_computer_use {
+        capabilities.push("computer use");
+    }
     if model.supports_attachments {
         capabilities.push("attachments");
     }

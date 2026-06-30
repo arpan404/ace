@@ -1796,6 +1796,12 @@ fn model_capability_badges(theme: Theme, model: &ModelProjection, enabled: bool)
             model.supports_reasoning,
             color_active,
         ))
+        .child(capability_badge(
+            theme,
+            "Computer",
+            model.supports_computer_use,
+            color_active,
+        ))
         .when(
             model.context_window.is_some_and(|window| window >= 128_000),
             |this| this.child(capability_badge(theme, "Long", true, color_active)),

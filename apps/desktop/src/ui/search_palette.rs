@@ -1417,6 +1417,9 @@ fn model_capability_summary(model: &ModelProjection) -> String {
     if model.supports_reasoning {
         capabilities.push("Reasoning");
     }
+    if model.supports_computer_use {
+        capabilities.push("Computer Use");
+    }
     if model.context_window.is_some_and(|window| window >= 128_000) {
         capabilities.push("Long context");
     }

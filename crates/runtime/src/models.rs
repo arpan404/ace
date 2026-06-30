@@ -54,6 +54,7 @@ pub struct ProviderModelCapabilities {
     pub supports_reasoning: bool,
     pub supports_vision: bool,
     pub supports_tools: bool,
+    pub supports_computer_use: bool,
     pub supports_parallel_tool_calls: bool,
     pub supports_subagents: bool,
     pub supports_attachments: bool,
@@ -199,6 +200,16 @@ fn capabilities_from(raw: &Value) -> ProviderModelCapabilities {
             raw,
             &["supportsTools", "tools", "toolUse", "tool_use"],
             &["tools", "tool_use", "function_calling"],
+        ),
+        supports_computer_use: bool_or_capability(
+            raw,
+            &[
+                "supportsComputerUse",
+                "computerUse",
+                "computer_use",
+                "computer",
+            ],
+            &["computer_use", "computer-use", "computer", "desktop"],
         ),
         supports_parallel_tool_calls: bool_or_capability(
             raw,
@@ -417,7 +428,7 @@ mod tests {
                     "family": "gpt",
                     "contextWindow": 256000,
                     "maxOutputTokens": "32000",
-                    "capabilities": ["reasoning", "tools", "vision"],
+                    "capabilities": ["reasoning", "tools", "vision", "computer_use"],
                     "defaultReasoningEffort": "medium"
                 }
             ]
@@ -442,6 +453,7 @@ mod tests {
         );
         assert!(model.capabilities.supports_reasoning);
         assert!(model.capabilities.supports_tools);
+        assert!(model.capabilities.supports_computer_use);
         assert!(model.capabilities.supports_vision);
         assert!(model.capabilities.supports_attachments);
         assert_eq!(model.raw["id"], "gpt-5");
@@ -483,6 +495,7 @@ mod tests {
             "capabilities": {
                 "reasoning": true,
                 "tool_use": true,
+                "computer_use": true,
                 "parallel_tool_calls": true,
                 "subagents": true,
                 "attachments": true
@@ -510,6 +523,7 @@ mod tests {
         assert_eq!(normalized.capabilities.max_output_tokens, Some(32000));
         assert!(normalized.capabilities.supports_reasoning);
         assert!(normalized.capabilities.supports_tools);
+        assert!(normalized.capabilities.supports_computer_use);
         assert!(normalized.capabilities.supports_parallel_tool_calls);
         assert!(normalized.capabilities.supports_subagents);
         assert!(normalized.capabilities.supports_attachments);

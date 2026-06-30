@@ -527,6 +527,7 @@ pub struct ModelProjection {
     pub supports_reasoning: bool,
     pub supports_vision: bool,
     pub supports_tools: bool,
+    pub supports_computer_use: bool,
     pub supports_attachments: bool,
 }
 
@@ -6343,6 +6344,7 @@ fn model_provider_projection(
             supports_reasoning: model.capabilities.supports_reasoning,
             supports_vision: model.capabilities.supports_vision,
             supports_tools: model.capabilities.supports_tools,
+            supports_computer_use: model.capabilities.supports_computer_use,
             supports_attachments: model.capabilities.supports_attachments,
         })
         .collect();
@@ -8899,6 +8901,7 @@ mod tests {
                         supports_reasoning: true,
                         supports_vision: false,
                         supports_tools: true,
+                        supports_computer_use: true,
                         supports_parallel_tool_calls: true,
                         supports_subagents: false,
                         supports_attachments: true,
@@ -8917,6 +8920,7 @@ mod tests {
         assert_eq!(projection.models[0].display_name, "GPT-5");
         assert_eq!(projection.models[0].context_window, Some(256_000));
         assert!(projection.models[0].supports_tools);
+        assert!(projection.models[0].supports_computer_use);
         assert!(projection.models[0].supports_attachments);
     }
 
