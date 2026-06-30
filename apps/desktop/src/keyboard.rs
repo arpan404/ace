@@ -1,6 +1,6 @@
 use crate::actions::{
     FocusPanel, InterruptActiveTurn, NewThread, OpenSearchPalette, RefreshActiveTab,
-    SendActiveComposer, ShowBrowserTab, ShowPinnedTab, ShowTodosTab, ToggleBottomPanel,
+    SendActiveComposer, ShowBrowserTab, ShowPinnedTab, ShowTerminalTab, ShowTodosTab,
     ToggleEnvironmentPanel, ToggleRightPanel, ToggleSidebar,
 };
 use crate::stores::ui::FocusedPanel;
@@ -8,7 +8,7 @@ use gpui::KeyBinding;
 
 pub const TOGGLE_SIDEBAR: &str = "cmd-b";
 pub const TOGGLE_ENVIRONMENT_PANEL: &str = "cmd-e";
-pub const TOGGLE_BOTTOM_PANEL: &str = "cmd-j";
+pub const SHOW_TERMINAL_TAB: &str = "cmd-j";
 pub const TOGGLE_RIGHT_PANEL: &str = "cmd-\\";
 pub const NEW_THREAD: &str = "cmd-n";
 pub const OPEN_SEARCH_PALETTE: &str = "cmd-k";
@@ -27,7 +27,7 @@ pub fn app_key_bindings() -> Vec<KeyBinding> {
     vec![
         KeyBinding::new(TOGGLE_SIDEBAR, ToggleSidebar, None),
         KeyBinding::new(TOGGLE_ENVIRONMENT_PANEL, ToggleEnvironmentPanel, None),
-        KeyBinding::new(TOGGLE_BOTTOM_PANEL, ToggleBottomPanel, None),
+        KeyBinding::new(SHOW_TERMINAL_TAB, ShowTerminalTab, None),
         KeyBinding::new(TOGGLE_RIGHT_PANEL, ToggleRightPanel, None),
         KeyBinding::new(NEW_THREAD, NewThread, None),
         KeyBinding::new(OPEN_SEARCH_PALETTE, OpenSearchPalette, None),
@@ -60,4 +60,19 @@ pub fn app_key_bindings() -> Vec<KeyBinding> {
             None,
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_shortcut_matches_product_requirement() {
+        assert_eq!(SHOW_TERMINAL_TAB, "cmd-j");
+    }
+
+    #[test]
+    fn app_key_bindings_cover_declared_shortcuts() {
+        assert_eq!(app_key_bindings().len(), 16);
+    }
 }
