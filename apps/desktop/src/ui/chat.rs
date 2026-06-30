@@ -417,8 +417,10 @@ fn message_timeline(
                         .count();
 
                     div()
+                        .relative()
                         .flex()
                         .flex_col()
+                        .pr(px(84.0))
                         .when(pinned || highlighted || todo_count > 0, |this| {
                             this.child(message_annotation_bar(
                                 theme,
@@ -446,8 +448,15 @@ fn message_timeline(
 
 fn message_actions(theme: Theme, thread_id: ace_core::ThreadId, message_id: String) -> AnyElement {
     div()
-        .mt_1()
-        .mb_1()
+        .absolute()
+        .top(px(0.0))
+        .right(px(0.0))
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .px_1()
+        .py_1()
         .flex()
         .flex_row()
         .items_center()
