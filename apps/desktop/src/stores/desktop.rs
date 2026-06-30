@@ -152,6 +152,7 @@ pub struct HostOptionProjection {
     pub status: String,
     pub connected: bool,
     pub execution_location: ExecutionLocation,
+    pub project_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4745,15 +4746,22 @@ fn host_option_projection(connection: &RemoteConnectionRecord) -> HostOptionProj
         .status
         .clone()
         .unwrap_or_else(|| "unknown".to_string());
+    let project_count = json_collection_len(&connection.projects);
     let label = connection
         .display_name
         .clone()
         .or_else(|| connection.host.clone())
         .unwrap_or_else(|| connection.host_id.clone());
-    let detail = connection.host.as_ref().map_or_else(
+    let mut detail = connection.host.as_ref().map_or_else(
         || format!("{} · {}", connection.provider, status),
         |host| format!("{} · {} · {}", connection.provider, host, status),
     );
+    if project_count > 0 {
+        detail.push_str(&format!(
+            " · {project_count} project{}",
+            plural(project_count)
+        ));
+    }
 
     HostOptionProjection {
         provider: connection.provider.clone(),
@@ -4763,6 +4771,7 @@ fn host_option_projection(connection: &RemoteConnectionRecord) -> HostOptionProj
         connected: is_connected_remote_status(&status),
         status,
         execution_location: connection.execution_location,
+        project_count,
     }
 }
 
@@ -7827,6 +7836,24 @@ mod tests {
         assert!(hosts[0].connected);
         assert_eq!(hosts[1].host_id, "devbox-b");
         assert!(!hosts[1].connected);
+    }
+
+    #[test]
+    fn host_options_include_remote_project_counts() {
+        let mut store = DesktopStore::new();
+        store.runtime.remote_connections = vec![RemoteConnectionRecord {
+            projects: serde_json::json!([
+                { "path": "/srv/app" },
+                { "path": "/srv/worker" }
+            ]),
+            ..remote_connection("devbox", Some("connected"))
+        }];
+
+        let hosts = store.projection().host_options;
+
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0].project_count, 2);
+        assert!(hosts[0].detail.contains("2 projects"));
     }
 
     #[test]

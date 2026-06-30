@@ -1758,6 +1758,7 @@ fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement 
         .map(short_path)
         .unwrap_or_else(|| "Project workspace".to_string());
     let terminal = terminal_summary_label(projection);
+    let remote_hosts = remote_host_lines(projection);
 
     div()
         .size_full()
@@ -1793,6 +1794,12 @@ fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement 
             &runtime_state_label(projection),
         ))
         .child(info_row(theme, "Remote", &runtime_remote_label(projection)))
+        .child(summary_section(
+            theme,
+            "Remote hosts",
+            &remote_hosts,
+            "No remote host connections have been reported by the runtime.",
+        ))
         .child(info_row(
             theme,
             "Handoffs",
@@ -2115,6 +2122,28 @@ fn source_item_card(theme: Theme, source: &SourceItemProjection) -> AnyElement {
             )
         })
         .into_any_element()
+}
+
+fn remote_host_lines(projection: &DesktopProjection) -> Vec<String> {
+    projection
+        .host_options
+        .iter()
+        .map(|host| {
+            let project_text = if host.project_count == 0 {
+                "no projects".to_string()
+            } else {
+                format!(
+                    "{} project{}",
+                    host.project_count,
+                    plural(host.project_count)
+                )
+            };
+            format!(
+                "{} · {} · {} · {}",
+                host.label, host.status, project_text, host.detail
+            )
+        })
+        .collect()
 }
 
 fn terminal_summary_label(projection: &DesktopProjection) -> &'static str {
