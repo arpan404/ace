@@ -4,9 +4,9 @@ use crate::{
         CreateTodoFromLatestTimelineItem, CreateWorktree, DenyProviderRequest,
         LinkTodoToCurrentDiff, OpenThread, PinLatestTimelineItem, PushReview, RefreshActiveTab,
         RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab,
-        SelectComposerModel, SelectRightPanelTab, SetCodeFont, SetThemeAccent, SetThemeDensity,
-        SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll, StageReviewFile,
-        ToggleBottomPanel, ToggleComposerContext, ToggleFirstOpenTodo,
+        SelectComposerModel, SelectRightPanelTab, SetCodeFont, SetProjectDefaultModelSelection,
+        SetThemeAccent, SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll,
+        StageReviewFile, ToggleBottomPanel, ToggleComposerContext, ToggleFirstOpenTodo,
         ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem,
         ToggleReviewCommentResolved, ToggleRightPanel, UnpinTimelineItem, UnstageReviewAll,
         UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
@@ -3304,6 +3304,7 @@ fn model_card(
         })
         .when_some(provider_kind, |this, provider_kind| {
             let model_id = model.id.clone();
+            let default_model_id = model.id.clone();
             this.child(
                 div()
                     .pt_1()
@@ -3315,6 +3316,12 @@ fn model_card(
                         Box::new(SelectComposerModel {
                             provider: provider_kind,
                             model: model_id.clone(),
+                        })
+                    }))
+                    .child(action_button(IconName::Star, "Default", theme, move || {
+                        Box::new(SetProjectDefaultModelSelection {
+                            provider: provider_kind,
+                            model: default_model_id.clone(),
                         })
                     })),
             )

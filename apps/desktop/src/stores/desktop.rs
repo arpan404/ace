@@ -5275,11 +5275,40 @@ impl DesktopStore {
         let Some(selection) = self.active_model_selection_for_thread(&thread) else {
             return;
         };
+        self.set_project_default_model_selection(thread.project_id, selection, host);
+    }
+
+    pub fn set_active_project_default_model_selection(
+        &mut self,
+        provider: ProviderKind,
+        model: String,
+        host: Option<&BackendHostClient>,
+    ) {
+        let Some(thread) = self.active_thread().cloned() else {
+            return;
+        };
+        self.set_active_composer_model(provider, model.clone());
+        self.set_project_default_model_selection(
+            thread.project_id,
+            ModelSelection {
+                provider: provider.runtime_id().to_string(),
+                model,
+            },
+            host,
+        );
+    }
+
+    fn set_project_default_model_selection(
+        &mut self,
+        project_id: ProjectId,
+        selection: ModelSelection,
+        host: Option<&BackendHostClient>,
+    ) {
         let now = self.next_timestamp();
         if let Some(project) = self
             .projects
             .iter_mut()
-            .find(|project| project.id == thread.project_id)
+            .find(|project| project.id == project_id)
         {
             project.default_model_selection = Some(selection.clone());
             project.updated_at = now;
@@ -5289,7 +5318,7 @@ impl DesktopStore {
             return;
         };
         let request = ProjectUpdateRequest {
-            project_id: thread.project_id,
+            project_id,
             title: None,
             workspace_root: None,
             default_model_selection: Some(Some(selection)),
@@ -9474,6 +9503,31 @@ mod tests {
             .get(&next_thread_id)
             .expect("next draft");
         assert_eq!(next_draft.model_selection.model, "gpt-5");
+
+        store.set_active_project_default_model_selection(
+            ProviderKind::Codex,
+            "gpt-5-mini".to_string(),
+            None,
+        );
+        let project = store
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .expect("project");
+        assert_eq!(
+            project.default_model_selection,
+            Some(ModelSelection {
+                provider: "codex".to_string(),
+                model: "gpt-5-mini".to_string(),
+            })
+        );
+
+        let direct_default_thread_id = store.new_thread(project_id);
+        let direct_default_draft = store
+            .composer_drafts
+            .get(&direct_default_thread_id)
+            .expect("direct default draft");
+        assert_eq!(direct_default_draft.model_selection.model, "gpt-5-mini");
     }
 
     #[test]

@@ -126,6 +126,13 @@ pub struct SelectComposerModel {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct SetProjectDefaultModelSelection {
+    pub provider: ace_core::ProviderKind,
+    pub model: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct SetComposerReasoning {
     pub effort: Option<ReasoningEffort>,
 }

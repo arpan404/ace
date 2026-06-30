@@ -10,16 +10,16 @@ use crate::{
         RefreshWorktrees, RemoveWorktree, RunLint, RunTests, SelectBottomPanelTab,
         SelectComposerHost, SelectComposerModel, SelectRightPanelTab, SelectSearchPaletteItem,
         SendActiveComposer, SetActiveProjectDefaultModel, SetCodeFont, SetComposerInteractionMode,
-        SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, SetThemeAccent,
-        SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, ShowBrowserTab,
-        ShowLessProjectThreads, ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab,
-        ShowProvidersTab, ShowSkillsTab, ShowTerminalTab, ShowTodosTab, StageReviewAll,
-        StageReviewFile, ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait,
-        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
-        ToggleHighlightTimelineItem, TogglePinActiveThread, TogglePinThread,
-        ToggleReviewCommentResolved, ToggleRightPanel, ToggleSidebar, UnpinTimelineItem,
-        UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority,
-        UpdateTodoStatus,
+        SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode,
+        SetProjectDefaultModelSelection, SetThemeAccent, SetThemeDensity, SetThemeMotion,
+        SetThemePreset, SetUiFont, ShowBrowserTab, ShowLessProjectThreads, ShowMoreProjectThreads,
+        ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab, ShowTerminalTab,
+        ShowTodosTab, StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleComposerContext,
+        ToggleComposerTrait, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
+        ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
+        TogglePinThread, ToggleReviewCommentResolved, ToggleRightPanel, ToggleSidebar,
+        UnpinTimelineItem, UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee,
+        UpdateTodoPriority, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -1361,6 +1361,22 @@ impl RootView {
         cx.notify();
     }
 
+    fn set_project_default_model_selection(
+        &mut self,
+        event: &SetProjectDefaultModelSelection,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .set_active_project_default_model_selection(
+                event.provider,
+                event.model.clone(),
+                active_host.as_ref(),
+            );
+        cx.notify();
+    }
+
     fn run_tests(&mut self, _: &RunTests, _: &mut Window, cx: &mut Context<Self>) {
         self.run_active_project_tests();
         cx.notify();
@@ -1746,6 +1762,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::send_active_composer))
             .on_action(cx.listener(Self::select_composer_model))
             .on_action(cx.listener(Self::set_active_project_default_model))
+            .on_action(cx.listener(Self::set_project_default_model_selection))
             .on_action(cx.listener(Self::run_tests))
             .on_action(cx.listener(Self::run_lint))
             .on_action(cx.listener(Self::set_composer_reasoning))
