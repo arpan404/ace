@@ -1236,9 +1236,17 @@ fn editor_body(theme: Theme, editor: &EditorProjection) -> AnyElement {
                 .text_size(px(12.0))
                 .line_height(px(17.0))
                 .text_color(theme.muted)
-                .child("Editor RPC methods are available for buffer sync, diagnostics, symbols, hover, definitions, formatting, and code actions. The GPUI buffer surface will mount here when a file row opens a live buffer."),
+                .child(editor_capability_notice(editor)),
         )
         .into_any_element()
+}
+
+fn editor_capability_notice(editor: &EditorProjection) -> &'static str {
+    if editor.can_sync_buffers {
+        "Editor RPC is available for buffer sync, diagnostics, symbols, hover, definitions, formatting, and code actions. Live GPUI buffer rendering is disabled because no desktop editor-buffer client is attached yet."
+    } else {
+        "Editor RPC is unavailable for this thread. Select a project on a connected host before syncing buffers or requesting diagnostics."
+    }
 }
 
 fn editor_file_list(theme: Theme, files: &[EditorFileProjection]) -> AnyElement {
@@ -4643,6 +4651,20 @@ mod tests {
             right_panel_primary_action(RightPanelTab::Worktrees, &projection),
             Some(RightPanelPrimaryAction::CreateWorktree)
         );
+    }
+
+    #[test]
+    fn editor_capability_notice_names_missing_desktop_buffer_client() {
+        let available = EditorProjection {
+            can_sync_buffers: true,
+            ..EditorProjection::default()
+        };
+        assert!(editor_capability_notice(&available).contains("Editor RPC is available"));
+        assert!(editor_capability_notice(&available).contains("no desktop editor-buffer client"));
+
+        let unavailable = EditorProjection::default();
+        assert!(editor_capability_notice(&unavailable).contains("Editor RPC is unavailable"));
+        assert!(editor_capability_notice(&unavailable).contains("connected host"));
     }
 
     #[test]
