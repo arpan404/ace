@@ -14,7 +14,8 @@ use ace_protocol::{
         ProjectUpdateRequest, ThreadMessagesRequest,
     },
     provider_runtime::{
-        ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeModelsListRequest,
+        ProviderHostToolBridgeStatus, ProviderHostToolsListResponse, ProviderRuntimeEvent,
+        ProviderRuntimeEventBatch, ProviderRuntimeModelsListRequest,
         ProviderRuntimeModelsListResponse, ProviderRuntimeProviderInfo,
         ProviderRuntimeProvidersList, ProviderRuntimeRawEventMode,
         ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
@@ -46,6 +47,7 @@ use ace_runtime::{
         AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation,
         RemoteConnectionRecord,
     },
+    tools::ToolSurface,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -84,6 +86,7 @@ pub struct DesktopStore {
     model_registry: ModelRegistryProjection,
     plugin_registry: ToolRegistryProjection,
     skill_registry: ToolRegistryProjection,
+    browser: BrowserProjection,
     pinned_items: Vec<PinnedTimelineItem>,
     highlighted_items: Vec<HighlightedTimelineItem>,
     todos: Vec<TodoItem>,
@@ -112,6 +115,7 @@ pub struct DesktopProjection {
     pub models: ModelRegistryProjection,
     pub plugins: ToolRegistryProjection,
     pub skills: ToolRegistryProjection,
+    pub browser: BrowserProjection,
     pub annotations: ThreadAnnotationsProjection,
 }
 
@@ -229,6 +233,22 @@ pub struct TerminalSessionProjection {
     pub updated_at: String,
     pub next_sequence: u64,
     pub truncated_before_sequence: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BrowserProjection {
+    pub bridge: Option<BrowserBridgeProjection>,
+    pub error: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserBridgeProjection {
+    pub status: String,
+    pub descriptor_name: Option<String>,
+    pub aliases: Vec<String>,
+    pub actions: Vec<String>,
+    pub capability_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -537,6 +557,7 @@ impl DesktopStore {
                 source: "skills/list",
                 ..ToolRegistryProjection::default()
             },
+            browser: BrowserProjection::default(),
             pinned_items: Vec::new(),
             highlighted_items: Vec::new(),
             todos: Vec::new(),
@@ -640,6 +661,7 @@ impl DesktopStore {
             models: self.model_registry.clone(),
             plugins: self.plugin_registry.clone(),
             skills: self.skill_registry.clone(),
+            browser: self.browser.clone(),
             annotations: self.annotations_projection(),
         }
     }
@@ -692,9 +714,7 @@ impl DesktopStore {
             diff_review: ServiceStatus::Ready,
             worktrees: ServiceStatus::Ready,
             approvals: ServiceStatus::Ready,
-            browser: ServiceStatus::Missing {
-                reason: "Browser sessions need a host-driven Chromium frame service.",
-            },
+            browser: self.browser_service_status(),
             editor: ServiceStatus::Missing {
                 reason: "Editor buffers need a GPUI buffer surface wired to the editor RPC service.",
             },
@@ -703,6 +723,29 @@ impl DesktopStore {
             plugins: ServiceStatus::Ready,
             skills: ServiceStatus::Ready,
         }
+    }
+
+    fn browser_service_status(&self) -> ServiceStatus {
+        if self
+            .browser
+            .bridge
+            .as_ref()
+            .is_some_and(|bridge| bridge.status == "connected")
+        {
+            return ServiceStatus::Ready;
+        }
+
+        let reason = self.browser.bridge.as_ref().map_or(
+            "Browser bridge status has not been refreshed from the host runtime.",
+            |bridge| match bridge.status.as_str() {
+                "unavailable" => {
+                    "Browser bridge contract exists, but no Chromium bridge handler is attached."
+                }
+                "missing" => "Host runtime did not advertise a Browser bridge contract.",
+                _ => "Browser bridge is not connected.",
+            },
+        );
+        ServiceStatus::Missing { reason }
     }
 
     #[must_use]
@@ -1195,6 +1238,13 @@ impl DesktopStore {
                 updated_at: self.runtime_status.updated_at.clone(),
                 ..ModelRegistryProjection::default()
             };
+            self.browser = BrowserProjection {
+                error: Some(
+                    "Connect to a host runtime to inspect Browser bridge state.".to_string(),
+                ),
+                updated_at: Some(self.next_timestamp()),
+                ..BrowserProjection::default()
+            };
             return;
         };
 
@@ -1271,6 +1321,21 @@ impl DesktopStore {
                 None
             }
         };
+        let host_tools_response = match host.call::<_, ProviderHostToolsListResponse>(
+            methods::PROVIDER_RUNTIME_HOST_TOOLS_LIST,
+            &serde_json::Value::Null,
+        ) {
+            Ok(response) => Some(response),
+            Err(error) => {
+                partial_errors.push(format!("host tools unavailable: {error}"));
+                self.browser = BrowserProjection {
+                    error: Some(format!("Browser bridge status unavailable: {error}")),
+                    updated_at: Some(now.clone()),
+                    ..BrowserProjection::default()
+                };
+                None
+            }
+        };
 
         let providers = providers_response
             .runtime
@@ -1335,7 +1400,7 @@ impl DesktopStore {
             commands,
             total_slash_commands,
             error: (!partial_errors.is_empty()).then(|| partial_errors.join("; ")),
-            updated_at: Some(now),
+            updated_at: Some(now.clone()),
         };
         self.model_registry = self.refresh_model_registry_for_providers(
             &host,
@@ -1345,6 +1410,9 @@ impl DesktopStore {
                 .clone()
                 .unwrap_or_default(),
         );
+        if let Some(response) = host_tools_response {
+            self.browser = browser_projection_from_host_tools(&response, now.clone());
+        }
         if let Some(response) = state_response {
             let updated_at = self
                 .provider_registry
@@ -3838,6 +3906,38 @@ fn model_provider_projection(
     }
 }
 
+fn browser_projection_from_host_tools(
+    response: &ProviderHostToolsListResponse,
+    updated_at: String,
+) -> BrowserProjection {
+    let bridge = response
+        .bridges
+        .iter()
+        .find(|bridge| bridge.surface == ToolSurface::Browser)
+        .map(|bridge| BrowserBridgeProjection {
+            status: match bridge.status {
+                ProviderHostToolBridgeStatus::Connected => "connected",
+                ProviderHostToolBridgeStatus::Unavailable => "unavailable",
+                ProviderHostToolBridgeStatus::Missing => "missing",
+            }
+            .to_string(),
+            descriptor_name: bridge.descriptor_name.clone(),
+            aliases: bridge.aliases.clone(),
+            actions: bridge
+                .actions
+                .iter()
+                .map(|action| serde_name(*action))
+                .collect(),
+            capability_keys: bridge.capability_keys.clone(),
+        });
+
+    BrowserProjection {
+        bridge,
+        error: None,
+        updated_at: Some(updated_at),
+    }
+}
+
 fn slash_command_projections(
     response: &ProviderRuntimeSlashCommandsListResponse,
 ) -> Vec<ProviderSlashCommandProjection> {
@@ -4248,6 +4348,13 @@ fn stable_token(value: &str) -> String {
         .join("-")
 }
 
+fn serde_name<T: Serialize>(value: T) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(ToString::to_string))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 fn composer_traits_text(traits: &[ComposerTrait]) -> Option<String> {
     if traits.is_empty() {
         return None;
@@ -4495,6 +4602,63 @@ mod tests {
         assert_eq!(skills[0].id, "rust");
         assert_eq!(skills[0].name, "rust");
         assert_eq!(skills[0].status, "installed");
+    }
+
+    #[test]
+    fn browser_projection_reads_host_tool_bridge_status() {
+        let response = ProviderHostToolsListResponse {
+            tools: Vec::new(),
+            bridges: vec![
+                ace_protocol::provider_runtime::ProviderHostToolBridgeSummary {
+                    surface: ToolSurface::Browser,
+                    status: ProviderHostToolBridgeStatus::Connected,
+                    descriptor_name: Some("browser.bridge".to_string()),
+                    aliases: vec!["ace_browser".to_string(), "browser".to_string()],
+                    actions: vec![
+                        ace_runtime::tools::ToolActionKind::BrowserNavigate,
+                        ace_runtime::tools::ToolActionKind::BrowserScreenshot,
+                    ],
+                    capability_keys: vec!["host_tool.bridge.status.connected".to_string()],
+                },
+            ],
+        };
+
+        let projection = browser_projection_from_host_tools(&response, "updated".to_string());
+
+        let bridge = projection.bridge.expect("browser bridge");
+        assert_eq!(bridge.status, "connected");
+        assert_eq!(bridge.descriptor_name.as_deref(), Some("browser.bridge"));
+        assert_eq!(bridge.aliases, vec!["ace_browser", "browser"]);
+        assert_eq!(
+            bridge.actions,
+            vec!["browser.navigate", "browser.screenshot"]
+        );
+        assert_eq!(projection.updated_at.as_deref(), Some("updated"));
+    }
+
+    #[test]
+    fn browser_service_readiness_follows_bridge_status() {
+        let mut store = DesktopStore::new();
+        assert!(!store.browser_service_status().is_ready());
+
+        store.browser = BrowserProjection {
+            bridge: Some(BrowserBridgeProjection {
+                status: "connected".to_string(),
+                descriptor_name: Some("browser.bridge".to_string()),
+                aliases: Vec::new(),
+                actions: Vec::new(),
+                capability_keys: Vec::new(),
+            }),
+            error: None,
+            updated_at: Some("now".to_string()),
+        };
+        assert!(store.browser_service_status().is_ready());
+
+        store.browser.bridge.as_mut().expect("bridge").status = "unavailable".to_string();
+        assert_eq!(
+            store.browser_service_status().missing_reason(),
+            Some("Browser bridge contract exists, but no Chromium bridge handler is attached.")
+        );
     }
 
     #[test]

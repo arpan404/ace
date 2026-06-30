@@ -10,10 +10,11 @@ use crate::{
         UpdateTodoStatus,
     },
     stores::{
-        ApprovalItemProjection, ApprovalRegistryProjection, DesktopProjection, ModelProjection,
-        ModelProviderProjection, ModelRegistryProjection, ReviewCommentItem, ReviewFileProjection,
-        ReviewProjection, ServiceReadiness, ServiceStatus, SourceItemProjection, TodoItem,
-        TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
+        ApprovalItemProjection, ApprovalRegistryProjection, BrowserBridgeProjection,
+        BrowserProjection, DesktopProjection, ModelProjection, ModelProviderProjection,
+        ModelRegistryProjection, ReviewCommentItem, ReviewFileProjection, ReviewProjection,
+        ServiceReadiness, ServiceStatus, SourceItemProjection, TodoItem, TodoStatus,
+        ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
         WorktreeProjection,
         ui::{BottomPanelTab, RightPanelTab, UiState},
     },
@@ -267,14 +268,7 @@ fn workbench_panel(
                 &services.browser,
                 AceIconName::Browser,
                 "Browser",
-                || {
-                    empty_panel_body(
-                        theme,
-                        AceIconName::Browser,
-                        "Browser",
-                        "No browser session is attached to this thread.",
-                    )
-                },
+                || browser_body(theme, &projection.browser),
             ),
             RightPanelTab::Editor => service_panel_body(
                 theme,
@@ -637,6 +631,130 @@ where
     }
 
     ready()
+}
+
+fn browser_body(theme: Theme, browser: &BrowserProjection) -> AnyElement {
+    let Some(bridge) = browser.bridge.as_ref() else {
+        return empty_panel_body(
+            theme,
+            AceIconName::Browser,
+            "Browser",
+            "Browser bridge status has not been loaded from the host runtime.",
+        );
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(info_row(theme, "Bridge", bridge_status_label(bridge)))
+        .when_some(bridge.descriptor_name.as_deref(), |this, descriptor| {
+            this.child(info_row(theme, "Descriptor", descriptor))
+        })
+        .child(info_row(theme, "Aliases", &join_or_empty(&bridge.aliases)))
+        .child(info_row(
+            theme,
+            "Actions",
+            &bridge.actions.len().to_string(),
+        ))
+        .child(browser_action_list(theme, bridge))
+        .when_some(browser.error.as_deref(), |this, error| {
+            this.child(
+                div()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.accent_danger.opacity(0.45))
+                    .bg(theme.panel)
+                    .px_2()
+                    .py_2()
+                    .text_size(px(12.0))
+                    .text_color(theme.accent_danger)
+                    .child(error.to_string()),
+            )
+        })
+        .child(
+            div()
+                .rounded_md()
+                .border_1()
+                .border_color(theme.border_subtle)
+                .bg(theme.panel)
+                .px_2()
+                .py_2()
+                .text_size(px(12.0))
+                .line_height(px(17.0))
+                .text_color(theme.muted)
+                .child("No browser viewport session is attached yet. Provider tools can use the connected bridge; frame streaming will appear here once the host publishes BrowserFrame events."),
+        )
+        .into_any_element()
+}
+
+fn browser_action_list(theme: Theme, bridge: &BrowserBridgeProjection) -> AnyElement {
+    if bridge.actions.is_empty() {
+        return div().into_any_element();
+    }
+
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme.muted)
+                .child("Supported browser actions"),
+        )
+        .children(
+            bridge
+                .actions
+                .iter()
+                .take(14)
+                .map(|action| {
+                    div()
+                        .min_h(px(20.0))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .text_size(px(12.0))
+                        .text_color(theme.foreground.opacity(0.78))
+                        .child(icon_svg(IconName::Check, theme.accent_success))
+                        .child(action.clone())
+                })
+                .collect::<Vec<_>>(),
+        )
+        .when(bridge.actions.len() > 14, |this| {
+            this.child(
+                div()
+                    .pt_1()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(format!("{} more actions", bridge.actions.len() - 14)),
+            )
+        })
+        .into_any_element()
+}
+
+fn bridge_status_label(bridge: &BrowserBridgeProjection) -> &'static str {
+    match bridge.status.as_str() {
+        "connected" => "Connected",
+        "unavailable" => "Unavailable",
+        "missing" => "Missing",
+        _ => "Unknown",
+    }
+}
+
+fn join_or_empty(values: &[String]) -> String {
+    if values.is_empty() {
+        "None".to_string()
+    } else {
+        values.join(", ")
+    }
 }
 
 fn review_body(
