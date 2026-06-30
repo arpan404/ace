@@ -724,6 +724,10 @@ impl RootView {
                 self.search_palette.close();
                 self.run_active_project_lint();
             }
+            SearchPaletteItem::ActiveThreadAction { action, .. } => {
+                self.search_palette.close();
+                self.activate_thread_palette_action(action);
+            }
             SearchPaletteItem::ConnectRemoteHost => {
                 self.search_palette.close();
             }
@@ -831,6 +835,34 @@ impl RootView {
             SearchPaletteItem::Thread { thread_id, .. } => {
                 self.search_palette.close();
                 self.open_thread_with_context_refresh(thread_id);
+            }
+        }
+    }
+
+    fn activate_thread_palette_action(
+        &mut self,
+        action: crate::ui::search_palette::ActiveThreadPaletteAction,
+    ) {
+        match action {
+            crate::ui::search_palette::ActiveThreadPaletteAction::TogglePin => {
+                self.active_store_mut().toggle_pin_active_thread();
+            }
+            crate::ui::search_palette::ActiveThreadPaletteAction::Archive => {
+                self.active_store_mut().archive_active_thread();
+            }
+            crate::ui::search_palette::ActiveThreadPaletteAction::OpenTerminal => {
+                self.apply_right_panel_tab(RightPanelTab::Terminal);
+                self.ensure_active_terminal();
+                self.save_ui_state();
+            }
+            crate::ui::search_palette::ActiveThreadPaletteAction::OpenBrowser => {
+                self.apply_right_panel_tab(RightPanelTab::Browser);
+            }
+            crate::ui::search_palette::ActiveThreadPaletteAction::ShowPinned => {
+                self.apply_right_panel_tab(RightPanelTab::Pinned);
+            }
+            crate::ui::search_palette::ActiveThreadPaletteAction::ShowTodos => {
+                self.apply_right_panel_tab(RightPanelTab::Todos);
             }
         }
     }

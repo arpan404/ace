@@ -45,6 +45,11 @@ pub enum SearchPaletteItem {
     SetProjectDefaultModel,
     RunTests,
     RunLint,
+    ActiveThreadAction {
+        action: ActiveThreadPaletteAction,
+        label: String,
+        description: String,
+    },
     ComposerModel {
         provider: Option<ProviderKind>,
         model: String,
@@ -139,6 +144,16 @@ pub enum SearchPaletteItem {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActiveThreadPaletteAction {
+    TogglePin,
+    Archive,
+    OpenTerminal,
+    OpenBrowser,
+    ShowPinned,
+    ShowTodos,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SearchPaletteResultKind {
     Source,
     Context,
@@ -168,6 +183,7 @@ impl SearchPaletteItem {
             Self::SetProjectDefaultModel => "Set project default model",
             Self::RunTests => "Run tests",
             Self::RunLint => "Run lint",
+            Self::ActiveThreadAction { label, .. } => label,
             Self::ComposerModel { label, .. }
             | Self::ComposerTrait { label, .. }
             | Self::ComposerReasoning { label, .. }
@@ -215,6 +231,7 @@ impl SearchPaletteItem {
             }
             Self::RunTests => "Run the configured test script or Rust workspace test command.",
             Self::RunLint => "Run the configured lint script or Rust workspace clippy command.",
+            Self::ActiveThreadAction { description, .. } => description,
             Self::ComposerModel { description, .. }
             | Self::ComposerTrait { description, .. }
             | Self::ComposerReasoning { description, .. }
@@ -255,7 +272,8 @@ impl SearchPaletteItem {
             | Self::SwitchModel
             | Self::SetProjectDefaultModel
             | Self::RunTests
-            | Self::RunLint => PaletteItemKind::Action,
+            | Self::RunLint
+            | Self::ActiveThreadAction { .. } => PaletteItemKind::Action,
             Self::ComposerTrait { .. }
             | Self::ComposerReasoning { .. }
             | Self::ComposerPermission { .. }
@@ -356,6 +374,11 @@ pub fn palette_items(
     let mut source_items = Vec::new();
     let mut context_items = Vec::new();
     let mut registry_items = Vec::new();
+    let mut active_thread_actions = Vec::new();
+
+    if let Some(thread) = projection.chat.active_thread.as_ref() {
+        active_thread_actions.extend(active_thread_palette_actions(thread));
+    }
 
     for group in &projection.sidebar.projects {
         project_items.push(SearchPaletteItem::Project {
@@ -780,6 +803,7 @@ pub fn palette_items(
     if normalized.is_empty() {
         return actions
             .into_iter()
+            .chain(active_thread_actions)
             .chain(project_items.into_iter().take(8))
             .chain(thread_items.into_iter().take(8))
             .collect();
@@ -787,6 +811,7 @@ pub fn palette_items(
 
     actions
         .into_iter()
+        .chain(active_thread_actions)
         .chain(project_items)
         .chain(thread_items)
         .chain(source_items)
@@ -799,6 +824,62 @@ pub fn palette_items(
 
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
+}
+
+fn active_thread_palette_actions(thread: &ThreadSummary) -> Vec<SearchPaletteItem> {
+    let mut items = Vec::new();
+    let thread_context = format!(
+        "{} · {} · {}",
+        thread.title,
+        thread.status.label(),
+        thread
+            .model
+            .as_deref()
+            .unwrap_or(thread.provider.display_name())
+    );
+    items.push(SearchPaletteItem::ActiveThreadAction {
+        action: ActiveThreadPaletteAction::TogglePin,
+        label: if thread.pinned {
+            "Unpin active thread".to_string()
+        } else {
+            "Pin active thread".to_string()
+        },
+        description: format!("{thread_context} · update sidebar pin state"),
+    });
+    items.push(SearchPaletteItem::ActiveThreadAction {
+        action: ActiveThreadPaletteAction::Archive,
+        label: "Archive active thread".to_string(),
+        description: format!("{thread_context} · hide from active sidebar lists"),
+    });
+    items.push(SearchPaletteItem::ActiveThreadAction {
+        action: ActiveThreadPaletteAction::OpenTerminal,
+        label: "Open terminal for active thread".to_string(),
+        description: format!("{thread_context} · open or create the backed PTY session"),
+    });
+    items.push(SearchPaletteItem::ActiveThreadAction {
+        action: ActiveThreadPaletteAction::OpenBrowser,
+        label: "Open browser for active thread".to_string(),
+        description: format!("{thread_context} · inspect Browser bridge activity"),
+    });
+    items.push(SearchPaletteItem::ActiveThreadAction {
+        action: ActiveThreadPaletteAction::ShowPinned,
+        label: "Show active thread pinned items".to_string(),
+        description: format!(
+            "{thread_context} · {} pinned item{}",
+            thread.pinned_item_count,
+            plural(thread.pinned_item_count)
+        ),
+    });
+    items.push(SearchPaletteItem::ActiveThreadAction {
+        action: ActiveThreadPaletteAction::ShowTodos,
+        label: "Show active thread todos".to_string(),
+        description: format!(
+            "{thread_context} · {} open todo{}",
+            thread.open_todo_count,
+            plural(thread.open_todo_count)
+        ),
+    });
+    items
 }
 
 fn thread_palette_description(project_name: &str, thread: &ThreadSummary) -> String {
@@ -1270,6 +1351,14 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
         SearchPaletteItem::RunTests | SearchPaletteItem::RunLint => {
             ace_icon_svg(AceIconName::TablerTerminal, color)
         }
+        SearchPaletteItem::ActiveThreadAction { action, .. } => match action {
+            ActiveThreadPaletteAction::TogglePin => ace_icon_svg(AceIconName::PinFilled, color),
+            ActiveThreadPaletteAction::Archive => icon_svg(IconName::CircleX, color),
+            ActiveThreadPaletteAction::OpenTerminal => ace_icon_svg(AceIconName::Terminal, color),
+            ActiveThreadPaletteAction::OpenBrowser => ace_icon_svg(AceIconName::Browser, color),
+            ActiveThreadPaletteAction::ShowPinned => ace_icon_svg(AceIconName::PinFilled, color),
+            ActiveThreadPaletteAction::ShowTodos => ace_icon_svg(AceIconName::ListChecks, color),
+        },
         SearchPaletteItem::ComposerModel { .. } => ace_icon_svg(AceIconName::Code2, color),
         SearchPaletteItem::ComposerTrait { .. } => icon_svg(IconName::Palette, color),
         SearchPaletteItem::ComposerReasoning { .. } => icon_svg(IconName::Check, color),
@@ -1502,6 +1591,66 @@ mod tests {
                 tab: RightPanelTab::Terminal,
                 ..
             } if *thread_id == context_thread_id
+        )));
+    }
+
+    #[test]
+    fn palette_search_includes_active_thread_overflow_actions() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id.clone(),
+            ComposerPayload {
+                prompt: "Tune overflow command actions".to_string(),
+            },
+        );
+
+        let pin_items = palette_items(&store.projection(), SearchPaletteMode::Root, "pin active");
+        assert!(pin_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ActiveThreadAction {
+                action: ActiveThreadPaletteAction::TogglePin,
+                label,
+                ..
+            } if label == "Pin active thread"
+        )));
+
+        store.toggle_pin_thread(thread_id);
+        let unpin_items = palette_items(&store.projection(), SearchPaletteMode::Root, "unpin");
+        assert!(unpin_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ActiveThreadAction {
+                action: ActiveThreadPaletteAction::TogglePin,
+                label,
+                ..
+            } if label == "Unpin active thread"
+        )));
+
+        let terminal_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "terminal active",
+        );
+        assert!(terminal_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ActiveThreadAction {
+                action: ActiveThreadPaletteAction::OpenTerminal,
+                ..
+            }
+        )));
+
+        let archive_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "archive active",
+        );
+        assert!(archive_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ActiveThreadAction {
+                action: ActiveThreadPaletteAction::Archive,
+                ..
+            }
         )));
     }
 
