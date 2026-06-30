@@ -5,6 +5,37 @@ use crate::{
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
 use gpui_component::{IconName, tooltip::Tooltip};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProjectHeaderAction {
+    OpenTerminal,
+    OpenBrowser,
+    ShowWorktrees,
+    Archive,
+    NewThread,
+}
+
+fn project_header_actions() -> [ProjectHeaderAction; 5] {
+    [
+        ProjectHeaderAction::OpenTerminal,
+        ProjectHeaderAction::OpenBrowser,
+        ProjectHeaderAction::ShowWorktrees,
+        ProjectHeaderAction::Archive,
+        ProjectHeaderAction::NewThread,
+    ]
+}
+
+impl ProjectHeaderAction {
+    fn tooltip(self) -> &'static str {
+        match self {
+            Self::OpenTerminal => "Open project terminal",
+            Self::OpenBrowser => "Open project browser preview",
+            Self::ShowWorktrees => "Show project worktrees",
+            Self::Archive => "Archive project registration; files stay on disk",
+            Self::NewThread => "New thread in project",
+        }
+    }
+}
+
 pub(super) fn project_header(
     theme: Theme,
     project_id: ace_core::ProjectId,
@@ -47,53 +78,58 @@ pub(super) fn project_header(
                         ),
                 )
                 .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_1()
-                        .child(ace_action_button(
-                            AceIconName::Terminal,
-                            "Open project terminal",
-                            theme,
-                            move || {
-                                Box::new(crate::actions::OpenProjectRightPanelTab {
-                                    project_id,
-                                    tab: RightPanelTab::Terminal,
-                                })
-                            },
-                        ))
-                        .child(ace_action_button(
-                            AceIconName::Browser,
-                            "Open project browser preview",
-                            theme,
-                            move || {
-                                Box::new(crate::actions::OpenProjectRightPanelTab {
-                                    project_id,
-                                    tab: RightPanelTab::Browser,
-                                })
-                            },
-                        ))
-                        .child(ace_action_button(
-                            AceIconName::Review,
-                            "Show project worktrees",
-                            theme,
-                            move || {
-                                Box::new(crate::actions::OpenProjectRightPanelTab {
-                                    project_id,
-                                    tab: RightPanelTab::Worktrees,
-                                })
-                            },
-                        ))
-                        .child(ace_action_button(
-                            AceIconName::SquarePen,
-                            "New thread in project",
-                            theme,
-                            move || Box::new(crate::actions::NewThreadForProject { project_id }),
-                        )),
+                    div().flex().flex_row().items_center().gap_1().children(
+                        project_header_actions()
+                            .into_iter()
+                            .map(|action| project_header_action_button(theme, project_id, action))
+                            .collect::<Vec<_>>(),
+                    ),
                 ),
         )
         .into_any_element()
+}
+
+fn project_header_action_button(
+    theme: Theme,
+    project_id: ace_core::ProjectId,
+    action: ProjectHeaderAction,
+) -> AnyElement {
+    match action {
+        ProjectHeaderAction::OpenTerminal => {
+            ace_action_button(AceIconName::Terminal, action.tooltip(), theme, move || {
+                Box::new(crate::actions::OpenProjectRightPanelTab {
+                    project_id,
+                    tab: RightPanelTab::Terminal,
+                })
+            })
+        }
+        ProjectHeaderAction::OpenBrowser => {
+            ace_action_button(AceIconName::Browser, action.tooltip(), theme, move || {
+                Box::new(crate::actions::OpenProjectRightPanelTab {
+                    project_id,
+                    tab: RightPanelTab::Browser,
+                })
+            })
+        }
+        ProjectHeaderAction::ShowWorktrees => {
+            ace_action_button(AceIconName::Review, action.tooltip(), theme, move || {
+                Box::new(crate::actions::OpenProjectRightPanelTab {
+                    project_id,
+                    tab: RightPanelTab::Worktrees,
+                })
+            })
+        }
+        ProjectHeaderAction::Archive => {
+            lucide_action_button(IconName::CircleX, action.tooltip(), theme, move || {
+                Box::new(crate::actions::ArchiveProject { project_id })
+            })
+        }
+        ProjectHeaderAction::NewThread => {
+            ace_action_button(AceIconName::SquarePen, action.tooltip(), theme, move || {
+                Box::new(crate::actions::NewThreadForProject { project_id })
+            })
+        }
+    }
 }
 
 fn ace_action_button<F>(
@@ -106,6 +142,18 @@ where
     F: Fn() -> Box<dyn gpui::Action> + 'static,
 {
     button(theme, ace_icon_svg(icon, theme.muted), tooltip, action)
+}
+
+fn lucide_action_button<F>(
+    icon: IconName,
+    tooltip: &'static str,
+    theme: Theme,
+    action: F,
+) -> AnyElement
+where
+    F: Fn() -> Box<dyn gpui::Action> + 'static,
+{
+    button(theme, icon_svg(icon, theme.muted), tooltip, action)
 }
 
 fn button<F>(theme: Theme, icon: AnyElement, tooltip: &'static str, action: F) -> AnyElement
@@ -153,5 +201,28 @@ fn project_glyph(glyph: Option<&str>, color: gpui::Hsla) -> AnyElement {
         Some("globe") => icon_svg(IconName::Globe, color),
         Some("bot") => icon_svg(IconName::Bot, color),
         _ => icon_svg(IconName::Folder, color),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_header_actions_include_backed_archive() {
+        assert_eq!(
+            project_header_actions(),
+            [
+                ProjectHeaderAction::OpenTerminal,
+                ProjectHeaderAction::OpenBrowser,
+                ProjectHeaderAction::ShowWorktrees,
+                ProjectHeaderAction::Archive,
+                ProjectHeaderAction::NewThread,
+            ]
+        );
+        assert_eq!(
+            ProjectHeaderAction::Archive.tooltip(),
+            "Archive project registration; files stay on disk"
+        );
     }
 }
