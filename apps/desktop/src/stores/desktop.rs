@@ -3469,14 +3469,8 @@ impl DesktopStore {
             Ok(()) => self.append_recent_provider_messages(&thread_id),
             Err(message) => {
                 self.mark_thread_status(&thread_id, ThreadStatus::Error);
-                self.persisted_messages
-                    .entry(thread_id.clone())
-                    .or_default()
-                    .push(chat_message(
-                        format!("{now}-error"),
-                        ChatMessageRole::Assistant,
-                        message,
-                    ));
+                self.runtime_status.error = Some(message);
+                self.runtime_status.updated_at = Some(self.next_timestamp());
             }
         }
 
@@ -3780,7 +3774,10 @@ impl DesktopStore {
         input: Vec<serde_json::Value>,
     ) -> Result<(), String> {
         let Some(host) = self.host.clone() else {
-            return Ok(());
+            return Err(
+                "Provider runtime is not connected; start the host runtime before sending a turn."
+                    .to_string(),
+            );
         };
         let provider_thread_id =
             self.ensure_provider_thread(&host, thread_id, &draft.model_selection.model)?;
@@ -3879,18 +3876,8 @@ impl DesktopStore {
         Ok(provider_thread_id)
     }
 
-    fn append_recent_provider_messages(&mut self, thread_id: &ThreadId) {
+    fn append_recent_provider_messages(&mut self, _thread_id: &ThreadId) {
         let Some(host) = &self.host else {
-            let now = self.next_timestamp();
-            self.persisted_messages
-                .entry(thread_id.clone())
-                .or_default()
-                .push(chat_message(
-                    format!("{now}-assistant"),
-                    ChatMessageRole::Assistant,
-                    "Message received. Provider runtime is not connected in this build."
-                        .to_string(),
-                ));
             return;
         };
         let request = ProviderRuntimeRecentEventsRequest {
@@ -6143,6 +6130,7 @@ fn thread_item_fallback_id(kind: ThreadItemKind) -> String {
     format!("thread-item:{kind:?}")
 }
 
+#[cfg(test)]
 fn chat_message(id: String, role: ChatMessageRole, text: String) -> ChatMessageProjection {
     chat_message_with_settings(id, role, text, None)
 }
@@ -7803,10 +7791,16 @@ mod tests {
             .iter()
             .find(|thread| thread.id == thread_id)
             .expect("thread");
-        assert_eq!(thread.status, ThreadStatus::Completed);
+        assert_eq!(thread.status, ThreadStatus::Error);
         assert!(thread.provider_thread_id.is_none());
         assert!(!store.project_drafts.contains_key(&project_id));
         assert!(!store.thread_drafts.contains_key(&thread_id));
+        assert_eq!(
+            store.runtime_status.error.as_deref(),
+            Some(
+                "Provider runtime is not connected; start the host runtime before sending a turn."
+            )
+        );
     }
 
     #[test]
@@ -8510,7 +8504,7 @@ mod tests {
         );
         assert_eq!(
             summary.next_action.as_deref(),
-            Some("Pick the next open todo or attach it to the composer with @todo.")
+            Some("Resolve the listed blocker before continuing agent execution.")
         );
     }
 
@@ -9252,7 +9246,7 @@ mod tests {
     }
 
     #[test]
-    fn sending_active_composer_projects_local_messages() {
+    fn sending_active_composer_without_runtime_surfaces_error_without_fake_reply() {
         let mut store = DesktopStore::new();
         store.add_project("/tmp/project".to_string());
         store.push_active_composer_input("hello");
@@ -9261,11 +9255,21 @@ mod tests {
         assert_eq!(projection.chat.composer.unwrap().prompt, "hello");
 
         store.send_active_composer();
-        let messages = store.projection().chat.messages;
-        assert_eq!(messages.len(), 2);
+        let projection = store.projection();
+        let messages = projection.chat.messages;
+        assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].role, ChatMessageRole::User);
         assert_eq!(messages[0].text.as_deref(), Some("hello"));
-        assert_eq!(messages[1].role, ChatMessageRole::Assistant);
+        assert_eq!(
+            projection.runtime_status.error.as_deref(),
+            Some(
+                "Provider runtime is not connected; start the host runtime before sending a turn."
+            )
+        );
+        assert_eq!(
+            projection.chat.active_thread.expect("active thread").status,
+            ThreadStatus::Error
+        );
     }
 
     #[test]

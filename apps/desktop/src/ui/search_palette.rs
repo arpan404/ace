@@ -1933,7 +1933,7 @@ mod tests {
             .expect("thread result");
 
         assert!(description.contains("project"), "{description}");
-        assert!(description.contains("Completed"), "{description}");
+        assert!(description.contains("Error"), "{description}");
         assert!(description.contains("gpt-5"), "{description}");
         assert!(description.contains("1 open todo"), "{description}");
         assert!(description.contains("1 pin"), "{description}");

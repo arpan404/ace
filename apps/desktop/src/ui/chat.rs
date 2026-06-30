@@ -2267,7 +2267,7 @@ mod tests {
         let projection = store.projection();
 
         assert_eq!(active_project_label(&projection), "ace");
-        assert_eq!(thread_status_label(&projection.chat), "Completed");
+        assert_eq!(thread_status_label(&projection.chat), "Error");
         assert_eq!(composer_mode_label(&projection.chat), "Chat");
         assert_eq!(composer_branch_label(&projection.chat), "No branch");
     }
