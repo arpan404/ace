@@ -257,6 +257,32 @@ where
         .into_any_element()
 }
 
+pub(super) fn disabled_action_button(
+    icon: IconName,
+    label: &'static str,
+    reason: &'static str,
+    theme: Theme,
+) -> AnyElement {
+    div()
+        .id("disabled-action-button")
+        .h(px(28.0))
+        .rounded_md()
+        .px_2()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .text_size(px(12.0))
+        .text_color(theme.muted_subtle)
+        .child(icon_svg(icon, theme.muted_subtle))
+        .child(label)
+        .tooltip(move |window, cx| Tooltip::new(reason).build(window, cx))
+        .into_any_element()
+}
+
 pub(super) fn kbd(label: impl Into<gpui::SharedString>, theme: Theme) -> AnyElement {
     div()
         .rounded_lg()

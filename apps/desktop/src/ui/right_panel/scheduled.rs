@@ -1,10 +1,10 @@
 use super::{
-    AnnotationEmptyState, action_button, annotation_empty_body, todo_card,
+    AnnotationEmptyState, action_button, annotation_empty_body, disabled_action_button, todo_card,
     todo_context_action_label,
 };
 use crate::{
     actions::{CreateTodoFromLatestTimelineItem, ToggleComposerContext, ToggleFirstOpenTodo},
-    stores::desktop::{DesktopProjection, TodoPriority, TodoStatus},
+    stores::desktop::{DesktopProjection, TodoItem, TodoPriority, TodoStatus},
     ui::{components::AceIconName, theme::Theme},
 };
 use ace_runtime::chat::ComposerContextKind;
@@ -92,6 +92,7 @@ fn scheduled_panel_actions(theme: Theme, projection: &DesktopProjection) -> AnyE
         .composer
         .as_ref()
         .is_some_and(|draft| draft.context.contains(&ComposerContextKind::Todos));
+    let has_completable_todo = has_completable_todo(&projection.annotations.todos);
 
     div()
         .flex()
@@ -113,13 +114,25 @@ fn scheduled_panel_actions(theme: Theme, projection: &DesktopProjection) -> AnyE
                 })
             },
         ))
-        .child(action_button(
-            IconName::CircleCheck,
-            "Complete first",
-            theme,
-            || Box::new(ToggleFirstOpenTodo),
-        ))
+        .child(if has_completable_todo {
+            action_button(IconName::CircleCheck, "Complete first", theme, || {
+                Box::new(ToggleFirstOpenTodo)
+            })
+        } else {
+            disabled_action_button(
+                IconName::CircleCheck,
+                "Complete first",
+                "No open or in-progress todo is available to complete.",
+                theme,
+            )
+        })
         .into_any_element()
+}
+
+fn has_completable_todo(todos: &[TodoItem]) -> bool {
+    todos
+        .iter()
+        .any(|todo| matches!(todo.status, TodoStatus::Open | TodoStatus::InProgress))
 }
 
 fn todo_priority_rank(priority: TodoPriority) -> u8 {
@@ -133,6 +146,7 @@ fn todo_priority_rank(priority: TodoPriority) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ace_core::ThreadId;
 
     #[test]
     fn scheduled_priority_rank_orders_highest_first() {
@@ -144,5 +158,38 @@ mod tests {
     fn scheduled_context_label_uses_shared_todo_state() {
         assert_eq!(todo_context_action_label(false), "Add context");
         assert_eq!(todo_context_action_label(true), "Remove context");
+    }
+
+    #[test]
+    fn scheduled_completion_action_requires_completable_todo() {
+        assert!(!has_completable_todo(&[]));
+        assert!(!has_completable_todo(&[todo_with_status(
+            TodoStatus::Blocked
+        )]));
+        assert!(!has_completable_todo(&[todo_with_status(TodoStatus::Done)]));
+        assert!(has_completable_todo(&[todo_with_status(TodoStatus::Open)]));
+        assert!(has_completable_todo(&[todo_with_status(
+            TodoStatus::InProgress
+        )]));
+    }
+
+    fn todo_with_status(status: TodoStatus) -> TodoItem {
+        TodoItem {
+            id: format!("{status:?}"),
+            thread_id: ThreadId("thread".to_string()),
+            source_message_id: None,
+            title: "todo".to_string(),
+            description: None,
+            status,
+            priority: TodoPriority::Normal,
+            created_by: crate::stores::desktop::TodoCreatedBy::User,
+            assigned_to: crate::stores::desktop::TodoAssignee::User,
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+            completed_at: None,
+            related_files: Vec::new(),
+            related_tool_events: Vec::new(),
+            related_diff_comments: Vec::new(),
+        }
     }
 }
