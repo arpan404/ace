@@ -66,6 +66,9 @@ pub struct DesktopStore {
     thread_drafts: HashMap<ThreadId, ThreadDraft>,
     project_drafts: HashMap<ProjectId, ThreadId>,
     composer_drafts: HashMap<ThreadId, ComposerDraft>,
+    composer_histories: HashMap<ThreadId, Vec<String>>,
+    composer_history_positions: HashMap<ThreadId, usize>,
+    composer_history_scratch: HashMap<ThreadId, String>,
     persisted_messages: HashMap<ThreadId, Vec<ChatMessageProjection>>,
     terminal_sessions: HashMap<TerminalKey, TerminalSessionProjection>,
     terminal_inputs: HashMap<ThreadId, String>,
@@ -463,6 +466,9 @@ impl DesktopStore {
             thread_drafts: HashMap::new(),
             project_drafts: HashMap::new(),
             composer_drafts: HashMap::new(),
+            composer_histories: HashMap::new(),
+            composer_history_positions: HashMap::new(),
+            composer_history_scratch: HashMap::new(),
             persisted_messages: HashMap::new(),
             terminal_sessions: HashMap::new(),
             terminal_inputs: HashMap::new(),
@@ -2007,6 +2013,7 @@ impl DesktopStore {
             }
         }
 
+        self.record_composer_history(&thread_id, trimmed);
         self.project_drafts.retain(|_, id| id != &thread_id);
         self.thread_drafts.remove(&thread_id);
         let mut next_draft = ComposerDraft::empty(thread_id.clone(), now);
@@ -2331,11 +2338,18 @@ impl DesktopStore {
 
     pub fn push_active_composer_input(&mut self, input: &str) {
         let now = self.next_timestamp();
-        let Some(draft) = self.ensure_active_composer_draft(now.clone()) else {
+        let Some(thread_id) = ({
+            let draft = self.ensure_active_composer_draft(now.clone());
+            draft.map(|draft| {
+                let thread_id = draft.thread_id.clone();
+                draft.prompt.push_str(input);
+                draft.updated_at = now;
+                thread_id
+            })
+        }) else {
             return;
         };
-        draft.prompt.push_str(input);
-        draft.updated_at = now;
+        self.clear_composer_history_cursor(&thread_id);
     }
 
     pub fn pop_active_composer_input(&mut self) {
@@ -2347,6 +2361,62 @@ impl DesktopStore {
             draft.prompt.pop();
             draft.updated_at = now;
         }
+        self.clear_composer_history_cursor(&thread_id);
+    }
+
+    pub fn recall_active_composer_history(&mut self, previous: bool) {
+        let Some(thread_id) = self.metadata.active_thread_id.clone() else {
+            return;
+        };
+        let Some(history) = self.composer_histories.get(&thread_id).cloned() else {
+            return;
+        };
+        if history.is_empty() {
+            return;
+        }
+
+        let now = self.next_timestamp();
+        let history_len = history.len();
+        let current_position = self
+            .composer_history_positions
+            .get(&thread_id)
+            .copied()
+            .unwrap_or(history_len);
+        let entering_history = !self.composer_history_positions.contains_key(&thread_id);
+        if entering_history {
+            let scratch = self
+                .composer_drafts
+                .get(&thread_id)
+                .map(|draft| draft.prompt.clone())
+                .unwrap_or_default();
+            self.composer_history_scratch
+                .insert(thread_id.clone(), scratch);
+        }
+
+        let next_position = if previous {
+            current_position.saturating_sub(1)
+        } else {
+            (current_position + 1).min(history_len)
+        };
+
+        let prompt = if next_position == history_len {
+            self.composer_history_positions.remove(&thread_id);
+            self.composer_history_scratch
+                .remove(&thread_id)
+                .unwrap_or_default()
+        } else if let Some(prompt) = history.get(next_position) {
+            self.composer_history_positions
+                .insert(thread_id.clone(), next_position);
+            prompt.clone()
+        } else {
+            return;
+        };
+
+        let Some(draft) = self.ensure_active_composer_draft(now.clone()) else {
+            return;
+        };
+        draft.prompt = prompt;
+        draft.updated_at = now;
     }
 
     pub fn set_active_composer_model(&mut self, provider: ProviderKind, model: String) {
@@ -2467,6 +2537,27 @@ impl DesktopStore {
             })
     }
 
+    fn record_composer_history(&mut self, thread_id: &ThreadId, prompt: &str) {
+        let history = self
+            .composer_histories
+            .entry(thread_id.clone())
+            .or_default();
+        if history.last().is_none_or(|last| last != prompt) {
+            history.push(prompt.to_string());
+        }
+        const MAX_COMPOSER_HISTORY: usize = 100;
+        if history.len() > MAX_COMPOSER_HISTORY {
+            let overflow = history.len() - MAX_COMPOSER_HISTORY;
+            history.drain(0..overflow);
+        }
+        self.clear_composer_history_cursor(thread_id);
+    }
+
+    fn clear_composer_history_cursor(&mut self, thread_id: &ThreadId) {
+        self.composer_history_positions.remove(thread_id);
+        self.composer_history_scratch.remove(thread_id);
+    }
+
     pub fn send_active_composer(&mut self) {
         let Some(thread_id) = self.metadata.active_thread_id.clone() else {
             return;
@@ -2536,6 +2627,9 @@ impl DesktopStore {
     pub fn delete_thread(&mut self, thread_id: ThreadId) {
         self.threads.retain(|thread| thread.id != thread_id);
         self.composer_drafts.remove(&thread_id);
+        self.composer_histories.remove(&thread_id);
+        self.composer_history_positions.remove(&thread_id);
+        self.composer_history_scratch.remove(&thread_id);
         self.persisted_messages.remove(&thread_id);
         self.thread_drafts.remove(&thread_id);
         self.project_drafts.retain(|_, id| id != &thread_id);
@@ -2670,6 +2764,12 @@ impl DesktopStore {
         self.thread_drafts
             .retain(|_, draft| draft.project_id != project_id);
         self.composer_drafts
+            .retain(|thread_id, _| self.threads.iter().any(|thread| &thread.id == thread_id));
+        self.composer_histories
+            .retain(|thread_id, _| self.threads.iter().any(|thread| &thread.id == thread_id));
+        self.composer_history_positions
+            .retain(|thread_id, _| self.threads.iter().any(|thread| &thread.id == thread_id));
+        self.composer_history_scratch
             .retain(|thread_id, _| self.threads.iter().any(|thread| &thread.id == thread_id));
         self.persisted_messages
             .retain(|thread_id, _| self.threads.iter().any(|thread| &thread.id == thread_id));
@@ -4345,6 +4445,41 @@ mod tests {
         assert!(joined.contains("Pinned context"));
         assert!(joined.contains("Todo context"));
         assert!(joined.contains("Use the selected context"));
+    }
+
+    #[test]
+    fn composer_history_recalls_prompts_and_restores_scratch() {
+        let mut store = DesktopStore::new();
+        store.add_project("/tmp/project".to_string());
+        store.push_active_composer_input("first prompt");
+        store.send_active_composer();
+        store.push_active_composer_input("second prompt");
+        store.send_active_composer();
+        store.push_active_composer_input("scratch prompt");
+
+        store.recall_active_composer_history(true);
+        assert_eq!(
+            store.projection().chat.composer.unwrap().prompt,
+            "second prompt"
+        );
+
+        store.recall_active_composer_history(true);
+        assert_eq!(
+            store.projection().chat.composer.unwrap().prompt,
+            "first prompt"
+        );
+
+        store.recall_active_composer_history(false);
+        assert_eq!(
+            store.projection().chat.composer.unwrap().prompt,
+            "second prompt"
+        );
+
+        store.recall_active_composer_history(false);
+        assert_eq!(
+            store.projection().chat.composer.unwrap().prompt,
+            "scratch prompt"
+        );
     }
 
     #[test]

@@ -523,6 +523,15 @@ impl RootView {
                 self.active_store_mut().pop_active_composer_input();
                 cx.notify();
             }
+            "up" if !event.keystroke.modifiers.modified() => {
+                self.active_store_mut().recall_active_composer_history(true);
+                cx.notify();
+            }
+            "down" if !event.keystroke.modifiers.modified() => {
+                self.active_store_mut()
+                    .recall_active_composer_history(false);
+                cx.notify();
+            }
             _ => {
                 if !event.keystroke.modifiers.modified()
                     && let Some(input) = &event.keystroke.key_char
