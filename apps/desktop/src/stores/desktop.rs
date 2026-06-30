@@ -2,7 +2,7 @@ use crate::backend::{
     BackendError, BackendHostClient, ProjectsAdd, ProjectsDelete, ProjectsProjectThreads,
     ProjectsSnapshot, ProjectsThreadMessages,
 };
-use ace_core::{Project, ProjectId, ThreadId};
+use ace_core::{Project, ProjectId, ProviderKind, ThreadId};
 use ace_project::ProjectSummary;
 use ace_protocol::{
     git::{
@@ -32,9 +32,10 @@ use ace_protocol::{
 };
 use ace_runtime::{
     chat::{
-        ChatMessageProjection, ChatMessageRole, ChatProjection, ComposerDraft, CreationContext,
-        InteractionMode, RuntimeMode, SidebarMetadata, SidebarProjection, ThreadDraft,
-        ThreadStatus, ThreadSummary, build_chat_projection, build_sidebar_projection,
+        ChatMessageProjection, ChatMessageRole, ChatProjection, ComposerContextKind, ComposerDraft,
+        ComposerPermissionMode, ComposerTrait, CreationContext, InteractionMode,
+        ProviderModelSelection, ReasoningEffort, RuntimeMode, SidebarMetadata, SidebarProjection,
+        ThreadDraft, ThreadStatus, ThreadSummary, build_chat_projection, build_sidebar_projection,
         resolve_thread_creation_options,
     },
     provider::{
@@ -1912,10 +1913,16 @@ impl DesktopStore {
         };
         self.thread_drafts.insert(thread_id.clone(), draft);
         self.project_drafts.insert(project_id, thread_id.clone());
-        self.composer_drafts.insert(
-            thread_id.clone(),
-            ComposerDraft::empty(thread_id.clone(), created_at),
-        );
+        let mut composer = ComposerDraft::empty(thread_id.clone(), created_at);
+        if let Some(selection) = self
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .and_then(|project| project.default_model_selection.clone())
+        {
+            composer.model_selection = selection.into();
+        }
+        self.composer_drafts.insert(thread_id.clone(), composer);
         self.threads.push(thread);
         *self.thread_counts.entry(project_id).or_insert(0) += 1;
         self.project_thread_limits
@@ -1944,12 +1951,24 @@ impl DesktopStore {
         if trimmed.is_empty() {
             return;
         }
+        let draft = self
+            .composer_drafts
+            .get(&thread_id)
+            .cloned()
+            .unwrap_or_else(|| ComposerDraft::empty(thread_id.clone(), now.clone()));
+        let model_selection = draft.model_selection.clone();
+        let reasoning_effort = draft.reasoning_effort;
+        let permission_mode = draft.permission_mode;
+        let traits = draft.traits.clone();
+        let context = draft.context.clone();
 
         if let Some(thread) = self
             .threads
             .iter_mut()
             .find(|thread| thread.id == thread_id && !thread.archived)
         {
+            thread.provider = model_selection.provider;
+            thread.model = Some(model_selection.model.clone());
             thread.status = if self.host.is_some() {
                 ThreadStatus::Working
             } else {
@@ -1962,6 +1981,7 @@ impl DesktopStore {
             }
         }
 
+        let input_items = self.composer_turn_input(&thread_id, trimmed, &draft);
         self.persisted_messages
             .entry(thread_id.clone())
             .or_default()
@@ -1971,7 +1991,7 @@ impl DesktopStore {
                 trimmed.to_string(),
             ));
 
-        let turn_result = self.start_backend_turn(&thread_id, trimmed);
+        let turn_result = self.start_backend_turn(&thread_id, &draft, input_items);
         match turn_result {
             Ok(()) => self.append_recent_provider_messages(&thread_id),
             Err(message) => {
@@ -1989,31 +2009,136 @@ impl DesktopStore {
 
         self.project_drafts.retain(|_, id| id != &thread_id);
         self.thread_drafts.remove(&thread_id);
-        self.composer_drafts.insert(
-            thread_id.clone(),
-            ComposerDraft {
-                thread_id,
-                prompt: String::new(),
-                model_selection: Default::default(),
-                runtime_mode: RuntimeMode::Normal,
-                interaction_mode: InteractionMode::Chat,
-                image_paths: Vec::new(),
-                terminal_contexts: Vec::new(),
-                updated_at: now,
-            },
-        );
+        let mut next_draft = ComposerDraft::empty(thread_id.clone(), now);
+        next_draft.model_selection = model_selection;
+        next_draft.reasoning_effort = reasoning_effort;
+        next_draft.permission_mode = permission_mode;
+        next_draft.traits = traits;
+        next_draft.context = context;
+        next_draft.runtime_mode = draft.runtime_mode;
+        next_draft.interaction_mode = draft.interaction_mode;
+        self.composer_drafts.insert(thread_id, next_draft);
     }
 
-    fn start_backend_turn(&mut self, thread_id: &ThreadId, prompt: &str) -> Result<(), String> {
+    fn composer_turn_input(
+        &self,
+        thread_id: &ThreadId,
+        prompt: &str,
+        draft: &ComposerDraft,
+    ) -> Vec<serde_json::Value> {
+        let mut input = Vec::new();
+        if let Some(traits) = composer_traits_text(&draft.traits) {
+            input.push(serde_json::json!({ "type": "text", "text": traits }));
+        }
+        if let Some(context) = self.composer_context_text(thread_id, &draft.context) {
+            input.push(serde_json::json!({ "type": "text", "text": context }));
+        }
+        input.push(serde_json::json!({ "type": "text", "text": prompt }));
+        input
+    }
+
+    fn composer_context_text(
+        &self,
+        thread_id: &ThreadId,
+        context: &[ComposerContextKind],
+    ) -> Option<String> {
+        if context.is_empty() {
+            return None;
+        }
+
+        let mut sections = Vec::new();
+        if context.contains(&ComposerContextKind::Pinned) {
+            let items = self
+                .pinned_items
+                .iter()
+                .filter(|item| &item.thread_id == thread_id)
+                .take(8)
+                .map(|item| format!("- {}: {}", item.display_title, item.display_excerpt))
+                .collect::<Vec<_>>();
+            if !items.is_empty() {
+                sections.push(format!("Pinned context:\n{}", items.join("\n")));
+            }
+        }
+        if context.contains(&ComposerContextKind::Highlights) {
+            let items = self
+                .highlighted_items
+                .iter()
+                .filter(|item| &item.thread_id == thread_id)
+                .take(8)
+                .map(|item| format!("- {}: {}", item.display_title, item.display_excerpt))
+                .collect::<Vec<_>>();
+            if !items.is_empty() {
+                sections.push(format!("Highlighted context:\n{}", items.join("\n")));
+            }
+        }
+        if context.contains(&ComposerContextKind::Todos) {
+            let items = self
+                .todos
+                .iter()
+                .filter(|todo| &todo.thread_id == thread_id)
+                .take(12)
+                .map(|todo| format!("- [{}] {}", todo_status_label(todo.status), todo.title))
+                .collect::<Vec<_>>();
+            if !items.is_empty() {
+                sections.push(format!("Todo context:\n{}", items.join("\n")));
+            }
+        }
+        if context.contains(&ComposerContextKind::Terminal) {
+            let terminal = self
+                .terminal_sessions
+                .iter()
+                .find(|(key, session)| {
+                    key.thread_id == thread_id.0 && !session.history.trim().is_empty()
+                })
+                .map(|(_, session)| tail_chars(&session.history, 2_000));
+            if let Some(terminal) = terminal.filter(|terminal| !terminal.trim().is_empty()) {
+                sections.push(format!("Recent terminal output:\n{terminal}"));
+            }
+        }
+
+        (!sections.is_empty()).then(|| {
+            format!(
+                "Attached composer context for this turn:\n\n{}",
+                sections.join("\n\n")
+            )
+        })
+    }
+
+    fn start_backend_turn(
+        &mut self,
+        thread_id: &ThreadId,
+        draft: &ComposerDraft,
+        input: Vec<serde_json::Value>,
+    ) -> Result<(), String> {
         let Some(host) = self.host.clone() else {
             return Ok(());
         };
-        let provider_thread_id = self.ensure_provider_thread(&host, thread_id)?;
-        let payload = serde_json::json!({
+        let provider_thread_id =
+            self.ensure_provider_thread(&host, thread_id, &draft.model_selection.model)?;
+        let permissions = permission_payload(draft.permission_mode);
+        let reasoning_effort = draft.reasoning_effort.map(ReasoningEffort::provider_value);
+        let mut payload = serde_json::json!({
             "thread_id": provider_thread_id,
-            "input": [{ "type": "text", "text": prompt }],
-            "model": DEFAULT_CODEX_MODEL,
+            "input": input,
+            "model": draft.model_selection.model,
+            "sandbox_policy": permissions.sandbox_policy,
+            "approval_policy": permissions.approval_policy,
         });
+        if let Some(reviewer) = permissions.approvals_reviewer {
+            payload["approvals_reviewer"] = serde_json::Value::String(reviewer.to_string());
+        }
+        if let Some(effort) = reasoning_effort {
+            payload["reasoning_effort"] = serde_json::Value::String(effort.to_string());
+        }
+        if draft.interaction_mode == InteractionMode::Plan {
+            payload["collaboration_mode"] = serde_json::json!({
+                "mode": "plan",
+                "settings": {
+                    "model": draft.model_selection.model,
+                    "reasoning_effort": reasoning_effort,
+                }
+            });
+        }
         host.call::<_, serde_json::Value>(methods::CODEX_TURN_START, &payload)
             .map(|_| ())
             .map_err(|error| error.to_string())
@@ -2023,6 +2148,7 @@ impl DesktopStore {
         &mut self,
         host: &BackendHostClient,
         thread_id: &ThreadId,
+        model: &str,
     ) -> Result<String, String> {
         if let Some(provider_thread_id) = self
             .threads
@@ -2048,7 +2174,7 @@ impl DesktopStore {
                 methods::CODEX_THREAD_START,
                 &serde_json::json!({
                     "cwd": cwd,
-                    "model": DEFAULT_CODEX_MODEL,
+                    "model": model,
                 }),
             )
             .map_err(|error| error.to_string())?;
@@ -2204,14 +2330,10 @@ impl DesktopStore {
     }
 
     pub fn push_active_composer_input(&mut self, input: &str) {
-        let Some(thread_id) = self.ensure_active_thread() else {
+        let now = self.next_timestamp();
+        let Some(draft) = self.ensure_active_composer_draft(now.clone()) else {
             return;
         };
-        let now = self.next_timestamp();
-        let draft = self
-            .composer_drafts
-            .entry(thread_id.clone())
-            .or_insert_with(|| ComposerDraft::empty(thread_id.clone(), now.clone()));
         draft.prompt.push_str(input);
         draft.updated_at = now;
     }
@@ -2227,12 +2349,122 @@ impl DesktopStore {
         }
     }
 
+    pub fn set_active_composer_model(&mut self, provider: ProviderKind, model: String) {
+        let supports_reasoning = self.model_supports_reasoning(provider, &model);
+        let now = self.next_timestamp();
+        let Some(draft) = self.ensure_active_composer_draft(now.clone()) else {
+            return;
+        };
+        draft.model_selection = ProviderModelSelection { provider, model };
+        match supports_reasoning {
+            Some(true) if draft.reasoning_effort.is_none() => {
+                draft.reasoning_effort = Some(ReasoningEffort::Medium);
+            }
+            Some(false) => {
+                draft.reasoning_effort = None;
+            }
+            _ => {}
+        }
+        draft.updated_at = now;
+    }
+
+    pub fn set_active_composer_reasoning(&mut self, effort: Option<ReasoningEffort>) {
+        let now = self.next_timestamp();
+        let Some(draft) = self.ensure_active_composer_draft(now.clone()) else {
+            return;
+        };
+        draft.reasoning_effort = effort;
+        draft.updated_at = now;
+    }
+
+    pub fn set_active_composer_permission(&mut self, permission: ComposerPermissionMode) {
+        let now = self.next_timestamp();
+        let Some(draft) = self.ensure_active_composer_draft(now.clone()) else {
+            return;
+        };
+        draft.permission_mode = permission;
+        draft.updated_at = now;
+    }
+
+    pub fn toggle_active_composer_trait(&mut self, trait_kind: ComposerTrait) {
+        let now = self.next_timestamp();
+        let Some(draft) = self.ensure_active_composer_draft(now.clone()) else {
+            return;
+        };
+        toggle_vec_value(&mut draft.traits, trait_kind);
+        draft.updated_at = now;
+    }
+
+    pub fn toggle_active_composer_context(&mut self, context: ComposerContextKind) {
+        let now = self.next_timestamp();
+        let Some(draft) = self.ensure_active_composer_draft(now.clone()) else {
+            return;
+        };
+        toggle_vec_value(&mut draft.context, context);
+        draft.updated_at = now;
+    }
+
+    pub fn set_active_composer_runtime_mode(&mut self, runtime_mode: RuntimeMode) {
+        let now = self.next_timestamp();
+        let Some(thread_id) = self.ensure_active_thread() else {
+            return;
+        };
+        let draft = self
+            .composer_drafts
+            .entry(thread_id.clone())
+            .or_insert_with(|| ComposerDraft::empty(thread_id.clone(), now.clone()));
+        draft.runtime_mode = runtime_mode;
+        draft.updated_at = now.clone();
+        if let Some(thread_draft) = self.thread_drafts.get_mut(&thread_id) {
+            thread_draft.runtime_mode = runtime_mode;
+        }
+    }
+
+    pub fn set_active_composer_interaction_mode(&mut self, interaction_mode: InteractionMode) {
+        let now = self.next_timestamp();
+        let Some(thread_id) = self.ensure_active_thread() else {
+            return;
+        };
+        let draft = self
+            .composer_drafts
+            .entry(thread_id.clone())
+            .or_insert_with(|| ComposerDraft::empty(thread_id.clone(), now.clone()));
+        draft.interaction_mode = interaction_mode;
+        draft.updated_at = now.clone();
+        if let Some(thread_draft) = self.thread_drafts.get_mut(&thread_id) {
+            thread_draft.interaction_mode = interaction_mode;
+        }
+    }
+
     fn ensure_active_thread(&mut self) -> Option<ThreadId> {
         if let Some(thread_id) = self.metadata.active_thread_id.clone() {
             return Some(thread_id);
         }
         let project_id = self.projects.first().map(|project| project.id)?;
         Some(self.new_thread(project_id))
+    }
+
+    fn ensure_active_composer_draft(&mut self, now: String) -> Option<&mut ComposerDraft> {
+        let thread_id = self.ensure_active_thread()?;
+        Some(
+            self.composer_drafts
+                .entry(thread_id.clone())
+                .or_insert_with(|| ComposerDraft::empty(thread_id, now)),
+        )
+    }
+
+    fn model_supports_reasoning(&self, provider: ProviderKind, model: &str) -> Option<bool> {
+        self.model_registry
+            .providers
+            .iter()
+            .find(|catalog| ProviderKind::from_runtime_id(&catalog.runtime_id) == Some(provider))
+            .and_then(|catalog| {
+                catalog
+                    .models
+                    .iter()
+                    .find(|entry| entry.id == model)
+                    .map(|entry| entry.supports_reasoning)
+            })
     }
 
     pub fn send_active_composer(&mut self) {
@@ -3339,6 +3571,91 @@ fn message_excerpt(message: &ChatMessageProjection) -> String {
     format!("{}...", &raw[..end])
 }
 
+fn composer_traits_text(traits: &[ComposerTrait]) -> Option<String> {
+    if traits.is_empty() {
+        return None;
+    }
+
+    let instructions = traits
+        .iter()
+        .map(|trait_kind| format!("- {}: {}", trait_kind.label(), trait_kind.instruction()))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Some(format!(
+        "Agent traits selected for this turn:\n{instructions}\nFollow these traits unless they conflict with higher-priority system, developer, or user instructions."
+    ))
+}
+
+struct PermissionPayload {
+    sandbox_policy: serde_json::Value,
+    approval_policy: serde_json::Value,
+    approvals_reviewer: Option<&'static str>,
+}
+
+fn permission_payload(permission: ComposerPermissionMode) -> PermissionPayload {
+    match permission {
+        ComposerPermissionMode::Strict => PermissionPayload {
+            sandbox_policy: serde_json::json!({
+                "mode": "read-only",
+                "networkAccess": "restricted",
+            }),
+            approval_policy: serde_json::json!({ "mode": "on-request" }),
+            approvals_reviewer: Some("user"),
+        },
+        ComposerPermissionMode::Auto => PermissionPayload {
+            sandbox_policy: serde_json::json!({
+                "mode": "workspace-write",
+                "networkAccess": "restricted",
+            }),
+            approval_policy: serde_json::json!({ "mode": "on-request" }),
+            approvals_reviewer: Some("user"),
+        },
+        ComposerPermissionMode::AutoReview => PermissionPayload {
+            sandbox_policy: serde_json::json!({
+                "mode": "workspace-write",
+                "networkAccess": "restricted",
+            }),
+            approval_policy: serde_json::json!({ "mode": "on-request" }),
+            approvals_reviewer: Some("auto_review"),
+        },
+        ComposerPermissionMode::FullAccess => PermissionPayload {
+            sandbox_policy: serde_json::json!({
+                "mode": "danger-full-access",
+                "networkAccess": "enabled",
+            }),
+            approval_policy: serde_json::json!({ "mode": "never" }),
+            approvals_reviewer: None,
+        },
+    }
+}
+
+fn toggle_vec_value<T: Copy + PartialEq>(values: &mut Vec<T>, value: T) {
+    if let Some(index) = values.iter().position(|candidate| *candidate == value) {
+        values.remove(index);
+    } else {
+        values.push(value);
+    }
+}
+
+fn todo_status_label(status: TodoStatus) -> &'static str {
+    match status {
+        TodoStatus::Open => "open",
+        TodoStatus::InProgress => "in progress",
+        TodoStatus::Blocked => "blocked",
+        TodoStatus::Done => "done",
+        TodoStatus::Canceled => "canceled",
+    }
+}
+
+fn tail_chars(value: &str, max_chars: usize) -> String {
+    let total = value.chars().count();
+    if total <= max_chars {
+        return value.to_string();
+    }
+    value.chars().skip(total - max_chars).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3953,6 +4270,94 @@ mod tests {
         assert_eq!(messages[0].role, ChatMessageRole::User);
         assert_eq!(messages[0].text.as_deref(), Some("hello"));
         assert_eq!(messages[1].role, ChatMessageRole::Assistant);
+    }
+
+    #[test]
+    fn composer_selection_updates_draft_and_survives_send() {
+        let mut store = DesktopStore::new();
+        store.add_project("/tmp/project".to_string());
+        store.new_thread_for_first_project();
+
+        store.set_active_composer_model(ProviderKind::Codex, "gpt-5".to_string());
+        store.set_active_composer_reasoning(Some(ReasoningEffort::High));
+        store.set_active_composer_permission(ComposerPermissionMode::FullAccess);
+        store.toggle_active_composer_trait(ComposerTrait::Precise);
+        store.toggle_active_composer_context(ComposerContextKind::Todos);
+        store.push_active_composer_input("implement model selection");
+
+        let draft = store.projection().chat.composer.expect("draft");
+        assert_eq!(draft.model_selection.model, "gpt-5");
+        assert_eq!(draft.reasoning_effort, Some(ReasoningEffort::High));
+        assert_eq!(draft.permission_mode, ComposerPermissionMode::FullAccess);
+        assert_eq!(draft.traits, vec![ComposerTrait::Precise]);
+        assert_eq!(draft.context, vec![ComposerContextKind::Todos]);
+
+        store.send_active_composer();
+
+        let projection = store.projection();
+        let thread = projection.chat.active_thread.expect("active thread");
+        assert_eq!(thread.provider, ProviderKind::Codex);
+        assert_eq!(thread.model.as_deref(), Some("gpt-5"));
+        let next_draft = projection.chat.composer.expect("next draft");
+        assert!(next_draft.prompt.is_empty());
+        assert_eq!(next_draft.model_selection.model, "gpt-5");
+        assert_eq!(next_draft.reasoning_effort, Some(ReasoningEffort::High));
+        assert_eq!(
+            next_draft.permission_mode,
+            ComposerPermissionMode::FullAccess
+        );
+        assert_eq!(next_draft.traits, vec![ComposerTrait::Precise]);
+        assert_eq!(next_draft.context, vec![ComposerContextKind::Todos]);
+    }
+
+    #[test]
+    fn composer_turn_input_includes_selected_traits_and_context() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id.clone(),
+            ComposerPayload {
+                prompt: "Create the initial implementation".to_string(),
+            },
+        );
+        let first_message_id = store.projection().chat.messages[0].id.clone();
+        store.pin_timeline_item(thread_id.clone(), &first_message_id);
+        store.create_todo_from_timeline_item(thread_id.clone(), &first_message_id);
+        store.toggle_active_composer_trait(ComposerTrait::TestFocused);
+        store.toggle_active_composer_context(ComposerContextKind::Pinned);
+        store.toggle_active_composer_context(ComposerContextKind::Todos);
+
+        let draft = store
+            .composer_drafts
+            .get(&thread_id)
+            .expect("composer draft")
+            .clone();
+        let input = store.composer_turn_input(&thread_id, "Use the selected context", &draft);
+        let joined = input
+            .iter()
+            .filter_map(|item| item.get("text").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(joined.contains("Agent traits selected for this turn"));
+        assert!(joined.contains("verifiable behavior"));
+        assert!(joined.contains("Pinned context"));
+        assert!(joined.contains("Todo context"));
+        assert!(joined.contains("Use the selected context"));
+    }
+
+    #[test]
+    fn composer_permission_modes_map_to_codex_turn_policies() {
+        let strict = permission_payload(ComposerPermissionMode::Strict);
+        assert_eq!(strict.sandbox_policy["mode"], "read-only");
+        assert_eq!(strict.approval_policy["mode"], "on-request");
+        assert_eq!(strict.approvals_reviewer, Some("user"));
+
+        let full_access = permission_payload(ComposerPermissionMode::FullAccess);
+        assert_eq!(full_access.sandbox_policy["mode"], "danger-full-access");
+        assert_eq!(full_access.approval_policy["mode"], "never");
+        assert_eq!(full_access.approvals_reviewer, None);
     }
 
     #[test]

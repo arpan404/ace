@@ -51,6 +51,146 @@ impl From<ModelSelection> for ProviderModelSelection {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningEffort {
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
+impl ReasoningEffort {
+    pub const ALL: [Self; 3] = [Self::Low, Self::Medium, Self::High];
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Low => "Low",
+            Self::Medium => "Medium",
+            Self::High => "High",
+        }
+    }
+
+    #[must_use]
+    pub fn provider_value(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposerPermissionMode {
+    Strict,
+    #[default]
+    Auto,
+    AutoReview,
+    FullAccess,
+}
+
+impl ComposerPermissionMode {
+    pub const ALL: [Self; 4] = [Self::Strict, Self::Auto, Self::AutoReview, Self::FullAccess];
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Strict => "Ask first",
+            Self::Auto => "Auto",
+            Self::AutoReview => "Auto review",
+            Self::FullAccess => "Full access",
+        }
+    }
+
+    #[must_use]
+    pub fn detail(self) -> &'static str {
+        match self {
+            Self::Strict => "Read-only with user approvals",
+            Self::Auto => "Workspace edits with approvals",
+            Self::AutoReview => "Workspace edits with auto review",
+            Self::FullAccess => "No approval sandbox",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposerTrait {
+    Precise,
+    Fast,
+    TestFocused,
+    ReviewFocused,
+}
+
+impl ComposerTrait {
+    pub const ALL: [Self; 4] = [
+        Self::Precise,
+        Self::Fast,
+        Self::TestFocused,
+        Self::ReviewFocused,
+    ];
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Precise => "Precise",
+            Self::Fast => "Fast",
+            Self::TestFocused => "Tested",
+            Self::ReviewFocused => "Review",
+        }
+    }
+
+    #[must_use]
+    pub fn detail(self) -> &'static str {
+        match self {
+            Self::Precise => "Prefer correctness and narrow edits",
+            Self::Fast => "Prioritize direct implementation",
+            Self::TestFocused => "Add or run relevant checks",
+            Self::ReviewFocused => "Surface risks while coding",
+        }
+    }
+
+    #[must_use]
+    pub fn instruction(self) -> &'static str {
+        match self {
+            Self::Precise => "Make narrow, coherent changes and state assumptions explicitly.",
+            Self::Fast => "Prioritize direct progress and avoid unnecessary detours.",
+            Self::TestFocused => {
+                "Design the change around verifiable behavior and run relevant checks."
+            }
+            Self::ReviewFocused => {
+                "Call out risks, regressions, and follow-up test gaps while implementing."
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposerContextKind {
+    Pinned,
+    Highlights,
+    Todos,
+    Terminal,
+}
+
+impl ComposerContextKind {
+    pub const ALL: [Self; 4] = [Self::Pinned, Self::Highlights, Self::Todos, Self::Terminal];
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Pinned => "Pinned",
+            Self::Highlights => "Highlights",
+            Self::Todos => "Todos",
+            Self::Terminal => "Terminal",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectSummary {
     pub id: ProjectId,
@@ -146,6 +286,14 @@ pub struct ComposerDraft {
     pub thread_id: ThreadId,
     pub prompt: String,
     pub model_selection: ProviderModelSelection,
+    #[serde(default)]
+    pub reasoning_effort: Option<ReasoningEffort>,
+    #[serde(default)]
+    pub permission_mode: ComposerPermissionMode,
+    #[serde(default)]
+    pub traits: Vec<ComposerTrait>,
+    #[serde(default)]
+    pub context: Vec<ComposerContextKind>,
     pub runtime_mode: RuntimeMode,
     pub interaction_mode: InteractionMode,
     pub image_paths: Vec<String>,
@@ -160,6 +308,10 @@ impl ComposerDraft {
             thread_id,
             prompt: String::new(),
             model_selection: ProviderModelSelection::default(),
+            reasoning_effort: Some(ReasoningEffort::Medium),
+            permission_mode: ComposerPermissionMode::default(),
+            traits: Vec::new(),
+            context: Vec::new(),
             runtime_mode: RuntimeMode::default(),
             interaction_mode: InteractionMode::default(),
             image_paths: Vec::new(),

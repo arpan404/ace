@@ -2,6 +2,10 @@ use crate::{
     stores::ui::{BottomPanelTab, RightPanelTab},
     ui::layout::SplitterKind,
 };
+use ace_runtime::chat::{
+    ComposerContextKind, ComposerPermissionMode, ComposerTrait, InteractionMode, ReasoningEffort,
+    RuntimeMode,
+};
 use gpui::{Point, actions};
 
 actions!(
@@ -95,6 +99,49 @@ pub struct SetCodeFont {
 #[action(namespace = ace, no_json)]
 pub struct SetThemeMotion {
     pub motion: crate::ui::theme::ThemeMotion,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SelectComposerModel {
+    pub provider: ace_core::ProviderKind,
+    pub model: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SetComposerReasoning {
+    pub effort: Option<ReasoningEffort>,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SetComposerPermission {
+    pub permission: ComposerPermissionMode,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct ToggleComposerTrait {
+    pub trait_kind: ComposerTrait,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct ToggleComposerContext {
+    pub context: ComposerContextKind,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SetComposerRuntimeMode {
+    pub runtime_mode: RuntimeMode,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SetComposerInteractionMode {
+    pub interaction_mode: InteractionMode,
 }
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]

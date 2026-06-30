@@ -1,15 +1,25 @@
 use crate::{
     actions::{
-        CreateTodoFromTimelineItem, PinTimelineItem, ToggleBottomPanel, ToggleEnvironmentPanel,
-        ToggleHighlightTimelineItem, ToggleRightPanel, ToggleSidebar,
+        CreateTodoFromTimelineItem, PinTimelineItem, SelectComposerModel,
+        SetComposerInteractionMode, SetComposerPermission, SetComposerReasoning,
+        SetComposerRuntimeMode, ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait,
+        ToggleEnvironmentPanel, ToggleHighlightTimelineItem, ToggleRightPanel, ToggleSidebar,
     },
-    stores::{DesktopProjection, ThreadAnnotationsProjection, TodoStatus, ui::UiState},
+    stores::{
+        DesktopProjection, ModelProjection, ModelProviderProjection, ModelRegistryProjection,
+        ThreadAnnotationsProjection, TodoStatus, ui::UiState,
+    },
     ui::{components::*, right_panel::environment_card, theme::Theme},
 };
+use ace_core::ProviderKind;
 use ace_runtime::chat::{
-    ChatMessageProjection, ChatMessageRole, ChatProjection, InteractionMode, RuntimeMode,
+    ChatMessageProjection, ChatMessageRole, ChatProjection, ComposerContextKind, ComposerDraft,
+    ComposerPermissionMode, ComposerTrait, InteractionMode, ReasoningEffort, RuntimeMode,
 };
-use gpui::{AnyElement, App, IntoElement, Window, div, prelude::*, px};
+use gpui::{
+    AnyElement, App, IntoElement, MouseButton, StatefulInteractiveElement as _, Window, div,
+    prelude::*, px,
+};
 use gpui_component::{IconName, scroll::ScrollableElement as _, text::TextView};
 
 pub(super) fn workspace_panel(
@@ -71,12 +81,12 @@ pub(super) fn workspace_panel(
                 .flex_col()
                 .child(message_timeline(
                     theme,
-                    chat,
+                    &projection,
                     &projection.annotations,
                     window,
                     cx,
                 ))
-                .child(chat_composer(theme, chat)),
+                .child(chat_composer(theme, &projection)),
         )
         .into_any_element()
 }
@@ -283,11 +293,12 @@ fn has_room_for_environment_card(theme: Theme, ui_state: &UiState, window: &Wind
 
 fn message_timeline(
     theme: Theme,
-    chat: &ChatProjection,
+    projection: &DesktopProjection,
     annotations: &ThreadAnnotationsProjection,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
+    let chat = &projection.chat;
     let max_rendered_messages = theme.timeline_max_rendered_messages;
     let skipped = chat.messages.len().saturating_sub(max_rendered_messages);
     let active_thread_id = chat.active_thread.as_ref().map(|thread| thread.id.clone());
@@ -302,7 +313,7 @@ fn message_timeline(
         .flex()
         .flex_col()
         .when(chat.messages.is_empty(), |this| {
-            this.child(new_thread_landing(theme, chat))
+            this.child(new_thread_landing(theme, projection))
         })
         .when(skipped > 0, |this| {
             this.child(
@@ -675,7 +686,7 @@ fn stable_id(value: &str) -> u64 {
     })
 }
 
-fn new_thread_landing(theme: Theme, chat: &ChatProjection) -> AnyElement {
+fn new_thread_landing(theme: Theme, projection: &DesktopProjection) -> AnyElement {
     div()
         .size_full()
         .flex()
@@ -694,12 +705,13 @@ fn new_thread_landing(theme: Theme, chat: &ChatProjection) -> AnyElement {
                         .text_color(theme.foreground.opacity(0.86))
                         .child("What should we build in ace?"),
                 )
-                .child(landing_composer(theme, chat)),
+                .child(landing_composer(theme, projection)),
         )
         .into_any_element()
 }
 
-fn landing_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
+fn landing_composer(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    let chat = &projection.chat;
     let prompt = composer_prompt(chat);
     let provider = composer_provider_label(chat);
     let model = composer_model_label(chat);
@@ -745,7 +757,7 @@ fn landing_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
                                 .flex_row()
                                 .items_center()
                                 .gap_3()
-                                .child(access_chip(theme)),
+                                .child(permission_chip(theme, chat)),
                         )
                         .child(
                             div()
@@ -776,6 +788,7 @@ fn landing_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
                 .child(div().flex_1())
                 .child(meta_chip(IconName::Globe, "This computer", theme)),
         )
+        .child(composer_selector_surface(theme, projection, false))
         .into_any_element()
 }
 
@@ -860,7 +873,590 @@ fn composer_branch_label(chat: &ChatProjection) -> String {
         .unwrap_or_else(|| "No branch".to_string())
 }
 
-fn chat_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
+fn permission_chip(theme: Theme, chat: &ChatProjection) -> AnyElement {
+    let permission = chat
+        .composer
+        .as_ref()
+        .map(|draft| draft.permission_mode)
+        .unwrap_or_default();
+    div()
+        .h(px(28.0))
+        .rounded_md()
+        .px_2()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .text_size(px(12.0))
+        .text_color(theme.muted)
+        .child(icon_svg(IconName::TriangleAlert, theme.muted))
+        .child(permission.label())
+        .into_any_element()
+}
+
+fn composer_selector_surface(
+    theme: Theme,
+    projection: &DesktopProjection,
+    compact: bool,
+) -> AnyElement {
+    let Some(draft) = projection.chat.composer.as_ref() else {
+        return div().into_any_element();
+    };
+
+    div()
+        .border_t_1()
+        .border_color(theme.border_subtle)
+        .px_3()
+        .py_3()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .font_family(theme.ui_font_family)
+        .child(composer_mode_selector(theme, draft))
+        .child(composer_permission_selector(theme, draft))
+        .child(model_selector(theme, &projection.models, draft, compact))
+        .when(
+            selected_model_supports_reasoning(projection, draft),
+            |this| this.child(reasoning_selector(theme, draft)),
+        )
+        .child(traits_selector(theme, draft))
+        .when(has_available_context(projection), |this| {
+            this.child(context_selector(theme, projection, draft))
+        })
+        .into_any_element()
+}
+
+fn composer_mode_selector(theme: Theme, draft: &ComposerDraft) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(selector_label(theme, "Mode"))
+        .child(composer_action_pill(
+            theme,
+            draft.interaction_mode == InteractionMode::Chat,
+            IconName::Bot,
+            "Chat",
+            "General implementation and Q&A",
+            SetComposerInteractionMode {
+                interaction_mode: InteractionMode::Chat,
+            },
+        ))
+        .child(composer_action_pill(
+            theme,
+            draft.interaction_mode == InteractionMode::Plan,
+            IconName::Check,
+            "Plan",
+            "Plan first before implementation",
+            SetComposerInteractionMode {
+                interaction_mode: InteractionMode::Plan,
+            },
+        ))
+        .child(composer_action_pill(
+            theme,
+            draft.runtime_mode == RuntimeMode::Normal,
+            IconName::Globe,
+            "Normal",
+            "Use the active thread context",
+            SetComposerRuntimeMode {
+                runtime_mode: RuntimeMode::Normal,
+            },
+        ))
+        .child(composer_action_pill(
+            theme,
+            draft.runtime_mode == RuntimeMode::Local,
+            IconName::SquareTerminal,
+            "Local",
+            "Run on this project host",
+            SetComposerRuntimeMode {
+                runtime_mode: RuntimeMode::Local,
+            },
+        ))
+        .child(composer_action_pill(
+            theme,
+            draft.runtime_mode == RuntimeMode::Worktree,
+            IconName::FolderOpen,
+            "Worktree",
+            "Prefer the thread worktree",
+            SetComposerRuntimeMode {
+                runtime_mode: RuntimeMode::Worktree,
+            },
+        ))
+        .into_any_element()
+}
+
+fn composer_permission_selector(theme: Theme, draft: &ComposerDraft) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(selector_label(theme, "Permissions"))
+        .children(ComposerPermissionMode::ALL.iter().map(|permission| {
+            composer_action_pill(
+                theme,
+                draft.permission_mode == *permission,
+                IconName::TriangleAlert,
+                permission.label(),
+                permission.detail(),
+                SetComposerPermission {
+                    permission: *permission,
+                },
+            )
+        }))
+        .into_any_element()
+}
+
+fn model_selector(
+    theme: Theme,
+    registry: &ModelRegistryProjection,
+    draft: &ComposerDraft,
+    compact: bool,
+) -> AnyElement {
+    if registry.providers.is_empty() {
+        return selector_notice(
+            theme,
+            "Models",
+            registry
+                .error
+                .as_deref()
+                .unwrap_or("Model registry has not returned any models yet."),
+        );
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(selector_label(theme, "Models"))
+        .child(
+            div()
+                .max_h(if compact { px(118.0) } else { px(148.0) })
+                .flex()
+                .flex_row()
+                .gap_2()
+                .overflow_x_scrollbar()
+                .children(
+                    registry
+                        .providers
+                        .iter()
+                        .map(|provider| model_provider_group(theme, provider, draft))
+                        .collect::<Vec<_>>(),
+                ),
+        )
+        .into_any_element()
+}
+
+fn model_provider_group(
+    theme: Theme,
+    provider: &ModelProviderProjection,
+    draft: &ComposerDraft,
+) -> AnyElement {
+    let provider_kind = ProviderKind::from_runtime_id(&provider.runtime_id);
+    let send_ready = provider_kind == Some(ProviderKind::Codex);
+    div()
+        .min_w(px(240.0))
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .text_size(px(11.0))
+                .text_color(theme.muted)
+                .child(provider.display_name.clone())
+                .child(if send_ready { "Ready" } else { "Inspect only" }),
+        )
+        .children(
+            provider
+                .models
+                .iter()
+                .map(|model| {
+                    model_row(
+                        theme,
+                        provider.runtime_id.as_str(),
+                        provider_kind,
+                        send_ready,
+                        model,
+                        draft,
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_any_element()
+}
+
+fn model_row(
+    theme: Theme,
+    provider_id: &str,
+    provider: Option<ProviderKind>,
+    send_ready: bool,
+    model: &ModelProjection,
+    draft: &ComposerDraft,
+) -> AnyElement {
+    let selected =
+        provider == Some(draft.model_selection.provider) && draft.model_selection.model == model.id;
+    let mut row = div()
+        .id((
+            "composer-model",
+            stable_id(&format!("{provider_id}:{}", model.id)),
+        ))
+        .min_h(px(56.0))
+        .rounded_md()
+        .border_1()
+        .border_color(if selected {
+            theme.accent_blue.opacity(0.45)
+        } else {
+            theme.border_subtle
+        })
+        .bg(if selected { theme.button } else { theme.panel })
+        .px_2()
+        .py_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .hover(|this| {
+            if send_ready {
+                this.bg(theme.button_hover)
+            } else {
+                this
+            }
+        })
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(
+                    div()
+                        .min_w_0()
+                        .text_size(px(12.0))
+                        .text_color(if send_ready {
+                            theme.foreground.opacity(0.82)
+                        } else {
+                            theme.muted_subtle
+                        })
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .child(model.display_name.clone()),
+                )
+                .when(selected, |this| {
+                    this.child(icon_svg(IconName::Check, theme.accent_success))
+                }),
+        )
+        .child(model_capability_badges(theme, model, send_ready));
+
+    if let Some(provider) = provider.filter(|_| send_ready) {
+        let model_id = model.id.clone();
+        row = row.on_mouse_up(MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(
+                Box::new(SelectComposerModel {
+                    provider,
+                    model: model_id.clone(),
+                }),
+                cx,
+            );
+        });
+    } else if !send_ready {
+        row = row.tooltip(|window, cx| {
+            gpui_component::tooltip::Tooltip::new(
+                "This provider is visible in the catalog, but desktop send routing currently uses the Codex runtime.",
+            )
+            .build(window, cx)
+        });
+    }
+
+    row.into_any_element()
+}
+
+fn model_capability_badges(theme: Theme, model: &ModelProjection, enabled: bool) -> AnyElement {
+    let color_active = if enabled {
+        theme.accent_success
+    } else {
+        theme.muted_subtle
+    };
+    div()
+        .flex()
+        .flex_row()
+        .gap_1()
+        .child(capability_badge(
+            theme,
+            "Tools",
+            model.supports_tools,
+            color_active,
+        ))
+        .child(capability_badge(
+            theme,
+            "Vision",
+            model.supports_vision,
+            color_active,
+        ))
+        .child(capability_badge(
+            theme,
+            "Reason",
+            model.supports_reasoning,
+            color_active,
+        ))
+        .when(
+            model.context_window.is_some_and(|window| window >= 128_000),
+            |this| this.child(capability_badge(theme, "Long", true, color_active)),
+        )
+        .into_any_element()
+}
+
+fn capability_badge(
+    theme: Theme,
+    label: &'static str,
+    active: bool,
+    color: gpui::Hsla,
+) -> AnyElement {
+    div()
+        .h(px(17.0))
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .px_1()
+        .text_size(px(10.0))
+        .text_color(if active { color } else { theme.muted_subtle })
+        .child(label)
+        .into_any_element()
+}
+
+fn reasoning_selector(theme: Theme, draft: &ComposerDraft) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(selector_label(theme, "Reasoning"))
+        .children(ReasoningEffort::ALL.iter().map(|effort| {
+            composer_action_pill(
+                theme,
+                draft.reasoning_effort == Some(*effort),
+                IconName::Check,
+                effort.label(),
+                "Controls reasoning intensity for models that support it",
+                SetComposerReasoning {
+                    effort: Some(*effort),
+                },
+            )
+        }))
+        .into_any_element()
+}
+
+fn traits_selector(theme: Theme, draft: &ComposerDraft) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(selector_label(theme, "Traits"))
+        .children(ComposerTrait::ALL.iter().map(|trait_kind| {
+            composer_action_pill(
+                theme,
+                draft.traits.contains(trait_kind),
+                IconName::Palette,
+                trait_kind.label(),
+                trait_kind.detail(),
+                ToggleComposerTrait {
+                    trait_kind: *trait_kind,
+                },
+            )
+        }))
+        .into_any_element()
+}
+
+fn context_selector(
+    theme: Theme,
+    projection: &DesktopProjection,
+    draft: &ComposerDraft,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(selector_label(theme, "Context"))
+        .children(
+            ComposerContextKind::ALL
+                .iter()
+                .filter(|context| composer_context_count(projection, **context) > 0)
+                .map(|context| {
+                    let count = composer_context_count(projection, *context);
+                    composer_action_pill(
+                        theme,
+                        draft.context.contains(context),
+                        IconName::Plus,
+                        context.label(),
+                        context_count_detail(count),
+                        ToggleComposerContext { context: *context },
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_any_element()
+}
+
+fn composer_action_pill<A>(
+    theme: Theme,
+    selected: bool,
+    icon: IconName,
+    label: &'static str,
+    detail: &'static str,
+    action: A,
+) -> AnyElement
+where
+    A: gpui::Action + Clone + 'static,
+{
+    let color = if selected {
+        theme.foreground.opacity(0.88)
+    } else {
+        theme.muted
+    };
+    div()
+        .id(("composer-pill", stable_id(&format!("{label}:{detail}"))))
+        .min_w(px(54.0))
+        .h(px(26.0))
+        .rounded_md()
+        .border_1()
+        .border_color(if selected {
+            theme.accent_blue.opacity(0.46)
+        } else {
+            theme.border_subtle
+        })
+        .bg(if selected {
+            theme.button
+        } else {
+            theme.panel_deep
+        })
+        .px_2()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .text_size(px(11.0))
+        .text_color(color)
+        .hover(|this| this.bg(theme.button_hover))
+        .child(icon_svg(
+            icon,
+            if selected {
+                theme.accent_blue
+            } else {
+                theme.muted_subtle
+            },
+        ))
+        .child(label)
+        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(detail).build(window, cx))
+        .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(Box::new(action.clone()), cx);
+        })
+        .into_any_element()
+}
+
+fn selector_label(theme: Theme, label: &'static str) -> AnyElement {
+    div()
+        .w(px(74.0))
+        .text_size(px(11.0))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_color(theme.muted_subtle)
+        .child(label)
+        .into_any_element()
+}
+
+fn selector_notice(theme: Theme, label: &'static str, message: &str) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(selector_label(theme, label))
+        .child(
+            div()
+                .h(px(28.0))
+                .rounded_md()
+                .border_1()
+                .border_color(theme.border_subtle)
+                .bg(theme.panel_deep)
+                .px_2()
+                .flex()
+                .items_center()
+                .text_size(px(11.0))
+                .text_color(theme.muted_subtle)
+                .child(message.to_string()),
+        )
+        .into_any_element()
+}
+
+fn selected_model_supports_reasoning(
+    projection: &DesktopProjection,
+    draft: &ComposerDraft,
+) -> bool {
+    selected_model(projection, draft).is_some_and(|model| model.supports_reasoning)
+}
+
+fn selected_model<'a>(
+    projection: &'a DesktopProjection,
+    draft: &ComposerDraft,
+) -> Option<&'a ModelProjection> {
+    projection
+        .models
+        .providers
+        .iter()
+        .find(|provider| {
+            ProviderKind::from_runtime_id(&provider.runtime_id)
+                == Some(draft.model_selection.provider)
+        })
+        .and_then(|provider| {
+            provider
+                .models
+                .iter()
+                .find(|model| model.id == draft.model_selection.model)
+        })
+}
+
+fn has_available_context(projection: &DesktopProjection) -> bool {
+    ComposerContextKind::ALL
+        .iter()
+        .any(|context| composer_context_count(projection, *context) > 0)
+}
+
+fn composer_context_count(projection: &DesktopProjection, context: ComposerContextKind) -> usize {
+    match context {
+        ComposerContextKind::Pinned => projection.annotations.pinned_items.len(),
+        ComposerContextKind::Highlights => projection.annotations.highlighted_items.len(),
+        ComposerContextKind::Todos => projection.annotations.todos.len(),
+        ComposerContextKind::Terminal => projection
+            .terminal
+            .session
+            .as_ref()
+            .filter(|session| !session.history.trim().is_empty())
+            .map(|_| 1)
+            .unwrap_or(0),
+    }
+}
+
+fn context_count_detail(count: usize) -> &'static str {
+    match count {
+        0 => "No context available",
+        1 => "Attach 1 context item",
+        _ => "Attach available context items",
+    }
+}
+
+fn chat_composer(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    let chat = &projection.chat;
     if chat.messages.is_empty() {
         return div().into_any_element();
     }
@@ -914,7 +1510,7 @@ fn chat_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
                                 .flex_row()
                                 .items_center()
                                 .gap_2()
-                                .child(access_chip(theme))
+                                .child(permission_chip(theme, chat))
                                 .child(meta_chip(IconName::SquareTerminal, mode, theme))
                                 .child(model_chip(theme, &model, &provider)),
                         )
@@ -936,7 +1532,8 @@ fn chat_composer(theme: Theme, chat: &ChatProjection) -> AnyElement {
                                     Box::new(crate::actions::SendActiveComposer)
                                 })),
                         ),
-                ),
+                )
+                .child(composer_selector_surface(theme, projection, true)),
         )
         .into_any_element()
 }

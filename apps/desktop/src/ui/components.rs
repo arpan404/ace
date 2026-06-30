@@ -64,22 +64,6 @@ impl IconNamed for AceIconName {
     }
 }
 
-pub(super) fn access_chip(theme: Theme) -> AnyElement {
-    div()
-        .h(px(28.0))
-        .rounded_md()
-        .px_2()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_1()
-        .text_size(px(12.0))
-        .text_color(theme.muted)
-        .child(icon_svg(IconName::TriangleAlert, theme.muted))
-        .child("Default permissions")
-        .into_any_element()
-}
-
 pub(super) fn model_chip(theme: Theme, model: &str, effort: &str) -> AnyElement {
     div()
         .h(px(28.0))

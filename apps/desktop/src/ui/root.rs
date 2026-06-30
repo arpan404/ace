@@ -5,14 +5,16 @@ use crate::{
         CreateTodoFromTimelineItem, CreateWorktree, DenyProviderRequest, InterruptActiveTurn,
         NewThread, NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem,
         PinTimelineItem, PushReview, RefreshActiveTab, RefreshApprovals, RefreshReview,
-        RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab,
-        SelectSearchPaletteItem, SendActiveComposer, SetCodeFont, SetThemeDensity, SetThemeMotion,
-        SetThemePreset, SetUiFont, ShowBrowserTab, ShowLessProjectThreads, ShowMoreProjectThreads,
-        ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab, ShowTodosTab,
-        StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleEnvironmentPanel,
-        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem,
-        TogglePinActiveThread, ToggleRightPanel, ToggleSidebar, UnstageReviewAll,
-        UnstageReviewFile, UpdateTodoStatus,
+        RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectComposerModel,
+        SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer, SetCodeFont,
+        SetComposerInteractionMode, SetComposerPermission, SetComposerReasoning,
+        SetComposerRuntimeMode, SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont,
+        ShowBrowserTab, ShowLessProjectThreads, ShowMoreProjectThreads, ShowPinnedTab,
+        ShowPluginsTab, ShowProvidersTab, ShowSkillsTab, ShowTodosTab, StageReviewAll,
+        StageReviewFile, ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait,
+        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        ToggleHighlightTimelineItem, TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
+        UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -927,6 +929,83 @@ impl RootView {
         cx.notify();
     }
 
+    fn select_composer_model(
+        &mut self,
+        event: &SelectComposerModel,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .set_active_composer_model(event.provider, event.model.clone());
+        cx.notify();
+    }
+
+    fn set_composer_reasoning(
+        &mut self,
+        event: &SetComposerReasoning,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .set_active_composer_reasoning(event.effort);
+        cx.notify();
+    }
+
+    fn set_composer_permission(
+        &mut self,
+        event: &SetComposerPermission,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .set_active_composer_permission(event.permission);
+        cx.notify();
+    }
+
+    fn toggle_composer_trait(
+        &mut self,
+        event: &ToggleComposerTrait,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .toggle_active_composer_trait(event.trait_kind);
+        cx.notify();
+    }
+
+    fn toggle_composer_context(
+        &mut self,
+        event: &ToggleComposerContext,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .toggle_active_composer_context(event.context);
+        cx.notify();
+    }
+
+    fn set_composer_runtime_mode(
+        &mut self,
+        event: &SetComposerRuntimeMode,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .set_active_composer_runtime_mode(event.runtime_mode);
+        cx.notify();
+    }
+
+    fn set_composer_interaction_mode(
+        &mut self,
+        event: &SetComposerInteractionMode,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .set_active_composer_interaction_mode(event.interaction_mode);
+        cx.notify();
+    }
+
     fn interrupt_active_turn(
         &mut self,
         _: &InterruptActiveTurn,
@@ -1133,6 +1212,13 @@ impl Render for RootView {
             .on_action(cx.listener(Self::add_current_directory_project))
             .on_action(cx.listener(Self::open_thread))
             .on_action(cx.listener(Self::send_active_composer))
+            .on_action(cx.listener(Self::select_composer_model))
+            .on_action(cx.listener(Self::set_composer_reasoning))
+            .on_action(cx.listener(Self::set_composer_permission))
+            .on_action(cx.listener(Self::toggle_composer_trait))
+            .on_action(cx.listener(Self::toggle_composer_context))
+            .on_action(cx.listener(Self::set_composer_runtime_mode))
+            .on_action(cx.listener(Self::set_composer_interaction_mode))
             .on_action(cx.listener(Self::interrupt_active_turn))
             .on_action(cx.listener(Self::toggle_pin_active_thread))
             .on_action(cx.listener(Self::pin_latest_timeline_item))
