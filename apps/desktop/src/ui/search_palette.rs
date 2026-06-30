@@ -1872,8 +1872,10 @@ fn _bottom_panel_tab_reference(_: BottomPanelTab) {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stores::desktop::{ComposerPayload, DesktopStore, HostOptionProjection};
-    use ace_protocol::provider_runtime::{ProviderRuntimeEvent, ProviderRuntimeEventBatch};
+    use crate::stores::desktop::{ComposerPayload, DesktopStore};
+    use ace_protocol::provider_runtime::{
+        ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeProjectionDelta,
+    };
     use ace_protocol::terminal::{
         DEFAULT_TERMINAL_ID, SequencedTerminalEvent, TerminalEvent, TerminalSessionSnapshot,
         TerminalSessionStatus,
@@ -1881,7 +1883,7 @@ mod tests {
     use ace_runtime::provider::{
         NormalizedServerRequest, ProviderMetadata, ServerRequestDetail, ServerRequestKind,
     };
-    use ace_runtime::threads::ExecutionLocation;
+    use ace_runtime::threads::{ExecutionLocation, RemoteConnectionRecord};
 
     #[test]
     fn palette_search_includes_persisted_context_results() {
@@ -2566,31 +2568,45 @@ mod tests {
 
     #[test]
     fn palette_search_includes_backed_composer_host_controls() {
-        let store = DesktopStore::new();
-        let mut projection = store.projection();
-        projection.host_options = vec![
-            HostOptionProjection {
-                provider: "codex".to_string(),
-                host_id: "devbox-a".to_string(),
-                label: "Devbox A".to_string(),
-                detail: "codex · devbox-a.internal · connected".to_string(),
-                status: "connected".to_string(),
-                connected: true,
-                execution_location: ExecutionLocation::RemoteHost,
-                project_count: 1,
-            },
-            HostOptionProjection {
-                provider: "codex".to_string(),
-                host_id: "devbox-b".to_string(),
-                label: "Devbox B".to_string(),
-                detail: "codex · devbox-b.internal · offline".to_string(),
-                status: "offline".to_string(),
-                connected: false,
-                execution_location: ExecutionLocation::RemoteHost,
-                project_count: 0,
-            },
-        ];
+        let mut store = DesktopStore::new();
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![
+                ProviderRuntimeProjectionDelta::RemoteConnectionUpdated {
+                    provider: "codex".to_string(),
+                    connection: RemoteConnectionRecord {
+                        provider: "codex".to_string(),
+                        host_id: "devbox-a".to_string(),
+                        host: Some("devbox-a.internal".to_string()),
+                        display_name: Some("Devbox A".to_string()),
+                        status: Some("connected".to_string()),
+                        execution_location: ExecutionLocation::RemoteHost,
+                        projects: serde_json::json!([{ "path": "/srv/ace" }]),
+                        metadata: serde_json::Value::Null,
+                    },
+                },
+                ProviderRuntimeProjectionDelta::RemoteConnectionUpdated {
+                    provider: "codex".to_string(),
+                    connection: RemoteConnectionRecord {
+                        provider: "codex".to_string(),
+                        host_id: "devbox-b".to_string(),
+                        host: Some("devbox-b.internal".to_string()),
+                        display_name: Some("Devbox B".to_string()),
+                        status: Some("offline".to_string()),
+                        execution_location: ExecutionLocation::RemoteHost,
+                        projects: serde_json::json!([]),
+                        metadata: serde_json::Value::Null,
+                    },
+                },
+            ],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
 
+        let projection = store.projection();
         let local_items = palette_items(&projection, SearchPaletteMode::Root, "host this computer");
         assert!(local_items.iter().any(|item| matches!(
             item,
