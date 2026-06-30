@@ -3402,12 +3402,14 @@ impl DesktopStore {
             self.ensure_provider_thread(&host, thread_id, &draft.model_selection.model)?;
         let permissions = permission_payload(draft.permission_mode);
         let reasoning_effort = draft.reasoning_effort.map(ReasoningEffort::provider_value);
+        let collaboration_mode = composer_collaboration_mode(draft, reasoning_effort, &permissions);
         let mut payload = serde_json::json!({
             "thread_id": provider_thread_id,
             "input": input,
             "model": draft.model_selection.model,
-            "sandbox_policy": permissions.sandbox_policy,
-            "approval_policy": permissions.approval_policy,
+            "sandbox_policy": permissions.sandbox_policy.clone(),
+            "approval_policy": permissions.approval_policy.clone(),
+            "collaboration_mode": collaboration_mode,
         });
         if let Some(reviewer) = permissions.approvals_reviewer {
             payload["approvals_reviewer"] = serde_json::Value::String(reviewer.to_string());
@@ -3441,15 +3443,6 @@ impl DesktopStore {
                 payload["remoteHost"] = serde_json::Value::String(selection.host_id.clone());
             }
             RuntimeMode::Normal => {}
-        }
-        if draft.interaction_mode == InteractionMode::Plan {
-            payload["collaboration_mode"] = serde_json::json!({
-                "mode": "plan",
-                "settings": {
-                    "model": draft.model_selection.model,
-                    "reasoning_effort": reasoning_effort,
-                }
-            });
         }
         host.call::<_, serde_json::Value>(methods::CODEX_TURN_START, &payload)
             .map(|_| ())
@@ -5893,6 +5886,94 @@ fn permission_payload(permission: ComposerPermissionMode) -> PermissionPayload {
     }
 }
 
+fn composer_collaboration_mode(
+    draft: &ComposerDraft,
+    reasoning_effort: Option<&'static str>,
+    permissions: &PermissionPayload,
+) -> serde_json::Value {
+    let mut settings = serde_json::json!({
+        "model": draft.model_selection.model,
+        "model_provider": draft.model_selection.provider.runtime_id(),
+        "reasoning_effort": reasoning_effort,
+        "interaction_mode": interaction_mode_value(draft.interaction_mode),
+        "runtime_mode": runtime_mode_value(draft.runtime_mode),
+        "permission_mode": permission_mode_value(draft.permission_mode),
+        "sandbox_policy": permissions.sandbox_policy,
+        "approval_policy": permissions.approval_policy,
+        "approvals_reviewer": permissions.approvals_reviewer,
+        "traits": draft
+            .traits
+            .iter()
+            .map(|trait_kind| composer_trait_value(*trait_kind))
+            .collect::<Vec<_>>(),
+        "context": draft
+            .context
+            .iter()
+            .map(|context| composer_context_value(*context))
+            .collect::<Vec<_>>(),
+        "developer_instructions": null,
+    });
+
+    if let Some(host) = draft.host_selection.as_ref() {
+        settings["host"] = serde_json::json!({
+            "provider": host.provider,
+            "host_id": host.host_id,
+        });
+    }
+
+    serde_json::json!({
+        "mode": if draft.interaction_mode == InteractionMode::Plan {
+            "plan"
+        } else {
+            "default"
+        },
+        "settings": settings,
+    })
+}
+
+fn interaction_mode_value(mode: InteractionMode) -> &'static str {
+    match mode {
+        InteractionMode::Chat => "chat",
+        InteractionMode::Plan => "plan",
+    }
+}
+
+fn runtime_mode_value(mode: RuntimeMode) -> &'static str {
+    match mode {
+        RuntimeMode::Normal => "normal",
+        RuntimeMode::Local => "local",
+        RuntimeMode::Worktree => "worktree",
+        RuntimeMode::Remote => "remote",
+    }
+}
+
+fn permission_mode_value(permission: ComposerPermissionMode) -> &'static str {
+    match permission {
+        ComposerPermissionMode::Strict => "strict",
+        ComposerPermissionMode::Auto => "auto",
+        ComposerPermissionMode::AutoReview => "auto_review",
+        ComposerPermissionMode::FullAccess => "full_access",
+    }
+}
+
+fn composer_trait_value(trait_kind: ComposerTrait) -> &'static str {
+    match trait_kind {
+        ComposerTrait::Precise => "precise",
+        ComposerTrait::Fast => "fast",
+        ComposerTrait::TestFocused => "test_focused",
+        ComposerTrait::ReviewFocused => "review_focused",
+    }
+}
+
+fn composer_context_value(context: ComposerContextKind) -> &'static str {
+    match context {
+        ComposerContextKind::Pinned => "pinned",
+        ComposerContextKind::Highlights => "highlights",
+        ComposerContextKind::Todos => "todos",
+        ComposerContextKind::Terminal => "terminal",
+    }
+}
+
 fn toggle_vec_value<T: Copy + PartialEq>(values: &mut Vec<T>, value: T) {
     if let Some(index) = values.iter().position(|candidate| *candidate == value) {
         values.remove(index);
@@ -7782,6 +7863,68 @@ mod tests {
         assert_eq!(full_access.sandbox_policy["mode"], "danger-full-access");
         assert_eq!(full_access.approval_policy["mode"], "never");
         assert_eq!(full_access.approvals_reviewer, None);
+    }
+
+    #[test]
+    fn composer_collaboration_mode_carries_structured_runtime_settings() {
+        let mut draft = ComposerDraft::empty(ThreadId::new(), "1");
+        draft.model_selection = ProviderModelSelection {
+            provider: ProviderKind::Codex,
+            model: "gpt-5-large".to_string(),
+        };
+        draft.host_selection = Some(ace_runtime::chat::ComposerHostSelection {
+            provider: "codex".to_string(),
+            host_id: "ssh-prod".to_string(),
+        });
+        draft.reasoning_effort = Some(ReasoningEffort::High);
+        draft.permission_mode = ComposerPermissionMode::AutoReview;
+        draft.traits = vec![ComposerTrait::Precise, ComposerTrait::TestFocused];
+        draft.context = vec![ComposerContextKind::Pinned, ComposerContextKind::Todos];
+        draft.runtime_mode = RuntimeMode::Remote;
+        draft.interaction_mode = InteractionMode::Plan;
+
+        let permissions = permission_payload(draft.permission_mode);
+        let collaboration_mode = composer_collaboration_mode(
+            &draft,
+            draft.reasoning_effort.map(ReasoningEffort::provider_value),
+            &permissions,
+        );
+
+        assert_eq!(collaboration_mode["mode"], "plan");
+        assert_eq!(collaboration_mode["settings"]["model"], "gpt-5-large");
+        assert_eq!(collaboration_mode["settings"]["model_provider"], "codex");
+        assert_eq!(collaboration_mode["settings"]["reasoning_effort"], "high");
+        assert_eq!(collaboration_mode["settings"]["interaction_mode"], "plan");
+        assert_eq!(collaboration_mode["settings"]["runtime_mode"], "remote");
+        assert_eq!(
+            collaboration_mode["settings"]["permission_mode"],
+            "auto_review"
+        );
+        assert_eq!(
+            collaboration_mode["settings"]["sandbox_policy"]["mode"],
+            "workspace-write"
+        );
+        assert_eq!(
+            collaboration_mode["settings"]["approval_policy"]["mode"],
+            "on-request"
+        );
+        assert_eq!(
+            collaboration_mode["settings"]["approvals_reviewer"],
+            "auto_review"
+        );
+        assert_eq!(
+            collaboration_mode["settings"]["traits"],
+            serde_json::json!(["precise", "test_focused"])
+        );
+        assert_eq!(
+            collaboration_mode["settings"]["context"],
+            serde_json::json!(["pinned", "todos"])
+        );
+        assert_eq!(collaboration_mode["settings"]["host"]["provider"], "codex");
+        assert_eq!(
+            collaboration_mode["settings"]["host"]["host_id"],
+            "ssh-prod"
+        );
     }
 
     #[test]
