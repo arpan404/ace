@@ -182,6 +182,12 @@ pub struct PinTimelineItem {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct UnpinTimelineItem {
+    pub pin_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct ToggleHighlightTimelineItem {
     pub thread_id: ace_core::ThreadId,
     pub message_id: String,

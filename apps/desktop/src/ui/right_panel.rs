@@ -2,13 +2,13 @@ use crate::{
     actions::{
         ApproveProviderRequest, CommitReview, CreateReviewComment,
         CreateTodoFromLatestTimelineItem, CreateWorktree, DenyProviderRequest,
-        LinkTodoToCurrentDiff, PinLatestTimelineItem, PushReview, RefreshActiveTab,
+        LinkTodoToCurrentDiff, OpenThread, PinLatestTimelineItem, PushReview, RefreshActiveTab,
         RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab,
         SelectRightPanelTab, SetCodeFont, SetThemeAccent, SetThemeDensity, SetThemeMotion,
         SetThemePreset, SetUiFont, StageReviewAll, StageReviewFile, ToggleBottomPanel,
-        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleReviewCommentResolved,
-        ToggleRightPanel, UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee,
-        UpdateTodoPriority, UpdateTodoStatus,
+        ToggleComposerContext, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        ToggleReviewCommentResolved, ToggleRightPanel, UnpinTimelineItem, UnstageReviewAll,
+        UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
     },
     stores::{
         ApprovalItemProjection, ApprovalRegistryProjection, BrowserActivityProjection,
@@ -18,6 +18,7 @@ use crate::{
         ServiceReadiness, ServiceStatus, SourceItemProjection, SummaryProjection, TodoAssignee,
         TodoItem, TodoPriority, TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
         WorktreeEntryProjection, WorktreeProjection,
+        desktop::PinnedTimelineItem,
         ui::{BottomPanelTab, RightPanelTab, UiState},
     },
     ui::{
@@ -30,7 +31,7 @@ use crate::{
     },
 };
 use ace_protocol::terminal::TerminalSessionStatus;
-use ace_runtime::chat::{ChatProjection, ThreadSummary};
+use ace_runtime::chat::{ChatProjection, ComposerContextKind, ThreadSummary};
 use gpui::{
     AnyElement, IntoElement, MouseButton, StatefulInteractiveElement as _, div, prelude::*, px,
 };
@@ -3420,20 +3421,44 @@ fn pinned_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
                         .annotations
                         .pinned_items
                         .iter()
-                        .map(|item| {
-                            annotation_card(
-                                theme,
-                                IconName::Star,
-                                &item.display_title,
-                                &item.display_excerpt,
-                                &format!("Pinned {}", item.pinned_at),
-                            )
-                        })
+                        .map(|item| pinned_item_card(theme, item))
                         .collect::<Vec<_>>(),
                 )
                 .overflow_y_scrollbar(),
         )
         .into_any_element()
+}
+
+fn pinned_item_card(theme: Theme, item: &PinnedTimelineItem) -> AnyElement {
+    let thread_id = item.thread_id.clone();
+    let pin_id = item.id.clone();
+    annotation_card_with_actions(
+        theme,
+        IconName::Star,
+        &item.display_title,
+        &item.display_excerpt,
+        &format!("Pinned {}", item.pinned_at),
+        vec![
+            action_button(IconName::Search, "Open thread", theme, {
+                let thread_id = thread_id.clone();
+                move || {
+                    Box::new(OpenThread {
+                        thread_id: thread_id.clone(),
+                    })
+                }
+            }),
+            action_button(IconName::Plus, "Add context", theme, || {
+                Box::new(ToggleComposerContext {
+                    context: ComposerContextKind::Pinned,
+                })
+            }),
+            action_button(IconName::CircleX, "Unpin", theme, move || {
+                Box::new(UnpinTimelineItem {
+                    pin_id: pin_id.clone(),
+                })
+            }),
+        ],
+    )
 }
 
 fn todos_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
@@ -3842,12 +3867,13 @@ where
         .into_any_element()
 }
 
-fn annotation_card(
+fn annotation_card_with_actions(
     theme: Theme,
     icon: IconName,
     title: &str,
     excerpt: &str,
     meta: &str,
+    actions: Vec<AnyElement>,
 ) -> AnyElement {
     div()
         .rounded_md()
@@ -3882,6 +3908,17 @@ fn annotation_card(
                 .text_color(theme.muted_subtle)
                 .child(meta.to_string()),
         )
+        .when(!actions.is_empty(), |this| {
+            this.child(
+                div()
+                    .pt_1()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .children(actions),
+            )
+        })
         .into_any_element()
 }
 

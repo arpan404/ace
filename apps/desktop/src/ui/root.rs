@@ -17,8 +17,9 @@ use crate::{
         StageReviewFile, ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait,
         ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
         ToggleHighlightTimelineItem, TogglePinActiveThread, TogglePinThread,
-        ToggleReviewCommentResolved, ToggleRightPanel, ToggleSidebar, UnstageReviewAll,
-        UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
+        ToggleReviewCommentResolved, ToggleRightPanel, ToggleSidebar, UnpinTimelineItem,
+        UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority,
+        UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -1522,6 +1523,17 @@ impl RootView {
         cx.notify();
     }
 
+    fn unpin_timeline_item(
+        &mut self,
+        event: &UnpinTimelineItem,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut().unpin_timeline_item(&event.pin_id);
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
     fn create_todo_from_latest_timeline_item(
         &mut self,
         _: &CreateTodoFromLatestTimelineItem,
@@ -1749,6 +1761,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::toggle_pin_thread))
             .on_action(cx.listener(Self::pin_latest_timeline_item))
             .on_action(cx.listener(Self::pin_timeline_item))
+            .on_action(cx.listener(Self::unpin_timeline_item))
             .on_action(cx.listener(Self::toggle_highlight_latest_timeline_item))
             .on_action(cx.listener(Self::toggle_highlight_timeline_item))
             .on_action(cx.listener(Self::create_todo_from_latest_timeline_item))

@@ -2131,6 +2131,10 @@ impl DesktopStore {
         });
     }
 
+    pub fn unpin_timeline_item(&mut self, pin_id: &str) {
+        self.pinned_items.retain(|item| item.id != pin_id);
+    }
+
     pub fn toggle_highlight_latest_timeline_item(&mut self) {
         let Some((thread_id, message)) = self.latest_active_message() else {
             return;
@@ -9036,6 +9040,10 @@ mod tests {
         assert_eq!(projection.todos.len(), 1);
         assert_eq!(projection.open_todo_count, 1);
         assert_eq!(projection.pinned_items[0].message_id, first_message_id);
+        let pin_id = projection.pinned_items[0].id.clone();
+        store.unpin_timeline_item(&pin_id);
+        assert!(store.projection().annotations.pinned_items.is_empty());
+        store.pin_timeline_item(thread_id.clone(), &first_message_id);
         assert_eq!(projection.todos[0].priority, TodoPriority::Normal);
         assert_eq!(projection.todos[0].created_by, TodoCreatedBy::User);
         assert_eq!(projection.todos[0].assigned_to, TodoAssignee::Both);
