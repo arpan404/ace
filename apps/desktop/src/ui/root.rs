@@ -812,6 +812,13 @@ impl RootView {
                 self.search_palette.close();
                 self.open_thread_with_context_refresh(thread_id);
             }
+            SearchPaletteItem::Context { thread_id, tab, .. } => {
+                self.search_palette.close();
+                if let Some(thread_id) = thread_id {
+                    self.open_thread_with_context_refresh(thread_id);
+                }
+                self.apply_right_panel_tab(tab);
+            }
             SearchPaletteItem::Project { project_id, .. } => {
                 let mode = self.search_palette.mode;
                 self.search_palette.close();

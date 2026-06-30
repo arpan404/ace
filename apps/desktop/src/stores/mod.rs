@@ -7,10 +7,10 @@ pub use desktop::{
     ComposerCommandProjection, ComposerCommandSource, DesktopProjection, DesktopStore,
     EditorFileProjection, EditorProjection, HostOptionProjection, ModelProjection,
     ModelProviderProjection, ModelRegistryProjection, ProviderSlashCommandProjection,
-    ReviewCommentItem, ReviewFileProjection, ReviewProjection, RunProjection, ServiceReadiness,
-    ServiceStatus, SourceItemProjection, SummaryProjection, ThreadAnnotationsProjection,
-    ThreadAnnotationsSnapshot, TodoAssignee, TodoItem, TodoPriority, TodoStatus,
-    ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
+    ReviewCommentItem, ReviewFileProjection, ReviewProjection, RunProjection, SearchContextKind,
+    ServiceReadiness, ServiceStatus, SourceItemProjection, SummaryProjection,
+    ThreadAnnotationsProjection, ThreadAnnotationsSnapshot, TodoAssignee, TodoItem, TodoPriority,
+    TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
     WorktreeProjection,
 };
 pub use ui::UiStore;

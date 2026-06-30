@@ -1,7 +1,7 @@
 use crate::{
     actions::SelectSearchPaletteItem,
     stores::{
-        DesktopProjection, ModelProjection,
+        DesktopProjection, ModelProjection, SearchContextKind,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{
@@ -120,6 +120,12 @@ pub enum SearchPaletteItem {
         label: String,
         description: String,
     },
+    Context {
+        thread_id: Option<ThreadId>,
+        tab: RightPanelTab,
+        label: String,
+        description: String,
+    },
     Project {
         project_id: ProjectId,
         label: String,
@@ -176,6 +182,7 @@ impl SearchPaletteItem {
             | Self::CodeFont { label, .. } => label,
             Self::Panel { label, .. } => label,
             Self::Message { label, .. } => label,
+            Self::Context { label, .. } => label,
             Self::Project { label, .. } | Self::Thread { label, .. } => label,
         }
     }
@@ -222,6 +229,7 @@ impl SearchPaletteItem {
             | Self::CodeFont { description, .. } => description,
             Self::Panel { description, .. } => description,
             Self::Message { description, .. } => description,
+            Self::Context { description, .. } => description,
             Self::Project { description, .. } | Self::Thread { description, .. } => description,
         }
     }
@@ -266,6 +274,7 @@ impl SearchPaletteItem {
                 SearchPaletteResultKind::Registry => PaletteItemKind::Registry,
             },
             Self::Message { .. } => PaletteItemKind::Context,
+            Self::Context { .. } => PaletteItemKind::Context,
             Self::Project { .. } => PaletteItemKind::Project,
             Self::Thread { .. } => PaletteItemKind::Thread,
         }
@@ -431,6 +440,14 @@ pub fn palette_items(
                 message_role_label(message.role),
                 message.excerpt
             ),
+        });
+    }
+    for context in &projection.search.contexts {
+        context_items.push(SearchPaletteItem::Context {
+            thread_id: context.thread_id.clone(),
+            tab: search_context_tab(context.kind),
+            label: context.label.clone(),
+            description: context.description.clone(),
         });
     }
 
@@ -843,6 +860,15 @@ fn message_role_label(role: ace_runtime::chat::ChatMessageRole) -> &'static str 
         ace_runtime::chat::ChatMessageRole::Tool => "Tool",
         ace_runtime::chat::ChatMessageRole::Plan => "Plan",
         ace_runtime::chat::ChatMessageRole::Activity => "Activity",
+    }
+}
+
+fn search_context_tab(kind: SearchContextKind) -> RightPanelTab {
+    match kind {
+        SearchContextKind::Terminal => RightPanelTab::Terminal,
+        SearchContextKind::Browser => RightPanelTab::Browser,
+        SearchContextKind::DiffComment => RightPanelTab::Review,
+        SearchContextKind::Artifact => RightPanelTab::Sources,
     }
 }
 
@@ -1264,6 +1290,12 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
             SearchPaletteResultKind::Registry => ace_icon_svg(AceIconName::Box, color),
         },
         SearchPaletteItem::Message { .. } => ace_icon_svg(AceIconName::Summary, color),
+        SearchPaletteItem::Context { tab, .. } => match tab {
+            RightPanelTab::Terminal => ace_icon_svg(AceIconName::Terminal, color),
+            RightPanelTab::Browser => ace_icon_svg(AceIconName::Browser, color),
+            RightPanelTab::Review => ace_icon_svg(AceIconName::Review, color),
+            _ => icon_svg(IconName::File, color),
+        },
     }
 }
 
@@ -1301,6 +1333,10 @@ fn _bottom_panel_tab_reference(_: BottomPanelTab) {}
 mod tests {
     use super::*;
     use crate::stores::desktop::{ComposerPayload, DesktopStore};
+    use ace_protocol::terminal::{
+        DEFAULT_TERMINAL_ID, SequencedTerminalEvent, TerminalEvent, TerminalSessionSnapshot,
+        TerminalSessionStatus,
+    };
 
     #[test]
     fn palette_search_includes_persisted_context_results() {
@@ -1404,6 +1440,69 @@ mod tests {
             "{}",
             message_result.description()
         );
+    }
+
+    #[test]
+    fn palette_search_includes_backed_operational_contexts() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let context_thread_id = store.new_thread(project_id);
+        store.create_review_comment_for_file("src/lib.rs".to_string());
+        store.apply_terminal_event(SequencedTerminalEvent {
+            sequence: 1,
+            event: TerminalEvent::Started {
+                thread_id: context_thread_id.0.clone(),
+                terminal_id: DEFAULT_TERMINAL_ID.to_string(),
+                created_at: "now".to_string(),
+                snapshot: TerminalSessionSnapshot {
+                    thread_id: context_thread_id.0.clone(),
+                    terminal_id: DEFAULT_TERMINAL_ID.to_string(),
+                    cwd: "/tmp/project".to_string(),
+                    title: None,
+                    status: TerminalSessionStatus::Running,
+                    pid: Some(42),
+                    history: String::new(),
+                    exit_code: None,
+                    exit_signal: None,
+                    cols: 120,
+                    rows: 32,
+                    updated_at: "terminal".to_string(),
+                    next_sequence: 2,
+                    truncated_before_sequence: None,
+                },
+            },
+        });
+        store.apply_terminal_event(SequencedTerminalEvent {
+            sequence: 2,
+            event: TerminalEvent::Output {
+                thread_id: context_thread_id.0.clone(),
+                terminal_id: DEFAULT_TERMINAL_ID.to_string(),
+                created_at: "now".to_string(),
+                data: "cargo test --workspace\n".to_string(),
+            },
+        });
+        let _active_thread_id = store.new_thread(project_id);
+
+        let review_items = palette_items(&store.projection(), SearchPaletteMode::Root, "src/lib");
+        assert!(review_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::Context {
+                thread_id: Some(thread_id),
+                tab: RightPanelTab::Review,
+                ..
+            } if *thread_id == context_thread_id
+        )));
+
+        let terminal_items =
+            palette_items(&store.projection(), SearchPaletteMode::Root, "cargo test");
+        assert!(terminal_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::Context {
+                thread_id: Some(thread_id),
+                tab: RightPanelTab::Terminal,
+                ..
+            } if *thread_id == context_thread_id
+        )));
     }
 
     #[test]

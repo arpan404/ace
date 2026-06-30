@@ -131,6 +131,7 @@ pub struct DesktopProjection {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchProjection {
     pub messages: Vec<MessageSearchResultProjection>,
+    pub contexts: Vec<ContextSearchResultProjection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,6 +143,23 @@ pub struct MessageSearchResultProjection {
     pub role: ChatMessageRole,
     pub excerpt: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextSearchResultProjection {
+    pub thread_id: Option<ThreadId>,
+    pub kind: SearchContextKind,
+    pub label: String,
+    pub description: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchContextKind {
+    Terminal,
+    Browser,
+    DiffComment,
+    Artifact,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -911,13 +929,115 @@ impl DesktopStore {
                 });
                 if messages.len() >= 256 {
                     messages.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-                    return SearchProjection { messages };
+                    return SearchProjection {
+                        messages,
+                        contexts: self.search_context_projection(&threads),
+                    };
                 }
             }
         }
 
         messages.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-        SearchProjection { messages }
+        SearchProjection {
+            messages,
+            contexts: self.search_context_projection(&threads),
+        }
+    }
+
+    fn search_context_projection(
+        &self,
+        threads: &HashMap<ThreadId, &ThreadSummary>,
+    ) -> Vec<ContextSearchResultProjection> {
+        let mut contexts = Vec::new();
+
+        for comment in &self.review_comments {
+            let Some(thread) = threads.get(&comment.thread_id) else {
+                continue;
+            };
+            if thread.archived {
+                continue;
+            }
+            contexts.push(ContextSearchResultProjection {
+                thread_id: Some(comment.thread_id.clone()),
+                kind: SearchContextKind::DiffComment,
+                label: format!("Diff comment: {}", comment.file_path),
+                description: format!("{} · {}", thread.title, review_comment_detail(comment)),
+                updated_at: comment.updated_at.clone(),
+            });
+        }
+
+        for session in self.terminal_sessions.values() {
+            let thread_id = ThreadId(session.thread_id.clone());
+            let Some(thread) = threads.get(&thread_id) else {
+                continue;
+            };
+            if thread.archived {
+                continue;
+            }
+            let history = if session.history.trim().is_empty() {
+                String::new()
+            } else {
+                format!(" · {}", tail_chars(&session.history, 160))
+            };
+            contexts.push(ContextSearchResultProjection {
+                thread_id: Some(thread_id),
+                kind: SearchContextKind::Terminal,
+                label: format!("Terminal in {}", thread.title),
+                description: format!(
+                    "{} · {} · {}{}",
+                    thread.title,
+                    short_status(&session.status),
+                    session.cwd,
+                    history
+                ),
+                updated_at: session.updated_at.clone(),
+            });
+        }
+
+        for activity in &self.browser_activities {
+            let Some(thread) = threads.get(&activity.thread_id) else {
+                continue;
+            };
+            if thread.archived {
+                continue;
+            }
+            let target = activity
+                .target
+                .as_deref()
+                .filter(|target| !target.is_empty())
+                .map(|target| format!(" · {target}"))
+                .unwrap_or_default();
+            contexts.push(ContextSearchResultProjection {
+                thread_id: Some(activity.thread_id.clone()),
+                kind: SearchContextKind::Browser,
+                label: format!("Browser: {}", activity.title),
+                description: format!(
+                    "{} · {} · {}{}",
+                    thread.title, activity.status, activity.detail, target
+                ),
+                updated_at: activity.observed_at.clone(),
+            });
+        }
+
+        for artifact in &self.artifacts {
+            let Some(thread) = threads.get(&artifact.thread_id) else {
+                continue;
+            };
+            if thread.archived {
+                continue;
+            }
+            contexts.push(ContextSearchResultProjection {
+                thread_id: Some(artifact.thread_id.clone()),
+                kind: SearchContextKind::Artifact,
+                label: format!("Artifact: {}", artifact.title),
+                description: format!("{} · {}", thread.title, artifact.detail),
+                updated_at: artifact.observed_at.clone(),
+            });
+        }
+
+        contexts.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        contexts.truncate(256);
+        contexts
     }
 
     fn apply_thread_annotation_counts(&self, sidebar: &mut SidebarProjection) {
