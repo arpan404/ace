@@ -2,7 +2,7 @@ use crate::backend::{
     BackendError, BackendHostClient, ProjectsAdd, ProjectsDelete, ProjectsProjectThreads,
     ProjectsSnapshot, ProjectsThreadMessages,
 };
-use ace_core::{ModelSelection, Project, ProjectId, ProviderKind, ThreadId};
+use ace_core::{ModelSelection, Project, ProjectId, ProjectScript, ProviderKind, ThreadId};
 use ace_project::ProjectSummary;
 use ace_protocol::{
     git::{
@@ -480,6 +480,12 @@ impl TerminalKey {
             terminal_id: DEFAULT_TERMINAL_ID.to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProjectActionKind {
+    Tests,
+    Lint,
 }
 
 impl DesktopStore {
@@ -1809,6 +1815,33 @@ impl DesktopStore {
                     .insert(thread_id, format!("Failed to write to terminal: {error}"));
             }
         }
+    }
+
+    pub fn run_active_project_tests(&mut self, host: Option<&BackendHostClient>) {
+        self.run_active_project_command(host, ProjectActionKind::Tests);
+    }
+
+    pub fn run_active_project_lint(&mut self, host: Option<&BackendHostClient>) {
+        self.run_active_project_command(host, ProjectActionKind::Lint);
+    }
+
+    fn run_active_project_command(
+        &mut self,
+        host: Option<&BackendHostClient>,
+        action: ProjectActionKind,
+    ) {
+        let Some(thread_id) = self.metadata.active_thread_id.clone() else {
+            return;
+        };
+        let Some(command) = self.active_project_action_command(&thread_id, action) else {
+            self.terminal_errors.insert(
+                thread_id,
+                "No active project is available for this action.".to_string(),
+            );
+            return;
+        };
+        self.terminal_inputs.insert(thread_id, command);
+        self.send_active_terminal_input(host);
     }
 
     pub fn apply_terminal_event(&mut self, event: SequencedTerminalEvent) {
@@ -3347,6 +3380,24 @@ impl DesktopStore {
         })
     }
 
+    fn active_project_action_command(
+        &self,
+        thread_id: &ThreadId,
+        action: ProjectActionKind,
+    ) -> Option<String> {
+        let thread = self.threads.iter().find(|thread| &thread.id == thread_id)?;
+        let project = self
+            .projects
+            .iter()
+            .find(|project| project.id == thread.project_id)?;
+        project
+            .scripts
+            .iter()
+            .find(|script| project_script_matches_action(script, action))
+            .map(|script| script.command.clone())
+            .or_else(|| Some(default_project_action_command(action).to_string()))
+    }
+
     fn review_repo_path(&self, thread: &ThreadSummary) -> Option<String> {
         thread.worktree_path.clone().or_else(|| {
             self.projects
@@ -4119,6 +4170,35 @@ fn composer_mentions(prompt: &str) -> Vec<String> {
         .collect()
 }
 
+fn project_script_matches_action(script: &ProjectScript, action: ProjectActionKind) -> bool {
+    let id = script.id.to_ascii_lowercase();
+    let label = script.label.to_ascii_lowercase();
+    match action {
+        ProjectActionKind::Tests => {
+            id == "test"
+                || id == "tests"
+                || label == "test"
+                || label == "tests"
+                || label.contains("test")
+        }
+        ProjectActionKind::Lint => {
+            id == "lint"
+                || id == "clippy"
+                || label == "lint"
+                || label == "clippy"
+                || label.contains("lint")
+                || label.contains("clippy")
+        }
+    }
+}
+
+fn default_project_action_command(action: ProjectActionKind) -> &'static str {
+    match action {
+        ProjectActionKind::Tests => "cargo test --workspace --all-targets",
+        ProjectActionKind::Lint => "cargo clippy --workspace --all-targets -- -D warnings",
+    }
+}
+
 struct PermissionPayload {
     sandbox_policy: serde_json::Value,
     approval_policy: serde_json::Value,
@@ -4402,6 +4482,55 @@ mod tests {
         assert_eq!(session.pid, Some(42));
         assert_eq!(session.history, "hello\n");
         assert_eq!(session.next_sequence, 3);
+    }
+
+    #[test]
+    fn project_action_command_prefers_configured_scripts() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        let project = store
+            .projects
+            .iter_mut()
+            .find(|project| project.id == project_id)
+            .expect("project");
+        project.scripts = vec![
+            ProjectScript {
+                id: "test".to_string(),
+                label: "Test".to_string(),
+                command: "cargo nextest run".to_string(),
+            },
+            ProjectScript {
+                id: "lint".to_string(),
+                label: "Lint".to_string(),
+                command: "cargo clippy --workspace".to_string(),
+            },
+        ];
+
+        assert_eq!(
+            store.active_project_action_command(&thread_id, ProjectActionKind::Tests),
+            Some("cargo nextest run".to_string())
+        );
+        assert_eq!(
+            store.active_project_action_command(&thread_id, ProjectActionKind::Lint),
+            Some("cargo clippy --workspace".to_string())
+        );
+    }
+
+    #[test]
+    fn project_action_command_defaults_to_rust_workspace_commands() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+
+        assert_eq!(
+            store.active_project_action_command(&thread_id, ProjectActionKind::Tests),
+            Some("cargo test --workspace --all-targets".to_string())
+        );
+        assert_eq!(
+            store.active_project_action_command(&thread_id, ProjectActionKind::Lint),
+            Some("cargo clippy --workspace --all-targets -- -D warnings".to_string())
+        );
     }
 
     #[test]

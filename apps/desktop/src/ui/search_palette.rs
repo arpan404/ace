@@ -128,12 +128,8 @@ impl SearchPaletteItem {
             Self::SetProjectDefaultModel => {
                 "Persist the current composer model as the active project's default."
             }
-            Self::RunTests => {
-                "Project action runner is not implemented yet; open Terminal to run tests."
-            }
-            Self::RunLint => {
-                "Project action runner is not implemented yet; open Terminal to run lint."
-            }
+            Self::RunTests => "Run the configured test script or Rust workspace test command.",
+            Self::RunLint => "Run the configured lint script or Rust workspace clippy command.",
             Self::ComposerModel { description, .. } | Self::ComposerTrait { description, .. } => {
                 description
             }
@@ -181,12 +177,6 @@ impl SearchPaletteItem {
             Self::ComposerModel { selectable, .. } if !selectable => Some(
                 "This provider is visible in the catalog, but desktop send routing currently uses the Codex runtime.",
             ),
-            Self::RunTests => {
-                Some("Project action runner is not implemented yet; open Terminal to run tests.")
-            }
-            Self::RunLint => {
-                Some("Project action runner is not implemented yet; open Terminal to run lint.")
-            }
             _ => None,
         }
     }
@@ -972,13 +962,8 @@ mod tests {
         );
 
         assert_eq!(SearchPaletteItem::SwitchModel.disabled_reason(), None);
-
-        for command in [SearchPaletteItem::RunTests, SearchPaletteItem::RunLint] {
-            assert!(
-                command.disabled_reason().is_some(),
-                "{command:?} should explain why it is disabled"
-            );
-        }
+        assert_eq!(SearchPaletteItem::RunTests.disabled_reason(), None);
+        assert_eq!(SearchPaletteItem::RunLint.disabled_reason(), None);
     }
 
     #[test]

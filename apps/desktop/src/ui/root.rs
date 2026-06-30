@@ -6,16 +6,16 @@ use crate::{
         DenyProviderRequest, InterruptActiveTurn, NewThread, NewThreadForProject,
         OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem, PushReview,
         RefreshActiveTab, RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree,
-        SelectBottomPanelTab, SelectComposerHost, SelectComposerModel, SelectRightPanelTab,
-        SelectSearchPaletteItem, SendActiveComposer, SetActiveProjectDefaultModel, SetCodeFont,
-        SetComposerInteractionMode, SetComposerPermission, SetComposerReasoning,
-        SetComposerRuntimeMode, SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont,
-        ShowBrowserTab, ShowLessProjectThreads, ShowMoreProjectThreads, ShowPinnedTab,
-        ShowPluginsTab, ShowProvidersTab, ShowSkillsTab, ShowTodosTab, StageReviewAll,
-        StageReviewFile, ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait,
-        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
-        ToggleHighlightTimelineItem, TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
-        UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
+        RunLint, RunTests, SelectBottomPanelTab, SelectComposerHost, SelectComposerModel,
+        SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer,
+        SetActiveProjectDefaultModel, SetCodeFont, SetComposerInteractionMode,
+        SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, SetThemeDensity,
+        SetThemeMotion, SetThemePreset, SetUiFont, ShowBrowserTab, ShowLessProjectThreads,
+        ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab,
+        ShowTodosTab, StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleComposerContext,
+        ToggleComposerTrait, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
+        ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
+        ToggleRightPanel, ToggleSidebar, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -668,9 +668,15 @@ impl RootView {
                 self.active_store_mut()
                     .set_active_project_default_model(active_host.as_ref());
             }
-            SearchPaletteItem::ConnectRemoteHost
-            | SearchPaletteItem::RunTests
-            | SearchPaletteItem::RunLint => {
+            SearchPaletteItem::RunTests => {
+                self.search_palette.close();
+                self.run_active_project_tests();
+            }
+            SearchPaletteItem::RunLint => {
+                self.search_palette.close();
+                self.run_active_project_lint();
+            }
+            SearchPaletteItem::ConnectRemoteHost => {
                 self.search_palette.close();
             }
             SearchPaletteItem::ComposerModel {
@@ -749,6 +755,20 @@ impl RootView {
         let active_host = self.active_host.clone();
         self.active_store_mut()
             .ensure_active_terminal(active_host.as_ref());
+    }
+
+    fn run_active_project_tests(&mut self) {
+        self.apply_right_panel_tab(RightPanelTab::Terminal);
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .run_active_project_tests(active_host.as_ref());
+    }
+
+    fn run_active_project_lint(&mut self) {
+        self.apply_right_panel_tab(RightPanelTab::Terminal);
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .run_active_project_lint(active_host.as_ref());
     }
 
     fn refresh_active_review(&mut self) {
@@ -986,6 +1006,16 @@ impl RootView {
         let active_host = self.active_host.clone();
         self.active_store_mut()
             .set_active_project_default_model(active_host.as_ref());
+        cx.notify();
+    }
+
+    fn run_tests(&mut self, _: &RunTests, _: &mut Window, cx: &mut Context<Self>) {
+        self.run_active_project_tests();
+        cx.notify();
+    }
+
+    fn run_lint(&mut self, _: &RunLint, _: &mut Window, cx: &mut Context<Self>) {
+        self.run_active_project_lint();
         cx.notify();
     }
 
@@ -1295,6 +1325,8 @@ impl Render for RootView {
             .on_action(cx.listener(Self::send_active_composer))
             .on_action(cx.listener(Self::select_composer_model))
             .on_action(cx.listener(Self::set_active_project_default_model))
+            .on_action(cx.listener(Self::run_tests))
+            .on_action(cx.listener(Self::run_lint))
             .on_action(cx.listener(Self::set_composer_reasoning))
             .on_action(cx.listener(Self::set_composer_permission))
             .on_action(cx.listener(Self::toggle_composer_trait))

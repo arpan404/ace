@@ -34,6 +34,8 @@ actions!(
         CreateWorktree,
         RefreshApprovals,
         RefreshActiveTab,
+        RunTests,
+        RunLint,
         ShowBrowserTab,
         ShowPinnedTab,
         ShowTodosTab,
