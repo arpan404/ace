@@ -11,11 +11,12 @@ use crate::{
     },
     stores::{
         ApprovalItemProjection, ApprovalRegistryProjection, BrowserBridgeProjection,
-        BrowserProjection, DesktopProjection, ModelProjection, ModelProviderProjection,
-        ModelRegistryProjection, ReviewCommentItem, ReviewFileProjection, ReviewProjection,
-        ServiceReadiness, ServiceStatus, SourceItemProjection, TodoAssignee, TodoItem,
-        TodoPriority, TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
-        WorktreeEntryProjection, WorktreeProjection,
+        BrowserProjection, DesktopProjection, EditorFileProjection, EditorProjection,
+        ModelProjection, ModelProviderProjection, ModelRegistryProjection, ReviewCommentItem,
+        ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
+        SourceItemProjection, TodoAssignee, TodoItem, TodoPriority, TodoStatus,
+        ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
+        WorktreeProjection,
         ui::{BottomPanelTab, RightPanelTab, UiState},
     },
     ui::{
@@ -275,14 +276,7 @@ fn workbench_panel(
                 &services.editor,
                 AceIconName::Editor,
                 "Editor",
-                || {
-                    empty_panel_body(
-                        theme,
-                        AceIconName::Editor,
-                        "Editor",
-                        "No editor buffer is attached to this thread.",
-                    )
-                },
+                || editor_body(theme, &projection.editor),
             ),
             RightPanelTab::Summary => service_panel_body(
                 theme,
@@ -755,6 +749,139 @@ fn join_or_empty(values: &[String]) -> String {
     } else {
         values.join(", ")
     }
+}
+
+fn editor_body(theme: Theme, editor: &EditorProjection) -> AnyElement {
+    let Some(workspace_root) = editor.workspace_root.as_deref() else {
+        return empty_panel_body(
+            theme,
+            AceIconName::Editor,
+            "Editor",
+            "No project workspace is available for this thread.",
+        );
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(info_row(theme, "Workspace", &short_path(workspace_root)))
+        .child(info_row(
+            theme,
+            "Buffer sync",
+            if editor.can_sync_buffers {
+                "Available"
+            } else {
+                "Unavailable"
+            },
+        ))
+        .child(info_row(theme, "Diagnostics", editor.diagnostics_topic))
+        .child(info_row(
+            theme,
+            "Changed files",
+            &editor.candidate_files.len().to_string(),
+        ))
+        .when_some(editor.error.as_deref(), |this, error| {
+            this.child(registry_error_card(theme, error))
+        })
+        .child(editor_file_list(theme, &editor.candidate_files))
+        .child(
+            div()
+                .rounded_md()
+                .border_1()
+                .border_color(theme.border_subtle)
+                .bg(theme.panel)
+                .px_2()
+                .py_2()
+                .text_size(px(12.0))
+                .line_height(px(17.0))
+                .text_color(theme.muted)
+                .child("Editor RPC methods are available for buffer sync, diagnostics, symbols, hover, definitions, formatting, and code actions. The GPUI buffer surface will mount here when a file row opens a live buffer."),
+        )
+        .into_any_element()
+}
+
+fn editor_file_list(theme: Theme, files: &[EditorFileProjection]) -> AnyElement {
+    if files.is_empty() {
+        return div()
+            .rounded_md()
+            .border_1()
+            .border_color(theme.border_subtle)
+            .bg(theme.panel)
+            .px_2()
+            .py_2()
+            .text_size(px(12.0))
+            .text_color(theme.muted)
+            .child("No changed files to sync")
+            .into_any_element();
+    }
+
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme.muted)
+                .child("Buffer candidates"),
+        )
+        .children(
+            files
+                .iter()
+                .take(24)
+                .map(|file| editor_file_row(theme, file))
+                .collect::<Vec<_>>(),
+        )
+        .when(files.len() > 24, |this| {
+            this.child(
+                div()
+                    .pt_1()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(format!("{} more files", files.len() - 24)),
+            )
+        })
+        .into_any_element()
+}
+
+fn editor_file_row(theme: Theme, file: &EditorFileProjection) -> AnyElement {
+    let stat = match (file.additions, file.deletions) {
+        (Some(additions), Some(deletions)) => format!("+{additions} -{deletions}"),
+        _ => "diff stat unavailable".to_string(),
+    };
+
+    div()
+        .min_h(px(24.0))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .text_size(px(12.0))
+        .child(
+            div()
+                .w(px(72.0))
+                .text_color(theme.muted_subtle)
+                .child(file.status.clone()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .text_color(theme.foreground.opacity(0.82))
+                .child(file.path.clone()),
+        )
+        .child(div().text_color(theme.muted).child(stat))
+        .into_any_element()
 }
 
 fn review_body(

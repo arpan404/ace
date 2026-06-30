@@ -106,6 +106,7 @@ pub struct DesktopProjection {
     pub host_options: Vec<HostOptionProjection>,
     pub services: ServiceReadiness,
     pub terminal: TerminalProjection,
+    pub editor: EditorProjection,
     pub review: ReviewProjection,
     pub worktrees: WorktreeProjection,
     pub sources: SourcesProjection,
@@ -233,6 +234,24 @@ pub struct TerminalSessionProjection {
     pub updated_at: String,
     pub next_sequence: u64,
     pub truncated_before_sequence: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EditorProjection {
+    pub active_thread_id: Option<ThreadId>,
+    pub workspace_root: Option<String>,
+    pub candidate_files: Vec<EditorFileProjection>,
+    pub can_sync_buffers: bool,
+    pub diagnostics_topic: &'static str,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorFileProjection {
+    pub path: String,
+    pub status: String,
+    pub additions: Option<u32>,
+    pub deletions: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -693,6 +712,7 @@ impl DesktopStore {
             host_options: self.host_options_projection(),
             services: self.service_readiness(),
             terminal: self.terminal_projection(),
+            editor: self.editor_projection(),
             review: self.review_projection(),
             worktrees: self.worktree_projection(),
             sources: self.sources_projection(),
@@ -756,9 +776,7 @@ impl DesktopStore {
             worktrees: ServiceStatus::Ready,
             approvals: ServiceStatus::Ready,
             browser: self.browser_service_status(),
-            editor: ServiceStatus::Missing {
-                reason: "Editor buffers need a GPUI buffer surface wired to the editor RPC service.",
-            },
+            editor: self.editor_service_status(),
             summary: ServiceStatus::Ready,
             providers: ServiceStatus::Ready,
             plugins: ServiceStatus::Ready,
@@ -787,6 +805,17 @@ impl DesktopStore {
             },
         );
         ServiceStatus::Missing { reason }
+    }
+
+    fn editor_service_status(&self) -> ServiceStatus {
+        let projection = self.editor_projection();
+        if projection.can_sync_buffers {
+            ServiceStatus::Ready
+        } else {
+            ServiceStatus::Missing {
+                reason: "Select a thread with a project workspace before opening editor buffers.",
+            }
+        }
     }
 
     #[must_use]
@@ -820,6 +849,57 @@ impl DesktopStore {
             input,
             error,
             can_send,
+        }
+    }
+
+    #[must_use]
+    pub fn editor_projection(&self) -> EditorProjection {
+        let Some(thread) = self.active_thread() else {
+            return EditorProjection {
+                diagnostics_topic: "editor.diagnostics",
+                error: Some("No active thread is selected.".to_string()),
+                ..EditorProjection::default()
+            };
+        };
+        let workspace_root = self
+            .projects
+            .iter()
+            .find(|project| project.id == thread.project_id)
+            .map(|project| project.workspace_root.clone());
+        let Some(workspace_root) = workspace_root else {
+            return EditorProjection {
+                active_thread_id: Some(thread.id.clone()),
+                diagnostics_topic: "editor.diagnostics",
+                error: Some("No project workspace is available for this thread.".to_string()),
+                ..EditorProjection::default()
+            };
+        };
+
+        let candidate_files = self
+            .review_snapshots
+            .get(&thread.project_id)
+            .map(|review| {
+                review
+                    .files
+                    .iter()
+                    .take(48)
+                    .map(|file| EditorFileProjection {
+                        path: file.path.clone(),
+                        status: file.status.clone(),
+                        additions: file.additions,
+                        deletions: file.deletions,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        EditorProjection {
+            active_thread_id: Some(thread.id.clone()),
+            workspace_root: Some(workspace_root),
+            candidate_files,
+            can_sync_buffers: self.host.is_some(),
+            diagnostics_topic: "editor.diagnostics",
+            error: None,
         }
     }
 
@@ -5039,6 +5119,40 @@ mod tests {
         assert!(sources.items.iter().any(|item| item.kind == "terminal"));
         assert!(sources.items.iter().any(|item| item.kind == "pinned"));
         assert!(sources.items.iter().any(|item| item.kind == "diff_comment"));
+    }
+
+    #[test]
+    fn editor_projection_reads_active_workspace_and_review_files() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.review_snapshots.insert(
+            project_id,
+            ReviewProjection {
+                repo_path: Some("/tmp/project".to_string()),
+                files: vec![ReviewFileProjection {
+                    path: "src/lib.rs".to_string(),
+                    original_path: None,
+                    status: "modified".to_string(),
+                    additions: Some(4),
+                    deletions: Some(2),
+                }],
+                ..ReviewProjection::default()
+            },
+        );
+
+        let editor = store.editor_projection();
+
+        assert_eq!(editor.active_thread_id, Some(thread_id));
+        assert_eq!(editor.workspace_root.as_deref(), Some("/tmp/project"));
+        assert_eq!(editor.diagnostics_topic, "editor.diagnostics");
+        assert_eq!(editor.candidate_files.len(), 1);
+        assert_eq!(editor.candidate_files[0].path, "src/lib.rs");
+        assert_eq!(editor.candidate_files[0].additions, Some(4));
+        assert_eq!(
+            store.editor_service_status().missing_reason(),
+            Some("Select a thread with a project workspace before opening editor buffers.")
+        );
     }
 
     #[test]
