@@ -1,3 +1,6 @@
+mod terminal_state;
+
+use self::terminal_state::{TerminalKey, append_terminal_history, short_status};
 use crate::backend::{
     BackendError, BackendHostClient, ProjectsAdd, ProjectsDelete, ProjectsProjectThreads,
     ProjectsSnapshot, ProjectsThreadMessages,
@@ -716,21 +719,6 @@ pub struct ThreadAnnotationsSnapshot {
     pub todos: Vec<TodoItem>,
     #[serde(default)]
     pub review_comments: Vec<ReviewCommentItem>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct TerminalKey {
-    thread_id: String,
-    terminal_id: String,
-}
-
-impl TerminalKey {
-    fn default_for_thread(thread_id: &ThreadId) -> Self {
-        Self {
-            thread_id: thread_id.0.clone(),
-            terminal_id: DEFAULT_TERMINAL_ID.to_string(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6079,48 +6067,6 @@ impl DesktopStore {
     }
 }
 
-impl TerminalSessionProjection {
-    fn from_snapshot(snapshot: TerminalSessionSnapshot) -> Self {
-        let mut history = snapshot.history;
-        trim_terminal_history(&mut history);
-        Self {
-            thread_id: snapshot.thread_id,
-            terminal_id: snapshot.terminal_id,
-            cwd: snapshot.cwd,
-            title: snapshot.title,
-            status: snapshot.status,
-            pid: snapshot.pid,
-            history,
-            exit_code: snapshot.exit_code,
-            exit_signal: snapshot.exit_signal,
-            cols: snapshot.cols,
-            rows: snapshot.rows,
-            updated_at: snapshot.updated_at,
-            next_sequence: snapshot.next_sequence,
-            truncated_before_sequence: snapshot.truncated_before_sequence,
-        }
-    }
-
-    fn placeholder(thread_id: String, terminal_id: String) -> Self {
-        Self {
-            thread_id,
-            terminal_id,
-            cwd: String::new(),
-            title: None,
-            status: TerminalSessionStatus::Running,
-            pid: None,
-            history: String::new(),
-            exit_code: None,
-            exit_signal: None,
-            cols: DEFAULT_TERMINAL_COLS,
-            rows: DEFAULT_TERMINAL_ROWS,
-            updated_at: String::new(),
-            next_sequence: 0,
-            truncated_before_sequence: None,
-        }
-    }
-}
-
 fn project_from_summary(value: ProjectSummary) -> Project {
     Project {
         id: value.id,
@@ -6523,15 +6469,6 @@ fn slash_command_projections(
         .collect()
 }
 
-fn short_status(status: &TerminalSessionStatus) -> &'static str {
-    match status {
-        TerminalSessionStatus::Starting => "starting",
-        TerminalSessionStatus::Running => "running",
-        TerminalSessionStatus::Exited => "exited",
-        TerminalSessionStatus::Error => "error",
-    }
-}
-
 fn title_from_prompt(prompt: &str) -> String {
     let mut title = prompt
         .split_whitespace()
@@ -6553,24 +6490,6 @@ fn now_millis() -> u64 {
 
 fn timestamp(value: u64) -> String {
     value.to_string()
-}
-
-fn append_terminal_history(history: &mut String, data: &str) {
-    history.push_str(data);
-    trim_terminal_history(history);
-}
-
-fn trim_terminal_history(history: &mut String) {
-    if history.len() <= DESKTOP_TERMINAL_HISTORY_LIMIT {
-        return;
-    }
-
-    let trim_to = history.len() - DESKTOP_TERMINAL_HISTORY_LIMIT;
-    let split = history[trim_to..]
-        .find('\n')
-        .map(|offset| trim_to + offset + 1)
-        .unwrap_or(trim_to);
-    history.drain(..split);
 }
 
 fn parse_review_files(value: serde_json::Value) -> Vec<ReviewFileProjection> {
