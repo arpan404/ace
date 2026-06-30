@@ -2,20 +2,20 @@ use crate::{
     actions::{
         ApproveProviderRequest, CommitReview, CreateReviewComment,
         CreateTodoFromLatestTimelineItem, CreateWorktree, DenyProviderRequest,
-        PinLatestTimelineItem, PushReview, RefreshApprovals, RefreshReview, RefreshWorktrees,
-        RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab, SetCodeFont, SetThemeDensity,
-        SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll, StageReviewFile,
-        ToggleBottomPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        LinkTodoToCurrentDiff, PinLatestTimelineItem, PushReview, RefreshApprovals, RefreshReview,
+        RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab, SetCodeFont,
+        SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll,
+        StageReviewFile, ToggleBottomPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
         ToggleReviewCommentResolved, ToggleRightPanel, UnstageReviewAll, UnstageReviewFile,
-        UpdateTodoStatus,
+        UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
     },
     stores::{
         ApprovalItemProjection, ApprovalRegistryProjection, BrowserBridgeProjection,
         BrowserProjection, DesktopProjection, ModelProjection, ModelProviderProjection,
         ModelRegistryProjection, ReviewCommentItem, ReviewFileProjection, ReviewProjection,
-        ServiceReadiness, ServiceStatus, SourceItemProjection, TodoItem, TodoStatus,
-        ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
-        WorktreeProjection,
+        ServiceReadiness, ServiceStatus, SourceItemProjection, TodoAssignee, TodoItem,
+        TodoPriority, TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
+        WorktreeEntryProjection, WorktreeProjection,
         ui::{BottomPanelTab, RightPanelTab, UiState},
     },
     ui::{
@@ -3024,11 +3024,55 @@ fn todo_card(theme: Theme, todo: &TodoItem) -> AnyElement {
                             div()
                                 .text_size(px(11.0))
                                 .text_color(theme.muted)
-                                .child(format!("{title} · Updated {}", todo.updated_at)),
+                                .child(format!(
+                                    "{title} · {} priority · assigned to {} · Updated {}",
+                                    todo_priority_label(todo.priority),
+                                    todo_assignee_label(todo.assigned_to),
+                                    todo.updated_at
+                                )),
                         ),
                 ),
         )
+        .when_some(todo.description.as_deref(), |this, description| {
+            this.child(
+                div()
+                    .text_size(px(12.0))
+                    .line_height(px(17.0))
+                    .text_color(theme.foreground.opacity(0.70))
+                    .child(clamp_text(description, 220)),
+            )
+        })
+        .when(!todo.related_files.is_empty(), |this| {
+            this.child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(format!(
+                        "{} related file{}",
+                        todo.related_files.len(),
+                        plural(todo.related_files.len())
+                    )),
+            )
+        })
+        .when(!todo.related_diff_comments.is_empty(), |this| {
+            this.child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(format!(
+                        "{} diff comment{}",
+                        todo.related_diff_comments.len(),
+                        plural(todo.related_diff_comments.len())
+                    )),
+            )
+        })
         .child(todo_status_actions(theme, &todo_id, todo.status))
+        .child(todo_metadata_actions(
+            theme,
+            &todo_id,
+            todo.priority,
+            todo.assigned_to,
+        ))
         .into_any_element()
 }
 
@@ -3070,6 +3114,98 @@ fn todo_status_actions(theme: Theme, todo_id: &str, status: TodoStatus) -> AnyEl
             })
         }))
         .into_any_element()
+}
+
+fn todo_metadata_actions(
+    theme: Theme,
+    todo_id: &str,
+    priority: TodoPriority,
+    assignee: TodoAssignee,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .children(
+            next_priority_actions(priority)
+                .into_iter()
+                .map(|(icon, label, priority)| {
+                    let todo_id = todo_id.to_string();
+                    action_button(icon, label, theme, move || {
+                        Box::new(UpdateTodoPriority {
+                            todo_id: todo_id.clone(),
+                            priority,
+                        })
+                    })
+                }),
+        )
+        .children(
+            next_assignee_actions(assignee)
+                .into_iter()
+                .map(|(icon, label, assignee)| {
+                    let todo_id = todo_id.to_string();
+                    action_button(icon, label, theme, move || {
+                        Box::new(UpdateTodoAssignee {
+                            todo_id: todo_id.clone(),
+                            assignee,
+                        })
+                    })
+                }),
+        )
+        .child({
+            let todo_id = todo_id.to_string();
+            action_button(IconName::File, "Link diff", theme, move || {
+                Box::new(LinkTodoToCurrentDiff {
+                    todo_id: todo_id.clone(),
+                })
+            })
+        })
+        .into_any_element()
+}
+
+fn next_priority_actions(priority: TodoPriority) -> Vec<(IconName, &'static str, TodoPriority)> {
+    match priority {
+        TodoPriority::Low => vec![(IconName::ArrowUp, "Normal", TodoPriority::Normal)],
+        TodoPriority::Normal => vec![
+            (IconName::ArrowDown, "Low", TodoPriority::Low),
+            (IconName::ArrowUp, "High", TodoPriority::High),
+        ],
+        TodoPriority::High => vec![(IconName::ArrowDown, "Normal", TodoPriority::Normal)],
+    }
+}
+
+fn next_assignee_actions(assignee: TodoAssignee) -> Vec<(IconName, &'static str, TodoAssignee)> {
+    match assignee {
+        TodoAssignee::User => vec![
+            (IconName::Bot, "Agent", TodoAssignee::Agent),
+            (IconName::User, "Both", TodoAssignee::Both),
+        ],
+        TodoAssignee::Agent => vec![
+            (IconName::User, "User", TodoAssignee::User),
+            (IconName::User, "Both", TodoAssignee::Both),
+        ],
+        TodoAssignee::Both => vec![
+            (IconName::User, "User", TodoAssignee::User),
+            (IconName::Bot, "Agent", TodoAssignee::Agent),
+        ],
+    }
+}
+
+fn todo_priority_label(priority: TodoPriority) -> &'static str {
+    match priority {
+        TodoPriority::Low => "low",
+        TodoPriority::Normal => "normal",
+        TodoPriority::High => "high",
+    }
+}
+
+fn todo_assignee_label(assignee: TodoAssignee) -> &'static str {
+    match assignee {
+        TodoAssignee::User => "user",
+        TodoAssignee::Agent => "agent",
+        TodoAssignee::Both => "user and agent",
+    }
 }
 
 struct AnnotationEmptyState<A>

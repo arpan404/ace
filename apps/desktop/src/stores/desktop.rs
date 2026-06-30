@@ -464,10 +464,24 @@ pub struct TodoItem {
     pub thread_id: ThreadId,
     pub source_message_id: Option<String>,
     pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub status: TodoStatus,
+    #[serde(default)]
+    pub priority: TodoPriority,
+    #[serde(default)]
+    pub created_by: TodoCreatedBy,
+    #[serde(default)]
+    pub assigned_to: TodoAssignee,
     pub created_at: String,
     pub updated_at: String,
     pub completed_at: Option<String>,
+    #[serde(default)]
+    pub related_files: Vec<String>,
+    #[serde(default)]
+    pub related_tool_events: Vec<String>,
+    #[serde(default)]
+    pub related_diff_comments: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -491,6 +505,33 @@ pub enum TodoStatus {
     Blocked,
     Done,
     Canceled,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoPriority {
+    Low,
+    #[default]
+    Normal,
+    High,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoCreatedBy {
+    User,
+    Assistant,
+    #[default]
+    System,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoAssignee {
+    User,
+    Agent,
+    #[default]
+    Both,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -866,7 +907,7 @@ impl DesktopStore {
                 id: format!("todo:{}", todo.id),
                 kind: "todo".to_string(),
                 title: todo.title.clone(),
-                detail: format!("{:?}", todo.status),
+                detail: todo_context_line(todo),
                 added_at: todo.created_at.clone(),
             });
         }
@@ -1054,10 +1095,17 @@ impl DesktopStore {
             thread_id,
             source_message_id: Some(message.id.clone()),
             title,
+            description: None,
             status: TodoStatus::Open,
+            priority: TodoPriority::Normal,
+            created_by: TodoCreatedBy::User,
+            assigned_to: TodoAssignee::Both,
             created_at: now.clone(),
             updated_at: now,
             completed_at: None,
+            related_files: Vec::new(),
+            related_tool_events: Vec::new(),
+            related_diff_comments: Vec::new(),
         });
     }
 
@@ -1092,6 +1140,72 @@ impl DesktopStore {
             todo.status = status;
             todo.updated_at = now.clone();
             todo.completed_at = (status == TodoStatus::Done).then_some(now);
+        }
+    }
+
+    pub fn update_todo_priority(&mut self, todo_id: &str, priority: TodoPriority) {
+        let Some(thread_id) = self.metadata.active_thread_id.clone() else {
+            return;
+        };
+        let now = self.next_timestamp();
+        if let Some(todo) = self
+            .todos
+            .iter_mut()
+            .find(|todo| todo.thread_id == thread_id && todo.id == todo_id)
+        {
+            todo.priority = priority;
+            todo.updated_at = now;
+        }
+    }
+
+    pub fn update_todo_assignee(&mut self, todo_id: &str, assignee: TodoAssignee) {
+        let Some(thread_id) = self.metadata.active_thread_id.clone() else {
+            return;
+        };
+        let now = self.next_timestamp();
+        if let Some(todo) = self
+            .todos
+            .iter_mut()
+            .find(|todo| todo.thread_id == thread_id && todo.id == todo_id)
+        {
+            todo.assigned_to = assignee;
+            todo.updated_at = now;
+        }
+    }
+
+    pub fn link_todo_to_current_diff(&mut self, todo_id: &str) {
+        let Some(thread) = self.active_thread().cloned() else {
+            return;
+        };
+        let Some(review) = self.review_snapshots.get(&thread.project_id) else {
+            return;
+        };
+        let related_files = review
+            .files
+            .iter()
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>();
+        let related_diff_comments = self
+            .review_comments
+            .iter()
+            .filter(|comment| {
+                comment.thread_id == thread.id && comment.project_id == thread.project_id
+            })
+            .map(|comment| comment.id.clone())
+            .collect::<Vec<_>>();
+        if related_files.is_empty() && related_diff_comments.is_empty() {
+            return;
+        }
+
+        let now = self.next_timestamp();
+        if let Some(todo) = self
+            .todos
+            .iter_mut()
+            .find(|todo| todo.thread_id == thread.id && todo.id == todo_id)
+        {
+            extend_unique(&mut todo.related_files, related_files);
+            extend_unique(&mut todo.related_diff_comments, related_diff_comments);
+            todo.updated_at = now;
         }
     }
 
@@ -2323,7 +2437,7 @@ impl DesktopStore {
                 .iter()
                 .filter(|todo| &todo.thread_id == thread_id)
                 .take(12)
-                .map(|todo| format!("- [{}] {}", todo_status_label(todo.status), todo.title))
+                .map(|todo| format!("- {}", todo_context_line(todo)))
                 .collect::<Vec<_>>();
             if !items.is_empty() {
                 sections.push(format!("Todo context:\n{}", items.join("\n")));
@@ -2365,10 +2479,9 @@ impl DesktopStore {
                     .find(|todo| &todo.thread_id == thread_id && todo.id == id)
                 {
                     sections.push(format!(
-                        "Mentioned todo {}: [{}] {}",
+                        "Mentioned todo {}: {}",
                         todo.id,
-                        todo_status_label(todo.status),
-                        todo.title
+                        todo_context_line(todo)
                     ));
                 }
             } else if let Some(id) = mention.strip_prefix("@pin:") {
@@ -4488,6 +4601,49 @@ fn todo_status_label(status: TodoStatus) -> &'static str {
     }
 }
 
+fn todo_priority_label(priority: TodoPriority) -> &'static str {
+    match priority {
+        TodoPriority::Low => "low",
+        TodoPriority::Normal => "normal",
+        TodoPriority::High => "high",
+    }
+}
+
+fn todo_assignee_label(assignee: TodoAssignee) -> &'static str {
+    match assignee {
+        TodoAssignee::User => "user",
+        TodoAssignee::Agent => "agent",
+        TodoAssignee::Both => "user and agent",
+    }
+}
+
+fn todo_context_line(todo: &TodoItem) -> String {
+    let mut parts = vec![
+        format!("[{}]", todo_status_label(todo.status)),
+        format!("priority {}", todo_priority_label(todo.priority)),
+        format!("assigned to {}", todo_assignee_label(todo.assigned_to)),
+        todo.title.clone(),
+    ];
+    if !todo.related_files.is_empty() {
+        parts.push(format!("files: {}", todo.related_files.join(", ")));
+    }
+    if !todo.related_diff_comments.is_empty() {
+        parts.push(format!(
+            "diff comments: {}",
+            todo.related_diff_comments.join(", ")
+        ));
+    }
+    parts.join(" · ")
+}
+
+fn extend_unique(target: &mut Vec<String>, values: Vec<String>) {
+    for value in values {
+        if !target.contains(&value) {
+            target.push(value);
+        }
+    }
+}
+
 fn tail_chars(value: &str, max_chars: usize) -> String {
     let total = value.chars().count();
     if total <= max_chars {
@@ -5150,8 +5306,25 @@ mod tests {
         assert_eq!(projection.todos.len(), 1);
         assert_eq!(projection.open_todo_count, 1);
         assert_eq!(projection.pinned_items[0].message_id, first_message_id);
+        assert_eq!(projection.todos[0].priority, TodoPriority::Normal);
+        assert_eq!(projection.todos[0].created_by, TodoCreatedBy::User);
+        assert_eq!(projection.todos[0].assigned_to, TodoAssignee::Both);
         let todo_id = projection.todos[0].id.clone();
 
+        store.review_snapshots.insert(
+            project_id,
+            ReviewProjection {
+                repo_path: Some("/tmp/project".to_string()),
+                files: vec![ReviewFileProjection {
+                    path: "src/lib.rs".to_string(),
+                    original_path: None,
+                    status: "modified".to_string(),
+                    additions: Some(2),
+                    deletions: Some(1),
+                }],
+                ..ReviewProjection::default()
+            },
+        );
         store.create_review_comment_for_file("src/lib.rs".to_string());
         let projection = store.projection().annotations;
         assert_eq!(projection.review_comments.len(), 1);
@@ -5162,6 +5335,18 @@ mod tests {
         let projection = store.projection().annotations;
         assert!(projection.review_comments[0].resolved);
         assert_eq!(projection.open_review_comment_count, 0);
+
+        store.update_todo_priority(&todo_id, TodoPriority::High);
+        store.update_todo_assignee(&todo_id, TodoAssignee::Agent);
+        store.link_todo_to_current_diff(&todo_id);
+        let projection = store.projection().annotations;
+        assert_eq!(projection.todos[0].priority, TodoPriority::High);
+        assert_eq!(projection.todos[0].assigned_to, TodoAssignee::Agent);
+        assert_eq!(projection.todos[0].related_files, vec!["src/lib.rs"]);
+        assert_eq!(
+            projection.todos[0].related_diff_comments,
+            vec![review_comment_id.clone()]
+        );
 
         store.update_todo_status(&todo_id, TodoStatus::InProgress);
         let projection = store.projection().annotations;
@@ -5195,6 +5380,9 @@ mod tests {
         assert_eq!(projection.pinned_items.len(), 1);
         assert_eq!(projection.highlighted_items.len(), 1);
         assert_eq!(projection.todos[0].status, TodoStatus::Done);
+        assert_eq!(projection.todos[0].priority, TodoPriority::High);
+        assert_eq!(projection.todos[0].assigned_to, TodoAssignee::Agent);
+        assert_eq!(projection.todos[0].related_files, vec!["src/lib.rs"]);
         assert_eq!(projection.review_comments.len(), 1);
         assert!(projection.review_comments[0].resolved);
     }

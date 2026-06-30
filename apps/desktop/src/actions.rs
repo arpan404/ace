@@ -190,6 +190,26 @@ pub struct UpdateTodoStatus {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct UpdateTodoPriority {
+    pub todo_id: String,
+    pub priority: crate::stores::TodoPriority,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct UpdateTodoAssignee {
+    pub todo_id: String,
+    pub assignee: crate::stores::TodoAssignee,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct LinkTodoToCurrentDiff {
+    pub todo_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct StageReviewFile {
     pub path: String,
 }

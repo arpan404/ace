@@ -3,11 +3,11 @@ use crate::{
         AddCurrentDirectoryProject, ApproveProviderRequest, ArchiveActiveThread, ArchiveProject,
         BeginPanelResize, CloseSearchPalette, CommitReview, CompleteComposerToken,
         CreateReviewComment, CreateTodoFromLatestTimelineItem, CreateTodoFromTimelineItem,
-        CreateWorktree, DenyProviderRequest, InterruptActiveTurn, NewThread, NewThreadForProject,
-        OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem, PushReview,
-        RefreshActiveTab, RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree,
-        RunLint, RunTests, SelectBottomPanelTab, SelectComposerHost, SelectComposerModel,
-        SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer,
+        CreateWorktree, DenyProviderRequest, InterruptActiveTurn, LinkTodoToCurrentDiff, NewThread,
+        NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem,
+        PushReview, RefreshActiveTab, RefreshApprovals, RefreshReview, RefreshWorktrees,
+        RemoveWorktree, RunLint, RunTests, SelectBottomPanelTab, SelectComposerHost,
+        SelectComposerModel, SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer,
         SetActiveProjectDefaultModel, SetCodeFont, SetComposerInteractionMode,
         SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, SetThemeDensity,
         SetThemeMotion, SetThemePreset, SetUiFont, ShowBrowserTab, ShowLessProjectThreads,
@@ -16,7 +16,7 @@ use crate::{
         ToggleComposerTrait, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
         ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
         ToggleReviewCommentResolved, ToggleRightPanel, ToggleSidebar, UnstageReviewAll,
-        UnstageReviewFile, UpdateTodoStatus,
+        UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -1256,6 +1256,42 @@ impl RootView {
         cx.notify();
     }
 
+    fn update_todo_priority(
+        &mut self,
+        event: &UpdateTodoPriority,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .update_todo_priority(&event.todo_id, event.priority);
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
+    fn update_todo_assignee(
+        &mut self,
+        event: &UpdateTodoAssignee,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .update_todo_assignee(&event.todo_id, event.assignee);
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
+    fn link_todo_to_current_diff(
+        &mut self,
+        event: &LinkTodoToCurrentDiff,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .link_todo_to_current_diff(&event.todo_id);
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
     fn archive_active_thread(
         &mut self,
         _: &ArchiveActiveThread,
@@ -1370,6 +1406,9 @@ impl Render for RootView {
             .on_action(cx.listener(Self::create_todo_from_timeline_item))
             .on_action(cx.listener(Self::toggle_first_open_todo))
             .on_action(cx.listener(Self::update_todo_status))
+            .on_action(cx.listener(Self::update_todo_priority))
+            .on_action(cx.listener(Self::update_todo_assignee))
+            .on_action(cx.listener(Self::link_todo_to_current_diff))
             .on_action(cx.listener(Self::refresh_review))
             .on_action(cx.listener(Self::stage_review_all))
             .on_action(cx.listener(Self::unstage_review_all))
