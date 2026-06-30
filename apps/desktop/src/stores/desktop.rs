@@ -2973,7 +2973,8 @@ impl DesktopStore {
             .as_ref()
             .and_then(|id| self.thread_drafts.get(id))
             .cloned();
-        let options = resolve_thread_creation_options(
+        let inherited_composer = self.active_composer_draft_for_project(project_id);
+        let mut options = resolve_thread_creation_options(
             project_id,
             active,
             &CreationContext {
@@ -2982,6 +2983,10 @@ impl DesktopStore {
                 default_env_mode: ExecutionLocation::Local,
             },
         );
+        if let Some(composer) = inherited_composer.as_ref() {
+            options.runtime_mode = composer.runtime_mode;
+            options.interaction_mode = composer.interaction_mode;
+        }
 
         let thread_id = ThreadId::new();
         let created_at = self.next_timestamp();
@@ -3017,6 +3022,11 @@ impl DesktopStore {
         self.thread_drafts.insert(thread_id.clone(), draft);
         self.project_drafts.insert(project_id, thread_id.clone());
         let mut composer = ComposerDraft::empty(thread_id.clone(), created_at);
+        composer.runtime_mode = options.runtime_mode;
+        composer.interaction_mode = options.interaction_mode;
+        if let Some(source) = inherited_composer.as_ref() {
+            copy_composer_turn_settings(&mut composer, source);
+        }
         if let Some(selection) = self
             .projects
             .iter()
@@ -3034,6 +3044,15 @@ impl DesktopStore {
             .or_insert(INITIAL_PROJECT_THREAD_LIMIT);
         self.open_thread(thread_id.clone());
         thread_id
+    }
+
+    fn active_composer_draft_for_project(&self, project_id: ProjectId) -> Option<ComposerDraft> {
+        let active_thread_id = self.metadata.active_thread_id.as_ref()?;
+        self.threads
+            .iter()
+            .find(|thread| &thread.id == active_thread_id)
+            .filter(|thread| thread.project_id == project_id)?;
+        self.composer_drafts.get(active_thread_id).cloned()
     }
 
     pub fn new_thread_for_first_project(&mut self) {
@@ -5636,6 +5655,17 @@ fn composer_status_line(draft: &ComposerDraft) -> String {
     )
 }
 
+fn copy_composer_turn_settings(target: &mut ComposerDraft, source: &ComposerDraft) {
+    target.model_selection = source.model_selection.clone();
+    target.host_selection = source.host_selection.clone();
+    target.reasoning_effort = source.reasoning_effort;
+    target.permission_mode = source.permission_mode;
+    target.traits = source.traits.clone();
+    target.context = source.context.clone();
+    target.runtime_mode = source.runtime_mode;
+    target.interaction_mode = source.interaction_mode;
+}
+
 fn interaction_mode_label(mode: InteractionMode) -> &'static str {
     match mode {
         InteractionMode::Chat => "Chat",
@@ -7476,6 +7506,41 @@ mod tests {
             next_draft.permission_mode,
             ComposerPermissionMode::FullAccess
         );
+        assert_eq!(next_draft.traits, vec![ComposerTrait::Precise]);
+        assert_eq!(next_draft.context, vec![ComposerContextKind::Todos]);
+    }
+
+    #[test]
+    fn new_thread_inherits_active_composer_turn_settings_for_project() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        store.new_thread_for_first_project();
+
+        store.set_active_composer_model(ProviderKind::Codex, "gpt-5".to_string());
+        store.set_active_composer_reasoning(Some(ReasoningEffort::High));
+        store.set_active_composer_permission(ComposerPermissionMode::FullAccess);
+        store.set_active_composer_runtime_mode(RuntimeMode::Local);
+        store.set_active_composer_interaction_mode(InteractionMode::Plan);
+        store.toggle_active_composer_trait(ComposerTrait::Precise);
+        store.toggle_active_composer_context(ComposerContextKind::Todos);
+        store.push_active_composer_input("implement inherited composer settings");
+        store.send_active_composer();
+
+        let next_thread_id = store.new_thread(project_id);
+        let next_draft = store
+            .composer_drafts
+            .get(&next_thread_id)
+            .expect("next composer draft");
+
+        assert!(next_draft.prompt.is_empty());
+        assert_eq!(next_draft.model_selection.model, "gpt-5");
+        assert_eq!(next_draft.reasoning_effort, Some(ReasoningEffort::High));
+        assert_eq!(
+            next_draft.permission_mode,
+            ComposerPermissionMode::FullAccess
+        );
+        assert_eq!(next_draft.runtime_mode, RuntimeMode::Local);
+        assert_eq!(next_draft.interaction_mode, InteractionMode::Plan);
         assert_eq!(next_draft.traits, vec![ComposerTrait::Precise]);
         assert_eq!(next_draft.context, vec![ComposerContextKind::Todos]);
     }
