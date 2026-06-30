@@ -473,8 +473,8 @@ fn message_timeline(
     cx: &mut App,
 ) -> AnyElement {
     let chat = &projection.chat;
-    let max_rendered_messages = theme.timeline_max_rendered_messages;
-    let skipped = chat.messages.len().saturating_sub(max_rendered_messages);
+    let render_window =
+        timeline_render_window(chat.messages.len(), theme.timeline_max_rendered_messages);
     let active_thread_id = chat.active_thread.as_ref().map(|thread| thread.id.clone());
 
     div()
@@ -489,7 +489,7 @@ fn message_timeline(
         .when(chat.messages.is_empty(), |this| {
             this.child(new_thread_landing(theme, projection))
         })
-        .when(skipped > 0, |this| {
+        .when(render_window.skipped > 0, |this| {
             this.child(
                 div()
                     .rounded_md()
@@ -500,18 +500,21 @@ fn message_timeline(
                     .py_2()
                     .text_size(px(12.0))
                     .text_color(theme.muted)
-                    .child(format!("Showing latest {max_rendered_messages} messages")),
+                    .child(timeline_window_notice(&render_window)),
             )
         })
         .children(
             chat.messages
                 .iter()
-                .skip(skipped)
+                .skip(render_window.start_index)
                 .enumerate()
                 .map(|(index, message)| {
                     let previous_role = index
                         .checked_sub(1)
-                        .and_then(|previous_index| chat.messages.get(skipped + previous_index))
+                        .and_then(|previous_index| {
+                            chat.messages
+                                .get(render_window.start_index + previous_index)
+                        })
                         .map(|message| message.role);
 
                     let pinned = annotations
@@ -558,6 +561,35 @@ fn message_timeline(
         )
         .overflow_y_scrollbar()
         .into_any_element()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TimelineRenderWindow {
+    start_index: usize,
+    rendered: usize,
+    skipped: usize,
+    total: usize,
+}
+
+fn timeline_render_window(
+    total_messages: usize,
+    max_rendered_messages: usize,
+) -> TimelineRenderWindow {
+    let rendered = total_messages.min(max_rendered_messages);
+    let skipped = total_messages.saturating_sub(rendered);
+    TimelineRenderWindow {
+        start_index: skipped,
+        rendered,
+        skipped,
+        total: total_messages,
+    }
+}
+
+fn timeline_window_notice(window: &TimelineRenderWindow) -> String {
+    format!(
+        "Rendering latest {} of {} messages · {} older messages retained in history",
+        window.rendered, window.total, window.skipped
+    )
 }
 
 fn message_actions(theme: Theme, thread_id: ace_core::ThreadId, message_id: String) -> AnyElement {
@@ -2504,5 +2536,37 @@ mod tests {
             Some(ProviderKind::Cursor)
         );
         assert_eq!(composer_model_provider_kind(&unknown_provider), None);
+    }
+
+    #[test]
+    fn timeline_render_window_bounds_large_conversations() {
+        assert_eq!(
+            timeline_render_window(8, 120),
+            TimelineRenderWindow {
+                start_index: 0,
+                rendered: 8,
+                skipped: 0,
+                total: 8,
+            }
+        );
+        assert_eq!(
+            timeline_render_window(500, 120),
+            TimelineRenderWindow {
+                start_index: 380,
+                rendered: 120,
+                skipped: 380,
+                total: 500,
+            }
+        );
+    }
+
+    #[test]
+    fn timeline_window_notice_explains_retained_history() {
+        let window = timeline_render_window(500, 120);
+
+        assert_eq!(
+            timeline_window_notice(&window),
+            "Rendering latest 120 of 500 messages · 380 older messages retained in history"
+        );
     }
 }
