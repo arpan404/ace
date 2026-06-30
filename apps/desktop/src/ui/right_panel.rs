@@ -4,12 +4,12 @@ use crate::{
         CreateTodoFromLatestTimelineItem, CreateWorktree, DenyProviderRequest,
         LinkTodoToCurrentDiff, OpenThread, PinLatestTimelineItem, PushReview, RefreshActiveTab,
         RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab,
-        SelectRightPanelTab, SetCodeFont, SetThemeAccent, SetThemeDensity, SetThemeMotion,
-        SetThemePreset, SetUiFont, StageReviewAll, StageReviewFile, ToggleBottomPanel,
-        ToggleComposerContext, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
-        ToggleHighlightTimelineItem, ToggleReviewCommentResolved, ToggleRightPanel,
-        UnpinTimelineItem, UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee,
-        UpdateTodoPriority, UpdateTodoStatus,
+        SelectComposerModel, SelectRightPanelTab, SetCodeFont, SetThemeAccent, SetThemeDensity,
+        SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll, StageReviewFile,
+        ToggleBottomPanel, ToggleComposerContext, ToggleFirstOpenTodo,
+        ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem,
+        ToggleReviewCommentResolved, ToggleRightPanel, UnpinTimelineItem, UnstageReviewAll,
+        UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
     },
     stores::{
         ApprovalItemProjection, ApprovalRegistryProjection, BrowserActivityProjection,
@@ -31,6 +31,7 @@ use crate::{
         },
     },
 };
+use ace_core::ProviderKind;
 use ace_protocol::terminal::TerminalSessionStatus;
 use ace_runtime::chat::{ChatProjection, ComposerContextKind, ThreadSummary};
 use gpui::{
@@ -3230,7 +3231,7 @@ fn model_provider_card(theme: Theme, provider: &ModelProviderProjection) -> AnyE
                 .models
                 .iter()
                 .take(8)
-                .map(|model| model_card(theme, model))
+                .map(|model| model_card(theme, provider, model))
                 .collect::<Vec<_>>(),
         )
         .when(provider.models.len() > 8, |this| {
@@ -3245,7 +3246,11 @@ fn model_provider_card(theme: Theme, provider: &ModelProviderProjection) -> AnyE
         .into_any_element()
 }
 
-fn model_card(theme: Theme, model: &ModelProjection) -> AnyElement {
+fn model_card(
+    theme: Theme,
+    provider: &ModelProviderProjection,
+    model: &ModelProjection,
+) -> AnyElement {
     let mut capabilities = Vec::new();
     if model.supports_reasoning {
         capabilities.push("reasoning");
@@ -3262,6 +3267,7 @@ fn model_card(theme: Theme, model: &ModelProjection) -> AnyElement {
     if model.supports_attachments {
         capabilities.push("attachments");
     }
+    let provider_kind = model_provider_kind(provider);
 
     div()
         .rounded_md()
@@ -3296,7 +3302,29 @@ fn model_card(theme: Theme, model: &ModelProjection) -> AnyElement {
                     .child(capabilities.join(" · ")),
             )
         })
+        .when_some(provider_kind, |this, provider_kind| {
+            let model_id = model.id.clone();
+            this.child(
+                div()
+                    .pt_1()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(action_button(IconName::Check, "Select", theme, move || {
+                        Box::new(SelectComposerModel {
+                            provider: provider_kind,
+                            model: model_id.clone(),
+                        })
+                    })),
+            )
+        })
         .into_any_element()
+}
+
+fn model_provider_kind(provider: &ModelProviderProjection) -> Option<ProviderKind> {
+    ProviderKind::from_runtime_id(&provider.runtime_id)
+        .or_else(|| ProviderKind::from_runtime_id(&provider.provider))
 }
 
 fn model_meta(model: &ModelProjection) -> String {
@@ -4638,6 +4666,35 @@ mod tests {
         assert!(browser_control_supported(&bridge, *screenshot));
         assert!(browser_control_supported(&bridge, *logs));
         assert!(!browser_control_supported(&bridge, *input));
+    }
+
+    #[test]
+    fn model_registry_provider_kind_uses_runtime_id_with_provider_fallback() {
+        let provider = ModelProviderProjection {
+            runtime_id: "codex".to_string(),
+            display_name: "Codex".to_string(),
+            provider: "ignored".to_string(),
+            models: Vec::new(),
+        };
+        let fallback_provider = ModelProviderProjection {
+            runtime_id: "unknown-runtime".to_string(),
+            display_name: "Codex".to_string(),
+            provider: "codex".to_string(),
+            models: Vec::new(),
+        };
+        let unknown_provider = ModelProviderProjection {
+            runtime_id: "future".to_string(),
+            display_name: "Future".to_string(),
+            provider: "future".to_string(),
+            models: Vec::new(),
+        };
+
+        assert_eq!(model_provider_kind(&provider), Some(ProviderKind::Codex));
+        assert_eq!(
+            model_provider_kind(&fallback_provider),
+            Some(ProviderKind::Codex)
+        );
+        assert_eq!(model_provider_kind(&unknown_provider), None);
     }
 
     #[test]
