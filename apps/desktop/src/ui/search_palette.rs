@@ -2,8 +2,7 @@ use crate::{
     actions::SelectSearchPaletteItem,
     stores::{
         ApprovalItemProjection, DesktopProjection, ModelProjection, ReviewProjection,
-        SearchContextKind, TodoAssignee, TodoItem, TodoPriority, TodoStatus,
-        ui::{BottomPanelTab, RightPanelTab},
+        SearchContextKind, TodoAssignee, TodoItem, TodoPriority, TodoStatus, ui::RightPanelTab,
     },
     ui::{
         components::*,
@@ -1982,9 +1981,6 @@ fn hint(keys: &'static str, label: &'static str, theme: Theme) -> AnyElement {
         .child(label)
         .into_any_element()
 }
-
-#[allow(dead_code)]
-fn _bottom_panel_tab_reference(_: BottomPanelTab) {}
 
 #[cfg(test)]
 mod tests {

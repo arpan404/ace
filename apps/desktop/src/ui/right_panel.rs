@@ -4470,7 +4470,7 @@ fn terminal_visible_lines(history: &str) -> Vec<String> {
         .collect::<Vec<_>>();
     lines.reverse();
     if lines.is_empty() {
-        lines.push("PTY session is attached. Shell output will appear here.".to_string());
+        lines.push("PTY session is attached. No shell output has been received yet.".to_string());
     }
     lines
 }
@@ -4732,6 +4732,14 @@ mod tests {
         assert!(browser_empty_frame_notice(&bridge("missing")).contains("missing"));
         assert!(browser_empty_frame_notice(&bridge("unavailable")).contains("unavailable"));
         assert!(browser_empty_frame_notice(&bridge("other")).contains("unknown"));
+    }
+
+    #[test]
+    fn terminal_visible_lines_reports_empty_attached_session() {
+        assert_eq!(
+            terminal_visible_lines(""),
+            vec!["PTY session is attached. No shell output has been received yet.".to_string()]
+        );
     }
 
     #[test]
