@@ -266,8 +266,19 @@ pub struct EditorFileProjection {
 pub struct BrowserProjection {
     pub bridge: Option<BrowserBridgeProjection>,
     pub activities: Vec<BrowserActivityProjection>,
+    pub previews: Vec<BrowserPreviewProjection>,
     pub error: Option<String>,
     pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserPreviewProjection {
+    pub id: String,
+    pub title: String,
+    pub detail: String,
+    pub location: String,
+    pub mime_type: Option<String>,
+    pub observed_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -941,9 +952,24 @@ impl DesktopStore {
         BrowserProjection {
             bridge: self.browser.bridge.clone(),
             activities: self.browser_activities.clone(),
+            previews: self.browser_previews_projection(),
             error: self.browser.error.clone(),
             updated_at: self.browser.updated_at.clone(),
         }
+    }
+
+    fn browser_previews_projection(&self) -> Vec<BrowserPreviewProjection> {
+        let Some(active_thread_id) = self.metadata.active_thread_id.as_ref() else {
+            return Vec::new();
+        };
+        self.artifacts
+            .iter()
+            .filter(|artifact| &artifact.thread_id == active_thread_id)
+            .filter(|artifact| artifact_is_browser_preview(artifact))
+            .rev()
+            .take(6)
+            .map(browser_preview_from_artifact)
+            .collect()
     }
 
     #[must_use]
@@ -5001,6 +5027,7 @@ fn browser_projection_from_host_tools(
     BrowserProjection {
         bridge,
         activities: Vec::new(),
+        previews: Vec::new(),
         error: None,
         updated_at: Some(updated_at),
     }
@@ -5283,6 +5310,32 @@ fn artifact_kind_from_mime(mime_type: Option<&str>) -> Option<&'static str> {
         Some("document")
     } else {
         None
+    }
+}
+
+fn artifact_is_browser_preview(artifact: &ArtifactItemProjection) -> bool {
+    artifact.kind.eq_ignore_ascii_case("image")
+        || artifact
+            .mime_type
+            .as_deref()
+            .is_some_and(|mime| mime.starts_with("image/"))
+        || artifact.title.to_ascii_lowercase().contains("screenshot")
+        || artifact.detail.to_ascii_lowercase().contains("screenshot")
+}
+
+fn browser_preview_from_artifact(artifact: &ArtifactItemProjection) -> BrowserPreviewProjection {
+    let location = artifact
+        .url
+        .clone()
+        .or_else(|| artifact.path.clone())
+        .unwrap_or_else(|| "provider attachment".to_string());
+    BrowserPreviewProjection {
+        id: artifact.id.clone(),
+        title: artifact.title.clone(),
+        detail: artifact.detail.clone(),
+        location,
+        mime_type: artifact.mime_type.clone(),
+        observed_at: artifact.observed_at.clone(),
     }
 }
 
@@ -6297,6 +6350,7 @@ mod tests {
                 capability_keys: Vec::new(),
             }),
             activities: Vec::new(),
+            previews: Vec::new(),
             error: None,
             updated_at: Some("now".to_string()),
         };
@@ -6636,6 +6690,59 @@ mod tests {
                 .iter()
                 .any(|artifact| artifact.contains("Login screenshot"))
         );
+    }
+
+    #[test]
+    fn browser_projection_surfaces_provider_screenshot_artifacts() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.apply_provider_thread_item(
+            ace_runtime::provider::NormalizedThreadItem {
+                kind: ThreadItemKind::ImageView,
+                status: ThreadItemStatus::Completed,
+                thread_id: Some(thread_id.0.clone()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("image-view-1".to_string()),
+                parent_thread_id: None,
+                child_thread_id: None,
+                sender: None,
+                role: None,
+                title: Some("Login screenshot".to_string()),
+                text: Some("Captured browser viewport".to_string()),
+                status_text: None,
+                model: None,
+                target: None,
+                url: Some("codex://attachment/login.png".to_string()),
+                files: None,
+                attachments: Some(serde_json::json!({
+                    "kind": "image",
+                    "title": "Login screenshot",
+                    "url": "codex://attachment/login.png",
+                    "mimeType": "image/png"
+                })),
+                diff: None,
+                token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
+                metadata: serde_json::Value::Null,
+                provider: ace_runtime::provider::ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("item/imageView".to_string()),
+                    schema_version: None,
+                    raw_payload: serde_json::Value::Null,
+                },
+            },
+            Some(7),
+        );
+
+        let browser = store.projection().browser;
+
+        assert_eq!(browser.previews.len(), 1);
+        assert_eq!(browser.previews[0].title, "Login screenshot");
+        assert_eq!(browser.previews[0].location, "codex://attachment/login.png");
+        assert_eq!(browser.previews[0].mime_type.as_deref(), Some("image/png"));
+        assert_eq!(browser.previews[0].observed_at, "7");
     }
 
     #[test]

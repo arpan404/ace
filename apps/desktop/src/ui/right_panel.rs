@@ -11,12 +11,12 @@ use crate::{
     },
     stores::{
         ApprovalItemProjection, ApprovalRegistryProjection, BrowserActivityProjection,
-        BrowserBridgeProjection, BrowserProjection, DesktopProjection, EditorFileProjection,
-        EditorProjection, ModelProjection, ModelProviderProjection, ModelRegistryProjection,
-        ReviewCommentItem, ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
-        SourceItemProjection, SummaryProjection, TodoAssignee, TodoItem, TodoPriority, TodoStatus,
-        ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
-        WorktreeProjection,
+        BrowserBridgeProjection, BrowserPreviewProjection, BrowserProjection, DesktopProjection,
+        EditorFileProjection, EditorProjection, ModelProjection, ModelProviderProjection,
+        ModelRegistryProjection, ReviewCommentItem, ReviewFileProjection, ReviewProjection,
+        ServiceReadiness, ServiceStatus, SourceItemProjection, SummaryProjection, TodoAssignee,
+        TodoItem, TodoPriority, TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
+        WorktreeEntryProjection, WorktreeProjection,
         ui::{BottomPanelTab, RightPanelTab, UiState},
     },
     ui::{
@@ -655,6 +655,7 @@ fn browser_body(theme: Theme, browser: &BrowserProjection) -> AnyElement {
             &bridge.actions.len().to_string(),
         ))
         .child(browser_action_list(theme, bridge))
+        .child(browser_preview_list(theme, &browser.previews))
         .child(browser_activity_list(theme, &browser.activities))
         .when_some(browser.error.as_deref(), |this, error| {
             this.child(
@@ -670,7 +671,7 @@ fn browser_body(theme: Theme, browser: &BrowserProjection) -> AnyElement {
                     .child(error.to_string()),
             )
         })
-        .when(browser.activities.is_empty(), |this| {
+        .when(browser.activities.is_empty() && browser.previews.is_empty(), |this| {
             this.child(
                 div()
                     .rounded_md()
@@ -684,6 +685,91 @@ fn browser_body(theme: Theme, browser: &BrowserProjection) -> AnyElement {
                     .text_color(theme.muted)
                     .child("No browser viewport session is attached yet. Provider tools can use the connected bridge; frame streaming will appear here once the host publishes BrowserFrame events."),
             )
+        })
+        .into_any_element()
+}
+
+fn browser_preview_list(theme: Theme, previews: &[BrowserPreviewProjection]) -> AnyElement {
+    if previews.is_empty() {
+        return div().into_any_element();
+    }
+
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme.muted)
+                .child("Viewport previews"),
+        )
+        .children(
+            previews
+                .iter()
+                .map(|preview| browser_preview_card(theme, preview))
+                .collect::<Vec<_>>(),
+        )
+        .into_any_element()
+}
+
+fn browser_preview_card(theme: Theme, preview: &BrowserPreviewProjection) -> AnyElement {
+    div()
+        .id(("browser-preview", stable_id(&preview.id)))
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .overflow_hidden()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .h(px(112.0))
+                .border_b_1()
+                .border_color(theme.border_subtle)
+                .bg(theme.background)
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(theme.muted)
+                .child(ace_icon_svg(AceIconName::Browser, theme.accent_blue)),
+        )
+        .child(
+            div()
+                .p_2()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(theme.foreground.opacity(0.84))
+                        .child(clamp_text(&preview.title, 120)),
+                )
+                .child(
+                    div()
+                        .font_family(theme.code_font_family)
+                        .text_size(px(11.0))
+                        .text_color(theme.muted)
+                        .child(clamp_text(&preview.location, 180)),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(theme.muted_subtle)
+                        .child(browser_preview_meta(preview)),
+                ),
+        )
+        .tooltip({
+            let detail = preview.detail.clone();
+            move |window, cx| Tooltip::new(detail.clone()).build(window, cx)
         })
         .into_any_element()
 }
@@ -3751,6 +3837,19 @@ fn clamp_text(value: &str, limit: usize) -> String {
         end -= 1;
     }
     format!("{}...", &value[..end])
+}
+
+fn browser_preview_meta(preview: &BrowserPreviewProjection) -> String {
+    preview.mime_type.as_ref().map_or_else(
+        || format!("Captured {}", preview.observed_at),
+        |mime| format!("{mime} · captured {}", preview.observed_at),
+    )
+}
+
+fn stable_id(value: &str) -> u64 {
+    value.bytes().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    })
 }
 
 fn empty_panel_body(
