@@ -7,9 +7,10 @@ use crate::{
         ToggleSidebar,
     },
     stores::{
-        DesktopProjection, HostOptionProjection, ModelProjection, ModelProviderProjection,
-        ModelRegistryProjection, ProviderSlashCommandProjection, ThreadAnnotationsProjection,
-        TodoStatus, ToolRegistryEntryProjection, ui::UiState,
+        ComposerCommandProjection, ComposerCommandSource, DesktopProjection, HostOptionProjection,
+        ModelProjection, ModelProviderProjection, ModelRegistryProjection,
+        ProviderSlashCommandProjection, ThreadAnnotationsProjection, TodoStatus,
+        ToolRegistryEntryProjection, ui::UiState,
     },
     ui::{components::*, right_panel::environment_card, theme::Theme},
 };
@@ -2023,6 +2024,12 @@ fn chat_composer(theme: Theme, projection: &DesktopProjection) -> AnyElement {
                 .flex()
                 .flex_col()
                 .gap_3()
+                .when(!projection.composer_commands.is_empty(), |this| {
+                    this.child(composer_command_chips(
+                        theme,
+                        &projection.composer_commands,
+                    ))
+                })
                 .child(
                     div()
                         .min_h(px(56.0))
@@ -2087,6 +2094,78 @@ fn chat_composer(theme: Theme, projection: &DesktopProjection) -> AnyElement {
                 )
                 .child(composer_selector_surface(theme, projection, true)),
         )
+        .into_any_element()
+}
+
+fn composer_command_chips(theme: Theme, commands: &[ComposerCommandProjection]) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .children(
+            commands
+                .iter()
+                .take(5)
+                .map(|command| composer_command_chip(theme, command))
+                .collect::<Vec<_>>(),
+        )
+        .when(commands.len() > 5, |this| {
+            this.child(
+                div()
+                    .h(px(24.0))
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.border_subtle)
+                    .bg(theme.panel)
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(format!("+{}", commands.len() - 5)),
+            )
+        })
+        .into_any_element()
+}
+
+fn composer_command_chip(theme: Theme, command: &ComposerCommandProjection) -> AnyElement {
+    let (icon, label) = match command.source {
+        ComposerCommandSource::ProviderSlash => (IconName::SquareTerminal, "Command"),
+        ComposerCommandSource::Skill => (IconName::Star, "Skill"),
+        ComposerCommandSource::Plugin => (IconName::Bot, "Plugin"),
+    };
+    let detail = command.provider.as_ref().map_or_else(
+        || command.description.clone(),
+        |provider| format!("{provider} · {}", command.description),
+    );
+    div()
+        .id(("composer-command-chip", stable_id(&command.token)))
+        .h(px(24.0))
+        .rounded_md()
+        .border_1()
+        .border_color(theme.accent_blue.opacity(0.34))
+        .bg(theme.selection)
+        .px_2()
+        .flex()
+        .items_center()
+        .gap_1()
+        .text_size(px(11.0))
+        .text_color(theme.foreground.opacity(0.82))
+        .child(icon_svg(icon, theme.accent_blue))
+        .child(label)
+        .child(
+            div()
+                .max_w(px(160.0))
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .text_color(theme.muted)
+                .child(command.token.clone()),
+        )
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(detail.clone()).build(window, cx)
+        })
         .into_any_element()
 }
 

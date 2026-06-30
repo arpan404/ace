@@ -117,6 +117,7 @@ pub struct DesktopProjection {
     pub plugins: ToolRegistryProjection,
     pub skills: ToolRegistryProjection,
     pub browser: BrowserProjection,
+    pub composer_commands: Vec<ComposerCommandProjection>,
     pub summary: SummaryProjection,
     pub annotations: ThreadAnnotationsProjection,
 }
@@ -738,6 +739,10 @@ impl DesktopStore {
             .as_ref()
             .and_then(|id| self.composer_drafts.get(id))
             .cloned();
+        let composer_commands = composer
+            .as_ref()
+            .map(|draft| self.composer_commands_for_prompt(&draft.prompt))
+            .unwrap_or_default();
         let mut chat = build_chat_projection(active_thread, composer, &self.runtime);
         if chat.messages.is_empty()
             && let Some(thread_id) = chat.active_thread.as_ref().map(|thread| &thread.id)
@@ -766,6 +771,7 @@ impl DesktopStore {
             plugins: self.plugin_registry.clone(),
             skills: self.skill_registry.clone(),
             browser: self.browser.clone(),
+            composer_commands,
             summary: self.summary_projection(),
             annotations: self.annotations_projection(),
         }
@@ -6357,6 +6363,35 @@ mod tests {
             input.last().and_then(|item| item.get("text")),
             Some(&serde_json::json!("Please /plan the work"))
         );
+    }
+
+    #[test]
+    fn projection_exposes_detected_composer_commands() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        store.new_thread(project_id);
+        store
+            .skill_registry
+            .entries
+            .push(ToolRegistryEntryProjection {
+                id: "audit".to_string(),
+                name: "audit".to_string(),
+                description: Some("Audit current changes".to_string()),
+                version: None,
+                source: Some("skills".to_string()),
+                status: "enabled".to_string(),
+                enabled: Some(true),
+            });
+        store.push_active_composer_input("Run $audit");
+
+        let projection = store.projection();
+
+        assert_eq!(projection.composer_commands.len(), 1);
+        assert_eq!(
+            projection.composer_commands[0].source,
+            ComposerCommandSource::Skill
+        );
+        assert_eq!(projection.composer_commands[0].token, "$audit");
     }
 
     #[test]
