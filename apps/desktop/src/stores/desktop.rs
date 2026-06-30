@@ -3,6 +3,7 @@ mod approval_state;
 mod browser_state;
 mod composer_state;
 mod git_state;
+mod model_state;
 mod registry_state;
 mod terminal_state;
 
@@ -22,6 +23,7 @@ use self::git_state::{
     generated_review_commit_message, parse_review_files, parse_worktree_entries,
     review_file_summary, suggested_worktree_branch, truncate_diff_preview,
 };
+use self::model_state::{model_provider_projection, model_registry_provider_kind};
 use self::registry_state::{
     RegistrySurface, parse_tool_registry_entries, registry_entry_available,
 };
@@ -6243,41 +6245,6 @@ fn runtime_status_projection_from_state(
     }
 
     projection
-}
-
-fn model_registry_provider_kind(provider: &ModelProviderProjection) -> Option<ProviderKind> {
-    ProviderKind::from_runtime_id(&provider.runtime_id)
-        .or_else(|| ProviderKind::from_runtime_id(&provider.provider))
-}
-
-fn model_provider_projection(
-    response: ProviderRuntimeModelsListResponse,
-) -> ModelProviderProjection {
-    let models = response
-        .catalog
-        .models
-        .into_iter()
-        .map(|model| ModelProjection {
-            id: model.id,
-            display_name: model.display_name,
-            provider: model.provider,
-            family: model.family,
-            context_window: model.capabilities.context_window,
-            max_output_tokens: model.capabilities.max_output_tokens,
-            supports_reasoning: model.capabilities.supports_reasoning,
-            supports_vision: model.capabilities.supports_vision,
-            supports_tools: model.capabilities.supports_tools,
-            supports_computer_use: model.capabilities.supports_computer_use,
-            supports_attachments: model.capabilities.supports_attachments,
-        })
-        .collect();
-
-    ModelProviderProjection {
-        runtime_id: response.runtime_id,
-        display_name: response.display_name,
-        provider: response.catalog.provider,
-        models,
-    }
 }
 
 fn slash_command_projections(
