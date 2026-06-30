@@ -47,7 +47,7 @@ use ace_runtime::{
         AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation, PlanSessionStatus,
         RemoteConnectionRecord, TurnMode,
     },
-    tools::ToolSurface,
+    tools::{SemanticToolCall, ToolRunStatus, ToolSurface},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -62,6 +62,7 @@ const DEFAULT_TERMINAL_COLS: u16 = 120;
 const DEFAULT_TERMINAL_ROWS: u16 = 32;
 const DESKTOP_TERMINAL_HISTORY_LIMIT: usize = 128 * 1024;
 const DESKTOP_DIFF_PREVIEW_LIMIT: usize = 96 * 1024;
+const MAX_BROWSER_ACTIVITIES: usize = 32;
 
 #[derive(Debug, Clone)]
 pub struct DesktopStore {
@@ -87,6 +88,7 @@ pub struct DesktopStore {
     plugin_registry: ToolRegistryProjection,
     skill_registry: ToolRegistryProjection,
     browser: BrowserProjection,
+    browser_activities: Vec<BrowserActivityProjection>,
     artifacts: Vec<ArtifactItemProjection>,
     pinned_items: Vec<PinnedTimelineItem>,
     highlighted_items: Vec<HighlightedTimelineItem>,
@@ -261,8 +263,21 @@ pub struct EditorFileProjection {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BrowserProjection {
     pub bridge: Option<BrowserBridgeProjection>,
+    pub activities: Vec<BrowserActivityProjection>,
     pub error: Option<String>,
     pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserActivityProjection {
+    pub id: String,
+    pub thread_id: ThreadId,
+    pub title: String,
+    pub detail: String,
+    pub target: Option<String>,
+    pub status: String,
+    pub turn_id: Option<String>,
+    pub observed_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -695,6 +710,7 @@ impl DesktopStore {
                 ..ToolRegistryProjection::default()
             },
             browser: BrowserProjection::default(),
+            browser_activities: Vec::new(),
             artifacts: Vec::new(),
             pinned_items: Vec::new(),
             highlighted_items: Vec::new(),
@@ -806,7 +822,7 @@ impl DesktopStore {
             models: self.model_registry.clone(),
             plugins: self.plugin_registry.clone(),
             skills: self.skill_registry.clone(),
-            browser: self.browser.clone(),
+            browser: self.browser_projection(),
             composer_commands,
             summary: self.summary_projection(),
             annotations: self.annotations_projection(),
@@ -901,6 +917,15 @@ impl DesktopStore {
             ServiceStatus::Missing {
                 reason: "Select a thread with a project workspace before opening editor buffers.",
             }
+        }
+    }
+
+    fn browser_projection(&self) -> BrowserProjection {
+        BrowserProjection {
+            bridge: self.browser.bridge.clone(),
+            activities: self.browser_activities.clone(),
+            error: self.browser.error.clone(),
+            updated_at: self.browser.updated_at.clone(),
         }
     }
 
@@ -1279,18 +1304,24 @@ impl DesktopStore {
                 })
             })
             .unwrap_or_default();
-        let browser_pages = browser
-            .bridge
-            .as_ref()
-            .map(|bridge| {
-                vec![format!(
-                    "Browser bridge {} with {} action{}.",
-                    bridge.status,
-                    bridge.actions.len(),
-                    plural(bridge.actions.len())
-                )]
-            })
-            .unwrap_or_default();
+        let mut browser_pages = self
+            .browser_activities
+            .iter()
+            .rev()
+            .filter(|activity| activity.thread_id == thread.id)
+            .take(8)
+            .map(browser_activity_summary)
+            .collect::<Vec<_>>();
+        if browser_pages.is_empty()
+            && let Some(bridge) = browser.bridge.as_ref()
+        {
+            browser_pages.push(format!(
+                "Browser bridge {} with {} action{}.",
+                bridge.status,
+                bridge.actions.len(),
+                plural(bridge.actions.len())
+            ));
+        }
         let artifacts = self
             .artifacts
             .iter()
@@ -3276,8 +3307,49 @@ impl DesktopStore {
             } => {
                 self.resolve_pending_approval(&provider, &request_id);
             }
+            ProviderRuntimeEvent::ToolStarted { tool }
+            | ProviderRuntimeEvent::ToolUpdated { tool }
+            | ProviderRuntimeEvent::ToolCompleted { tool }
+            | ProviderRuntimeEvent::ToolFailed { tool, .. }
+            | ProviderRuntimeEvent::ToolApprovalRequested { tool } => {
+                self.apply_semantic_tool(*tool, sequence);
+            }
+            ProviderRuntimeEvent::ToolOutputDelta { tool, .. } => {
+                self.apply_semantic_tool(*tool, sequence);
+            }
             _ => {}
         }
+    }
+
+    fn apply_semantic_tool(&mut self, tool: SemanticToolCall, sequence: Option<i64>) {
+        if tool.surface != ToolSurface::Browser {
+            return;
+        }
+        let Some(thread_id) = tool
+            .provider
+            .thread_id
+            .as_deref()
+            .and_then(|id| self.local_thread_id_for_provider(id))
+            .or_else(|| self.metadata.active_thread_id.clone())
+        else {
+            return;
+        };
+        let activity =
+            browser_activity_from_tool(thread_id, &tool, sequence, self.next_timestamp());
+        if let Some(existing) = self
+            .browser_activities
+            .iter_mut()
+            .find(|existing| existing.id == activity.id)
+        {
+            *existing = activity;
+        } else {
+            self.browser_activities.push(activity);
+        }
+        if self.browser_activities.len() > MAX_BROWSER_ACTIVITIES {
+            let overflow = self.browser_activities.len() - MAX_BROWSER_ACTIVITIES;
+            self.browser_activities.drain(0..overflow);
+        }
+        self.browser.updated_at = Some(self.next_timestamp());
     }
 
     fn apply_provider_thread_item(
@@ -4639,8 +4711,63 @@ fn browser_projection_from_host_tools(
 
     BrowserProjection {
         bridge,
+        activities: Vec::new(),
         error: None,
         updated_at: Some(updated_at),
+    }
+}
+
+fn browser_activity_from_tool(
+    thread_id: ThreadId,
+    tool: &SemanticToolCall,
+    sequence: Option<i64>,
+    observed_at: String,
+) -> BrowserActivityProjection {
+    let id = tool
+        .provider
+        .item_id
+        .clone()
+        .or_else(|| {
+            tool.provider
+                .turn_id
+                .as_ref()
+                .map(|turn| format!("{turn}:browser"))
+        })
+        .or_else(|| sequence.map(|sequence| format!("browser-seq-{sequence}")))
+        .unwrap_or_else(|| format!("browser-{}", stable_store_id(&tool.display.title)));
+    let mut detail = tool
+        .display
+        .summary
+        .clone()
+        .unwrap_or_else(|| serde_name(tool.action));
+    if let Some(operation) = tool.provider.operation.as_deref().filter(|operation| {
+        !operation.trim().is_empty() && !detail.to_ascii_lowercase().contains(operation)
+    }) {
+        detail = format!("{detail} · {operation}");
+    }
+    BrowserActivityProjection {
+        id,
+        thread_id,
+        title: tool.display.title.clone(),
+        detail,
+        target: tool
+            .display
+            .target
+            .as_ref()
+            .map(|target| target.label.clone()),
+        status: tool_status_label(tool.display.status).to_string(),
+        turn_id: tool.provider.turn_id.clone(),
+        observed_at,
+    }
+}
+
+fn tool_status_label(status: ToolRunStatus) -> &'static str {
+    match status {
+        ToolRunStatus::Started => "started",
+        ToolRunStatus::Updated => "updated",
+        ToolRunStatus::Completed => "completed",
+        ToolRunStatus::Failed => "failed",
+        ToolRunStatus::ApprovalRequested => "approval requested",
     }
 }
 
@@ -5135,6 +5262,15 @@ fn review_file_summary(file: &ReviewFileProjection) -> String {
     format!("{} · {} · {stat}", file.path, file.status)
 }
 
+fn browser_activity_summary(activity: &BrowserActivityProjection) -> String {
+    match activity.target.as_deref() {
+        Some(target) if !target.trim().is_empty() => {
+            format!("{} · {} · {target}", activity.status, activity.title)
+        }
+        _ => format!("{} · {}", activity.status, activity.title),
+    }
+}
+
 fn thread_status_is_terminal(status: ThreadStatus) -> bool {
     matches!(
         status,
@@ -5520,6 +5656,14 @@ fn tail_chars(value: &str, max_chars: usize) -> String {
     value.chars().skip(total - max_chars).collect()
 }
 
+fn stable_store_id(value: &str) -> u64 {
+    value
+        .bytes()
+        .fold(14_695_981_039_346_656_037, |hash, byte| {
+            hash.wrapping_mul(1_099_511_628_211) ^ u64::from(byte)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5534,6 +5678,38 @@ mod tests {
             execution_location: ExecutionLocation::RemoteHost,
             projects: serde_json::Value::Null,
             metadata: serde_json::Value::Null,
+        }
+    }
+
+    fn browser_tool(thread_id: &str, item_id: &str, title: &str) -> SemanticToolCall {
+        SemanticToolCall {
+            transport: ace_runtime::tools::ToolTransport::BrowserBridge,
+            surface: ToolSurface::Browser,
+            action: ace_runtime::tools::ToolActionKind::BrowserNavigate,
+            display: ace_runtime::tools::ToolDisplay {
+                title: title.to_string(),
+                summary: Some("Opened page".to_string()),
+                target: Some(ace_runtime::tools::ToolTarget {
+                    kind: ace_runtime::tools::ToolTargetKind::Url,
+                    label: "http://localhost:5173".to_string(),
+                }),
+                status: ToolRunStatus::Completed,
+                icon_key: "browser".to_string(),
+                technical_metadata: serde_json::Value::Null,
+            },
+            provider: ace_runtime::tools::ProviderToolMetadata {
+                provider: Some("codex".to_string()),
+                method: Some("item/tool/call".to_string()),
+                item_id: Some(item_id.to_string()),
+                turn_id: Some("turn-1".to_string()),
+                thread_id: Some(thread_id.to_string()),
+                server_name: Some("browser".to_string()),
+                tool_name: Some("ace_browser".to_string()),
+                operation: Some("navigate".to_string()),
+                raw_args: serde_json::Value::Null,
+                raw_result: serde_json::Value::Null,
+                raw_payload: serde_json::Value::Null,
+            },
         }
     }
 
@@ -5673,6 +5849,7 @@ mod tests {
                 actions: Vec::new(),
                 capability_keys: Vec::new(),
             }),
+            activities: Vec::new(),
             error: None,
             updated_at: Some("now".to_string()),
         };
@@ -5682,6 +5859,48 @@ mod tests {
         assert_eq!(
             store.browser_service_status().missing_reason(),
             Some("Browser bridge contract exists, but no Chromium bridge handler is attached.")
+        );
+    }
+
+    #[test]
+    fn browser_projection_records_semantic_browser_tool_activity() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+
+        store.apply_provider_runtime_event(
+            ProviderRuntimeEvent::tool(browser_tool(
+                "provider-thread-1",
+                "browser-1",
+                "Opened http://localhost:5173 in Browser",
+            )),
+            Some(7),
+        );
+
+        let projection = store.projection();
+        let activity = projection
+            .browser
+            .activities
+            .first()
+            .expect("browser activity");
+
+        assert_eq!(activity.thread_id, thread_id);
+        assert_eq!(activity.id, "browser-1");
+        assert_eq!(activity.status, "completed");
+        assert_eq!(activity.target.as_deref(), Some("http://localhost:5173"));
+        assert!(activity.detail.contains("Opened page"));
+        assert!(
+            projection
+                .summary
+                .browser_pages
+                .iter()
+                .any(|item| item.contains("Opened http://localhost:5173"))
         );
     }
 

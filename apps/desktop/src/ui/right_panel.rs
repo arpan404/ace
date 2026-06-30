@@ -10,10 +10,10 @@ use crate::{
         UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
     },
     stores::{
-        ApprovalItemProjection, ApprovalRegistryProjection, BrowserBridgeProjection,
-        BrowserProjection, DesktopProjection, EditorFileProjection, EditorProjection,
-        ModelProjection, ModelProviderProjection, ModelRegistryProjection, ReviewCommentItem,
-        ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
+        ApprovalItemProjection, ApprovalRegistryProjection, BrowserActivityProjection,
+        BrowserBridgeProjection, BrowserProjection, DesktopProjection, EditorFileProjection,
+        EditorProjection, ModelProjection, ModelProviderProjection, ModelRegistryProjection,
+        ReviewCommentItem, ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
         SourceItemProjection, SummaryProjection, TodoAssignee, TodoItem, TodoPriority, TodoStatus,
         ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
         WorktreeProjection,
@@ -655,6 +655,7 @@ fn browser_body(theme: Theme, browser: &BrowserProjection) -> AnyElement {
             &bridge.actions.len().to_string(),
         ))
         .child(browser_action_list(theme, bridge))
+        .child(browser_activity_list(theme, &browser.activities))
         .when_some(browser.error.as_deref(), |this, error| {
             this.child(
                 div()
@@ -669,19 +670,21 @@ fn browser_body(theme: Theme, browser: &BrowserProjection) -> AnyElement {
                     .child(error.to_string()),
             )
         })
-        .child(
-            div()
-                .rounded_md()
-                .border_1()
-                .border_color(theme.border_subtle)
-                .bg(theme.panel)
-                .px_2()
-                .py_2()
-                .text_size(px(12.0))
-                .line_height(px(17.0))
-                .text_color(theme.muted)
-                .child("No browser viewport session is attached yet. Provider tools can use the connected bridge; frame streaming will appear here once the host publishes BrowserFrame events."),
-        )
+        .when(browser.activities.is_empty(), |this| {
+            this.child(
+                div()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.border_subtle)
+                    .bg(theme.panel)
+                    .px_2()
+                    .py_2()
+                    .text_size(px(12.0))
+                    .line_height(px(17.0))
+                    .text_color(theme.muted)
+                    .child("No browser viewport session is attached yet. Provider tools can use the connected bridge; frame streaming will appear here once the host publishes BrowserFrame events."),
+            )
+        })
         .into_any_element()
 }
 
@@ -734,6 +737,84 @@ fn browser_action_list(theme: Theme, bridge: &BrowserBridgeProjection) -> AnyEle
                     .child(format!("{} more actions", bridge.actions.len() - 14)),
             )
         })
+        .into_any_element()
+}
+
+fn browser_activity_list(theme: Theme, activities: &[BrowserActivityProjection]) -> AnyElement {
+    if activities.is_empty() {
+        return div().into_any_element();
+    }
+
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme.muted)
+                .child("Recent browser activity"),
+        )
+        .children(
+            activities
+                .iter()
+                .rev()
+                .take(8)
+                .map(|activity| browser_activity_card(theme, activity))
+                .collect::<Vec<_>>(),
+        )
+        .into_any_element()
+}
+
+fn browser_activity_card(theme: Theme, activity: &BrowserActivityProjection) -> AnyElement {
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_size(px(12.0))
+                .text_color(theme.foreground.opacity(0.82))
+                .child(icon_svg(IconName::Globe, theme.accent_blue))
+                .child(clamp_text(&activity.title, 120)),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .line_height(px(16.0))
+                .text_color(theme.muted)
+                .child(clamp_text(&activity.detail, 180)),
+        )
+        .when_some(activity.target.as_deref(), |this, target| {
+            this.child(
+                div()
+                    .font_family(theme.code_font_family)
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(clamp_text(target, 160)),
+            )
+        })
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(theme.muted_subtle)
+                .child(format!("{} · {}", activity.status, activity.observed_at)),
+        )
         .into_any_element()
 }
 
