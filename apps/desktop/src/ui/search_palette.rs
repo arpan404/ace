@@ -920,7 +920,7 @@ pub fn palette_items(
             .collect();
     }
 
-    let actions = [
+    let mut actions = vec![
         SearchPaletteItem::NewThread,
         SearchPaletteItem::NewProject,
         SearchPaletteItem::OpenScheduled,
@@ -938,10 +938,12 @@ pub fn palette_items(
         SearchPaletteItem::ShowApprovals,
         SearchPaletteItem::ConnectRemoteHost,
         SearchPaletteItem::SwitchModel,
-        SearchPaletteItem::SetProjectDefaultModel,
         SearchPaletteItem::RunTests,
         SearchPaletteItem::RunLint,
     ];
+    if projection.chat.active_thread.is_some() && projection.chat.composer.is_some() {
+        actions.push(SearchPaletteItem::SetProjectDefaultModel);
+    }
 
     if normalized.is_empty() {
         return actions
@@ -2391,6 +2393,38 @@ mod tests {
         ] {
             assert!(items.contains(&expected), "missing {expected:?}");
         }
+        assert!(!items.contains(&SearchPaletteItem::SetProjectDefaultModel));
+    }
+
+    #[test]
+    fn palette_root_includes_project_default_model_only_when_backed() {
+        let empty = DesktopStore::new();
+        let empty_items = palette_items(
+            &empty.projection(),
+            SearchPaletteMode::Root,
+            "set project default model",
+        );
+        assert!(
+            !empty_items
+                .iter()
+                .any(|item| matches!(item, SearchPaletteItem::SetProjectDefaultModel))
+        );
+
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        store.new_thread(project_id);
+        store.set_active_composer_model(ProviderKind::Codex, "gpt-5".to_string());
+
+        let backed_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "set project default model",
+        );
+        assert!(
+            backed_items
+                .iter()
+                .any(|item| matches!(item, SearchPaletteItem::SetProjectDefaultModel))
+        );
     }
 
     #[test]
