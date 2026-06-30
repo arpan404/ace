@@ -17,9 +17,12 @@ pub(super) fn thread_row(
     let archive_thread_id = thread.id.clone();
     let tooltip_thread = thread.clone();
     let tooltip_project_name = project_name.to_string();
+    let metadata_chips = thread_metadata_chips(theme, &thread);
+    let annotation_badges = thread_annotation_badges(theme, &thread);
+    let activity_label = compact_activity_label(&thread.latest_activity_at);
     div()
         .id("thread-row")
-        .h(px(28.0))
+        .min_h(px(32.0))
         .rounded_lg()
         .pl_2()
         .pr_2()
@@ -39,36 +42,60 @@ pub(super) fn thread_row(
                 .flex_1()
                 .min_w_0()
                 .flex()
-                .flex_row()
-                .items_center()
+                .flex_col()
+                .justify_center()
                 .gap_1()
-                .child(thread_status_icon(&thread, theme))
-                .when(thread.pinned, |this| {
-                    this.child(ace_icon_svg(
-                        AceIconName::PinFilled,
-                        if active {
-                            theme.foreground
-                        } else {
-                            theme.muted_subtle
-                        },
-                    ))
-                })
                 .child(
                     div()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .whitespace_nowrap()
-                        .text_size(px(12.0))
-                        .text_color(if active {
-                            theme.foreground
-                        } else {
-                            theme.foreground.opacity(0.72)
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .child(thread_status_icon(&thread, theme))
+                        .when(thread.pinned, |this| {
+                            this.child(ace_icon_svg(
+                                AceIconName::PinFilled,
+                                if active {
+                                    theme.foreground
+                                } else {
+                                    theme.muted_subtle
+                                },
+                            ))
                         })
-                        .child(thread.title.clone()),
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .whitespace_nowrap()
+                                .text_size(px(12.0))
+                                .text_color(if active {
+                                    theme.foreground
+                                } else {
+                                    theme.foreground.opacity(0.72)
+                                })
+                                .child(thread.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(theme.muted_subtle)
+                                .child(activity_label),
+                        )
+                        .children(annotation_badges),
                 )
-                .children(thread_annotation_badges(theme, &thread))
+                .when(!metadata_chips.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .pl(px(18.0))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_1()
+                            .children(metadata_chips),
+                    )
+                })
                 .tooltip(move |window, cx| {
                     Tooltip::new(thread_hover_tooltip(&tooltip_project_name, &tooltip_thread))
                         .build(window, cx)
@@ -106,6 +133,94 @@ pub(super) fn thread_row(
                 })
             },
         ))
+        .into_any_element()
+}
+
+fn compact_activity_label(latest_activity_at: &str) -> String {
+    let trimmed = latest_activity_at.trim();
+    if trimmed.is_empty() {
+        return "updated".to_string();
+    }
+    if trimmed.eq_ignore_ascii_case("now") {
+        return "now".to_string();
+    }
+    if let Some((date, time)) = trimmed.split_once('T') {
+        let day = date.strip_prefix("20").unwrap_or(date).replace('-', "/");
+        let hour_minute = time.get(0..5).unwrap_or(time).trim_end_matches('Z');
+        return format!("{day} {hour_minute}");
+    }
+    trimmed.chars().take(12).collect()
+}
+
+fn thread_metadata_chips(theme: Theme, thread: &ThreadSummary) -> Vec<AnyElement> {
+    let mut chips = Vec::new();
+    if let Some(branch) = thread
+        .branch
+        .as_deref()
+        .filter(|branch| !branch.trim().is_empty())
+    {
+        chips.push(thread_metadata_chip(
+            theme,
+            AceIconName::Code2,
+            branch,
+            "Thread branch",
+        ));
+    }
+    if let Some(worktree) = thread
+        .worktree_path
+        .as_deref()
+        .filter(|worktree| !worktree.trim().is_empty())
+    {
+        chips.push(thread_metadata_chip(
+            theme,
+            AceIconName::TablerTerminal,
+            worktree_display_name(worktree),
+            "Thread worktree",
+        ));
+    }
+    chips
+}
+
+fn worktree_display_name(worktree_path: &str) -> &str {
+    worktree_path
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(worktree_path)
+}
+
+fn thread_metadata_chip(
+    theme: Theme,
+    icon: AceIconName,
+    label: &str,
+    tooltip: &'static str,
+) -> AnyElement {
+    div()
+        .id(tooltip)
+        .max_w(px(104.0))
+        .h(px(17.0))
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .px_1()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .text_size(px(10.0))
+        .text_color(theme.muted)
+        .child(ace_icon_svg(icon, theme.muted_subtle))
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .child(label.to_string()),
+        )
+        .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
         .into_any_element()
 }
 
@@ -473,5 +588,15 @@ mod tests {
         assert!(tooltip.contains("Plan ready for implementation"));
         assert!(tooltip.contains("Unseen completion"));
         assert!(tooltip.contains("Updated provider/model badges"));
+    }
+
+    #[test]
+    fn thread_row_metadata_labels_stay_compact() {
+        assert_eq!(compact_activity_label("now"), "now");
+        assert_eq!(
+            compact_activity_label("2026-06-30T10:05:00Z"),
+            "26/06/30 10:05"
+        );
+        assert_eq!(worktree_display_name("/repo-worktrees/sidebar/"), "sidebar");
     }
 }
