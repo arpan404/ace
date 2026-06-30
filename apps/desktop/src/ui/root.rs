@@ -7,14 +7,15 @@ use crate::{
         OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem, PushReview,
         RefreshActiveTab, RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree,
         SelectBottomPanelTab, SelectComposerHost, SelectComposerModel, SelectRightPanelTab,
-        SelectSearchPaletteItem, SendActiveComposer, SetCodeFont, SetComposerInteractionMode,
-        SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, SetThemeDensity,
-        SetThemeMotion, SetThemePreset, SetUiFont, ShowBrowserTab, ShowLessProjectThreads,
-        ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab,
-        ShowTodosTab, StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleComposerContext,
-        ToggleComposerTrait, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
-        ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
-        ToggleRightPanel, ToggleSidebar, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
+        SelectSearchPaletteItem, SendActiveComposer, SetActiveProjectDefaultModel, SetCodeFont,
+        SetComposerInteractionMode, SetComposerPermission, SetComposerReasoning,
+        SetComposerRuntimeMode, SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont,
+        ShowBrowserTab, ShowLessProjectThreads, ShowMoreProjectThreads, ShowPinnedTab,
+        ShowPluginsTab, ShowProvidersTab, ShowSkillsTab, ShowTodosTab, StageReviewAll,
+        StageReviewFile, ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait,
+        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        ToggleHighlightTimelineItem, TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
+        UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -661,6 +662,12 @@ impl RootView {
                 self.search_palette.query = "model".to_string();
                 self.search_palette.active_index = 0;
             }
+            SearchPaletteItem::SetProjectDefaultModel => {
+                self.search_palette.close();
+                let active_host = self.active_host.clone();
+                self.active_store_mut()
+                    .set_active_project_default_model(active_host.as_ref());
+            }
             SearchPaletteItem::ConnectRemoteHost
             | SearchPaletteItem::RunTests
             | SearchPaletteItem::RunLint => {
@@ -970,6 +977,18 @@ impl RootView {
         cx.notify();
     }
 
+    fn set_active_project_default_model(
+        &mut self,
+        _: &SetActiveProjectDefaultModel,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let active_host = self.active_host.clone();
+        self.active_store_mut()
+            .set_active_project_default_model(active_host.as_ref());
+        cx.notify();
+    }
+
     fn set_composer_reasoning(
         &mut self,
         event: &SetComposerReasoning,
@@ -1275,6 +1294,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::open_thread))
             .on_action(cx.listener(Self::send_active_composer))
             .on_action(cx.listener(Self::select_composer_model))
+            .on_action(cx.listener(Self::set_active_project_default_model))
             .on_action(cx.listener(Self::set_composer_reasoning))
             .on_action(cx.listener(Self::set_composer_permission))
             .on_action(cx.listener(Self::toggle_composer_trait))

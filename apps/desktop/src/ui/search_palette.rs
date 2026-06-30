@@ -35,6 +35,7 @@ pub enum SearchPaletteItem {
     ShowApprovals,
     ConnectRemoteHost,
     SwitchModel,
+    SetProjectDefaultModel,
     RunTests,
     RunLint,
     ComposerModel {
@@ -93,6 +94,7 @@ impl SearchPaletteItem {
             Self::ShowApprovals => "Show approvals",
             Self::ConnectRemoteHost => "Connect remote host",
             Self::SwitchModel => "Switch model",
+            Self::SetProjectDefaultModel => "Set project default model",
             Self::RunTests => "Run tests",
             Self::RunLint => "Run lint",
             Self::ComposerModel { label, .. } | Self::ComposerTrait { label, .. } => label,
@@ -122,6 +124,9 @@ impl SearchPaletteItem {
             Self::ConnectRemoteHost => "Remote host manager is not implemented yet.",
             Self::SwitchModel => {
                 "Search provider model catalog entries and select one for the composer."
+            }
+            Self::SetProjectDefaultModel => {
+                "Persist the current composer model as the active project's default."
             }
             Self::RunTests => {
                 "Project action runner is not implemented yet; open Terminal to run tests."
@@ -155,6 +160,7 @@ impl SearchPaletteItem {
             | Self::ShowApprovals
             | Self::ConnectRemoteHost
             | Self::SwitchModel
+            | Self::SetProjectDefaultModel
             | Self::RunTests
             | Self::RunLint => PaletteItemKind::Action,
             Self::ComposerTrait { .. } => PaletteItemKind::Action,
@@ -477,6 +483,7 @@ pub fn palette_items(
         SearchPaletteItem::ShowApprovals,
         SearchPaletteItem::ConnectRemoteHost,
         SearchPaletteItem::SwitchModel,
+        SearchPaletteItem::SetProjectDefaultModel,
         SearchPaletteItem::RunTests,
         SearchPaletteItem::RunLint,
     ];
@@ -849,9 +856,9 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
         SearchPaletteItem::ShowTodos => ace_icon_svg(AceIconName::ListChecks, color),
         SearchPaletteItem::ManagePlugins => ace_icon_svg(AceIconName::Box, color),
         SearchPaletteItem::ManageSkills => ace_icon_svg(AceIconName::FlaskConical, color),
-        SearchPaletteItem::ConfigureProviders | SearchPaletteItem::SwitchModel => {
-            ace_icon_svg(AceIconName::Code2, color)
-        }
+        SearchPaletteItem::ConfigureProviders
+        | SearchPaletteItem::SwitchModel
+        | SearchPaletteItem::SetProjectDefaultModel => ace_icon_svg(AceIconName::Code2, color),
         SearchPaletteItem::ShowApprovals => ace_icon_svg(AceIconName::ListChecks, color),
         SearchPaletteItem::ConnectRemoteHost => ace_icon_svg(AceIconName::Environment, color),
         SearchPaletteItem::RunTests | SearchPaletteItem::RunLint => {

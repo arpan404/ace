@@ -18,6 +18,7 @@ actions!(
         ToggleBottomPanel,
         NewThread,
         SendActiveComposer,
+        SetActiveProjectDefaultModel,
         InterruptActiveTurn,
         TogglePinActiveThread,
         PinLatestTimelineItem,

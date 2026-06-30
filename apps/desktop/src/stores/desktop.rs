@@ -2,7 +2,7 @@ use crate::backend::{
     BackendError, BackendHostClient, ProjectsAdd, ProjectsDelete, ProjectsProjectThreads,
     ProjectsSnapshot, ProjectsThreadMessages,
 };
-use ace_core::{Project, ProjectId, ProviderKind, ThreadId};
+use ace_core::{ModelSelection, Project, ProjectId, ProviderKind, ThreadId};
 use ace_project::ProjectSummary;
 use ace_protocol::{
     git::{
@@ -11,7 +11,7 @@ use ace_protocol::{
     },
     project::{
         ProjectAddRequest, ProjectDeleteRequest, ProjectSnapshotRequest, ProjectThreadsRequest,
-        ThreadMessagesRequest,
+        ProjectUpdateRequest, ThreadMessagesRequest,
     },
     provider_runtime::{
         ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeModelsListRequest,
@@ -2635,6 +2635,42 @@ impl DesktopStore {
         draft.updated_at = now;
     }
 
+    pub fn set_active_project_default_model(&mut self, host: Option<&BackendHostClient>) {
+        let Some(thread) = self.active_thread().cloned() else {
+            return;
+        };
+        let Some(selection) = self.active_model_selection_for_thread(&thread) else {
+            return;
+        };
+        let now = self.next_timestamp();
+        if let Some(project) = self
+            .projects
+            .iter_mut()
+            .find(|project| project.id == thread.project_id)
+        {
+            project.default_model_selection = Some(selection.clone());
+            project.updated_at = now;
+        }
+
+        let Some(host) = self.host.clone().or_else(|| host.cloned()) else {
+            return;
+        };
+        let request = ProjectUpdateRequest {
+            project_id: thread.project_id,
+            title: None,
+            workspace_root: None,
+            default_model_selection: Some(Some(selection)),
+            scripts: None,
+            icon: None,
+            archived_at: None,
+        };
+        if let Err(error) = host.call::<_, serde_json::Value>(methods::PROJECTS_UPDATE, &request) {
+            self.runtime_status.error =
+                Some(format!("Failed to save project default model: {error}"));
+            self.runtime_status.updated_at = Some(self.next_timestamp());
+        }
+    }
+
     pub fn set_active_composer_reasoning(&mut self, effort: Option<ReasoningEffort>) {
         let now = self.next_timestamp();
         let Some(draft) = self.ensure_active_composer_draft(now.clone()) else {
@@ -2772,6 +2808,21 @@ impl DesktopStore {
                     .iter()
                     .find(|entry| entry.id == model)
                     .map(|entry| entry.supports_reasoning)
+            })
+    }
+
+    fn active_model_selection_for_thread(&self, thread: &ThreadSummary) -> Option<ModelSelection> {
+        self.composer_drafts
+            .get(&thread.id)
+            .map(|draft| ModelSelection {
+                provider: draft.model_selection.provider.runtime_id().to_string(),
+                model: draft.model_selection.model.clone(),
+            })
+            .or_else(|| {
+                thread.model.as_ref().map(|model| ModelSelection {
+                    provider: thread.provider.runtime_id().to_string(),
+                    model: model.clone(),
+                })
             })
     }
 
@@ -4839,6 +4890,36 @@ mod tests {
         assert!(joined.contains("Pinned context"));
         assert!(joined.contains("Todo context"));
         assert!(joined.contains("Use the selected context"));
+    }
+
+    #[test]
+    fn active_project_default_model_is_reused_by_new_threads() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        store.new_thread(project_id);
+        store.set_active_composer_model(ProviderKind::Codex, "gpt-5".to_string());
+
+        store.set_active_project_default_model(None);
+
+        let project = store
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .expect("project");
+        assert_eq!(
+            project.default_model_selection,
+            Some(ModelSelection {
+                provider: "codex".to_string(),
+                model: "gpt-5".to_string(),
+            })
+        );
+
+        let next_thread_id = store.new_thread(project_id);
+        let next_draft = store
+            .composer_drafts
+            .get(&next_thread_id)
+            .expect("next draft");
+        assert_eq!(next_draft.model_selection.model, "gpt-5");
     }
 
     #[test]
