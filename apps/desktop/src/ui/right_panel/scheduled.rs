@@ -1,9 +1,13 @@
-use super::{AnnotationEmptyState, action_button, annotation_empty_body, todo_card};
+use super::{
+    AnnotationEmptyState, action_button, annotation_empty_body, todo_card,
+    todo_context_action_label,
+};
 use crate::{
-    actions::{CreateTodoFromLatestTimelineItem, ToggleFirstOpenTodo},
+    actions::{CreateTodoFromLatestTimelineItem, ToggleComposerContext, ToggleFirstOpenTodo},
     stores::desktop::{DesktopProjection, TodoPriority, TodoStatus},
     ui::{components::AceIconName, theme::Theme},
 };
+use ace_runtime::chat::ComposerContextKind;
 use gpui::{AnyElement, IntoElement, div, prelude::*, px};
 use gpui_component::{IconName, scroll::ScrollableElement as _};
 
@@ -67,12 +71,7 @@ pub(super) fn scheduled_body(theme: Theme, projection: &DesktopProjection) -> An
                             blocked_count
                         )),
                 )
-                .child(action_button(
-                    IconName::CircleCheck,
-                    "Complete first",
-                    theme,
-                    || Box::new(ToggleFirstOpenTodo),
-                )),
+                .child(scheduled_panel_actions(theme, projection)),
         )
         .child(
             div()
@@ -87,10 +86,63 @@ pub(super) fn scheduled_body(theme: Theme, projection: &DesktopProjection) -> An
         .into_any_element()
 }
 
+fn scheduled_panel_actions(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    let todo_context_selected = projection
+        .chat
+        .composer
+        .as_ref()
+        .is_some_and(|draft| draft.context.contains(&ComposerContextKind::Todos));
+
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .when(!projection.chat.messages.is_empty(), |this| {
+            this.child(action_button(IconName::Plus, "New todo", theme, || {
+                Box::new(CreateTodoFromLatestTimelineItem)
+            }))
+        })
+        .child(action_button(
+            IconName::Plus,
+            todo_context_action_label(todo_context_selected),
+            theme,
+            || {
+                Box::new(ToggleComposerContext {
+                    context: ComposerContextKind::Todos,
+                })
+            },
+        ))
+        .child(action_button(
+            IconName::CircleCheck,
+            "Complete first",
+            theme,
+            || Box::new(ToggleFirstOpenTodo),
+        ))
+        .into_any_element()
+}
+
 fn todo_priority_rank(priority: TodoPriority) -> u8 {
     match priority {
         TodoPriority::Low => 0,
         TodoPriority::Normal => 1,
         TodoPriority::High => 2,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scheduled_priority_rank_orders_highest_first() {
+        assert!(todo_priority_rank(TodoPriority::High) > todo_priority_rank(TodoPriority::Normal));
+        assert!(todo_priority_rank(TodoPriority::Normal) > todo_priority_rank(TodoPriority::Low));
+    }
+
+    #[test]
+    fn scheduled_context_label_uses_shared_todo_state() {
+        assert_eq!(todo_context_action_label(false), "Add context");
+        assert_eq!(todo_context_action_label(true), "Remove context");
     }
 }
