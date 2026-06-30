@@ -401,6 +401,7 @@ pub struct SourceItemProjection {
     pub kind: String,
     pub title: String,
     pub detail: String,
+    pub used_by: String,
     pub added_at: String,
 }
 
@@ -1358,6 +1359,7 @@ impl DesktopStore {
                 kind: "file".to_string(),
                 title: file.path.clone(),
                 detail: format!("{} · {stat}", file.status),
+                used_by: "Git review".to_string(),
                 added_at: review.updated_at.clone().unwrap_or_default(),
             });
         }
@@ -1368,6 +1370,7 @@ impl DesktopStore {
                 kind: "terminal".to_string(),
                 title: "Terminal session".to_string(),
                 detail: format!("{} · {}", short_status(&session.status), session.cwd),
+                used_by: "Terminal runtime".to_string(),
                 added_at: session.updated_at.clone(),
             });
         }
@@ -1378,6 +1381,7 @@ impl DesktopStore {
                 kind: "pinned".to_string(),
                 title: item.display_title.clone(),
                 detail: item.display_excerpt.clone(),
+                used_by: "Composer context".to_string(),
                 added_at: item.pinned_at.clone(),
             });
         }
@@ -1388,6 +1392,7 @@ impl DesktopStore {
                 kind: "highlight".to_string(),
                 title: item.display_title.clone(),
                 detail: item.display_excerpt.clone(),
+                used_by: "Composer context".to_string(),
                 added_at: item.highlighted_at.clone(),
             });
         }
@@ -1398,6 +1403,7 @@ impl DesktopStore {
                 kind: "todo".to_string(),
                 title: todo.title.clone(),
                 detail: todo_context_line(todo),
+                used_by: "Todo tracker".to_string(),
                 added_at: todo.created_at.clone(),
             });
         }
@@ -1408,6 +1414,7 @@ impl DesktopStore {
                 kind: "diff_comment".to_string(),
                 title: comment.file_path.clone(),
                 detail: review_comment_detail(comment),
+                used_by: "Review comment".to_string(),
                 added_at: comment.created_at.clone(),
             });
         }
@@ -1429,6 +1436,7 @@ impl DesktopStore {
                     kind: "artifact".to_string(),
                     title: artifact.title.clone(),
                     detail: artifact.detail.clone(),
+                    used_by: "Provider artifact".to_string(),
                     added_at: artifact.observed_at.clone(),
                 });
             }
@@ -8210,6 +8218,30 @@ mod tests {
         assert!(sources.items.iter().any(|item| item.kind == "terminal"));
         assert!(sources.items.iter().any(|item| item.kind == "pinned"));
         assert!(sources.items.iter().any(|item| item.kind == "diff_comment"));
+        assert!(
+            sources
+                .items
+                .iter()
+                .any(|item| { item.kind == "file" && item.used_by == "Git review" })
+        );
+        assert!(
+            sources
+                .items
+                .iter()
+                .any(|item| { item.kind == "terminal" && item.used_by == "Terminal runtime" })
+        );
+        assert!(
+            sources
+                .items
+                .iter()
+                .any(|item| { item.kind == "pinned" && item.used_by == "Composer context" })
+        );
+        assert!(
+            sources
+                .items
+                .iter()
+                .any(|item| { item.kind == "diff_comment" && item.used_by == "Review comment" })
+        );
     }
 
     #[test]
@@ -8265,6 +8297,7 @@ mod tests {
             item.kind == "artifact"
                 && item.title == "Login screenshot"
                 && item.detail.contains("image/png")
+                && item.used_by == "Provider artifact"
         }));
         let summary = store.summary_projection();
         assert!(

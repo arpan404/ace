@@ -2506,6 +2506,18 @@ fn source_item_card(
                 .text_color(theme.muted)
                 .child(clamp_text(&source.detail, 220)),
         )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_size(px(11.0))
+                .text_color(theme.muted_subtle)
+                .child(source_type_label(source.kind.as_str()))
+                .child("·")
+                .child(clamp_text(&source.used_by, 96)),
+        )
         .when(!source.added_at.is_empty(), |this| {
             this.child(
                 div()
@@ -2526,6 +2538,19 @@ fn source_item_card(
             )
         })
         .into_any_element()
+}
+
+fn source_type_label(kind: &str) -> &'static str {
+    match kind {
+        "file" => "File",
+        "terminal" => "Terminal",
+        "artifact" => "Artifact",
+        "pinned" => "Pinned",
+        "highlight" => "Highlight",
+        "todo" => "Todo",
+        "diff_comment" => "Review comment",
+        _ => "Source",
+    }
 }
 
 fn source_panel_tab(kind: &str) -> Option<RightPanelTab> {
@@ -4502,6 +4527,18 @@ mod tests {
         assert_eq!(source_panel_tab("highlight"), Some(RightPanelTab::Pinned));
         assert_eq!(source_panel_tab("todo"), Some(RightPanelTab::Todos));
         assert_eq!(source_panel_tab("artifact"), None);
+    }
+
+    #[test]
+    fn source_cards_label_source_types() {
+        assert_eq!(source_type_label("file"), "File");
+        assert_eq!(source_type_label("terminal"), "Terminal");
+        assert_eq!(source_type_label("artifact"), "Artifact");
+        assert_eq!(source_type_label("pinned"), "Pinned");
+        assert_eq!(source_type_label("highlight"), "Highlight");
+        assert_eq!(source_type_label("todo"), "Todo");
+        assert_eq!(source_type_label("diff_comment"), "Review comment");
+        assert_eq!(source_type_label("unknown"), "Source");
     }
 
     #[test]
