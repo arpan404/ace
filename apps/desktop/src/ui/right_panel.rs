@@ -4,7 +4,7 @@ use crate::{
         CreateTodoFromLatestTimelineItem, CreateWorktree, DenyProviderRequest,
         LinkTodoToCurrentDiff, PinLatestTimelineItem, PushReview, RefreshApprovals, RefreshReview,
         RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab, SetCodeFont,
-        SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll,
+        SetThemeAccent, SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll,
         StageReviewFile, ToggleBottomPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
         ToggleReviewCommentResolved, ToggleRightPanel, UnstageReviewAll, UnstageReviewFile,
         UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
@@ -22,7 +22,10 @@ use crate::{
     ui::{
         components::*,
         layout::PanelLayout,
-        theme::{CodeFont, Theme, ThemeDensity, ThemeMotion, ThemePreset, ThemeSettings, UiFont},
+        theme::{
+            CodeFont, Theme, ThemeAccent, ThemeDensity, ThemeMotion, ThemePreset, ThemeSettings,
+            UiFont,
+        },
     },
 };
 use ace_protocol::terminal::TerminalSessionStatus;
@@ -2275,6 +2278,52 @@ fn settings_body(theme: Theme, settings: &ThemeSettings) -> AnyElement {
                     "Sharper text, borders, and panels",
                     SetThemePreset {
                         preset: ThemePreset::HighContrast,
+                    },
+                ),
+            ],
+        ))
+        .child(settings_section(
+            theme,
+            "Accent",
+            vec![
+                settings_option(
+                    theme,
+                    settings.accent == ThemeAccent::Sky,
+                    IconName::Palette,
+                    "Sky",
+                    "Cool blue highlights and activity states",
+                    SetThemeAccent {
+                        accent: ThemeAccent::Sky,
+                    },
+                ),
+                settings_option(
+                    theme,
+                    settings.accent == ThemeAccent::Emerald,
+                    IconName::Palette,
+                    "Emerald",
+                    "Green highlights for calm review sessions",
+                    SetThemeAccent {
+                        accent: ThemeAccent::Emerald,
+                    },
+                ),
+                settings_option(
+                    theme,
+                    settings.accent == ThemeAccent::Amber,
+                    IconName::Palette,
+                    "Amber",
+                    "Warm highlights for high-signal monitoring",
+                    SetThemeAccent {
+                        accent: ThemeAccent::Amber,
+                    },
+                ),
+                settings_option(
+                    theme,
+                    settings.accent == ThemeAccent::Rose,
+                    IconName::Palette,
+                    "Rose",
+                    "High-contrast rose highlights",
+                    SetThemeAccent {
+                        accent: ThemeAccent::Rose,
                     },
                 ),
             ],

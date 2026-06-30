@@ -9,14 +9,15 @@ use crate::{
         RemoveWorktree, RunLint, RunTests, SelectBottomPanelTab, SelectComposerHost,
         SelectComposerModel, SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer,
         SetActiveProjectDefaultModel, SetCodeFont, SetComposerInteractionMode,
-        SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, SetThemeDensity,
-        SetThemeMotion, SetThemePreset, SetUiFont, ShowBrowserTab, ShowLessProjectThreads,
-        ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab,
-        ShowTodosTab, StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleComposerContext,
-        ToggleComposerTrait, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
-        ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
-        ToggleReviewCommentResolved, ToggleRightPanel, ToggleSidebar, UnstageReviewAll,
-        UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
+        SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, SetThemeAccent,
+        SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, ShowBrowserTab,
+        ShowLessProjectThreads, ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab,
+        ShowProvidersTab, ShowSkillsTab, ShowTodosTab, StageReviewAll, StageReviewFile,
+        ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait, ToggleEnvironmentPanel,
+        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem,
+        TogglePinActiveThread, ToggleReviewCommentResolved, ToggleRightPanel, ToggleSidebar,
+        UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority,
+        UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -407,6 +408,12 @@ impl RootView {
 
     fn set_theme_motion(&mut self, event: &SetThemeMotion, _: &mut Window, cx: &mut Context<Self>) {
         self.ui_store.set_theme_motion(event.motion);
+        self.save_ui_state();
+        cx.notify();
+    }
+
+    fn set_theme_accent(&mut self, event: &SetThemeAccent, _: &mut Window, cx: &mut Context<Self>) {
+        self.ui_store.set_theme_accent(event.accent);
         self.save_ui_state();
         cx.notify();
     }
@@ -1377,6 +1384,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::set_ui_font))
             .on_action(cx.listener(Self::set_code_font))
             .on_action(cx.listener(Self::set_theme_motion))
+            .on_action(cx.listener(Self::set_theme_accent))
             .on_action(cx.listener(Self::select_bottom_panel_tab))
             .on_action(cx.listener(Self::select_search_palette_item))
             .on_action(cx.listener(Self::new_thread))

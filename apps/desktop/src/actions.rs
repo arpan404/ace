@@ -106,6 +106,12 @@ pub struct SetThemeMotion {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct SetThemeAccent {
+    pub accent: crate::ui::theme::ThemeAccent,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct SelectComposerModel {
     pub provider: ace_core::ProviderKind,
     pub model: String,

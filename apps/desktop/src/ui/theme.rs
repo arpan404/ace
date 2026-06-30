@@ -42,6 +42,16 @@ pub enum ThemeMotion {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeAccent {
+    #[default]
+    Sky,
+    Emerald,
+    Amber,
+    Rose,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThemeSettings {
     #[serde(default)]
     pub preset: ThemePreset,
@@ -53,6 +63,8 @@ pub struct ThemeSettings {
     pub code_font: CodeFont,
     #[serde(default)]
     pub motion: ThemeMotion,
+    #[serde(default)]
+    pub accent: ThemeAccent,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -201,6 +213,34 @@ impl Theme {
             }
         }
 
+        match settings.accent {
+            ThemeAccent::Sky => {}
+            ThemeAccent::Emerald => {
+                theme.accent_blue = rgb(0x34d399).into();
+                theme.accent_success = rgb(0x22c55e).into();
+                theme.accent_warning = rgb(0xfacc15).into();
+                theme.accent_pink = rgb(0x5eead4).into();
+                theme.selection = rgb(0x1d2f2a).into();
+                theme.button_hover = rgb(0x24362f).into();
+            }
+            ThemeAccent::Amber => {
+                theme.accent_blue = rgb(0xf59e0b).into();
+                theme.accent_success = rgb(0x84cc16).into();
+                theme.accent_warning = rgb(0xfbbf24).into();
+                theme.accent_pink = rgb(0xfb923c).into();
+                theme.selection = rgb(0x332a18).into();
+                theme.button_hover = rgb(0x3a2f1d).into();
+            }
+            ThemeAccent::Rose => {
+                theme.accent_blue = rgb(0xfb7185).into();
+                theme.accent_success = rgb(0x2dd4bf).into();
+                theme.accent_warning = rgb(0xfbbf24).into();
+                theme.accent_pink = rgb(0xf472b6).into();
+                theme.selection = rgb(0x331f26).into();
+                theme.button_hover = rgb(0x3a2430).into();
+            }
+        }
+
         theme
     }
 
@@ -251,14 +291,33 @@ mod tests {
             ui_font: UiFont::Monospace,
             code_font: CodeFont::Menlo,
             motion: ThemeMotion::Reduced,
+            accent: ThemeAccent::Emerald,
         });
 
         assert_eq!(theme.center_header_height, px(52.0));
         assert_eq!(theme.sidebar_width, px(300.0));
         assert_eq!(theme.ui_font_family, "SF Mono");
         assert_eq!(theme.code_font_family, "Menlo");
+        assert_eq!(theme.accent_blue, rgb(0x34d399).into());
+        assert_eq!(theme.selection, rgb(0x1d2f2a).into());
         assert_eq!(theme.motion_fast_ms, 0);
         assert_eq!(theme.motion_standard_ms, 1);
         assert_eq!(theme.background, rgb(0x050505).into());
+    }
+
+    #[test]
+    fn accent_palettes_recolor_theme_tokens_centrally() {
+        let sky = Theme::from_settings(&ThemeSettings {
+            accent: ThemeAccent::Sky,
+            ..ThemeSettings::default()
+        });
+        let rose = Theme::from_settings(&ThemeSettings {
+            accent: ThemeAccent::Rose,
+            ..ThemeSettings::default()
+        });
+
+        assert_ne!(sky.accent_blue, rose.accent_blue);
+        assert_eq!(rose.accent_blue, rgb(0xfb7185).into());
+        assert_eq!(rose.accent_pink, rgb(0xf472b6).into());
     }
 }

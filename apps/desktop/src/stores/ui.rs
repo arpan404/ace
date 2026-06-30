@@ -167,6 +167,10 @@ impl UiStore {
     pub fn set_theme_motion(&mut self, motion: ThemeMotion) {
         self.state.theme.motion = motion;
     }
+
+    pub fn set_theme_accent(&mut self, accent: crate::ui::theme::ThemeAccent) {
+        self.state.theme.accent = accent;
+    }
 }
 
 impl PersistenceStore for UiStore {
@@ -185,7 +189,7 @@ impl PersistenceStore for UiStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::theme::{CodeFont, ThemeDensity, ThemeMotion, ThemePreset, UiFont};
+    use crate::ui::theme::{CodeFont, ThemeAccent, ThemeDensity, ThemeMotion, ThemePreset, UiFont};
 
     #[test]
     fn ui_store_theme_uses_persisted_font_motion_and_density_settings() {
@@ -196,6 +200,7 @@ mod tests {
                 ui_font: UiFont::Monospace,
                 code_font: CodeFont::Menlo,
                 motion: ThemeMotion::Reduced,
+                accent: ThemeAccent::Amber,
             },
             ..UiState::default()
         });
@@ -204,6 +209,7 @@ mod tests {
 
         assert_eq!(theme.ui_font_family, "SF Mono");
         assert_eq!(theme.code_font_family, "Menlo");
+        assert_eq!(theme.accent_blue, gpui::rgb(0xf59e0b).into());
         assert_eq!(theme.center_header_height, gpui::px(52.0));
         assert_eq!(theme.motion_fast_ms, 0);
     }
@@ -217,11 +223,13 @@ mod tests {
         store.set_ui_font(UiFont::Monospace);
         store.set_code_font(CodeFont::Menlo);
         store.set_theme_motion(ThemeMotion::Reduced);
+        store.set_theme_accent(ThemeAccent::Rose);
 
         assert_eq!(store.state().theme.preset, ThemePreset::HighContrast);
         assert_eq!(store.state().theme.density, ThemeDensity::Compact);
         assert_eq!(store.state().theme.ui_font, UiFont::Monospace);
         assert_eq!(store.state().theme.code_font, CodeFont::Menlo);
         assert_eq!(store.state().theme.motion, ThemeMotion::Reduced);
+        assert_eq!(store.state().theme.accent, ThemeAccent::Rose);
     }
 }
