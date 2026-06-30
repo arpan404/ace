@@ -36,6 +36,7 @@ actions!(
         RefreshActiveTab,
         RunTests,
         RunLint,
+        ShowTerminalTab,
         ShowBrowserTab,
         ShowPinnedTab,
         ShowTodosTab,

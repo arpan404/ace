@@ -13,12 +13,12 @@ use crate::{
         SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, SetThemeAccent,
         SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, ShowBrowserTab,
         ShowLessProjectThreads, ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab,
-        ShowProvidersTab, ShowSkillsTab, ShowTodosTab, StageReviewAll, StageReviewFile,
-        ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait, ToggleEnvironmentPanel,
-        ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem,
-        TogglePinActiveThread, TogglePinThread, ToggleReviewCommentResolved, ToggleRightPanel,
-        ToggleSidebar, UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority,
-        UpdateTodoStatus,
+        ShowProvidersTab, ShowSkillsTab, ShowTerminalTab, ShowTodosTab, StageReviewAll,
+        StageReviewFile, ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait,
+        ToggleEnvironmentPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        ToggleHighlightTimelineItem, TogglePinActiveThread, TogglePinThread,
+        ToggleReviewCommentResolved, ToggleRightPanel, ToggleSidebar, UnstageReviewAll,
+        UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -347,6 +347,13 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.apply_right_panel_tab(event.tab);
+        cx.notify();
+    }
+
+    fn show_terminal_tab(&mut self, _: &ShowTerminalTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Terminal);
+        self.ensure_active_terminal();
+        self.save_ui_state();
         cx.notify();
     }
 
@@ -1701,6 +1708,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::toggle_right_panel))
             .on_action(cx.listener(Self::toggle_bottom_panel))
             .on_action(cx.listener(Self::select_right_panel_tab))
+            .on_action(cx.listener(Self::show_terminal_tab))
             .on_action(cx.listener(Self::show_browser_tab))
             .on_action(cx.listener(Self::show_pinned_tab))
             .on_action(cx.listener(Self::show_todos_tab))

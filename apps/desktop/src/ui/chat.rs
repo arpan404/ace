@@ -1,10 +1,11 @@
 use crate::{
     actions::{
-        CompleteComposerToken, CreateTodoFromTimelineItem, PinTimelineItem, SelectComposerHost,
-        SelectComposerModel, SetComposerInteractionMode, SetComposerPermission,
-        SetComposerReasoning, SetComposerRuntimeMode, ToggleBottomPanel, ToggleComposerContext,
-        ToggleComposerTrait, ToggleEnvironmentPanel, ToggleHighlightTimelineItem, ToggleRightPanel,
-        ToggleSidebar,
+        CompleteComposerToken, CreateTodoFromTimelineItem, OpenSearchPalette, PinTimelineItem,
+        SelectComposerHost, SelectComposerModel, SetComposerInteractionMode, SetComposerPermission,
+        SetComposerReasoning, SetComposerRuntimeMode, ShowBrowserTab, ShowPinnedTab,
+        ShowTerminalTab, ShowTodosTab, ToggleBottomPanel, ToggleComposerContext,
+        ToggleComposerTrait, ToggleEnvironmentPanel, ToggleHighlightTimelineItem,
+        TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
     },
     stores::{
         ComposerCommandProjection, ComposerCommandSource, DesktopProjection, HostOptionProjection,
@@ -189,6 +190,9 @@ fn workspace_chrome(
                 .flex_row()
                 .items_center()
                 .gap_1()
+                .when_some(chat.active_thread.as_ref(), |this, thread| {
+                    this.child(center_header_thread_actions(theme, thread))
+                })
                 .child(ace_icon_toggle_button(
                     AceIconName::Environment,
                     ui_state.environment_panel_visible,
@@ -221,6 +225,116 @@ fn workspace_chrome(
                 }),
         )
         .into_any_element()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CenterHeaderThreadAction {
+    TogglePin { pinned: bool },
+    OpenTerminal,
+    OpenBrowser,
+    ShowPinned,
+    ShowTodos,
+    More,
+}
+
+impl CenterHeaderThreadAction {
+    fn icon(self) -> IconName {
+        match self {
+            Self::TogglePin { .. } | Self::ShowPinned => IconName::Star,
+            Self::OpenTerminal => IconName::SquareTerminal,
+            Self::OpenBrowser => IconName::Globe,
+            Self::ShowTodos => IconName::Check,
+            Self::More => IconName::Search,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::TogglePin { pinned: true } => "Unpin",
+            Self::TogglePin { pinned: false } => "Pin",
+            Self::OpenTerminal => "Terminal",
+            Self::OpenBrowser => "Browser",
+            Self::ShowPinned => "Pinned",
+            Self::ShowTodos => "Todos",
+            Self::More => "More",
+        }
+    }
+}
+
+fn center_header_thread_action_list(
+    thread: &ace_runtime::chat::ThreadSummary,
+) -> Vec<CenterHeaderThreadAction> {
+    vec![
+        CenterHeaderThreadAction::TogglePin {
+            pinned: thread.pinned,
+        },
+        CenterHeaderThreadAction::OpenTerminal,
+        CenterHeaderThreadAction::OpenBrowser,
+        CenterHeaderThreadAction::ShowPinned,
+        CenterHeaderThreadAction::ShowTodos,
+        CenterHeaderThreadAction::More,
+    ]
+}
+
+fn center_header_thread_actions(
+    theme: Theme,
+    thread: &ace_runtime::chat::ThreadSummary,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .children(
+            center_header_thread_action_list(thread)
+                .into_iter()
+                .map(|action| {
+                    center_header_action_button(theme, action, move || {
+                        center_header_thread_action_dispatch(action)
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_any_element()
+}
+
+fn center_header_action_button<F>(
+    theme: Theme,
+    action: CenterHeaderThreadAction,
+    dispatch: F,
+) -> AnyElement
+where
+    F: Fn() -> Box<dyn gpui::Action> + 'static,
+{
+    div()
+        .id(("center-header-action", stable_id(action.label())))
+        .w(px(28.0))
+        .h(px(28.0))
+        .rounded_lg()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(theme.muted)
+        .hover(|this| this.bg(theme.button).text_color(theme.foreground))
+        .child(icon_svg(action.icon(), theme.muted))
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(action.label()).build(window, cx)
+        })
+        .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(dispatch(), cx);
+        })
+        .into_any_element()
+}
+
+fn center_header_thread_action_dispatch(action: CenterHeaderThreadAction) -> Box<dyn gpui::Action> {
+    match action {
+        CenterHeaderThreadAction::TogglePin { .. } => Box::new(TogglePinActiveThread),
+        CenterHeaderThreadAction::OpenTerminal => Box::new(ShowTerminalTab),
+        CenterHeaderThreadAction::OpenBrowser => Box::new(ShowBrowserTab),
+        CenterHeaderThreadAction::ShowPinned => Box::new(ShowPinnedTab),
+        CenterHeaderThreadAction::ShowTodos => Box::new(ShowTodosTab),
+        CenterHeaderThreadAction::More => Box::new(OpenSearchPalette),
+    }
 }
 
 fn header_meta_chip(theme: Theme, icon: IconName, label: impl Into<String>) -> AnyElement {
@@ -2279,6 +2393,42 @@ mod tests {
         assert_eq!(thread_status_label(&projection.chat), "Error");
         assert_eq!(composer_mode_label(&projection.chat), "Chat");
         assert_eq!(composer_branch_label(&projection.chat), "No branch");
+    }
+
+    #[test]
+    fn center_header_thread_actions_follow_pin_state() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/ace".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id.clone(),
+            ComposerPayload {
+                prompt: "Expose thread header actions".to_string(),
+            },
+        );
+
+        let projection = store.projection();
+        let thread = projection.chat.active_thread.as_ref().expect("thread");
+        assert_eq!(
+            center_header_thread_action_list(thread),
+            vec![
+                CenterHeaderThreadAction::TogglePin { pinned: false },
+                CenterHeaderThreadAction::OpenTerminal,
+                CenterHeaderThreadAction::OpenBrowser,
+                CenterHeaderThreadAction::ShowPinned,
+                CenterHeaderThreadAction::ShowTodos,
+                CenterHeaderThreadAction::More,
+            ]
+        );
+
+        store.toggle_pin_thread(thread_id);
+        let projection = store.projection();
+        let thread = projection.chat.active_thread.as_ref().expect("thread");
+        assert_eq!(
+            center_header_thread_action_list(thread)[0],
+            CenterHeaderThreadAction::TogglePin { pinned: true }
+        );
+        assert_eq!(center_header_thread_action_list(thread)[0].label(), "Unpin");
     }
 
     #[test]
