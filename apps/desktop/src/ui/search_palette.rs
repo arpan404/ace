@@ -2,7 +2,7 @@ use crate::{
     actions::SelectSearchPaletteItem,
     stores::{
         ApprovalItemProjection, DesktopProjection, ModelProjection, ReviewProjection,
-        SearchContextKind, TodoItem, TodoStatus,
+        SearchContextKind, TodoAssignee, TodoItem, TodoPriority, TodoStatus,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{
@@ -209,6 +209,9 @@ pub enum TodoPaletteAction {
     Block,
     Complete,
     Cancel,
+    Priority(TodoPriority),
+    Assign(TodoAssignee),
+    LinkCurrentDiff,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -510,6 +513,8 @@ pub fn palette_items(
             result_kind: SearchPaletteResultKind::Context,
         });
     }
+    let has_review_context =
+        !projection.review.files.is_empty() || !projection.annotations.review_comments.is_empty();
     for todo in &projection.annotations.todos {
         context_items.push(SearchPaletteItem::Panel {
             tab: crate::stores::ui::RightPanelTab::Todos,
@@ -517,7 +522,7 @@ pub fn palette_items(
             description: format!("Todo · {:?}", todo.status),
             result_kind: SearchPaletteResultKind::Context,
         });
-        context_items.extend(todo_palette_actions(todo));
+        context_items.extend(todo_palette_actions(todo, has_review_context));
     }
     for approval in &projection.approvals.pending {
         context_items.push(SearchPaletteItem::Panel {
@@ -1085,7 +1090,7 @@ fn review_palette_actions(review: &ReviewProjection) -> Vec<SearchPaletteItem> {
     items
 }
 
-fn todo_palette_actions(todo: &TodoItem) -> Vec<SearchPaletteItem> {
+fn todo_palette_actions(todo: &TodoItem, has_review_context: bool) -> Vec<SearchPaletteItem> {
     let transitions: &[(TodoPaletteAction, TodoStatus, &str)] = match todo.status {
         TodoStatus::Open => &[
             (TodoPaletteAction::Start, TodoStatus::InProgress, "Start"),
@@ -1108,7 +1113,7 @@ fn todo_palette_actions(todo: &TodoItem) -> Vec<SearchPaletteItem> {
         ],
     };
 
-    transitions
+    let mut items = transitions
         .iter()
         .map(
             |(action, next_status, verb)| SearchPaletteItem::TodoAction {
@@ -1121,7 +1126,84 @@ fn todo_palette_actions(todo: &TodoItem) -> Vec<SearchPaletteItem> {
                 ),
             },
         )
-        .collect()
+        .collect::<Vec<_>>();
+
+    items.extend(
+        next_todo_priority_actions(todo.priority)
+            .into_iter()
+            .map(|(priority, label)| SearchPaletteItem::TodoAction {
+                todo_id: todo.id.clone(),
+                action: TodoPaletteAction::Priority(priority),
+                label: format!("Set todo priority {label}: {}", todo.title),
+                description: format!(
+                    "{} · priority {} -> {} · {}",
+                    todo.id,
+                    todo_priority_label(todo.priority),
+                    todo_priority_label(priority),
+                    todo.title
+                ),
+            }),
+    );
+
+    items.extend(
+        next_todo_assignee_actions(todo.assigned_to)
+            .into_iter()
+            .map(|(assignee, label)| SearchPaletteItem::TodoAction {
+                todo_id: todo.id.clone(),
+                action: TodoPaletteAction::Assign(assignee),
+                label: format!("Assign todo to {label}: {}", todo.title),
+                description: format!(
+                    "{} · assignee {} -> {} · {}",
+                    todo.id,
+                    todo_assignee_label(todo.assigned_to),
+                    todo_assignee_label(assignee),
+                    todo.title
+                ),
+            }),
+    );
+
+    if has_review_context {
+        items.push(SearchPaletteItem::TodoAction {
+            todo_id: todo.id.clone(),
+            action: TodoPaletteAction::LinkCurrentDiff,
+            label: format!("Link todo to current diff: {}", todo.title),
+            description: format!("{} · attach active review files and comments", todo.id),
+        });
+    }
+
+    items
+}
+
+fn next_todo_priority_actions(priority: TodoPriority) -> Vec<(TodoPriority, &'static str)> {
+    match priority {
+        TodoPriority::Low => vec![(TodoPriority::Normal, "normal")],
+        TodoPriority::Normal => vec![(TodoPriority::Low, "low"), (TodoPriority::High, "high")],
+        TodoPriority::High => vec![(TodoPriority::Normal, "normal")],
+    }
+}
+
+fn next_todo_assignee_actions(assignee: TodoAssignee) -> Vec<(TodoAssignee, &'static str)> {
+    match assignee {
+        TodoAssignee::User => vec![(TodoAssignee::Agent, "agent"), (TodoAssignee::Both, "both")],
+        TodoAssignee::Agent => vec![(TodoAssignee::User, "user"), (TodoAssignee::Both, "both")],
+        TodoAssignee::Both => vec![(TodoAssignee::User, "user"), (TodoAssignee::Agent, "agent")],
+    }
+}
+
+fn todo_priority_label(priority: TodoPriority) -> &'static str {
+    match priority {
+        TodoPriority::Low => "low",
+        TodoPriority::Normal => "normal",
+        TodoPriority::High => "high",
+    }
+}
+
+fn todo_assignee_label(assignee: TodoAssignee) -> &'static str {
+    match assignee {
+        TodoAssignee::User => "user",
+        TodoAssignee::Agent => "agent",
+        TodoAssignee::Both => "user and agent",
+    }
 }
 
 fn thread_palette_description(project_name: &str, thread: &ThreadSummary) -> String {
@@ -1652,6 +1734,13 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
             TodoPaletteAction::Block => icon_svg(IconName::TriangleAlert, color),
             TodoPaletteAction::Complete => icon_svg(IconName::CircleCheck, color),
             TodoPaletteAction::Cancel => icon_svg(IconName::CircleX, color),
+            TodoPaletteAction::Priority(TodoPriority::Low) => icon_svg(IconName::ArrowDown, color),
+            TodoPaletteAction::Priority(TodoPriority::Normal) => icon_svg(IconName::Check, color),
+            TodoPaletteAction::Priority(TodoPriority::High) => icon_svg(IconName::ArrowUp, color),
+            TodoPaletteAction::Assign(TodoAssignee::User) => icon_svg(IconName::User, color),
+            TodoPaletteAction::Assign(TodoAssignee::Agent) => icon_svg(IconName::Bot, color),
+            TodoPaletteAction::Assign(TodoAssignee::Both) => icon_svg(IconName::User, color),
+            TodoPaletteAction::LinkCurrentDiff => icon_svg(IconName::File, color),
         },
     }
 }
@@ -2119,6 +2208,64 @@ mod tests {
             SearchPaletteItem::TodoAction {
                 todo_id: item_todo_id,
                 action: TodoPaletteAction::Open,
+                ..
+            } if *item_todo_id == todo_id
+        )));
+    }
+
+    #[test]
+    fn palette_search_includes_backed_todo_metadata_actions() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id,
+            ComposerPayload {
+                prompt: "Track todo metadata palette actions".to_string(),
+            },
+        );
+        store.create_todo_from_latest_timeline_item();
+        store.create_review_comment_for_file("src/lib.rs".to_string());
+        let todo_id = store.projection().annotations.todos[0].id.clone();
+
+        let priority_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "priority high todo",
+        );
+        assert!(priority_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::TodoAction {
+                todo_id: item_todo_id,
+                action: TodoPaletteAction::Priority(TodoPriority::High),
+                ..
+            } if *item_todo_id == todo_id
+        )));
+
+        let assignee_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "assign todo agent",
+        );
+        assert!(assignee_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::TodoAction {
+                todo_id: item_todo_id,
+                action: TodoPaletteAction::Assign(TodoAssignee::Agent),
+                ..
+            } if *item_todo_id == todo_id
+        )));
+
+        let link_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "link todo current diff",
+        );
+        assert!(link_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::TodoAction {
+                todo_id: item_todo_id,
+                action: TodoPaletteAction::LinkCurrentDiff,
                 ..
             } if *item_todo_id == todo_id
         )));

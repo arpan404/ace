@@ -991,22 +991,32 @@ impl RootView {
         action: crate::ui::search_palette::TodoPaletteAction,
     ) {
         self.apply_right_panel_tab(RightPanelTab::Todos);
-        let status = match action {
-            crate::ui::search_palette::TodoPaletteAction::Open => crate::stores::TodoStatus::Open,
-            crate::ui::search_palette::TodoPaletteAction::Start => {
-                crate::stores::TodoStatus::InProgress
-            }
-            crate::ui::search_palette::TodoPaletteAction::Block => {
-                crate::stores::TodoStatus::Blocked
-            }
-            crate::ui::search_palette::TodoPaletteAction::Complete => {
-                crate::stores::TodoStatus::Done
-            }
-            crate::ui::search_palette::TodoPaletteAction::Cancel => {
-                crate::stores::TodoStatus::Canceled
+        match action {
+            crate::ui::search_palette::TodoPaletteAction::Open => self
+                .active_store_mut()
+                .update_todo_status(&todo_id, crate::stores::TodoStatus::Open),
+            crate::ui::search_palette::TodoPaletteAction::Start => self
+                .active_store_mut()
+                .update_todo_status(&todo_id, crate::stores::TodoStatus::InProgress),
+            crate::ui::search_palette::TodoPaletteAction::Block => self
+                .active_store_mut()
+                .update_todo_status(&todo_id, crate::stores::TodoStatus::Blocked),
+            crate::ui::search_palette::TodoPaletteAction::Complete => self
+                .active_store_mut()
+                .update_todo_status(&todo_id, crate::stores::TodoStatus::Done),
+            crate::ui::search_palette::TodoPaletteAction::Cancel => self
+                .active_store_mut()
+                .update_todo_status(&todo_id, crate::stores::TodoStatus::Canceled),
+            crate::ui::search_palette::TodoPaletteAction::Priority(priority) => self
+                .active_store_mut()
+                .update_todo_priority(&todo_id, priority),
+            crate::ui::search_palette::TodoPaletteAction::Assign(assignee) => self
+                .active_store_mut()
+                .update_todo_assignee(&todo_id, assignee),
+            crate::ui::search_palette::TodoPaletteAction::LinkCurrentDiff => {
+                self.active_store_mut().link_todo_to_current_diff(&todo_id)
             }
         };
-        self.active_store_mut().update_todo_status(&todo_id, status);
         self.save_thread_annotations();
     }
 
