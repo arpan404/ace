@@ -40,15 +40,15 @@ use ace_runtime::{
         build_sidebar_projection, resolve_thread_creation_options,
     },
     provider::{
-        NormalizedServerRequest, ProviderRuntimeHealth, ServerRequestKind, ThreadItemKind,
-        ThreadItemStatus,
+        NormalizedServerRequest, ProviderMetadata, ProviderRuntimeHealth, ServerRequestKind,
+        ThreadItemKind, ThreadItemStatus,
     },
     threads::{
         AgentRuntimeSnapshot, AgentThread, ApprovalRecord, ApprovalRetryRecord, ApprovalStatus,
         AutoApprovalReviewRecord, ChildThreadRecord, ChildThreadRelationship, ExecutionLocation,
         ForkPoint, GoalState, GoalStatus, HandoffPlan, HandoffStatus, ModelRerouteRecord,
-        PlanImplementationRecord, PlanSessionStatus, ProcessExitRecord, ProviderStateRecord,
-        RealtimeAudioRecord, RealtimeSessionRecord, RealtimeTranscriptRecord,
+        PlanImplementationRecord, PlanSession, PlanSessionStatus, ProcessExitRecord,
+        ProviderStateRecord, RealtimeAudioRecord, RealtimeSessionRecord, RealtimeTranscriptRecord,
         RemoteConnectionRecord, RuntimeWarningRecord, SideChat, SubagentActionKind,
         SubagentActionRecord, SubagentThread, TerminalOutputRecord, ThreadLifecycleActionKind,
         ThreadLifecycleRecord, Turn, TurnDiffRecord, TurnMode, TurnModerationRecord,
@@ -3945,6 +3945,94 @@ impl DesktopStore {
             ProviderRuntimeProjectionDelta::ThreadItemUpsert { item } => {
                 self.apply_provider_thread_item(*item, sequence);
             }
+            ProviderRuntimeProjectionDelta::ThreadItemDetailsUpdated {
+                provider,
+                kind,
+                status,
+                thread_id,
+                turn_id,
+                item_id,
+                title,
+                text,
+                status_text,
+                model,
+                target,
+                url,
+                files,
+                attachments,
+                diff,
+                token_usage,
+                plan_questions,
+                plan_completion,
+                metadata,
+            } => {
+                self.apply_provider_thread_item(
+                    ace_runtime::provider::NormalizedThreadItem {
+                        kind,
+                        status,
+                        thread_id: thread_id.clone(),
+                        turn_id,
+                        item_id,
+                        parent_thread_id: None,
+                        child_thread_id: None,
+                        sender: None,
+                        role: None,
+                        title,
+                        text,
+                        status_text,
+                        model,
+                        target,
+                        url,
+                        files,
+                        attachments,
+                        diff,
+                        token_usage,
+                        plan_questions,
+                        plan_completion,
+                        metadata: *metadata,
+                        provider: ProviderMetadata {
+                            provider,
+                            method: None,
+                            schema_version: None,
+                            raw_payload: serde_json::Value::Null,
+                        },
+                    },
+                    sequence,
+                );
+            }
+            ProviderRuntimeProjectionDelta::PlanUpdated {
+                provider,
+                thread_id: Some(thread_id),
+                turn_id,
+                item_id,
+                status,
+                title,
+                text,
+                status_text,
+                metadata,
+                provider_metadata,
+                questions,
+                completion,
+            } => {
+                self.upsert_plan_session(PlanSession {
+                    thread_id,
+                    turn_id,
+                    item_id,
+                    status: plan_session_status_from_thread_item_status(status),
+                    title,
+                    text,
+                    status_text,
+                    questions,
+                    completion,
+                    metadata: *metadata,
+                    provider: provider_metadata
+                        .map(|metadata| *metadata)
+                        .or_else(|| Some(provider_metadata_from_name(provider))),
+                });
+            }
+            ProviderRuntimeProjectionDelta::PlanUpdated {
+                thread_id: None, ..
+            } => {}
             ProviderRuntimeProjectionDelta::ForkUpdated { provider: _, fork } => {
                 self.upsert_fork_point(fork);
             }
@@ -4089,6 +4177,38 @@ impl DesktopStore {
                     exit_code,
                     metadata,
                 });
+                self.refresh_runtime_status_from_snapshot();
+            }
+            ProviderRuntimeProjectionDelta::ServerRequestResolvedObserved {
+                provider,
+                request_id: Some(request_id),
+                ..
+            } => {
+                self.resolve_pending_approval(&provider, &request_id);
+            }
+            ProviderRuntimeProjectionDelta::ServerRequestResolvedObserved {
+                request_id: None,
+                ..
+            } => {}
+            ProviderRuntimeProjectionDelta::StderrAppended { provider, line } => {
+                self.runtime.warnings.push(RuntimeWarningRecord {
+                    provider,
+                    thread_id: None,
+                    turn_id: None,
+                    message: line,
+                    metadata: serde_json::json!({ "stream": "stderr" }),
+                });
+                self.refresh_runtime_status_from_snapshot();
+            }
+            ProviderRuntimeProjectionDelta::ProviderExited { provider, code } => {
+                self.upsert_provider_state(ProviderStateRecord {
+                    provider: provider.clone(),
+                    status: "stopped".to_string(),
+                    message: code.map(|code| format!("Provider exited with code {code}")),
+                    name: None,
+                    metadata: serde_json::json!({ "exit_code": code }),
+                });
+                self.runtime.active_turns.clear();
                 self.refresh_runtime_status_from_snapshot();
             }
             ProviderRuntimeProjectionDelta::ProviderStateUpdated {
@@ -4256,7 +4376,7 @@ impl DesktopStore {
             ProviderRuntimeProjectionDelta::ApprovalRetryRecorded { provider: _, retry } => {
                 self.upsert_approval_retry(retry);
             }
-            _ => {}
+            ProviderRuntimeProjectionDelta::RawNotificationObserved { .. } => {}
         }
     }
 
@@ -4604,6 +4724,47 @@ impl DesktopStore {
             *existing = implementation;
         } else {
             self.runtime.plan_implementations.push(implementation);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_plan_session(&mut self, plan: PlanSession) {
+        if let Some(existing) = self
+            .runtime
+            .plan_sessions
+            .iter_mut()
+            .find(|existing| existing.thread_id == plan.thread_id)
+        {
+            existing.status = plan.status;
+            if plan.turn_id.is_some() {
+                existing.turn_id = plan.turn_id;
+            }
+            if plan.item_id.is_some() {
+                existing.item_id = plan.item_id;
+            }
+            if plan.title.is_some() {
+                existing.title = plan.title;
+            }
+            if plan.text.is_some() {
+                existing.text = plan.text;
+            }
+            if plan.status_text.is_some() {
+                existing.status_text = plan.status_text;
+            }
+            if plan.questions.is_some() {
+                existing.questions = plan.questions;
+            }
+            if plan.completion.is_some() {
+                existing.completion = plan.completion;
+            }
+            if !plan.metadata.is_null() {
+                existing.metadata = plan.metadata;
+            }
+            if plan.provider.is_some() {
+                existing.provider = plan.provider;
+            }
+        } else {
+            self.runtime.plan_sessions.push(plan);
         }
         self.refresh_runtime_status_from_snapshot();
     }
@@ -6918,6 +7079,23 @@ fn thread_item_status_key(status: ThreadItemStatus) -> &'static str {
         ThreadItemStatus::Updated => "updated",
         ThreadItemStatus::Completed => "completed",
         ThreadItemStatus::Failed => "failed",
+    }
+}
+
+fn plan_session_status_from_thread_item_status(status: ThreadItemStatus) -> PlanSessionStatus {
+    match status {
+        ThreadItemStatus::Started | ThreadItemStatus::Updated => PlanSessionStatus::Active,
+        ThreadItemStatus::Completed => PlanSessionStatus::Completed,
+        ThreadItemStatus::Failed => PlanSessionStatus::Rejected,
+    }
+}
+
+fn provider_metadata_from_name(provider: String) -> ProviderMetadata {
+    ProviderMetadata {
+        provider,
+        method: None,
+        schema_version: None,
+        raw_payload: serde_json::Value::Null,
     }
 }
 
@@ -9743,6 +9921,80 @@ mod tests {
     }
 
     #[test]
+    fn provider_runtime_batch_applies_thread_item_details_and_plan_deltas() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![
+                ProviderRuntimeProjectionDelta::ThreadItemDetailsUpdated {
+                    provider: "codex".to_string(),
+                    kind: ThreadItemKind::AgentMessage,
+                    status: ThreadItemStatus::Completed,
+                    thread_id: Some("provider-thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("message-1".to_string()),
+                    title: Some("Assistant".to_string()),
+                    text: Some("Implementation finished.".to_string()),
+                    status_text: None,
+                    model: Some("gpt-5".to_string()),
+                    target: None,
+                    url: None,
+                    files: None,
+                    attachments: None,
+                    diff: None,
+                    token_usage: None,
+                    plan_questions: None,
+                    plan_completion: None,
+                    metadata: Box::new(serde_json::Value::Null),
+                },
+                ProviderRuntimeProjectionDelta::PlanUpdated {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("plan-1".to_string()),
+                    status: ThreadItemStatus::Started,
+                    title: Some("Implementation plan".to_string()),
+                    text: Some("1. Wire reducer\n2. Test it".to_string()),
+                    status_text: Some("running".to_string()),
+                    metadata: Box::new(serde_json::json!({ "mode": "plan" })),
+                    provider_metadata: None,
+                    questions: Some(serde_json::json!([{ "id": "q1" }])),
+                    completion: None,
+                },
+            ],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        let messages = store.projection().chat.messages;
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.text.as_deref() == Some("Implementation finished."))
+        );
+        let run = store.run_projection();
+        assert_eq!(run.status_label, "Plan active");
+        assert_eq!(run.turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(store.runtime.plan_sessions.len(), 1);
+        assert_eq!(
+            store.runtime.plan_sessions[0].questions,
+            Some(serde_json::json!([{ "id": "q1" }]))
+        );
+    }
+
+    #[test]
     fn provider_runtime_batch_applies_operational_signal_deltas() {
         let mut store = DesktopStore::new();
         let project_id = store.add_project("/tmp/project".to_string());
@@ -9823,6 +10075,45 @@ mod tests {
             signal == "Realtime session codex · listening · voice bridge ready"
         }));
         assert_eq!(store.runtime.provider_states.len(), 1);
+    }
+
+    #[test]
+    fn provider_runtime_batch_applies_provider_process_deltas() {
+        let mut store = DesktopStore::new();
+        store.runtime.active_turns = vec![Turn {
+            thread_id: "provider-thread-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            mode: TurnMode::Normal,
+            active: true,
+        }];
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![
+                ProviderRuntimeProjectionDelta::StderrAppended {
+                    provider: "codex".to_string(),
+                    line: "adapter warning".to_string(),
+                },
+                ProviderRuntimeProjectionDelta::ProviderExited {
+                    provider: "codex".to_string(),
+                    code: Some(12),
+                },
+            ],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        assert!(store.runtime.active_turns.is_empty());
+        assert_eq!(store.runtime.warnings.len(), 1);
+        assert_eq!(store.runtime.warnings[0].message, "adapter warning");
+        assert_eq!(store.runtime.provider_states.len(), 1);
+        assert_eq!(store.runtime.provider_states[0].status, "stopped");
+        assert_eq!(store.runtime.provider_states[0].metadata["exit_code"], 12);
+        assert_eq!(store.projection().runtime_status.active_turns, 0);
+        assert_eq!(store.projection().runtime_status.warnings, 1);
     }
 
     #[test]
