@@ -298,6 +298,13 @@ pub struct NewThreadForProject {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct OpenProjectRightPanelTab {
+    pub project_id: ace_core::ProjectId,
+    pub tab: RightPanelTab,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct ArchiveProject {
     pub project_id: ace_core::ProjectId,
 }

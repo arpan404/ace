@@ -1,4 +1,7 @@
-use crate::ui::{components::*, theme::Theme};
+use crate::{
+    stores::ui::RightPanelTab,
+    ui::{components::*, theme::Theme},
+};
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
 use gpui_component::{IconName, tooltip::Tooltip};
 
@@ -49,6 +52,39 @@ pub(super) fn project_header(
                         .flex_row()
                         .items_center()
                         .gap_1()
+                        .child(ace_action_button(
+                            AceIconName::Terminal,
+                            "Open project terminal",
+                            theme,
+                            move || {
+                                Box::new(crate::actions::OpenProjectRightPanelTab {
+                                    project_id,
+                                    tab: RightPanelTab::Terminal,
+                                })
+                            },
+                        ))
+                        .child(ace_action_button(
+                            AceIconName::Browser,
+                            "Open project browser preview",
+                            theme,
+                            move || {
+                                Box::new(crate::actions::OpenProjectRightPanelTab {
+                                    project_id,
+                                    tab: RightPanelTab::Browser,
+                                })
+                            },
+                        ))
+                        .child(ace_action_button(
+                            AceIconName::Review,
+                            "Show project worktrees",
+                            theme,
+                            move || {
+                                Box::new(crate::actions::OpenProjectRightPanelTab {
+                                    project_id,
+                                    tab: RightPanelTab::Worktrees,
+                                })
+                            },
+                        ))
                         .child(ace_action_button(
                             AceIconName::SquarePen,
                             "New thread in project",

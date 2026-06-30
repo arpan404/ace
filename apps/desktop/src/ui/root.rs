@@ -4,12 +4,12 @@ use crate::{
         ArchiveThread, BeginPanelResize, CloseSearchPalette, CommitReview, CompleteComposerToken,
         CreateReviewComment, CreateTodoFromLatestTimelineItem, CreateTodoFromTimelineItem,
         CreateWorktree, DenyProviderRequest, FocusPanel, InterruptActiveTurn,
-        LinkTodoToCurrentDiff, NewThread, NewThreadForProject, OpenSearchPalette, OpenThread,
-        OpenThreadRightPanelTab, PinLatestTimelineItem, PinTimelineItem, PushReview,
-        RefreshActiveTab, RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree,
-        RunLint, RunTests, SelectBottomPanelTab, SelectComposerHost, SelectComposerModel,
-        SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer,
-        SetActiveProjectDefaultModel, SetCodeFont, SetComposerInteractionMode,
+        LinkTodoToCurrentDiff, NewThread, NewThreadForProject, OpenProjectRightPanelTab,
+        OpenSearchPalette, OpenThread, OpenThreadRightPanelTab, PinLatestTimelineItem,
+        PinTimelineItem, PushReview, RefreshActiveTab, RefreshApprovals, RefreshReview,
+        RefreshWorktrees, RemoveWorktree, RunLint, RunTests, SelectBottomPanelTab,
+        SelectComposerHost, SelectComposerModel, SelectRightPanelTab, SelectSearchPaletteItem,
+        SendActiveComposer, SetActiveProjectDefaultModel, SetCodeFont, SetComposerInteractionMode,
         SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, SetThemeAccent,
         SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, ShowBrowserTab,
         ShowLessProjectThreads, ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab,
@@ -1278,6 +1278,20 @@ impl RootView {
         cx.notify();
     }
 
+    fn open_project_right_panel_tab(
+        &mut self,
+        event: &OpenProjectRightPanelTab,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_project_or_create_thread(event.project_id);
+        self.apply_right_panel_tab(event.tab);
+        if event.tab == RightPanelTab::Terminal {
+            self.ensure_active_terminal();
+        }
+        cx.notify();
+    }
+
     fn add_current_directory_project(
         &mut self,
         _: &AddCurrentDirectoryProject,
@@ -1705,6 +1719,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::select_search_palette_item))
             .on_action(cx.listener(Self::new_thread))
             .on_action(cx.listener(Self::new_thread_for_project))
+            .on_action(cx.listener(Self::open_project_right_panel_tab))
             .on_action(cx.listener(Self::add_current_directory_project))
             .on_action(cx.listener(Self::open_thread))
             .on_action(cx.listener(Self::open_thread_right_panel_tab))
