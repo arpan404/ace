@@ -45,8 +45,9 @@ use ace_runtime::{
     },
     threads::{
         AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation, GoalStatus,
-        HandoffStatus, PlanSessionStatus, RemoteConnectionRecord, SubagentActionKind,
-        TerminalOutputRecord, TurnDiffRecord, TurnMode,
+        HandoffStatus, ModelRerouteRecord, PlanSessionStatus, ProcessExitRecord,
+        ProviderStateRecord, RealtimeSessionRecord, RemoteConnectionRecord, RuntimeWarningRecord,
+        SubagentActionKind, TerminalOutputRecord, TurnDiffRecord, TurnMode,
     },
     tools::{SemanticToolCall, ToolRunStatus, ToolSurface},
 };
@@ -3907,6 +3908,89 @@ impl DesktopStore {
                     self.upsert_runtime_turn_diff(thread_id, turn_id, diff, files);
                 }
             }
+            ProviderRuntimeProjectionDelta::WarningRaised {
+                provider,
+                thread_id,
+                turn_id,
+                message,
+                metadata,
+            } => {
+                self.runtime.warnings.push(RuntimeWarningRecord {
+                    provider,
+                    thread_id,
+                    turn_id,
+                    message,
+                    metadata,
+                });
+                self.refresh_runtime_status_from_snapshot();
+            }
+            ProviderRuntimeProjectionDelta::ModelRerouted {
+                provider,
+                thread_id,
+                turn_id,
+                from_model,
+                to_model,
+                reason,
+            } => {
+                self.runtime.model_reroutes.push(ModelRerouteRecord {
+                    provider,
+                    thread_id,
+                    turn_id,
+                    from_model,
+                    to_model,
+                    reason,
+                });
+                self.refresh_runtime_status_from_snapshot();
+            }
+            ProviderRuntimeProjectionDelta::ProcessExited {
+                provider: _,
+                thread_id,
+                turn_id,
+                process_id,
+                exit_code,
+                metadata,
+            } => {
+                self.runtime.process_exits.push(ProcessExitRecord {
+                    thread_id,
+                    turn_id,
+                    process_id,
+                    exit_code,
+                    metadata,
+                });
+                self.refresh_runtime_status_from_snapshot();
+            }
+            ProviderRuntimeProjectionDelta::ProviderStateUpdated {
+                provider,
+                status,
+                message,
+                name,
+                metadata,
+            } => {
+                self.upsert_provider_state(ProviderStateRecord {
+                    provider,
+                    status,
+                    message,
+                    name,
+                    metadata,
+                });
+            }
+            ProviderRuntimeProjectionDelta::RealtimeSessionUpdated {
+                provider,
+                thread_id,
+                turn_id,
+                status,
+                message,
+                metadata,
+            } => {
+                self.upsert_realtime_session(RealtimeSessionRecord {
+                    provider,
+                    thread_id,
+                    turn_id,
+                    status,
+                    message,
+                    metadata,
+                });
+            }
             _ => {}
         }
     }
@@ -4048,6 +4132,33 @@ impl DesktopStore {
             *existing = record;
         } else {
             self.runtime.turn_diffs.push(record);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_provider_state(&mut self, state: ProviderStateRecord) {
+        if let Some(existing) = self.runtime.provider_states.iter_mut().find(|existing| {
+            existing.provider == state.provider
+                && existing.name == state.name
+                && provider_state_surface(&existing.metadata)
+                    == provider_state_surface(&state.metadata)
+        }) {
+            *existing = state;
+        } else {
+            self.runtime.provider_states.push(state);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_realtime_session(&mut self, session: RealtimeSessionRecord) {
+        if let Some(existing) = self.runtime.realtime_sessions.iter_mut().find(|existing| {
+            existing.provider == session.provider
+                && existing.thread_id == session.thread_id
+                && existing.turn_id == session.turn_id
+        }) {
+            *existing = session;
+        } else {
+            self.runtime.realtime_sessions.push(session);
         }
         self.refresh_runtime_status_from_snapshot();
     }
@@ -6576,6 +6687,13 @@ fn composer_context_value(context: ComposerContextKind) -> &'static str {
     }
 }
 
+fn provider_state_surface(metadata: &serde_json::Value) -> Option<&str> {
+    metadata
+        .get("surface")
+        .or_else(|| metadata.get("kind"))
+        .and_then(serde_json::Value::as_str)
+}
+
 fn toggle_vec_value<T: Copy + PartialEq>(values: &mut Vec<T>, value: T) {
     if let Some(index) = values.iter().position(|candidate| *candidate == value) {
         values.remove(index);
@@ -8843,6 +8961,89 @@ mod tests {
                 .iter()
                 .any(|signal| signal == "Turn diff updated · 1 file · turn turn-1")
         );
+    }
+
+    #[test]
+    fn provider_runtime_batch_applies_operational_signal_deltas() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![
+                ProviderRuntimeProjectionDelta::WarningRaised {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    message: "event stream lagged".to_string(),
+                    metadata: serde_json::Value::Null,
+                },
+                ProviderRuntimeProjectionDelta::ModelRerouted {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    from_model: Some("gpt-5".to_string()),
+                    to_model: Some("gpt-5-mini".to_string()),
+                    reason: Some("context_limit".to_string()),
+                },
+                ProviderRuntimeProjectionDelta::ProcessExited {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    process_id: Some("cargo-test".to_string()),
+                    exit_code: Some(101),
+                    metadata: serde_json::Value::Null,
+                },
+                ProviderRuntimeProjectionDelta::ProviderStateUpdated {
+                    provider: "codex".to_string(),
+                    status: "ready".to_string(),
+                    message: Some("adapter online".to_string()),
+                    name: Some("codex-cli".to_string()),
+                    metadata: serde_json::json!({ "surface": "provider" }),
+                },
+                ProviderRuntimeProjectionDelta::RealtimeSessionUpdated {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    status: "listening".to_string(),
+                    message: Some("voice bridge ready".to_string()),
+                    metadata: serde_json::Value::Null,
+                },
+            ],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        let signals = store.summary_projection().runtime_signals;
+        assert!(
+            signals
+                .iter()
+                .any(|signal| signal == "Warning codex · event stream lagged")
+        );
+        assert!(
+            signals
+                .iter()
+                .any(|signal| signal == "Model reroute gpt-5 -> gpt-5-mini · context_limit")
+        );
+        assert!(
+            signals
+                .iter()
+                .any(|signal| signal == "Process exit cargo-test · code 101")
+        );
+        assert!(signals.iter().any(|signal| {
+            signal == "Realtime session codex · listening · voice bridge ready"
+        }));
+        assert_eq!(store.runtime.provider_states.len(), 1);
     }
 
     #[test]
