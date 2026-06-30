@@ -1,5 +1,5 @@
 use crate::{
-    stores::ui::{BottomPanelTab, RightPanelTab},
+    stores::ui::{BottomPanelTab, FocusedPanel, RightPanelTab},
     ui::layout::SplitterKind,
 };
 use ace_runtime::chat::{
@@ -72,6 +72,12 @@ pub struct SelectRightPanelTab {
 #[action(namespace = ace, no_json)]
 pub struct SelectBottomPanelTab {
     pub tab: BottomPanelTab,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct FocusPanel {
+    pub panel: FocusedPanel,
 }
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]

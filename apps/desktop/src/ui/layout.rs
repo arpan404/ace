@@ -1,5 +1,8 @@
 use crate::{
-    stores::{DesktopProjection, ui::UiState},
+    stores::{
+        DesktopProjection,
+        ui::{FocusedPanel, UiState},
+    },
     ui::{
         chat::workspace_panel,
         right_panel::{bottom_panel, right_panel},
@@ -81,12 +84,17 @@ pub fn shell_layout(
         .flex_row()
         .bg(theme.background)
         .when(!ui_state.sidebar_collapsed, |this| {
-            this.child(sidebar_panel(
+            this.child(focused_panel_frame(
                 theme,
-                layout,
-                sidebar,
-                chrome.active_splitter == Some(SplitterKind::Sidebar),
-                chrome.reserve_titlebar_controls,
+                ui_state.focused_panel == FocusedPanel::Sidebar,
+                false,
+                sidebar_panel(
+                    theme,
+                    layout,
+                    sidebar,
+                    chrome.active_splitter == Some(SplitterKind::Sidebar),
+                    chrome.reserve_titlebar_controls,
+                ),
             ))
             .child(vertical_splitter(
                 "sidebar-splitter",
@@ -166,13 +174,18 @@ fn main_content_row(
         .min_h_0()
         .flex()
         .flex_row()
-        .child(center_column(
+        .child(focused_panel_frame(
             theme,
-            ui_state.clone(),
-            projection.clone(),
-            chrome.reserve_titlebar_controls,
-            window,
-            cx,
+            ui_state.focused_panel == FocusedPanel::Center,
+            true,
+            center_column(
+                theme,
+                ui_state.clone(),
+                projection.clone(),
+                chrome.reserve_titlebar_controls,
+                window,
+                cx,
+            ),
         ))
         .when(ui_state.right_panel_visible, |this| {
             this.child(vertical_splitter(
@@ -181,15 +194,46 @@ fn main_content_row(
                 theme,
                 chrome.active_splitter == Some(SplitterKind::RightPanel),
             ))
-            .child(right_panel(
+            .child(focused_panel_frame(
                 theme,
-                layout,
-                &ui_state,
-                ui_state.right_panel_tab,
-                ui_state.bottom_panel_visible,
-                chrome.active_splitter == Some(SplitterKind::RightPanel),
-                projection,
+                ui_state.focused_panel == FocusedPanel::Right,
+                false,
+                right_panel(
+                    theme,
+                    layout,
+                    &ui_state,
+                    ui_state.right_panel_tab,
+                    ui_state.bottom_panel_visible,
+                    chrome.active_splitter == Some(SplitterKind::RightPanel),
+                    projection,
+                ),
             ))
+        })
+        .into_any_element()
+}
+
+fn focused_panel_frame(
+    theme: Theme,
+    focused: bool,
+    stretch: bool,
+    panel: AnyElement,
+) -> AnyElement {
+    div()
+        .relative()
+        .h_full()
+        .when(stretch, |this| this.flex_1().min_w(px(420.0)))
+        .child(panel)
+        .when(focused, |this| {
+            this.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .border_1()
+                    .border_color(theme.accent_blue.opacity(0.62)),
+            )
         })
         .into_any_element()
 }

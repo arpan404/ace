@@ -3,12 +3,12 @@ use crate::{
         AddCurrentDirectoryProject, ApproveProviderRequest, ArchiveActiveThread, ArchiveProject,
         BeginPanelResize, CloseSearchPalette, CommitReview, CompleteComposerToken,
         CreateReviewComment, CreateTodoFromLatestTimelineItem, CreateTodoFromTimelineItem,
-        CreateWorktree, DenyProviderRequest, InterruptActiveTurn, LinkTodoToCurrentDiff, NewThread,
-        NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem,
-        PushReview, RefreshActiveTab, RefreshApprovals, RefreshReview, RefreshWorktrees,
-        RemoveWorktree, RunLint, RunTests, SelectBottomPanelTab, SelectComposerHost,
-        SelectComposerModel, SelectRightPanelTab, SelectSearchPaletteItem, SendActiveComposer,
-        SetActiveProjectDefaultModel, SetCodeFont, SetComposerInteractionMode,
+        CreateWorktree, DenyProviderRequest, FocusPanel, InterruptActiveTurn,
+        LinkTodoToCurrentDiff, NewThread, NewThreadForProject, OpenSearchPalette, OpenThread,
+        PinLatestTimelineItem, PinTimelineItem, PushReview, RefreshActiveTab, RefreshApprovals,
+        RefreshReview, RefreshWorktrees, RemoveWorktree, RunLint, RunTests, SelectBottomPanelTab,
+        SelectComposerHost, SelectComposerModel, SelectRightPanelTab, SelectSearchPaletteItem,
+        SendActiveComposer, SetActiveProjectDefaultModel, SetCodeFont, SetComposerInteractionMode,
         SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, SetThemeAccent,
         SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, ShowBrowserTab,
         ShowLessProjectThreads, ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab,
@@ -428,6 +428,13 @@ impl RootView {
         if event.tab == BottomPanelTab::Terminal {
             self.ensure_active_terminal();
         }
+        self.save_ui_state();
+        cx.notify();
+    }
+
+    fn focus_panel(&mut self, event: &FocusPanel, window: &mut Window, cx: &mut Context<Self>) {
+        self.ui_store.focus_panel(event.panel);
+        self.focus_handle.focus(window);
         self.save_ui_state();
         cx.notify();
     }
@@ -1386,6 +1393,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::set_theme_motion))
             .on_action(cx.listener(Self::set_theme_accent))
             .on_action(cx.listener(Self::select_bottom_panel_tab))
+            .on_action(cx.listener(Self::focus_panel))
             .on_action(cx.listener(Self::select_search_palette_item))
             .on_action(cx.listener(Self::new_thread))
             .on_action(cx.listener(Self::new_thread_for_project))

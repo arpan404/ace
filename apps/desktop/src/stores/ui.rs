@@ -36,6 +36,15 @@ pub enum BottomPanelTab {
     Terminal,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FocusedPanel {
+    Sidebar,
+    #[default]
+    Center,
+    Right,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiState {
     pub sidebar_width: f32,
@@ -57,6 +66,8 @@ pub struct UiState {
     pub expanded_project_ids: Vec<ProjectId>,
     #[serde(default)]
     pub theme: ThemeSettings,
+    #[serde(default)]
+    pub focused_panel: FocusedPanel,
 }
 
 fn default_right_panel_visible() -> bool {
@@ -87,6 +98,7 @@ impl Default for UiState {
             bottom_panel_tab: BottomPanelTab::Terminal,
             expanded_project_ids: Vec::new(),
             theme: theme_settings,
+            focused_panel: FocusedPanel::Center,
         }
     }
 }
@@ -146,6 +158,20 @@ impl UiStore {
     pub fn select_bottom_panel_tab(&mut self, tab: BottomPanelTab) {
         self.state.bottom_panel_tab = tab;
         self.state.bottom_panel_visible = true;
+        self.state.focused_panel = FocusedPanel::Center;
+    }
+
+    pub fn focus_panel(&mut self, panel: FocusedPanel) {
+        match panel {
+            FocusedPanel::Sidebar => {
+                self.state.sidebar_collapsed = false;
+            }
+            FocusedPanel::Center => {}
+            FocusedPanel::Right => {
+                self.state.right_panel_visible = true;
+            }
+        }
+        self.state.focused_panel = panel;
     }
 
     pub fn set_theme_preset(&mut self, preset: ThemePreset) {
@@ -231,5 +257,23 @@ mod tests {
         assert_eq!(store.state().theme.code_font, CodeFont::Menlo);
         assert_eq!(store.state().theme.motion, ThemeMotion::Reduced);
         assert_eq!(store.state().theme.accent, ThemeAccent::Rose);
+    }
+
+    #[test]
+    fn ui_store_focus_panel_reveals_target_panels() {
+        let mut store = UiStore::restore(UiState {
+            sidebar_collapsed: true,
+            right_panel_visible: false,
+            focused_panel: FocusedPanel::Center,
+            ..UiState::default()
+        });
+
+        store.focus_panel(FocusedPanel::Sidebar);
+        assert!(!store.state().sidebar_collapsed);
+        assert_eq!(store.state().focused_panel, FocusedPanel::Sidebar);
+
+        store.focus_panel(FocusedPanel::Right);
+        assert!(store.state().right_panel_visible);
+        assert_eq!(store.state().focused_panel, FocusedPanel::Right);
     }
 }

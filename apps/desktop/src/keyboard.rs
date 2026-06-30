@@ -1,8 +1,9 @@
 use crate::actions::{
-    InterruptActiveTurn, NewThread, OpenSearchPalette, RefreshActiveTab, SendActiveComposer,
-    ShowBrowserTab, ShowPinnedTab, ShowTodosTab, ToggleBottomPanel, ToggleEnvironmentPanel,
-    ToggleRightPanel, ToggleSidebar,
+    FocusPanel, InterruptActiveTurn, NewThread, OpenSearchPalette, RefreshActiveTab,
+    SendActiveComposer, ShowBrowserTab, ShowPinnedTab, ShowTodosTab, ToggleBottomPanel,
+    ToggleEnvironmentPanel, ToggleRightPanel, ToggleSidebar,
 };
+use crate::stores::ui::FocusedPanel;
 use gpui::KeyBinding;
 
 pub const TOGGLE_SIDEBAR: &str = "cmd-b";
@@ -18,6 +19,9 @@ pub const SHOW_TODOS_TAB: &str = "cmd-shift-t";
 pub const REFRESH_ACTIVE_TAB: &str = "cmd-r";
 pub const SEND_ACTIVE_COMPOSER: &str = "cmd-enter";
 pub const INTERRUPT_ACTIVE_TURN: &str = "cmd-.";
+pub const FOCUS_LEFT_PANEL: &str = "cmd-1";
+pub const FOCUS_CENTER_PANEL: &str = "cmd-2";
+pub const FOCUS_RIGHT_PANEL: &str = "cmd-3";
 
 pub fn app_key_bindings() -> Vec<KeyBinding> {
     vec![
@@ -34,5 +38,26 @@ pub fn app_key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new(REFRESH_ACTIVE_TAB, RefreshActiveTab, None),
         KeyBinding::new(SEND_ACTIVE_COMPOSER, SendActiveComposer, None),
         KeyBinding::new(INTERRUPT_ACTIVE_TURN, InterruptActiveTurn, None),
+        KeyBinding::new(
+            FOCUS_LEFT_PANEL,
+            FocusPanel {
+                panel: FocusedPanel::Sidebar,
+            },
+            None,
+        ),
+        KeyBinding::new(
+            FOCUS_CENTER_PANEL,
+            FocusPanel {
+                panel: FocusedPanel::Center,
+            },
+            None,
+        ),
+        KeyBinding::new(
+            FOCUS_RIGHT_PANEL,
+            FocusPanel {
+                panel: FocusedPanel::Right,
+            },
+            None,
+        ),
     ]
 }
