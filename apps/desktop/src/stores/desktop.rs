@@ -1,5 +1,6 @@
 mod annotation_state;
 mod approval_state;
+mod artifact_state;
 mod browser_state;
 mod composer_state;
 mod git_state;
@@ -11,6 +12,7 @@ use self::annotation_state::{extend_unique, review_comment_detail, todo_context_
 use self::approval_state::{
     approval_audit, approval_item_from_request, approval_registry_projection_from_state,
 };
+use self::artifact_state::parse_artifact_items;
 use self::browser_state::{
     artifact_is_browser_preview, browser_activity_from_tool, browser_activity_summary,
     browser_preview_from_artifact, browser_projection_from_host_tools,
@@ -6293,132 +6295,6 @@ fn now_millis() -> u64 {
 
 fn timestamp(value: u64) -> String {
     value.to_string()
-}
-
-fn parse_artifact_items(
-    thread_id: &ThreadId,
-    message_id: &str,
-    value: &serde_json::Value,
-    observed_at: &str,
-    fallback_title: Option<&str>,
-    fallback_url: Option<&str>,
-) -> Vec<ArtifactItemProjection> {
-    match value {
-        serde_json::Value::Array(items) => items
-            .iter()
-            .enumerate()
-            .filter_map(|(index, item)| {
-                parse_artifact_item(
-                    thread_id,
-                    message_id,
-                    item,
-                    index,
-                    observed_at,
-                    fallback_title,
-                    fallback_url,
-                )
-            })
-            .collect(),
-        _ => parse_artifact_item(
-            thread_id,
-            message_id,
-            value,
-            0,
-            observed_at,
-            fallback_title,
-            fallback_url,
-        )
-        .into_iter()
-        .collect(),
-    }
-}
-
-fn parse_artifact_item(
-    thread_id: &ThreadId,
-    message_id: &str,
-    value: &serde_json::Value,
-    index: usize,
-    observed_at: &str,
-    fallback_title: Option<&str>,
-    fallback_url: Option<&str>,
-) -> Option<ArtifactItemProjection> {
-    let (kind, title, url, path, mime_type) = match value {
-        serde_json::Value::String(value) => {
-            let title = value
-                .rsplit(['/', '\\'])
-                .next()
-                .filter(|part| !part.is_empty())
-                .unwrap_or("Attachment")
-                .to_string();
-            let url = value.contains("://").then(|| value.clone());
-            let path = (!value.contains("://")).then(|| value.clone());
-            ("artifact".to_string(), title, url, path, None)
-        }
-        serde_json::Value::Object(object) => {
-            let url = string_field(object, &["url", "src", "href"]);
-            let path = string_field(object, &["path", "file", "relative_path", "relativePath"]);
-            let mime_type = string_field(object, &["mime_type", "mimeType", "contentType"]);
-            let kind = string_field(object, &["kind", "type"])
-                .or_else(|| artifact_kind_from_mime(mime_type.as_deref()).map(ToString::to_string))
-                .unwrap_or_else(|| "artifact".to_string());
-            let title = string_field(object, &["title", "name", "filename", "file_name"])
-                .or_else(|| {
-                    path.as_deref()
-                        .or(url.as_deref())
-                        .and_then(|value| value.rsplit(['/', '\\']).next())
-                        .filter(|part| !part.is_empty())
-                        .map(ToString::to_string)
-                })
-                .or_else(|| fallback_title.map(ToString::to_string))
-                .unwrap_or_else(|| format!("Artifact {}", index + 1));
-            (kind, title, url, path, mime_type)
-        }
-        _ => return None,
-    };
-
-    let url = url.or_else(|| fallback_url.map(ToString::to_string));
-    let location = path
-        .as_deref()
-        .or(url.as_deref())
-        .unwrap_or("provider attachment");
-    let mime = mime_type
-        .as_deref()
-        .map(|mime| format!(" · {mime}"))
-        .unwrap_or_default();
-    Some(ArtifactItemProjection {
-        id: format!("{message_id}:{index}"),
-        thread_id: thread_id.clone(),
-        message_id: message_id.to_string(),
-        kind: kind.clone(),
-        title,
-        detail: format!("{kind} · {location}{mime}"),
-        url,
-        path,
-        mime_type,
-        observed_at: observed_at.to_string(),
-    })
-}
-
-fn artifact_kind_from_mime(mime_type: Option<&str>) -> Option<&'static str> {
-    let mime_type = mime_type?;
-    if mime_type.starts_with("image/") {
-        Some("image")
-    } else if mime_type.starts_with("audio/") {
-        Some("audio")
-    } else if mime_type == "application/pdf" || mime_type.starts_with("text/") {
-        Some("document")
-    } else {
-        None
-    }
-}
-
-fn string_field(
-    object: &serde_json::Map<String, serde_json::Value>,
-    keys: &[&str],
-) -> Option<String> {
-    keys.iter()
-        .find_map(|key| object.get(*key).and_then(serde_json::Value::as_str))
-        .map(ToString::to_string)
 }
 
 fn thread_status_is_terminal(status: ThreadStatus) -> bool {
