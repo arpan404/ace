@@ -184,6 +184,7 @@ fn main_content_row(
             .child(right_panel(
                 theme,
                 layout,
+                &ui_state,
                 ui_state.right_panel_tab,
                 ui_state.bottom_panel_visible,
                 chrome.active_splitter == Some(SplitterKind::RightPanel),

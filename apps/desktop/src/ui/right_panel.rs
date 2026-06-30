@@ -2,10 +2,10 @@ use crate::{
     actions::{
         ApproveProviderRequest, CommitReview, CreateTodoFromLatestTimelineItem, CreateWorktree,
         DenyProviderRequest, PinLatestTimelineItem, PushReview, RefreshApprovals, RefreshReview,
-        RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab,
-        StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleFirstOpenTodo,
-        ToggleHighlightLatestTimelineItem, ToggleRightPanel, UnstageReviewAll, UnstageReviewFile,
-        UpdateTodoStatus,
+        RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab, SetCodeFont,
+        SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll,
+        StageReviewFile, ToggleBottomPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        ToggleRightPanel, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
     },
     stores::{
         ApprovalItemProjection, ApprovalRegistryProjection, DesktopProjection, ModelProjection,
@@ -13,9 +13,13 @@ use crate::{
         ServiceReadiness, ServiceStatus, SourceItemProjection, TodoItem, TodoStatus,
         ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
         WorktreeProjection,
-        ui::{BottomPanelTab, RightPanelTab},
+        ui::{BottomPanelTab, RightPanelTab, UiState},
     },
-    ui::{components::*, layout::PanelLayout, theme::Theme},
+    ui::{
+        components::*,
+        layout::PanelLayout,
+        theme::{CodeFont, Theme, ThemeDensity, ThemeMotion, ThemePreset, ThemeSettings, UiFont},
+    },
 };
 use ace_protocol::terminal::TerminalSessionStatus;
 use ace_runtime::chat::{ChatProjection, ThreadSummary};
@@ -27,6 +31,7 @@ use gpui_component::{IconName, scroll::ScrollableElement as _, tooltip::Tooltip}
 pub(super) fn right_panel(
     theme: Theme,
     layout: PanelLayout,
+    ui_state: &UiState,
     active_tab: RightPanelTab,
     bottom_panel_visible: bool,
     resizing: bool,
@@ -47,6 +52,7 @@ pub(super) fn right_panel(
         .flex_col()
         .child(workbench_panel(
             theme,
+            ui_state,
             active_tab,
             bottom_panel_visible,
             &projection,
@@ -174,6 +180,7 @@ pub(super) fn environment_card(theme: Theme, thread: Option<&ThreadSummary>) -> 
 
 fn workbench_panel(
     theme: Theme,
+    ui_state: &UiState,
     active_tab: RightPanelTab,
     bottom_panel_visible: bool,
     projection: &DesktopProjection,
@@ -346,6 +353,7 @@ fn workbench_panel(
                 "Todos",
                 || todos_body(theme, projection),
             ),
+            RightPanelTab::Settings => settings_body(theme, &ui_state.theme),
         }))
         .into_any_element()
 }
@@ -442,6 +450,7 @@ fn right_tab_strip(
             RightPanelTab::Skills,
             &services.skills,
         ))
+        .child(right_tab_local(theme, active_tab, RightPanelTab::Settings))
         .child(right_tab(
             theme,
             active_tab,
@@ -449,6 +458,40 @@ fn right_tab_strip(
             &services.editor,
         ))
         .overflow_x_scrollbar()
+        .into_any_element()
+}
+
+fn right_tab_local(theme: Theme, active: RightPanelTab, tab: RightPanelTab) -> AnyElement {
+    let selected = active == tab;
+    let (icon, label) = right_tab_meta(tab);
+    let color = if selected {
+        theme.foreground.opacity(0.84)
+    } else {
+        theme.muted
+    };
+
+    div()
+        .id(right_tab_id(tab))
+        .h(px(30.0))
+        .rounded_lg()
+        .px_2()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .bg(if selected {
+            theme.button
+        } else {
+            theme.panel_deep.opacity(0.0)
+        })
+        .text_size(px(12.0))
+        .text_color(color)
+        .hover(|this| this.bg(theme.button))
+        .child(header_ace_icon_svg(icon, color))
+        .child(label)
+        .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(Box::new(SelectRightPanelTab { tab }), cx);
+        })
         .into_any_element()
 }
 
@@ -551,6 +594,7 @@ fn right_tab_meta(tab: RightPanelTab) -> (AceIconName, &'static str) {
         RightPanelTab::Providers => (AceIconName::Code2, "Providers"),
         RightPanelTab::Plugins => (AceIconName::Box, "Plugins"),
         RightPanelTab::Skills => (AceIconName::FlaskConical, "Skills"),
+        RightPanelTab::Settings => (AceIconName::TablerSettings, "Settings"),
         RightPanelTab::Pinned => (AceIconName::PinFilled, "Pinned"),
         RightPanelTab::Todos => (AceIconName::ListChecks, "Todos"),
     }
@@ -570,6 +614,7 @@ fn right_tab_id(tab: RightPanelTab) -> &'static str {
         RightPanelTab::Providers => "right-tab-providers",
         RightPanelTab::Plugins => "right-tab-plugins",
         RightPanelTab::Skills => "right-tab-skills",
+        RightPanelTab::Settings => "right-tab-settings",
         RightPanelTab::Pinned => "right-tab-pinned",
         RightPanelTab::Todos => "right-tab-todos",
     }
@@ -1786,6 +1831,243 @@ fn providers_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         })
         .child(summary_provider_registry(theme, projection))
         .child(model_registry_body(theme, &projection.models))
+        .into_any_element()
+}
+
+fn settings_body(theme: Theme, settings: &ThemeSettings) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(settings_header(theme))
+        .child(settings_section(
+            theme,
+            "Appearance",
+            vec![
+                settings_option(
+                    theme,
+                    settings.preset == ThemePreset::AceDark,
+                    IconName::Moon,
+                    "Ace Dark",
+                    "Default low-contrast workstation theme",
+                    SetThemePreset {
+                        preset: ThemePreset::AceDark,
+                    },
+                ),
+                settings_option(
+                    theme,
+                    settings.preset == ThemePreset::HighContrast,
+                    IconName::Sun,
+                    "High Contrast",
+                    "Sharper text, borders, and panels",
+                    SetThemePreset {
+                        preset: ThemePreset::HighContrast,
+                    },
+                ),
+            ],
+        ))
+        .child(settings_section(
+            theme,
+            "Density",
+            vec![
+                settings_option(
+                    theme,
+                    settings.density == ThemeDensity::Comfortable,
+                    IconName::LayoutDashboard,
+                    "Comfortable",
+                    "Roomier panels and controls",
+                    SetThemeDensity {
+                        density: ThemeDensity::Comfortable,
+                    },
+                ),
+                settings_option(
+                    theme,
+                    settings.density == ThemeDensity::Compact,
+                    IconName::LayoutDashboard,
+                    "Compact",
+                    "Tighter panels for dense agent sessions",
+                    SetThemeDensity {
+                        density: ThemeDensity::Compact,
+                    },
+                ),
+            ],
+        ))
+        .child(settings_section(
+            theme,
+            "Typography",
+            vec![
+                settings_option(
+                    theme,
+                    settings.ui_font == UiFont::System,
+                    IconName::ALargeSmall,
+                    "UI: System",
+                    "Native app chrome and controls",
+                    SetUiFont {
+                        ui_font: UiFont::System,
+                    },
+                ),
+                settings_option(
+                    theme,
+                    settings.ui_font == UiFont::Monospace,
+                    IconName::ALargeSmall,
+                    "UI: Monospace",
+                    "Monospaced chrome for dense scanning",
+                    SetUiFont {
+                        ui_font: UiFont::Monospace,
+                    },
+                ),
+                settings_option(
+                    theme,
+                    settings.code_font == CodeFont::SystemMono,
+                    IconName::SquareTerminal,
+                    "Code: SF Mono",
+                    "Code snippets, diffs, editor, terminal",
+                    SetCodeFont {
+                        code_font: CodeFont::SystemMono,
+                    },
+                ),
+                settings_option(
+                    theme,
+                    settings.code_font == CodeFont::Menlo,
+                    IconName::SquareTerminal,
+                    "Code: Menlo",
+                    "Code snippets, diffs, editor, terminal",
+                    SetCodeFont {
+                        code_font: CodeFont::Menlo,
+                    },
+                ),
+            ],
+        ))
+        .child(settings_section(
+            theme,
+            "Motion",
+            vec![
+                settings_option(
+                    theme,
+                    settings.motion == ThemeMotion::Standard,
+                    IconName::Palette,
+                    "Standard",
+                    "Full hover and emphasis response",
+                    SetThemeMotion {
+                        motion: ThemeMotion::Standard,
+                    },
+                ),
+                settings_option(
+                    theme,
+                    settings.motion == ThemeMotion::Reduced,
+                    IconName::Palette,
+                    "Reduced",
+                    "Lower emphasis and motion intensity",
+                    SetThemeMotion {
+                        motion: ThemeMotion::Reduced,
+                    },
+                ),
+            ],
+        ))
+        .into_any_element()
+}
+
+fn settings_header(theme: Theme) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .text_size(px(13.0))
+        .text_color(theme.foreground.opacity(0.84))
+        .child(ace_icon_svg(AceIconName::TablerSettings, theme.muted))
+        .child("Settings")
+        .into_any_element()
+}
+
+fn settings_section(theme: Theme, title: &'static str, options: Vec<AnyElement>) -> AnyElement {
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme.muted)
+                .child(title),
+        )
+        .children(options)
+        .into_any_element()
+}
+
+fn settings_option<A>(
+    theme: Theme,
+    selected: bool,
+    icon: IconName,
+    label: &'static str,
+    detail: &'static str,
+    action: A,
+) -> AnyElement
+where
+    A: gpui::Action + Clone + 'static,
+{
+    let color = if selected {
+        theme.foreground.opacity(0.88)
+    } else {
+        theme.foreground.opacity(0.76)
+    };
+
+    div()
+        .min_h(px(42.0))
+        .rounded_md()
+        .border_1()
+        .border_color(if selected {
+            theme.accent_blue.opacity(0.42)
+        } else {
+            theme.border_subtle
+        })
+        .bg(if selected {
+            theme.button
+        } else {
+            theme.panel_deep
+        })
+        .px_2()
+        .py_2()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .hover(|this| this.bg(theme.button_hover))
+        .child(icon_svg(
+            icon,
+            if selected {
+                theme.accent_blue
+            } else {
+                theme.muted
+            },
+        ))
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(div().text_size(px(12.0)).text_color(color).child(label))
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(theme.muted_subtle)
+                        .child(detail),
+                ),
+        )
+        .when(selected, |this| {
+            this.child(icon_svg(IconName::Check, theme.accent_success))
+        })
+        .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(Box::new(action.clone()), cx);
+        })
         .into_any_element()
 }
 

@@ -6,9 +6,10 @@ use crate::{
         NewThread, NewThreadForProject, OpenSearchPalette, OpenThread, PinLatestTimelineItem,
         PinTimelineItem, PushReview, RefreshActiveTab, RefreshApprovals, RefreshReview,
         RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab,
-        SelectSearchPaletteItem, SendActiveComposer, ShowBrowserTab, ShowLessProjectThreads,
-        ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab,
-        ShowTodosTab, StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleEnvironmentPanel,
+        SelectSearchPaletteItem, SendActiveComposer, SetCodeFont, SetThemeDensity, SetThemeMotion,
+        SetThemePreset, SetUiFont, ShowBrowserTab, ShowLessProjectThreads, ShowMoreProjectThreads,
+        ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab, ShowTodosTab,
+        StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleEnvironmentPanel,
         ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem,
         TogglePinActiveThread, ToggleRightPanel, ToggleSidebar, UnstageReviewAll,
         UnstageReviewFile, UpdateTodoStatus,
@@ -340,6 +341,7 @@ impl RootView {
             RightPanelTab::Skills => self.refresh_skill_registry(),
             RightPanelTab::Browser
             | RightPanelTab::Editor
+            | RightPanelTab::Settings
             | RightPanelTab::Pinned
             | RightPanelTab::Todos => {}
         }
@@ -364,9 +366,45 @@ impl RootView {
             RightPanelTab::Skills => self.refresh_skill_registry(),
             RightPanelTab::Browser
             | RightPanelTab::Editor
+            | RightPanelTab::Settings
             | RightPanelTab::Pinned
             | RightPanelTab::Todos => {}
         }
+    }
+
+    fn set_theme_preset(&mut self, event: &SetThemePreset, _: &mut Window, cx: &mut Context<Self>) {
+        self.ui_store.set_theme_preset(event.preset);
+        self.save_ui_state();
+        cx.notify();
+    }
+
+    fn set_theme_density(
+        &mut self,
+        event: &SetThemeDensity,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ui_store.set_theme_density(event.density);
+        self.save_ui_state();
+        cx.notify();
+    }
+
+    fn set_ui_font(&mut self, event: &SetUiFont, _: &mut Window, cx: &mut Context<Self>) {
+        self.ui_store.set_ui_font(event.ui_font);
+        self.save_ui_state();
+        cx.notify();
+    }
+
+    fn set_code_font(&mut self, event: &SetCodeFont, _: &mut Window, cx: &mut Context<Self>) {
+        self.ui_store.set_code_font(event.code_font);
+        self.save_ui_state();
+        cx.notify();
+    }
+
+    fn set_theme_motion(&mut self, event: &SetThemeMotion, _: &mut Window, cx: &mut Context<Self>) {
+        self.ui_store.set_theme_motion(event.motion);
+        self.save_ui_state();
+        cx.notify();
     }
 
     fn select_bottom_panel_tab(
@@ -556,6 +594,7 @@ impl RootView {
             }
             SearchPaletteItem::OpenSettings => {
                 self.search_palette.close();
+                self.apply_right_panel_tab(RightPanelTab::Settings);
             }
             SearchPaletteItem::OpenTerminals => {
                 self.search_palette.close();
@@ -1082,6 +1121,11 @@ impl Render for RootView {
             .on_action(cx.listener(Self::show_plugins_tab))
             .on_action(cx.listener(Self::show_skills_tab))
             .on_action(cx.listener(Self::refresh_active_tab))
+            .on_action(cx.listener(Self::set_theme_preset))
+            .on_action(cx.listener(Self::set_theme_density))
+            .on_action(cx.listener(Self::set_ui_font))
+            .on_action(cx.listener(Self::set_code_font))
+            .on_action(cx.listener(Self::set_theme_motion))
             .on_action(cx.listener(Self::select_bottom_panel_tab))
             .on_action(cx.listener(Self::select_search_palette_item))
             .on_action(cx.listener(Self::new_thread))

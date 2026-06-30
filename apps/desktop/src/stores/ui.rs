@@ -2,7 +2,7 @@ use crate::{
     persistence::PersistenceStore,
     ui::{
         layout::PanelLayout,
-        theme::{Theme, ThemeSettings},
+        theme::{CodeFont, Theme, ThemeDensity, ThemeMotion, ThemePreset, ThemeSettings, UiFont},
     },
 };
 use ace_core::ProjectId;
@@ -24,6 +24,7 @@ pub enum RightPanelTab {
     Providers,
     Plugins,
     Skills,
+    Settings,
     Pinned,
     Todos,
 }
@@ -146,6 +147,26 @@ impl UiStore {
         self.state.bottom_panel_tab = tab;
         self.state.bottom_panel_visible = true;
     }
+
+    pub fn set_theme_preset(&mut self, preset: ThemePreset) {
+        self.state.theme.preset = preset;
+    }
+
+    pub fn set_theme_density(&mut self, density: ThemeDensity) {
+        self.state.theme.density = density;
+    }
+
+    pub fn set_ui_font(&mut self, ui_font: UiFont) {
+        self.state.theme.ui_font = ui_font;
+    }
+
+    pub fn set_code_font(&mut self, code_font: CodeFont) {
+        self.state.theme.code_font = code_font;
+    }
+
+    pub fn set_theme_motion(&mut self, motion: ThemeMotion) {
+        self.state.theme.motion = motion;
+    }
 }
 
 impl PersistenceStore for UiStore {
@@ -185,5 +206,22 @@ mod tests {
         assert_eq!(theme.code_font_family, "Menlo");
         assert_eq!(theme.center_header_height, gpui::px(52.0));
         assert_eq!(theme.motion_fast_ms, 0);
+    }
+
+    #[test]
+    fn ui_store_updates_theme_settings_through_typed_setters() {
+        let mut store = UiStore::default();
+
+        store.set_theme_preset(ThemePreset::HighContrast);
+        store.set_theme_density(ThemeDensity::Compact);
+        store.set_ui_font(UiFont::Monospace);
+        store.set_code_font(CodeFont::Menlo);
+        store.set_theme_motion(ThemeMotion::Reduced);
+
+        assert_eq!(store.state().theme.preset, ThemePreset::HighContrast);
+        assert_eq!(store.state().theme.density, ThemeDensity::Compact);
+        assert_eq!(store.state().theme.ui_font, UiFont::Monospace);
+        assert_eq!(store.state().theme.code_font, CodeFont::Menlo);
+        assert_eq!(store.state().theme.motion, ThemeMotion::Reduced);
     }
 }

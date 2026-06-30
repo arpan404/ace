@@ -108,7 +108,7 @@ pub(super) fn sidebar_footer(theme: Theme) -> AnyElement {
             theme,
             || {
                 Box::new(crate::actions::SelectRightPanelTab {
-                    tab: crate::stores::ui::RightPanelTab::Summary,
+                    tab: crate::stores::ui::RightPanelTab::Settings,
                 })
             },
         ))

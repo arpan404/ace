@@ -69,6 +69,36 @@ pub struct SelectBottomPanelTab {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct SetThemePreset {
+    pub preset: crate::ui::theme::ThemePreset,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SetThemeDensity {
+    pub density: crate::ui::theme::ThemeDensity,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SetUiFont {
+    pub ui_font: crate::ui::theme::UiFont,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SetCodeFont {
+    pub code_font: crate::ui::theme::CodeFont,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct SetThemeMotion {
+    pub motion: crate::ui::theme::ThemeMotion,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct PinTimelineItem {
     pub thread_id: ace_core::ThreadId,
     pub message_id: String,

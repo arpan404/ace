@@ -91,7 +91,7 @@ impl SearchPaletteItem {
         match self {
             Self::NewThread => "Choose a project for a new thread.",
             Self::NewProject => "Add the current workspace as a project.",
-            Self::OpenSettings => "Settings storage and forms are not implemented yet.",
+            Self::OpenSettings => "Adjust theme, density, UI font, code font, and motion.",
             Self::OpenTerminals => "Manage running terminal processes.",
             Self::OpenBrowser => {
                 "Open the browser inspector; Chromium service state is shown there."
@@ -152,7 +152,6 @@ impl SearchPaletteItem {
 
     pub fn disabled_reason(&self) -> Option<&'static str> {
         match self {
-            Self::OpenSettings => Some("Settings storage and forms are not implemented yet."),
             Self::ConnectRemoteHost => Some("Remote host manager is not implemented yet."),
             Self::SwitchModel => Some(
                 "Model selection persistence is not implemented yet; inspect models in Providers.",
@@ -909,7 +908,6 @@ mod tests {
         );
 
         for command in [
-            SearchPaletteItem::OpenSettings,
             SearchPaletteItem::SwitchModel,
             SearchPaletteItem::RunTests,
             SearchPaletteItem::RunLint,
