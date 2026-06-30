@@ -848,7 +848,7 @@ fn review_diff_preview(theme: Theme, review: &ReviewProjection) -> AnyElement {
         .border_color(theme.border_subtle)
         .bg(theme.panel_deep)
         .p_2()
-        .font_family("Menlo")
+        .font_family(theme.code_font_family)
         .text_size(px(11.0))
         .line_height(px(16.0))
         .text_color(theme.foreground.opacity(0.78))
@@ -876,7 +876,7 @@ fn review_diff_preview(theme: Theme, review: &ReviewProjection) -> AnyElement {
             this.child(
                 div()
                     .pt_2()
-                    .font_family(theme.font_family)
+                    .font_family(theme.ui_font_family)
                     .text_size(px(11.0))
                     .text_color(theme.muted_subtle)
                     .child("Diff preview truncated"),
@@ -1163,7 +1163,7 @@ fn approval_card(theme: Theme, approval: &ApprovalItemProjection) -> AnyElement 
         .when_some(approval.detail.as_deref(), |this, detail| {
             this.child(
                 div()
-                    .font_family("Menlo")
+                    .font_family(theme.code_font_family)
                     .text_size(px(11.0))
                     .line_height(px(16.0))
                     .text_color(theme.muted)
@@ -2748,7 +2748,7 @@ fn terminal_output(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         .border_color(theme.border_subtle)
         .bg(theme.panel_deep)
         .p_3()
-        .font_family("Menlo")
+        .font_family(theme.code_font_family)
         .text_size(px(11.0))
         .line_height(px(16.0))
         .text_color(theme.foreground.opacity(0.82))
@@ -2794,7 +2794,7 @@ fn terminal_input_row(theme: Theme, projection: &DesktopProjection) -> AnyElemen
         .flex_row()
         .items_center()
         .gap_2()
-        .font_family("Menlo")
+        .font_family(theme.code_font_family)
         .text_size(px(12.0))
         .child(div().text_color(theme.accent_success).child("$"))
         .child(
@@ -2814,7 +2814,7 @@ fn terminal_input_row(theme: Theme, projection: &DesktopProjection) -> AnyElemen
         .child(
             div()
                 .text_color(theme.muted_subtle)
-                .font_family(theme.font_family)
+                .font_family(theme.ui_font_family)
                 .child("Enter"),
         )
         .into_any_element()

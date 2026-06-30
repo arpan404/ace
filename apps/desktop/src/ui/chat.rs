@@ -485,7 +485,13 @@ fn timeline_message_card(
                     .border_color(theme.border)
                     .px_4()
                     .py_3()
-                    .child(markdown_render(stable_id(&message.id), &text, window, cx)),
+                    .child(markdown_render(
+                        theme,
+                        stable_id(&message.id),
+                        &text,
+                        window,
+                        cx,
+                    )),
             )
             .into_any_element(),
         ChatMessageRole::Assistant => div()
@@ -495,7 +501,13 @@ fn timeline_message_card(
             .px_1()
             .when(top_spacing >= 5, |this| this.mt_5())
             .when(top_spacing == 3, |this| this.mt_3())
-            .child(markdown_render(stable_id(&message.id), &text, window, cx))
+            .child(markdown_render(
+                theme,
+                stable_id(&message.id),
+                &text,
+                window,
+                cx,
+            ))
             .into_any_element(),
         ChatMessageRole::Tool => tool_call_card(
             theme,
@@ -518,7 +530,13 @@ fn timeline_message_card(
             .when(top_spacing >= 5, |this| this.mt_5())
             .when(top_spacing == 3, |this| this.mt_3())
             .child(message_label(theme, "Plan"))
-            .child(markdown_render(stable_id(&message.id), &text, window, cx))
+            .child(markdown_render(
+                theme,
+                stable_id(&message.id),
+                &text,
+                window,
+                cx,
+            ))
             .into_any_element(),
         ChatMessageRole::Activity => div()
             .max_w(px(720.0))
@@ -587,25 +605,37 @@ fn tool_call_card(
                 .child(title.to_string()),
         )
         .when(!text.trim().is_empty(), |this| {
-            this.child(markdown_render(stable_id(id), text, window, cx))
+            this.child(markdown_render(theme, stable_id(id), text, window, cx))
         })
         .into_any_element()
 }
 
-fn markdown_render(id: u64, text: &str, window: &mut Window, cx: &mut App) -> AnyElement {
+fn markdown_render(
+    theme: Theme,
+    id: u64,
+    text: &str,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
     if !needs_markdown_renderer(text) {
-        return plain_text_render(text);
+        return plain_text_render(theme, text);
     }
 
     TextView::markdown(("markdown", id), text.to_string(), window, cx)
         .selectable(true)
+        .font_family(theme.ui_font_family)
         .into_any_element()
 }
 
-fn plain_text_render(text: &str) -> AnyElement {
+fn plain_text_render(theme: Theme, text: &str) -> AnyElement {
     div()
         .text_size(px(12.0))
         .line_height(px(18.0))
+        .font_family(if looks_like_code_text(text) {
+            theme.code_font_family
+        } else {
+            theme.ui_font_family
+        })
         .children(text.lines().map(|line| div().child(line.to_string())))
         .into_any_element()
 }
@@ -630,6 +660,13 @@ fn needs_markdown_renderer(text: &str) -> bool {
                     .next()
                     .is_some_and(|first| first.is_ascii_digit() && trimmed.contains(". "))
         })
+}
+
+fn looks_like_code_text(text: &str) -> bool {
+    text.contains("```")
+        || text
+            .lines()
+            .any(|line| line.starts_with("    ") || line.starts_with('\t'))
 }
 
 fn stable_id(value: &str) -> u64 {

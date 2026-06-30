@@ -25,7 +25,6 @@ use crate::{
             SearchPaletteItem, SearchPaletteMode, SearchPaletteState, palette_items,
             search_palette_overlay,
         },
-        theme::Theme,
     },
 };
 use ace_protocol::{
@@ -210,7 +209,7 @@ impl RootView {
             return;
         }
 
-        let theme = Theme::default();
+        let theme = self.ui_store.theme();
         let delta_x = event.position.x - drag.start_position.x;
         let delta_y = event.position.y - drag.start_position.y;
         let layout = match drag.kind {
@@ -1062,7 +1061,7 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = Theme::default();
+        let theme = self.ui_store.theme();
         let projection = self.active_store().projection();
 
         div()
@@ -1127,7 +1126,7 @@ impl Render for RootView {
             .bg(theme.background)
             .text_color(theme.foreground)
             .text_size(px(12.0))
-            .font_family(theme.font_family)
+            .font_family(theme.ui_font_family)
             .child(shell_layout(
                 theme,
                 self.ui_store.panel_layout(),

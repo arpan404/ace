@@ -1,4 +1,59 @@
 use gpui::{Hsla, Pixels, SharedString, px, rgb, size};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemePreset {
+    #[default]
+    AceDark,
+    HighContrast,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeDensity {
+    Compact,
+    #[default]
+    Comfortable,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiFont {
+    #[default]
+    System,
+    Monospace,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodeFont {
+    #[default]
+    SystemMono,
+    Menlo,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeMotion {
+    Reduced,
+    #[default]
+    Standard,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThemeSettings {
+    #[serde(default)]
+    pub preset: ThemePreset,
+    #[serde(default)]
+    pub density: ThemeDensity,
+    #[serde(default)]
+    pub ui_font: UiFont,
+    #[serde(default)]
+    pub code_font: CodeFont,
+    #[serde(default)]
+    pub motion: ThemeMotion,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Theme {
@@ -42,7 +97,8 @@ pub struct Theme {
     pub sidebar_max_width: Pixels,
     pub sidebar_min_width: Pixels,
     pub sidebar_width: Pixels,
-    pub font_family: &'static str,
+    pub ui_font_family: &'static str,
+    pub code_font_family: &'static str,
 }
 
 impl Default for Theme {
@@ -88,12 +144,66 @@ impl Default for Theme {
             sidebar_max_width: px(520.0),
             sidebar_min_width: px(260.0),
             sidebar_width: px(330.0),
-            font_family: ".AppleSystemUIFont",
+            ui_font_family: ".AppleSystemUIFont",
+            code_font_family: "SF Mono",
         }
     }
 }
 
 impl Theme {
+    pub fn from_settings(settings: &ThemeSettings) -> Self {
+        let mut theme = match settings.preset {
+            ThemePreset::AceDark => Self::default(),
+            ThemePreset::HighContrast => Self {
+                background: rgb(0x050505).into(),
+                background_elevated: rgb(0x181818).into(),
+                border: rgb(0x454545).into(),
+                border_subtle: rgb(0x303030).into(),
+                button: rgb(0x2c2c2c).into(),
+                button_hover: rgb(0x3a3a3a).into(),
+                foreground: rgb(0xf5f5f5).into(),
+                muted: rgb(0xb5b5b5).into(),
+                muted_subtle: rgb(0x8a8a8a).into(),
+                panel: rgb(0x0d0d0d).into(),
+                panel_deep: rgb(0x050505).into(),
+                selection: rgb(0x333333).into(),
+                sidebar: rgb(0x0b0b0b).into(),
+                ..Self::default()
+            },
+        };
+
+        match settings.density {
+            ThemeDensity::Comfortable => {}
+            ThemeDensity::Compact => {
+                theme.center_header_height = px(52.0);
+                theme.center_header_meta_height = px(16.0);
+                theme.bottom_panel_height = px(220.0);
+                theme.right_panel_width = px(390.0);
+                theme.sidebar_width = px(300.0);
+            }
+        }
+
+        match settings.ui_font {
+            UiFont::System => theme.ui_font_family = ".AppleSystemUIFont",
+            UiFont::Monospace => theme.ui_font_family = "SF Mono",
+        }
+
+        match settings.code_font {
+            CodeFont::SystemMono => theme.code_font_family = "SF Mono",
+            CodeFont::Menlo => theme.code_font_family = "Menlo",
+        }
+
+        match settings.motion {
+            ThemeMotion::Standard => {}
+            ThemeMotion::Reduced => {
+                theme.motion_fast_ms = 0;
+                theme.motion_standard_ms = 1;
+            }
+        }
+
+        theme
+    }
+
     pub fn default_window_size() -> gpui::Size<Pixels> {
         size(px(1440.0), px(920.0))
     }
@@ -131,5 +241,24 @@ mod tests {
         assert!((theme.micro_interaction_opacity() - 0.7875).abs() < 0.0001);
         assert_eq!(Theme::default_window_size().width, px(1440.0));
         assert_eq!(Theme::app_name().as_ref(), "Ace");
+    }
+
+    #[test]
+    fn theme_settings_adjust_preset_density_font_and_motion() {
+        let theme = Theme::from_settings(&ThemeSettings {
+            preset: ThemePreset::HighContrast,
+            density: ThemeDensity::Compact,
+            ui_font: UiFont::Monospace,
+            code_font: CodeFont::Menlo,
+            motion: ThemeMotion::Reduced,
+        });
+
+        assert_eq!(theme.center_header_height, px(52.0));
+        assert_eq!(theme.sidebar_width, px(300.0));
+        assert_eq!(theme.ui_font_family, "SF Mono");
+        assert_eq!(theme.code_font_family, "Menlo");
+        assert_eq!(theme.motion_fast_ms, 0);
+        assert_eq!(theme.motion_standard_ms, 1);
+        assert_eq!(theme.background, rgb(0x050505).into());
     }
 }

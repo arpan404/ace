@@ -1,4 +1,10 @@
-use crate::{persistence::PersistenceStore, ui::layout::PanelLayout};
+use crate::{
+    persistence::PersistenceStore,
+    ui::{
+        layout::PanelLayout,
+        theme::{Theme, ThemeSettings},
+    },
+};
 use ace_core::ProjectId;
 use serde::{Deserialize, Serialize};
 
@@ -48,6 +54,8 @@ pub struct UiState {
     pub bottom_panel_tab: BottomPanelTab,
     #[serde(default)]
     pub expanded_project_ids: Vec<ProjectId>,
+    #[serde(default)]
+    pub theme: ThemeSettings,
 }
 
 fn default_right_panel_visible() -> bool {
@@ -64,7 +72,8 @@ fn default_environment_panel_visible() -> bool {
 
 impl Default for UiState {
     fn default() -> Self {
-        let layout = PanelLayout::new(Default::default());
+        let theme_settings = ThemeSettings::default();
+        let layout = PanelLayout::new(Theme::from_settings(&theme_settings));
         Self {
             sidebar_width: f32::from(layout.sidebar_width),
             right_panel_width: f32::from(layout.right_panel_width),
@@ -76,6 +85,7 @@ impl Default for UiState {
             right_panel_tab: RightPanelTab::Review,
             bottom_panel_tab: BottomPanelTab::Terminal,
             expanded_project_ids: Vec::new(),
+            theme: theme_settings,
         }
     }
 }
@@ -93,11 +103,16 @@ impl UiStore {
 
     #[must_use]
     pub fn panel_layout(&self) -> PanelLayout {
-        let mut layout = PanelLayout::new(Default::default());
+        let mut layout = PanelLayout::new(self.theme());
         layout.sidebar_width = gpui::px(self.state.sidebar_width);
         layout.right_panel_width = gpui::px(self.state.right_panel_width);
         layout.bottom_panel_height = gpui::px(self.state.bottom_panel_height);
         layout
+    }
+
+    #[must_use]
+    pub fn theme(&self) -> Theme {
+        Theme::from_settings(&self.state.theme)
     }
 
     pub fn set_panel_layout(&mut self, layout: PanelLayout) {
@@ -143,5 +158,32 @@ impl PersistenceStore for UiStore {
 
     fn restore(snapshot: Self::Snapshot) -> Self {
         Self { state: snapshot }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::theme::{CodeFont, ThemeDensity, ThemeMotion, ThemePreset, UiFont};
+
+    #[test]
+    fn ui_store_theme_uses_persisted_font_motion_and_density_settings() {
+        let store = UiStore::restore(UiState {
+            theme: ThemeSettings {
+                preset: ThemePreset::HighContrast,
+                density: ThemeDensity::Compact,
+                ui_font: UiFont::Monospace,
+                code_font: CodeFont::Menlo,
+                motion: ThemeMotion::Reduced,
+            },
+            ..UiState::default()
+        });
+
+        let theme = store.theme();
+
+        assert_eq!(theme.ui_font_family, "SF Mono");
+        assert_eq!(theme.code_font_family, "Menlo");
+        assert_eq!(theme.center_header_height, gpui::px(52.0));
+        assert_eq!(theme.motion_fast_ms, 0);
     }
 }
