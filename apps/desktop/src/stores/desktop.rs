@@ -1,9 +1,14 @@
 mod annotation_state;
+mod composer_state;
 mod git_state;
 mod registry_state;
 mod terminal_state;
 
 use self::annotation_state::{extend_unique, review_comment_detail, todo_context_line};
+use self::composer_state::{
+    composer_collaboration_mode, composer_status_line, composer_traits_text,
+    copy_composer_turn_settings, model_selection_label, permission_payload, toggle_vec_value,
+};
 use self::git_state::{
     generated_review_commit_message, parse_review_files, parse_worktree_entries,
     review_file_summary, suggested_worktree_branch, truncate_diff_preview,
@@ -6360,13 +6365,6 @@ fn model_provider_projection(
     }
 }
 
-fn model_selection_label(selection: &ModelSelection) -> String {
-    ProviderKind::from_runtime_id(&selection.provider).map_or_else(
-        || format!("{} · {}", selection.provider, selection.model),
-        |provider| format!("{} · {}", provider.display_name(), selection.model),
-    )
-}
-
 fn browser_projection_from_host_tools(
     response: &ProviderHostToolsListResponse,
     updated_at: String,
@@ -6854,79 +6852,6 @@ fn thread_run_mode_label(thread: &ThreadSummary) -> String {
     }
 }
 
-fn composer_status_line(draft: &ComposerDraft) -> String {
-    let host = draft.host_selection.as_ref().map_or_else(
-        || "This computer".to_string(),
-        |host| format!("{}:{}", host.provider, host.host_id),
-    );
-    let reasoning = draft
-        .reasoning_effort
-        .map_or("No reasoning".to_string(), |effort| {
-            format!("{} reasoning", effort.label())
-        });
-    let traits = if draft.traits.is_empty() {
-        "No traits".to_string()
-    } else {
-        draft
-            .traits
-            .iter()
-            .map(|trait_kind| trait_kind.label())
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let context = if draft.context.is_empty() {
-        "No context".to_string()
-    } else {
-        draft
-            .context
-            .iter()
-            .map(|context| context.label())
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    format!(
-        "{} {} · {} · {} · {} · {} · {}",
-        interaction_mode_label(draft.interaction_mode),
-        runtime_mode_label(draft.runtime_mode),
-        draft.model_selection.model,
-        draft.permission_mode.label(),
-        reasoning,
-        host,
-        if traits == "No traits" && context == "No context" {
-            "No extra context".to_string()
-        } else {
-            format!("{traits} · {context}")
-        }
-    )
-}
-
-fn copy_composer_turn_settings(target: &mut ComposerDraft, source: &ComposerDraft) {
-    target.model_selection = source.model_selection.clone();
-    target.host_selection = source.host_selection.clone();
-    target.reasoning_effort = source.reasoning_effort;
-    target.permission_mode = source.permission_mode;
-    target.traits = source.traits.clone();
-    target.context = source.context.clone();
-    target.runtime_mode = source.runtime_mode;
-    target.interaction_mode = source.interaction_mode;
-}
-
-fn interaction_mode_label(mode: InteractionMode) -> &'static str {
-    match mode {
-        InteractionMode::Chat => "Chat",
-        InteractionMode::Plan => "Plan",
-    }
-}
-
-fn runtime_mode_label(mode: RuntimeMode) -> &'static str {
-    match mode {
-        RuntimeMode::Normal => "normal",
-        RuntimeMode::Local => "local",
-        RuntimeMode::Worktree => "worktree",
-        RuntimeMode::Remote => "remote",
-    }
-}
-
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
 }
@@ -7017,22 +6942,6 @@ fn serde_name<T: Serialize>(value: T) -> String {
         .ok()
         .and_then(|value| value.as_str().map(ToString::to_string))
         .unwrap_or_else(|| "unknown".to_string())
-}
-
-fn composer_traits_text(traits: &[ComposerTrait]) -> Option<String> {
-    if traits.is_empty() {
-        return None;
-    }
-
-    let instructions = traits
-        .iter()
-        .map(|trait_kind| format!("- {}: {}", trait_kind.label(), trait_kind.instruction()))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    Some(format!(
-        "Agent traits selected for this turn:\n{instructions}\nFollow these traits unless they conflict with higher-priority system, developer, or user instructions."
-    ))
 }
 
 fn composer_mentions(prompt: &str) -> Vec<String> {
@@ -7145,150 +7054,11 @@ fn default_project_action_command(action: ProjectActionKind) -> &'static str {
     }
 }
 
-struct PermissionPayload {
-    sandbox_policy: serde_json::Value,
-    approval_policy: serde_json::Value,
-    approvals_reviewer: Option<&'static str>,
-}
-
-fn permission_payload(permission: ComposerPermissionMode) -> PermissionPayload {
-    match permission {
-        ComposerPermissionMode::Strict => PermissionPayload {
-            sandbox_policy: serde_json::json!({
-                "mode": "read-only",
-                "networkAccess": "restricted",
-            }),
-            approval_policy: serde_json::json!({ "mode": "on-request" }),
-            approvals_reviewer: Some("user"),
-        },
-        ComposerPermissionMode::Auto => PermissionPayload {
-            sandbox_policy: serde_json::json!({
-                "mode": "workspace-write",
-                "networkAccess": "restricted",
-            }),
-            approval_policy: serde_json::json!({ "mode": "on-request" }),
-            approvals_reviewer: Some("user"),
-        },
-        ComposerPermissionMode::AutoReview => PermissionPayload {
-            sandbox_policy: serde_json::json!({
-                "mode": "workspace-write",
-                "networkAccess": "restricted",
-            }),
-            approval_policy: serde_json::json!({ "mode": "on-request" }),
-            approvals_reviewer: Some("auto_review"),
-        },
-        ComposerPermissionMode::FullAccess => PermissionPayload {
-            sandbox_policy: serde_json::json!({
-                "mode": "danger-full-access",
-                "networkAccess": "enabled",
-            }),
-            approval_policy: serde_json::json!({ "mode": "never" }),
-            approvals_reviewer: None,
-        },
-    }
-}
-
-fn composer_collaboration_mode(
-    draft: &ComposerDraft,
-    reasoning_effort: Option<&'static str>,
-    permissions: &PermissionPayload,
-) -> serde_json::Value {
-    let mut settings = serde_json::json!({
-        "model": draft.model_selection.model,
-        "model_provider": draft.model_selection.provider.runtime_id(),
-        "reasoning_effort": reasoning_effort,
-        "interaction_mode": interaction_mode_value(draft.interaction_mode),
-        "runtime_mode": runtime_mode_value(draft.runtime_mode),
-        "permission_mode": permission_mode_value(draft.permission_mode),
-        "sandbox_policy": permissions.sandbox_policy,
-        "approval_policy": permissions.approval_policy,
-        "approvals_reviewer": permissions.approvals_reviewer,
-        "traits": draft
-            .traits
-            .iter()
-            .map(|trait_kind| composer_trait_value(*trait_kind))
-            .collect::<Vec<_>>(),
-        "context": draft
-            .context
-            .iter()
-            .map(|context| composer_context_value(*context))
-            .collect::<Vec<_>>(),
-        "developer_instructions": null,
-    });
-
-    if let Some(host) = draft.host_selection.as_ref() {
-        settings["host"] = serde_json::json!({
-            "provider": host.provider,
-            "host_id": host.host_id,
-        });
-    }
-
-    serde_json::json!({
-        "mode": if draft.interaction_mode == InteractionMode::Plan {
-            "plan"
-        } else {
-            "default"
-        },
-        "settings": settings,
-    })
-}
-
-fn interaction_mode_value(mode: InteractionMode) -> &'static str {
-    match mode {
-        InteractionMode::Chat => "chat",
-        InteractionMode::Plan => "plan",
-    }
-}
-
-fn runtime_mode_value(mode: RuntimeMode) -> &'static str {
-    match mode {
-        RuntimeMode::Normal => "normal",
-        RuntimeMode::Local => "local",
-        RuntimeMode::Worktree => "worktree",
-        RuntimeMode::Remote => "remote",
-    }
-}
-
-fn permission_mode_value(permission: ComposerPermissionMode) -> &'static str {
-    match permission {
-        ComposerPermissionMode::Strict => "strict",
-        ComposerPermissionMode::Auto => "auto",
-        ComposerPermissionMode::AutoReview => "auto_review",
-        ComposerPermissionMode::FullAccess => "full_access",
-    }
-}
-
-fn composer_trait_value(trait_kind: ComposerTrait) -> &'static str {
-    match trait_kind {
-        ComposerTrait::Precise => "precise",
-        ComposerTrait::Fast => "fast",
-        ComposerTrait::TestFocused => "test_focused",
-        ComposerTrait::ReviewFocused => "review_focused",
-    }
-}
-
-fn composer_context_value(context: ComposerContextKind) -> &'static str {
-    match context {
-        ComposerContextKind::Pinned => "pinned",
-        ComposerContextKind::Highlights => "highlights",
-        ComposerContextKind::Todos => "todos",
-        ComposerContextKind::Terminal => "terminal",
-    }
-}
-
 fn provider_state_surface(metadata: &serde_json::Value) -> Option<&str> {
     metadata
         .get("surface")
         .or_else(|| metadata.get("kind"))
         .and_then(serde_json::Value::as_str)
-}
-
-fn toggle_vec_value<T: Copy + PartialEq>(values: &mut Vec<T>, value: T) {
-    if let Some(index) = values.iter().position(|candidate| *candidate == value) {
-        values.remove(index);
-    } else {
-        values.push(value);
-    }
 }
 
 fn tail_chars(value: &str, max_chars: usize) -> String {
