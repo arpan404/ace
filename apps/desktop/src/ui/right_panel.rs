@@ -1810,6 +1810,12 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         ))
         .child(summary_section(
             theme,
+            "Artifacts",
+            &projection.summary.artifacts,
+            "No provider artifacts observed.",
+        ))
+        .child(summary_section(
+            theme,
             "Decisions made",
             &projection.summary.decisions,
             "No decisions recorded yet.",

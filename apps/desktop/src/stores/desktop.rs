@@ -357,6 +357,7 @@ pub struct SummaryProjection {
     pub files_changed: Vec<String>,
     pub commands_run: Vec<String>,
     pub browser_pages: Vec<String>,
+    pub artifacts: Vec<String>,
     pub decisions: Vec<String>,
     pub blockers: Vec<String>,
     pub next_action: Option<String>,
@@ -1201,6 +1202,13 @@ impl DesktopStore {
                 )]
             })
             .unwrap_or_default();
+        let artifacts = self
+            .artifacts
+            .iter()
+            .filter(|artifact| artifact.thread_id == thread.id)
+            .take(8)
+            .map(|artifact| format!("{} · {}", artifact.title, artifact.detail))
+            .collect::<Vec<_>>();
         let mut decisions = Vec::new();
         if let Some(selection) = thread.model.as_deref() {
             decisions.push(format!(
@@ -1272,6 +1280,7 @@ impl DesktopStore {
             files_changed,
             commands_run,
             browser_pages,
+            artifacts,
             decisions,
             blockers,
             next_action,
@@ -5766,6 +5775,13 @@ mod tests {
                 && item.title == "Login screenshot"
                 && item.detail.contains("image/png")
         }));
+        let summary = store.summary_projection();
+        assert!(
+            summary
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.contains("Login screenshot"))
+        );
     }
 
     #[test]
