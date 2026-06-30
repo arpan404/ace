@@ -1,6 +1,6 @@
 use crate::{
     actions::{
-        ApproveProviderRequest, CommitReview, CreateReviewComment,
+        ApproveProviderRequest, CommitReview, CompleteComposerToken, CreateReviewComment,
         CreateTodoFromLatestTimelineItem, CreateWorktree, DenyProviderRequest,
         LinkTodoToCurrentDiff, OpenThread, PinLatestTimelineItem, PushReview, RefreshActiveTab,
         RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab,
@@ -1689,7 +1689,15 @@ fn review_comment_row(theme: Theme, comment: &ReviewCommentItem) -> AnyElement {
                             })
                         }
                     },
-                )),
+                ))
+                .child(action_button(IconName::Plus, "Add mention", theme, {
+                    let mention = review_comment_mention(comment);
+                    move || {
+                        Box::new(CompleteComposerToken {
+                            completion: mention.clone(),
+                        })
+                    }
+                })),
         )
         .child(
             div()
@@ -1702,9 +1710,13 @@ fn review_comment_row(theme: Theme, comment: &ReviewCommentItem) -> AnyElement {
             div()
                 .text_size(px(11.0))
                 .text_color(theme.muted_subtle)
-                .child(format!("@review:{}", comment.id)),
+                .child(review_comment_mention(comment)),
         )
         .into_any_element()
+}
+
+fn review_comment_mention(comment: &ReviewCommentItem) -> String {
+    format!("@review:{}", comment.id)
 }
 
 fn review_diff_preview(theme: Theme, review: &ReviewProjection) -> AnyElement {
@@ -4605,6 +4617,23 @@ mod tests {
     fn highlighted_context_action_label_reflects_composer_state() {
         assert_eq!(highlighted_context_action_label(false), "Add context");
         assert_eq!(highlighted_context_action_label(true), "Remove context");
+    }
+
+    #[test]
+    fn review_comment_mention_uses_backed_context_token() {
+        let comment = ReviewCommentItem {
+            id: "review-1".to_string(),
+            thread_id: ace_core::ThreadId::new(),
+            project_id: ace_core::ProjectId::new(),
+            file_path: "src/lib.rs".to_string(),
+            line: None,
+            body: "Review the changes.".to_string(),
+            created_at: "created".to_string(),
+            updated_at: "updated".to_string(),
+            resolved: false,
+        };
+
+        assert_eq!(review_comment_mention(&comment), "@review:review-1");
     }
 
     #[test]
