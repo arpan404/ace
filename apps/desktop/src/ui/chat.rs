@@ -742,7 +742,7 @@ fn landing_composer(theme: Theme, projection: &DesktopProjection) -> AnyElement 
                             theme.foreground
                         })
                         .child(if prompt.is_empty() {
-                            "Do anything".to_string()
+                            "Ask for follow-up changes".to_string()
                         } else {
                             prompt.clone()
                         }),
@@ -767,6 +767,18 @@ fn landing_composer(theme: Theme, projection: &DesktopProjection) -> AnyElement 
                                 .flex_row()
                                 .items_center()
                                 .gap_3()
+                                .child(composer_disabled_icon_button(
+                                    IconName::File,
+                                    "Attach context or image",
+                                    composer_attachment_tooltip(projection, chat),
+                                    theme,
+                                ))
+                                .child(composer_disabled_icon_button(
+                                    IconName::Bot,
+                                    "Voice input",
+                                    "Voice input needs a desktop audio capture and realtime transcription service.",
+                                    theme,
+                                ))
                                 .child(model_chip(theme, &model, &provider))
                                 .child(send_button(theme)),
                         ),
@@ -1927,6 +1939,45 @@ fn todo_status_text(status: TodoStatus) -> &'static str {
     }
 }
 
+fn composer_attachment_tooltip(
+    projection: &DesktopProjection,
+    chat: &ChatProjection,
+) -> &'static str {
+    let Some(draft) = chat.composer.as_ref() else {
+        return "Select a thread before attaching context.";
+    };
+    if selected_model(projection, draft)
+        .is_some_and(|model| model.supports_vision || model.supports_attachments)
+    {
+        "Image and file attachments need a host upload service and desktop file picker."
+    } else {
+        "The selected model does not advertise vision or attachment support."
+    }
+}
+
+fn composer_disabled_icon_button(
+    icon: IconName,
+    label: &'static str,
+    detail: &'static str,
+    theme: Theme,
+) -> AnyElement {
+    div()
+        .id(("composer-disabled-icon", stable_id(label)))
+        .w(px(28.0))
+        .h(px(28.0))
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(theme.muted_subtle)
+        .child(icon_svg(icon, theme.muted_subtle))
+        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(detail).build(window, cx))
+        .into_any_element()
+}
+
 fn chat_composer(theme: Theme, projection: &DesktopProjection) -> AnyElement {
     let chat = &projection.chat;
     if chat.messages.is_empty() {
@@ -1965,7 +2016,7 @@ fn chat_composer(theme: Theme, projection: &DesktopProjection) -> AnyElement {
                             theme.foreground
                         })
                         .child(if prompt.is_empty() {
-                            "Do anything".to_string()
+                            "Ask for follow-up changes".to_string()
                         } else {
                             prompt
                         }),
@@ -1992,6 +2043,18 @@ fn chat_composer(theme: Theme, projection: &DesktopProjection) -> AnyElement {
                                 .flex_row()
                                 .items_center()
                                 .gap_2()
+                                .child(composer_disabled_icon_button(
+                                    IconName::File,
+                                    "Attach context or image",
+                                    composer_attachment_tooltip(projection, chat),
+                                    theme,
+                                ))
+                                .child(composer_disabled_icon_button(
+                                    IconName::Bot,
+                                    "Voice input",
+                                    "Voice input needs a desktop audio capture and realtime transcription service.",
+                                    theme,
+                                ))
                                 .when(chat.can_interrupt, |this| {
                                     this.child(action_button(
                                         IconName::CircleX,
