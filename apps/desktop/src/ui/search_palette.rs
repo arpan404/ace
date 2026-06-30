@@ -90,6 +90,13 @@ pub enum SearchPaletteItem {
         description: String,
         count: usize,
     },
+    ComposerHost {
+        provider: Option<String>,
+        host_id: Option<String>,
+        label: String,
+        description: String,
+        selectable: bool,
+    },
     ThemePreset {
         preset: ThemePreset,
         label: String,
@@ -258,6 +265,7 @@ impl SearchPaletteItem {
             | Self::ComposerRuntimeMode { label, .. }
             | Self::ComposerInteractionMode { label, .. }
             | Self::ComposerContext { label, .. }
+            | Self::ComposerHost { label, .. }
             | Self::ThemePreset { label, .. }
             | Self::ThemeAccent { label, .. }
             | Self::ThemeDensity { label, .. }
@@ -311,6 +319,7 @@ impl SearchPaletteItem {
             | Self::ComposerRuntimeMode { description, .. }
             | Self::ComposerInteractionMode { description, .. }
             | Self::ComposerContext { description, .. }
+            | Self::ComposerHost { description, .. }
             | Self::ThemePreset { description, .. }
             | Self::ThemeAccent { description, .. }
             | Self::ThemeDensity { description, .. }
@@ -357,6 +366,7 @@ impl SearchPaletteItem {
             | Self::ComposerRuntimeMode { .. }
             | Self::ComposerInteractionMode { .. }
             | Self::ComposerContext { .. }
+            | Self::ComposerHost { .. }
             | Self::ThemePreset { .. }
             | Self::ThemeAccent { .. }
             | Self::ThemeDensity { .. }
@@ -392,6 +402,9 @@ impl SearchPaletteItem {
             Self::ComposerModel { selectable, .. } if !selectable => Some(
                 "This provider is visible in the catalog, but desktop send routing currently uses the Codex runtime.",
             ),
+            Self::ComposerHost {
+                selectable: false, ..
+            } => Some("Remote host is not connected."),
             _ => None,
         }
     }
@@ -718,6 +731,28 @@ pub fn palette_items(
                 count,
             });
         }
+    }
+    registry_items.push(SearchPaletteItem::ComposerHost {
+        provider: None,
+        host_id: None,
+        label: "Host: This computer".to_string(),
+        description: projection.host.label.clone(),
+        selectable: true,
+    });
+    for host in &projection.host_options {
+        registry_items.push(SearchPaletteItem::ComposerHost {
+            provider: Some(host.provider.clone()),
+            host_id: Some(host.host_id.clone()),
+            label: format!("Host: {}", host.label),
+            description: format!(
+                "{} · {} · {} project{}",
+                host.detail,
+                host.status,
+                host.project_count,
+                plural(host.project_count)
+            ),
+            selectable: host.connected,
+        });
     }
     for (preset, label, description) in [
         (
@@ -1744,6 +1779,12 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
             ComposerContextKind::Todos => ace_icon_svg(AceIconName::ListChecks, color),
             ComposerContextKind::Terminal => ace_icon_svg(AceIconName::Terminal, color),
         },
+        SearchPaletteItem::ComposerHost {
+            provider: None,
+            host_id: None,
+            ..
+        } => icon_svg(IconName::SquareTerminal, color),
+        SearchPaletteItem::ComposerHost { .. } => icon_svg(IconName::Globe, color),
         SearchPaletteItem::ThemePreset { .. }
         | SearchPaletteItem::ThemeAccent { .. }
         | SearchPaletteItem::ThemeDensity { .. }
@@ -1831,7 +1872,7 @@ fn _bottom_panel_tab_reference(_: BottomPanelTab) {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stores::desktop::{ComposerPayload, DesktopStore};
+    use crate::stores::desktop::{ComposerPayload, DesktopStore, HostOptionProjection};
     use ace_protocol::provider_runtime::{ProviderRuntimeEvent, ProviderRuntimeEventBatch};
     use ace_protocol::terminal::{
         DEFAULT_TERMINAL_ID, SequencedTerminalEvent, TerminalEvent, TerminalSessionSnapshot,
@@ -1840,6 +1881,7 @@ mod tests {
     use ace_runtime::provider::{
         NormalizedServerRequest, ProviderMetadata, ServerRequestDetail, ServerRequestKind,
     };
+    use ace_runtime::threads::ExecutionLocation;
 
     #[test]
     fn palette_search_includes_persisted_context_results() {
@@ -2520,6 +2562,73 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn palette_search_includes_backed_composer_host_controls() {
+        let store = DesktopStore::new();
+        let mut projection = store.projection();
+        projection.host_options = vec![
+            HostOptionProjection {
+                provider: "codex".to_string(),
+                host_id: "devbox-a".to_string(),
+                label: "Devbox A".to_string(),
+                detail: "codex · devbox-a.internal · connected".to_string(),
+                status: "connected".to_string(),
+                connected: true,
+                execution_location: ExecutionLocation::RemoteHost,
+                project_count: 1,
+            },
+            HostOptionProjection {
+                provider: "codex".to_string(),
+                host_id: "devbox-b".to_string(),
+                label: "Devbox B".to_string(),
+                detail: "codex · devbox-b.internal · offline".to_string(),
+                status: "offline".to_string(),
+                connected: false,
+                execution_location: ExecutionLocation::RemoteHost,
+                project_count: 0,
+            },
+        ];
+
+        let local_items = palette_items(&projection, SearchPaletteMode::Root, "host this computer");
+        assert!(local_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ComposerHost {
+                provider: None,
+                host_id: None,
+                selectable: true,
+                ..
+            }
+        )));
+
+        let connected_items = palette_items(&projection, SearchPaletteMode::Root, "host devbox a");
+        assert!(connected_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ComposerHost {
+                provider: Some(provider),
+                host_id: Some(host_id),
+                selectable: true,
+                ..
+            } if provider == "codex" && host_id == "devbox-a"
+        )));
+
+        let offline = palette_items(&projection, SearchPaletteMode::Root, "host devbox b")
+            .into_iter()
+            .find(|item| {
+                matches!(
+                    item,
+                    SearchPaletteItem::ComposerHost {
+                        host_id: Some(host_id),
+                        ..
+                    } if host_id == "devbox-b"
+                )
+            })
+            .expect("offline remote host");
+        assert_eq!(
+            offline.disabled_reason(),
+            Some("Remote host is not connected.")
+        );
     }
 
     #[test]

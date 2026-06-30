@@ -783,6 +783,21 @@ impl RootView {
                 self.active_store_mut()
                     .toggle_active_composer_context(context);
             }
+            SearchPaletteItem::ComposerHost {
+                provider,
+                host_id,
+                selectable: true,
+                ..
+            } => {
+                self.search_palette.close();
+                let selection = provider.zip(host_id).map(|(provider, host_id)| {
+                    ace_runtime::chat::ComposerHostSelection { provider, host_id }
+                });
+                self.active_store_mut().set_active_composer_host(selection);
+            }
+            SearchPaletteItem::ComposerHost { .. } => {
+                self.search_palette.close();
+            }
             SearchPaletteItem::ThemePreset { preset, .. } => {
                 self.search_palette.close();
                 self.ui_store.set_theme_preset(preset);
