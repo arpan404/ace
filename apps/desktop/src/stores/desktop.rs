@@ -33,16 +33,19 @@ use ace_protocol::{
 use ace_runtime::{
     chat::{
         ChatMessageProjection, ChatMessageRole, ChatProjection, ComposerContextKind, ComposerDraft,
-        ComposerPermissionMode, ComposerTrait, CreationContext, InteractionMode,
-        ProviderModelSelection, ReasoningEffort, RuntimeMode, SidebarMetadata, SidebarProjection,
-        ThreadDraft, ThreadStatus, ThreadSummary, build_chat_projection, build_sidebar_projection,
-        resolve_thread_creation_options,
+        ComposerHostSelection, ComposerPermissionMode, ComposerTrait, CreationContext,
+        InteractionMode, ProviderModelSelection, ReasoningEffort, RuntimeMode, SidebarMetadata,
+        SidebarProjection, ThreadDraft, ThreadStatus, ThreadSummary, build_chat_projection,
+        build_sidebar_projection, resolve_thread_creation_options,
     },
     provider::{
         NormalizedServerRequest, ProviderRuntimeHealth, ServerRequestKind, ThreadItemKind,
         ThreadItemStatus,
     },
-    threads::{AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation},
+    threads::{
+        AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation,
+        RemoteConnectionRecord,
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -96,6 +99,7 @@ pub struct DesktopProjection {
     pub sidebar: SidebarProjection,
     pub chat: ChatProjection,
     pub host: HostProjection,
+    pub host_options: Vec<HostOptionProjection>,
     pub services: ServiceReadiness,
     pub terminal: TerminalProjection,
     pub review: ReviewProjection,
@@ -125,6 +129,17 @@ impl Default for HostProjection {
             endpoint: None,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostOptionProjection {
+    pub provider: String,
+    pub host_id: String,
+    pub label: String,
+    pub detail: String,
+    pub status: String,
+    pub connected: bool,
+    pub execution_location: ExecutionLocation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -588,6 +603,7 @@ impl DesktopStore {
             sidebar,
             chat,
             host: self.host_projection(),
+            host_options: self.host_options_projection(),
             services: self.service_readiness(),
             terminal: self.terminal_projection(),
             review: self.review_projection(),
@@ -618,6 +634,25 @@ impl DesktopStore {
                     )),
                 }
             })
+    }
+
+    #[must_use]
+    pub fn host_options_projection(&self) -> Vec<HostOptionProjection> {
+        let mut hosts = self
+            .runtime
+            .remote_connections
+            .iter()
+            .filter(|connection| connection.execution_location == ExecutionLocation::RemoteHost)
+            .map(host_option_projection)
+            .collect::<Vec<_>>();
+        hosts.sort_by(|left, right| {
+            right
+                .connected
+                .cmp(&left.connected)
+                .then_with(|| left.label.cmp(&right.label))
+                .then_with(|| left.host_id.cmp(&right.host_id))
+        });
+        hosts
     }
 
     #[must_use]
@@ -1981,6 +2016,7 @@ impl DesktopStore {
         let model_selection = draft.model_selection.clone();
         let reasoning_effort = draft.reasoning_effort;
         let permission_mode = draft.permission_mode;
+        let host_selection = draft.host_selection.clone();
         let traits = draft.traits.clone();
         let context = draft.context.clone();
 
@@ -2034,6 +2070,7 @@ impl DesktopStore {
         self.thread_drafts.remove(&thread_id);
         let mut next_draft = ComposerDraft::empty(thread_id.clone(), now);
         next_draft.model_selection = model_selection;
+        next_draft.host_selection = host_selection;
         next_draft.reasoning_effort = reasoning_effort;
         next_draft.permission_mode = permission_mode;
         next_draft.traits = traits;
@@ -2155,6 +2192,30 @@ impl DesktopStore {
         }
         if let Some(cwd) = self.composer_cwd_for_thread(thread_id, draft.runtime_mode) {
             payload["cwd"] = serde_json::Value::String(cwd);
+        }
+        match draft.runtime_mode {
+            RuntimeMode::Local => {
+                payload["executionLocation"] = serde_json::Value::String("local".to_string());
+            }
+            RuntimeMode::Worktree => {
+                payload["executionLocation"] = serde_json::Value::String("worktree".to_string());
+            }
+            RuntimeMode::Remote => {
+                let Some(selection) = draft.host_selection.as_ref() else {
+                    return Err(
+                        "Select a connected remote host before sending in Remote mode.".to_string(),
+                    );
+                };
+                if !self.remote_host_is_connected(selection) {
+                    return Err(format!(
+                        "Remote host {} is not connected.",
+                        selection.host_id
+                    ));
+                }
+                payload["executionLocation"] = serde_json::Value::String("remote_host".to_string());
+                payload["remoteHost"] = serde_json::Value::String(selection.host_id.clone());
+            }
+            RuntimeMode::Normal => {}
         }
         if draft.interaction_mode == InteractionMode::Plan {
             payload["collaboration_mode"] = serde_json::json!({
@@ -2527,11 +2588,21 @@ impl DesktopStore {
         let Some(thread_id) = self.ensure_active_thread() else {
             return;
         };
+        let default_remote = (runtime_mode == RuntimeMode::Remote)
+            .then(|| self.first_connected_remote_host())
+            .flatten();
         let draft = self
             .composer_drafts
             .entry(thread_id.clone())
             .or_insert_with(|| ComposerDraft::empty(thread_id.clone(), now.clone()));
         draft.runtime_mode = runtime_mode;
+        if runtime_mode == RuntimeMode::Remote {
+            if draft.host_selection.is_none() {
+                draft.host_selection = default_remote;
+            }
+        } else {
+            draft.host_selection = None;
+        }
         draft.updated_at = now.clone();
         if let Some(thread_draft) = self.thread_drafts.get_mut(&thread_id) {
             thread_draft.runtime_mode = runtime_mode;
@@ -2551,6 +2622,37 @@ impl DesktopStore {
         draft.updated_at = now.clone();
         if let Some(thread_draft) = self.thread_drafts.get_mut(&thread_id) {
             thread_draft.interaction_mode = interaction_mode;
+        }
+    }
+
+    pub fn set_active_composer_host(&mut self, selection: Option<ComposerHostSelection>) {
+        if selection
+            .as_ref()
+            .is_some_and(|selection| !self.remote_host_is_connected(selection))
+        {
+            return;
+        }
+
+        let now = self.next_timestamp();
+        let Some(thread_id) = self.ensure_active_thread() else {
+            return;
+        };
+        let draft = self
+            .composer_drafts
+            .entry(thread_id.clone())
+            .or_insert_with(|| ComposerDraft::empty(thread_id.clone(), now.clone()));
+        draft.host_selection = selection;
+        draft.runtime_mode = if draft.host_selection.is_some() {
+            RuntimeMode::Remote
+        } else if draft.runtime_mode == RuntimeMode::Remote {
+            RuntimeMode::Local
+        } else {
+            draft.runtime_mode
+        };
+        let runtime_mode = draft.runtime_mode;
+        draft.updated_at = now.clone();
+        if let Some(thread_draft) = self.thread_drafts.get_mut(&thread_id) {
+            thread_draft.runtime_mode = runtime_mode;
         }
     }
 
@@ -2603,8 +2705,44 @@ impl DesktopStore {
                 .iter()
                 .find(|project| project.id == thread.project_id)
                 .map(|project| project.workspace_root.clone()),
-            RuntimeMode::Normal => None,
+            RuntimeMode::Normal | RuntimeMode::Remote => None,
         }
+    }
+
+    fn first_connected_remote_host(&self) -> Option<ComposerHostSelection> {
+        self.runtime
+            .remote_connections
+            .iter()
+            .filter(|connection| connection.execution_location == ExecutionLocation::RemoteHost)
+            .filter(|connection| {
+                connection
+                    .status
+                    .as_deref()
+                    .is_some_and(is_connected_remote_status)
+            })
+            .min_by(|left, right| {
+                left.display_name
+                    .as_deref()
+                    .unwrap_or(&left.host_id)
+                    .cmp(right.display_name.as_deref().unwrap_or(&right.host_id))
+                    .then_with(|| left.host_id.cmp(&right.host_id))
+            })
+            .map(|connection| ComposerHostSelection {
+                provider: connection.provider.clone(),
+                host_id: connection.host_id.clone(),
+            })
+    }
+
+    fn remote_host_is_connected(&self, selection: &ComposerHostSelection) -> bool {
+        self.runtime.remote_connections.iter().any(|connection| {
+            connection.provider == selection.provider
+                && connection.host_id == selection.host_id
+                && connection.execution_location == ExecutionLocation::RemoteHost
+                && connection
+                    .status
+                    .as_deref()
+                    .is_some_and(is_connected_remote_status)
+        })
     }
 
     fn record_composer_history(&mut self, thread_id: &ThreadId, prompt: &str) {
@@ -3231,6 +3369,39 @@ fn provider_health_label(health: ProviderRuntimeHealth) -> &'static str {
     }
 }
 
+fn host_option_projection(connection: &RemoteConnectionRecord) -> HostOptionProjection {
+    let status = connection
+        .status
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
+    let label = connection
+        .display_name
+        .clone()
+        .or_else(|| connection.host.clone())
+        .unwrap_or_else(|| connection.host_id.clone());
+    let detail = connection.host.as_ref().map_or_else(
+        || format!("{} · {}", connection.provider, status),
+        |host| format!("{} · {} · {}", connection.provider, host, status),
+    );
+
+    HostOptionProjection {
+        provider: connection.provider.clone(),
+        host_id: connection.host_id.clone(),
+        label,
+        detail,
+        connected: is_connected_remote_status(&status),
+        status,
+        execution_location: connection.execution_location,
+    }
+}
+
+fn is_connected_remote_status(status: &str) -> bool {
+    matches!(
+        status.trim().to_ascii_lowercase().as_str(),
+        "connected" | "online" | "ready"
+    )
+}
+
 fn runtime_status_projection_from_state(
     response: &ProviderRuntimeStateGetResponse,
     provider_count: usize,
@@ -3854,6 +4025,19 @@ fn tail_chars(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn remote_connection(host_id: &str, status: Option<&str>) -> RemoteConnectionRecord {
+        RemoteConnectionRecord {
+            provider: "codex".to_string(),
+            host_id: host_id.to_string(),
+            host: Some(format!("{host_id}.internal")),
+            display_name: Some(host_id.to_string()),
+            status: status.map(ToString::to_string),
+            execution_location: ExecutionLocation::RemoteHost,
+            projects: serde_json::Value::Null,
+            metadata: serde_json::Value::Null,
+        }
+    }
 
     #[test]
     fn new_thread_reuses_existing_project_draft() {
@@ -4617,6 +4801,54 @@ mod tests {
             store.composer_cwd_for_thread(&thread_id, RuntimeMode::Worktree),
             Some("/tmp/project-worktree".to_string())
         );
+        assert_eq!(
+            store.composer_cwd_for_thread(&thread_id, RuntimeMode::Remote),
+            None
+        );
+    }
+
+    #[test]
+    fn host_options_project_connected_remote_hosts_first() {
+        let mut store = DesktopStore::new();
+        store.runtime.remote_connections = vec![
+            remote_connection("devbox-b", Some("offline")),
+            RemoteConnectionRecord {
+                execution_location: ExecutionLocation::Local,
+                ..remote_connection("local-bridge", Some("connected"))
+            },
+            remote_connection("devbox-a", Some("connected")),
+        ];
+
+        let hosts = store.projection().host_options;
+
+        assert_eq!(hosts.len(), 2);
+        assert_eq!(hosts[0].host_id, "devbox-a");
+        assert!(hosts[0].connected);
+        assert_eq!(hosts[1].host_id, "devbox-b");
+        assert!(!hosts[1].connected);
+    }
+
+    #[test]
+    fn remote_composer_mode_selects_and_clears_connected_host() {
+        let mut store = DesktopStore::new();
+        store.runtime.remote_connections = vec![remote_connection("devbox", Some("online"))];
+        store.add_project("/tmp/project".to_string());
+
+        store.set_active_composer_runtime_mode(RuntimeMode::Remote);
+        let draft = store.projection().chat.composer.expect("composer");
+        assert_eq!(draft.runtime_mode, RuntimeMode::Remote);
+        assert_eq!(
+            draft.host_selection,
+            Some(ComposerHostSelection {
+                provider: "codex".to_string(),
+                host_id: "devbox".to_string(),
+            })
+        );
+
+        store.set_active_composer_host(None);
+        let draft = store.projection().chat.composer.expect("composer");
+        assert_eq!(draft.runtime_mode, RuntimeMode::Local);
+        assert_eq!(draft.host_selection, None);
     }
 
     #[test]

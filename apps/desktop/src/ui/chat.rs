@@ -1,14 +1,15 @@
 use crate::{
     actions::{
-        CompleteComposerToken, CreateTodoFromTimelineItem, PinTimelineItem, SelectComposerModel,
-        SetComposerInteractionMode, SetComposerPermission, SetComposerReasoning,
-        SetComposerRuntimeMode, ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait,
-        ToggleEnvironmentPanel, ToggleHighlightTimelineItem, ToggleRightPanel, ToggleSidebar,
+        CompleteComposerToken, CreateTodoFromTimelineItem, PinTimelineItem, SelectComposerHost,
+        SelectComposerModel, SetComposerInteractionMode, SetComposerPermission,
+        SetComposerReasoning, SetComposerRuntimeMode, ToggleBottomPanel, ToggleComposerContext,
+        ToggleComposerTrait, ToggleEnvironmentPanel, ToggleHighlightTimelineItem, ToggleRightPanel,
+        ToggleSidebar,
     },
     stores::{
-        DesktopProjection, ModelProjection, ModelProviderProjection, ModelRegistryProjection,
-        ProviderSlashCommandProjection, ThreadAnnotationsProjection, TodoStatus,
-        ToolRegistryEntryProjection, ui::UiState,
+        DesktopProjection, HostOptionProjection, ModelProjection, ModelProviderProjection,
+        ModelRegistryProjection, ProviderSlashCommandProjection, ThreadAnnotationsProjection,
+        TodoStatus, ToolRegistryEntryProjection, ui::UiState,
     },
     ui::{components::*, right_panel::environment_card, theme::Theme},
 };
@@ -849,6 +850,7 @@ fn composer_mode_label(chat: &ChatProjection) -> &'static str {
 
     match (runtime_mode, interaction_mode) {
         (RuntimeMode::Worktree, _) => "Worktree",
+        (RuntimeMode::Remote, _) => "Remote",
         (RuntimeMode::Local, _) => "Local",
         (RuntimeMode::Normal, InteractionMode::Plan) => "Plan",
         (RuntimeMode::Normal, InteractionMode::Chat) => "Chat",
@@ -917,7 +919,8 @@ fn composer_selector_surface(
             composer_command_suggestions(theme, projection, draft),
             |this, suggestions| this.child(suggestions),
         )
-        .child(composer_mode_selector(theme, draft))
+        .child(composer_mode_selector(theme, projection, draft))
+        .child(composer_host_selector(theme, projection, draft))
         .child(composer_permission_selector(theme, draft))
         .child(model_selector(theme, &projection.models, draft, compact))
         .when(
@@ -1119,7 +1122,12 @@ fn active_composer_token(prompt: &str) -> Option<&str> {
     (!token.is_empty()).then_some(token)
 }
 
-fn composer_mode_selector(theme: Theme, draft: &ComposerDraft) -> AnyElement {
+fn composer_mode_selector(
+    theme: Theme,
+    projection: &DesktopProjection,
+    draft: &ComposerDraft,
+) -> AnyElement {
+    let has_connected_remote = projection.host_options.iter().any(|host| host.connected);
     div()
         .flex()
         .flex_row()
@@ -1176,7 +1184,91 @@ fn composer_mode_selector(theme: Theme, draft: &ComposerDraft) -> AnyElement {
                 runtime_mode: RuntimeMode::Worktree,
             },
         ))
+        .child(if has_connected_remote {
+            composer_action_pill(
+                theme,
+                draft.runtime_mode == RuntimeMode::Remote,
+                IconName::Globe,
+                "Remote",
+                "Run on the selected remote host",
+                SetComposerRuntimeMode {
+                    runtime_mode: RuntimeMode::Remote,
+                },
+            )
+        } else {
+            composer_disabled_pill(
+                theme,
+                IconName::Globe,
+                "Remote",
+                "No connected remote host is available yet.",
+            )
+        })
         .into_any_element()
+}
+
+fn composer_host_selector(
+    theme: Theme,
+    projection: &DesktopProjection,
+    draft: &ComposerDraft,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(selector_label(theme, "Host"))
+        .child(composer_host_pill(
+            theme,
+            draft.host_selection.is_none(),
+            true,
+            IconName::SquareTerminal,
+            "This computer".to_string(),
+            projection.host.label.clone(),
+            None,
+        ))
+        .children(
+            projection
+                .host_options
+                .iter()
+                .map(|host| composer_remote_host_pill(theme, host, draft))
+                .collect::<Vec<_>>(),
+        )
+        .when(projection.host_options.is_empty(), |this| {
+            this.child(
+                div()
+                    .h(px(26.0))
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.border_subtle)
+                    .bg(theme.panel_deep)
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child("No remote hosts"),
+            )
+        })
+        .into_any_element()
+}
+
+fn composer_remote_host_pill(
+    theme: Theme,
+    host: &HostOptionProjection,
+    draft: &ComposerDraft,
+) -> AnyElement {
+    let selected = draft.host_selection.as_ref().is_some_and(|selection| {
+        selection.provider == host.provider && selection.host_id == host.host_id
+    });
+    composer_host_pill(
+        theme,
+        selected,
+        host.connected,
+        IconName::Globe,
+        host.label.clone(),
+        host.detail.clone(),
+        Some((host.provider.clone(), host.host_id.clone())),
+    )
 }
 
 fn composer_permission_selector(theme: Theme, draft: &ComposerDraft) -> AnyElement {
@@ -1499,6 +1591,112 @@ fn context_selector(
                 })
                 .collect::<Vec<_>>(),
         )
+        .into_any_element()
+}
+
+fn composer_host_pill(
+    theme: Theme,
+    selected: bool,
+    enabled: bool,
+    icon: IconName,
+    label: String,
+    detail: String,
+    selection: Option<(String, String)>,
+) -> AnyElement {
+    let tooltip = if enabled {
+        detail.clone()
+    } else {
+        format!("{detail}. Remote host is not connected.")
+    };
+    let color = if selected {
+        theme.foreground.opacity(0.88)
+    } else if enabled {
+        theme.muted
+    } else {
+        theme.muted_subtle
+    };
+    let mut pill = div()
+        .id(("composer-host", stable_id(&format!("{label}:{detail}"))))
+        .max_w(px(164.0))
+        .h(px(26.0))
+        .rounded_md()
+        .border_1()
+        .border_color(if selected {
+            theme.accent_blue.opacity(0.46)
+        } else {
+            theme.border_subtle
+        })
+        .bg(if selected {
+            theme.button
+        } else {
+            theme.panel_deep
+        })
+        .px_2()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .text_size(px(11.0))
+        .text_color(color)
+        .child(icon_svg(
+            icon,
+            if selected {
+                theme.accent_blue
+            } else {
+                theme.muted_subtle
+            },
+        ))
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .child(label),
+        )
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+        });
+
+    if enabled {
+        pill = pill.hover(|this| this.bg(theme.button_hover));
+        pill = pill.on_mouse_up(MouseButton::Left, move |_, window, cx| {
+            let (provider, host_id) = selection
+                .clone()
+                .map_or((None, None), |(provider, host_id)| {
+                    (Some(provider), Some(host_id))
+                });
+            window.dispatch_action(Box::new(SelectComposerHost { provider, host_id }), cx);
+        });
+    }
+
+    pill.into_any_element()
+}
+
+fn composer_disabled_pill(
+    theme: Theme,
+    icon: IconName,
+    label: &'static str,
+    detail: &'static str,
+) -> AnyElement {
+    div()
+        .id(("composer-disabled-pill", stable_id(label)))
+        .min_w(px(54.0))
+        .h(px(26.0))
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .px_2()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .text_size(px(11.0))
+        .text_color(theme.muted_subtle)
+        .child(icon_svg(icon, theme.muted_subtle))
+        .child(label)
+        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(detail).build(window, cx))
         .into_any_element()
 }
 

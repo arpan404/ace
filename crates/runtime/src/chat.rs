@@ -16,6 +16,7 @@ pub enum RuntimeMode {
     Normal,
     Local,
     Worktree,
+    Remote,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +50,12 @@ impl From<ModelSelection> for ProviderModelSelection {
             model: selection.model,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComposerHostSelection {
+    pub provider: String,
+    pub host_id: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -286,6 +293,8 @@ pub struct ComposerDraft {
     pub thread_id: ThreadId,
     pub prompt: String,
     pub model_selection: ProviderModelSelection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_selection: Option<ComposerHostSelection>,
     #[serde(default)]
     pub reasoning_effort: Option<ReasoningEffort>,
     #[serde(default)]
@@ -308,6 +317,7 @@ impl ComposerDraft {
             thread_id,
             prompt: String::new(),
             model_selection: ProviderModelSelection::default(),
+            host_selection: None,
             reasoning_effort: Some(ReasoningEffort::Medium),
             permission_mode: ComposerPermissionMode::default(),
             traits: Vec::new(),

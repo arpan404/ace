@@ -146,6 +146,13 @@ pub struct SetComposerInteractionMode {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct SelectComposerHost {
+    pub provider: Option<String>,
+    pub host_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct CompleteComposerToken {
     pub completion: String,
 }

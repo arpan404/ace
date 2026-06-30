@@ -3,7 +3,7 @@ pub mod ui;
 
 pub use desktop::{
     ApprovalItemProjection, ApprovalRegistryProjection, DesktopProjection, DesktopStore,
-    ModelProjection, ModelProviderProjection, ModelRegistryProjection,
+    HostOptionProjection, ModelProjection, ModelProviderProjection, ModelRegistryProjection,
     ProviderSlashCommandProjection, ReviewFileProjection, ReviewProjection, ServiceReadiness,
     ServiceStatus, SourceItemProjection, ThreadAnnotationsProjection, ThreadAnnotationsSnapshot,
     TodoItem, TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,

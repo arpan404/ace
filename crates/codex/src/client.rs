@@ -11,6 +11,7 @@ use ace_runtime::provider::{
     ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent, ProviderFeature,
     ProviderRequest,
 };
+use ace_runtime::threads::ExecutionLocation;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -184,6 +185,12 @@ pub struct CodexTurnStart {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "execution_location")]
+    pub execution_location: Option<ExecutionLocation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "remote_host")]
+    pub remote_host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(alias = "sandbox_policy")]
     pub sandbox_policy: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -337,6 +344,8 @@ impl CodexTurnStart {
             model: None,
             reasoning_effort: None,
             cwd: None,
+            execution_location: None,
+            remote_host: None,
             sandbox_policy: None,
             approval_policy: None,
             approvals_reviewer: None,
@@ -418,6 +427,8 @@ impl CodexPlanImplementation {
             model: self.model,
             reasoning_effort: self.reasoning_effort,
             cwd: self.cwd,
+            execution_location: None,
+            remote_host: None,
             sandbox_policy: self.sandbox_policy,
             approval_policy: self.approval_policy,
             approvals_reviewer: self.approvals_reviewer,
@@ -2932,6 +2943,39 @@ mod tests {
                 .expect("instructions")
                 .contains("Image Generation Preflight")
         );
+    }
+
+    #[tokio::test]
+    async fn starts_remote_turn_with_execution_location_and_host() {
+        let fake = FakeTransport::default();
+        fake.responses
+            .lock()
+            .expect("responses")
+            .push_back(Ok(json!({ "turn": { "id": "turn-1" } })));
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        client
+            .start_turn(CodexTurnStart {
+                thread_id: "thread-1".to_string(),
+                input: vec![json!({ "type": "text", "text": "run remotely" })],
+                model: None,
+                reasoning_effort: None,
+                cwd: None,
+                execution_location: Some(ExecutionLocation::RemoteHost),
+                remote_host: Some("devbox".to_string()),
+                sandbox_policy: None,
+                approval_policy: None,
+                approvals_reviewer: None,
+                collaboration_mode: None,
+                image_generation_preflight_enabled: false,
+            })
+            .await
+            .expect("turn");
+
+        let requests = client.transport.requests.lock().expect("requests");
+        assert_eq!(requests[0].0, "turn/start");
+        assert_eq!(requests[0].1["executionLocation"], "remote_host");
+        assert_eq!(requests[0].1["remoteHost"], "devbox");
     }
 
     #[test]

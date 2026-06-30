@@ -6,12 +6,12 @@ use crate::{
         DenyProviderRequest, InterruptActiveTurn, NewThread, NewThreadForProject,
         OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem, PushReview,
         RefreshActiveTab, RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree,
-        SelectBottomPanelTab, SelectComposerModel, SelectRightPanelTab, SelectSearchPaletteItem,
-        SendActiveComposer, SetCodeFont, SetComposerInteractionMode, SetComposerPermission,
-        SetComposerReasoning, SetComposerRuntimeMode, SetThemeDensity, SetThemeMotion,
-        SetThemePreset, SetUiFont, ShowBrowserTab, ShowLessProjectThreads, ShowMoreProjectThreads,
-        ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab, ShowTodosTab,
-        StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleComposerContext,
+        SelectBottomPanelTab, SelectComposerHost, SelectComposerModel, SelectRightPanelTab,
+        SelectSearchPaletteItem, SendActiveComposer, SetCodeFont, SetComposerInteractionMode,
+        SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, SetThemeDensity,
+        SetThemeMotion, SetThemePreset, SetUiFont, ShowBrowserTab, ShowLessProjectThreads,
+        ShowMoreProjectThreads, ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab,
+        ShowTodosTab, StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleComposerContext,
         ToggleComposerTrait, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
         ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
         ToggleRightPanel, ToggleSidebar, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
@@ -1036,6 +1036,27 @@ impl RootView {
         cx.notify();
     }
 
+    fn select_composer_host(
+        &mut self,
+        event: &SelectComposerHost,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let selection =
+            event
+                .provider
+                .clone()
+                .zip(event.host_id.clone())
+                .map(
+                    |(provider, host_id)| ace_runtime::chat::ComposerHostSelection {
+                        provider,
+                        host_id,
+                    },
+                );
+        self.active_store_mut().set_active_composer_host(selection);
+        cx.notify();
+    }
+
     fn complete_composer_token(
         &mut self,
         event: &CompleteComposerToken,
@@ -1260,6 +1281,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::toggle_composer_context))
             .on_action(cx.listener(Self::set_composer_runtime_mode))
             .on_action(cx.listener(Self::set_composer_interaction_mode))
+            .on_action(cx.listener(Self::select_composer_host))
             .on_action(cx.listener(Self::complete_composer_token))
             .on_action(cx.listener(Self::interrupt_active_turn))
             .on_action(cx.listener(Self::toggle_pin_active_thread))
