@@ -808,6 +808,10 @@ impl RootView {
                 self.search_palette.close();
                 self.apply_right_panel_tab(tab);
             }
+            SearchPaletteItem::Message { thread_id, .. } => {
+                self.search_palette.close();
+                self.open_thread_with_context_refresh(thread_id);
+            }
             SearchPaletteItem::Project { project_id, .. } => {
                 let mode = self.search_palette.mode;
                 self.search_palette.close();

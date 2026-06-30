@@ -105,6 +105,7 @@ pub struct DesktopStore {
 pub struct DesktopProjection {
     pub sidebar: SidebarProjection,
     pub chat: ChatProjection,
+    pub search: SearchProjection,
     pub host: HostProjection,
     pub host_options: Vec<HostOptionProjection>,
     pub active_project_default_model: Option<String>,
@@ -125,6 +126,22 @@ pub struct DesktopProjection {
     pub composer_commands: Vec<ComposerCommandProjection>,
     pub summary: SummaryProjection,
     pub annotations: ThreadAnnotationsProjection,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchProjection {
+    pub messages: Vec<MessageSearchResultProjection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageSearchResultProjection {
+    pub thread_id: ThreadId,
+    pub message_id: String,
+    pub thread_title: String,
+    pub project_name: String,
+    pub role: ChatMessageRole,
+    pub excerpt: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -824,6 +841,7 @@ impl DesktopStore {
         DesktopProjection {
             sidebar,
             chat,
+            search: self.search_projection(),
             host: self.host_projection(),
             host_options: self.host_options_projection(),
             active_project_default_model: self.active_project_default_model_label(),
@@ -845,6 +863,61 @@ impl DesktopStore {
             summary: self.summary_projection(),
             annotations: self.annotations_projection(),
         }
+    }
+
+    fn search_projection(&self) -> SearchProjection {
+        let project_names = self
+            .projects
+            .iter()
+            .map(|project| (project.id, project.title.clone()))
+            .collect::<HashMap<_, _>>();
+        let threads = self
+            .threads
+            .iter()
+            .map(|thread| (thread.id.clone(), thread))
+            .collect::<HashMap<_, _>>();
+        let mut messages = Vec::new();
+
+        for (thread_id, thread_messages) in &self.persisted_messages {
+            let Some(thread) = threads.get(thread_id) else {
+                continue;
+            };
+            if thread.archived {
+                continue;
+            }
+            let project_name = project_names
+                .get(&thread.project_id)
+                .cloned()
+                .unwrap_or_else(|| "Unknown project".to_string());
+            for message in thread_messages
+                .iter()
+                .rev()
+                .filter(|message| {
+                    message
+                        .text
+                        .as_deref()
+                        .is_some_and(|text| !text.trim().is_empty())
+                })
+                .take(3)
+            {
+                messages.push(MessageSearchResultProjection {
+                    thread_id: thread_id.clone(),
+                    message_id: message.id.clone(),
+                    thread_title: thread.title.clone(),
+                    project_name: project_name.clone(),
+                    role: message.role,
+                    excerpt: message_excerpt(message),
+                    updated_at: thread.latest_activity_at.clone(),
+                });
+                if messages.len() >= 256 {
+                    messages.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+                    return SearchProjection { messages };
+                }
+            }
+        }
+
+        messages.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        SearchProjection { messages }
     }
 
     fn apply_thread_annotation_counts(&self, sidebar: &mut SidebarProjection) {

@@ -114,6 +114,12 @@ pub enum SearchPaletteItem {
         description: String,
         result_kind: SearchPaletteResultKind,
     },
+    Message {
+        thread_id: ThreadId,
+        message_id: String,
+        label: String,
+        description: String,
+    },
     Project {
         project_id: ProjectId,
         label: String,
@@ -169,6 +175,7 @@ impl SearchPaletteItem {
             | Self::UiFont { label, .. }
             | Self::CodeFont { label, .. } => label,
             Self::Panel { label, .. } => label,
+            Self::Message { label, .. } => label,
             Self::Project { label, .. } | Self::Thread { label, .. } => label,
         }
     }
@@ -214,6 +221,7 @@ impl SearchPaletteItem {
             | Self::UiFont { description, .. }
             | Self::CodeFont { description, .. } => description,
             Self::Panel { description, .. } => description,
+            Self::Message { description, .. } => description,
             Self::Project { description, .. } | Self::Thread { description, .. } => description,
         }
     }
@@ -257,6 +265,7 @@ impl SearchPaletteItem {
                 SearchPaletteResultKind::Context => PaletteItemKind::Context,
                 SearchPaletteResultKind::Registry => PaletteItemKind::Registry,
             },
+            Self::Message { .. } => PaletteItemKind::Context,
             Self::Project { .. } => PaletteItemKind::Project,
             Self::Thread { .. } => PaletteItemKind::Thread,
         }
@@ -405,6 +414,23 @@ pub fn palette_items(
             label: approval.title.clone(),
             description: format!("{} · {}", approval.provider, approval.prompt),
             result_kind: SearchPaletteResultKind::Context,
+        });
+    }
+    for message in &projection.search.messages {
+        context_items.push(SearchPaletteItem::Message {
+            thread_id: message.thread_id.clone(),
+            message_id: message.message_id.clone(),
+            label: format!(
+                "{} message in {}",
+                message_role_label(message.role),
+                message.thread_title
+            ),
+            description: format!(
+                "{} · {} · {}",
+                message.project_name,
+                message_role_label(message.role),
+                message.excerpt
+            ),
         });
     }
 
@@ -808,6 +834,16 @@ fn thread_palette_description(project_name: &str, thread: &ThreadSummary) -> Str
     }
 
     parts.join(" · ")
+}
+
+fn message_role_label(role: ace_runtime::chat::ChatMessageRole) -> &'static str {
+    match role {
+        ace_runtime::chat::ChatMessageRole::User => "User",
+        ace_runtime::chat::ChatMessageRole::Assistant => "Assistant",
+        ace_runtime::chat::ChatMessageRole::Tool => "Tool",
+        ace_runtime::chat::ChatMessageRole::Plan => "Plan",
+        ace_runtime::chat::ChatMessageRole::Activity => "Activity",
+    }
 }
 
 fn truncate_palette_preview(preview: &str, max_chars: usize) -> String {
@@ -1227,6 +1263,7 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
             SearchPaletteResultKind::Context => icon_svg(IconName::Star, color),
             SearchPaletteResultKind::Registry => ace_icon_svg(AceIconName::Box, color),
         },
+        SearchPaletteItem::Message { .. } => ace_icon_svg(AceIconName::Summary, color),
     }
 }
 
@@ -1325,6 +1362,47 @@ mod tests {
         assert!(
             description.contains("Implement rich palette metadata"),
             "{description}"
+        );
+    }
+
+    #[test]
+    fn palette_search_includes_persisted_messages_across_threads() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let earlier_thread_id = store.new_thread(project_id);
+        store.send_message(
+            earlier_thread_id.clone(),
+            ComposerPayload {
+                prompt: "Remember the buried orbital semaphore".to_string(),
+            },
+        );
+        let _active_thread_id = store.new_thread(project_id);
+
+        let items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "orbital semaphore",
+        );
+        let message_result = items
+            .iter()
+            .find(|item| {
+                matches!(
+                    item,
+                    SearchPaletteItem::Message { thread_id, .. }
+                        if *thread_id == earlier_thread_id
+                            && item
+                                .description()
+                                .contains("Remember the buried orbital semaphore")
+                )
+            })
+            .expect("message search result");
+
+        assert!(
+            message_result
+                .description()
+                .contains("Remember the buried orbital semaphore"),
+            "{}",
+            message_result.description()
         );
     }
 
