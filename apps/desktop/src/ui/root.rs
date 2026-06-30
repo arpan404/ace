@@ -787,6 +787,14 @@ impl RootView {
                 self.search_palette.close();
                 self.run_active_project_lint();
             }
+            SearchPaletteItem::Inspector { tab, .. } => {
+                self.search_palette.close();
+                self.apply_right_panel_tab(tab);
+                if tab == RightPanelTab::Terminal {
+                    self.ensure_active_terminal();
+                    self.save_ui_state();
+                }
+            }
             SearchPaletteItem::ActiveThreadAction { action, .. } => {
                 self.search_palette.close();
                 self.activate_thread_palette_action(action);

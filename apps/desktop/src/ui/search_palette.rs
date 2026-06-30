@@ -45,6 +45,11 @@ pub enum SearchPaletteItem {
     SetProjectDefaultModel,
     RunTests,
     RunLint,
+    Inspector {
+        tab: RightPanelTab,
+        label: &'static str,
+        description: &'static str,
+    },
     ActiveThreadAction {
         action: ActiveThreadPaletteAction,
         label: String,
@@ -233,6 +238,98 @@ pub enum SearchPaletteResultKind {
     Registry,
 }
 
+fn inspector_palette_actions() -> Vec<SearchPaletteItem> {
+    [
+        (
+            RightPanelTab::Environment,
+            "Open environment",
+            "Inspect host runtime, services, remote hosts, and operational signals.",
+        ),
+        (
+            RightPanelTab::Summary,
+            "Open summary",
+            "Open thread summary, run state, model, context, and decisions.",
+        ),
+        (
+            RightPanelTab::Review,
+            "Open review",
+            "Open Git-backed diff review and changed-file actions.",
+        ),
+        (
+            RightPanelTab::Terminal,
+            "Open terminal",
+            "Open the PTY-backed terminal inspector.",
+        ),
+        (
+            RightPanelTab::Worktrees,
+            "Open worktrees",
+            "Open Git worktree status and creation controls.",
+        ),
+        (
+            RightPanelTab::Approvals,
+            "Open approvals",
+            "Open pending provider and tool approval requests.",
+        ),
+        (
+            RightPanelTab::Browser,
+            "Open browser",
+            "Open host-driven browser bridge state and activity.",
+        ),
+        (
+            RightPanelTab::Editor,
+            "Open editor",
+            "Open editor RPC capability and buffer candidate state.",
+        ),
+        (
+            RightPanelTab::Sources,
+            "Open sources",
+            "Open files, terminal sessions, artifacts, and attached context sources.",
+        ),
+        (
+            RightPanelTab::Pinned,
+            "Open pinned",
+            "Open pinned and highlighted thread context.",
+        ),
+        (
+            RightPanelTab::Todos,
+            "Open todos",
+            "Open structured thread todos and review-linked tasks.",
+        ),
+        (
+            RightPanelTab::Scheduled,
+            "Open scheduled",
+            "Open scheduled tasks and active thread todos.",
+        ),
+        (
+            RightPanelTab::Providers,
+            "Open providers",
+            "Open provider runtime and model registry state.",
+        ),
+        (
+            RightPanelTab::Plugins,
+            "Open plugins",
+            "Open plugin registry entries from the host runtime.",
+        ),
+        (
+            RightPanelTab::Skills,
+            "Open skills",
+            "Open skill registry entries from the host runtime.",
+        ),
+        (
+            RightPanelTab::Settings,
+            "Open settings",
+            "Adjust centralized theme, density, motion, UI font, and code font.",
+        ),
+    ]
+    .into_iter()
+    .map(|(tab, label, description)| SearchPaletteItem::Inspector {
+        tab,
+        label,
+        description,
+    })
+    .collect()
+}
+
 impl SearchPaletteItem {
     fn label(&self) -> &str {
         match self {
@@ -255,6 +352,7 @@ impl SearchPaletteItem {
             Self::SetProjectDefaultModel => "Set project default model",
             Self::RunTests => "Run tests",
             Self::RunLint => "Run lint",
+            Self::Inspector { label, .. } => label,
             Self::ActiveThreadAction { label, .. } => label,
             Self::ComposerModel { label, .. }
             | Self::ComposerTrait { label, .. }
@@ -308,6 +406,7 @@ impl SearchPaletteItem {
             }
             Self::RunTests => "Run the configured test script or Rust workspace test command.",
             Self::RunLint => "Run the configured lint script or Rust workspace clippy command.",
+            Self::Inspector { description, .. } => description,
             Self::ActiveThreadAction { description, .. } => description,
             Self::ComposerModel { description, .. }
             | Self::ComposerTrait { description, .. }
@@ -355,6 +454,7 @@ impl SearchPaletteItem {
             | Self::SetProjectDefaultModel
             | Self::RunTests
             | Self::RunLint
+            | Self::Inspector { .. }
             | Self::ActiveThreadAction { .. } => PaletteItemKind::Action,
             Self::ComposerTrait { .. }
             | Self::ComposerReasoning { .. }
@@ -934,6 +1034,7 @@ pub fn palette_items(
         SearchPaletteItem::RunTests,
         SearchPaletteItem::RunLint,
     ];
+    actions.extend(inspector_palette_actions());
     if projection.chat.active_thread.is_some() && projection.chat.composer.is_some() {
         actions.push(SearchPaletteItem::SetProjectDefaultModel);
     }
@@ -1754,6 +1855,25 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
         SearchPaletteItem::RunTests | SearchPaletteItem::RunLint => {
             ace_icon_svg(AceIconName::TablerTerminal, color)
         }
+        SearchPaletteItem::Inspector { tab, .. } => match tab {
+            RightPanelTab::Review => ace_icon_svg(AceIconName::Review, color),
+            RightPanelTab::Environment => ace_icon_svg(AceIconName::PanelRightOpen, color),
+            RightPanelTab::Terminal => ace_icon_svg(AceIconName::Terminal, color),
+            RightPanelTab::Worktrees => ace_icon_svg(AceIconName::Review, color),
+            RightPanelTab::Approvals => ace_icon_svg(AceIconName::ListChecks, color),
+            RightPanelTab::Browser => ace_icon_svg(AceIconName::Browser, color),
+            RightPanelTab::Editor => ace_icon_svg(AceIconName::Editor, color),
+            RightPanelTab::Summary => ace_icon_svg(AceIconName::Summary, color),
+            RightPanelTab::Sources => ace_icon_svg(AceIconName::Box, color),
+            RightPanelTab::Providers => ace_icon_svg(AceIconName::Code2, color),
+            RightPanelTab::Plugins => ace_icon_svg(AceIconName::Box, color),
+            RightPanelTab::Skills => ace_icon_svg(AceIconName::FlaskConical, color),
+            RightPanelTab::Settings => ace_icon_svg(AceIconName::TablerSettings, color),
+            RightPanelTab::Pinned => ace_icon_svg(AceIconName::PinFilled, color),
+            RightPanelTab::Todos | RightPanelTab::Scheduled => {
+                ace_icon_svg(AceIconName::ListChecks, color)
+            }
+        },
         SearchPaletteItem::ActiveThreadAction { action, .. } => match action {
             ActiveThreadPaletteAction::TogglePin => ace_icon_svg(AceIconName::PinFilled, color),
             ActiveThreadPaletteAction::Archive => icon_svg(IconName::CircleX, color),
@@ -2403,6 +2523,31 @@ mod tests {
             SearchPaletteItem::ShowApprovals,
         ] {
             assert!(items.contains(&expected), "missing {expected:?}");
+        }
+        for tab in [
+            RightPanelTab::Environment,
+            RightPanelTab::Summary,
+            RightPanelTab::Review,
+            RightPanelTab::Terminal,
+            RightPanelTab::Worktrees,
+            RightPanelTab::Approvals,
+            RightPanelTab::Browser,
+            RightPanelTab::Editor,
+            RightPanelTab::Sources,
+            RightPanelTab::Pinned,
+            RightPanelTab::Todos,
+            RightPanelTab::Scheduled,
+            RightPanelTab::Providers,
+            RightPanelTab::Plugins,
+            RightPanelTab::Skills,
+            RightPanelTab::Settings,
+        ] {
+            assert!(
+                items
+                    .iter()
+                    .any(|item| matches!(item, SearchPaletteItem::Inspector { tab: item_tab, .. } if *item_tab == tab)),
+                "missing inspector action for {tab:?}"
+            );
         }
         assert!(!items.contains(&SearchPaletteItem::SetProjectDefaultModel));
     }
