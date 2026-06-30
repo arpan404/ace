@@ -16,14 +16,14 @@ use ace_protocol::{
     provider_runtime::{
         ProviderHostToolBridgeStatus, ProviderHostToolsListResponse, ProviderRuntimeEvent,
         ProviderRuntimeEventBatch, ProviderRuntimeModelsListRequest,
-        ProviderRuntimeModelsListResponse, ProviderRuntimeProviderInfo,
-        ProviderRuntimeProvidersList, ProviderRuntimeRawEventMode,
+        ProviderRuntimeModelsListResponse, ProviderRuntimeProjectionDelta,
+        ProviderRuntimeProviderInfo, ProviderRuntimeProvidersList, ProviderRuntimeRawEventMode,
         ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
         ProviderRuntimeSlashCommandsListRequest, ProviderRuntimeSlashCommandsListResponse,
         ProviderRuntimeStateGetRequest, ProviderRuntimeStateGetResponse,
-        ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
-        ProviderServerRequestAudit, ProviderServerRequestError, ProviderServerRequestErrorInfo,
-        ProviderServerRequestResult,
+        ProviderRuntimeStateSummary, ProviderRuntimeStatusListRequest,
+        ProviderRuntimeStatusListResponse, ProviderServerRequestAudit, ProviderServerRequestError,
+        ProviderServerRequestErrorInfo, ProviderServerRequestResult,
     },
     terminal::{
         DEFAULT_TERMINAL_ID, SequencedTerminalEvent, TerminalEvent, TerminalOpenRequest,
@@ -3839,7 +3839,46 @@ impl DesktopStore {
 
     pub fn apply_provider_runtime_event_batch(&mut self, batch: ProviderRuntimeEventBatch) {
         for event in batch.events {
+            let deltas = event.projection_deltas();
             self.apply_provider_runtime_event(event, batch.last_persisted_sequence);
+            for delta in deltas {
+                self.apply_provider_runtime_projection_delta(delta, batch.last_persisted_sequence);
+            }
+        }
+        for delta in batch.projection_deltas {
+            self.apply_provider_runtime_projection_delta(delta, batch.last_persisted_sequence);
+        }
+    }
+
+    fn apply_provider_runtime_projection_delta(
+        &mut self,
+        delta: ProviderRuntimeProjectionDelta,
+        sequence: Option<i64>,
+    ) {
+        match delta {
+            ProviderRuntimeProjectionDelta::ToolTimelineUpsert { tool } => {
+                self.apply_semantic_tool(*tool, sequence);
+            }
+            ProviderRuntimeProjectionDelta::ApprovalUpsert { request } => {
+                self.upsert_pending_approval(*request);
+            }
+            ProviderRuntimeProjectionDelta::ApprovalResolved {
+                provider,
+                request_id,
+                ..
+            } => {
+                self.resolve_pending_approval(&provider, &request_id);
+            }
+            ProviderRuntimeProjectionDelta::ThreadItemUpsert { item } => {
+                self.apply_provider_thread_item(*item, sequence);
+            }
+            ProviderRuntimeProjectionDelta::RemoteConnectionUpdated {
+                provider,
+                connection,
+            } => {
+                self.upsert_remote_connection(provider, connection);
+            }
+            _ => {}
         }
     }
 
@@ -3870,6 +3909,44 @@ impl DesktopStore {
             }
             _ => {}
         }
+    }
+
+    fn upsert_remote_connection(
+        &mut self,
+        provider: String,
+        mut connection: RemoteConnectionRecord,
+    ) {
+        if connection.provider.trim().is_empty() {
+            connection.provider = provider;
+        }
+        if let Some(existing) = self.runtime.remote_connections.iter_mut().find(|existing| {
+            existing.provider == connection.provider && existing.host_id == connection.host_id
+        }) {
+            *existing = connection;
+        } else {
+            self.runtime.remote_connections.push(connection);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn refresh_runtime_status_from_snapshot(&mut self) {
+        let summary = ProviderRuntimeStateSummary::from_snapshot(&self.runtime);
+        self.runtime_status = RuntimeStatusProjection {
+            providers: self.provider_registry.providers.len().max(1),
+            threads: summary.threads,
+            active_threads: summary.active_threads,
+            active_turns: summary.active_turns,
+            handoffs: summary.handoffs,
+            pending_approvals: summary.pending_approvals,
+            warnings: summary.warnings,
+            remote_connections: summary.remote_connections,
+            remote_host_connections: summary.remote_host_connections,
+            connected_remote_connections: summary.connected_remote_connections,
+            disconnected_remote_connections: summary.disconnected_remote_connections,
+            remote_connections_with_projects: summary.remote_connections_with_projects,
+            error: self.runtime_status.error.clone(),
+            updated_at: Some(self.next_timestamp()),
+        };
     }
 
     fn apply_semantic_tool(&mut self, tool: SemanticToolCall, sequence: Option<i64>) {
@@ -8553,6 +8630,39 @@ mod tests {
         assert_eq!(hosts.len(), 1);
         assert_eq!(hosts[0].project_count, 2);
         assert!(hosts[0].detail.contains("2 projects"));
+    }
+
+    #[test]
+    fn provider_runtime_batch_applies_remote_connection_projection_deltas() {
+        let mut store = DesktopStore::new();
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![ProviderRuntimeProjectionDelta::RemoteConnectionUpdated {
+                provider: "codex".to_string(),
+                connection: RemoteConnectionRecord {
+                    projects: serde_json::json!([{ "path": "/srv/ace" }]),
+                    ..remote_connection("devbox", Some("connected"))
+                },
+            }],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        let projection = store.projection();
+        assert_eq!(projection.host_options.len(), 1);
+        assert_eq!(projection.host_options[0].host_id, "devbox");
+        assert!(projection.host_options[0].connected);
+        assert_eq!(projection.host_options[0].project_count, 1);
+        assert_eq!(projection.runtime_status.remote_connections, 1);
+        assert_eq!(projection.runtime_status.remote_host_connections, 1);
+        assert_eq!(projection.runtime_status.connected_remote_connections, 1);
+        assert_eq!(
+            projection.runtime_status.remote_connections_with_projects,
+            1
+        );
     }
 
     #[test]
