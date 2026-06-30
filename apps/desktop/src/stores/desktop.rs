@@ -45,7 +45,8 @@ use ace_runtime::{
     },
     threads::{
         AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation, GoalStatus,
-        HandoffStatus, PlanSessionStatus, RemoteConnectionRecord, SubagentActionKind, TurnMode,
+        HandoffStatus, PlanSessionStatus, RemoteConnectionRecord, SubagentActionKind,
+        TerminalOutputRecord, TurnDiffRecord, TurnMode,
     },
     tools::{SemanticToolCall, ToolRunStatus, ToolSurface},
 };
@@ -3878,6 +3879,34 @@ impl DesktopStore {
             } => {
                 self.upsert_remote_connection(provider, connection);
             }
+            ProviderRuntimeProjectionDelta::TerminalOutputAppended {
+                provider,
+                thread_id,
+                turn_id,
+                item_id,
+                text,
+            } => {
+                self.apply_provider_terminal_output(provider, thread_id, turn_id, item_id, text);
+            }
+            ProviderRuntimeProjectionDelta::DiffUpdated {
+                provider: _,
+                thread_id,
+                turn_id,
+                diff,
+                files,
+                ..
+            }
+            | ProviderRuntimeProjectionDelta::TurnDiffUpdated {
+                provider: _,
+                thread_id,
+                turn_id,
+                diff,
+                files,
+            } => {
+                if let Some(thread_id) = thread_id {
+                    self.upsert_runtime_turn_diff(thread_id, turn_id, diff, files);
+                }
+            }
             _ => {}
         }
     }
@@ -3947,6 +3976,80 @@ impl DesktopStore {
             error: self.runtime_status.error.clone(),
             updated_at: Some(self.next_timestamp()),
         };
+    }
+
+    fn apply_provider_terminal_output(
+        &mut self,
+        provider: String,
+        provider_thread_id: Option<String>,
+        turn_id: Option<String>,
+        item_id: Option<String>,
+        text: String,
+    ) {
+        if text.is_empty() {
+            return;
+        }
+        let local_thread_id = provider_thread_id
+            .as_deref()
+            .and_then(|id| self.local_thread_id_for_provider(id))
+            .or_else(|| self.metadata.active_thread_id.clone());
+        if let Some(thread_id) = local_thread_id {
+            let key = TerminalKey::default_for_thread(&thread_id);
+            let updated_at = self.next_timestamp();
+            let session = self
+                .terminal_sessions
+                .entry(key.clone())
+                .or_insert_with(|| {
+                    TerminalSessionProjection::placeholder(key.thread_id, key.terminal_id)
+                });
+            append_terminal_history(&mut session.history, &text);
+            session.updated_at = updated_at;
+        }
+
+        if let Some(existing) = self.runtime.terminal_outputs.iter_mut().find(|existing| {
+            existing.provider == provider
+                && existing.thread_id == provider_thread_id
+                && existing.turn_id == turn_id
+                && existing.item_id == item_id
+                && existing.process_id.is_none()
+        }) {
+            existing.text.push_str(&text);
+        } else {
+            self.runtime.terminal_outputs.push(TerminalOutputRecord {
+                provider,
+                thread_id: provider_thread_id,
+                turn_id,
+                item_id,
+                process_id: None,
+                text,
+                truncated_bytes: 0,
+            });
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_runtime_turn_diff(
+        &mut self,
+        thread_id: String,
+        turn_id: Option<String>,
+        diff: Option<String>,
+        files: serde_json::Value,
+    ) {
+        let record = TurnDiffRecord {
+            thread_id,
+            turn_id,
+            diff,
+            files,
+            metadata: serde_json::Value::Null,
+        };
+        if let Some(existing) = self.runtime.turn_diffs.iter_mut().find(|existing| {
+            existing.thread_id == record.thread_id && existing.turn_id == record.turn_id
+        }) {
+            *existing = record;
+        } else {
+            self.runtime.turn_diffs.push(record);
+        }
+        self.refresh_runtime_status_from_snapshot();
     }
 
     fn apply_semantic_tool(&mut self, tool: SemanticToolCall, sequence: Option<i64>) {
@@ -8662,6 +8765,83 @@ mod tests {
         assert_eq!(
             projection.runtime_status.remote_connections_with_projects,
             1
+        );
+    }
+
+    #[test]
+    fn provider_runtime_batch_applies_terminal_output_projection_deltas() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![ProviderRuntimeProjectionDelta::TerminalOutputAppended {
+                provider: "codex".to_string(),
+                thread_id: Some("provider-thread-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("cmd-1".to_string()),
+                text: "cargo test --workspace\n".to_string(),
+            }],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        let projection = store.projection();
+        let session = projection.terminal.session.expect("terminal session");
+        assert!(session.history.contains("cargo test --workspace"));
+        assert_eq!(store.runtime.terminal_outputs.len(), 1);
+        assert_eq!(
+            store.runtime.terminal_outputs[0].thread_id.as_deref(),
+            Some("provider-thread-1")
+        );
+    }
+
+    #[test]
+    fn provider_runtime_batch_applies_diff_projection_deltas() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![ProviderRuntimeProjectionDelta::DiffUpdated {
+                provider: "codex".to_string(),
+                thread_id: Some("provider-thread-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("diff-1".to_string()),
+                status: ThreadItemStatus::Completed,
+                diff: Some("@@ -1 +1 @@".to_string()),
+                files: serde_json::json!([{ "path": "src/lib.rs" }]),
+            }],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        assert_eq!(store.runtime.turn_diffs.len(), 1);
+        let signals = store.summary_projection().runtime_signals;
+        assert!(
+            signals
+                .iter()
+                .any(|signal| signal == "Turn diff updated · 1 file · turn turn-1")
         );
     }
 
