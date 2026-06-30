@@ -1856,6 +1856,10 @@ fn summary_overview(theme: Theme, summary: &SummaryProjection) -> AnyElement {
         .when_some(summary.run_status.as_deref(), |this, run_status| {
             this.child(info_row(theme, "Run", run_status))
         })
+        .when_some(
+            summary.composer_status.as_deref(),
+            |this, composer_status| this.child(info_row(theme, "Composer", composer_status)),
+        )
         .when_some(summary.next_action.as_deref(), |this, next| {
             this.child(info_row(theme, "Next action", next))
         })

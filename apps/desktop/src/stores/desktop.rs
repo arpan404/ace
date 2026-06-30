@@ -352,6 +352,7 @@ pub struct SummaryProjection {
     pub current_goal: Option<String>,
     pub current_status: String,
     pub run_status: Option<String>,
+    pub composer_status: Option<String>,
     pub plan: Vec<String>,
     pub todos: Vec<String>,
     pub pinned_context: Vec<String>,
@@ -1203,6 +1204,10 @@ impl DesktopStore {
         let editor = self.editor_projection();
         let browser = &self.browser;
         let run = self.run_projection();
+        let composer_status = self
+            .composer_drafts
+            .get(&thread.id)
+            .map(composer_status_line);
         let messages = self
             .persisted_messages
             .get(&thread.id)
@@ -1369,6 +1374,7 @@ impl DesktopStore {
                 plural(source_count)
             ),
             run_status,
+            composer_status,
             plan,
             todos,
             pinned_context,
@@ -5160,6 +5166,68 @@ fn thread_run_mode_label(thread: &ThreadSummary) -> String {
     }
 }
 
+fn composer_status_line(draft: &ComposerDraft) -> String {
+    let host = draft.host_selection.as_ref().map_or_else(
+        || "This computer".to_string(),
+        |host| format!("{}:{}", host.provider, host.host_id),
+    );
+    let reasoning = draft
+        .reasoning_effort
+        .map_or("No reasoning".to_string(), |effort| {
+            format!("{} reasoning", effort.label())
+        });
+    let traits = if draft.traits.is_empty() {
+        "No traits".to_string()
+    } else {
+        draft
+            .traits
+            .iter()
+            .map(|trait_kind| trait_kind.label())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let context = if draft.context.is_empty() {
+        "No context".to_string()
+    } else {
+        draft
+            .context
+            .iter()
+            .map(|context| context.label())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    format!(
+        "{} {} · {} · {} · {} · {} · {}",
+        interaction_mode_label(draft.interaction_mode),
+        runtime_mode_label(draft.runtime_mode),
+        draft.model_selection.model,
+        draft.permission_mode.label(),
+        reasoning,
+        host,
+        if traits == "No traits" && context == "No context" {
+            "No extra context".to_string()
+        } else {
+            format!("{traits} · {context}")
+        }
+    )
+}
+
+fn interaction_mode_label(mode: InteractionMode) -> &'static str {
+    match mode {
+        InteractionMode::Chat => "Chat",
+        InteractionMode::Plan => "Plan",
+    }
+}
+
+fn runtime_mode_label(mode: RuntimeMode) -> &'static str {
+    match mode {
+        RuntimeMode::Normal => "normal",
+        RuntimeMode::Local => "local",
+        RuntimeMode::Worktree => "worktree",
+        RuntimeMode::Remote => "remote",
+    }
+}
+
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
 }
@@ -6048,6 +6116,12 @@ mod tests {
             Some("Fix the checkout regression")
         );
         assert!(summary.current_status.contains("message"));
+        assert_eq!(
+            summary.composer_status.as_deref(),
+            Some(
+                "Chat normal · gpt-5.3-codex · Auto · Medium reasoning · This computer · No extra context"
+            )
+        );
         assert!(
             summary
                 .plan
@@ -6081,6 +6155,30 @@ mod tests {
         assert_eq!(
             summary.next_action.as_deref(),
             Some("Pick the next open todo or attach it to the composer with @todo.")
+        );
+    }
+
+    #[test]
+    fn summary_projection_surfaces_configured_composer_state() {
+        let mut store = DesktopStore::new();
+        store.add_project("/tmp/project".to_string());
+
+        store.set_active_composer_interaction_mode(InteractionMode::Plan);
+        store.set_active_composer_runtime_mode(RuntimeMode::Local);
+        store.set_active_composer_permission(ComposerPermissionMode::AutoReview);
+        store.set_active_composer_reasoning(Some(ReasoningEffort::High));
+        store.toggle_active_composer_trait(ComposerTrait::Precise);
+        store.toggle_active_composer_trait(ComposerTrait::TestFocused);
+        store.toggle_active_composer_context(ComposerContextKind::Todos);
+        store.set_active_composer_model(ProviderKind::Codex, "gpt-5-large".to_string());
+
+        let summary = store.summary_projection();
+
+        assert_eq!(
+            summary.composer_status.as_deref(),
+            Some(
+                "Plan local · gpt-5-large · Auto review · High reasoning · This computer · Precise, Tested · Todos"
+            )
         );
     }
 
