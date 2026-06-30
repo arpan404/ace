@@ -5278,11 +5278,16 @@ impl DesktopStore {
         self.clear_composer_history_cursor(&thread_id);
     }
 
-    pub fn set_active_composer_model(&mut self, provider: ProviderKind, model: String) {
+    pub fn set_active_composer_model(&mut self, provider: ProviderKind, model: String) -> bool {
+        if let Some(error) = self.model_selection_error(provider, &model) {
+            self.runtime_status.error = Some(error);
+            self.runtime_status.updated_at = Some(self.next_timestamp());
+            return false;
+        }
         let supports_reasoning = self.model_supports_reasoning(provider, &model);
         let now = self.next_timestamp();
         let Some(draft) = self.ensure_active_composer_draft(now.clone()) else {
-            return;
+            return false;
         };
         draft.model_selection = ProviderModelSelection { provider, model };
         match supports_reasoning {
@@ -5295,6 +5300,7 @@ impl DesktopStore {
             _ => {}
         }
         draft.updated_at = now;
+        true
     }
 
     pub fn set_active_project_default_model(&mut self, host: Option<&BackendHostClient>) {
@@ -5316,7 +5322,9 @@ impl DesktopStore {
         let Some(thread) = self.active_thread().cloned() else {
             return;
         };
-        self.set_active_composer_model(provider, model.clone());
+        if !self.set_active_composer_model(provider, model.clone()) {
+            return;
+        }
         self.set_project_default_model_selection(
             thread.project_id,
             ModelSelection {
@@ -5508,6 +5516,21 @@ impl DesktopStore {
                     .find(|entry| entry.id == model)
                     .map(|entry| entry.supports_reasoning)
             })
+    }
+
+    fn model_selection_error(&self, provider: ProviderKind, model: &str) -> Option<String> {
+        let catalog = self
+            .model_registry
+            .providers
+            .iter()
+            .find(|catalog| model_registry_provider_kind(catalog) == Some(provider))?;
+        if catalog.models.iter().any(|entry| entry.id == model) {
+            return None;
+        }
+        Some(format!(
+            "{} did not report model `{model}` in its model catalog.",
+            catalog.display_name
+        ))
     }
 
     fn active_model_selection_for_thread(&self, thread: &ThreadSummary) -> Option<ModelSelection> {
@@ -7522,6 +7545,57 @@ mod tests {
             store.model_supports_reasoning(ProviderKind::ClaudeCode, "claude-opus"),
             Some(true)
         );
+    }
+
+    #[test]
+    fn composer_model_selection_rejects_models_missing_from_loaded_catalog() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        store.new_thread(project_id);
+        store.model_registry.providers = vec![ModelProviderProjection {
+            runtime_id: "codex".to_string(),
+            display_name: "Codex".to_string(),
+            provider: "codex".to_string(),
+            models: vec![ModelProjection {
+                id: "gpt-5".to_string(),
+                display_name: "GPT-5".to_string(),
+                provider: Some("openai".to_string()),
+                family: Some("gpt".to_string()),
+                context_window: Some(256_000),
+                max_output_tokens: Some(32_000),
+                supports_reasoning: true,
+                supports_vision: true,
+                supports_tools: true,
+                supports_computer_use: true,
+                supports_attachments: true,
+            }],
+        }];
+
+        assert!(!store.set_active_composer_model(ProviderKind::Codex, "missing-model".to_string()));
+
+        let projection = store.projection();
+        let draft = projection.chat.composer.expect("composer");
+        assert_ne!(draft.model_selection.model, "missing-model");
+        assert_eq!(
+            projection.runtime_status.error.as_deref(),
+            Some("Codex did not report model `missing-model` in its model catalog.")
+        );
+
+        store.set_active_project_default_model_selection(
+            ProviderKind::Codex,
+            "missing-model".to_string(),
+            None,
+        );
+        let project = store
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .expect("project");
+        assert_eq!(project.default_model_selection, None);
+
+        assert!(store.set_active_composer_model(ProviderKind::Codex, "gpt-5".to_string()));
+        let draft = store.projection().chat.composer.expect("composer");
+        assert_eq!(draft.model_selection.model, "gpt-5");
     }
 
     #[test]
