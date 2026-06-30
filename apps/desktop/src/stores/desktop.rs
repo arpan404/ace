@@ -5,6 +5,7 @@ mod browser_state;
 mod composer_state;
 mod git_state;
 mod model_state;
+mod realtime_state;
 mod registry_state;
 mod runtime_state;
 mod terminal_state;
@@ -28,6 +29,7 @@ use self::git_state::{
     review_file_summary, suggested_worktree_branch, truncate_diff_preview,
 };
 use self::model_state::{model_provider_projection, model_registry_provider_kind};
+use self::realtime_state::{trim_realtime_audio, trim_realtime_transcript};
 use self::registry_state::{
     RegistrySurface, parse_tool_registry_entries, registry_entry_available,
 };
@@ -112,8 +114,6 @@ const DEFAULT_TERMINAL_COLS: u16 = 120;
 const DEFAULT_TERMINAL_ROWS: u16 = 32;
 const DESKTOP_TERMINAL_HISTORY_LIMIT: usize = 128 * 1024;
 const DESKTOP_DIFF_PREVIEW_LIMIT: usize = 96 * 1024;
-const DESKTOP_REALTIME_TRANSCRIPT_LIMIT: usize = 128 * 1024;
-const DESKTOP_REALTIME_AUDIO_CHUNK_LIMIT: usize = 1024;
 const MAX_BROWSER_ACTIVITIES: usize = 32;
 
 #[derive(Debug, Clone)]
@@ -6169,28 +6169,6 @@ fn now_millis() -> u64 {
 
 fn timestamp(value: u64) -> String {
     value.to_string()
-}
-
-fn trim_realtime_transcript(record: &mut RealtimeTranscriptRecord) {
-    if record.text.len() <= DESKTOP_REALTIME_TRANSCRIPT_LIMIT {
-        return;
-    }
-    let overflow = record.text.len() - DESKTOP_REALTIME_TRANSCRIPT_LIMIT;
-    let mut start = overflow;
-    while !record.text.is_char_boundary(start) {
-        start += 1;
-    }
-    record.text.drain(..start);
-    record.truncated_bytes = record.truncated_bytes.saturating_add(start);
-}
-
-fn trim_realtime_audio(record: &mut RealtimeAudioRecord) {
-    if record.chunks.len() <= DESKTOP_REALTIME_AUDIO_CHUNK_LIMIT {
-        return;
-    }
-    let overflow = record.chunks.len() - DESKTOP_REALTIME_AUDIO_CHUNK_LIMIT;
-    record.chunks.drain(0..overflow);
-    record.truncated_chunks = record.truncated_chunks.saturating_add(overflow);
 }
 
 fn plural(count: usize) -> &'static str {
