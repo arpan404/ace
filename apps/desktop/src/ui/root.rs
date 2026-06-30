@@ -838,6 +838,10 @@ impl RootView {
                 self.search_palette.close();
                 self.activate_approval_palette_action(action, provider, request_id);
             }
+            SearchPaletteItem::ReviewAction { action, .. } => {
+                self.search_palette.close();
+                self.activate_review_palette_action(action);
+            }
             SearchPaletteItem::Project { project_id, .. } => {
                 let mode = self.search_palette.mode;
                 self.search_palette.close();
@@ -941,6 +945,36 @@ impl RootView {
                     provider,
                     request_id,
                 );
+            }
+        }
+    }
+
+    fn activate_review_palette_action(
+        &mut self,
+        action: crate::ui::search_palette::ReviewPaletteAction,
+    ) {
+        self.apply_right_panel_tab(RightPanelTab::Review);
+        let active_host = self.active_host.clone();
+        match action {
+            crate::ui::search_palette::ReviewPaletteAction::Refresh => {
+                self.active_store_mut()
+                    .refresh_active_review(active_host.as_ref());
+            }
+            crate::ui::search_palette::ReviewPaletteAction::StageAll => {
+                self.active_store_mut()
+                    .stage_active_review_all(active_host.as_ref());
+            }
+            crate::ui::search_palette::ReviewPaletteAction::UnstageAll => {
+                self.active_store_mut()
+                    .unstage_active_review_all(active_host.as_ref());
+            }
+            crate::ui::search_palette::ReviewPaletteAction::Commit => {
+                self.active_store_mut()
+                    .commit_active_review(active_host.as_ref());
+            }
+            crate::ui::search_palette::ReviewPaletteAction::Push => {
+                self.active_store_mut()
+                    .push_active_review(active_host.as_ref());
             }
         }
     }

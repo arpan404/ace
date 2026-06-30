@@ -1,7 +1,8 @@
 use crate::{
     actions::SelectSearchPaletteItem,
     stores::{
-        ApprovalItemProjection, DesktopProjection, ModelProjection, SearchContextKind,
+        ApprovalItemProjection, DesktopProjection, ModelProjection, ReviewProjection,
+        SearchContextKind,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{
@@ -144,6 +145,11 @@ pub enum SearchPaletteItem {
         label: String,
         description: String,
     },
+    ReviewAction {
+        action: ReviewPaletteAction,
+        label: String,
+        description: String,
+    },
     Project {
         project_id: ProjectId,
         label: String,
@@ -179,6 +185,15 @@ pub enum ProjectPaletteAction {
 pub enum ApprovalPaletteAction {
     Approve,
     Deny,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReviewPaletteAction {
+    Refresh,
+    StageAll,
+    UnstageAll,
+    Commit,
+    Push,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -229,6 +244,7 @@ impl SearchPaletteItem {
             Self::Context { label, .. } => label,
             Self::ProjectAction { label, .. } => label,
             Self::ApprovalAction { label, .. } => label,
+            Self::ReviewAction { label, .. } => label,
             Self::Project { label, .. } | Self::Thread { label, .. } => label,
         }
     }
@@ -279,6 +295,7 @@ impl SearchPaletteItem {
             Self::Context { description, .. } => description,
             Self::ProjectAction { description, .. } => description,
             Self::ApprovalAction { description, .. } => description,
+            Self::ReviewAction { description, .. } => description,
             Self::Project { description, .. } | Self::Thread { description, .. } => description,
         }
     }
@@ -327,6 +344,7 @@ impl SearchPaletteItem {
             Self::Context { .. } => PaletteItemKind::Context,
             Self::ProjectAction { .. } => PaletteItemKind::Action,
             Self::ApprovalAction { .. } => PaletteItemKind::Action,
+            Self::ReviewAction { .. } => PaletteItemKind::Action,
             Self::Project { .. } => PaletteItemKind::Project,
             Self::Thread { .. } => PaletteItemKind::Thread,
         }
@@ -414,6 +432,7 @@ pub fn palette_items(
     if let Some(thread) = projection.chat.active_thread.as_ref() {
         active_thread_actions.extend(active_thread_palette_actions(thread));
     }
+    registry_items.extend(review_palette_actions(&projection.review));
 
     for group in &projection.sidebar.projects {
         project_items.push(SearchPaletteItem::Project {
@@ -1001,6 +1020,52 @@ fn approval_palette_actions(approval: &ApprovalItemProjection) -> Vec<SearchPale
     ]
 }
 
+fn review_palette_actions(review: &ReviewProjection) -> Vec<SearchPaletteItem> {
+    let Some(repo_path) = review.repo_path.as_deref() else {
+        return Vec::new();
+    };
+    let context = format!(
+        "{} · {} changed file{} · +{} -{}",
+        repo_path,
+        review.files.len(),
+        plural(review.files.len()),
+        review.total_additions,
+        review.total_deletions
+    );
+    let mut items = vec![
+        SearchPaletteItem::ReviewAction {
+            action: ReviewPaletteAction::Refresh,
+            label: "Refresh Git review".to_string(),
+            description: format!("{context} · reload changed files and diff preview"),
+        },
+        SearchPaletteItem::ReviewAction {
+            action: ReviewPaletteAction::StageAll,
+            label: "Stage all review changes".to_string(),
+            description: format!("{context} · stage all tracked and untracked changes"),
+        },
+        SearchPaletteItem::ReviewAction {
+            action: ReviewPaletteAction::UnstageAll,
+            label: "Unstage all review changes".to_string(),
+            description: format!("{context} · unstage all currently staged changes"),
+        },
+    ];
+
+    if !review.files.is_empty() {
+        items.push(SearchPaletteItem::ReviewAction {
+            action: ReviewPaletteAction::Commit,
+            label: "Commit staged review changes".to_string(),
+            description: format!("{context} · commit with generated review summary"),
+        });
+        items.push(SearchPaletteItem::ReviewAction {
+            action: ReviewPaletteAction::Push,
+            label: "Push review branch".to_string(),
+            description: format!("{context} · push current branch with upstream"),
+        });
+    }
+
+    items
+}
+
 fn thread_palette_description(project_name: &str, thread: &ThreadSummary) -> String {
     let mut parts = vec![project_name.to_string(), thread.status.label().to_string()];
 
@@ -1516,6 +1581,13 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
             ApprovalPaletteAction::Approve => icon_svg(IconName::ThumbsUp, color),
             ApprovalPaletteAction::Deny => icon_svg(IconName::ThumbsDown, color),
         },
+        SearchPaletteItem::ReviewAction { action, .. } => match action {
+            ReviewPaletteAction::Refresh => icon_svg(IconName::Info, color),
+            ReviewPaletteAction::StageAll => icon_svg(IconName::Plus, color),
+            ReviewPaletteAction::UnstageAll => icon_svg(IconName::Check, color),
+            ReviewPaletteAction::Commit => icon_svg(IconName::CircleCheck, color),
+            ReviewPaletteAction::Push => icon_svg(IconName::ArrowUp, color),
+        },
     }
 }
 
@@ -1899,6 +1971,50 @@ mod tests {
                 request_id,
                 ..
             } if provider == "codex" && request_id == "approval-1"
+        )));
+    }
+
+    #[test]
+    fn palette_search_includes_backed_review_actions() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        store.new_thread(project_id);
+        store.refresh_active_review(None);
+
+        let stage_items =
+            palette_items(&store.projection(), SearchPaletteMode::Root, "stage review");
+        assert!(stage_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ReviewAction {
+                action: ReviewPaletteAction::StageAll,
+                ..
+            }
+        )));
+
+        let refresh_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "refresh git review",
+        );
+        assert!(refresh_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ReviewAction {
+                action: ReviewPaletteAction::Refresh,
+                ..
+            }
+        )));
+
+        let commit_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "commit staged review",
+        );
+        assert!(!commit_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ReviewAction {
+                action: ReviewPaletteAction::Commit,
+                ..
+            }
         )));
     }
 
