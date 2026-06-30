@@ -257,7 +257,7 @@ where
         .into_any_element()
 }
 
-pub(super) fn kbd(label: &'static str, theme: Theme) -> AnyElement {
+pub(super) fn kbd(label: impl Into<gpui::SharedString>, theme: Theme) -> AnyElement {
     div()
         .rounded_lg()
         .border_1()
@@ -267,6 +267,6 @@ pub(super) fn kbd(label: &'static str, theme: Theme) -> AnyElement {
         .py_1()
         .text_size(px(10.0))
         .text_color(theme.muted_subtle)
-        .child(label)
+        .child(label.into())
         .into_any_element()
 }

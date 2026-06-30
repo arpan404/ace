@@ -2,6 +2,8 @@ mod header;
 mod project;
 mod thread;
 
+pub(super) use header::SidebarHeaderMetrics;
+
 use crate::ui::{
     components::scroll_y,
     layout::PanelLayout,
@@ -17,6 +19,7 @@ pub(super) fn sidebar_panel(
     theme: Theme,
     layout: PanelLayout,
     projection: SidebarProjection,
+    header_metrics: SidebarHeaderMetrics,
     resizing: bool,
     reserve_titlebar_controls: bool,
 ) -> AnyElement {
@@ -33,7 +36,11 @@ pub(super) fn sidebar_panel(
         })
         .flex()
         .flex_col()
-        .child(sidebar_header(theme, reserve_titlebar_controls))
+        .child(sidebar_header(
+            theme,
+            reserve_titlebar_controls,
+            header_metrics,
+        ))
         .child(scroll_y(
             div()
                 .id("sidebar-project-list")

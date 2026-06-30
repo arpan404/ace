@@ -2,7 +2,23 @@ use crate::ui::{components::*, theme::Theme};
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
 use gpui_component::IconName;
 
-pub(super) fn sidebar_header(theme: Theme, reserve_titlebar_controls: bool) -> AnyElement {
+#[derive(Clone, Debug, Default)]
+pub(in crate::ui) struct SidebarHeaderMetrics {
+    pub plugin_count: usize,
+    pub skill_count: usize,
+    pub provider_count: usize,
+    pub model_count: usize,
+}
+
+pub(super) fn sidebar_header(
+    theme: Theme,
+    reserve_titlebar_controls: bool,
+    metrics: SidebarHeaderMetrics,
+) -> AnyElement {
+    let plugin_suffix = count_badge(metrics.plugin_count);
+    let skill_suffix = count_badge(metrics.skill_count);
+    let provider_model_suffix = provider_model_badge(metrics.provider_count, metrics.model_count);
+
     div()
         .id("sidebar-header")
         .pb_3()
@@ -62,7 +78,7 @@ pub(super) fn sidebar_header(theme: Theme, reserve_titlebar_controls: bool) -> A
                 .child(ace_command_row(
                     AceIconName::Box,
                     "Plugins",
-                    None,
+                    plugin_suffix,
                     theme,
                     || {
                         Box::new(crate::actions::SelectRightPanelTab {
@@ -73,7 +89,7 @@ pub(super) fn sidebar_header(theme: Theme, reserve_titlebar_controls: bool) -> A
                 .child(ace_command_row(
                     AceIconName::FlaskConical,
                     "Skills",
-                    None,
+                    skill_suffix,
                     theme,
                     || {
                         Box::new(crate::actions::SelectRightPanelTab {
@@ -83,8 +99,8 @@ pub(super) fn sidebar_header(theme: Theme, reserve_titlebar_controls: bool) -> A
                 ))
                 .child(ace_command_row(
                     AceIconName::Code2,
-                    "Providers",
-                    None,
+                    "Providers/Models",
+                    provider_model_suffix,
                     theme,
                     || {
                         Box::new(crate::actions::SelectRightPanelTab {
@@ -149,7 +165,7 @@ fn sidebar_search(theme: Theme) -> AnyElement {
 fn ace_command_row<F>(
     icon: AceIconName,
     label: &'static str,
-    suffix: Option<&'static str>,
+    suffix: Option<String>,
     theme: Theme,
     action: F,
 ) -> AnyElement
@@ -162,7 +178,7 @@ where
 fn command_row<F>(
     icon: IconName,
     label: &'static str,
-    suffix: Option<&'static str>,
+    suffix: Option<String>,
     theme: Theme,
     action: F,
 ) -> AnyElement
@@ -175,7 +191,7 @@ where
 fn row<F>(
     theme: Theme,
     label: &'static str,
-    suffix: Option<&'static str>,
+    suffix: Option<String>,
     icon: AnyElement,
     action: F,
 ) -> AnyElement
@@ -207,4 +223,30 @@ where
             window.dispatch_action(action(), cx);
         })
         .into_any_element()
+}
+
+fn count_badge(count: usize) -> Option<String> {
+    (count > 0).then(|| count.to_string())
+}
+
+fn provider_model_badge(provider_count: usize, model_count: usize) -> Option<String> {
+    match (provider_count, model_count) {
+        (0, 0) => None,
+        (_, 0) => Some(provider_count.to_string()),
+        (0, _) => Some(format!("0/{model_count}")),
+        _ => Some(format!("{provider_count}/{model_count}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_model_badge_summarizes_backed_registry_counts() {
+        assert_eq!(provider_model_badge(0, 0), None);
+        assert_eq!(provider_model_badge(2, 0), Some("2".to_string()));
+        assert_eq!(provider_model_badge(0, 8), Some("0/8".to_string()));
+        assert_eq!(provider_model_badge(2, 37), Some("2/37".to_string()));
+    }
 }

@@ -6,7 +6,7 @@ use crate::{
     ui::{
         chat::workspace_panel,
         right_panel::{bottom_panel, right_panel},
-        sidebar::sidebar_panel,
+        sidebar::{SidebarHeaderMetrics, sidebar_panel},
         theme::Theme,
     },
 };
@@ -76,6 +76,12 @@ pub fn shell_layout(
     cx: &mut App,
 ) -> AnyElement {
     let sidebar = projection.sidebar.clone();
+    let sidebar_header_metrics = SidebarHeaderMetrics {
+        plugin_count: projection.plugins.entries.len(),
+        skill_count: projection.skills.entries.len(),
+        provider_count: projection.providers.providers.len(),
+        model_count: projection.models.total_models,
+    };
 
     div()
         .id("ace-shell")
@@ -92,6 +98,7 @@ pub fn shell_layout(
                     theme,
                     layout,
                     sidebar,
+                    sidebar_header_metrics,
                     chrome.active_splitter == Some(SplitterKind::Sidebar),
                     chrome.reserve_titlebar_controls,
                 ),
