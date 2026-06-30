@@ -3498,12 +3498,7 @@ fn todos_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
                             projection.annotations.todos.len()
                         )),
                 )
-                .child(action_button(
-                    IconName::CircleCheck,
-                    "Complete first",
-                    theme,
-                    || Box::new(ToggleFirstOpenTodo),
-                )),
+                .child(todo_panel_actions(theme, projection)),
         )
         .child(
             div()
@@ -3545,6 +3540,50 @@ fn todos_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
                 .overflow_y_scrollbar(),
         )
         .into_any_element()
+}
+
+fn todo_panel_actions(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    let todo_context_selected = projection
+        .chat
+        .composer
+        .as_ref()
+        .is_some_and(|draft| draft.context.contains(&ComposerContextKind::Todos));
+
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .when(!projection.chat.messages.is_empty(), |this| {
+            this.child(action_button(IconName::Plus, "New todo", theme, || {
+                Box::new(CreateTodoFromLatestTimelineItem)
+            }))
+        })
+        .child(action_button(
+            IconName::Plus,
+            todo_context_action_label(todo_context_selected),
+            theme,
+            || {
+                Box::new(ToggleComposerContext {
+                    context: ComposerContextKind::Todos,
+                })
+            },
+        ))
+        .child(action_button(
+            IconName::CircleCheck,
+            "Complete first",
+            theme,
+            || Box::new(ToggleFirstOpenTodo),
+        ))
+        .into_any_element()
+}
+
+fn todo_context_action_label(selected: bool) -> &'static str {
+    if selected {
+        "Remove context"
+    } else {
+        "Add context"
+    }
 }
 
 fn todo_section(
@@ -4353,5 +4392,11 @@ mod tests {
         assert!(browser_control_supported(&bridge, *screenshot));
         assert!(browser_control_supported(&bridge, *logs));
         assert!(!browser_control_supported(&bridge, *input));
+    }
+
+    #[test]
+    fn todo_context_action_label_reflects_composer_state() {
+        assert_eq!(todo_context_action_label(false), "Add context");
+        assert_eq!(todo_context_action_label(true), "Remove context");
     }
 }
