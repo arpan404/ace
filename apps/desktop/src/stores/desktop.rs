@@ -552,6 +552,7 @@ pub struct ToolRegistryEntryProjection {
     pub source: Option<String>,
     pub status: String,
     pub enabled: Option<bool>,
+    pub disabled_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -5579,6 +5580,7 @@ fn parse_tool_registry_entry(
                 source: string_field(object, &["source", "origin"]),
                 status,
                 enabled,
+                disabled_reason: registry_entry_disabled_reason(object, enabled),
             })
         }
         _ => None,
@@ -5597,7 +5599,42 @@ fn simple_tool_registry_entry(
         source: None,
         status: "available".to_string(),
         enabled: None,
+        disabled_reason: None,
     }
+}
+
+fn registry_entry_available(entry: &ToolRegistryEntryProjection) -> bool {
+    if entry.enabled == Some(false) || entry.disabled_reason.is_some() {
+        return false;
+    }
+
+    !matches!(
+        entry.status.to_ascii_lowercase().as_str(),
+        "disabled" | "unavailable" | "missing" | "error" | "failed"
+    )
+}
+
+fn registry_entry_disabled_reason(
+    object: &serde_json::Map<String, serde_json::Value>,
+    enabled: Option<bool>,
+) -> Option<String> {
+    string_field(
+        object,
+        &[
+            "disabled_reason",
+            "disabledReason",
+            "unavailable_reason",
+            "unavailableReason",
+            "last_error",
+            "lastError",
+            "error",
+        ],
+    )
+    .or_else(|| {
+        (enabled == Some(false)).then(|| {
+            "This registry entry is disabled by the host runtime and cannot be attached to composer turns.".to_string()
+        })
+    })
 }
 
 fn string_field(
@@ -5945,8 +5982,9 @@ fn registry_command_for_token(
         .entries
         .iter()
         .find(|entry| {
-            entry.name.to_ascii_lowercase() == normalized
-                || entry.id.to_ascii_lowercase() == normalized
+            registry_entry_available(entry)
+                && (entry.name.to_ascii_lowercase() == normalized
+                    || entry.id.to_ascii_lowercase() == normalized)
         })
         .map(|entry| ComposerCommandProjection {
             token: token.to_string(),
@@ -6321,12 +6359,14 @@ mod tests {
         assert_eq!(plugins[0].id, "browser");
         assert_eq!(plugins[0].name, "Browser");
         assert_eq!(plugins[0].status, "enabled");
+        assert_eq!(plugins[0].disabled_reason, None);
 
         let skills = parse_tool_registry_entries(
             serde_json::json!({
                 "rust": {
                     "description": "Rust workflow context",
-                    "state": "installed"
+                    "state": "disabled",
+                    "disabledReason": "Project skills are disabled for this workspace."
                 }
             }),
             RegistrySurface::Skill,
@@ -6334,7 +6374,11 @@ mod tests {
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].id, "rust");
         assert_eq!(skills[0].name, "rust");
-        assert_eq!(skills[0].status, "installed");
+        assert_eq!(skills[0].status, "disabled");
+        assert_eq!(
+            skills[0].disabled_reason.as_deref(),
+            Some("Project skills are disabled for this workspace.")
+        );
     }
 
     #[test]
@@ -7956,6 +8000,7 @@ mod tests {
                 source: Some("skills".to_string()),
                 status: "enabled".to_string(),
                 enabled: Some(true),
+                disabled_reason: None,
             });
         store
             .plugin_registry
@@ -7968,6 +8013,7 @@ mod tests {
                 source: Some("plugins".to_string()),
                 status: "enabled".to_string(),
                 enabled: Some(true),
+                disabled_reason: None,
             });
 
         let commands = store
@@ -7991,6 +8037,56 @@ mod tests {
                 .any(|command| command.source == ComposerCommandSource::Plugin
                     && command.name == "browser")
         );
+    }
+
+    #[test]
+    fn composer_commands_ignore_disabled_registry_entries() {
+        let mut store = DesktopStore::new();
+        store
+            .skill_registry
+            .entries
+            .push(ToolRegistryEntryProjection {
+                id: "review".to_string(),
+                name: "review".to_string(),
+                description: Some("Run the review skill".to_string()),
+                version: None,
+                source: Some("skills".to_string()),
+                status: "disabled".to_string(),
+                enabled: Some(false),
+                disabled_reason: Some("Project policy disables review automation.".to_string()),
+            });
+        store
+            .plugin_registry
+            .entries
+            .push(ToolRegistryEntryProjection {
+                id: "browser".to_string(),
+                name: "browser".to_string(),
+                description: Some("Use browser automation".to_string()),
+                version: None,
+                source: Some("plugins".to_string()),
+                status: "unavailable".to_string(),
+                enabled: None,
+                disabled_reason: Some("Browser bridge is not connected.".to_string()),
+            });
+        store
+            .plugin_registry
+            .entries
+            .push(ToolRegistryEntryProjection {
+                id: "github".to_string(),
+                name: "github".to_string(),
+                description: Some("Use GitHub tooling".to_string()),
+                version: None,
+                source: Some("plugins".to_string()),
+                status: "enabled".to_string(),
+                enabled: Some(true),
+                disabled_reason: None,
+            });
+
+        let commands = store.composer_commands_for_prompt("Use $review @browser @github");
+
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].name, "github");
+        assert_eq!(commands[0].source, ComposerCommandSource::Plugin);
     }
 
     #[test]
@@ -8051,6 +8147,7 @@ mod tests {
                 source: Some("skills".to_string()),
                 status: "enabled".to_string(),
                 enabled: Some(true),
+                disabled_reason: None,
             });
         store.push_active_composer_input("Run $audit");
 

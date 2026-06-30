@@ -3042,6 +3042,21 @@ fn tool_registry_entry_card(theme: Theme, entry: &ToolRegistryEntryProjection) -
                     .child(clamp_text(description, 180)),
             )
         })
+        .when_some(entry.disabled_reason.as_deref(), |this, reason| {
+            this.child(
+                div()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.accent_warning.opacity(0.32))
+                    .bg(theme.accent_warning.opacity(0.08))
+                    .px_2()
+                    .py_1()
+                    .text_size(px(11.0))
+                    .line_height(px(16.0))
+                    .text_color(theme.accent_warning)
+                    .child(clamp_text(reason, 180)),
+            )
+        })
         .into_any_element()
 }
 
