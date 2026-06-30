@@ -5677,6 +5677,8 @@ impl DesktopStore {
             thread.status = ThreadStatus::Archived;
         }
         self.metadata.archived_thread_ids.insert(thread_id.clone());
+        self.thread_drafts.remove(&thread_id);
+        self.project_drafts.retain(|_, id| id != &thread_id);
         if self.metadata.active_thread_id.as_ref() == Some(&thread_id) {
             self.metadata.active_thread_id = self
                 .threads
@@ -6496,6 +6498,32 @@ mod tests {
         store.archive_thread(active.clone());
         assert!(store.metadata.archived_thread_ids.contains(&active));
         assert_ne!(store.metadata.active_thread_id, Some(active));
+    }
+
+    #[test]
+    fn archiving_thread_clears_draft_routing() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let archived = store.new_thread(project_id);
+        assert_eq!(store.project_drafts.get(&project_id), Some(&archived));
+        assert!(store.thread_drafts.contains_key(&archived));
+
+        store.archive_thread(archived.clone());
+
+        assert!(!store.thread_drafts.contains_key(&archived));
+        assert!(!store.project_drafts.values().any(|id| id == &archived));
+
+        let replacement = store.new_thread(project_id);
+        assert_ne!(replacement, archived);
+        assert_eq!(store.metadata.active_thread_id, Some(replacement.clone()));
+        assert!(
+            !store
+                .threads
+                .iter()
+                .find(|thread| thread.id == replacement)
+                .expect("replacement thread")
+                .archived
+        );
     }
 
     #[test]
