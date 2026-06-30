@@ -92,7 +92,8 @@ fn right_panel_refresh_target(tab: RightPanelTab) -> RightPanelRefreshTarget {
         RightPanelTab::Editor
         | RightPanelTab::Settings
         | RightPanelTab::Pinned
-        | RightPanelTab::Todos => RightPanelRefreshTarget::None,
+        | RightPanelTab::Todos
+        | RightPanelTab::Scheduled => RightPanelRefreshTarget::None,
     }
 }
 
@@ -651,6 +652,7 @@ impl RootView {
             }
             SearchPaletteItem::OpenScheduled => {
                 self.search_palette.close();
+                self.apply_right_panel_tab(RightPanelTab::Scheduled);
             }
             SearchPaletteItem::OpenSettings => {
                 self.search_palette.close();
@@ -1827,6 +1829,10 @@ mod tests {
         );
         assert_eq!(
             right_panel_refresh_target(RightPanelTab::Todos),
+            RightPanelRefreshTarget::None
+        );
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Scheduled),
             RightPanelRefreshTarget::None
         );
         assert_eq!(

@@ -285,7 +285,7 @@ impl SearchPaletteItem {
         match self {
             Self::NewThread => "Choose a project for a new thread.",
             Self::NewProject => "Add the current workspace as a project.",
-            Self::OpenScheduled => "Scheduled tasks need a host scheduler service.",
+            Self::OpenScheduled => "Open scheduled and active thread todos.",
             Self::OpenSettings => "Adjust theme, density, UI font, code font, and motion.",
             Self::OpenTerminals => "Manage running terminal processes.",
             Self::OpenBrowser => {
@@ -388,7 +388,6 @@ impl SearchPaletteItem {
 
     pub fn disabled_reason(&self) -> Option<&'static str> {
         match self {
-            Self::OpenScheduled => Some("Scheduled tasks need a host scheduler service."),
             Self::ComposerRuntimeMode {
                 runtime_mode: RuntimeMode::Remote,
                 selectable: false,
@@ -2435,10 +2434,7 @@ mod tests {
             .into_iter()
             .find(|item| matches!(item, SearchPaletteItem::OpenScheduled))
             .expect("scheduled command remains searchable");
-        assert_eq!(
-            scheduled.disabled_reason(),
-            Some("Scheduled tasks need a host scheduler service.")
-        );
+        assert_eq!(scheduled.disabled_reason(), None);
 
         assert_eq!(SearchPaletteItem::SwitchModel.disabled_reason(), None);
         assert_eq!(SearchPaletteItem::RunTests.disabled_reason(), None);

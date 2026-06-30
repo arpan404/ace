@@ -27,6 +27,7 @@ pub enum RightPanelTab {
     Settings,
     Pinned,
     Todos,
+    Scheduled,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

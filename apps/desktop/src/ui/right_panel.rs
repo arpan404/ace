@@ -346,6 +346,13 @@ fn workbench_panel(
                 "Todos",
                 || todos_body(theme, projection),
             ),
+            RightPanelTab::Scheduled => service_panel_body(
+                theme,
+                &services.summary,
+                AceIconName::ListChecks,
+                "Scheduled",
+                || scheduled_body(theme, projection),
+            ),
             RightPanelTab::Settings => settings_body(theme, &ui_state.theme),
         }))
         .into_any_element()
@@ -423,6 +430,12 @@ fn right_tab_strip(
             theme,
             active_tab,
             RightPanelTab::Todos,
+            &services.summary,
+        ))
+        .child(right_tab(
+            theme,
+            active_tab,
+            RightPanelTab::Scheduled,
             &services.summary,
         ))
         .child(right_tab(
@@ -590,6 +603,7 @@ fn right_tab_meta(tab: RightPanelTab) -> (AceIconName, &'static str) {
         RightPanelTab::Settings => (AceIconName::TablerSettings, "Settings"),
         RightPanelTab::Pinned => (AceIconName::PinFilled, "Pinned"),
         RightPanelTab::Todos => (AceIconName::ListChecks, "Todos"),
+        RightPanelTab::Scheduled => (AceIconName::ListChecks, "Scheduled"),
     }
 }
 
@@ -610,6 +624,7 @@ fn right_tab_id(tab: RightPanelTab) -> &'static str {
         RightPanelTab::Settings => "right-tab-settings",
         RightPanelTab::Pinned => "right-tab-pinned",
         RightPanelTab::Todos => "right-tab-todos",
+        RightPanelTab::Scheduled => "right-tab-scheduled",
     }
 }
 
@@ -3252,6 +3267,86 @@ fn todos_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         .into_any_element()
 }
 
+fn scheduled_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
+    let mut scheduled = projection
+        .annotations
+        .todos
+        .iter()
+        .filter(|todo| {
+            matches!(
+                todo.status,
+                TodoStatus::Open | TodoStatus::InProgress | TodoStatus::Blocked
+            )
+        })
+        .collect::<Vec<_>>();
+    scheduled.sort_by(|left, right| {
+        todo_priority_rank(right.priority)
+            .cmp(&todo_priority_rank(left.priority))
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+
+    if scheduled.is_empty() {
+        return annotation_empty_body(
+            theme,
+            AnnotationEmptyState {
+                icon: AceIconName::ListChecks,
+                label: "Scheduled",
+                message: "No active todos are scheduled for this thread.",
+                action_icon: IconName::Plus,
+                action_label: "Add todo",
+                action: || Box::new(CreateTodoFromLatestTimelineItem),
+                action_enabled: !projection.chat.messages.is_empty(),
+            },
+        );
+    }
+
+    let blocked_count = scheduled
+        .iter()
+        .filter(|todo| todo.status == TodoStatus::Blocked)
+        .count();
+
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(theme.muted)
+                        .child(format!(
+                            "{} active · {} blocked",
+                            scheduled.len(),
+                            blocked_count
+                        )),
+                )
+                .child(action_button(
+                    IconName::CircleCheck,
+                    "Complete first",
+                    theme,
+                    || Box::new(ToggleFirstOpenTodo),
+                )),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .children(scheduled.into_iter().map(|todo| todo_card(theme, todo)))
+                .overflow_y_scrollbar(),
+        )
+        .into_any_element()
+}
+
 fn todo_section(
     theme: Theme,
     label: &'static str,
@@ -3507,6 +3602,14 @@ fn todo_priority_label(priority: TodoPriority) -> &'static str {
         TodoPriority::Low => "low",
         TodoPriority::Normal => "normal",
         TodoPriority::High => "high",
+    }
+}
+
+fn todo_priority_rank(priority: TodoPriority) -> u8 {
+    match priority {
+        TodoPriority::Low => 0,
+        TodoPriority::Normal => 1,
+        TodoPriority::High => 2,
     }
 }
 
