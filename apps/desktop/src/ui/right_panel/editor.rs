@@ -140,10 +140,16 @@ fn editor_file_row(theme: Theme, file: &EditorFileProjection) -> AnyElement {
                 .overflow_hidden()
                 .text_ellipsis()
                 .whitespace_nowrap()
+                .font_family(theme.code_font_family)
                 .text_color(theme.foreground.opacity(0.82))
                 .child(file.path.clone()),
         )
-        .child(div().text_color(theme.muted).child(stat))
+        .child(
+            div()
+                .font_family(theme.code_font_family)
+                .text_color(theme.muted)
+                .child(stat),
+        )
         .into_any_element()
 }
 
