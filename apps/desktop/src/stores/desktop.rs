@@ -6,6 +6,7 @@ mod composer_state;
 mod git_state;
 mod model_state;
 mod registry_state;
+mod runtime_state;
 mod terminal_state;
 
 use self::annotation_state::{extend_unique, review_comment_detail, todo_context_line};
@@ -28,6 +29,10 @@ use self::git_state::{
 use self::model_state::{model_provider_projection, model_registry_provider_kind};
 use self::registry_state::{
     RegistrySurface, parse_tool_registry_entries, registry_entry_available,
+};
+use self::runtime_state::{
+    host_option_projection, is_connected_remote_status, provider_health_label,
+    runtime_status_projection_from_state,
 };
 use self::terminal_state::{TerminalKey, append_terminal_history, short_status};
 use crate::backend::{
@@ -70,10 +75,7 @@ use ace_runtime::{
         SidebarProjection, ThreadDraft, ThreadStatus, ThreadSummary, build_chat_projection,
         build_sidebar_projection, resolve_thread_creation_options,
     },
-    provider::{
-        NormalizedServerRequest, ProviderMetadata, ProviderRuntimeHealth, ThreadItemKind,
-        ThreadItemStatus,
-    },
+    provider::{NormalizedServerRequest, ProviderMetadata, ThreadItemKind, ThreadItemStatus},
     threads::{
         AgentRuntimeSnapshot, AgentThread, ApprovalRetryRecord, AutoApprovalReviewRecord,
         ChildThreadRecord, ChildThreadRelationship, ExecutionLocation, ForkPoint, GoalState,
@@ -6165,88 +6167,6 @@ fn chat_message_with_settings(
         text: Some(text),
         turn_settings_summary,
     }
-}
-
-fn provider_health_label(health: ProviderRuntimeHealth) -> &'static str {
-    match health {
-        ProviderRuntimeHealth::Ready => "ready",
-        ProviderRuntimeHealth::Starting => "starting",
-        ProviderRuntimeHealth::Running => "running",
-        ProviderRuntimeHealth::Stopped => "stopped",
-        ProviderRuntimeHealth::Unavailable => "unavailable",
-        ProviderRuntimeHealth::Degraded => "degraded",
-        ProviderRuntimeHealth::Unknown => "unknown",
-    }
-}
-
-fn host_option_projection(connection: &RemoteConnectionRecord) -> HostOptionProjection {
-    let status = connection
-        .status
-        .clone()
-        .unwrap_or_else(|| "unknown".to_string());
-    let project_count = json_collection_len(&connection.projects);
-    let label = connection
-        .display_name
-        .clone()
-        .or_else(|| connection.host.clone())
-        .unwrap_or_else(|| connection.host_id.clone());
-    let mut detail = connection.host.as_ref().map_or_else(
-        || format!("{} · {}", connection.provider, status),
-        |host| format!("{} · {} · {}", connection.provider, host, status),
-    );
-    if project_count > 0 {
-        detail.push_str(&format!(
-            " · {project_count} project{}",
-            plural(project_count)
-        ));
-    }
-
-    HostOptionProjection {
-        provider: connection.provider.clone(),
-        host_id: connection.host_id.clone(),
-        label,
-        detail,
-        connected: is_connected_remote_status(&status),
-        status,
-        execution_location: connection.execution_location,
-        project_count,
-    }
-}
-
-fn is_connected_remote_status(status: &str) -> bool {
-    matches!(
-        status.trim().to_ascii_lowercase().as_str(),
-        "connected" | "online" | "ready"
-    )
-}
-
-fn runtime_status_projection_from_state(
-    response: &ProviderRuntimeStateGetResponse,
-    provider_count: usize,
-    updated_at: String,
-) -> RuntimeStatusProjection {
-    let mut projection = RuntimeStatusProjection {
-        providers: response.providers.len().max(provider_count),
-        updated_at: Some(updated_at),
-        ..RuntimeStatusProjection::default()
-    };
-
-    for provider in &response.providers {
-        let summary = &provider.summary;
-        projection.threads += summary.threads;
-        projection.active_threads += summary.active_threads;
-        projection.active_turns += summary.active_turns;
-        projection.handoffs += summary.handoffs;
-        projection.pending_approvals += summary.pending_approvals;
-        projection.warnings += summary.warnings;
-        projection.remote_connections += summary.remote_connections;
-        projection.remote_host_connections += summary.remote_host_connections;
-        projection.connected_remote_connections += summary.connected_remote_connections;
-        projection.disconnected_remote_connections += summary.disconnected_remote_connections;
-        projection.remote_connections_with_projects += summary.remote_connections_with_projects;
-    }
-
-    projection
 }
 
 fn slash_command_projections(
