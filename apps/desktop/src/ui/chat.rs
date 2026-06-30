@@ -1,9 +1,9 @@
 use crate::{
     actions::{
-        CompleteComposerToken, CreateTodoFromTimelineItem, OpenSearchPalette, PinTimelineItem,
-        SelectComposerHost, SelectComposerModel, SetComposerInteractionMode, SetComposerPermission,
-        SetComposerReasoning, SetComposerRuntimeMode, ShowBrowserTab, ShowPinnedTab,
-        ShowTerminalTab, ShowTodosTab, ToggleBottomPanel, ToggleComposerContext,
+        ArchiveActiveThread, CompleteComposerToken, CreateTodoFromTimelineItem, OpenSearchPalette,
+        PinTimelineItem, SelectComposerHost, SelectComposerModel, SetComposerInteractionMode,
+        SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode, ShowBrowserTab,
+        ShowPinnedTab, ShowTerminalTab, ShowTodosTab, ToggleBottomPanel, ToggleComposerContext,
         ToggleComposerTrait, ToggleEnvironmentPanel, ToggleHighlightTimelineItem,
         TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
     },
@@ -234,6 +234,7 @@ enum CenterHeaderThreadAction {
     OpenBrowser,
     ShowPinned,
     ShowTodos,
+    Archive,
     More,
 }
 
@@ -244,6 +245,7 @@ impl CenterHeaderThreadAction {
             Self::OpenTerminal => IconName::SquareTerminal,
             Self::OpenBrowser => IconName::Globe,
             Self::ShowTodos => IconName::Check,
+            Self::Archive => IconName::CircleX,
             Self::More => IconName::Search,
         }
     }
@@ -256,6 +258,7 @@ impl CenterHeaderThreadAction {
             Self::OpenBrowser => "Browser",
             Self::ShowPinned => "Pinned",
             Self::ShowTodos => "Todos",
+            Self::Archive => "Archive",
             Self::More => "More",
         }
     }
@@ -272,6 +275,7 @@ fn center_header_thread_action_list(
         CenterHeaderThreadAction::OpenBrowser,
         CenterHeaderThreadAction::ShowPinned,
         CenterHeaderThreadAction::ShowTodos,
+        CenterHeaderThreadAction::Archive,
         CenterHeaderThreadAction::More,
     ]
 }
@@ -333,6 +337,7 @@ fn center_header_thread_action_dispatch(action: CenterHeaderThreadAction) -> Box
         CenterHeaderThreadAction::OpenBrowser => Box::new(ShowBrowserTab),
         CenterHeaderThreadAction::ShowPinned => Box::new(ShowPinnedTab),
         CenterHeaderThreadAction::ShowTodos => Box::new(ShowTodosTab),
+        CenterHeaderThreadAction::Archive => Box::new(ArchiveActiveThread),
         CenterHeaderThreadAction::More => Box::new(OpenSearchPalette),
     }
 }
@@ -2464,6 +2469,7 @@ mod tests {
                 CenterHeaderThreadAction::OpenBrowser,
                 CenterHeaderThreadAction::ShowPinned,
                 CenterHeaderThreadAction::ShowTodos,
+                CenterHeaderThreadAction::Archive,
                 CenterHeaderThreadAction::More,
             ]
         );
