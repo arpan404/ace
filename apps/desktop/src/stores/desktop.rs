@@ -1,4 +1,5 @@
 mod annotation_state;
+mod approval_state;
 mod browser_state;
 mod composer_state;
 mod git_state;
@@ -6,6 +7,9 @@ mod registry_state;
 mod terminal_state;
 
 use self::annotation_state::{extend_unique, review_comment_detail, todo_context_line};
+use self::approval_state::{
+    approval_audit, approval_item_from_request, approval_registry_projection_from_state,
+};
 use self::browser_state::{
     artifact_is_browser_preview, browser_activity_from_tool, browser_activity_summary,
     browser_preview_from_artifact, browser_projection_from_host_tools,
@@ -46,8 +50,7 @@ use ace_protocol::{
         ProviderRuntimeSlashCommandsListResponse, ProviderRuntimeStateGetRequest,
         ProviderRuntimeStateGetResponse, ProviderRuntimeStateSummary,
         ProviderRuntimeStatusListRequest, ProviderRuntimeStatusListResponse,
-        ProviderServerRequestAudit, ProviderServerRequestError, ProviderServerRequestErrorInfo,
-        ProviderServerRequestResult,
+        ProviderServerRequestError, ProviderServerRequestErrorInfo, ProviderServerRequestResult,
     },
     terminal::{
         DEFAULT_TERMINAL_ID, SequencedTerminalEvent, TerminalEvent, TerminalOpenRequest,
@@ -64,15 +67,15 @@ use ace_runtime::{
         build_sidebar_projection, resolve_thread_creation_options,
     },
     provider::{
-        NormalizedServerRequest, ProviderMetadata, ProviderRuntimeHealth, ServerRequestKind,
-        ThreadItemKind, ThreadItemStatus,
+        NormalizedServerRequest, ProviderMetadata, ProviderRuntimeHealth, ThreadItemKind,
+        ThreadItemStatus,
     },
     threads::{
-        AgentRuntimeSnapshot, AgentThread, ApprovalRecord, ApprovalRetryRecord, ApprovalStatus,
-        AutoApprovalReviewRecord, ChildThreadRecord, ChildThreadRelationship, ExecutionLocation,
-        ForkPoint, GoalState, GoalStatus, HandoffPlan, HandoffStatus, ModelRerouteRecord,
-        PlanImplementationRecord, PlanSession, PlanSessionStatus, ProcessExitRecord,
-        ProviderStateRecord, RealtimeAudioRecord, RealtimeSessionRecord, RealtimeTranscriptRecord,
+        AgentRuntimeSnapshot, AgentThread, ApprovalRetryRecord, AutoApprovalReviewRecord,
+        ChildThreadRecord, ChildThreadRelationship, ExecutionLocation, ForkPoint, GoalState,
+        GoalStatus, HandoffPlan, HandoffStatus, ModelRerouteRecord, PlanImplementationRecord,
+        PlanSession, PlanSessionStatus, ProcessExitRecord, ProviderStateRecord,
+        RealtimeAudioRecord, RealtimeSessionRecord, RealtimeTranscriptRecord,
         RemoteConnectionRecord, RuntimeWarningRecord, SideChat, SubagentActionKind,
         SubagentActionRecord, SubagentThread, TerminalOutputRecord, ThreadLifecycleActionKind,
         ThreadLifecycleRecord, Turn, TurnDiffRecord, TurnMode, TurnModerationRecord,
@@ -6242,99 +6245,6 @@ fn runtime_status_projection_from_state(
     projection
 }
 
-fn approval_registry_projection_from_state(
-    response: &ProviderRuntimeStateGetResponse,
-    updated_at: String,
-) -> ApprovalRegistryProjection {
-    let mut pending = Vec::new();
-    let mut resolved = 0;
-    for provider in &response.providers {
-        for approval in &provider.state.approvals {
-            match approval.status {
-                ApprovalStatus::Pending => pending.push(approval_item_projection(approval)),
-                ApprovalStatus::Resolved => resolved += 1,
-            }
-        }
-    }
-    pending.sort_by(|left, right| {
-        left.provider
-            .cmp(&right.provider)
-            .then_with(|| left.request_id.cmp(&right.request_id))
-    });
-
-    ApprovalRegistryProjection {
-        pending,
-        resolved,
-        error: None,
-        updated_at: Some(updated_at),
-    }
-}
-
-fn approval_item_projection(approval: &ApprovalRecord) -> ApprovalItemProjection {
-    approval_item_from_request(&approval.request)
-}
-
-fn approval_item_from_request(request: &NormalizedServerRequest) -> ApprovalItemProjection {
-    ApprovalItemProjection {
-        provider: request.provider.provider.clone(),
-        request_id: request.request_id.clone(),
-        title: request
-            .title
-            .clone()
-            .unwrap_or_else(|| server_request_kind_label(request.kind).to_string()),
-        prompt: request
-            .prompt
-            .clone()
-            .or_else(|| approval_detail_label(request))
-            .unwrap_or_else(|| "Provider request is awaiting a decision.".to_string()),
-        kind: server_request_kind_label(request.kind).to_string(),
-        method: request.method.clone(),
-        scope: request.scope.clone(),
-        selected_policy: request.selected_policy.clone(),
-        detail: approval_detail_label(request),
-    }
-}
-
-fn server_request_kind_label(kind: ServerRequestKind) -> &'static str {
-    match kind {
-        ServerRequestKind::CommandApproval => "Command approval",
-        ServerRequestKind::FileChangeApproval => "File change approval",
-        ServerRequestKind::ToolUserInput => "Tool input",
-        ServerRequestKind::McpElicitation => "MCP elicitation",
-        ServerRequestKind::PermissionApproval => "Permission approval",
-        ServerRequestKind::DynamicToolCall => "Dynamic tool",
-        ServerRequestKind::AccountTokenRefresh => "Account token refresh",
-        ServerRequestKind::Attestation => "Attestation",
-        ServerRequestKind::ApplyPatchApproval => "Patch approval",
-        ServerRequestKind::ExecApproval => "Command approval",
-        ServerRequestKind::Unknown => "Provider request",
-    }
-}
-
-fn approval_detail_label(request: &NormalizedServerRequest) -> Option<String> {
-    request
-        .detail
-        .command
-        .clone()
-        .or_else(|| request.detail.argv.as_ref().map(|argv| argv.join(" ")))
-        .or_else(|| request.detail.path.clone())
-        .or_else(|| request.detail.paths.as_ref().map(|paths| paths.join(", ")))
-        .or_else(|| request.detail.tool_name.clone())
-        .or_else(|| request.detail.server_name.clone())
-        .or_else(|| request.detail.operation.clone())
-        .or_else(|| request.detail.permission.clone())
-        .or_else(|| request.detail.resource.clone())
-}
-
-fn approval_audit(reason: &'static str) -> ProviderServerRequestAudit {
-    ProviderServerRequestAudit {
-        decided_by: Some("user".to_string()),
-        reason: Some(reason.to_string()),
-        metadata: serde_json::json!({ "surface": "desktop" }),
-        ..ProviderServerRequestAudit::default()
-    }
-}
-
 fn model_registry_provider_kind(provider: &ModelProviderProjection) -> Option<ProviderKind> {
     ProviderKind::from_runtime_id(&provider.runtime_id)
         .or_else(|| ProviderKind::from_runtime_id(&provider.provider))
@@ -7975,7 +7885,7 @@ mod tests {
     #[test]
     fn approval_registry_projection_reads_pending_requests() {
         let request = NormalizedServerRequest {
-            kind: ServerRequestKind::CommandApproval,
+            kind: ace_runtime::provider::ServerRequestKind::CommandApproval,
             request_id: "approval-1".to_string(),
             method: "command/approvalRequest".to_string(),
             thread_id: Some("thread-1".to_string()),
@@ -8008,11 +7918,11 @@ mod tests {
                     last_persisted_sequence: None,
                     summary: ace_protocol::provider_runtime::ProviderRuntimeStateSummary::default(),
                     state: AgentRuntimeSnapshot {
-                        approvals: vec![ApprovalRecord {
+                        approvals: vec![ace_runtime::threads::ApprovalRecord {
                             provider: "codex".to_string(),
                             request_id: "approval-1".to_string(),
                             request,
-                            status: ApprovalStatus::Pending,
+                            status: ace_runtime::threads::ApprovalStatus::Pending,
                             decision: None,
                         }],
                         ..AgentRuntimeSnapshot::default()
