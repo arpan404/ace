@@ -44,12 +44,13 @@ use ace_runtime::{
         ThreadItemStatus,
     },
     threads::{
-        AgentRuntimeSnapshot, ApprovalRecord, ApprovalRetryRecord, ApprovalStatus,
-        AutoApprovalReviewRecord, ExecutionLocation, GoalState, GoalStatus, HandoffPlan,
-        HandoffStatus, ModelRerouteRecord, PlanImplementationRecord, PlanSessionStatus,
-        ProcessExitRecord, ProviderStateRecord, RealtimeAudioRecord, RealtimeSessionRecord,
-        RealtimeTranscriptRecord, RemoteConnectionRecord, RuntimeWarningRecord, SubagentActionKind,
-        SubagentActionRecord, TerminalOutputRecord, ThreadLifecycleActionKind,
+        AgentRuntimeSnapshot, AgentThread, ApprovalRecord, ApprovalRetryRecord, ApprovalStatus,
+        AutoApprovalReviewRecord, ChildThreadRecord, ChildThreadRelationship, ExecutionLocation,
+        ForkPoint, GoalState, GoalStatus, HandoffPlan, HandoffStatus, ModelRerouteRecord,
+        PlanImplementationRecord, PlanSessionStatus, ProcessExitRecord, ProviderStateRecord,
+        RealtimeAudioRecord, RealtimeSessionRecord, RealtimeTranscriptRecord,
+        RemoteConnectionRecord, RuntimeWarningRecord, SideChat, SubagentActionKind,
+        SubagentActionRecord, SubagentThread, TerminalOutputRecord, ThreadLifecycleActionKind,
         ThreadLifecycleRecord, Turn, TurnDiffRecord, TurnMode, TurnModerationRecord,
     },
     tools::{SemanticToolCall, ToolRunStatus, ToolSurface},
@@ -3944,6 +3945,67 @@ impl DesktopStore {
             ProviderRuntimeProjectionDelta::ThreadItemUpsert { item } => {
                 self.apply_provider_thread_item(*item, sequence);
             }
+            ProviderRuntimeProjectionDelta::ForkUpdated { provider: _, fork } => {
+                self.upsert_fork_point(fork);
+            }
+            ProviderRuntimeProjectionDelta::SideChatUpdated {
+                provider: _,
+                side_chat,
+            } => {
+                self.upsert_side_chat(side_chat);
+            }
+            ProviderRuntimeProjectionDelta::ChildThreadUpsert {
+                provider,
+                parent_thread_id,
+                child_thread_id,
+                relationship,
+                turn_id,
+                item_id,
+                role,
+                nickname,
+                status,
+                status_text,
+                execution_location,
+                ephemeral,
+                metadata,
+            } => {
+                self.upsert_child_thread(ChildThreadRecord {
+                    provider,
+                    parent_thread_id,
+                    thread_id: child_thread_id,
+                    relationship,
+                    turn_id,
+                    item_id,
+                    role,
+                    nickname,
+                    status: Some(thread_item_status_key(status).to_string()),
+                    execution_location,
+                    ephemeral,
+                    metadata: child_thread_metadata_with_status_text(*metadata, status_text),
+                });
+            }
+            ProviderRuntimeProjectionDelta::ReviewModeChanged {
+                provider: _,
+                thread_id,
+                active,
+                ..
+            } => {
+                self.apply_review_mode_delta(thread_id, active);
+            }
+            ProviderRuntimeProjectionDelta::ThreadSettingsUpdated {
+                provider,
+                thread_id,
+                settings,
+            } => {
+                self.upsert_runtime_thread_metadata(provider, thread_id, Some(settings), None);
+            }
+            ProviderRuntimeProjectionDelta::ThreadTokenUsageUpdated {
+                provider,
+                thread_id,
+                token_usage,
+            } => {
+                self.upsert_runtime_thread_metadata(provider, thread_id, None, Some(token_usage));
+            }
             ProviderRuntimeProjectionDelta::RemoteConnectionUpdated {
                 provider,
                 connection,
@@ -4390,6 +4452,141 @@ impl DesktopStore {
             *existing = handoff;
         } else {
             self.runtime.handoffs.push(handoff);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_fork_point(&mut self, fork: ForkPoint) {
+        if let Some(existing) = self
+            .runtime
+            .fork_points
+            .iter_mut()
+            .find(|existing| existing.child_thread_id == fork.child_thread_id)
+        {
+            *existing = fork;
+        } else {
+            self.runtime.fork_points.push(fork);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_side_chat(&mut self, side_chat: SideChat) {
+        if let Some(existing) = self
+            .runtime
+            .side_chats
+            .iter_mut()
+            .find(|existing| existing.thread_id == side_chat.thread_id)
+        {
+            *existing = side_chat;
+        } else {
+            self.runtime.side_chats.push(side_chat);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_subagent(&mut self, subagent: SubagentThread) {
+        if let Some(existing) = self
+            .runtime
+            .subagents
+            .iter_mut()
+            .find(|existing| existing.thread_id == subagent.thread_id)
+        {
+            *existing = subagent;
+        } else {
+            self.runtime.subagents.push(subagent);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_child_thread(&mut self, child: ChildThreadRecord) {
+        match child.relationship {
+            ChildThreadRelationship::Fork => self.upsert_fork_point(ForkPoint {
+                parent_thread_id: child.parent_thread_id.clone(),
+                child_thread_id: child.thread_id.clone(),
+                turn_id: child.turn_id.clone(),
+            }),
+            ChildThreadRelationship::SideChat => self.upsert_side_chat(SideChat {
+                parent_thread_id: child.parent_thread_id.clone(),
+                thread_id: child.thread_id.clone(),
+                ephemeral: child.ephemeral.unwrap_or(false),
+            }),
+            ChildThreadRelationship::Subagent | ChildThreadRelationship::Review => {
+                self.upsert_subagent(SubagentThread {
+                    parent_thread_id: child.parent_thread_id.clone(),
+                    thread_id: child.thread_id.clone(),
+                    role: child.role.clone(),
+                    nickname: child.nickname.clone(),
+                });
+            }
+            ChildThreadRelationship::Handoff => {}
+        }
+        if let Some(existing) = self.runtime.child_threads.iter_mut().find(|existing| {
+            existing.provider == child.provider
+                && existing.parent_thread_id == child.parent_thread_id
+                && existing.thread_id == child.thread_id
+                && existing.relationship == child.relationship
+        }) {
+            *existing = child;
+        } else {
+            self.runtime.child_threads.push(child);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn apply_review_mode_delta(&mut self, thread_id: String, active: bool) {
+        if active {
+            if !self
+                .runtime
+                .review_threads
+                .iter()
+                .any(|existing| existing == &thread_id)
+            {
+                self.runtime.review_threads.push(thread_id);
+            }
+        } else {
+            self.runtime
+                .review_threads
+                .retain(|existing| existing != &thread_id);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_runtime_thread_metadata(
+        &mut self,
+        provider: String,
+        thread_id: Option<String>,
+        settings: Option<serde_json::Value>,
+        token_usage: Option<serde_json::Value>,
+    ) {
+        let Some(thread_id) = thread_id else {
+            return;
+        };
+        if let Some(existing) = self
+            .runtime
+            .threads
+            .iter_mut()
+            .find(|thread| thread.thread_id == thread_id)
+        {
+            if let Some(settings) = settings {
+                existing.settings = settings;
+            }
+            if let Some(token_usage) = token_usage {
+                existing.token_usage = token_usage;
+            }
+        } else {
+            self.runtime.threads.push(AgentThread {
+                thread_id,
+                provider,
+                execution_location: ExecutionLocation::Local,
+                name: None,
+                active: None,
+                archived: None,
+                active_turn: None,
+                plan_session: None,
+                settings: settings.unwrap_or(serde_json::Value::Null),
+                token_usage: token_usage.unwrap_or(serde_json::Value::Null),
+                metadata: serde_json::Value::Null,
+            });
         }
         self.refresh_runtime_status_from_snapshot();
     }
@@ -6713,6 +6910,32 @@ fn subagent_action_from_value(action: &str) -> SubagentActionKind {
         "close" => SubagentActionKind::Close,
         _ => SubagentActionKind::Steer,
     }
+}
+
+fn thread_item_status_key(status: ThreadItemStatus) -> &'static str {
+    match status {
+        ThreadItemStatus::Started => "started",
+        ThreadItemStatus::Updated => "updated",
+        ThreadItemStatus::Completed => "completed",
+        ThreadItemStatus::Failed => "failed",
+    }
+}
+
+fn child_thread_metadata_with_status_text(
+    mut metadata: serde_json::Value,
+    status_text: Option<String>,
+) -> serde_json::Value {
+    let Some(status_text) = status_text else {
+        return metadata;
+    };
+    if let serde_json::Value::Object(object) = &mut metadata {
+        object.insert(
+            "status_text".to_string(),
+            serde_json::Value::String(status_text),
+        );
+        return metadata;
+    }
+    serde_json::json!({ "status_text": status_text, "metadata": metadata })
 }
 
 fn thread_status_from_provider(status: &str) -> Option<ThreadStatus> {
@@ -9907,6 +10130,142 @@ mod tests {
                 .any(|item| item == "Approval retry approved · retry after approval")
         );
         assert_eq!(store.runtime.plan_implementations.len(), 1);
+    }
+
+    #[test]
+    fn provider_runtime_batch_applies_thread_relationship_projection_deltas() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![
+                ProviderRuntimeProjectionDelta::ForkUpdated {
+                    provider: "codex".to_string(),
+                    fork: ForkPoint {
+                        parent_thread_id: "provider-thread-1".to_string(),
+                        child_thread_id: "fork-thread-1".to_string(),
+                        turn_id: Some("turn-1".to_string()),
+                    },
+                },
+                ProviderRuntimeProjectionDelta::SideChatUpdated {
+                    provider: "codex".to_string(),
+                    side_chat: SideChat {
+                        parent_thread_id: "provider-thread-1".to_string(),
+                        thread_id: "side-thread-1".to_string(),
+                        ephemeral: true,
+                    },
+                },
+                ProviderRuntimeProjectionDelta::ChildThreadUpsert {
+                    provider: "codex".to_string(),
+                    parent_thread_id: "provider-thread-1".to_string(),
+                    child_thread_id: "subagent-thread-1".to_string(),
+                    relationship: ChildThreadRelationship::Subagent,
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("subagent-item-1".to_string()),
+                    role: Some("reviewer".to_string()),
+                    nickname: Some("Review".to_string()),
+                    status: ThreadItemStatus::Started,
+                    status_text: Some("checking diff".to_string()),
+                    execution_location: Some(ExecutionLocation::Local),
+                    ephemeral: None,
+                    metadata: Box::new(serde_json::Value::Null),
+                },
+                ProviderRuntimeProjectionDelta::ReviewModeChanged {
+                    provider: "codex".to_string(),
+                    thread_id: "provider-thread-1".to_string(),
+                    active: true,
+                    item_id: Some("review-1".to_string()),
+                },
+            ],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        assert_eq!(store.runtime.fork_points.len(), 1);
+        assert_eq!(store.runtime.side_chats.len(), 1);
+        assert_eq!(store.runtime.subagents.len(), 1);
+        assert_eq!(store.runtime.child_threads.len(), 1);
+        assert_eq!(
+            store.runtime.child_threads[0].status.as_deref(),
+            Some("started")
+        );
+        assert_eq!(
+            store.runtime.child_threads[0].metadata["status_text"],
+            "checking diff"
+        );
+        assert_eq!(store.runtime.review_threads, vec!["provider-thread-1"]);
+
+        let summary = store.summary_projection();
+        assert!(
+            summary
+                .runtime_relationships
+                .iter()
+                .any(|item| item == "Fork provider-thread-1 -> fork-thread-1 · turn turn-1")
+        );
+        assert!(
+            summary.runtime_relationships.iter().any(|item| {
+                item == "Side chat provider-thread-1 -> side-thread-1 · ephemeral"
+            })
+        );
+        assert!(
+            summary.runtime_relationships.iter().any(|item| {
+                item == "Subagent reviewer · provider-thread-1 -> subagent-thread-1"
+            })
+        );
+    }
+
+    #[test]
+    fn provider_runtime_batch_applies_thread_settings_and_token_usage_deltas() {
+        let mut store = DesktopStore::new();
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![
+                ProviderRuntimeProjectionDelta::ThreadSettingsUpdated {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    settings: serde_json::json!({
+                        "model": "gpt-5.5",
+                        "sandbox": "workspace-write"
+                    }),
+                },
+                ProviderRuntimeProjectionDelta::ThreadTokenUsageUpdated {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    token_usage: serde_json::json!({
+                        "input_tokens": 12,
+                        "output_tokens": 34,
+                        "total_tokens": 46
+                    }),
+                },
+            ],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        assert_eq!(store.runtime.threads.len(), 1);
+        assert_eq!(store.runtime.threads[0].thread_id, "provider-thread-1");
+        assert_eq!(store.runtime.threads[0].settings["model"], "gpt-5.5");
+        assert_eq!(
+            store.runtime.threads[0].settings["sandbox"],
+            "workspace-write"
+        );
+        assert_eq!(store.runtime.threads[0].token_usage["total_tokens"], 46);
+        assert_eq!(store.projection().runtime_status.threads, 1);
     }
 
     #[test]
