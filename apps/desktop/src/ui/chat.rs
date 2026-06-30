@@ -1082,6 +1082,23 @@ fn composer_context_mention_suggestions(
                 icon: IconName::Star,
             }),
     );
+    suggestions.extend(
+        projection
+            .annotations
+            .review_comments
+            .iter()
+            .take(8)
+            .map(|comment| ComposerCommandSuggestion {
+                label: format!("@review {}", comment.file_path),
+                detail: format!(
+                    "{} · {}",
+                    if comment.resolved { "resolved" } else { "open" },
+                    comment.body
+                ),
+                completion: format!("@review:{}", comment.id),
+                icon: IconName::File,
+            }),
+    );
     if let Some(session) = projection
         .terminal
         .session

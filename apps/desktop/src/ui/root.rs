@@ -2,8 +2,8 @@ use crate::{
     actions::{
         AddCurrentDirectoryProject, ApproveProviderRequest, ArchiveActiveThread, ArchiveProject,
         BeginPanelResize, CloseSearchPalette, CommitReview, CompleteComposerToken,
-        CreateTodoFromLatestTimelineItem, CreateTodoFromTimelineItem, CreateWorktree,
-        DenyProviderRequest, InterruptActiveTurn, NewThread, NewThreadForProject,
+        CreateReviewComment, CreateTodoFromLatestTimelineItem, CreateTodoFromTimelineItem,
+        CreateWorktree, DenyProviderRequest, InterruptActiveTurn, NewThread, NewThreadForProject,
         OpenSearchPalette, OpenThread, PinLatestTimelineItem, PinTimelineItem, PushReview,
         RefreshActiveTab, RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree,
         RunLint, RunTests, SelectBottomPanelTab, SelectComposerHost, SelectComposerModel,
@@ -15,7 +15,8 @@ use crate::{
         ShowTodosTab, StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleComposerContext,
         ToggleComposerTrait, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
         ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
-        ToggleRightPanel, ToggleSidebar, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
+        ToggleReviewCommentResolved, ToggleRightPanel, ToggleSidebar, UnstageReviewAll,
+        UnstageReviewFile, UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
     persistence::PersistenceService,
@@ -851,6 +852,30 @@ impl RootView {
         cx.notify();
     }
 
+    fn create_review_comment(
+        &mut self,
+        event: &CreateReviewComment,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .create_review_comment_for_file(event.path.clone());
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
+    fn toggle_review_comment_resolved(
+        &mut self,
+        event: &ToggleReviewCommentResolved,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .toggle_review_comment_resolved(&event.comment_id);
+        self.save_thread_annotations();
+        cx.notify();
+    }
+
     fn commit_review(&mut self, _: &CommitReview, _: &mut Window, cx: &mut Context<Self>) {
         let active_host = self.active_host.clone();
         self.active_store_mut()
@@ -1350,6 +1375,8 @@ impl Render for RootView {
             .on_action(cx.listener(Self::unstage_review_all))
             .on_action(cx.listener(Self::stage_review_file))
             .on_action(cx.listener(Self::unstage_review_file))
+            .on_action(cx.listener(Self::create_review_comment))
+            .on_action(cx.listener(Self::toggle_review_comment_resolved))
             .on_action(cx.listener(Self::commit_review))
             .on_action(cx.listener(Self::push_review))
             .on_action(cx.listener(Self::refresh_worktrees))

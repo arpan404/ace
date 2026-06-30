@@ -1,17 +1,19 @@
 use crate::{
     actions::{
-        ApproveProviderRequest, CommitReview, CreateTodoFromLatestTimelineItem, CreateWorktree,
-        DenyProviderRequest, PinLatestTimelineItem, PushReview, RefreshApprovals, RefreshReview,
-        RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab, SetCodeFont,
-        SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll,
-        StageReviewFile, ToggleBottomPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
-        ToggleRightPanel, UnstageReviewAll, UnstageReviewFile, UpdateTodoStatus,
+        ApproveProviderRequest, CommitReview, CreateReviewComment,
+        CreateTodoFromLatestTimelineItem, CreateWorktree, DenyProviderRequest,
+        PinLatestTimelineItem, PushReview, RefreshApprovals, RefreshReview, RefreshWorktrees,
+        RemoveWorktree, SelectBottomPanelTab, SelectRightPanelTab, SetCodeFont, SetThemeDensity,
+        SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll, StageReviewFile,
+        ToggleBottomPanel, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
+        ToggleReviewCommentResolved, ToggleRightPanel, UnstageReviewAll, UnstageReviewFile,
+        UpdateTodoStatus,
     },
     stores::{
         ApprovalItemProjection, ApprovalRegistryProjection, DesktopProjection, ModelProjection,
-        ModelProviderProjection, ModelRegistryProjection, ReviewFileProjection, ReviewProjection,
-        ServiceReadiness, ServiceStatus, SourceItemProjection, TodoItem, TodoStatus,
-        ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
+        ModelProviderProjection, ModelRegistryProjection, ReviewCommentItem, ReviewFileProjection,
+        ReviewProjection, ServiceReadiness, ServiceStatus, SourceItemProjection, TodoItem,
+        TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
         WorktreeProjection,
         ui::{BottomPanelTab, RightPanelTab, UiState},
     },
@@ -230,7 +232,7 @@ fn workbench_panel(
                 &services.diff_review,
                 AceIconName::Review,
                 "Review",
-                || review_body(theme, &projection.chat, services, &projection.review),
+                || review_body(theme, projection, services),
             ),
             RightPanelTab::Environment => service_panel_body(
                 theme,
@@ -639,11 +641,11 @@ where
 
 fn review_body(
     theme: Theme,
-    chat: &ChatProjection,
+    projection: &DesktopProjection,
     services: &ServiceReadiness,
-    review: &ReviewProjection,
 ) -> AnyElement {
-    let Some(thread) = chat.active_thread.as_ref() else {
+    let review = &projection.review;
+    let Some(thread) = projection.chat.active_thread.as_ref() else {
         return empty_panel_body(
             theme,
             AceIconName::Review,
@@ -695,6 +697,10 @@ fn review_body(
             )
         })
         .child(review_file_list(theme, review))
+        .child(review_comments_list(
+            theme,
+            &projection.annotations.review_comments,
+        ))
         .child(review_diff_preview(theme, review))
         .child(info_row(
             theme,
@@ -861,6 +867,7 @@ fn review_file_row(theme: Theme, file: &ReviewFileProjection) -> AnyElement {
             file.path.clone(),
             false,
         ))
+        .child(review_comment_action(theme, file.path.clone()))
         .into_any_element()
 }
 
@@ -879,6 +886,141 @@ fn review_file_action(
         };
         action
     })
+}
+
+fn review_comment_action(theme: Theme, path: String) -> AnyElement {
+    action_button(IconName::Plus, "Comment", theme, move || {
+        Box::new(CreateReviewComment { path: path.clone() })
+    })
+}
+
+fn review_comments_list(theme: Theme, comments: &[ReviewCommentItem]) -> AnyElement {
+    if comments.is_empty() {
+        return div().into_any_element();
+    }
+
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(theme.muted)
+                        .child("Review comments"),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(theme.muted_subtle)
+                        .child(format!(
+                            "{} open",
+                            comments.iter().filter(|comment| !comment.resolved).count()
+                        )),
+                ),
+        )
+        .children(
+            comments
+                .iter()
+                .take(12)
+                .map(|comment| review_comment_row(theme, comment))
+                .collect::<Vec<_>>(),
+        )
+        .when(comments.len() > 12, |this| {
+            this.child(
+                div()
+                    .pt_1()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(format!("{} more comments", comments.len() - 12)),
+            )
+        })
+        .into_any_element()
+}
+
+fn review_comment_row(theme: Theme, comment: &ReviewCommentItem) -> AnyElement {
+    let resolved = comment.resolved;
+    let status_color = if resolved {
+        theme.accent_success
+    } else {
+        theme.accent_warning
+    };
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(if resolved {
+            theme.panel_deep.opacity(0.62)
+        } else {
+            theme.panel_deep
+        })
+        .px_2()
+        .py_2()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(div().w(px(6.0)).h(px(6.0)).rounded_full().bg(status_color))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_size(px(12.0))
+                        .text_color(theme.foreground.opacity(if resolved { 0.56 } else { 0.84 }))
+                        .child(comment.file_path.clone()),
+                )
+                .child(action_button(
+                    if resolved {
+                        IconName::Check
+                    } else {
+                        IconName::CircleCheck
+                    },
+                    if resolved { "Reopen" } else { "Resolve" },
+                    theme,
+                    {
+                        let comment_id = comment.id.clone();
+                        move || {
+                            Box::new(ToggleReviewCommentResolved {
+                                comment_id: comment_id.clone(),
+                            })
+                        }
+                    },
+                )),
+        )
+        .child(
+            div()
+                .text_size(px(12.0))
+                .line_height(px(17.0))
+                .text_color(theme.foreground.opacity(if resolved { 0.54 } else { 0.76 }))
+                .child(comment.body.clone()),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(theme.muted_subtle)
+                .child(format!("@review:{}", comment.id)),
+        )
+        .into_any_element()
 }
 
 fn review_diff_preview(theme: Theme, review: &ReviewProjection) -> AnyElement {

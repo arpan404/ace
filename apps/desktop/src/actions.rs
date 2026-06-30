@@ -202,6 +202,18 @@ pub struct UnstageReviewFile {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct CreateReviewComment {
+    pub path: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct ToggleReviewCommentResolved {
+    pub comment_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct RemoveWorktree {
     pub path: String,
     pub force: bool,

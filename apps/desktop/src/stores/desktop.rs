@@ -87,6 +87,7 @@ pub struct DesktopStore {
     pinned_items: Vec<PinnedTimelineItem>,
     highlighted_items: Vec<HighlightedTimelineItem>,
     todos: Vec<TodoItem>,
+    review_comments: Vec<ReviewCommentItem>,
     thread_counts: HashMap<ProjectId, usize>,
     project_thread_limits: HashMap<ProjectId, usize>,
     metadata: SidebarMetadata,
@@ -412,7 +413,9 @@ pub struct ThreadAnnotationsProjection {
     pub pinned_items: Vec<PinnedTimelineItem>,
     pub highlighted_items: Vec<HighlightedTimelineItem>,
     pub todos: Vec<TodoItem>,
+    pub review_comments: Vec<ReviewCommentItem>,
     pub open_todo_count: usize,
+    pub open_review_comment_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -447,6 +450,19 @@ pub struct TodoItem {
     pub completed_at: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewCommentItem {
+    pub id: String,
+    pub thread_id: ThreadId,
+    pub project_id: ProjectId,
+    pub file_path: String,
+    pub line: Option<u32>,
+    pub body: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub resolved: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TodoStatus {
@@ -465,6 +481,8 @@ pub struct ThreadAnnotationsSnapshot {
     pub highlighted_items: Vec<HighlightedTimelineItem>,
     #[serde(default)]
     pub todos: Vec<TodoItem>,
+    #[serde(default)]
+    pub review_comments: Vec<ReviewCommentItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -522,6 +540,7 @@ impl DesktopStore {
             pinned_items: Vec::new(),
             highlighted_items: Vec::new(),
             todos: Vec::new(),
+            review_comments: Vec::new(),
             thread_counts: HashMap::new(),
             project_thread_limits: HashMap::new(),
             metadata: SidebarMetadata::default(),
@@ -809,12 +828,23 @@ impl DesktopStore {
             });
         }
 
+        for comment in &annotations.review_comments {
+            items.push(SourceItemProjection {
+                id: format!("review:{}", comment.id),
+                kind: "diff_comment".to_string(),
+                title: comment.file_path.clone(),
+                detail: review_comment_detail(comment),
+                added_at: comment.created_at.clone(),
+            });
+        }
+
         SourcesProjection {
             changed_files: review.files.len(),
             terminal_sessions: usize::from(terminal.session.is_some()),
             context_items: annotations.pinned_items.len()
                 + annotations.highlighted_items.len()
-                + annotations.todos.len(),
+                + annotations.todos.len()
+                + annotations.review_comments.len(),
             items,
         }
     }
@@ -825,6 +855,7 @@ impl DesktopStore {
             pinned_items: self.pinned_items.clone(),
             highlighted_items: self.highlighted_items.clone(),
             todos: self.todos.clone(),
+            review_comments: self.review_comments.clone(),
         }
     }
 
@@ -832,6 +863,7 @@ impl DesktopStore {
         self.pinned_items = snapshot.pinned_items;
         self.highlighted_items = snapshot.highlighted_items;
         self.todos = snapshot.todos;
+        self.review_comments = snapshot.review_comments;
     }
 
     #[must_use]
@@ -857,6 +889,12 @@ impl DesktopStore {
             .filter(|todo| &todo.thread_id == thread_id)
             .cloned()
             .collect::<Vec<_>>();
+        let review_comments = self
+            .review_comments
+            .iter()
+            .filter(|comment| &comment.thread_id == thread_id)
+            .cloned()
+            .collect::<Vec<_>>();
         let open_todo_count = todos
             .iter()
             .filter(|todo| {
@@ -866,12 +904,18 @@ impl DesktopStore {
                 )
             })
             .count();
+        let open_review_comment_count = review_comments
+            .iter()
+            .filter(|comment| !comment.resolved)
+            .count();
 
         ThreadAnnotationsProjection {
             pinned_items,
             highlighted_items,
             todos,
+            review_comments,
             open_todo_count,
+            open_review_comment_count,
         }
     }
 
@@ -1005,6 +1049,44 @@ impl DesktopStore {
             todo.status = status;
             todo.updated_at = now.clone();
             todo.completed_at = (status == TodoStatus::Done).then_some(now);
+        }
+    }
+
+    pub fn create_review_comment_for_file(&mut self, file_path: String) {
+        let Some(thread) = self.active_thread().cloned() else {
+            return;
+        };
+        if file_path.trim().is_empty() {
+            return;
+        }
+
+        let now = self.next_timestamp();
+        let body = format!("Review the changes in {file_path}.");
+        self.review_comments.push(ReviewCommentItem {
+            id: format!("review-{now}-{}", stable_token(&file_path)),
+            thread_id: thread.id,
+            project_id: thread.project_id,
+            file_path,
+            line: None,
+            body,
+            created_at: now.clone(),
+            updated_at: now,
+            resolved: false,
+        });
+    }
+
+    pub fn toggle_review_comment_resolved(&mut self, comment_id: &str) {
+        let Some(thread_id) = self.metadata.active_thread_id.clone() else {
+            return;
+        };
+        let now = self.next_timestamp();
+        if let Some(comment) = self
+            .review_comments
+            .iter_mut()
+            .find(|comment| comment.thread_id == thread_id && comment.id == comment_id)
+        {
+            comment.resolved = !comment.resolved;
+            comment.updated_at = now;
         }
     }
 
@@ -2241,6 +2323,19 @@ impl DesktopStore {
                     sections.push(format!(
                         "Mentioned highlighted context {}: {} - {}",
                         item.id, item.display_title, item.display_excerpt
+                    ));
+                }
+            } else if let Some(id) = mention.strip_prefix("@review:") {
+                if let Some(comment) = self
+                    .review_comments
+                    .iter()
+                    .find(|comment| &comment.thread_id == thread_id && comment.id == id)
+                {
+                    sections.push(format!(
+                        "Mentioned review comment {} on {}: {}",
+                        comment.id,
+                        comment.file_path,
+                        review_comment_detail(comment)
                     ));
                 }
             } else if mention == "@terminal" {
@@ -4127,6 +4222,32 @@ fn message_excerpt(message: &ChatMessageProjection) -> String {
     format!("{}...", &raw[..end])
 }
 
+fn review_comment_detail(comment: &ReviewCommentItem) -> String {
+    let status = if comment.resolved { "resolved" } else { "open" };
+    match comment.line {
+        Some(line) => format!("{status} · line {line} · {}", comment.body),
+        None => format!("{status} · {}", comment.body),
+    }
+}
+
+fn stable_token(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .take(6)
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 fn composer_traits_text(traits: &[ComposerTrait]) -> Option<String> {
     if traits.is_empty() {
         return None;
@@ -4588,14 +4709,16 @@ mod tests {
             },
         );
         store.pin_latest_timeline_item();
+        store.create_review_comment_for_file("src/lib.rs".to_string());
 
         let sources = store.projection().sources;
         assert_eq!(sources.changed_files, 1);
         assert_eq!(sources.terminal_sessions, 1);
-        assert_eq!(sources.context_items, 1);
+        assert_eq!(sources.context_items, 2);
         assert!(sources.items.iter().any(|item| item.kind == "file"));
         assert!(sources.items.iter().any(|item| item.kind == "terminal"));
         assert!(sources.items.iter().any(|item| item.kind == "pinned"));
+        assert!(sources.items.iter().any(|item| item.kind == "diff_comment"));
     }
 
     #[test]
@@ -4865,6 +4988,17 @@ mod tests {
         assert_eq!(projection.pinned_items[0].message_id, first_message_id);
         let todo_id = projection.todos[0].id.clone();
 
+        store.create_review_comment_for_file("src/lib.rs".to_string());
+        let projection = store.projection().annotations;
+        assert_eq!(projection.review_comments.len(), 1);
+        assert_eq!(projection.open_review_comment_count, 1);
+        let review_comment_id = projection.review_comments[0].id.clone();
+
+        store.toggle_review_comment_resolved(&review_comment_id);
+        let projection = store.projection().annotations;
+        assert!(projection.review_comments[0].resolved);
+        assert_eq!(projection.open_review_comment_count, 0);
+
         store.update_todo_status(&todo_id, TodoStatus::InProgress);
         let projection = store.projection().annotations;
         assert_eq!(projection.todos[0].status, TodoStatus::InProgress);
@@ -4897,6 +5031,8 @@ mod tests {
         assert_eq!(projection.pinned_items.len(), 1);
         assert_eq!(projection.highlighted_items.len(), 1);
         assert_eq!(projection.todos[0].status, TodoStatus::Done);
+        assert_eq!(projection.review_comments.len(), 1);
+        assert!(projection.review_comments[0].resolved);
     }
 
     #[test]
@@ -5065,8 +5201,10 @@ mod tests {
         let first_message_id = store.projection().chat.messages[0].id.clone();
         store.pin_timeline_item(thread_id.clone(), &first_message_id);
         store.create_todo_from_timeline_item(thread_id.clone(), &first_message_id);
+        store.create_review_comment_for_file("src/lib.rs".to_string());
         let pin_id = store.projection().annotations.pinned_items[0].id.clone();
         let todo_id = store.projection().annotations.todos[0].id.clone();
+        let review_comment_id = store.projection().annotations.review_comments[0].id.clone();
         store.terminal_sessions.insert(
             TerminalKey::default_for_thread(&thread_id),
             TerminalSessionProjection {
@@ -5108,7 +5246,9 @@ mod tests {
             .get(&thread_id)
             .expect("composer draft")
             .clone();
-        let prompt = format!("Use @todo:{todo_id} @pin:{pin_id} @terminal @diff");
+        let prompt = format!(
+            "Use @todo:{todo_id} @pin:{pin_id} @review:{review_comment_id} @terminal @diff"
+        );
         let input = store.composer_turn_input(&thread_id, &prompt, &draft);
         let joined = input
             .iter()
@@ -5119,6 +5259,7 @@ mod tests {
         assert!(joined.contains("Mentioned composer context"));
         assert!(joined.contains("Mentioned todo"));
         assert!(joined.contains("Mentioned pinned context"));
+        assert!(joined.contains("Mentioned review comment"));
         assert!(joined.contains("cargo test failed"));
         assert!(joined.contains("src/lib.rs"));
     }
