@@ -5463,7 +5463,7 @@ impl DesktopStore {
         self.model_registry
             .providers
             .iter()
-            .find(|catalog| ProviderKind::from_runtime_id(&catalog.runtime_id) == Some(provider))
+            .find(|catalog| model_registry_provider_kind(catalog) == Some(provider))
             .and_then(|catalog| {
                 catalog
                     .models
@@ -6366,6 +6366,11 @@ fn approval_audit(reason: &'static str) -> ProviderServerRequestAudit {
         metadata: serde_json::json!({ "surface": "desktop" }),
         ..ProviderServerRequestAudit::default()
     }
+}
+
+fn model_registry_provider_kind(provider: &ModelProviderProjection) -> Option<ProviderKind> {
+    ProviderKind::from_runtime_id(&provider.runtime_id)
+        .or_else(|| ProviderKind::from_runtime_id(&provider.provider))
 }
 
 fn model_provider_projection(
@@ -8988,6 +8993,38 @@ mod tests {
         assert!(projection.models[0].supports_tools);
         assert!(projection.models[0].supports_computer_use);
         assert!(projection.models[0].supports_attachments);
+    }
+
+    #[test]
+    fn model_registry_provider_kind_uses_runtime_id_with_provider_fallback() {
+        let mut store = DesktopStore::new();
+        store.model_registry.providers = vec![ModelProviderProjection {
+            runtime_id: "openai-compatible".to_string(),
+            display_name: "Claude Code".to_string(),
+            provider: "claude-code".to_string(),
+            models: vec![ModelProjection {
+                id: "claude-opus".to_string(),
+                display_name: "Claude Opus".to_string(),
+                provider: Some("anthropic".to_string()),
+                family: Some("claude".to_string()),
+                context_window: Some(200_000),
+                max_output_tokens: Some(32_000),
+                supports_reasoning: true,
+                supports_vision: true,
+                supports_tools: true,
+                supports_computer_use: false,
+                supports_attachments: true,
+            }],
+        }];
+
+        assert_eq!(
+            model_registry_provider_kind(&store.model_registry.providers[0]),
+            Some(ProviderKind::ClaudeCode)
+        );
+        assert_eq!(
+            store.model_supports_reasoning(ProviderKind::ClaudeCode, "claude-opus"),
+            Some(true)
+        );
     }
 
     #[test]

@@ -1640,8 +1640,8 @@ fn model_provider_group(
     provider: &ModelProviderProjection,
     draft: &ComposerDraft,
 ) -> AnyElement {
-    let provider_kind = ProviderKind::from_runtime_id(&provider.runtime_id);
-    let send_ready = provider_kind == Some(ProviderKind::Codex);
+    let provider_kind = composer_model_provider_kind(provider);
+    let send_ready = provider_kind.is_some();
     div()
         .min_w(px(240.0))
         .rounded_md()
@@ -1661,7 +1661,11 @@ fn model_provider_group(
                 .text_size(px(11.0))
                 .text_color(theme.muted)
                 .child(provider.display_name.clone())
-                .child(if send_ready { "Ready" } else { "Inspect only" }),
+                .child(if send_ready {
+                    "Selectable"
+                } else {
+                    "Inspect only"
+                }),
         )
         .children(
             provider
@@ -1759,13 +1763,18 @@ fn model_row(
     } else if !send_ready {
         row = row.tooltip(|window, cx| {
             gpui_component::tooltip::Tooltip::new(
-                "This provider is visible in the catalog, but desktop send routing currently uses the Codex runtime.",
+                "This provider is visible in the catalog, but it does not map to a supported desktop provider runtime yet.",
             )
             .build(window, cx)
         });
     }
 
     row.into_any_element()
+}
+
+fn composer_model_provider_kind(provider: &ModelProviderProjection) -> Option<ProviderKind> {
+    ProviderKind::from_runtime_id(&provider.runtime_id)
+        .or_else(|| ProviderKind::from_runtime_id(&provider.provider))
 }
 
 fn model_capability_badges(theme: Theme, model: &ModelProjection, enabled: bool) -> AnyElement {
@@ -2463,5 +2472,37 @@ mod tests {
             todo_progress_label(&store.projection().annotations),
             "1/1 todos"
         );
+    }
+
+    #[test]
+    fn composer_model_provider_kind_uses_runtime_id_with_provider_fallback() {
+        let provider = ModelProviderProjection {
+            runtime_id: "claude-code".to_string(),
+            display_name: "Claude Code".to_string(),
+            provider: "ignored".to_string(),
+            models: Vec::new(),
+        };
+        let fallback_provider = ModelProviderProjection {
+            runtime_id: "openai-compatible".to_string(),
+            display_name: "Cursor".to_string(),
+            provider: "cursor".to_string(),
+            models: Vec::new(),
+        };
+        let unknown_provider = ModelProviderProjection {
+            runtime_id: "future-provider".to_string(),
+            display_name: "Future Provider".to_string(),
+            provider: "future".to_string(),
+            models: Vec::new(),
+        };
+
+        assert_eq!(
+            composer_model_provider_kind(&provider),
+            Some(ProviderKind::ClaudeCode)
+        );
+        assert_eq!(
+            composer_model_provider_kind(&fallback_provider),
+            Some(ProviderKind::Cursor)
+        );
+        assert_eq!(composer_model_provider_kind(&unknown_provider), None);
     }
 }
