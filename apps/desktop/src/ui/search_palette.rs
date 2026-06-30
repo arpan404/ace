@@ -1,12 +1,13 @@
 use crate::{
     actions::SelectSearchPaletteItem,
     stores::{
-        DesktopProjection,
+        DesktopProjection, ModelProjection,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{components::*, theme::Theme},
 };
-use ace_core::{ProjectId, ThreadId};
+use ace_core::{ProjectId, ProviderKind, ThreadId};
+use ace_runtime::chat::ComposerTrait;
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
 use gpui_component::{IconName, scroll::ScrollableElement as _};
 
@@ -36,6 +37,18 @@ pub enum SearchPaletteItem {
     SwitchModel,
     RunTests,
     RunLint,
+    ComposerModel {
+        provider: Option<ProviderKind>,
+        model: String,
+        label: String,
+        description: String,
+        selectable: bool,
+    },
+    ComposerTrait {
+        trait_kind: ComposerTrait,
+        label: String,
+        description: String,
+    },
     Panel {
         tab: RightPanelTab,
         label: String,
@@ -82,6 +95,7 @@ impl SearchPaletteItem {
             Self::SwitchModel => "Switch model",
             Self::RunTests => "Run tests",
             Self::RunLint => "Run lint",
+            Self::ComposerModel { label, .. } | Self::ComposerTrait { label, .. } => label,
             Self::Panel { label, .. } => label,
             Self::Project { label, .. } | Self::Thread { label, .. } => label,
         }
@@ -107,13 +121,16 @@ impl SearchPaletteItem {
             Self::ShowApprovals => "Open pending provider approvals.",
             Self::ConnectRemoteHost => "Remote host manager is not implemented yet.",
             Self::SwitchModel => {
-                "Model selection persistence is not implemented yet; inspect models in Providers."
+                "Search provider model catalog entries and select one for the composer."
             }
             Self::RunTests => {
                 "Project action runner is not implemented yet; open Terminal to run tests."
             }
             Self::RunLint => {
                 "Project action runner is not implemented yet; open Terminal to run lint."
+            }
+            Self::ComposerModel { description, .. } | Self::ComposerTrait { description, .. } => {
+                description
             }
             Self::Panel { description, .. } => description,
             Self::Project { description, .. } | Self::Thread { description, .. } => description,
@@ -140,6 +157,8 @@ impl SearchPaletteItem {
             | Self::SwitchModel
             | Self::RunTests
             | Self::RunLint => PaletteItemKind::Action,
+            Self::ComposerTrait { .. } => PaletteItemKind::Action,
+            Self::ComposerModel { .. } => PaletteItemKind::Registry,
             Self::Panel { result_kind, .. } => match result_kind {
                 SearchPaletteResultKind::Source => PaletteItemKind::Source,
                 SearchPaletteResultKind::Context => PaletteItemKind::Context,
@@ -153,8 +172,8 @@ impl SearchPaletteItem {
     pub fn disabled_reason(&self) -> Option<&'static str> {
         match self {
             Self::ConnectRemoteHost => Some("Remote host manager is not implemented yet."),
-            Self::SwitchModel => Some(
-                "Model selection persistence is not implemented yet; inspect models in Providers.",
+            Self::ComposerModel { selectable, .. } if !selectable => Some(
+                "This provider is visible in the catalog, but desktop send routing currently uses the Codex runtime.",
             ),
             Self::RunTests => {
                 Some("Project action runner is not implemented yet; open Terminal to run tests.")
@@ -374,14 +393,29 @@ pub fn palette_items(
         });
     }
     for provider in &projection.models.providers {
+        let provider_kind = ProviderKind::from_runtime_id(&provider.runtime_id);
+        let selectable = provider_kind == Some(ProviderKind::Codex);
         for model in &provider.models {
-            registry_items.push(SearchPaletteItem::Panel {
-                tab: crate::stores::ui::RightPanelTab::Providers,
+            registry_items.push(SearchPaletteItem::ComposerModel {
+                provider: provider_kind,
+                model: model.id.clone(),
                 label: model.display_name.clone(),
-                description: format!("Model · {} · {}", provider.display_name, model.id),
-                result_kind: SearchPaletteResultKind::Registry,
+                description: format!(
+                    "Model · {} · {} · {}",
+                    provider.display_name,
+                    model.id,
+                    model_capability_summary(model)
+                ),
+                selectable,
             });
         }
+    }
+    for trait_kind in ComposerTrait::ALL {
+        registry_items.push(SearchPaletteItem::ComposerTrait {
+            trait_kind,
+            label: format!("Trait: {}", trait_kind.label()),
+            description: trait_kind.detail().to_string(),
+        });
     }
     for plugin in &projection.plugins.entries {
         registry_items.push(SearchPaletteItem::Panel {
@@ -476,6 +510,27 @@ fn short_path(path: &str) -> String {
         .find(|segment| !segment.is_empty())
         .unwrap_or(path)
         .to_string()
+}
+
+fn model_capability_summary(model: &ModelProjection) -> String {
+    let mut capabilities = Vec::new();
+    if model.supports_tools {
+        capabilities.push("Tools");
+    }
+    if model.supports_vision {
+        capabilities.push("Vision");
+    }
+    if model.supports_reasoning {
+        capabilities.push("Reasoning");
+    }
+    if model.context_window.is_some_and(|window| window >= 128_000) {
+        capabilities.push("Long context");
+    }
+    if capabilities.is_empty() {
+        "No advertised capabilities".to_string()
+    } else {
+        capabilities.join(", ")
+    }
 }
 
 pub(super) fn search_palette_overlay(
@@ -802,6 +857,8 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
         SearchPaletteItem::RunTests | SearchPaletteItem::RunLint => {
             ace_icon_svg(AceIconName::TablerTerminal, color)
         }
+        SearchPaletteItem::ComposerModel { .. } => ace_icon_svg(AceIconName::Code2, color),
+        SearchPaletteItem::ComposerTrait { .. } => icon_svg(IconName::Palette, color),
         SearchPaletteItem::Panel { result_kind, .. } => match result_kind {
             SearchPaletteResultKind::Source => icon_svg(IconName::File, color),
             SearchPaletteResultKind::Context => icon_svg(IconName::Star, color),
@@ -907,15 +964,27 @@ mod tests {
             Some("Remote host manager is not implemented yet.")
         );
 
-        for command in [
-            SearchPaletteItem::SwitchModel,
-            SearchPaletteItem::RunTests,
-            SearchPaletteItem::RunLint,
-        ] {
+        assert_eq!(SearchPaletteItem::SwitchModel.disabled_reason(), None);
+
+        for command in [SearchPaletteItem::RunTests, SearchPaletteItem::RunLint] {
             assert!(
                 command.disabled_reason().is_some(),
                 "{command:?} should explain why it is disabled"
             );
         }
+    }
+
+    #[test]
+    fn palette_search_includes_composer_traits() {
+        let store = DesktopStore::new();
+        let items = palette_items(&store.projection(), SearchPaletteMode::Root, "precise");
+
+        assert!(items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ComposerTrait {
+                trait_kind: ComposerTrait::Precise,
+                ..
+            }
+        )));
     }
 }

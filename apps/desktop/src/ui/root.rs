@@ -648,11 +648,32 @@ impl RootView {
                 self.search_palette.close();
                 self.apply_right_panel_tab(RightPanelTab::Approvals);
             }
+            SearchPaletteItem::SwitchModel => {
+                self.search_palette.query = "model".to_string();
+                self.search_palette.active_index = 0;
+            }
             SearchPaletteItem::ConnectRemoteHost
-            | SearchPaletteItem::SwitchModel
             | SearchPaletteItem::RunTests
             | SearchPaletteItem::RunLint => {
                 self.search_palette.close();
+            }
+            SearchPaletteItem::ComposerModel {
+                provider: Some(provider),
+                model,
+                selectable: true,
+                ..
+            } => {
+                self.search_palette.close();
+                self.active_store_mut()
+                    .set_active_composer_model(provider, model);
+            }
+            SearchPaletteItem::ComposerModel { .. } => {
+                self.search_palette.close();
+            }
+            SearchPaletteItem::ComposerTrait { trait_kind, .. } => {
+                self.search_palette.close();
+                self.active_store_mut()
+                    .toggle_active_composer_trait(trait_kind);
             }
             SearchPaletteItem::Panel { tab, .. } => {
                 self.search_palette.close();
