@@ -167,6 +167,10 @@ fn thread_from_row(row: &Row<'_>) -> Result<ThreadSummary, AceDbError> {
         worktree_path: row.get(4)?,
         latest_activity_at: row.get(5)?,
         archived: archived_at.is_some(),
+        pinned_item_count: 0,
+        highlighted_count: 0,
+        todo_count: 0,
+        open_todo_count: 0,
         status: thread_status(
             row.get::<_, Option<String>>(8)?.as_deref(),
             archived_at.is_some(),

@@ -1,7 +1,7 @@
 use crate::ui::{components::*, theme::Theme};
 use ace_runtime::chat::{ThreadStatus, ThreadSummary};
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
-use gpui_component::IconName;
+use gpui_component::{IconName, tooltip::Tooltip};
 
 pub(super) fn thread_row(theme: Theme, thread: ThreadSummary, active: bool) -> AnyElement {
     let id = thread.id.clone();
@@ -47,6 +47,7 @@ pub(super) fn thread_row(theme: Theme, thread: ThreadSummary, active: bool) -> A
                 })
                 .child(thread.title.clone()),
         )
+        .children(thread_annotation_badges(theme, &thread))
         .on_mouse_up(MouseButton::Left, move |_, window, cx| {
             window.dispatch_action(
                 Box::new(crate::actions::OpenThread {
@@ -55,6 +56,70 @@ pub(super) fn thread_row(theme: Theme, thread: ThreadSummary, active: bool) -> A
                 cx,
             );
         })
+        .into_any_element()
+}
+
+fn thread_annotation_badges(theme: Theme, thread: &ThreadSummary) -> Vec<AnyElement> {
+    let mut badges = Vec::new();
+    if thread.pinned_item_count > 0 {
+        badges.push(thread_count_badge(
+            theme,
+            AceIconName::PinFilled,
+            thread.pinned_item_count,
+            "Pinned timeline items",
+        ));
+    }
+    if thread.highlighted_count > 0 {
+        badges.push(thread_count_badge(
+            theme,
+            AceIconName::Summary,
+            thread.highlighted_count,
+            "Highlighted timeline items",
+        ));
+    }
+    if thread.open_todo_count > 0 {
+        badges.push(thread_count_badge(
+            theme,
+            AceIconName::ListChecks,
+            thread.open_todo_count,
+            "Open todos",
+        ));
+    } else if thread.todo_count > 0 {
+        badges.push(thread_count_badge(
+            theme,
+            AceIconName::ListChecks,
+            thread.todo_count,
+            "Completed or canceled todos",
+        ));
+    }
+    badges
+}
+
+fn thread_count_badge(
+    theme: Theme,
+    icon: AceIconName,
+    count: usize,
+    tooltip: &'static str,
+) -> AnyElement {
+    div()
+        .id(tooltip)
+        .h(px(18.0))
+        .min_w(px(22.0))
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .px_1()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .gap_1()
+        .text_size(px(10.0))
+        .text_color(theme.muted)
+        .child(ace_icon_svg(icon, theme.muted_subtle))
+        .child(count.to_string())
+        .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
         .into_any_element()
 }
 

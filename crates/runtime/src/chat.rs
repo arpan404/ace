@@ -342,6 +342,14 @@ pub struct ThreadSummary {
     pub model: Option<String>,
     pub pinned: bool,
     pub archived: bool,
+    #[serde(default)]
+    pub pinned_item_count: usize,
+    #[serde(default)]
+    pub highlighted_count: usize,
+    #[serde(default)]
+    pub todo_count: usize,
+    #[serde(default)]
+    pub open_todo_count: usize,
     pub unseen_completion: bool,
     pub latest_activity_at: IsoDateTime,
     pub latest_message_preview: Option<String>,
@@ -626,6 +634,10 @@ pub fn thread_summary_from_runtime_thread(
             .map(ToString::to_string),
         pinned: metadata.pinned_thread_ids.contains(&id),
         archived,
+        pinned_item_count: 0,
+        highlighted_count: 0,
+        todo_count: 0,
+        open_todo_count: 0,
         unseen_completion: metadata.unseen_completed_thread_ids.contains(&id),
         latest_activity_at: "now".to_string(),
         latest_message_preview: None,
@@ -694,6 +706,10 @@ mod tests {
             model: Some("gpt-5.3-codex".to_string()),
             pinned,
             archived: false,
+            pinned_item_count: 0,
+            highlighted_count: 0,
+            todo_count: 0,
+            open_todo_count: 0,
             unseen_completion: false,
             latest_activity_at: "2026-01-01T00:00:00Z".to_string(),
             latest_message_preview: None,

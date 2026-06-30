@@ -786,6 +786,7 @@ impl DesktopStore {
         let sidebar_threads = self.visible_sidebar_threads();
         let mut sidebar =
             build_sidebar_projection(&self.projects, &sidebar_threads, &self.metadata);
+        self.apply_thread_annotation_counts(&mut sidebar);
         sidebar.total_thread_count = 0;
         for group in &mut sidebar.projects {
             group.project.thread_count = self
@@ -842,6 +843,34 @@ impl DesktopStore {
             composer_commands,
             summary: self.summary_projection(),
             annotations: self.annotations_projection(),
+        }
+    }
+
+    fn apply_thread_annotation_counts(&self, sidebar: &mut SidebarProjection) {
+        for group in &mut sidebar.projects {
+            for thread in &mut group.threads {
+                thread.pinned_item_count = self
+                    .pinned_items
+                    .iter()
+                    .filter(|item| item.thread_id == thread.id)
+                    .count();
+                thread.highlighted_count = self
+                    .highlighted_items
+                    .iter()
+                    .filter(|item| item.thread_id == thread.id)
+                    .count();
+                thread.todo_count = self
+                    .todos
+                    .iter()
+                    .filter(|todo| todo.thread_id == thread.id)
+                    .count();
+                thread.open_todo_count = self
+                    .todos
+                    .iter()
+                    .filter(|todo| todo.thread_id == thread.id)
+                    .filter(|todo| !matches!(todo.status, TodoStatus::Done | TodoStatus::Canceled))
+                    .count();
+            }
         }
     }
 
@@ -3036,6 +3065,10 @@ impl DesktopStore {
             model: Some(DEFAULT_CODEX_MODEL.to_string()),
             pinned: false,
             archived: false,
+            pinned_item_count: 0,
+            highlighted_count: 0,
+            todo_count: 0,
+            open_todo_count: 0,
             unseen_completion: false,
             latest_activity_at: created_at.clone(),
             latest_message_preview: None,
@@ -7355,6 +7388,10 @@ mod tests {
             model: None,
             pinned: false,
             archived: false,
+            pinned_item_count: 0,
+            highlighted_count: 0,
+            todo_count: 0,
+            open_todo_count: 0,
             unseen_completion: false,
             latest_activity_at: "now".to_string(),
             latest_message_preview: None,
@@ -7530,6 +7567,51 @@ mod tests {
         assert_eq!(projection.todos[0].related_files, vec!["src/lib.rs"]);
         assert_eq!(projection.review_comments.len(), 1);
         assert!(projection.review_comments[0].resolved);
+    }
+
+    #[test]
+    fn sidebar_threads_include_annotation_counts() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id.clone(),
+            ComposerPayload {
+                prompt: "Track sidebar context".to_string(),
+            },
+        );
+        let first_message_id = store.projection().chat.messages[0].id.clone();
+
+        store.pin_timeline_item(thread_id.clone(), &first_message_id);
+        store.toggle_highlight_timeline_item(thread_id.clone(), &first_message_id);
+        store.create_todo_from_timeline_item(thread_id.clone(), &first_message_id);
+
+        let projection = store.projection();
+        let thread = projection
+            .sidebar
+            .projects
+            .iter()
+            .flat_map(|group| group.threads.iter())
+            .find(|thread| thread.id == thread_id)
+            .expect("sidebar thread");
+        assert_eq!(thread.pinned_item_count, 1);
+        assert_eq!(thread.highlighted_count, 1);
+        assert_eq!(thread.todo_count, 1);
+        assert_eq!(thread.open_todo_count, 1);
+
+        let todo_id = projection.annotations.todos[0].id.clone();
+        store.update_todo_status(&todo_id, TodoStatus::Done);
+
+        let projection = store.projection();
+        let thread = projection
+            .sidebar
+            .projects
+            .iter()
+            .flat_map(|group| group.threads.iter())
+            .find(|thread| thread.id == thread_id)
+            .expect("sidebar thread");
+        assert_eq!(thread.todo_count, 1);
+        assert_eq!(thread.open_todo_count, 0);
     }
 
     #[test]
@@ -8177,6 +8259,10 @@ mod tests {
                 model: None,
                 pinned: false,
                 archived: false,
+                pinned_item_count: 0,
+                highlighted_count: 0,
+                todo_count: 0,
+                open_todo_count: 0,
                 unseen_completion: false,
                 latest_activity_at: index.to_string(),
                 latest_message_preview: None,
