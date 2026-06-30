@@ -12,6 +12,7 @@ use crate::{
 use ace_core::{ProjectId, ProviderKind, ThreadId};
 use ace_runtime::chat::{
     ComposerPermissionMode, ComposerTrait, InteractionMode, ReasoningEffort, RuntimeMode,
+    ThreadSummary,
 };
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
 use gpui_component::{IconName, scroll::ScrollableElement as _};
@@ -349,7 +350,7 @@ pub fn palette_items(
             thread_items.push(SearchPaletteItem::Thread {
                 thread_id: thread.id.clone(),
                 label: thread.title.clone(),
-                description: group.project.name.clone(),
+                description: thread_palette_description(&group.project.name, thread),
             });
         }
     }
@@ -755,6 +756,71 @@ pub fn palette_items(
 
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
+}
+
+fn thread_palette_description(project_name: &str, thread: &ThreadSummary) -> String {
+    let mut parts = vec![project_name.to_string(), thread.status.label().to_string()];
+
+    if let Some(model) = thread.model.as_deref().filter(|model| !model.is_empty()) {
+        parts.push(model.to_string());
+    } else {
+        parts.push(thread.provider.display_name().to_string());
+    }
+
+    if let Some(branch) = thread.branch.as_deref().filter(|branch| !branch.is_empty()) {
+        parts.push(branch.to_string());
+    } else if let Some(worktree) = thread
+        .worktree_path
+        .as_deref()
+        .filter(|worktree| !worktree.is_empty())
+    {
+        parts.push(short_path(worktree));
+    }
+
+    if thread.open_todo_count > 0 {
+        parts.push(format!(
+            "{} open todo{}",
+            thread.open_todo_count,
+            plural(thread.open_todo_count)
+        ));
+    } else if thread.todo_count > 0 {
+        parts.push(format!(
+            "{} todo{}",
+            thread.todo_count,
+            plural(thread.todo_count)
+        ));
+    }
+
+    if thread.pinned_item_count > 0 {
+        parts.push(format!(
+            "{} pin{}",
+            thread.pinned_item_count,
+            plural(thread.pinned_item_count)
+        ));
+    }
+
+    if let Some(preview) = thread
+        .latest_message_preview
+        .as_deref()
+        .filter(|preview| !preview.is_empty())
+    {
+        parts.push(truncate_palette_preview(preview, 96));
+    }
+
+    parts.join(" · ")
+}
+
+fn truncate_palette_preview(preview: &str, max_chars: usize) -> String {
+    if preview.chars().count() <= max_chars {
+        return preview.to_string();
+    }
+
+    let mut truncated = preview
+        .chars()
+        .take(max_chars.saturating_sub(1))
+        .collect::<String>();
+    truncated.push('…');
+    truncated
 }
 
 fn runtime_mode_label(mode: RuntimeMode) -> &'static str {
@@ -1221,6 +1287,45 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn palette_thread_results_include_backed_summary_metadata() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.set_active_composer_model(ProviderKind::Codex, "gpt-5".to_string());
+        store.send_message(
+            thread_id.clone(),
+            ComposerPayload {
+                prompt: "Implement rich palette metadata".to_string(),
+            },
+        );
+        let user_message_id = store.projection().chat.messages[0].id.clone();
+        store.pin_timeline_item(thread_id.clone(), &user_message_id);
+        store.create_todo_from_timeline_item(thread_id.clone(), &user_message_id);
+
+        let items = palette_items(&store.projection(), SearchPaletteMode::Root, "rich palette");
+        let description = items
+            .iter()
+            .find_map(|item| match item {
+                SearchPaletteItem::Thread {
+                    thread_id: item_thread_id,
+                    ..
+                } if *item_thread_id == thread_id => Some(item.description()),
+                _ => None,
+            })
+            .expect("thread result");
+
+        assert!(description.contains("project"), "{description}");
+        assert!(description.contains("Completed"), "{description}");
+        assert!(description.contains("gpt-5"), "{description}");
+        assert!(description.contains("1 open todo"), "{description}");
+        assert!(description.contains("1 pin"), "{description}");
+        assert!(
+            description.contains("Implement rich palette metadata"),
+            "{description}"
+        );
     }
 
     #[test]
