@@ -24,6 +24,20 @@ pub(super) fn sidebar_panel(
     reserve_titlebar_controls: bool,
 ) -> AnyElement {
     let active_right_tab = header_metrics.active_right_tab;
+    let active_thread_id = projection.active_thread_id.clone();
+    let pinned_threads = projection
+        .projects
+        .iter()
+        .flat_map(|group| {
+            let project_name = group.project.name.clone();
+            group
+                .threads
+                .iter()
+                .filter(|thread| thread.pinned)
+                .cloned()
+                .map(move |thread| (project_name.clone(), thread))
+        })
+        .collect::<Vec<_>>();
 
     div()
         .id("ace-sidebar")
@@ -54,14 +68,37 @@ pub(super) fn sidebar_panel(
                 .flex()
                 .flex_col()
                 .gap_1()
+                .when(!pinned_threads.is_empty(), |this| {
+                    let active_thread_id = active_thread_id.clone();
+                    this.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(gpui::px(2.0))
+                            .child(sidebar_section_heading(theme, "Pinned"))
+                            .children(pinned_threads.into_iter().map(
+                                move |(project_name, thread)| {
+                                    let active = active_thread_id.as_ref() == Some(&thread.id);
+                                    thread_row(theme, &project_name, thread, active)
+                                },
+                            )),
+                    )
+                })
                 .children(
                     projection
                         .projects
                         .into_iter()
                         .map(|group| {
-                            let active_thread_id = projection.active_thread_id.clone();
-                            let total = group.project.thread_count;
-                            let loaded = group.threads.len();
+                            let active_thread_id = active_thread_id.clone();
+                            let pinned_count =
+                                group.threads.iter().filter(|thread| thread.pinned).count();
+                            let visible_threads = group
+                                .threads
+                                .into_iter()
+                                .filter(|thread| !thread.pinned)
+                                .collect::<Vec<_>>();
+                            let total = group.project.thread_count.saturating_sub(pinned_count);
+                            let loaded = visible_threads.len();
                             let can_show_less = loaded > 5;
                             let project = group.project;
                             let project_id = project.id;
@@ -77,7 +114,7 @@ pub(super) fn sidebar_panel(
                                     project.icon,
                                     project.icon_color,
                                 ))
-                                .children(group.threads.into_iter().map(move |thread| {
+                                .children(visible_threads.into_iter().map(move |thread| {
                                     let active = active_thread_id.as_ref() == Some(&thread.id);
                                     thread_row(theme, &project_name, thread, active)
                                 }))
@@ -94,5 +131,16 @@ pub(super) fn sidebar_panel(
                 ),
         ))
         .child(sidebar_footer(theme, active_right_tab))
+        .into_any_element()
+}
+
+fn sidebar_section_heading(theme: Theme, label: &'static str) -> AnyElement {
+    div()
+        .px_1()
+        .pt_2()
+        .pb_1()
+        .text_size(gpui::px(11.0))
+        .text_color(theme.muted_subtle)
+        .child(label)
         .into_any_element()
 }
