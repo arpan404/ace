@@ -3573,6 +3573,7 @@ fn pinned_context_count_label(pinned_count: usize, highlight_count: usize) -> St
 fn pinned_item_card(theme: Theme, item: &PinnedTimelineItem) -> AnyElement {
     let thread_id = item.thread_id.clone();
     let pin_id = item.id.clone();
+    let mention = pinned_item_mention(item);
     annotation_card_with_actions(
         theme,
         IconName::Star,
@@ -3593,6 +3594,14 @@ fn pinned_item_card(theme: Theme, item: &PinnedTimelineItem) -> AnyElement {
                     context: ComposerContextKind::Pinned,
                 })
             }),
+            action_button(IconName::Plus, "Add mention", theme, {
+                let mention = mention.clone();
+                move || {
+                    Box::new(CompleteComposerToken {
+                        completion: mention.clone(),
+                    })
+                }
+            }),
             action_button(IconName::CircleX, "Unpin", theme, move || {
                 Box::new(UnpinTimelineItem {
                     pin_id: pin_id.clone(),
@@ -3609,6 +3618,7 @@ fn highlighted_item_card(
 ) -> AnyElement {
     let thread_id = item.thread_id.clone();
     let message_id = item.message_id.clone();
+    let mention = highlighted_item_mention(item);
     let highlighted_context_selected = projection
         .chat
         .composer
@@ -3640,6 +3650,14 @@ fn highlighted_item_card(
                     })
                 },
             ),
+            action_button(IconName::Plus, "Add mention", theme, {
+                let mention = mention.clone();
+                move || {
+                    Box::new(CompleteComposerToken {
+                        completion: mention.clone(),
+                    })
+                }
+            }),
             action_button(IconName::CircleX, "Remove", theme, move || {
                 Box::new(ToggleHighlightTimelineItem {
                     thread_id: thread_id.clone(),
@@ -3648,6 +3666,14 @@ fn highlighted_item_card(
             }),
         ],
     )
+}
+
+fn pinned_item_mention(item: &PinnedTimelineItem) -> String {
+    format!("@pin:{}", item.id)
+}
+
+fn highlighted_item_mention(item: &HighlightedTimelineItem) -> String {
+    format!("@highlight:{}", item.id)
 }
 
 fn highlighted_context_action_label(selected: bool) -> &'static str {
@@ -3830,6 +3856,7 @@ fn todo_card(theme: Theme, todo: &TodoItem) -> AnyElement {
         TodoStatus::Canceled => (IconName::CircleX, "Canceled", theme.muted_subtle),
     };
     let todo_id = todo.id.clone();
+    let mention = todo_item_mention(todo);
 
     div()
         .rounded_md()
@@ -3908,6 +3935,21 @@ fn todo_card(theme: Theme, todo: &TodoItem) -> AnyElement {
             )
         })
         .child(todo_status_actions(theme, &todo_id, todo.status))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .child(action_button(IconName::Plus, "Add mention", theme, {
+                    let mention = mention.clone();
+                    move || {
+                        Box::new(CompleteComposerToken {
+                            completion: mention.clone(),
+                        })
+                    }
+                })),
+        )
         .child(todo_metadata_actions(
             theme,
             &todo_id,
@@ -3915,6 +3957,10 @@ fn todo_card(theme: Theme, todo: &TodoItem) -> AnyElement {
             todo.assigned_to,
         ))
         .into_any_element()
+}
+
+fn todo_item_mention(todo: &TodoItem) -> String {
+    format!("@todo:{}", todo.id)
 }
 
 fn todo_status_actions(theme: Theme, todo_id: &str, status: TodoStatus) -> AnyElement {
@@ -4495,7 +4541,10 @@ impl ThreadSummaryExt for ThreadSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stores::{DesktopStore, desktop::ComposerPayload};
+    use crate::stores::{
+        DesktopStore,
+        desktop::{ComposerPayload, TodoCreatedBy},
+    };
 
     #[test]
     fn right_panel_header_primary_actions_are_backed_by_active_tab() {
@@ -4617,6 +4666,51 @@ mod tests {
     fn highlighted_context_action_label_reflects_composer_state() {
         assert_eq!(highlighted_context_action_label(false), "Add context");
         assert_eq!(highlighted_context_action_label(true), "Remove context");
+    }
+
+    #[test]
+    fn annotation_mentions_use_backed_context_tokens() {
+        let thread_id = ace_core::ThreadId::new();
+        let pinned = PinnedTimelineItem {
+            id: "pin-1".to_string(),
+            thread_id: thread_id.clone(),
+            message_id: "message-1".to_string(),
+            display_title: "Pinned item".to_string(),
+            display_excerpt: "Pinned excerpt".to_string(),
+            pinned_at: "now".to_string(),
+        };
+        let highlighted = HighlightedTimelineItem {
+            id: "highlight-1".to_string(),
+            thread_id: thread_id.clone(),
+            message_id: "message-2".to_string(),
+            display_title: "Highlighted item".to_string(),
+            display_excerpt: "Highlighted excerpt".to_string(),
+            highlighted_at: "now".to_string(),
+        };
+        let todo = TodoItem {
+            id: "todo-1".to_string(),
+            thread_id,
+            source_message_id: Some("message-3".to_string()),
+            title: "Follow up".to_string(),
+            description: None,
+            status: TodoStatus::Open,
+            priority: TodoPriority::Normal,
+            created_by: TodoCreatedBy::User,
+            assigned_to: TodoAssignee::Both,
+            created_at: "created".to_string(),
+            updated_at: "updated".to_string(),
+            completed_at: None,
+            related_files: Vec::new(),
+            related_tool_events: Vec::new(),
+            related_diff_comments: Vec::new(),
+        };
+
+        assert_eq!(pinned_item_mention(&pinned), "@pin:pin-1");
+        assert_eq!(
+            highlighted_item_mention(&highlighted),
+            "@highlight:highlight-1"
+        );
+        assert_eq!(todo_item_mention(&todo), "@todo:todo-1");
     }
 
     #[test]
