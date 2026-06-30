@@ -375,88 +375,60 @@ fn thread_status_label(status: ThreadStatus) -> &'static str {
 }
 
 fn thread_annotation_badges(theme: Theme, thread: &ThreadSummary) -> Vec<AnyElement> {
-    let mut badges = Vec::new();
-    if thread.pinned_item_count > 0 {
-        let thread_id = thread.id.clone();
-        badges.push(thread_action_count_badge(
-            theme,
-            AceIconName::PinFilled,
-            thread.pinned_item_count,
-            "Show pinned messages",
-            move || {
+    thread_annotation_badge_specs(thread)
+        .into_iter()
+        .map(|spec| {
+            let thread_id = thread.id.clone();
+            thread_action_count_badge(theme, spec.icon, spec.count, spec.tooltip, move || {
                 Box::new(crate::actions::OpenThreadRightPanelTab {
                     thread_id: thread_id.clone(),
-                    tab: RightPanelTab::Pinned,
+                    tab: spec.tab,
                 })
-            },
-        ));
-    }
-    if thread.highlighted_count > 0 {
-        badges.push(thread_count_badge(
-            theme,
-            AceIconName::Summary,
-            thread.highlighted_count,
-            "Highlighted timeline items",
-        ));
-    }
-    if thread.open_todo_count > 0 {
-        let thread_id = thread.id.clone();
-        badges.push(thread_action_count_badge(
-            theme,
-            AceIconName::ListChecks,
-            thread.open_todo_count,
-            "Show todos",
-            move || {
-                Box::new(crate::actions::OpenThreadRightPanelTab {
-                    thread_id: thread_id.clone(),
-                    tab: RightPanelTab::Todos,
-                })
-            },
-        ));
-    } else if thread.todo_count > 0 {
-        let thread_id = thread.id.clone();
-        badges.push(thread_action_count_badge(
-            theme,
-            AceIconName::ListChecks,
-            thread.todo_count,
-            "Show todos",
-            move || {
-                Box::new(crate::actions::OpenThreadRightPanelTab {
-                    thread_id: thread_id.clone(),
-                    tab: RightPanelTab::Todos,
-                })
-            },
-        ));
-    }
-    badges
+            })
+        })
+        .collect()
 }
 
-fn thread_count_badge(
-    theme: Theme,
-    icon: AceIconName,
+#[derive(Clone, Copy)]
+struct ThreadAnnotationBadgeSpec {
     count: usize,
+    icon: AceIconName,
     tooltip: &'static str,
-) -> AnyElement {
-    div()
-        .id(tooltip)
-        .h(px(18.0))
-        .min_w(px(22.0))
-        .rounded_md()
-        .border_1()
-        .border_color(theme.border_subtle)
-        .bg(theme.panel_deep)
-        .px_1()
-        .flex()
-        .flex_row()
-        .items_center()
-        .justify_center()
-        .gap_1()
-        .text_size(px(10.0))
-        .text_color(theme.muted)
-        .child(ace_icon_svg(icon, theme.muted_subtle))
-        .child(count.to_string())
-        .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
-        .into_any_element()
+    tab: RightPanelTab,
+}
+
+fn thread_annotation_badge_specs(thread: &ThreadSummary) -> Vec<ThreadAnnotationBadgeSpec> {
+    let mut specs = Vec::new();
+    if thread.pinned_item_count > 0 {
+        specs.push(ThreadAnnotationBadgeSpec {
+            count: thread.pinned_item_count,
+            icon: AceIconName::PinFilled,
+            tooltip: "Show pinned messages",
+            tab: RightPanelTab::Pinned,
+        });
+    }
+    if thread.highlighted_count > 0 {
+        specs.push(ThreadAnnotationBadgeSpec {
+            count: thread.highlighted_count,
+            icon: AceIconName::Summary,
+            tooltip: "Show highlighted messages",
+            tab: RightPanelTab::Pinned,
+        });
+    }
+    let todo_count = if thread.open_todo_count > 0 {
+        thread.open_todo_count
+    } else {
+        thread.todo_count
+    };
+    if todo_count > 0 {
+        specs.push(ThreadAnnotationBadgeSpec {
+            count: todo_count,
+            icon: AceIconName::ListChecks,
+            tooltip: "Show todos",
+            tab: RightPanelTab::Todos,
+        });
+    }
+    specs
 }
 
 fn thread_action_count_badge<F>(
@@ -622,5 +594,49 @@ mod tests {
             "26/06/30 10:05"
         );
         assert_eq!(worktree_display_name("/repo-worktrees/sidebar/"), "sidebar");
+    }
+
+    #[test]
+    fn annotation_badges_route_to_backed_tabs() {
+        let thread = ThreadSummary {
+            id: ThreadId::new(),
+            provider_thread_id: None,
+            project_id: ProjectId::new(),
+            title: "Route annotation badges".to_string(),
+            status: ThreadStatus::Idle,
+            provider: ProviderKind::Codex,
+            model: None,
+            pinned: false,
+            archived: false,
+            pinned_item_count: 2,
+            highlighted_count: 1,
+            todo_count: 3,
+            open_todo_count: 0,
+            unseen_completion: false,
+            latest_activity_at: "now".to_string(),
+            latest_message_preview: None,
+            pending_approvals: 0,
+            pending_user_inputs: 0,
+            has_actionable_plan: false,
+            branch: None,
+            worktree_path: None,
+        };
+
+        let specs = thread_annotation_badge_specs(&thread);
+
+        assert_eq!(specs.len(), 3);
+        assert!(specs.iter().any(|spec| {
+            spec.count == 2
+                && spec.tooltip == "Show pinned messages"
+                && spec.tab == RightPanelTab::Pinned
+        }));
+        assert!(specs.iter().any(|spec| {
+            spec.count == 1
+                && spec.tooltip == "Show highlighted messages"
+                && spec.tab == RightPanelTab::Pinned
+        }));
+        assert!(specs.iter().any(|spec| {
+            spec.count == 3 && spec.tooltip == "Show todos" && spec.tab == RightPanelTab::Todos
+        }));
     }
 }
