@@ -1352,8 +1352,8 @@ impl RootView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.open_project_or_create_thread(event.project_id);
         self.apply_right_panel_tab(event.tab);
+        self.open_project_or_create_thread(event.project_id);
         if event.tab == RightPanelTab::Terminal {
             self.ensure_active_terminal();
         }
@@ -1383,8 +1383,8 @@ impl RootView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.open_thread_with_context_refresh(event.thread_id.clone());
         self.apply_right_panel_tab(event.tab);
+        self.open_thread_with_context_refresh(event.thread_id.clone());
         cx.notify();
     }
 
@@ -1978,6 +1978,10 @@ mod tests {
 
     #[test]
     fn thread_change_refreshes_selected_backed_tab() {
+        assert_eq!(
+            thread_change_refresh_targets(RightPanelTab::Terminal, false),
+            vec![RightPanelRefreshTarget::Terminal]
+        );
         assert_eq!(
             thread_change_refresh_targets(RightPanelTab::Browser, false),
             vec![RightPanelRefreshTarget::ProviderRuntime]
