@@ -131,6 +131,12 @@ pub enum SearchPaletteItem {
         label: String,
         description: String,
     },
+    ProjectAction {
+        project_id: ProjectId,
+        action: ProjectPaletteAction,
+        label: String,
+        description: String,
+    },
     Project {
         project_id: ProjectId,
         label: String,
@@ -151,6 +157,15 @@ pub enum ActiveThreadPaletteAction {
     OpenBrowser,
     ShowPinned,
     ShowTodos,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectPaletteAction {
+    NewThread,
+    OpenTerminal,
+    ShowWorktrees,
+    CreateWorktree,
+    Archive,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -199,6 +214,7 @@ impl SearchPaletteItem {
             Self::Panel { label, .. } => label,
             Self::Message { label, .. } => label,
             Self::Context { label, .. } => label,
+            Self::ProjectAction { label, .. } => label,
             Self::Project { label, .. } | Self::Thread { label, .. } => label,
         }
     }
@@ -247,6 +263,7 @@ impl SearchPaletteItem {
             Self::Panel { description, .. } => description,
             Self::Message { description, .. } => description,
             Self::Context { description, .. } => description,
+            Self::ProjectAction { description, .. } => description,
             Self::Project { description, .. } | Self::Thread { description, .. } => description,
         }
     }
@@ -293,6 +310,7 @@ impl SearchPaletteItem {
             },
             Self::Message { .. } => PaletteItemKind::Context,
             Self::Context { .. } => PaletteItemKind::Context,
+            Self::ProjectAction { .. } => PaletteItemKind::Action,
             Self::Project { .. } => PaletteItemKind::Project,
             Self::Thread { .. } => PaletteItemKind::Thread,
         }
@@ -375,6 +393,7 @@ pub fn palette_items(
     let mut context_items = Vec::new();
     let mut registry_items = Vec::new();
     let mut active_thread_actions = Vec::new();
+    let mut project_action_items = Vec::new();
 
     if let Some(thread) = projection.chat.active_thread.as_ref() {
         active_thread_actions.extend(active_thread_palette_actions(thread));
@@ -386,6 +405,12 @@ pub fn palette_items(
             label: group.project.name.clone(),
             description: group.project.workspace_root.clone(),
         });
+        project_action_items.extend(project_palette_actions(
+            group.project.id,
+            &group.project.name,
+            &group.project.workspace_root,
+            group.project.thread_count,
+        ));
 
         for thread in &group.threads {
             thread_items.push(SearchPaletteItem::Thread {
@@ -804,6 +829,7 @@ pub fn palette_items(
         return actions
             .into_iter()
             .chain(active_thread_actions)
+            .chain(project_action_items)
             .chain(project_items.into_iter().take(8))
             .chain(thread_items.into_iter().take(8))
             .collect();
@@ -812,6 +838,7 @@ pub fn palette_items(
     actions
         .into_iter()
         .chain(active_thread_actions)
+        .chain(project_action_items)
         .chain(project_items)
         .chain(thread_items)
         .chain(source_items)
@@ -880,6 +907,53 @@ fn active_thread_palette_actions(thread: &ThreadSummary) -> Vec<SearchPaletteIte
         ),
     });
     items
+}
+
+fn project_palette_actions(
+    project_id: ProjectId,
+    name: &str,
+    workspace_root: &str,
+    thread_count: usize,
+) -> Vec<SearchPaletteItem> {
+    let project_context = format!(
+        "{name} · {} thread{} · {workspace_root}",
+        thread_count,
+        plural(thread_count)
+    );
+    vec![
+        SearchPaletteItem::ProjectAction {
+            project_id,
+            action: ProjectPaletteAction::NewThread,
+            label: format!("New thread in {name}"),
+            description: format!("{project_context} · create a backed project thread"),
+        },
+        SearchPaletteItem::ProjectAction {
+            project_id,
+            action: ProjectPaletteAction::OpenTerminal,
+            label: format!("Open terminal for {name}"),
+            description: format!("{project_context} · open or create a backed PTY session"),
+        },
+        SearchPaletteItem::ProjectAction {
+            project_id,
+            action: ProjectPaletteAction::ShowWorktrees,
+            label: format!("Show {name} worktrees"),
+            description: format!("{project_context} · open Git worktree inspector"),
+        },
+        SearchPaletteItem::ProjectAction {
+            project_id,
+            action: ProjectPaletteAction::CreateWorktree,
+            label: format!("Create worktree for {name}"),
+            description: format!("{project_context} · call the host Git worktree service"),
+        },
+        SearchPaletteItem::ProjectAction {
+            project_id,
+            action: ProjectPaletteAction::Archive,
+            label: format!("Archive {name}"),
+            description: format!(
+                "{project_context} · remove project registration without deleting files"
+            ),
+        },
+    ]
 }
 
 fn thread_palette_description(project_name: &str, thread: &ThreadSummary) -> String {
@@ -1385,6 +1459,14 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
             RightPanelTab::Review => ace_icon_svg(AceIconName::Review, color),
             _ => icon_svg(IconName::File, color),
         },
+        SearchPaletteItem::ProjectAction { action, .. } => match action {
+            ProjectPaletteAction::NewThread => ace_icon_svg(AceIconName::SquarePen, color),
+            ProjectPaletteAction::OpenTerminal => ace_icon_svg(AceIconName::Terminal, color),
+            ProjectPaletteAction::ShowWorktrees | ProjectPaletteAction::CreateWorktree => {
+                ace_icon_svg(AceIconName::Review, color)
+            }
+            ProjectPaletteAction::Archive => icon_svg(IconName::CircleX, color),
+        },
     }
 }
 
@@ -1651,6 +1733,55 @@ mod tests {
                 action: ActiveThreadPaletteAction::Archive,
                 ..
             }
+        )));
+    }
+
+    #[test]
+    fn palette_search_includes_backed_project_actions() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        store.new_thread(project_id);
+
+        let terminal_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "terminal project",
+        );
+        assert!(terminal_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ProjectAction {
+                project_id: item_project_id,
+                action: ProjectPaletteAction::OpenTerminal,
+                ..
+            } if *item_project_id == project_id
+        )));
+
+        let worktree_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "create worktree project",
+        );
+        assert!(worktree_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ProjectAction {
+                project_id: item_project_id,
+                action: ProjectPaletteAction::CreateWorktree,
+                ..
+            } if *item_project_id == project_id
+        )));
+
+        let archive_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "archive project",
+        );
+        assert!(archive_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ProjectAction {
+                project_id: item_project_id,
+                action: ProjectPaletteAction::Archive,
+                ..
+            } if *item_project_id == project_id
         )));
     }
 

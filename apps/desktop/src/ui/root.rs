@@ -823,6 +823,12 @@ impl RootView {
                 }
                 self.apply_right_panel_tab(tab);
             }
+            SearchPaletteItem::ProjectAction {
+                project_id, action, ..
+            } => {
+                self.search_palette.close();
+                self.activate_project_palette_action(project_id, action);
+            }
             SearchPaletteItem::Project { project_id, .. } => {
                 let mode = self.search_palette.mode;
                 self.search_palette.close();
@@ -863,6 +869,44 @@ impl RootView {
             }
             crate::ui::search_palette::ActiveThreadPaletteAction::ShowTodos => {
                 self.apply_right_panel_tab(RightPanelTab::Todos);
+            }
+        }
+    }
+
+    fn activate_project_palette_action(
+        &mut self,
+        project_id: ace_core::ProjectId,
+        action: crate::ui::search_palette::ProjectPaletteAction,
+    ) {
+        match action {
+            crate::ui::search_palette::ProjectPaletteAction::NewThread => {
+                self.active_store_mut().new_thread(project_id);
+                if self.terminal_owns_keyboard() {
+                    self.ensure_active_terminal();
+                }
+            }
+            crate::ui::search_palette::ProjectPaletteAction::OpenTerminal => {
+                self.open_project_or_create_thread(project_id);
+                self.apply_right_panel_tab(RightPanelTab::Terminal);
+                self.ensure_active_terminal();
+                self.save_ui_state();
+            }
+            crate::ui::search_palette::ProjectPaletteAction::ShowWorktrees => {
+                self.open_project_or_create_thread(project_id);
+                self.apply_right_panel_tab(RightPanelTab::Worktrees);
+                self.refresh_active_worktrees();
+            }
+            crate::ui::search_palette::ProjectPaletteAction::CreateWorktree => {
+                self.open_project_or_create_thread(project_id);
+                self.apply_right_panel_tab(RightPanelTab::Worktrees);
+                let active_host = self.active_host.clone();
+                self.active_store_mut()
+                    .create_active_worktree(active_host.as_ref());
+            }
+            crate::ui::search_palette::ProjectPaletteAction::Archive => {
+                let active_host = self.active_host.clone();
+                self.active_store_mut()
+                    .archive_or_delete_project(project_id, active_host.as_ref());
             }
         }
     }
