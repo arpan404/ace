@@ -107,6 +107,7 @@ pub struct DesktopProjection {
     pub chat: ChatProjection,
     pub host: HostProjection,
     pub host_options: Vec<HostOptionProjection>,
+    pub active_project_default_model: Option<String>,
     pub services: ServiceReadiness,
     pub terminal: TerminalProjection,
     pub editor: EditorProjection,
@@ -812,6 +813,7 @@ impl DesktopStore {
             chat,
             host: self.host_projection(),
             host_options: self.host_options_projection(),
+            active_project_default_model: self.active_project_default_model_label(),
             services: self.service_readiness(),
             terminal: self.terminal_projection(),
             editor: self.editor_projection(),
@@ -866,6 +868,18 @@ impl DesktopStore {
                 .then_with(|| left.host_id.cmp(&right.host_id))
         });
         hosts
+    }
+
+    #[must_use]
+    pub fn active_project_default_model_label(&self) -> Option<String> {
+        let thread = self.active_thread()?;
+        let selection = self
+            .projects
+            .iter()
+            .find(|project| project.id == thread.project_id)?
+            .default_model_selection
+            .as_ref()?;
+        Some(model_selection_label(selection))
     }
 
     #[must_use]
@@ -4933,6 +4947,13 @@ fn model_provider_projection(
     }
 }
 
+fn model_selection_label(selection: &ModelSelection) -> String {
+    ProviderKind::from_runtime_id(&selection.provider).map_or_else(
+        || format!("{} · {}", selection.provider, selection.model),
+        |provider| format!("{} · {}", provider.display_name(), selection.model),
+    )
+}
+
 fn browser_projection_from_host_tools(
     response: &ProviderHostToolsListResponse,
     updated_at: String,
@@ -7516,6 +7537,10 @@ mod tests {
                 provider: "codex".to_string(),
                 model: "gpt-5".to_string(),
             })
+        );
+        assert_eq!(
+            store.projection().active_project_default_model.as_deref(),
+            Some("Codex · gpt-5")
         );
 
         let next_thread_id = store.new_thread(project_id);

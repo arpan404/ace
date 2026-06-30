@@ -1828,6 +1828,14 @@ fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement 
         ))
         .child(info_row(
             theme,
+            "Project default model",
+            projection
+                .active_project_default_model
+                .as_deref()
+                .unwrap_or("No project default"),
+        ))
+        .child(info_row(
+            theme,
             "Open todos",
             &projection.annotations.open_todo_count.to_string(),
         ))
