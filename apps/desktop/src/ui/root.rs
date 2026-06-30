@@ -728,9 +728,6 @@ impl RootView {
                 self.search_palette.close();
                 self.activate_thread_palette_action(action);
             }
-            SearchPaletteItem::ConnectRemoteHost => {
-                self.search_palette.close();
-            }
             SearchPaletteItem::ComposerModel {
                 provider: Some(provider),
                 model,

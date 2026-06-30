@@ -41,7 +41,6 @@ pub enum SearchPaletteItem {
     ManageSkills,
     ConfigureProviders,
     ShowApprovals,
-    ConnectRemoteHost,
     SwitchModel,
     SetProjectDefaultModel,
     RunTests,
@@ -252,7 +251,6 @@ impl SearchPaletteItem {
             Self::ManageSkills => "Manage skills",
             Self::ConfigureProviders => "Configure providers/models",
             Self::ShowApprovals => "Show approvals",
-            Self::ConnectRemoteHost => "Connect remote host",
             Self::SwitchModel => "Switch model",
             Self::SetProjectDefaultModel => "Set project default model",
             Self::RunTests => "Run tests",
@@ -302,7 +300,6 @@ impl SearchPaletteItem {
             Self::ManageSkills => "Open the skill registry.",
             Self::ConfigureProviders => "Open provider and model settings.",
             Self::ShowApprovals => "Open pending provider approvals.",
-            Self::ConnectRemoteHost => "Remote host manager is not implemented yet.",
             Self::SwitchModel => {
                 "Search provider model catalog entries and select one for the composer."
             }
@@ -354,7 +351,6 @@ impl SearchPaletteItem {
             | Self::ManageSkills
             | Self::ConfigureProviders
             | Self::ShowApprovals
-            | Self::ConnectRemoteHost
             | Self::SwitchModel
             | Self::SetProjectDefaultModel
             | Self::RunTests
@@ -392,7 +388,6 @@ impl SearchPaletteItem {
 
     pub fn disabled_reason(&self) -> Option<&'static str> {
         match self {
-            Self::ConnectRemoteHost => Some("Remote host manager is not implemented yet."),
             Self::OpenScheduled => Some("Scheduled tasks need a host scheduler service."),
             Self::ComposerRuntimeMode {
                 runtime_mode: RuntimeMode::Remote,
@@ -936,7 +931,6 @@ pub fn palette_items(
         SearchPaletteItem::ManageSkills,
         SearchPaletteItem::ConfigureProviders,
         SearchPaletteItem::ShowApprovals,
-        SearchPaletteItem::ConnectRemoteHost,
         SearchPaletteItem::SwitchModel,
         SearchPaletteItem::RunTests,
         SearchPaletteItem::RunLint,
@@ -1755,7 +1749,6 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
         | SearchPaletteItem::SwitchModel
         | SearchPaletteItem::SetProjectDefaultModel => ace_icon_svg(AceIconName::Code2, color),
         SearchPaletteItem::ShowApprovals => ace_icon_svg(AceIconName::ListChecks, color),
-        SearchPaletteItem::ConnectRemoteHost => ace_icon_svg(AceIconName::Environment, color),
         SearchPaletteItem::RunTests | SearchPaletteItem::RunLint => {
             ace_icon_svg(AceIconName::TablerTerminal, color)
         }
@@ -2428,17 +2421,15 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_palette_commands_explain_missing_service() {
+    fn unavailable_palette_commands_explain_missing_services_without_dead_remote_action() {
         let store = DesktopStore::new();
-        let items = palette_items(&store.projection(), SearchPaletteMode::Root, "remote");
+        let remote_items = palette_items(&store.projection(), SearchPaletteMode::Root, "remote");
 
-        let remote = items
-            .iter()
-            .find(|item| matches!(item, SearchPaletteItem::ConnectRemoteHost))
-            .expect("remote host command remains searchable");
-        assert_eq!(
-            remote.disabled_reason(),
-            Some("Remote host manager is not implemented yet.")
+        assert!(
+            remote_items
+                .iter()
+                .any(|item| matches!(item, SearchPaletteItem::ComposerRuntimeMode { .. })),
+            "remote search should expose backed composer runtime controls instead of a no-op connect action"
         );
         let scheduled = palette_items(&store.projection(), SearchPaletteMode::Root, "scheduled")
             .into_iter()
