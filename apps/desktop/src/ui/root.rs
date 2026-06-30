@@ -1,7 +1,7 @@
 use crate::{
     actions::{
         AddCurrentDirectoryProject, ApproveProviderRequest, ArchiveActiveThread, ArchiveProject,
-        BeginPanelResize, CloseSearchPalette, CommitReview, CompleteComposerToken,
+        ArchiveThread, BeginPanelResize, CloseSearchPalette, CommitReview, CompleteComposerToken,
         CreateReviewComment, CreateTodoFromLatestTimelineItem, CreateTodoFromTimelineItem,
         CreateWorktree, DenyProviderRequest, FocusPanel, InterruptActiveTurn,
         LinkTodoToCurrentDiff, NewThread, NewThreadForProject, OpenSearchPalette, OpenThread,
@@ -15,8 +15,8 @@ use crate::{
         ShowProvidersTab, ShowSkillsTab, ShowTodosTab, StageReviewAll, StageReviewFile,
         ToggleBottomPanel, ToggleComposerContext, ToggleComposerTrait, ToggleEnvironmentPanel,
         ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem,
-        TogglePinActiveThread, ToggleReviewCommentResolved, ToggleRightPanel, ToggleSidebar,
-        UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority,
+        TogglePinActiveThread, TogglePinThread, ToggleReviewCommentResolved, ToggleRightPanel,
+        ToggleSidebar, UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority,
         UpdateTodoStatus,
     },
     backend::{BackendHostClient, DesktopBackend, HostId},
@@ -1240,6 +1240,17 @@ impl RootView {
         cx.notify();
     }
 
+    fn toggle_pin_thread(
+        &mut self,
+        event: &TogglePinThread,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_store_mut()
+            .toggle_pin_thread(event.thread_id.clone());
+        cx.notify();
+    }
+
     fn pin_latest_timeline_item(
         &mut self,
         _: &PinLatestTimelineItem,
@@ -1380,6 +1391,12 @@ impl RootView {
         cx.notify();
     }
 
+    fn archive_thread(&mut self, event: &ArchiveThread, _: &mut Window, cx: &mut Context<Self>) {
+        self.active_store_mut()
+            .archive_thread(event.thread_id.clone());
+        cx.notify();
+    }
+
     fn archive_project(&mut self, event: &ArchiveProject, _: &mut Window, cx: &mut Context<Self>) {
         let active_host = self.active_host.clone();
         self.active_store_mut()
@@ -1478,6 +1495,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::complete_composer_token))
             .on_action(cx.listener(Self::interrupt_active_turn))
             .on_action(cx.listener(Self::toggle_pin_active_thread))
+            .on_action(cx.listener(Self::toggle_pin_thread))
             .on_action(cx.listener(Self::pin_latest_timeline_item))
             .on_action(cx.listener(Self::pin_timeline_item))
             .on_action(cx.listener(Self::toggle_highlight_latest_timeline_item))
@@ -1505,6 +1523,7 @@ impl Render for RootView {
             .on_action(cx.listener(Self::approve_provider_request))
             .on_action(cx.listener(Self::deny_provider_request))
             .on_action(cx.listener(Self::archive_active_thread))
+            .on_action(cx.listener(Self::archive_thread))
             .on_action(cx.listener(Self::archive_project))
             .on_action(cx.listener(Self::show_more_project_threads))
             .on_action(cx.listener(Self::show_less_project_threads))

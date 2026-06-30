@@ -5,6 +5,8 @@ use gpui_component::{IconName, tooltip::Tooltip};
 
 pub(super) fn thread_row(theme: Theme, thread: ThreadSummary, active: bool) -> AnyElement {
     let id = thread.id.clone();
+    let pin_thread_id = thread.id.clone();
+    let archive_thread_id = thread.id.clone();
     let tooltip_thread = thread.clone();
     div()
         .id("thread-row")
@@ -22,43 +24,131 @@ pub(super) fn thread_row(theme: Theme, thread: ThreadSummary, active: bool) -> A
         .flex_row()
         .items_center()
         .gap_1()
-        .child(thread_status_icon(&thread, theme))
-        .when(thread.pinned, |this| {
-            this.child(ace_icon_svg(
-                AceIconName::PinFilled,
-                if active {
-                    theme.foreground
-                } else {
-                    theme.muted_subtle
-                },
-            ))
-        })
         .child(
             div()
+                .id("thread-row-open-area")
                 .flex_1()
                 .min_w_0()
-                .overflow_hidden()
-                .text_ellipsis()
-                .whitespace_nowrap()
-                .text_size(px(12.0))
-                .text_color(if active {
-                    theme.foreground
-                } else {
-                    theme.foreground.opacity(0.72)
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .child(thread_status_icon(&thread, theme))
+                .when(thread.pinned, |this| {
+                    this.child(ace_icon_svg(
+                        AceIconName::PinFilled,
+                        if active {
+                            theme.foreground
+                        } else {
+                            theme.muted_subtle
+                        },
+                    ))
                 })
-                .child(thread.title.clone()),
-        )
-        .children(thread_annotation_badges(theme, &thread))
-        .tooltip(move |window, cx| {
-            Tooltip::new(thread_hover_tooltip(&tooltip_thread)).build(window, cx)
-        })
-        .on_mouse_up(MouseButton::Left, move |_, window, cx| {
-            window.dispatch_action(
-                Box::new(crate::actions::OpenThread {
-                    thread_id: id.clone(),
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_size(px(12.0))
+                        .text_color(if active {
+                            theme.foreground
+                        } else {
+                            theme.foreground.opacity(0.72)
+                        })
+                        .child(thread.title.clone()),
+                )
+                .children(thread_annotation_badges(theme, &thread))
+                .tooltip(move |window, cx| {
+                    Tooltip::new(thread_hover_tooltip(&tooltip_thread)).build(window, cx)
+                })
+                .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+                    window.dispatch_action(
+                        Box::new(crate::actions::OpenThread {
+                            thread_id: id.clone(),
+                        }),
+                        cx,
+                    );
                 }),
-                cx,
-            );
+        )
+        .child(thread_row_icon_button(
+            theme,
+            AceIconName::PinFilled,
+            if thread.pinned {
+                "Unpin thread"
+            } else {
+                "Pin thread"
+            },
+            move || {
+                Box::new(crate::actions::TogglePinThread {
+                    thread_id: pin_thread_id.clone(),
+                })
+            },
+        ))
+        .child(thread_row_lucide_button(
+            theme,
+            IconName::CircleX,
+            "Archive thread",
+            move || {
+                Box::new(crate::actions::ArchiveThread {
+                    thread_id: archive_thread_id.clone(),
+                })
+            },
+        ))
+        .into_any_element()
+}
+
+fn thread_row_icon_button<F>(
+    theme: Theme,
+    icon: AceIconName,
+    tooltip: &'static str,
+    action: F,
+) -> AnyElement
+where
+    F: Fn() -> Box<dyn gpui::Action> + 'static,
+{
+    div()
+        .id(tooltip)
+        .w(px(22.0))
+        .h(px(22.0))
+        .rounded_md()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(theme.muted_subtle)
+        .hover(|this| this.bg(theme.button_hover).text_color(theme.foreground))
+        .child(ace_icon_svg(icon, theme.muted_subtle))
+        .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
+        .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(action(), cx);
+        })
+        .into_any_element()
+}
+
+fn thread_row_lucide_button<F>(
+    theme: Theme,
+    icon: IconName,
+    tooltip: &'static str,
+    action: F,
+) -> AnyElement
+where
+    F: Fn() -> Box<dyn gpui::Action> + 'static,
+{
+    div()
+        .id(tooltip)
+        .w(px(22.0))
+        .h(px(22.0))
+        .rounded_md()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(theme.muted_subtle)
+        .hover(|this| this.bg(theme.button_hover).text_color(theme.foreground))
+        .child(icon_svg(icon, theme.muted_subtle))
+        .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
+        .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(action(), cx);
         })
         .into_any_element()
 }

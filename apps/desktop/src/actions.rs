@@ -273,6 +273,18 @@ pub struct OpenThread {
 
 #[derive(Clone, Debug, PartialEq, gpui::Action)]
 #[action(namespace = ace, no_json)]
+pub struct TogglePinThread {
+    pub thread_id: ace_core::ThreadId,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
+pub struct ArchiveThread {
+    pub thread_id: ace_core::ThreadId,
+}
+
+#[derive(Clone, Debug, PartialEq, gpui::Action)]
+#[action(namespace = ace, no_json)]
 pub struct NewThreadForProject {
     pub project_id: ace_core::ProjectId,
 }

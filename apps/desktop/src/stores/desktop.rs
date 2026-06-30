@@ -4337,9 +4337,13 @@ impl DesktopStore {
 
     pub fn toggle_pin_active_thread(&mut self) {
         if let Some(thread_id) = self.metadata.active_thread_id.clone() {
-            let pinned = !self.metadata.pinned_thread_ids.contains(&thread_id);
-            self.pin_thread(thread_id, pinned);
+            self.toggle_pin_thread(thread_id);
         }
+    }
+
+    pub fn toggle_pin_thread(&mut self, thread_id: ThreadId) {
+        let pinned = !self.metadata.pinned_thread_ids.contains(&thread_id);
+        self.pin_thread(thread_id, pinned);
     }
 
     pub fn add_project(&mut self, path: String) -> ProjectId {
@@ -6362,8 +6366,21 @@ mod tests {
         let mut store = DesktopStore::new();
         let project_id = store.add_project("/tmp/project".to_string());
         let active = store.new_thread(project_id);
-        store.pin_thread(active.clone(), true);
+        store.toggle_pin_thread(active.clone());
         assert!(store.metadata.pinned_thread_ids.contains(&active));
+        assert!(
+            store
+                .projection()
+                .sidebar
+                .projects
+                .iter()
+                .flat_map(|group| group.threads.iter())
+                .any(|thread| thread.id == active && thread.pinned)
+        );
+        store.toggle_pin_thread(active.clone());
+        assert!(!store.metadata.pinned_thread_ids.contains(&active));
+
+        store.toggle_pin_thread(active.clone());
         store.archive_thread(active.clone());
         assert!(store.metadata.archived_thread_ids.contains(&active));
         assert_ne!(store.metadata.active_thread_id, Some(active));
