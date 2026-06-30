@@ -63,6 +63,7 @@ pub(super) fn sidebar_panel(
                             let can_show_less = loaded > 5;
                             let project = group.project;
                             let project_id = project.id;
+                            let project_name = project.name.clone();
                             div()
                                 .flex()
                                 .flex_col()
@@ -76,7 +77,7 @@ pub(super) fn sidebar_panel(
                                 ))
                                 .children(group.threads.into_iter().map(move |thread| {
                                     let active = active_thread_id.as_ref() == Some(&thread.id);
-                                    thread_row(theme, thread, active)
+                                    thread_row(theme, &project_name, thread, active)
                                 }))
                                 .when(total > loaded || can_show_less, |this| {
                                     this.child(thread_paging_row(

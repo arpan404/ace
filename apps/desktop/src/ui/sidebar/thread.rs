@@ -3,11 +3,17 @@ use ace_runtime::chat::{ThreadStatus, ThreadSummary};
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
 use gpui_component::{IconName, tooltip::Tooltip};
 
-pub(super) fn thread_row(theme: Theme, thread: ThreadSummary, active: bool) -> AnyElement {
+pub(super) fn thread_row(
+    theme: Theme,
+    project_name: &str,
+    thread: ThreadSummary,
+    active: bool,
+) -> AnyElement {
     let id = thread.id.clone();
     let pin_thread_id = thread.id.clone();
     let archive_thread_id = thread.id.clone();
     let tooltip_thread = thread.clone();
+    let tooltip_project_name = project_name.to_string();
     div()
         .id("thread-row")
         .h(px(28.0))
@@ -61,7 +67,8 @@ pub(super) fn thread_row(theme: Theme, thread: ThreadSummary, active: bool) -> A
                 )
                 .children(thread_annotation_badges(theme, &thread))
                 .tooltip(move |window, cx| {
-                    Tooltip::new(thread_hover_tooltip(&tooltip_thread)).build(window, cx)
+                    Tooltip::new(thread_hover_tooltip(&tooltip_project_name, &tooltip_thread))
+                        .build(window, cx)
                 })
                 .on_mouse_up(MouseButton::Left, move |_, window, cx| {
                     window.dispatch_action(
@@ -153,7 +160,7 @@ where
         .into_any_element()
 }
 
-fn thread_hover_tooltip(thread: &ThreadSummary) -> String {
+fn thread_hover_tooltip(project_name: &str, thread: &ThreadSummary) -> String {
     let mut lines = vec![
         thread.title.clone(),
         format!(
@@ -162,6 +169,8 @@ fn thread_hover_tooltip(thread: &ThreadSummary) -> String {
             thread.provider.display_name(),
             thread.model.as_deref().unwrap_or("Default model")
         ),
+        format!("Updated: {}", thread.latest_activity_at),
+        format!("Project: {project_name}"),
     ];
 
     if let Some(branch) = thread.branch.as_deref().filter(|branch| !branch.is_empty()) {
@@ -178,6 +187,18 @@ fn thread_hover_tooltip(thread: &ThreadSummary) -> String {
         lines.push(format!("Open todos: {}", thread.open_todo_count));
     } else if thread.todo_count > 0 {
         lines.push(format!("Todos: {} completed", thread.todo_count));
+    }
+    if thread.pending_approvals > 0 {
+        lines.push(format!("Pending approvals: {}", thread.pending_approvals));
+    }
+    if thread.pending_user_inputs > 0 {
+        lines.push(format!("Waiting for input: {}", thread.pending_user_inputs));
+    }
+    if thread.has_actionable_plan {
+        lines.push("Plan ready for implementation".to_string());
+    }
+    if thread.unseen_completion {
+        lines.push("Unseen completion".to_string());
     }
     if thread.pinned_item_count > 0 {
         lines.push(format!("Pinned items: {}", thread.pinned_item_count));
@@ -348,4 +369,49 @@ where
             window.dispatch_action(action(), cx);
         })
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ace_core::{ProjectId, ProviderKind, ThreadId};
+
+    #[test]
+    fn thread_hover_tooltip_uses_backed_thread_metadata() {
+        let thread = ThreadSummary {
+            id: ThreadId::new(),
+            provider_thread_id: Some("provider-thread-1".to_string()),
+            project_id: ProjectId::new(),
+            title: "Fix sidebar metadata".to_string(),
+            status: ThreadStatus::PendingApproval,
+            provider: ProviderKind::Codex,
+            model: Some("gpt-5.3-codex".to_string()),
+            pinned: true,
+            archived: false,
+            pinned_item_count: 2,
+            highlighted_count: 1,
+            todo_count: 3,
+            open_todo_count: 1,
+            unseen_completion: true,
+            latest_activity_at: "2026-06-30T10:00:00Z".to_string(),
+            latest_message_preview: Some("Updated provider/model badges".to_string()),
+            pending_approvals: 1,
+            pending_user_inputs: 2,
+            has_actionable_plan: true,
+            branch: Some("feature/sidebar".to_string()),
+            worktree_path: Some("/repo-worktrees/sidebar".to_string()),
+        };
+
+        let tooltip = thread_hover_tooltip("ace", &thread);
+
+        assert!(tooltip.contains("Fix sidebar metadata"));
+        assert!(tooltip.contains("Project: ace"));
+        assert!(tooltip.contains("Branch: feature/sidebar"));
+        assert!(tooltip.contains("Worktree: /repo-worktrees/sidebar"));
+        assert!(tooltip.contains("Pending approvals: 1"));
+        assert!(tooltip.contains("Waiting for input: 2"));
+        assert!(tooltip.contains("Plan ready for implementation"));
+        assert!(tooltip.contains("Unseen completion"));
+        assert!(tooltip.contains("Updated provider/model badges"));
+    }
 }
