@@ -12,8 +12,8 @@ use crate::{
 };
 use ace_core::{ProjectId, ProviderKind, ThreadId};
 use ace_runtime::chat::{
-    ComposerPermissionMode, ComposerTrait, InteractionMode, ReasoningEffort, RuntimeMode,
-    ThreadSummary,
+    ComposerContextKind, ComposerPermissionMode, ComposerTrait, InteractionMode, ReasoningEffort,
+    RuntimeMode, ThreadSummary,
 };
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
 use gpui_component::{IconName, scroll::ScrollableElement as _};
@@ -83,6 +83,12 @@ pub enum SearchPaletteItem {
         interaction_mode: InteractionMode,
         label: String,
         description: String,
+    },
+    ComposerContext {
+        context: ComposerContextKind,
+        label: String,
+        description: String,
+        count: usize,
     },
     ThemePreset {
         preset: ThemePreset,
@@ -251,6 +257,7 @@ impl SearchPaletteItem {
             | Self::ComposerPermission { label, .. }
             | Self::ComposerRuntimeMode { label, .. }
             | Self::ComposerInteractionMode { label, .. }
+            | Self::ComposerContext { label, .. }
             | Self::ThemePreset { label, .. }
             | Self::ThemeAccent { label, .. }
             | Self::ThemeDensity { label, .. }
@@ -303,6 +310,7 @@ impl SearchPaletteItem {
             | Self::ComposerPermission { description, .. }
             | Self::ComposerRuntimeMode { description, .. }
             | Self::ComposerInteractionMode { description, .. }
+            | Self::ComposerContext { description, .. }
             | Self::ThemePreset { description, .. }
             | Self::ThemeAccent { description, .. }
             | Self::ThemeDensity { description, .. }
@@ -348,6 +356,7 @@ impl SearchPaletteItem {
             | Self::ComposerPermission { .. }
             | Self::ComposerRuntimeMode { .. }
             | Self::ComposerInteractionMode { .. }
+            | Self::ComposerContext { .. }
             | Self::ThemePreset { .. }
             | Self::ThemeAccent { .. }
             | Self::ThemeDensity { .. }
@@ -696,6 +705,20 @@ pub fn palette_items(
             description: interaction_mode_description(interaction_mode).to_string(),
         });
     }
+    for context in ComposerContextKind::ALL {
+        let count = composer_context_count(projection, context);
+        if count > 0 {
+            registry_items.push(SearchPaletteItem::ComposerContext {
+                context,
+                label: format!("Context: {}", context.label()),
+                description: format!(
+                    "{} · toggle composer context attachment",
+                    composer_context_count_label(context, count)
+                ),
+                count,
+            });
+        }
+    }
     for (preset, label, description) in [
         (
             ThemePreset::AceDark,
@@ -911,6 +934,30 @@ pub fn palette_items(
 
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
+}
+
+fn composer_context_count(projection: &DesktopProjection, context: ComposerContextKind) -> usize {
+    match context {
+        ComposerContextKind::Pinned => projection.annotations.pinned_items.len(),
+        ComposerContextKind::Highlights => projection.annotations.highlighted_items.len(),
+        ComposerContextKind::Todos => projection.annotations.todos.len(),
+        ComposerContextKind::Terminal => projection
+            .terminal
+            .session
+            .as_ref()
+            .filter(|session| !session.history.trim().is_empty())
+            .map(|_| 1)
+            .unwrap_or(0),
+    }
+}
+
+fn composer_context_count_label(context: ComposerContextKind, count: usize) -> String {
+    match context {
+        ComposerContextKind::Pinned => format!("{count} pinned item{}", plural(count)),
+        ComposerContextKind::Highlights => format!("{count} highlight{}", plural(count)),
+        ComposerContextKind::Todos => format!("{count} todo{}", plural(count)),
+        ComposerContextKind::Terminal => "terminal history available".to_string(),
+    }
 }
 
 fn active_thread_palette_actions(thread: &ThreadSummary) -> Vec<SearchPaletteItem> {
@@ -1691,6 +1738,12 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
         SearchPaletteItem::ComposerInteractionMode { .. } => {
             ace_icon_svg(AceIconName::Editor, color)
         }
+        SearchPaletteItem::ComposerContext { context, .. } => match context {
+            ComposerContextKind::Pinned => ace_icon_svg(AceIconName::PinFilled, color),
+            ComposerContextKind::Highlights => icon_svg(IconName::Star, color),
+            ComposerContextKind::Todos => ace_icon_svg(AceIconName::ListChecks, color),
+            ComposerContextKind::Terminal => ace_icon_svg(AceIconName::Terminal, color),
+        },
         SearchPaletteItem::ThemePreset { .. }
         | SearchPaletteItem::ThemeAccent { .. }
         | SearchPaletteItem::ThemeDensity { .. }
@@ -2382,6 +2435,88 @@ mod tests {
             item,
             SearchPaletteItem::ComposerInteractionMode {
                 interaction_mode: InteractionMode::Plan,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn palette_search_includes_backed_composer_context_controls() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id.clone(),
+            ComposerPayload {
+                prompt: "Track composer context palette controls".to_string(),
+            },
+        );
+        let message_id = store.projection().chat.messages[0].id.clone();
+        store.pin_timeline_item(thread_id.clone(), &message_id);
+        store.create_todo_from_latest_timeline_item();
+        store.apply_terminal_event(SequencedTerminalEvent {
+            sequence: 1,
+            event: TerminalEvent::Started {
+                thread_id: thread_id.0.clone(),
+                terminal_id: DEFAULT_TERMINAL_ID.to_string(),
+                created_at: "now".to_string(),
+                snapshot: TerminalSessionSnapshot {
+                    thread_id: thread_id.0.clone(),
+                    terminal_id: DEFAULT_TERMINAL_ID.to_string(),
+                    cwd: "/tmp/project".to_string(),
+                    title: None,
+                    status: TerminalSessionStatus::Running,
+                    pid: Some(42),
+                    history: "cargo test --workspace\n".to_string(),
+                    exit_code: None,
+                    exit_signal: None,
+                    cols: 120,
+                    rows: 32,
+                    updated_at: "terminal".to_string(),
+                    next_sequence: 1,
+                    truncated_before_sequence: None,
+                },
+            },
+        });
+
+        let pinned_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "context pinned",
+        );
+        assert!(pinned_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ComposerContext {
+                context: ComposerContextKind::Pinned,
+                count: 1,
+                ..
+            }
+        )));
+
+        let todo_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "context todos",
+        );
+        assert!(todo_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ComposerContext {
+                context: ComposerContextKind::Todos,
+                count: 1,
+                ..
+            }
+        )));
+
+        let terminal_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "context terminal",
+        );
+        assert!(terminal_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ComposerContext {
+                context: ComposerContextKind::Terminal,
+                count: 1,
                 ..
             }
         )));

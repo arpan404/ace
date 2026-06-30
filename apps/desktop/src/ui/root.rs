@@ -778,6 +778,11 @@ impl RootView {
                 self.active_store_mut()
                     .set_active_composer_interaction_mode(interaction_mode);
             }
+            SearchPaletteItem::ComposerContext { context, .. } => {
+                self.search_palette.close();
+                self.active_store_mut()
+                    .toggle_active_composer_context(context);
+            }
             SearchPaletteItem::ThemePreset { preset, .. } => {
                 self.search_palette.close();
                 self.ui_store.set_theme_preset(preset);
