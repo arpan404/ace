@@ -1,7 +1,7 @@
 use crate::{
     actions::SelectSearchPaletteItem,
     stores::{
-        DesktopProjection, ModelProjection, SearchContextKind,
+        ApprovalItemProjection, DesktopProjection, ModelProjection, SearchContextKind,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{
@@ -137,6 +137,13 @@ pub enum SearchPaletteItem {
         label: String,
         description: String,
     },
+    ApprovalAction {
+        action: ApprovalPaletteAction,
+        provider: String,
+        request_id: String,
+        label: String,
+        description: String,
+    },
     Project {
         project_id: ProjectId,
         label: String,
@@ -166,6 +173,12 @@ pub enum ProjectPaletteAction {
     ShowWorktrees,
     CreateWorktree,
     Archive,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApprovalPaletteAction {
+    Approve,
+    Deny,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,6 +228,7 @@ impl SearchPaletteItem {
             Self::Message { label, .. } => label,
             Self::Context { label, .. } => label,
             Self::ProjectAction { label, .. } => label,
+            Self::ApprovalAction { label, .. } => label,
             Self::Project { label, .. } | Self::Thread { label, .. } => label,
         }
     }
@@ -264,6 +278,7 @@ impl SearchPaletteItem {
             Self::Message { description, .. } => description,
             Self::Context { description, .. } => description,
             Self::ProjectAction { description, .. } => description,
+            Self::ApprovalAction { description, .. } => description,
             Self::Project { description, .. } | Self::Thread { description, .. } => description,
         }
     }
@@ -311,6 +326,7 @@ impl SearchPaletteItem {
             Self::Message { .. } => PaletteItemKind::Context,
             Self::Context { .. } => PaletteItemKind::Context,
             Self::ProjectAction { .. } => PaletteItemKind::Action,
+            Self::ApprovalAction { .. } => PaletteItemKind::Action,
             Self::Project { .. } => PaletteItemKind::Project,
             Self::Thread { .. } => PaletteItemKind::Thread,
         }
@@ -472,6 +488,7 @@ pub fn palette_items(
             description: format!("{} · {}", approval.provider, approval.prompt),
             result_kind: SearchPaletteResultKind::Context,
         });
+        context_items.extend(approval_palette_actions(approval));
     }
     for message in &projection.search.messages {
         context_items.push(SearchPaletteItem::Message {
@@ -952,6 +969,34 @@ fn project_palette_actions(
             description: format!(
                 "{project_context} · remove project registration without deleting files"
             ),
+        },
+    ]
+}
+
+fn approval_palette_actions(approval: &ApprovalItemProjection) -> Vec<SearchPaletteItem> {
+    let detail = approval
+        .detail
+        .as_deref()
+        .filter(|detail| !detail.is_empty())
+        .unwrap_or(&approval.prompt);
+    let context = format!(
+        "{} · {} · {} · request {}",
+        approval.provider, approval.kind, detail, approval.request_id
+    );
+    vec![
+        SearchPaletteItem::ApprovalAction {
+            action: ApprovalPaletteAction::Approve,
+            provider: approval.provider.clone(),
+            request_id: approval.request_id.clone(),
+            label: format!("Approve {}", approval.title),
+            description: format!("{context} · allow the pending provider request"),
+        },
+        SearchPaletteItem::ApprovalAction {
+            action: ApprovalPaletteAction::Deny,
+            provider: approval.provider.clone(),
+            request_id: approval.request_id.clone(),
+            label: format!("Deny {}", approval.title),
+            description: format!("{context} · reject the pending provider request"),
         },
     ]
 }
@@ -1467,6 +1512,10 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
             }
             ProjectPaletteAction::Archive => icon_svg(IconName::CircleX, color),
         },
+        SearchPaletteItem::ApprovalAction { action, .. } => match action {
+            ApprovalPaletteAction::Approve => icon_svg(IconName::ThumbsUp, color),
+            ApprovalPaletteAction::Deny => icon_svg(IconName::ThumbsDown, color),
+        },
     }
 }
 
@@ -1504,9 +1553,13 @@ fn _bottom_panel_tab_reference(_: BottomPanelTab) {}
 mod tests {
     use super::*;
     use crate::stores::desktop::{ComposerPayload, DesktopStore};
+    use ace_protocol::provider_runtime::{ProviderRuntimeEvent, ProviderRuntimeEventBatch};
     use ace_protocol::terminal::{
         DEFAULT_TERMINAL_ID, SequencedTerminalEvent, TerminalEvent, TerminalSessionSnapshot,
         TerminalSessionStatus,
+    };
+    use ace_runtime::provider::{
+        NormalizedServerRequest, ProviderMetadata, ServerRequestDetail, ServerRequestKind,
     };
 
     #[test]
@@ -1782,6 +1835,70 @@ mod tests {
                 action: ProjectPaletteAction::Archive,
                 ..
             } if *item_project_id == project_id
+        )));
+    }
+
+    #[test]
+    fn palette_search_includes_pending_approval_decisions() {
+        let mut store = DesktopStore::new();
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: vec![ProviderRuntimeEvent::ServerRequest {
+                request: Box::new(NormalizedServerRequest {
+                    kind: ServerRequestKind::CommandApproval,
+                    request_id: "approval-1".to_string(),
+                    method: "command/approvalRequest".to_string(),
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("item-1".to_string()),
+                    scope: Some("command".to_string()),
+                    title: Some("Approve command execution".to_string()),
+                    prompt: Some("Run cargo test?".to_string()),
+                    selected_policy: Some("on-request".to_string()),
+                    detail: ServerRequestDetail {
+                        command: Some("cargo test".to_string()),
+                        ..ServerRequestDetail::default()
+                    },
+                    metadata: serde_json::Value::Null,
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("command/approvalRequest".to_string()),
+                        schema_version: None,
+                        raw_payload: serde_json::json!({ "command": "cargo test" }),
+                    },
+                }),
+            }],
+            projection_deltas: Vec::new(),
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        let approve_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "approve cargo",
+        );
+        assert!(approve_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ApprovalAction {
+                action: ApprovalPaletteAction::Approve,
+                provider,
+                request_id,
+                ..
+            } if provider == "codex" && request_id == "approval-1"
+        )));
+
+        let deny_items = palette_items(&store.projection(), SearchPaletteMode::Root, "deny cargo");
+        assert!(deny_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ApprovalAction {
+                action: ApprovalPaletteAction::Deny,
+                provider,
+                request_id,
+                ..
+            } if provider == "codex" && request_id == "approval-1"
         )));
     }
 

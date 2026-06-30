@@ -829,6 +829,15 @@ impl RootView {
                 self.search_palette.close();
                 self.activate_project_palette_action(project_id, action);
             }
+            SearchPaletteItem::ApprovalAction {
+                action,
+                provider,
+                request_id,
+                ..
+            } => {
+                self.search_palette.close();
+                self.activate_approval_palette_action(action, provider, request_id);
+            }
             SearchPaletteItem::Project { project_id, .. } => {
                 let mode = self.search_palette.mode;
                 self.search_palette.close();
@@ -907,6 +916,31 @@ impl RootView {
                 let active_host = self.active_host.clone();
                 self.active_store_mut()
                     .archive_or_delete_project(project_id, active_host.as_ref());
+            }
+        }
+    }
+
+    fn activate_approval_palette_action(
+        &mut self,
+        action: crate::ui::search_palette::ApprovalPaletteAction,
+        provider: String,
+        request_id: String,
+    ) {
+        let active_host = self.active_host.clone();
+        match action {
+            crate::ui::search_palette::ApprovalPaletteAction::Approve => {
+                self.active_store_mut().approve_provider_request(
+                    active_host.as_ref(),
+                    provider,
+                    request_id,
+                );
+            }
+            crate::ui::search_palette::ApprovalPaletteAction::Deny => {
+                self.active_store_mut().deny_provider_request(
+                    active_host.as_ref(),
+                    provider,
+                    request_id,
+                );
             }
         }
     }
