@@ -715,6 +715,65 @@ impl RootView {
                 self.active_store_mut()
                     .toggle_active_composer_trait(trait_kind);
             }
+            SearchPaletteItem::ComposerReasoning { effort, .. } => {
+                self.search_palette.close();
+                self.active_store_mut()
+                    .set_active_composer_reasoning(Some(effort));
+            }
+            SearchPaletteItem::ComposerPermission { permission, .. } => {
+                self.search_palette.close();
+                self.active_store_mut()
+                    .set_active_composer_permission(permission);
+            }
+            SearchPaletteItem::ComposerRuntimeMode {
+                runtime_mode,
+                selectable: true,
+                ..
+            } => {
+                self.search_palette.close();
+                self.active_store_mut()
+                    .set_active_composer_runtime_mode(runtime_mode);
+            }
+            SearchPaletteItem::ComposerRuntimeMode { .. } => {
+                self.search_palette.close();
+            }
+            SearchPaletteItem::ComposerInteractionMode {
+                interaction_mode, ..
+            } => {
+                self.search_palette.close();
+                self.active_store_mut()
+                    .set_active_composer_interaction_mode(interaction_mode);
+            }
+            SearchPaletteItem::ThemePreset { preset, .. } => {
+                self.search_palette.close();
+                self.ui_store.set_theme_preset(preset);
+                self.save_ui_state();
+            }
+            SearchPaletteItem::ThemeAccent { accent, .. } => {
+                self.search_palette.close();
+                self.ui_store.set_theme_accent(accent);
+                self.save_ui_state();
+            }
+            SearchPaletteItem::ThemeDensity { density, .. } => {
+                self.search_palette.close();
+                self.ui_store.set_theme_density(density);
+                self.save_ui_state();
+            }
+            SearchPaletteItem::ThemeMotion { motion, .. } => {
+                self.search_palette.close();
+                self.ui_store.set_theme_motion(motion);
+                self.save_ui_state();
+            }
+            SearchPaletteItem::UiFont { font, .. } => {
+                self.search_palette.close();
+                self.ui_store.set_ui_font(font);
+                self.save_ui_state();
+            }
+            SearchPaletteItem::CodeFont { font, .. } => {
+                self.search_palette.close();
+                self.ui_store.set_code_font(font);
+                self.save_ui_state();
+            }
             SearchPaletteItem::Panel { tab, .. } => {
                 self.search_palette.close();
                 self.apply_right_panel_tab(tab);

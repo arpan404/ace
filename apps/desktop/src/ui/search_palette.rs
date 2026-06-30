@@ -4,10 +4,15 @@ use crate::{
         DesktopProjection, ModelProjection,
         ui::{BottomPanelTab, RightPanelTab},
     },
-    ui::{components::*, theme::Theme},
+    ui::{
+        components::*,
+        theme::{CodeFont, Theme, ThemeAccent, ThemeDensity, ThemeMotion, ThemePreset, UiFont},
+    },
 };
 use ace_core::{ProjectId, ProviderKind, ThreadId};
-use ace_runtime::chat::ComposerTrait;
+use ace_runtime::chat::{
+    ComposerPermissionMode, ComposerTrait, InteractionMode, ReasoningEffort, RuntimeMode,
+};
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
 use gpui_component::{IconName, scroll::ScrollableElement as _};
 
@@ -48,6 +53,57 @@ pub enum SearchPaletteItem {
     },
     ComposerTrait {
         trait_kind: ComposerTrait,
+        label: String,
+        description: String,
+    },
+    ComposerReasoning {
+        effort: ReasoningEffort,
+        label: String,
+        description: String,
+    },
+    ComposerPermission {
+        permission: ComposerPermissionMode,
+        label: String,
+        description: String,
+    },
+    ComposerRuntimeMode {
+        runtime_mode: RuntimeMode,
+        label: String,
+        description: String,
+        selectable: bool,
+    },
+    ComposerInteractionMode {
+        interaction_mode: InteractionMode,
+        label: String,
+        description: String,
+    },
+    ThemePreset {
+        preset: ThemePreset,
+        label: String,
+        description: String,
+    },
+    ThemeAccent {
+        accent: ThemeAccent,
+        label: String,
+        description: String,
+    },
+    ThemeDensity {
+        density: ThemeDensity,
+        label: String,
+        description: String,
+    },
+    ThemeMotion {
+        motion: ThemeMotion,
+        label: String,
+        description: String,
+    },
+    UiFont {
+        font: UiFont,
+        label: String,
+        description: String,
+    },
+    CodeFont {
+        font: CodeFont,
         label: String,
         description: String,
     },
@@ -99,7 +155,18 @@ impl SearchPaletteItem {
             Self::SetProjectDefaultModel => "Set project default model",
             Self::RunTests => "Run tests",
             Self::RunLint => "Run lint",
-            Self::ComposerModel { label, .. } | Self::ComposerTrait { label, .. } => label,
+            Self::ComposerModel { label, .. }
+            | Self::ComposerTrait { label, .. }
+            | Self::ComposerReasoning { label, .. }
+            | Self::ComposerPermission { label, .. }
+            | Self::ComposerRuntimeMode { label, .. }
+            | Self::ComposerInteractionMode { label, .. }
+            | Self::ThemePreset { label, .. }
+            | Self::ThemeAccent { label, .. }
+            | Self::ThemeDensity { label, .. }
+            | Self::ThemeMotion { label, .. }
+            | Self::UiFont { label, .. }
+            | Self::CodeFont { label, .. } => label,
             Self::Panel { label, .. } => label,
             Self::Project { label, .. } | Self::Thread { label, .. } => label,
         }
@@ -133,9 +200,18 @@ impl SearchPaletteItem {
             }
             Self::RunTests => "Run the configured test script or Rust workspace test command.",
             Self::RunLint => "Run the configured lint script or Rust workspace clippy command.",
-            Self::ComposerModel { description, .. } | Self::ComposerTrait { description, .. } => {
-                description
-            }
+            Self::ComposerModel { description, .. }
+            | Self::ComposerTrait { description, .. }
+            | Self::ComposerReasoning { description, .. }
+            | Self::ComposerPermission { description, .. }
+            | Self::ComposerRuntimeMode { description, .. }
+            | Self::ComposerInteractionMode { description, .. }
+            | Self::ThemePreset { description, .. }
+            | Self::ThemeAccent { description, .. }
+            | Self::ThemeDensity { description, .. }
+            | Self::ThemeMotion { description, .. }
+            | Self::UiFont { description, .. }
+            | Self::CodeFont { description, .. } => description,
             Self::Panel { description, .. } => description,
             Self::Project { description, .. } | Self::Thread { description, .. } => description,
         }
@@ -163,7 +239,17 @@ impl SearchPaletteItem {
             | Self::SetProjectDefaultModel
             | Self::RunTests
             | Self::RunLint => PaletteItemKind::Action,
-            Self::ComposerTrait { .. } => PaletteItemKind::Action,
+            Self::ComposerTrait { .. }
+            | Self::ComposerReasoning { .. }
+            | Self::ComposerPermission { .. }
+            | Self::ComposerRuntimeMode { .. }
+            | Self::ComposerInteractionMode { .. }
+            | Self::ThemePreset { .. }
+            | Self::ThemeAccent { .. }
+            | Self::ThemeDensity { .. }
+            | Self::ThemeMotion { .. }
+            | Self::UiFont { .. }
+            | Self::CodeFont { .. } => PaletteItemKind::Action,
             Self::ComposerModel { .. } => PaletteItemKind::Registry,
             Self::Panel { result_kind, .. } => match result_kind {
                 SearchPaletteResultKind::Source => PaletteItemKind::Source,
@@ -179,6 +265,11 @@ impl SearchPaletteItem {
         match self {
             Self::ConnectRemoteHost => Some("Remote host manager is not implemented yet."),
             Self::OpenScheduled => Some("Scheduled tasks need a host scheduler service."),
+            Self::ComposerRuntimeMode {
+                runtime_mode: RuntimeMode::Remote,
+                selectable: false,
+                ..
+            } => Some("No connected remote host is available yet."),
             Self::ComposerModel { selectable, .. } if !selectable => Some(
                 "This provider is visible in the catalog, but desktop send routing currently uses the Codex runtime.",
             ),
@@ -418,6 +509,159 @@ pub fn palette_items(
             description: trait_kind.detail().to_string(),
         });
     }
+    for effort in ReasoningEffort::ALL {
+        registry_items.push(SearchPaletteItem::ComposerReasoning {
+            effort,
+            label: format!("Reasoning: {}", effort.label()),
+            description: "Set composer reasoning intensity for supported models.".to_string(),
+        });
+    }
+    for permission in ComposerPermissionMode::ALL {
+        registry_items.push(SearchPaletteItem::ComposerPermission {
+            permission,
+            label: format!("Permission: {}", permission.label()),
+            description: permission.detail().to_string(),
+        });
+    }
+    let has_connected_remote = projection.host_options.iter().any(|host| host.connected);
+    for runtime_mode in [
+        RuntimeMode::Normal,
+        RuntimeMode::Local,
+        RuntimeMode::Worktree,
+        RuntimeMode::Remote,
+    ] {
+        registry_items.push(SearchPaletteItem::ComposerRuntimeMode {
+            runtime_mode,
+            label: format!("Runtime: {}", runtime_mode_label(runtime_mode)),
+            description: runtime_mode_description(runtime_mode).to_string(),
+            selectable: runtime_mode != RuntimeMode::Remote || has_connected_remote,
+        });
+    }
+    for interaction_mode in [InteractionMode::Chat, InteractionMode::Plan] {
+        registry_items.push(SearchPaletteItem::ComposerInteractionMode {
+            interaction_mode,
+            label: format!("Mode: {}", interaction_mode_label(interaction_mode)),
+            description: interaction_mode_description(interaction_mode).to_string(),
+        });
+    }
+    for (preset, label, description) in [
+        (
+            ThemePreset::AceDark,
+            "Theme: Ace Dark",
+            "Default low-contrast workstation theme.",
+        ),
+        (
+            ThemePreset::HighContrast,
+            "Theme: High Contrast",
+            "Sharper text, borders, and panels.",
+        ),
+    ] {
+        registry_items.push(SearchPaletteItem::ThemePreset {
+            preset,
+            label: label.to_string(),
+            description: description.to_string(),
+        });
+    }
+    for (accent, label, description) in [
+        (
+            ThemeAccent::Sky,
+            "Accent: Sky",
+            "Cool blue highlights and activity states.",
+        ),
+        (
+            ThemeAccent::Emerald,
+            "Accent: Emerald",
+            "Green highlights for calm review sessions.",
+        ),
+        (
+            ThemeAccent::Amber,
+            "Accent: Amber",
+            "Warm highlights for high-signal monitoring.",
+        ),
+        (
+            ThemeAccent::Rose,
+            "Accent: Rose",
+            "High-contrast rose highlights.",
+        ),
+    ] {
+        registry_items.push(SearchPaletteItem::ThemeAccent {
+            accent,
+            label: label.to_string(),
+            description: description.to_string(),
+        });
+    }
+    for (density, label, description) in [
+        (
+            ThemeDensity::Comfortable,
+            "Density: Comfortable",
+            "Roomier panels and controls.",
+        ),
+        (
+            ThemeDensity::Compact,
+            "Density: Compact",
+            "Tighter panels for dense agent sessions.",
+        ),
+    ] {
+        registry_items.push(SearchPaletteItem::ThemeDensity {
+            density,
+            label: label.to_string(),
+            description: description.to_string(),
+        });
+    }
+    for (motion, label, description) in [
+        (
+            ThemeMotion::Standard,
+            "Motion: Standard",
+            "Full hover and emphasis response.",
+        ),
+        (
+            ThemeMotion::Reduced,
+            "Motion: Reduced",
+            "Lower emphasis and motion intensity.",
+        ),
+    ] {
+        registry_items.push(SearchPaletteItem::ThemeMotion {
+            motion,
+            label: label.to_string(),
+            description: description.to_string(),
+        });
+    }
+    for (font, label, description) in [
+        (
+            UiFont::System,
+            "UI Font: System",
+            "Native app chrome and controls.",
+        ),
+        (
+            UiFont::Monospace,
+            "UI Font: Monospace",
+            "Monospaced chrome for dense scanning.",
+        ),
+    ] {
+        registry_items.push(SearchPaletteItem::UiFont {
+            font,
+            label: label.to_string(),
+            description: description.to_string(),
+        });
+    }
+    for (font, label, description) in [
+        (
+            CodeFont::SystemMono,
+            "Code Font: SF Mono",
+            "Code snippets, diffs, editor, and terminal.",
+        ),
+        (
+            CodeFont::Menlo,
+            "Code Font: Menlo",
+            "Code snippets, diffs, editor, and terminal.",
+        ),
+    ] {
+        registry_items.push(SearchPaletteItem::CodeFont {
+            font,
+            label: label.to_string(),
+            description: description.to_string(),
+        });
+    }
     for plugin in &projection.plugins.entries {
         registry_items.push(SearchPaletteItem::Panel {
             tab: crate::stores::ui::RightPanelTab::Plugins,
@@ -448,9 +692,14 @@ pub fn palette_items(
     registry_items.sort_by(|left, right| left.label().cmp(right.label()));
 
     let matches = |item: &SearchPaletteItem| {
+        let label = item.label().to_lowercase();
+        let description = item.description().to_lowercase();
+        let haystack = format!("{label} {description}");
         normalized.is_empty()
-            || item.label().to_lowercase().contains(&normalized)
-            || item.description().to_lowercase().contains(&normalized)
+            || haystack.contains(&normalized)
+            || normalized
+                .split_whitespace()
+                .all(|token| haystack.contains(token))
     };
 
     if mode == SearchPaletteMode::NewThreadProject {
@@ -506,6 +755,38 @@ pub fn palette_items(
 
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
+}
+
+fn runtime_mode_label(mode: RuntimeMode) -> &'static str {
+    match mode {
+        RuntimeMode::Normal => "Normal",
+        RuntimeMode::Local => "Local",
+        RuntimeMode::Worktree => "Worktree",
+        RuntimeMode::Remote => "Remote",
+    }
+}
+
+fn runtime_mode_description(mode: RuntimeMode) -> &'static str {
+    match mode {
+        RuntimeMode::Normal => "Use the active thread context.",
+        RuntimeMode::Local => "Run on this project host.",
+        RuntimeMode::Worktree => "Prefer the thread worktree.",
+        RuntimeMode::Remote => "Run on the selected remote host.",
+    }
+}
+
+fn interaction_mode_label(mode: InteractionMode) -> &'static str {
+    match mode {
+        InteractionMode::Chat => "Chat",
+        InteractionMode::Plan => "Plan",
+    }
+}
+
+fn interaction_mode_description(mode: InteractionMode) -> &'static str {
+    match mode {
+        InteractionMode::Chat => "General implementation and Q&A.",
+        InteractionMode::Plan => "Plan first before implementation.",
+    }
 }
 
 fn short_path(path: &str) -> String {
@@ -863,6 +1144,18 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
         }
         SearchPaletteItem::ComposerModel { .. } => ace_icon_svg(AceIconName::Code2, color),
         SearchPaletteItem::ComposerTrait { .. } => icon_svg(IconName::Palette, color),
+        SearchPaletteItem::ComposerReasoning { .. } => icon_svg(IconName::Check, color),
+        SearchPaletteItem::ComposerPermission { .. } => icon_svg(IconName::TriangleAlert, color),
+        SearchPaletteItem::ComposerRuntimeMode { .. } => ace_icon_svg(AceIconName::Terminal, color),
+        SearchPaletteItem::ComposerInteractionMode { .. } => {
+            ace_icon_svg(AceIconName::Editor, color)
+        }
+        SearchPaletteItem::ThemePreset { .. }
+        | SearchPaletteItem::ThemeAccent { .. }
+        | SearchPaletteItem::ThemeDensity { .. }
+        | SearchPaletteItem::ThemeMotion { .. } => icon_svg(IconName::Palette, color),
+        SearchPaletteItem::UiFont { .. } => icon_svg(IconName::ALargeSmall, color),
+        SearchPaletteItem::CodeFont { .. } => icon_svg(IconName::SquareTerminal, color),
         SearchPaletteItem::Panel { result_kind, .. } => match result_kind {
             SearchPaletteResultKind::Source => icon_svg(IconName::File, color),
             SearchPaletteResultKind::Context => icon_svg(IconName::Star, color),
@@ -991,6 +1284,89 @@ mod tests {
             item,
             SearchPaletteItem::ComposerTrait {
                 trait_kind: ComposerTrait::Precise,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn palette_search_includes_backed_composer_turn_controls() {
+        let store = DesktopStore::new();
+        let projection = store.projection();
+
+        let reasoning = palette_items(&projection, SearchPaletteMode::Root, "high reasoning");
+        assert!(reasoning.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ComposerReasoning {
+                effort: ReasoningEffort::High,
+                ..
+            }
+        )));
+
+        let permissions = palette_items(&projection, SearchPaletteMode::Root, "full access");
+        assert!(permissions.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ComposerPermission {
+                permission: ComposerPermissionMode::FullAccess,
+                ..
+            }
+        )));
+
+        let remote = palette_items(&projection, SearchPaletteMode::Root, "runtime remote")
+            .into_iter()
+            .find(|item| {
+                matches!(
+                    item,
+                    SearchPaletteItem::ComposerRuntimeMode {
+                        runtime_mode: RuntimeMode::Remote,
+                        ..
+                    }
+                )
+            })
+            .expect("remote runtime mode");
+        assert_eq!(
+            remote.disabled_reason(),
+            Some("No connected remote host is available yet.")
+        );
+
+        let plan = palette_items(&projection, SearchPaletteMode::Root, "mode plan");
+        assert!(plan.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ComposerInteractionMode {
+                interaction_mode: InteractionMode::Plan,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn palette_search_includes_centralized_theme_and_font_settings() {
+        let store = DesktopStore::new();
+        let projection = store.projection();
+
+        let compact = palette_items(&projection, SearchPaletteMode::Root, "density compact");
+        assert!(compact.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ThemeDensity {
+                density: ThemeDensity::Compact,
+                ..
+            }
+        )));
+
+        let menlo = palette_items(&projection, SearchPaletteMode::Root, "code font menlo");
+        assert!(menlo.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::CodeFont {
+                font: CodeFont::Menlo,
+                ..
+            }
+        )));
+
+        let rose = palette_items(&projection, SearchPaletteMode::Root, "accent rose");
+        assert!(rose.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::ThemeAccent {
+                accent: ThemeAccent::Rose,
                 ..
             }
         )));
