@@ -1,9 +1,8 @@
 use crate::{
     actions::{
-        ApproveProviderRequest, CommitReview, CompleteComposerToken, CreateReviewComment,
-        CreateTodoFromLatestTimelineItem, CreateWorktree, DenyProviderRequest,
-        LinkTodoToCurrentDiff, OpenThread, PinLatestTimelineItem, PushReview, RefreshActiveTab,
-        RefreshApprovals, RefreshReview, RefreshWorktrees, RemoveWorktree, SelectBottomPanelTab,
+        CommitReview, CompleteComposerToken, CreateReviewComment, CreateTodoFromLatestTimelineItem,
+        CreateWorktree, LinkTodoToCurrentDiff, OpenThread, PinLatestTimelineItem, PushReview,
+        RefreshActiveTab, RefreshApprovals, RefreshReview, RefreshWorktrees, SelectBottomPanelTab,
         SelectComposerModel, SelectRightPanelTab, SetCodeFont, SetProjectDefaultModelSelection,
         SetThemeAccent, SetThemeDensity, SetThemeMotion, SetThemePreset, SetUiFont, StageReviewAll,
         StageReviewFile, ToggleBottomPanel, ToggleComposerContext, ToggleFirstOpenTodo,
@@ -12,11 +11,10 @@ use crate::{
         UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
     },
     stores::{
-        ApprovalItemProjection, ApprovalRegistryProjection, DesktopProjection, ModelProjection,
-        ModelProviderProjection, ModelRegistryProjection, ReviewCommentItem, ReviewFileProjection,
-        ReviewProjection, ServiceReadiness, ServiceStatus, SummaryProjection, TodoAssignee,
-        TodoItem, TodoPriority, TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
-        WorktreeEntryProjection, WorktreeProjection,
+        DesktopProjection, ModelProjection, ModelProviderProjection, ModelRegistryProjection,
+        ReviewCommentItem, ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
+        SummaryProjection, TodoAssignee, TodoItem, TodoPriority, TodoStatus,
+        ToolRegistryEntryProjection, ToolRegistryProjection,
         desktop::{HighlightedTimelineItem, PinnedTimelineItem},
         ui::{BottomPanelTab, RightPanelTab, UiState},
     },
@@ -37,16 +35,20 @@ use gpui::{
 };
 use gpui_component::{IconName, scroll::ScrollableElement as _, tooltip::Tooltip};
 
+mod approvals;
 mod browser;
 mod editor;
 mod scheduled;
 mod sources;
 mod terminal;
+mod worktrees;
+use approvals::approvals_body;
 use browser::browser_body;
 use editor::editor_body;
 use scheduled::scheduled_body;
 use sources::sources_body;
 use terminal::{terminal_body, terminal_inspector_body};
+use worktrees::worktrees_body;
 
 pub(super) fn right_panel(
     theme: Theme,
@@ -1193,345 +1195,6 @@ fn review_diff_preview(theme: Theme, review: &ReviewProjection) -> AnyElement {
         })
         .overflow_y_scrollbar()
         .into_any_element()
-}
-
-fn worktrees_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
-    if projection.chat.active_thread.is_none() {
-        return empty_panel_body(
-            theme,
-            AceIconName::Review,
-            "Worktrees",
-            "No active thread is selected.",
-        );
-    }
-
-    let worktrees = &projection.worktrees;
-    div()
-        .size_full()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .child(info_row(
-            theme,
-            "Repository",
-            worktrees
-                .repo_path
-                .as_deref()
-                .map(short_path)
-                .unwrap_or_else(|| "No repository".to_string())
-                .as_str(),
-        ))
-        .child(info_row(
-            theme,
-            "Worktrees",
-            &worktrees.entries.len().to_string(),
-        ))
-        .when_some(worktrees.updated_at.as_deref(), |this, updated| {
-            this.child(info_row(theme, "Updated", updated))
-        })
-        .when_some(worktrees.last_created_path.as_deref(), |this, path| {
-            this.child(info_row(theme, "Created", &short_path(path)))
-        })
-        .child(worktree_actions(theme, worktrees))
-        .when_some(worktrees.error.as_deref(), |this, error| {
-            this.child(registry_error_card(theme, error))
-        })
-        .child(worktree_list(theme, worktrees))
-        .into_any_element()
-}
-
-fn worktree_actions(theme: Theme, worktrees: &WorktreeProjection) -> AnyElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .child(action_button(IconName::Info, "Refresh", theme, || {
-            Box::new(RefreshWorktrees)
-        }))
-        .when(worktrees.repo_path.is_some(), |this| {
-            this.child(action_button(IconName::Plus, "Create", theme, || {
-                Box::new(CreateWorktree)
-            }))
-        })
-        .into_any_element()
-}
-
-fn worktree_list(theme: Theme, worktrees: &WorktreeProjection) -> AnyElement {
-    if worktrees.entries.is_empty() {
-        return div()
-            .rounded_md()
-            .border_1()
-            .border_color(theme.border_subtle)
-            .bg(theme.panel)
-            .px_2()
-            .py_2()
-            .text_size(px(12.0))
-            .text_color(theme.muted)
-            .child("No worktrees loaded")
-            .into_any_element();
-    }
-
-    div()
-        .flex_1()
-        .min_h_0()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .children(
-            worktrees
-                .entries
-                .iter()
-                .map(|entry| worktree_entry_card(theme, entry))
-                .collect::<Vec<_>>(),
-        )
-        .overflow_y_scrollbar()
-        .into_any_element()
-}
-
-fn worktree_entry_card(theme: Theme, entry: &WorktreeEntryProjection) -> AnyElement {
-    let status_color = if entry.active_thread {
-        theme.accent_success
-    } else if entry.detached || entry.bare {
-        theme.accent_warning
-    } else {
-        theme.muted_subtle
-    };
-    let branch = entry
-        .branch
-        .as_deref()
-        .or(entry.head.as_deref())
-        .unwrap_or("detached");
-    let mut badges = Vec::new();
-    if entry.primary {
-        badges.push("primary");
-    }
-    if entry.active_thread {
-        badges.push("active");
-    }
-    if entry.bare {
-        badges.push("bare");
-    } else if entry.detached {
-        badges.push("detached");
-    }
-
-    div()
-        .rounded_md()
-        .border_1()
-        .border_color(theme.border_subtle)
-        .bg(theme.panel)
-        .p_2()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .text_size(px(12.0))
-                .text_color(theme.foreground.opacity(0.84))
-                .child(div().w(px(6.0)).h(px(6.0)).rounded_full().bg(status_color))
-                .child(icon_svg(IconName::FolderOpen, theme.muted))
-                .child(clamp_text(branch, 120)),
-        )
-        .child(
-            div()
-                .text_size(px(11.0))
-                .line_height(px(16.0))
-                .text_color(theme.muted)
-                .child(short_path(&entry.path)),
-        )
-        .when(!badges.is_empty(), |this| {
-            this.child(
-                div()
-                    .text_size(px(11.0))
-                    .text_color(theme.muted_subtle)
-                    .child(badges.join(" · ")),
-            )
-        })
-        .when(!entry.primary, |this| {
-            let path = entry.path.clone();
-            this.child(action_button(
-                IconName::Delete,
-                "Remove",
-                theme,
-                move || {
-                    Box::new(RemoveWorktree {
-                        path: path.clone(),
-                        force: false,
-                    })
-                },
-            ))
-        })
-        .into_any_element()
-}
-
-fn approvals_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
-    let approvals = &projection.approvals;
-    div()
-        .size_full()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .child(info_row(
-            theme,
-            "Pending",
-            &approvals.pending.len().to_string(),
-        ))
-        .child(info_row(theme, "Resolved", &approvals.resolved.to_string()))
-        .when_some(approvals.updated_at.as_deref(), |this, updated| {
-            this.child(info_row(theme, "Updated", updated))
-        })
-        .child(approval_actions(theme))
-        .when_some(approvals.error.as_deref(), |this, error| {
-            this.child(registry_error_card(theme, error))
-        })
-        .child(approval_list(theme, approvals))
-        .into_any_element()
-}
-
-fn approval_actions(theme: Theme) -> AnyElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .child(action_button(IconName::Info, "Refresh", theme, || {
-            Box::new(RefreshApprovals)
-        }))
-        .into_any_element()
-}
-
-fn approval_list(theme: Theme, approvals: &ApprovalRegistryProjection) -> AnyElement {
-    if approvals.pending.is_empty() {
-        return div()
-            .rounded_md()
-            .border_1()
-            .border_color(theme.border_subtle)
-            .bg(theme.panel)
-            .px_2()
-            .py_2()
-            .text_size(px(12.0))
-            .text_color(theme.muted)
-            .child("No pending approvals")
-            .into_any_element();
-    }
-
-    div()
-        .flex_1()
-        .min_h_0()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .children(
-            approvals
-                .pending
-                .iter()
-                .map(|approval| approval_card(theme, approval))
-                .collect::<Vec<_>>(),
-        )
-        .overflow_y_scrollbar()
-        .into_any_element()
-}
-
-fn approval_card(theme: Theme, approval: &ApprovalItemProjection) -> AnyElement {
-    let provider = approval.provider.clone();
-    let request_id = approval.request_id.clone();
-    let deny_provider = provider.clone();
-    let deny_request_id = request_id.clone();
-
-    div()
-        .rounded_md()
-        .border_1()
-        .border_color(theme.border_subtle)
-        .bg(theme.panel)
-        .p_2()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .text_size(px(12.0))
-                .text_color(theme.foreground.opacity(0.84))
-                .child(icon_svg(IconName::Bell, theme.accent_warning))
-                .child(clamp_text(&approval.title, 130)),
-        )
-        .child(
-            div()
-                .text_size(px(11.0))
-                .line_height(px(16.0))
-                .text_color(theme.foreground.opacity(0.74))
-                .child(clamp_text(&approval.prompt, 220)),
-        )
-        .when_some(approval.detail.as_deref(), |this, detail| {
-            this.child(
-                div()
-                    .font_family(theme.code_font_family)
-                    .text_size(px(11.0))
-                    .line_height(px(16.0))
-                    .text_color(theme.muted)
-                    .child(clamp_text(detail, 180)),
-            )
-        })
-        .child(
-            div()
-                .text_size(px(11.0))
-                .line_height(px(16.0))
-                .text_color(theme.muted_subtle)
-                .child(approval_meta(approval)),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(action_button(
-                    IconName::ThumbsUp,
-                    "Approve",
-                    theme,
-                    move || {
-                        Box::new(ApproveProviderRequest {
-                            provider: provider.clone(),
-                            request_id: request_id.clone(),
-                        })
-                    },
-                ))
-                .child(action_button(
-                    IconName::ThumbsDown,
-                    "Deny",
-                    theme,
-                    move || {
-                        Box::new(DenyProviderRequest {
-                            provider: deny_provider.clone(),
-                            request_id: deny_request_id.clone(),
-                        })
-                    },
-                )),
-        )
-        .into_any_element()
-}
-
-fn approval_meta(approval: &ApprovalItemProjection) -> String {
-    let mut parts = vec![
-        approval.provider.clone(),
-        approval.kind.clone(),
-        approval.method.clone(),
-    ];
-    if let Some(scope) = approval.scope.as_deref() {
-        parts.push(scope.to_string());
-    }
-    if let Some(policy) = approval.selected_policy.as_deref() {
-        parts.push(policy.to_string());
-    }
-    parts.push(format!("request {}", approval.request_id));
-    parts.join(" · ")
 }
 
 fn environment_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
