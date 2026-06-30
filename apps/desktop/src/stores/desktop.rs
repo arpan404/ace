@@ -445,6 +445,32 @@ pub struct ProviderSlashCommandProjection {
     pub kind: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComposerCommandProjection {
+    pub token: String,
+    pub source: ComposerCommandSource,
+    pub name: String,
+    pub description: String,
+    pub provider: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComposerCommandSource {
+    ProviderSlash,
+    Skill,
+    Plugin,
+}
+
+impl ComposerCommandSource {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ProviderSlash => "Provider slash command",
+            Self::Skill => "Skill",
+            Self::Plugin => "Plugin",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ToolRegistryProjection {
     pub entries: Vec<ToolRegistryEntryProjection>,
@@ -2658,6 +2684,9 @@ impl DesktopStore {
         if let Some(traits) = composer_traits_text(&draft.traits) {
             input.push(serde_json::json!({ "type": "text", "text": traits }));
         }
+        if let Some(commands) = self.composer_command_context_text(prompt) {
+            input.push(serde_json::json!({ "type": "text", "text": commands }));
+        }
         if let Some(context) = self.composer_context_text(thread_id, &draft.context) {
             input.push(serde_json::json!({ "type": "text", "text": context }));
         }
@@ -2666,6 +2695,97 @@ impl DesktopStore {
         }
         input.push(serde_json::json!({ "type": "text", "text": prompt }));
         input
+    }
+
+    #[must_use]
+    pub fn composer_commands_for_prompt(&self, prompt: &str) -> Vec<ComposerCommandProjection> {
+        composer_command_tokens(prompt)
+            .into_iter()
+            .filter_map(|token| self.composer_command_for_token(&token))
+            .collect()
+    }
+
+    fn composer_command_context_text(&self, prompt: &str) -> Option<String> {
+        let commands = self.composer_commands_for_prompt(prompt);
+        if commands.is_empty() {
+            return None;
+        }
+
+        let lines = commands
+            .iter()
+            .map(|command| {
+                let provider = command
+                    .provider
+                    .as_deref()
+                    .map(|provider| format!(" · {provider}"))
+                    .unwrap_or_default();
+                format!(
+                    "- {}{}: {}",
+                    command.source.label(),
+                    provider,
+                    command.description
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        Some(format!(
+            "Composer command selections for this turn:\n{lines}\nTreat these as explicit user-selected tool, skill, plugin, or provider command context."
+        ))
+    }
+
+    fn composer_command_for_token(&self, token: &str) -> Option<ComposerCommandProjection> {
+        if token.starts_with('/') {
+            return self.provider_slash_command_for_token(token);
+        }
+        if let Some(name) = token.strip_prefix('$') {
+            return registry_command_for_token(
+                token,
+                name,
+                ComposerCommandSource::Skill,
+                &self.skill_registry,
+            );
+        }
+        let name = token.strip_prefix('@')?;
+        if composer_context_mention_token(token) {
+            return None;
+        }
+        registry_command_for_token(
+            token,
+            name,
+            ComposerCommandSource::Plugin,
+            &self.plugin_registry,
+        )
+    }
+
+    fn provider_slash_command_for_token(&self, token: &str) -> Option<ComposerCommandProjection> {
+        let normalized = token.trim_end_matches('/').to_ascii_lowercase();
+        self.provider_registry
+            .commands
+            .iter()
+            .find(|command| {
+                let name = format!("/{}", command.name).to_ascii_lowercase();
+                let prompt_prefix = command
+                    .prompt_prefix
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase();
+                normalized == name || (!prompt_prefix.is_empty() && normalized == prompt_prefix)
+            })
+            .map(|command| {
+                let description = command.input_hint.as_ref().map_or_else(
+                    || command.description.clone(),
+                    |hint| format!("{} · {}", command.description, hint),
+                );
+                ComposerCommandProjection {
+                    token: token.to_string(),
+                    source: ComposerCommandSource::ProviderSlash,
+                    name: command.name.clone(),
+                    description,
+                    provider: Some(command.provider.clone()),
+                }
+            })
     }
 
     fn composer_context_text(
@@ -4801,6 +4921,59 @@ fn composer_mentions(prompt: &str) -> Vec<String> {
         .collect()
 }
 
+fn composer_command_tokens(prompt: &str) -> Vec<String> {
+    prompt
+        .split_whitespace()
+        .filter_map(|token| {
+            let token = trim_composer_token(token);
+            matches!(token.chars().next(), Some('/' | '$' | '@')).then(|| token.to_string())
+        })
+        .collect()
+}
+
+fn trim_composer_token(token: &str) -> &str {
+    token.trim_matches(|ch: char| {
+        matches!(
+            ch,
+            ',' | '.' | ';' | ':' | '!' | '?' | ')' | '(' | '[' | ']' | '{' | '}' | '"' | '\''
+        )
+    })
+}
+
+fn composer_context_mention_token(token: &str) -> bool {
+    matches!(token, "@terminal" | "@diff")
+        || token.starts_with("@todo:")
+        || token.starts_with("@pin:")
+        || token.starts_with("@highlight:")
+        || token.starts_with("@review:")
+}
+
+fn registry_command_for_token(
+    token: &str,
+    name: &str,
+    source: ComposerCommandSource,
+    registry: &ToolRegistryProjection,
+) -> Option<ComposerCommandProjection> {
+    let normalized = name.to_ascii_lowercase();
+    registry
+        .entries
+        .iter()
+        .find(|entry| {
+            entry.name.to_ascii_lowercase() == normalized
+                || entry.id.to_ascii_lowercase() == normalized
+        })
+        .map(|entry| ComposerCommandProjection {
+            token: token.to_string(),
+            source,
+            name: entry.name.clone(),
+            description: entry
+                .description
+                .clone()
+                .unwrap_or_else(|| format!("{} registry entry", source.label())),
+            provider: entry.source.clone(),
+        })
+}
+
 fn project_script_matches_action(script: &ProjectScript, action: ProjectActionKind) -> bool {
     let id = script.id.to_ascii_lowercase();
     let label = script.label.to_ascii_lowercase();
@@ -6079,6 +6252,110 @@ mod tests {
         assert_eq!(
             store.projection().chat.composer.unwrap().prompt,
             "please /model "
+        );
+    }
+
+    #[test]
+    fn composer_commands_are_resolved_from_registries() {
+        let mut store = DesktopStore::new();
+        store
+            .provider_registry
+            .commands
+            .push(ProviderSlashCommandProjection {
+                provider: "codex".to_string(),
+                name: "model".to_string(),
+                description: "Choose the active model".to_string(),
+                prompt_prefix: Some("/model".to_string()),
+                input_hint: Some("<model>".to_string()),
+                kind: Some("Provider".to_string()),
+            });
+        store
+            .skill_registry
+            .entries
+            .push(ToolRegistryEntryProjection {
+                id: "review".to_string(),
+                name: "review".to_string(),
+                description: Some("Run the review skill".to_string()),
+                version: None,
+                source: Some("skills".to_string()),
+                status: "enabled".to_string(),
+                enabled: Some(true),
+            });
+        store
+            .plugin_registry
+            .entries
+            .push(ToolRegistryEntryProjection {
+                id: "browser".to_string(),
+                name: "browser".to_string(),
+                description: Some("Use browser automation".to_string()),
+                version: None,
+                source: Some("plugins".to_string()),
+                status: "enabled".to_string(),
+                enabled: Some(true),
+            });
+
+        let commands = store
+            .composer_commands_for_prompt("Use /model $review @browser @todo:todo-1 @terminal");
+
+        assert_eq!(commands.len(), 3);
+        assert!(commands.iter().any(|command| {
+            command.source == ComposerCommandSource::ProviderSlash
+                && command.name == "model"
+                && command.provider.as_deref() == Some("codex")
+        }));
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.source == ComposerCommandSource::Skill
+                    && command.name == "review")
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.source == ComposerCommandSource::Plugin
+                    && command.name == "browser")
+        );
+    }
+
+    #[test]
+    fn composer_turn_input_includes_command_context() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .provider_registry
+            .commands
+            .push(ProviderSlashCommandProjection {
+                provider: "codex".to_string(),
+                name: "plan".to_string(),
+                description: "Create an implementation plan".to_string(),
+                prompt_prefix: Some("/plan".to_string()),
+                input_hint: None,
+                kind: Some("Provider".to_string()),
+            });
+        let draft = store
+            .composer_drafts
+            .get(&thread_id)
+            .expect("composer draft")
+            .clone();
+
+        let input = store.composer_turn_input(&thread_id, "Please /plan the work", &draft);
+
+        assert!(
+            input.iter().any(|item| {
+                item.get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|text| {
+                        text.contains("Composer command selections")
+                            && text.contains("Provider slash command")
+                            && text.contains("Create an implementation plan")
+                    })
+            }),
+            "{input:?}"
+        );
+        assert_eq!(
+            input.last().and_then(|item| item.get("text")),
+            Some(&serde_json::json!("Please /plan the work"))
         );
     }
 
