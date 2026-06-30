@@ -21,6 +21,7 @@ pub enum SearchPaletteMode {
 pub enum SearchPaletteItem {
     NewThread,
     NewProject,
+    OpenScheduled,
     OpenSettings,
     OpenTerminals,
     OpenBrowser,
@@ -80,6 +81,7 @@ impl SearchPaletteItem {
         match self {
             Self::NewThread => "New thread in...",
             Self::NewProject => "New project",
+            Self::OpenScheduled => "Open scheduled tasks",
             Self::OpenSettings => "Open settings",
             Self::OpenTerminals => "Open terminals",
             Self::OpenBrowser => "Open browser",
@@ -107,6 +109,7 @@ impl SearchPaletteItem {
         match self {
             Self::NewThread => "Choose a project for a new thread.",
             Self::NewProject => "Add the current workspace as a project.",
+            Self::OpenScheduled => "Scheduled tasks need a host scheduler service.",
             Self::OpenSettings => "Adjust theme, density, UI font, code font, and motion.",
             Self::OpenTerminals => "Manage running terminal processes.",
             Self::OpenBrowser => {
@@ -142,6 +145,7 @@ impl SearchPaletteItem {
         match self {
             Self::NewThread
             | Self::NewProject
+            | Self::OpenScheduled
             | Self::OpenSettings
             | Self::OpenTerminals
             | Self::OpenBrowser
@@ -174,6 +178,7 @@ impl SearchPaletteItem {
     pub fn disabled_reason(&self) -> Option<&'static str> {
         match self {
             Self::ConnectRemoteHost => Some("Remote host manager is not implemented yet."),
+            Self::OpenScheduled => Some("Scheduled tasks need a host scheduler service."),
             Self::ComposerModel { selectable, .. } if !selectable => Some(
                 "This provider is visible in the catalog, but desktop send routing currently uses the Codex runtime.",
             ),
@@ -459,6 +464,7 @@ pub fn palette_items(
     let actions = [
         SearchPaletteItem::NewThread,
         SearchPaletteItem::NewProject,
+        SearchPaletteItem::OpenScheduled,
         SearchPaletteItem::OpenSettings,
         SearchPaletteItem::OpenTerminals,
         SearchPaletteItem::OpenBrowser,
@@ -836,6 +842,7 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
         SearchPaletteItem::NewProject | SearchPaletteItem::Project { .. } => {
             icon_svg(IconName::Folder, color)
         }
+        SearchPaletteItem::OpenScheduled => ace_icon_svg(AceIconName::ListChecks, color),
         SearchPaletteItem::OpenSettings => ace_icon_svg(AceIconName::TablerSettings, color),
         SearchPaletteItem::OpenTerminals => ace_icon_svg(AceIconName::Terminal, color),
         SearchPaletteItem::OpenBrowser => ace_icon_svg(AceIconName::Browser, color),
@@ -931,6 +938,7 @@ mod tests {
         for expected in [
             SearchPaletteItem::NewThread,
             SearchPaletteItem::NewProject,
+            SearchPaletteItem::OpenScheduled,
             SearchPaletteItem::OpenTerminals,
             SearchPaletteItem::OpenBrowser,
             SearchPaletteItem::ToggleRightPanel,
@@ -959,6 +967,14 @@ mod tests {
         assert_eq!(
             remote.disabled_reason(),
             Some("Remote host manager is not implemented yet.")
+        );
+        let scheduled = palette_items(&store.projection(), SearchPaletteMode::Root, "scheduled")
+            .into_iter()
+            .find(|item| matches!(item, SearchPaletteItem::OpenScheduled))
+            .expect("scheduled command remains searchable");
+        assert_eq!(
+            scheduled.disabled_reason(),
+            Some("Scheduled tasks need a host scheduler service.")
         );
 
         assert_eq!(SearchPaletteItem::SwitchModel.disabled_reason(), None);

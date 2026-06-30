@@ -619,6 +619,9 @@ impl RootView {
                 self.active_store_mut()
                     .add_current_directory_project(active_host.as_ref());
             }
+            SearchPaletteItem::OpenScheduled => {
+                self.search_palette.close();
+            }
             SearchPaletteItem::OpenSettings => {
                 self.search_palette.close();
                 self.apply_right_panel_tab(RightPanelTab::Settings);
