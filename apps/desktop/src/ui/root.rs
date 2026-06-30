@@ -842,6 +842,12 @@ impl RootView {
                 self.search_palette.close();
                 self.activate_review_palette_action(action);
             }
+            SearchPaletteItem::TodoAction {
+                todo_id, action, ..
+            } => {
+                self.search_palette.close();
+                self.activate_todo_palette_action(todo_id, action);
+            }
             SearchPaletteItem::Project { project_id, .. } => {
                 let mode = self.search_palette.mode;
                 self.search_palette.close();
@@ -977,6 +983,31 @@ impl RootView {
                     .push_active_review(active_host.as_ref());
             }
         }
+    }
+
+    fn activate_todo_palette_action(
+        &mut self,
+        todo_id: String,
+        action: crate::ui::search_palette::TodoPaletteAction,
+    ) {
+        self.apply_right_panel_tab(RightPanelTab::Todos);
+        let status = match action {
+            crate::ui::search_palette::TodoPaletteAction::Open => crate::stores::TodoStatus::Open,
+            crate::ui::search_palette::TodoPaletteAction::Start => {
+                crate::stores::TodoStatus::InProgress
+            }
+            crate::ui::search_palette::TodoPaletteAction::Block => {
+                crate::stores::TodoStatus::Blocked
+            }
+            crate::ui::search_palette::TodoPaletteAction::Complete => {
+                crate::stores::TodoStatus::Done
+            }
+            crate::ui::search_palette::TodoPaletteAction::Cancel => {
+                crate::stores::TodoStatus::Canceled
+            }
+        };
+        self.active_store_mut().update_todo_status(&todo_id, status);
+        self.save_thread_annotations();
     }
 
     fn open_project_or_create_thread(&mut self, project_id: ace_core::ProjectId) {

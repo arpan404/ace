@@ -2,7 +2,7 @@ use crate::{
     actions::SelectSearchPaletteItem,
     stores::{
         ApprovalItemProjection, DesktopProjection, ModelProjection, ReviewProjection,
-        SearchContextKind,
+        SearchContextKind, TodoItem, TodoStatus,
         ui::{BottomPanelTab, RightPanelTab},
     },
     ui::{
@@ -150,6 +150,12 @@ pub enum SearchPaletteItem {
         label: String,
         description: String,
     },
+    TodoAction {
+        todo_id: String,
+        action: TodoPaletteAction,
+        label: String,
+        description: String,
+    },
     Project {
         project_id: ProjectId,
         label: String,
@@ -194,6 +200,15 @@ pub enum ReviewPaletteAction {
     UnstageAll,
     Commit,
     Push,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TodoPaletteAction {
+    Open,
+    Start,
+    Block,
+    Complete,
+    Cancel,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -245,6 +260,7 @@ impl SearchPaletteItem {
             Self::ProjectAction { label, .. } => label,
             Self::ApprovalAction { label, .. } => label,
             Self::ReviewAction { label, .. } => label,
+            Self::TodoAction { label, .. } => label,
             Self::Project { label, .. } | Self::Thread { label, .. } => label,
         }
     }
@@ -296,6 +312,7 @@ impl SearchPaletteItem {
             Self::ProjectAction { description, .. } => description,
             Self::ApprovalAction { description, .. } => description,
             Self::ReviewAction { description, .. } => description,
+            Self::TodoAction { description, .. } => description,
             Self::Project { description, .. } | Self::Thread { description, .. } => description,
         }
     }
@@ -345,6 +362,7 @@ impl SearchPaletteItem {
             Self::ProjectAction { .. } => PaletteItemKind::Action,
             Self::ApprovalAction { .. } => PaletteItemKind::Action,
             Self::ReviewAction { .. } => PaletteItemKind::Action,
+            Self::TodoAction { .. } => PaletteItemKind::Action,
             Self::Project { .. } => PaletteItemKind::Project,
             Self::Thread { .. } => PaletteItemKind::Thread,
         }
@@ -499,6 +517,7 @@ pub fn palette_items(
             description: format!("Todo · {:?}", todo.status),
             result_kind: SearchPaletteResultKind::Context,
         });
+        context_items.extend(todo_palette_actions(todo));
     }
     for approval in &projection.approvals.pending {
         context_items.push(SearchPaletteItem::Panel {
@@ -1066,6 +1085,45 @@ fn review_palette_actions(review: &ReviewProjection) -> Vec<SearchPaletteItem> {
     items
 }
 
+fn todo_palette_actions(todo: &TodoItem) -> Vec<SearchPaletteItem> {
+    let transitions: &[(TodoPaletteAction, TodoStatus, &str)] = match todo.status {
+        TodoStatus::Open => &[
+            (TodoPaletteAction::Start, TodoStatus::InProgress, "Start"),
+            (TodoPaletteAction::Complete, TodoStatus::Done, "Complete"),
+            (TodoPaletteAction::Cancel, TodoStatus::Canceled, "Cancel"),
+        ],
+        TodoStatus::InProgress => &[
+            (TodoPaletteAction::Block, TodoStatus::Blocked, "Block"),
+            (TodoPaletteAction::Complete, TodoStatus::Done, "Complete"),
+            (TodoPaletteAction::Cancel, TodoStatus::Canceled, "Cancel"),
+        ],
+        TodoStatus::Blocked => &[
+            (TodoPaletteAction::Start, TodoStatus::InProgress, "Start"),
+            (TodoPaletteAction::Complete, TodoStatus::Done, "Complete"),
+            (TodoPaletteAction::Cancel, TodoStatus::Canceled, "Cancel"),
+        ],
+        TodoStatus::Done | TodoStatus::Canceled => &[
+            (TodoPaletteAction::Open, TodoStatus::Open, "Reopen"),
+            (TodoPaletteAction::Start, TodoStatus::InProgress, "Start"),
+        ],
+    };
+
+    transitions
+        .iter()
+        .map(
+            |(action, next_status, verb)| SearchPaletteItem::TodoAction {
+                todo_id: todo.id.clone(),
+                action: *action,
+                label: format!("{verb} todo: {}", todo.title),
+                description: format!(
+                    "{} · {:?} -> {:?} · {}",
+                    todo.id, todo.status, next_status, todo.title
+                ),
+            },
+        )
+        .collect()
+}
+
 fn thread_palette_description(project_name: &str, thread: &ThreadSummary) -> String {
     let mut parts = vec![project_name.to_string(), thread.status.label().to_string()];
 
@@ -1588,6 +1646,13 @@ fn palette_icon(theme: Theme, item: &SearchPaletteItem, active: bool) -> AnyElem
             ReviewPaletteAction::Commit => icon_svg(IconName::CircleCheck, color),
             ReviewPaletteAction::Push => icon_svg(IconName::ArrowUp, color),
         },
+        SearchPaletteItem::TodoAction { action, .. } => match action {
+            TodoPaletteAction::Open => icon_svg(IconName::Check, color),
+            TodoPaletteAction::Start => icon_svg(IconName::LoaderCircle, color),
+            TodoPaletteAction::Block => icon_svg(IconName::TriangleAlert, color),
+            TodoPaletteAction::Complete => icon_svg(IconName::CircleCheck, color),
+            TodoPaletteAction::Cancel => icon_svg(IconName::CircleX, color),
+        },
     }
 }
 
@@ -2015,6 +2080,47 @@ mod tests {
                 action: ReviewPaletteAction::Commit,
                 ..
             }
+        )));
+    }
+
+    #[test]
+    fn palette_search_includes_backed_todo_status_actions() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id,
+            ComposerPayload {
+                prompt: "Track todo palette actions".to_string(),
+            },
+        );
+        store.create_todo_from_latest_timeline_item();
+        let todo_id = store.projection().annotations.todos[0].id.clone();
+
+        let complete_items = palette_items(
+            &store.projection(),
+            SearchPaletteMode::Root,
+            "complete todo",
+        );
+        assert!(complete_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::TodoAction {
+                todo_id: item_todo_id,
+                action: TodoPaletteAction::Complete,
+                ..
+            } if *item_todo_id == todo_id
+        )));
+
+        store.update_todo_status(&todo_id, TodoStatus::Done);
+        let reopen_items =
+            palette_items(&store.projection(), SearchPaletteMode::Root, "reopen todo");
+        assert!(reopen_items.iter().any(|item| matches!(
+            item,
+            SearchPaletteItem::TodoAction {
+                todo_id: item_todo_id,
+                action: TodoPaletteAction::Open,
+                ..
+            } if *item_todo_id == todo_id
         )));
     }
 
