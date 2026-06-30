@@ -44,8 +44,8 @@ use ace_runtime::{
         ThreadItemStatus,
     },
     threads::{
-        AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation,
-        RemoteConnectionRecord,
+        AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation, PlanSessionStatus,
+        RemoteConnectionRecord, TurnMode,
     },
     tools::ToolSurface,
 };
@@ -114,6 +114,7 @@ pub struct DesktopProjection {
     pub providers: ProviderRegistryProjection,
     pub runtime_status: RuntimeStatusProjection,
     pub approvals: ApprovalRegistryProjection,
+    pub run: RunProjection,
     pub models: ModelRegistryProjection,
     pub plugins: ToolRegistryProjection,
     pub skills: ToolRegistryProjection,
@@ -350,6 +351,7 @@ pub struct ArtifactItemProjection {
 pub struct SummaryProjection {
     pub current_goal: Option<String>,
     pub current_status: String,
+    pub run_status: Option<String>,
     pub plan: Vec<String>,
     pub todos: Vec<String>,
     pub pinned_context: Vec<String>,
@@ -388,6 +390,19 @@ pub struct RuntimeStatusProjection {
     pub remote_connections_with_projects: usize,
     pub error: Option<String>,
     pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunProjection {
+    pub active: bool,
+    pub status_label: String,
+    pub mode_label: String,
+    pub provider_label: String,
+    pub model_label: String,
+    pub turn_id: Option<String>,
+    pub plan_status: Option<String>,
+    pub pending_approvals: usize,
+    pub pending_user_inputs: usize,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -786,6 +801,7 @@ impl DesktopStore {
             providers: self.provider_registry.clone(),
             runtime_status: self.runtime_status.clone(),
             approvals: self.approval_registry.clone(),
+            run: self.run_projection(),
             models: self.model_registry.clone(),
             plugins: self.plugin_registry.clone(),
             skills: self.skill_registry.clone(),
@@ -1107,6 +1123,73 @@ impl DesktopStore {
     }
 
     #[must_use]
+    pub fn run_projection(&self) -> RunProjection {
+        let Some(thread) = self.active_thread() else {
+            return RunProjection {
+                status_label: "No active thread".to_string(),
+                mode_label: "None".to_string(),
+                provider_label: "No provider".to_string(),
+                model_label: "No model".to_string(),
+                ..RunProjection::default()
+            };
+        };
+        let thread_keys = self.runtime_thread_keys(thread);
+        let active_turn = self
+            .runtime
+            .active_turns
+            .iter()
+            .find(|turn| thread_keys.iter().any(|key| key == &turn.thread_id));
+        let plan_session = self
+            .runtime
+            .plan_sessions
+            .iter()
+            .find(|plan| thread_keys.iter().any(|key| key == &plan.thread_id));
+        let active = active_turn.is_some_and(|turn| turn.active)
+            || matches!(
+                thread.status,
+                ThreadStatus::Working | ThreadStatus::Connecting
+            );
+        let mode_label = active_turn
+            .map(|turn| turn_mode_label(turn.mode).to_string())
+            .or_else(|| {
+                plan_session.map(|plan| format!("Plan {}", plan_session_status_label(plan.status)))
+            })
+            .unwrap_or_else(|| thread_run_mode_label(thread));
+        let status_label = plan_session
+            .map(|plan| format!("Plan {}", plan_session_status_label(plan.status)))
+            .unwrap_or_else(|| thread.status.label().to_string());
+        RunProjection {
+            active,
+            status_label,
+            mode_label,
+            provider_label: thread.provider.display_name().to_string(),
+            model_label: thread
+                .model
+                .clone()
+                .unwrap_or_else(|| "No model selected".to_string()),
+            turn_id: active_turn
+                .and_then(|turn| turn.turn_id.clone())
+                .or_else(|| plan_session.and_then(|plan| plan.turn_id.clone())),
+            plan_status: plan_session
+                .map(|plan| plan_session_status_label(plan.status).to_string()),
+            pending_approvals: thread
+                .pending_approvals
+                .max(self.approval_registry.pending.len()),
+            pending_user_inputs: thread.pending_user_inputs,
+        }
+    }
+
+    fn runtime_thread_keys(&self, thread: &ThreadSummary) -> Vec<String> {
+        let mut keys = vec![thread.id.0.clone()];
+        if let Some(provider_thread_id) = thread.provider_thread_id.as_ref()
+            && provider_thread_id != &thread.id.0
+        {
+            keys.push(provider_thread_id.clone());
+        }
+        keys
+    }
+
+    #[must_use]
     pub fn summary_projection(&self) -> SummaryProjection {
         let Some(thread) = self.active_thread() else {
             return SummaryProjection {
@@ -1119,6 +1202,7 @@ impl DesktopStore {
         let terminal = self.terminal_projection();
         let editor = self.editor_projection();
         let browser = &self.browser;
+        let run = self.run_projection();
         let messages = self
             .persisted_messages
             .get(&thread.id)
@@ -1220,6 +1304,13 @@ impl DesktopStore {
         if let Some(workspace_root) = editor.workspace_root.as_deref() {
             decisions.push(format!("Active workspace is {workspace_root}."));
         }
+        decisions.push(format!(
+            "Run is {} in {} mode using {} on {}.",
+            run.status_label, run.mode_label, run.model_label, run.provider_label
+        ));
+        if let Some(turn_id) = run.turn_id.as_deref() {
+            decisions.push(format!("Active turn id is {turn_id}."));
+        }
         let mut blockers = Vec::new();
         if thread.pending_approvals > 0 || !self.approval_registry.pending.is_empty() {
             blockers.push(format!(
@@ -1263,6 +1354,10 @@ impl DesktopStore {
         };
 
         let source_count = self.sources_projection().items.len();
+        let run_status = Some(format!(
+            "{} · {} mode · {} on {}",
+            run.status_label, run.mode_label, run.model_label, run.provider_label
+        ));
         SummaryProjection {
             current_goal,
             current_status: format!(
@@ -1273,6 +1368,7 @@ impl DesktopStore {
                 source_count,
                 plural(source_count)
             ),
+            run_status,
             plan,
             todos,
             pinned_context,
@@ -5040,6 +5136,30 @@ fn thread_status_is_terminal(status: ThreadStatus) -> bool {
     )
 }
 
+fn turn_mode_label(mode: TurnMode) -> &'static str {
+    match mode {
+        TurnMode::Normal => "Run",
+        TurnMode::Plan => "Plan",
+    }
+}
+
+fn plan_session_status_label(status: PlanSessionStatus) -> &'static str {
+    match status {
+        PlanSessionStatus::Active => "active",
+        PlanSessionStatus::Completed => "completed",
+        PlanSessionStatus::Rejected => "rejected",
+        PlanSessionStatus::Implementing => "implementing",
+    }
+}
+
+fn thread_run_mode_label(thread: &ThreadSummary) -> String {
+    if thread.worktree_path.is_some() {
+        "Worktree".to_string()
+    } else {
+        "Thread".to_string()
+    }
+}
+
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
 }
@@ -5962,6 +6082,56 @@ mod tests {
             summary.next_action.as_deref(),
             Some("Pick the next open todo or attach it to the composer with @todo.")
         );
+    }
+
+    #[test]
+    fn run_projection_matches_provider_thread_runtime_state() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+        store.runtime.active_turns = vec![ace_runtime::threads::Turn {
+            thread_id: "provider-thread-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            mode: TurnMode::Plan,
+            active: true,
+        }];
+        store.runtime.plan_sessions = vec![ace_runtime::threads::PlanSession {
+            thread_id: "provider-thread-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some("plan-1".to_string()),
+            status: PlanSessionStatus::Implementing,
+            title: Some("Implementation plan".to_string()),
+            text: None,
+            status_text: None,
+            questions: None,
+            completion: None,
+            metadata: serde_json::Value::Null,
+            provider: None,
+        }];
+
+        let run = store.run_projection();
+
+        assert!(run.active);
+        assert_eq!(run.status_label, "Plan implementing");
+        assert_eq!(run.mode_label, "Plan");
+        assert_eq!(run.turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(run.plan_status.as_deref(), Some("implementing"));
+
+        let summary = store.summary_projection();
+
+        assert_eq!(
+            summary.run_status.as_deref(),
+            Some("Plan implementing · Plan mode · gpt-5.3-codex on Codex")
+        );
+        assert!(summary.decisions.iter().any(|item| {
+            item == "Run is Plan implementing in Plan mode using gpt-5.3-codex on Codex."
+        }));
     }
 
     #[test]

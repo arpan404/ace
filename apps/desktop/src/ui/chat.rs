@@ -9,7 +9,7 @@ use crate::{
     stores::{
         ComposerCommandProjection, ComposerCommandSource, DesktopProjection, HostOptionProjection,
         ModelProjection, ModelProviderProjection, ModelRegistryProjection,
-        ProviderSlashCommandProjection, ThreadAnnotationsProjection, TodoStatus,
+        ProviderSlashCommandProjection, RunProjection, ThreadAnnotationsProjection, TodoStatus,
         ToolRegistryEntryProjection, ui::UiState,
     },
     ui::{components::*, right_panel::environment_card, theme::Theme},
@@ -172,6 +172,7 @@ fn workspace_chrome(
                                 .child(header_meta_chip(theme, IconName::SquareTerminal, mode))
                                 .child(header_meta_chip(theme, IconName::FolderOpen, branch))
                                 .child(header_meta_chip(theme, IconName::Check, status))
+                                .child(run_meta_chip(theme, &projection.run))
                                 .child(header_meta_chip(theme, IconName::Check, todos))
                                 .child(header_meta_chip(
                                     theme,
@@ -243,6 +244,62 @@ fn header_meta_chip(theme: Theme, icon: IconName, label: impl Into<String>) -> A
                 .whitespace_nowrap()
                 .child(label.into()),
         )
+        .into_any_element()
+}
+
+fn run_meta_chip(theme: Theme, run: &RunProjection) -> AnyElement {
+    let color = if run.active {
+        theme.accent_success
+    } else {
+        theme.muted_subtle
+    };
+    let label = if let Some(turn_id) = run.turn_id.as_deref() {
+        format!("{} · {}", run.status_label, turn_id)
+    } else {
+        run.status_label.clone()
+    };
+    div()
+        .id(("header-run", stable_id(&label)))
+        .min_w_0()
+        .max_w(theme.center_header_meta_max_width)
+        .h(theme.center_header_meta_height)
+        .rounded_md()
+        .px_1()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .text_size(px(11.0))
+        .text_color(color)
+        .child(icon_svg(
+            if run.active {
+                IconName::LoaderCircle
+            } else {
+                IconName::Check
+            },
+            color,
+        ))
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .child(label),
+        )
+        .tooltip({
+            let detail = format!(
+                "{} mode · {} · {} · {} pending approval{}",
+                run.mode_label,
+                run.provider_label,
+                run.model_label,
+                run.pending_approvals,
+                if run.pending_approvals == 1 { "" } else { "s" }
+            );
+            move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(detail.clone()).build(window, cx)
+            }
+        })
         .into_any_element()
 }
 
