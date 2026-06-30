@@ -313,7 +313,7 @@ where
     div()
         .id(("center-header-action", stable_id(action.label())))
         .w(px(28.0))
-        .h(px(28.0))
+        .h(theme.composer_meta_chip_height)
         .rounded_lg()
         .flex()
         .items_center()
@@ -1575,7 +1575,7 @@ fn composer_host_selector(
         .when(projection.host_options.is_empty(), |this| {
             this.child(
                 div()
-                    .h(px(26.0))
+                    .h(theme.composer_control_pill_height)
                     .rounded_md()
                     .border_1()
                     .border_color(theme.border_subtle)
@@ -1656,7 +1656,11 @@ fn model_selector(
         .child(selector_label(theme, "Models"))
         .child(
             div()
-                .max_h(if compact { px(118.0) } else { px(148.0) })
+                .max_h(if compact {
+                    theme.composer_model_selector_compact_height
+                } else {
+                    theme.composer_model_selector_height
+                })
                 .flex()
                 .flex_row()
                 .gap_2()
@@ -1680,7 +1684,7 @@ fn model_provider_group(
     let provider_kind = composer_model_provider_kind(provider);
     let send_ready = provider_kind.is_some();
     div()
-        .min_w(px(240.0))
+        .min_w(theme.composer_model_provider_min_width)
         .rounded_md()
         .border_1()
         .border_color(theme.border_subtle)
@@ -1738,7 +1742,7 @@ fn model_row(
             "composer-model",
             stable_id(&format!("{provider_id}:{}", model.id)),
         ))
-        .min_h(px(56.0))
+        .min_h(theme.composer_model_row_min_height)
         .rounded_md()
         .border_1()
         .border_color(if selected {
@@ -1971,8 +1975,8 @@ fn composer_host_pill(
     };
     let mut pill = div()
         .id(("composer-host", stable_id(&format!("{label}:{detail}"))))
-        .max_w(px(164.0))
-        .h(px(26.0))
+        .max_w(theme.composer_host_pill_max_width)
+        .h(theme.composer_control_pill_height)
         .rounded_md()
         .border_1()
         .border_color(if selected {
@@ -2035,8 +2039,8 @@ fn composer_disabled_pill(
 ) -> AnyElement {
     div()
         .id(("composer-disabled-pill", stable_id(label)))
-        .min_w(px(54.0))
-        .h(px(26.0))
+        .min_w(theme.composer_control_min_width)
+        .h(theme.composer_control_pill_height)
         .rounded_md()
         .border_1()
         .border_color(theme.border_subtle)
@@ -2072,8 +2076,8 @@ where
     };
     div()
         .id(("composer-pill", stable_id(&format!("{label}:{detail}"))))
-        .min_w(px(54.0))
-        .h(px(26.0))
+        .min_w(theme.composer_control_min_width)
+        .h(theme.composer_control_pill_height)
         .rounded_md()
         .border_1()
         .border_color(if selected {
@@ -2129,7 +2133,7 @@ fn selector_notice(theme: Theme, label: &'static str, message: &str) -> AnyEleme
         .child(selector_label(theme, label))
         .child(
             div()
-                .h(px(28.0))
+                .h(theme.composer_meta_chip_height)
                 .rounded_md()
                 .border_1()
                 .border_color(theme.border_subtle)
@@ -2234,8 +2238,8 @@ fn composer_disabled_icon_button(
 ) -> AnyElement {
     div()
         .id(("composer-disabled-icon", stable_id(label)))
-        .w(px(28.0))
-        .h(px(28.0))
+        .w(theme.composer_disabled_icon_size)
+        .h(theme.composer_disabled_icon_size)
         .rounded_md()
         .border_1()
         .border_color(theme.border_subtle)
@@ -2366,7 +2370,7 @@ fn composer_command_chips(theme: Theme, commands: &[ComposerCommandProjection]) 
         .when(commands.len() > 5, |this| {
             this.child(
                 div()
-                    .h(px(24.0))
+                    .h(theme.composer_command_overflow_height)
                     .rounded_md()
                     .border_1()
                     .border_color(theme.border_subtle)
@@ -2394,7 +2398,7 @@ fn composer_command_chip(theme: Theme, command: &ComposerCommandProjection) -> A
     );
     div()
         .id(("composer-command-chip", stable_id(&command.token)))
-        .h(px(24.0))
+        .h(theme.composer_command_chip_height)
         .rounded_md()
         .border_1()
         .border_color(theme.accent_blue.opacity(0.34))

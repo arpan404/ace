@@ -82,6 +82,17 @@ pub struct Theme {
     pub center_header_title_max_width: Pixels,
     pub center_header_meta_max_width: Pixels,
     pub center_header_meta_height: Pixels,
+    pub composer_command_chip_height: Pixels,
+    pub composer_command_overflow_height: Pixels,
+    pub composer_control_min_width: Pixels,
+    pub composer_control_pill_height: Pixels,
+    pub composer_disabled_icon_size: Pixels,
+    pub composer_host_pill_max_width: Pixels,
+    pub composer_meta_chip_height: Pixels,
+    pub composer_model_provider_min_width: Pixels,
+    pub composer_model_row_min_height: Pixels,
+    pub composer_model_selector_height: Pixels,
+    pub composer_model_selector_compact_height: Pixels,
     pub environment_card_width: Pixels,
     pub environment_card_floating_top: Pixels,
     pub environment_card_floating_right: Pixels,
@@ -129,6 +140,17 @@ impl Default for Theme {
             center_header_title_max_width: px(920.0),
             center_header_meta_max_width: px(150.0),
             center_header_meta_height: px(18.0),
+            composer_command_chip_height: px(24.0),
+            composer_command_overflow_height: px(24.0),
+            composer_control_min_width: px(54.0),
+            composer_control_pill_height: px(26.0),
+            composer_disabled_icon_size: px(28.0),
+            composer_host_pill_max_width: px(164.0),
+            composer_meta_chip_height: px(28.0),
+            composer_model_provider_min_width: px(240.0),
+            composer_model_row_min_height: px(56.0),
+            composer_model_selector_height: px(148.0),
+            composer_model_selector_compact_height: px(118.0),
             environment_card_width: px(360.0),
             environment_card_floating_top: px(60.0),
             environment_card_floating_right: px(16.0),
@@ -189,6 +211,17 @@ impl Theme {
             ThemeDensity::Compact => {
                 theme.center_header_height = px(52.0);
                 theme.center_header_meta_height = px(16.0);
+                theme.composer_command_chip_height = px(22.0);
+                theme.composer_command_overflow_height = px(22.0);
+                theme.composer_control_min_width = px(50.0);
+                theme.composer_control_pill_height = px(24.0);
+                theme.composer_disabled_icon_size = px(26.0);
+                theme.composer_host_pill_max_width = px(148.0);
+                theme.composer_meta_chip_height = px(26.0);
+                theme.composer_model_provider_min_width = px(220.0);
+                theme.composer_model_row_min_height = px(52.0);
+                theme.composer_model_selector_height = px(132.0);
+                theme.composer_model_selector_compact_height = px(104.0);
                 theme.bottom_panel_height = px(220.0);
                 theme.right_panel_width = px(390.0);
                 theme.sidebar_width = px(300.0);
@@ -286,6 +319,10 @@ mod tests {
         assert_eq!(theme.bottom_panel_height, px(260.0));
         assert_eq!(theme.center_header_height, px(58.0));
         assert_eq!(theme.center_header_meta_height, px(18.0));
+        assert_eq!(theme.composer_control_pill_height, px(26.0));
+        assert_eq!(theme.composer_meta_chip_height, px(28.0));
+        assert_eq!(theme.composer_model_selector_height, px(148.0));
+        assert_eq!(theme.composer_model_selector_compact_height, px(118.0));
         assert_eq!(theme.environment_card_width, px(360.0));
         assert_eq!(theme.timeline_max_rendered_messages, 120);
         assert_eq!(theme.motion_fast_ms, 90);
@@ -308,6 +345,10 @@ mod tests {
 
         assert_eq!(theme.center_header_height, px(52.0));
         assert_eq!(theme.sidebar_width, px(300.0));
+        assert_eq!(theme.composer_control_pill_height, px(24.0));
+        assert_eq!(theme.composer_meta_chip_height, px(26.0));
+        assert_eq!(theme.composer_model_selector_height, px(132.0));
+        assert_eq!(theme.composer_model_selector_compact_height, px(104.0));
         assert_eq!(theme.ui_font_family, "SF Mono");
         assert_eq!(theme.code_font_family, "Menlo");
         assert_eq!(theme.accent_blue, rgb(0x34d399).into());

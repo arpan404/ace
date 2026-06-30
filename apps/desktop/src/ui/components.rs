@@ -66,7 +66,7 @@ impl IconNamed for AceIconName {
 
 pub(super) fn model_chip(theme: Theme, model: &str, effort: &str) -> AnyElement {
     div()
-        .h(px(28.0))
+        .h(theme.composer_meta_chip_height)
         .rounded_md()
         .px_2()
         .flex()
@@ -83,7 +83,7 @@ pub(super) fn model_chip(theme: Theme, model: &str, effort: &str) -> AnyElement 
 
 pub(super) fn meta_chip(icon: IconName, label: &str, theme: Theme) -> AnyElement {
     div()
-        .h(px(24.0))
+        .h(theme.composer_command_chip_height)
         .rounded_md()
         .px_1()
         .flex()
