@@ -5403,9 +5403,17 @@ impl DesktopStore {
         let Some(thread_id) = self.ensure_active_thread() else {
             return;
         };
-        let default_remote = (runtime_mode == RuntimeMode::Remote)
-            .then(|| self.first_connected_remote_host())
-            .flatten();
+        let default_remote = if runtime_mode == RuntimeMode::Remote {
+            let Some(remote) = self.first_connected_remote_host() else {
+                self.runtime_status.error =
+                    Some("Remote mode needs a connected remote host.".to_string());
+                self.runtime_status.updated_at = Some(now);
+                return;
+            };
+            Some(remote)
+        } else {
+            None
+        };
         let draft = self
             .composer_drafts
             .entry(thread_id.clone())
@@ -9125,6 +9133,24 @@ mod tests {
         let draft = store.projection().chat.composer.expect("composer");
         assert_eq!(draft.runtime_mode, RuntimeMode::Local);
         assert_eq!(draft.host_selection, None);
+    }
+
+    #[test]
+    fn remote_composer_mode_requires_connected_host() {
+        let mut store = DesktopStore::new();
+        store.runtime.remote_connections = vec![remote_connection("devbox", Some("offline"))];
+        store.add_project("/tmp/project".to_string());
+
+        store.set_active_composer_runtime_mode(RuntimeMode::Remote);
+
+        let projection = store.projection();
+        let draft = projection.chat.composer.expect("composer");
+        assert_ne!(draft.runtime_mode, RuntimeMode::Remote);
+        assert_eq!(draft.host_selection, None);
+        assert_eq!(
+            projection.runtime_status.error.as_deref(),
+            Some("Remote mode needs a connected remote host.")
+        );
     }
 
     #[test]
