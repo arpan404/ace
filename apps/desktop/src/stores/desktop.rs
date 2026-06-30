@@ -797,7 +797,7 @@ impl DesktopStore {
                 .unwrap_or(group.threads.len());
             sidebar.total_thread_count += group.project.thread_count;
             for thread in &mut group.threads {
-                thread.latest_message_preview = None;
+                self.apply_thread_message_preview(thread);
             }
         }
         let active_thread = self.active_thread().cloned();
@@ -873,6 +873,29 @@ impl DesktopStore {
                     .count();
             }
         }
+    }
+
+    fn apply_thread_message_preview(&self, thread: &mut ThreadSummary) {
+        if let Some(preview) = thread
+            .latest_message_preview
+            .as_ref()
+            .map(|preview| preview.trim())
+            .filter(|preview| !preview.is_empty())
+        {
+            thread.latest_message_preview = Some(truncate_preview(preview, 160));
+            return;
+        }
+
+        thread.latest_message_preview =
+            self.persisted_messages
+                .get(&thread.id)
+                .and_then(|messages| {
+                    messages
+                        .iter()
+                        .rev()
+                        .map(message_excerpt)
+                        .find(|excerpt| !excerpt.is_empty())
+                });
     }
 
     #[must_use]
@@ -5857,11 +5880,15 @@ fn message_excerpt(message: &ChatMessageProjection) -> String {
         .or(message.title.as_deref())
         .unwrap_or_default()
         .trim();
-    if raw.len() <= 160 {
+    truncate_preview(raw, 160)
+}
+
+fn truncate_preview(raw: &str, limit: usize) -> String {
+    if raw.len() <= limit {
         return raw.to_string();
     }
 
-    let mut end = 160;
+    let mut end = limit;
     while !raw.is_char_boundary(end) {
         end -= 1;
     }
@@ -7656,6 +7683,63 @@ mod tests {
             .expect("sidebar thread");
         assert_eq!(thread.todo_count, 1);
         assert_eq!(thread.open_todo_count, 0);
+    }
+
+    #[test]
+    fn sidebar_threads_include_latest_message_preview() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let direct_thread_id = store.new_thread(project_id);
+        let long_prompt = format!("{}é", "a".repeat(180));
+        store.send_message(
+            direct_thread_id.clone(),
+            ComposerPayload {
+                prompt: long_prompt,
+            },
+        );
+
+        let derived_thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == derived_thread_id)
+            .expect("thread")
+            .latest_message_preview = None;
+        store.persisted_messages.insert(
+            derived_thread_id.clone(),
+            vec![chat_message(
+                "assistant-1".to_string(),
+                ChatMessageRole::Assistant,
+                "Derived from persisted assistant state".to_string(),
+            )],
+        );
+
+        let projection = store.projection();
+        let direct = projection
+            .sidebar
+            .projects
+            .iter()
+            .flat_map(|group| group.threads.iter())
+            .find(|thread| thread.id == direct_thread_id)
+            .expect("direct thread");
+        let direct_preview = direct
+            .latest_message_preview
+            .as_deref()
+            .expect("direct preview");
+        assert!(direct_preview.ends_with("..."));
+        assert!(std::str::from_utf8(direct_preview.as_bytes()).is_ok());
+
+        let derived = projection
+            .sidebar
+            .projects
+            .iter()
+            .flat_map(|group| group.threads.iter())
+            .find(|thread| thread.id == derived_thread_id)
+            .expect("derived thread");
+        assert_eq!(
+            derived.latest_message_preview.as_deref(),
+            Some("Derived from persisted assistant state")
+        );
     }
 
     #[test]

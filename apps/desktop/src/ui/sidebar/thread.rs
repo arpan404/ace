@@ -5,6 +5,7 @@ use gpui_component::{IconName, tooltip::Tooltip};
 
 pub(super) fn thread_row(theme: Theme, thread: ThreadSummary, active: bool) -> AnyElement {
     let id = thread.id.clone();
+    let tooltip_thread = thread.clone();
     div()
         .id("thread-row")
         .h(px(28.0))
@@ -48,6 +49,9 @@ pub(super) fn thread_row(theme: Theme, thread: ThreadSummary, active: bool) -> A
                 .child(thread.title.clone()),
         )
         .children(thread_annotation_badges(theme, &thread))
+        .tooltip(move |window, cx| {
+            Tooltip::new(thread_hover_tooltip(&tooltip_thread)).build(window, cx)
+        })
         .on_mouse_up(MouseButton::Left, move |_, window, cx| {
             window.dispatch_action(
                 Box::new(crate::actions::OpenThread {
@@ -57,6 +61,64 @@ pub(super) fn thread_row(theme: Theme, thread: ThreadSummary, active: bool) -> A
             );
         })
         .into_any_element()
+}
+
+fn thread_hover_tooltip(thread: &ThreadSummary) -> String {
+    let mut lines = vec![
+        thread.title.clone(),
+        format!(
+            "{} · {} · {}",
+            thread_status_label(thread.status),
+            thread.provider.display_name(),
+            thread.model.as_deref().unwrap_or("Default model")
+        ),
+    ];
+
+    if let Some(branch) = thread.branch.as_deref().filter(|branch| !branch.is_empty()) {
+        lines.push(format!("Branch: {branch}"));
+    }
+    if let Some(worktree) = thread
+        .worktree_path
+        .as_deref()
+        .filter(|worktree| !worktree.is_empty())
+    {
+        lines.push(format!("Worktree: {worktree}"));
+    }
+    if thread.open_todo_count > 0 {
+        lines.push(format!("Open todos: {}", thread.open_todo_count));
+    } else if thread.todo_count > 0 {
+        lines.push(format!("Todos: {} completed", thread.todo_count));
+    }
+    if thread.pinned_item_count > 0 {
+        lines.push(format!("Pinned items: {}", thread.pinned_item_count));
+    }
+    if thread.highlighted_count > 0 {
+        lines.push(format!("Highlights: {}", thread.highlighted_count));
+    }
+    if let Some(preview) = thread
+        .latest_message_preview
+        .as_deref()
+        .filter(|preview| !preview.is_empty())
+    {
+        lines.push(preview.to_string());
+    }
+
+    lines.join("\n")
+}
+
+fn thread_status_label(status: ThreadStatus) -> &'static str {
+    match status {
+        ThreadStatus::Draft => "Draft",
+        ThreadStatus::Idle => "Idle",
+        ThreadStatus::Working => "Working",
+        ThreadStatus::PendingApproval => "Needs approval",
+        ThreadStatus::AwaitingInput => "Awaiting input",
+        ThreadStatus::PlanReady => "Plan ready",
+        ThreadStatus::Completed => "Complete",
+        ThreadStatus::Error => "Failed",
+        ThreadStatus::Archived => "Archived",
+        ThreadStatus::Connecting => "Connecting",
+    }
 }
 
 fn thread_annotation_badges(theme: Theme, thread: &ThreadSummary) -> Vec<AnyElement> {
