@@ -12,10 +12,12 @@ use crate::{
         SendActiveComposer, SetActiveProjectDefaultModel, SetCodeFont, SetComposerInteractionMode,
         SetComposerPermission, SetComposerReasoning, SetComposerRuntimeMode,
         SetProjectDefaultModelSelection, SetThemeAccent, SetThemeDensity, SetThemeMotion,
-        SetThemePreset, SetUiFont, ShowBrowserTab, ShowLessProjectThreads, ShowMoreProjectThreads,
-        ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab, ShowTerminalTab,
-        ShowTodosTab, StageReviewAll, StageReviewFile, ToggleBottomPanel, ToggleComposerContext,
-        ToggleComposerTrait, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
+        SetThemePreset, SetUiFont, ShowApprovalsTab, ShowBrowserTab, ShowEditorTab,
+        ShowEnvironmentTab, ShowLessProjectThreads, ShowMoreProjectThreads, ShowPinnedTab,
+        ShowPluginsTab, ShowProvidersTab, ShowReviewTab, ShowScheduledTab, ShowSettingsTab,
+        ShowSkillsTab, ShowSourcesTab, ShowSummaryTab, ShowTerminalTab, ShowTodosTab,
+        ShowWorktreesTab, StageReviewAll, StageReviewFile, ToggleBottomPanel,
+        ToggleComposerContext, ToggleComposerTrait, ToggleEnvironmentPanel, ToggleFirstOpenTodo,
         ToggleHighlightLatestTimelineItem, ToggleHighlightTimelineItem, TogglePinActiveThread,
         TogglePinThread, ToggleReviewCommentResolved, ToggleRightPanel, ToggleSidebar,
         UnpinTimelineItem, UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee,
@@ -351,6 +353,26 @@ impl RootView {
         cx.notify();
     }
 
+    fn show_environment_tab(
+        &mut self,
+        _: &ShowEnvironmentTab,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_right_panel_tab(RightPanelTab::Environment);
+        cx.notify();
+    }
+
+    fn show_summary_tab(&mut self, _: &ShowSummaryTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Summary);
+        cx.notify();
+    }
+
+    fn show_review_tab(&mut self, _: &ShowReviewTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Review);
+        cx.notify();
+    }
+
     fn show_terminal_tab(&mut self, _: &ShowTerminalTab, _: &mut Window, cx: &mut Context<Self>) {
         self.apply_right_panel_tab(RightPanelTab::Terminal);
         self.ensure_active_terminal();
@@ -358,8 +380,28 @@ impl RootView {
         cx.notify();
     }
 
+    fn show_worktrees_tab(&mut self, _: &ShowWorktreesTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Worktrees);
+        cx.notify();
+    }
+
+    fn show_approvals_tab(&mut self, _: &ShowApprovalsTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Approvals);
+        cx.notify();
+    }
+
     fn show_browser_tab(&mut self, _: &ShowBrowserTab, _: &mut Window, cx: &mut Context<Self>) {
         self.apply_right_panel_tab(RightPanelTab::Browser);
+        cx.notify();
+    }
+
+    fn show_editor_tab(&mut self, _: &ShowEditorTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Editor);
+        cx.notify();
+    }
+
+    fn show_sources_tab(&mut self, _: &ShowSourcesTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Sources);
         cx.notify();
     }
 
@@ -370,6 +412,11 @@ impl RootView {
 
     fn show_todos_tab(&mut self, _: &ShowTodosTab, _: &mut Window, cx: &mut Context<Self>) {
         self.apply_right_panel_tab(RightPanelTab::Todos);
+        cx.notify();
+    }
+
+    fn show_scheduled_tab(&mut self, _: &ShowScheduledTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Scheduled);
         cx.notify();
     }
 
@@ -385,6 +432,11 @@ impl RootView {
 
     fn show_skills_tab(&mut self, _: &ShowSkillsTab, _: &mut Window, cx: &mut Context<Self>) {
         self.apply_right_panel_tab(RightPanelTab::Skills);
+        cx.notify();
+    }
+
+    fn show_settings_tab(&mut self, _: &ShowSettingsTab, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_right_panel_tab(RightPanelTab::Settings);
         cx.notify();
     }
 
@@ -1736,13 +1788,22 @@ impl Render for RootView {
             .on_action(cx.listener(Self::toggle_right_panel))
             .on_action(cx.listener(Self::toggle_bottom_panel))
             .on_action(cx.listener(Self::select_right_panel_tab))
+            .on_action(cx.listener(Self::show_environment_tab))
+            .on_action(cx.listener(Self::show_summary_tab))
+            .on_action(cx.listener(Self::show_review_tab))
             .on_action(cx.listener(Self::show_terminal_tab))
+            .on_action(cx.listener(Self::show_worktrees_tab))
+            .on_action(cx.listener(Self::show_approvals_tab))
             .on_action(cx.listener(Self::show_browser_tab))
+            .on_action(cx.listener(Self::show_editor_tab))
+            .on_action(cx.listener(Self::show_sources_tab))
             .on_action(cx.listener(Self::show_pinned_tab))
             .on_action(cx.listener(Self::show_todos_tab))
+            .on_action(cx.listener(Self::show_scheduled_tab))
             .on_action(cx.listener(Self::show_providers_tab))
             .on_action(cx.listener(Self::show_plugins_tab))
             .on_action(cx.listener(Self::show_skills_tab))
+            .on_action(cx.listener(Self::show_settings_tab))
             .on_action(cx.listener(Self::refresh_active_tab))
             .on_action(cx.listener(Self::set_theme_preset))
             .on_action(cx.listener(Self::set_theme_density))

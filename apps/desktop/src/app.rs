@@ -3,9 +3,11 @@ use crate::{
         AddCurrentDirectoryProject, ArchiveActiveThread, CommitReview,
         CreateTodoFromLatestTimelineItem, CreateWorktree, InterruptActiveTurn, NewThread,
         PinLatestTimelineItem, PushReview, Quit, RefreshActiveTab, RefreshApprovals, RefreshReview,
-        RefreshWorktrees, RunLint, RunTests, SetActiveProjectDefaultModel, ShowBrowserTab,
-        ShowPinnedTab, ShowPluginsTab, ShowProvidersTab, ShowSkillsTab, ShowTerminalTab,
-        ShowTodosTab, StageReviewAll, ToggleBottomPanel, ToggleEnvironmentPanel,
+        RefreshWorktrees, RunLint, RunTests, SetActiveProjectDefaultModel, ShowApprovalsTab,
+        ShowBrowserTab, ShowEditorTab, ShowEnvironmentTab, ShowPinnedTab, ShowPluginsTab,
+        ShowProvidersTab, ShowReviewTab, ShowScheduledTab, ShowSettingsTab, ShowSkillsTab,
+        ShowSourcesTab, ShowSummaryTab, ShowTerminalTab, ShowTodosTab, ShowWorktreesTab,
+        StageReviewAll, ToggleBottomPanel, ToggleEnvironmentPanel,
         ToggleHighlightLatestTimelineItem, TogglePinActiveThread, ToggleRightPanel, ToggleSidebar,
         UnstageReviewAll,
     },
@@ -102,13 +104,22 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::action("Toggle Bottom Panel", ToggleBottomPanel),
                 MenuItem::action("Toggle Right Panel", ToggleRightPanel),
                 MenuItem::separator(),
+                MenuItem::action("Show Environment", ShowEnvironmentTab),
+                MenuItem::action("Show Summary", ShowSummaryTab),
+                MenuItem::action("Show Review", ShowReviewTab),
                 MenuItem::action("Show Terminal", ShowTerminalTab),
+                MenuItem::action("Show Worktrees", ShowWorktreesTab),
+                MenuItem::action("Show Approvals", ShowApprovalsTab),
                 MenuItem::action("Show Browser", ShowBrowserTab),
+                MenuItem::action("Show Editor", ShowEditorTab),
+                MenuItem::action("Show Sources", ShowSourcesTab),
                 MenuItem::action("Show Pinned", ShowPinnedTab),
                 MenuItem::action("Show Todos", ShowTodosTab),
+                MenuItem::action("Show Scheduled", ShowScheduledTab),
                 MenuItem::action("Show Providers", ShowProvidersTab),
                 MenuItem::action("Show Plugins", ShowPluginsTab),
                 MenuItem::action("Show Skills", ShowSkillsTab),
+                MenuItem::action("Show Settings", ShowSettingsTab),
             ],
         },
         Menu {
@@ -197,9 +208,22 @@ mod tests {
             "Add Current Directory Project"
         ));
         assert!(menu_has_action(&menus, "View", "Toggle Sidebar"));
+        assert!(menu_has_action(&menus, "View", "Show Environment"));
+        assert!(menu_has_action(&menus, "View", "Show Summary"));
+        assert!(menu_has_action(&menus, "View", "Show Review"));
         assert!(menu_has_action(&menus, "View", "Show Terminal"));
+        assert!(menu_has_action(&menus, "View", "Show Worktrees"));
+        assert!(menu_has_action(&menus, "View", "Show Approvals"));
         assert!(menu_has_action(&menus, "View", "Show Browser"));
+        assert!(menu_has_action(&menus, "View", "Show Editor"));
+        assert!(menu_has_action(&menus, "View", "Show Sources"));
+        assert!(menu_has_action(&menus, "View", "Show Pinned"));
+        assert!(menu_has_action(&menus, "View", "Show Todos"));
+        assert!(menu_has_action(&menus, "View", "Show Scheduled"));
         assert!(menu_has_action(&menus, "View", "Show Providers"));
+        assert!(menu_has_action(&menus, "View", "Show Plugins"));
+        assert!(menu_has_action(&menus, "View", "Show Skills"));
+        assert!(menu_has_action(&menus, "View", "Show Settings"));
         assert!(menu_has_action(&menus, "Thread", "Archive Active Thread"));
         assert!(menu_has_action(
             &menus,
