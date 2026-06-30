@@ -1,6 +1,6 @@
 use crate::ui::{components::*, theme::Theme};
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
-use gpui_component::IconName;
+use gpui_component::{IconName, tooltip::Tooltip};
 
 pub(super) fn project_header(
     theme: Theme,
@@ -49,11 +49,9 @@ pub(super) fn project_header(
                         .flex_row()
                         .items_center()
                         .gap_1()
-                        .child(action_button(IconName::ArrowDown, theme, move || {
-                            Box::new(crate::actions::NewThreadForProject { project_id })
-                        }))
                         .child(ace_action_button(
                             AceIconName::SquarePen,
+                            "New thread in project",
                             theme,
                             move || Box::new(crate::actions::NewThreadForProject { project_id }),
                         )),
@@ -62,25 +60,24 @@ pub(super) fn project_header(
         .into_any_element()
 }
 
-fn action_button<F>(icon: IconName, theme: Theme, action: F) -> AnyElement
+fn ace_action_button<F>(
+    icon: AceIconName,
+    tooltip: &'static str,
+    theme: Theme,
+    action: F,
+) -> AnyElement
 where
     F: Fn() -> Box<dyn gpui::Action> + 'static,
 {
-    button(theme, icon_svg(icon, theme.muted), action)
+    button(theme, ace_icon_svg(icon, theme.muted), tooltip, action)
 }
 
-fn ace_action_button<F>(icon: AceIconName, theme: Theme, action: F) -> AnyElement
-where
-    F: Fn() -> Box<dyn gpui::Action> + 'static,
-{
-    button(theme, ace_icon_svg(icon, theme.muted), action)
-}
-
-fn button<F>(theme: Theme, icon: AnyElement, action: F) -> AnyElement
+fn button<F>(theme: Theme, icon: AnyElement, tooltip: &'static str, action: F) -> AnyElement
 where
     F: Fn() -> Box<dyn gpui::Action> + 'static,
 {
     div()
+        .id(tooltip)
         .w(px(20.0))
         .h(px(20.0))
         .rounded_lg()
@@ -90,6 +87,7 @@ where
         .text_color(theme.muted)
         .hover(|this| this.bg(theme.button_hover).text_color(theme.foreground))
         .child(icon)
+        .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
         .on_mouse_up(MouseButton::Left, move |_, window, cx| {
             window.dispatch_action(action(), cx);
         })
