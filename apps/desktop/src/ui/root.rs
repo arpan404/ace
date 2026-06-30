@@ -66,6 +66,36 @@ struct ResizeDrag {
     start_position: Point<Pixels>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RightPanelRefreshTarget {
+    Review,
+    Worktrees,
+    ProviderRuntime,
+    Terminal,
+    Plugins,
+    Skills,
+    None,
+}
+
+fn right_panel_refresh_target(tab: RightPanelTab) -> RightPanelRefreshTarget {
+    match tab {
+        RightPanelTab::Review | RightPanelTab::Sources => RightPanelRefreshTarget::Review,
+        RightPanelTab::Worktrees => RightPanelRefreshTarget::Worktrees,
+        RightPanelTab::Environment
+        | RightPanelTab::Summary
+        | RightPanelTab::Providers
+        | RightPanelTab::Approvals
+        | RightPanelTab::Browser => RightPanelRefreshTarget::ProviderRuntime,
+        RightPanelTab::Terminal => RightPanelRefreshTarget::Terminal,
+        RightPanelTab::Plugins => RightPanelRefreshTarget::Plugins,
+        RightPanelTab::Skills => RightPanelRefreshTarget::Skills,
+        RightPanelTab::Editor
+        | RightPanelTab::Settings
+        | RightPanelTab::Pinned
+        | RightPanelTab::Todos => RightPanelRefreshTarget::None,
+    }
+}
+
 impl RootView {
     pub fn new(
         window: &mut Window,
@@ -334,22 +364,7 @@ impl RootView {
 
     fn apply_right_panel_tab(&mut self, tab: RightPanelTab) {
         self.ui_store.select_right_panel_tab(tab);
-        match tab {
-            RightPanelTab::Review | RightPanelTab::Sources => self.refresh_active_review(),
-            RightPanelTab::Worktrees => self.refresh_active_worktrees(),
-            RightPanelTab::Environment
-            | RightPanelTab::Summary
-            | RightPanelTab::Providers
-            | RightPanelTab::Approvals => self.refresh_provider_registry(),
-            RightPanelTab::Terminal => self.ensure_active_terminal(),
-            RightPanelTab::Plugins => self.refresh_plugin_registry(),
-            RightPanelTab::Skills => self.refresh_skill_registry(),
-            RightPanelTab::Browser
-            | RightPanelTab::Editor
-            | RightPanelTab::Settings
-            | RightPanelTab::Pinned
-            | RightPanelTab::Todos => {}
-        }
+        self.refresh_right_panel_target(right_panel_refresh_target(tab));
         self.save_ui_state();
     }
 
@@ -359,21 +374,20 @@ impl RootView {
     }
 
     fn refresh_selected_right_panel_tab(&mut self) {
-        match self.ui_store.state().right_panel_tab {
-            RightPanelTab::Review | RightPanelTab::Sources => self.refresh_active_review(),
-            RightPanelTab::Worktrees => self.refresh_active_worktrees(),
-            RightPanelTab::Environment
-            | RightPanelTab::Summary
-            | RightPanelTab::Providers
-            | RightPanelTab::Approvals => self.refresh_provider_registry(),
-            RightPanelTab::Terminal => self.ensure_active_terminal(),
-            RightPanelTab::Plugins => self.refresh_plugin_registry(),
-            RightPanelTab::Skills => self.refresh_skill_registry(),
-            RightPanelTab::Browser
-            | RightPanelTab::Editor
-            | RightPanelTab::Settings
-            | RightPanelTab::Pinned
-            | RightPanelTab::Todos => {}
+        self.refresh_right_panel_target(right_panel_refresh_target(
+            self.ui_store.state().right_panel_tab,
+        ));
+    }
+
+    fn refresh_right_panel_target(&mut self, target: RightPanelRefreshTarget) {
+        match target {
+            RightPanelRefreshTarget::Review => self.refresh_active_review(),
+            RightPanelRefreshTarget::Worktrees => self.refresh_active_worktrees(),
+            RightPanelRefreshTarget::ProviderRuntime => self.refresh_provider_registry(),
+            RightPanelRefreshTarget::Terminal => self.ensure_active_terminal(),
+            RightPanelRefreshTarget::Plugins => self.refresh_plugin_registry(),
+            RightPanelRefreshTarget::Skills => self.refresh_skill_registry(),
+            RightPanelRefreshTarget::None => {}
         }
     }
 
@@ -1534,5 +1548,70 @@ impl Render for RootView {
                 &self.search_palette,
                 &projection,
             ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn right_panel_refresh_target_routes_backed_tabs() {
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Review),
+            RightPanelRefreshTarget::Review
+        );
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Sources),
+            RightPanelRefreshTarget::Review
+        );
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Worktrees),
+            RightPanelRefreshTarget::Worktrees
+        );
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Terminal),
+            RightPanelRefreshTarget::Terminal
+        );
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Plugins),
+            RightPanelRefreshTarget::Plugins
+        );
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Skills),
+            RightPanelRefreshTarget::Skills
+        );
+    }
+
+    #[test]
+    fn browser_refresh_uses_provider_runtime_host_tools() {
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Browser),
+            RightPanelRefreshTarget::ProviderRuntime
+        );
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Providers),
+            RightPanelRefreshTarget::ProviderRuntime
+        );
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Approvals),
+            RightPanelRefreshTarget::ProviderRuntime
+        );
+    }
+
+    #[test]
+    fn local_projection_tabs_do_not_refresh_host_services() {
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Pinned),
+            RightPanelRefreshTarget::None
+        );
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Todos),
+            RightPanelRefreshTarget::None
+        );
+        assert_eq!(
+            right_panel_refresh_target(RightPanelTab::Settings),
+            RightPanelRefreshTarget::None
+        );
     }
 }
