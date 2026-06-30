@@ -848,7 +848,7 @@ fn landing_composer(theme: Theme, projection: &DesktopProjection) -> AnyElement 
                                 .gap_3()
                                 .child(composer_disabled_icon_button(
                                     IconName::File,
-                                    "Attach context or image",
+                                    "Attach file or image",
                                     composer_attachment_tooltip(projection, chat),
                                     theme,
                                 ))
@@ -2147,7 +2147,7 @@ fn chat_composer(theme: Theme, projection: &DesktopProjection) -> AnyElement {
                                 .gap_2()
                                 .child(composer_disabled_icon_button(
                                     IconName::File,
-                                    "Attach context or image",
+                                    "Attach file or image",
                                     composer_attachment_tooltip(projection, chat),
                                     theme,
                                 ))
