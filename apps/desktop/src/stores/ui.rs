@@ -140,6 +140,11 @@ impl UiStore {
 
     pub fn toggle_right_panel(&mut self) {
         self.state.right_panel_visible = !self.state.right_panel_visible;
+        if self.state.right_panel_visible {
+            self.state.focused_panel = FocusedPanel::Right;
+        } else if self.state.focused_panel == FocusedPanel::Right {
+            self.state.focused_panel = FocusedPanel::Center;
+        }
     }
 
     pub fn toggle_bottom_panel(&mut self) {
@@ -153,6 +158,7 @@ impl UiStore {
     pub fn select_right_panel_tab(&mut self, tab: RightPanelTab) {
         self.state.right_panel_tab = tab;
         self.state.right_panel_visible = true;
+        self.state.focused_panel = FocusedPanel::Right;
     }
 
     pub fn select_bottom_panel_tab(&mut self, tab: BottomPanelTab) {
@@ -273,6 +279,28 @@ mod tests {
         assert_eq!(store.state().focused_panel, FocusedPanel::Sidebar);
 
         store.focus_panel(FocusedPanel::Right);
+        assert!(store.state().right_panel_visible);
+        assert_eq!(store.state().focused_panel, FocusedPanel::Right);
+    }
+
+    #[test]
+    fn ui_store_right_panel_selection_tracks_keyboard_focus() {
+        let mut store = UiStore::restore(UiState {
+            right_panel_visible: false,
+            focused_panel: FocusedPanel::Center,
+            ..UiState::default()
+        });
+
+        store.select_right_panel_tab(RightPanelTab::Summary);
+        assert!(store.state().right_panel_visible);
+        assert_eq!(store.state().right_panel_tab, RightPanelTab::Summary);
+        assert_eq!(store.state().focused_panel, FocusedPanel::Right);
+
+        store.toggle_right_panel();
+        assert!(!store.state().right_panel_visible);
+        assert_eq!(store.state().focused_panel, FocusedPanel::Center);
+
+        store.toggle_right_panel();
         assert!(store.state().right_panel_visible);
         assert_eq!(store.state().focused_panel, FocusedPanel::Right);
     }
