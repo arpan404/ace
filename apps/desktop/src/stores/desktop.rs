@@ -96,8 +96,8 @@ use ace_runtime::{
         HandoffPlan, ModelRerouteRecord, PlanImplementationRecord, PlanSession, ProcessExitRecord,
         ProviderStateRecord, RealtimeAudioRecord, RealtimeSessionRecord, RealtimeTranscriptRecord,
         RemoteConnectionRecord, RuntimeWarningRecord, SideChat, SubagentActionRecord,
-        SubagentThread, TerminalOutputRecord, ThreadLifecycleRecord, Turn, TurnDiffRecord,
-        TurnMode, TurnModerationRecord,
+        SubagentThread, TerminalOutputRecord, ThreadLifecycleActionKind, ThreadLifecycleRecord,
+        Turn, TurnDiffRecord, TurnMode, TurnModerationRecord,
     },
     tools::{SemanticToolCall, ToolSurface},
 };
@@ -4897,33 +4897,46 @@ impl DesktopStore {
             archived,
             &metadata,
         );
-        if let Some(local_thread_id) = self.local_thread_id_for_provider(&provider_thread_id)
-            && let Some(thread) = self
-                .threads
-                .iter_mut()
-                .find(|thread| thread.id == local_thread_id)
-        {
-            if let Some(name) = name.as_ref().filter(|name| !name.trim().is_empty()) {
-                thread.title.clone_from(name);
-            }
-            if let Some(archived) = archived {
-                thread.archived = archived;
-                thread.status = if archived {
-                    ThreadStatus::Archived
-                } else {
-                    ThreadStatus::Idle
-                };
-            }
-            if let Some(active) = active {
-                thread.status = if active {
-                    ThreadStatus::Working
-                } else {
-                    ThreadStatus::Idle
-                };
-            }
-            if let Some(status) = status.as_deref().and_then(thread_status_from_provider) {
-                thread.status = status;
-                thread.archived = status == ThreadStatus::Archived;
+        if let Some(local_thread_id) = self.local_thread_id_for_provider(&provider_thread_id) {
+            if action == ThreadLifecycleActionKind::Delete {
+                self.delete_thread(local_thread_id);
+            } else {
+                if let Some(name) = name.as_ref().filter(|name| !name.trim().is_empty()) {
+                    self.rename_thread(local_thread_id.clone(), name.clone());
+                }
+                if let Some(archived) = archived {
+                    if archived {
+                        self.archive_thread(local_thread_id.clone());
+                    } else {
+                        self.unarchive_thread(local_thread_id.clone());
+                    }
+                }
+                if let Some(thread) = self
+                    .threads
+                    .iter_mut()
+                    .find(|thread| thread.id == local_thread_id)
+                {
+                    if let Some(active) = active {
+                        thread.status = if active {
+                            ThreadStatus::Working
+                        } else if thread.archived {
+                            ThreadStatus::Archived
+                        } else {
+                            ThreadStatus::Idle
+                        };
+                    }
+                    if let Some(status) = status.as_deref().and_then(thread_status_from_provider) {
+                        thread.status = status;
+                        thread.archived = status == ThreadStatus::Archived;
+                        if thread.archived {
+                            self.metadata
+                                .archived_thread_ids
+                                .insert(local_thread_id.clone());
+                        } else {
+                            self.metadata.archived_thread_ids.remove(&local_thread_id);
+                        }
+                    }
+                }
             }
         }
         self.runtime.thread_lifecycle.push(ThreadLifecycleRecord {
@@ -5692,6 +5705,20 @@ impl DesktopStore {
         if let Some(thread_id) = self.metadata.active_thread_id.clone() {
             self.archive_thread(thread_id);
         }
+    }
+
+    pub fn unarchive_thread(&mut self, thread_id: ThreadId) {
+        if let Some(thread) = self
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+        {
+            thread.archived = false;
+            if thread.status == ThreadStatus::Archived {
+                thread.status = ThreadStatus::Idle;
+            }
+        }
+        self.metadata.archived_thread_ids.remove(&thread_id);
     }
 
     #[allow(dead_code)]
@@ -8963,6 +8990,86 @@ mod tests {
             Some("turn-1")
         );
         assert_eq!(store.runtime.thread_lifecycle[0].item_count, Some(3));
+        assert!(store.metadata.archived_thread_ids.contains(&thread_id));
+        assert!(!store.thread_drafts.contains_key(&thread_id));
+        assert!(!store.project_drafts.values().any(|id| id == &thread_id));
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(2),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![ProviderRuntimeProjectionDelta::ThreadLifecycleChanged {
+                provider: "codex".to_string(),
+                thread_id: Some("provider-thread-1".to_string()),
+                status: Some("unarchived".to_string()),
+                name: None,
+                active: Some(false),
+                archived: Some(false),
+                metadata: serde_json::json!({
+                    "action": "unarchive",
+                    "turnId": "turn-2"
+                }),
+            }],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        let thread = store
+            .threads
+            .iter()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist");
+        assert_eq!(thread.status, ThreadStatus::Idle);
+        assert!(!thread.archived);
+        assert!(!store.metadata.archived_thread_ids.contains(&thread_id));
+        assert_eq!(
+            store.runtime.thread_lifecycle[1].action,
+            ThreadLifecycleActionKind::Unarchive
+        );
+    }
+
+    #[test]
+    fn provider_runtime_thread_delete_delta_removes_local_thread() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.toggle_pin_thread(thread_id.clone());
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![ProviderRuntimeProjectionDelta::ThreadLifecycleChanged {
+                provider: "codex".to_string(),
+                thread_id: Some("provider-thread-1".to_string()),
+                status: Some("deleted".to_string()),
+                name: None,
+                active: Some(false),
+                archived: None,
+                metadata: serde_json::json!({
+                    "action": "delete",
+                    "turnId": "turn-1"
+                }),
+            }],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        assert!(!store.threads.iter().any(|thread| thread.id == thread_id));
+        assert!(!store.metadata.pinned_thread_ids.contains(&thread_id));
+        assert!(!store.project_drafts.values().any(|id| id == &thread_id));
+        assert_eq!(
+            store.runtime.thread_lifecycle[0].action,
+            ThreadLifecycleActionKind::Delete
+        );
     }
 
     #[test]
