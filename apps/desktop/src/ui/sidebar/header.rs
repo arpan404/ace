@@ -3,7 +3,7 @@ use crate::{
     ui::{components::*, theme::Theme},
 };
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
-use gpui_component::IconName;
+use gpui_component::{IconName, tooltip::Tooltip};
 
 #[derive(Clone, Debug, Default)]
 pub(in crate::ui) struct SidebarHeaderMetrics {
@@ -62,6 +62,7 @@ pub(super) fn sidebar_header(
                     "New chat",
                     None,
                     false,
+                    "Create a new thread",
                     theme,
                     || Box::new(crate::actions::NewThread),
                 ))
@@ -78,6 +79,7 @@ pub(super) fn sidebar_header(
                     "Scheduled",
                     None,
                     nav_tab_active(metrics.active_right_tab, RightPanelTab::Scheduled),
+                    "Open scheduled tasks",
                     theme,
                     || {
                         Box::new(crate::actions::SelectRightPanelTab {
@@ -90,6 +92,7 @@ pub(super) fn sidebar_header(
                     "Plugins",
                     plugin_suffix,
                     nav_tab_active(metrics.active_right_tab, RightPanelTab::Plugins),
+                    "Manage plugin registry entries",
                     theme,
                     || {
                         Box::new(crate::actions::SelectRightPanelTab {
@@ -102,6 +105,7 @@ pub(super) fn sidebar_header(
                     "Skills",
                     skill_suffix,
                     nav_tab_active(metrics.active_right_tab, RightPanelTab::Skills),
+                    "Manage skill registry entries",
                     theme,
                     || {
                         Box::new(crate::actions::SelectRightPanelTab {
@@ -114,6 +118,7 @@ pub(super) fn sidebar_header(
                     "Providers/Models",
                     provider_model_suffix,
                     nav_tab_active(metrics.active_right_tab, RightPanelTab::Providers),
+                    "Configure providers and select models",
                     theme,
                     || {
                         Box::new(crate::actions::SelectRightPanelTab {
@@ -138,6 +143,7 @@ pub(super) fn sidebar_footer(theme: Theme, active_right_tab: Option<RightPanelTa
             "Settings",
             None,
             nav_tab_active(active_right_tab, RightPanelTab::Settings),
+            "Open appearance and workspace settings",
             theme,
             || {
                 Box::new(crate::actions::SelectRightPanelTab {
@@ -150,6 +156,7 @@ pub(super) fn sidebar_footer(theme: Theme, active_right_tab: Option<RightPanelTa
 
 fn sidebar_search(theme: Theme) -> AnyElement {
     div()
+        .id("sidebar-search")
         .h(px(34.0))
         .rounded_md()
         .px_2()
@@ -170,6 +177,7 @@ fn sidebar_search(theme: Theme) -> AnyElement {
                 .child("Search"),
         )
         .child(kbd("⌘K", theme))
+        .tooltip(move |window, cx| Tooltip::new("Open command palette").build(window, cx))
         .on_mouse_up(MouseButton::Left, |_, window, cx| {
             window.dispatch_action(Box::new(crate::actions::OpenSearchPalette), cx);
         })
@@ -181,6 +189,7 @@ fn ace_command_row<F>(
     label: &'static str,
     suffix: Option<String>,
     active: bool,
+    tooltip: &'static str,
     theme: Theme,
     action: F,
 ) -> AnyElement
@@ -192,6 +201,7 @@ where
         label,
         suffix,
         active,
+        tooltip,
         ace_icon_tile(icon, theme),
         action,
     )
@@ -202,13 +212,22 @@ fn command_row<F>(
     label: &'static str,
     suffix: Option<String>,
     active: bool,
+    tooltip: &'static str,
     theme: Theme,
     action: F,
 ) -> AnyElement
 where
     F: Fn() -> Box<dyn gpui::Action> + 'static,
 {
-    row(theme, label, suffix, active, icon_tile(icon, theme), action)
+    row(
+        theme,
+        label,
+        suffix,
+        active,
+        tooltip,
+        icon_tile(icon, theme),
+        action,
+    )
 }
 
 fn row<F>(
@@ -216,6 +235,7 @@ fn row<F>(
     label: &'static str,
     suffix: Option<String>,
     active: bool,
+    tooltip: &'static str,
     icon: AnyElement,
     action: F,
 ) -> AnyElement
@@ -223,6 +243,7 @@ where
     F: Fn() -> Box<dyn gpui::Action> + 'static,
 {
     div()
+        .id(label)
         .h(px(34.0))
         .rounded_md()
         .px_3()
@@ -258,6 +279,7 @@ where
                 .child(label),
         )
         .when_some(suffix, |this, value| this.child(kbd(value, theme)))
+        .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
         .on_mouse_up(MouseButton::Left, move |_, window, cx| {
             window.dispatch_action(action(), cx);
         })
