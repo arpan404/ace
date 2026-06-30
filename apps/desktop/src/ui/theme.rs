@@ -260,6 +260,18 @@ impl Theme {
         };
         (0.72 + ratio.clamp(0.0, 1.0) * 0.12).clamp(0.72, 0.84)
     }
+
+    pub fn project_icon_color(self, color: Option<&str>) -> Hsla {
+        match color {
+            Some("blue") => self.accent_blue,
+            Some("violet") => self.accent_pink,
+            Some("emerald") => self.accent_success,
+            Some("amber") => self.accent_warning,
+            Some("rose") => self.accent_danger,
+            Some("slate") => self.foreground.opacity(0.72),
+            _ => self.muted,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -319,5 +331,25 @@ mod tests {
         assert_ne!(sky.accent_blue, rose.accent_blue);
         assert_eq!(rose.accent_blue, rgb(0xfb7185).into());
         assert_eq!(rose.accent_pink, rgb(0xf472b6).into());
+    }
+
+    #[test]
+    fn project_icon_colors_follow_theme_tokens() {
+        let theme = Theme::from_settings(&ThemeSettings {
+            accent: ThemeAccent::Amber,
+            ..ThemeSettings::default()
+        });
+
+        assert_eq!(theme.project_icon_color(Some("blue")), theme.accent_blue);
+        assert_eq!(
+            theme.project_icon_color(Some("emerald")),
+            theme.accent_success
+        );
+        assert_eq!(
+            theme.project_icon_color(Some("amber")),
+            theme.accent_warning
+        );
+        assert_eq!(theme.project_icon_color(Some("rose")), theme.accent_danger);
+        assert_eq!(theme.project_icon_color(None), theme.muted);
     }
 }

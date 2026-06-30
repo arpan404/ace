@@ -97,7 +97,7 @@ where
 }
 
 fn project_icon(icon: Option<String>, icon_color: Option<String>, theme: Theme) -> AnyElement {
-    let color = project_icon_color(icon_color.as_deref(), theme);
+    let color = theme.project_icon_color(icon_color.as_deref());
     div()
         .w(px(10.0))
         .h(px(10.0))
@@ -119,17 +119,5 @@ fn project_glyph(glyph: Option<&str>, color: gpui::Hsla) -> AnyElement {
         Some("globe") => icon_svg(IconName::Globe, color),
         Some("bot") => icon_svg(IconName::Bot, color),
         _ => icon_svg(IconName::Folder, color),
-    }
-}
-
-fn project_icon_color(color: Option<&str>, theme: Theme) -> gpui::Hsla {
-    match color {
-        Some("blue") => gpui::rgb(0x38bdf8).into(),
-        Some("violet") => gpui::rgb(0xa78bfa).into(),
-        Some("emerald") => gpui::rgb(0x34d399).into(),
-        Some("amber") => gpui::rgb(0xfbbf24).into(),
-        Some("rose") => gpui::rgb(0xfb7185).into(),
-        Some("slate") => gpui::rgb(0xcbd5e1).into(),
-        _ => theme.muted,
     }
 }
