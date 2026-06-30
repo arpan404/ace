@@ -14,7 +14,7 @@ use crate::{
         BrowserProjection, DesktopProjection, EditorFileProjection, EditorProjection,
         ModelProjection, ModelProviderProjection, ModelRegistryProjection, ReviewCommentItem,
         ReviewFileProjection, ReviewProjection, ServiceReadiness, ServiceStatus,
-        SourceItemProjection, TodoAssignee, TodoItem, TodoPriority, TodoStatus,
+        SourceItemProjection, SummaryProjection, TodoAssignee, TodoItem, TodoPriority, TodoStatus,
         ToolRegistryEntryProjection, ToolRegistryProjection, WorktreeEntryProjection,
         WorktreeProjection,
         ui::{BottomPanelTab, RightPanelTab, UiState},
@@ -1762,120 +1762,146 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         .flex_col()
         .gap_3()
         .child(info_row(theme, "Title", &thread.title))
-        .child(info_row(theme, "Status", thread.status_label()))
-        .child(info_row(theme, "Host", &projection.host.label))
-        .child(info_row(theme, "Provider", thread.provider.display_name()))
-        .child(info_row(
+        .child(summary_overview(theme, &projection.summary))
+        .child(summary_section(
             theme,
-            "Model",
-            thread.model.as_deref().unwrap_or("No model selected"),
+            "Plan",
+            &projection.summary.plan,
+            "No actionable plan has been observed.",
         ))
-        .child(info_row(
+        .child(summary_section(
             theme,
-            "Latest activity",
-            thread.latest_activity_at.as_str(),
+            "Todos",
+            &projection.summary.todos,
+            "No structured todos are attached.",
         ))
-        .child(info_row(
+        .child(summary_section(
             theme,
-            "Messages",
-            &chat.messages.len().to_string(),
+            "Pinned context",
+            &projection.summary.pinned_context,
+            "No pinned context yet.",
         ))
-        .child(info_row(
+        .child(summary_section(
             theme,
-            "Changed files",
-            &projection.review.files.len().to_string(),
+            "Highlighted context",
+            &projection.summary.highlighted_context,
+            "No highlighted context yet.",
         ))
-        .child(info_row(
+        .child(summary_section(
             theme,
-            "Worktrees",
-            &projection.worktrees.entries.len().to_string(),
+            "Files changed",
+            &projection.summary.files_changed,
+            "No changed files observed.",
         ))
-        .child(info_row(
+        .child(summary_section(
             theme,
-            "Sources",
-            &projection.sources.items.len().to_string(),
+            "Commands run",
+            &projection.summary.commands_run,
+            "No terminal output observed.",
         ))
-        .child(info_row(
+        .child(summary_section(
             theme,
-            "Diff stat",
-            &format!(
-                "+{} -{}",
-                projection.review.total_additions, projection.review.total_deletions
-            ),
+            "Browser pages inspected",
+            &projection.summary.browser_pages,
+            "No browser activity observed.",
         ))
-        .child(info_row(
+        .child(summary_section(
             theme,
-            "Terminal",
-            terminal_summary_label(projection),
+            "Decisions made",
+            &projection.summary.decisions,
+            "No decisions recorded yet.",
         ))
-        .child(info_row(
+        .child(summary_section(
             theme,
-            "Runtime state",
-            &runtime_state_label(projection),
-        ))
-        .child(info_row(theme, "Remote", &runtime_remote_label(projection)))
-        .child(info_row(
-            theme,
-            "Handoffs",
-            &projection.runtime_status.handoffs.to_string(),
-        ))
-        .child(info_row(
-            theme,
-            "Pending approvals",
-            &projection.runtime_status.pending_approvals.to_string(),
-        ))
-        .child(info_row(
-            theme,
-            "Resolved approvals",
-            &projection.approvals.resolved.to_string(),
-        ))
-        .child(info_row(
-            theme,
-            "Providers",
-            &projection.providers.providers.len().to_string(),
-        ))
-        .child(info_row(
-            theme,
-            "Models",
-            &projection.models.total_models.to_string(),
-        ))
-        .child(info_row(
-            theme,
-            "Slash commands",
-            &projection.providers.total_slash_commands.to_string(),
-        ))
-        .child(info_row(
-            theme,
-            "Plugins",
-            &projection.plugins.entries.len().to_string(),
-        ))
-        .child(info_row(
-            theme,
-            "Skills",
-            &projection.skills.entries.len().to_string(),
-        ))
-        .child(info_row(
-            theme,
-            "Pinned",
-            &projection.annotations.pinned_items.len().to_string(),
-        ))
-        .child(info_row(
-            theme,
-            "Highlighted",
-            &projection.annotations.highlighted_items.len().to_string(),
-        ))
-        .child(info_row(
-            theme,
-            "Open todos",
-            &projection.annotations.open_todo_count.to_string(),
+            "Blockers",
+            &projection.summary.blockers,
+            "No blockers observed.",
         ))
         .child(summary_annotation_actions(theme, projection))
         .child(summary_provider_registry(theme, projection))
-        .child(summary_pinned_items(theme, projection))
-        .child(summary_highlighted_items(theme, projection))
-        .child(summary_todos(theme, projection))
         .when(!chat.messages.is_empty(), |this| {
             this.child(summary_latest_message(theme, chat))
+        })
+        .into_any_element()
+}
+
+fn summary_overview(theme: Theme, summary: &SummaryProjection) -> AnyElement {
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(info_row(
+            theme,
+            "Current goal",
+            summary
+                .current_goal
+                .as_deref()
+                .unwrap_or("No explicit user goal observed."),
+        ))
+        .child(info_row(theme, "Current status", &summary.current_status))
+        .when_some(summary.next_action.as_deref(), |this, next| {
+            this.child(info_row(theme, "Next action", next))
+        })
+        .into_any_element()
+}
+
+fn summary_section(
+    theme: Theme,
+    title: &'static str,
+    items: &[String],
+    empty: &'static str,
+) -> AnyElement {
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme.muted)
+                .child(title),
+        )
+        .when(items.is_empty(), |this| {
+            this.child(
+                div()
+                    .text_size(px(12.0))
+                    .line_height(px(17.0))
+                    .text_color(theme.muted_subtle)
+                    .child(empty),
+            )
+        })
+        .children(
+            items
+                .iter()
+                .take(10)
+                .map(|item| {
+                    div()
+                        .text_size(px(12.0))
+                        .line_height(px(17.0))
+                        .text_color(theme.foreground.opacity(0.78))
+                        .child(clamp_text(item, 220))
+                })
+                .collect::<Vec<_>>(),
+        )
+        .when(items.len() > 10, |this| {
+            this.child(
+                div()
+                    .pt_1()
+                    .text_size(px(11.0))
+                    .text_color(theme.muted_subtle)
+                    .child(format!("{} more", items.len() - 10)),
+            )
         })
         .into_any_element()
 }
@@ -2775,148 +2801,6 @@ fn summary_annotation_actions(theme: Theme, projection: &DesktopProjection) -> A
                 || Box::new(ToggleFirstOpenTodo),
             ))
         })
-        .into_any_element()
-}
-
-fn summary_pinned_items(theme: Theme, projection: &DesktopProjection) -> AnyElement {
-    if projection.annotations.pinned_items.is_empty() {
-        return div().into_any_element();
-    }
-
-    div()
-        .rounded_md()
-        .border_1()
-        .border_color(theme.border_subtle)
-        .bg(theme.panel)
-        .p_2()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(
-            div()
-                .text_size(px(11.0))
-                .text_color(theme.muted)
-                .child("Pinned"),
-        )
-        .children(
-            projection
-                .annotations
-                .pinned_items
-                .iter()
-                .take(6)
-                .map(|item| {
-                    div()
-                        .text_size(px(12.0))
-                        .line_height(px(17.0))
-                        .text_color(theme.foreground.opacity(0.80))
-                        .child(clamp_text(&item.display_excerpt, 160))
-                })
-                .collect::<Vec<_>>(),
-        )
-        .into_any_element()
-}
-
-fn summary_todos(theme: Theme, projection: &DesktopProjection) -> AnyElement {
-    if projection.annotations.todos.is_empty() {
-        return div().into_any_element();
-    }
-
-    div()
-        .rounded_md()
-        .border_1()
-        .border_color(theme.border_subtle)
-        .bg(theme.panel)
-        .p_2()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(
-            div()
-                .text_size(px(11.0))
-                .text_color(theme.muted)
-                .child(format!(
-                    "Todos ({})",
-                    projection.annotations.open_todo_count
-                )),
-        )
-        .children(
-            projection
-                .annotations
-                .todos
-                .iter()
-                .take(8)
-                .map(|todo| {
-                    let done = todo.status == TodoStatus::Done;
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_start()
-                        .gap_2()
-                        .text_size(px(12.0))
-                        .line_height(px(17.0))
-                        .child(icon_svg(
-                            if done {
-                                IconName::CircleCheck
-                            } else {
-                                IconName::Check
-                            },
-                            if done {
-                                theme.accent_success
-                            } else {
-                                theme.muted
-                            },
-                        ))
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_color(if done {
-                                    theme.muted
-                                } else {
-                                    theme.foreground.opacity(0.82)
-                                })
-                                .child(clamp_text(&todo.title, 180)),
-                        )
-                })
-                .collect::<Vec<_>>(),
-        )
-        .into_any_element()
-}
-
-fn summary_highlighted_items(theme: Theme, projection: &DesktopProjection) -> AnyElement {
-    if projection.annotations.highlighted_items.is_empty() {
-        return div().into_any_element();
-    }
-
-    div()
-        .rounded_md()
-        .border_1()
-        .border_color(theme.accent_warning.opacity(0.42))
-        .bg(theme.panel)
-        .p_2()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(
-            div()
-                .text_size(px(11.0))
-                .text_color(theme.muted)
-                .child("Highlighted"),
-        )
-        .children(
-            projection
-                .annotations
-                .highlighted_items
-                .iter()
-                .take(6)
-                .map(|item| {
-                    div()
-                        .text_size(px(12.0))
-                        .line_height(px(17.0))
-                        .text_color(theme.foreground.opacity(0.84))
-                        .child(clamp_text(&item.display_excerpt, 160))
-                })
-                .collect::<Vec<_>>(),
-        )
         .into_any_element()
 }
 

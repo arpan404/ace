@@ -117,6 +117,7 @@ pub struct DesktopProjection {
     pub plugins: ToolRegistryProjection,
     pub skills: ToolRegistryProjection,
     pub browser: BrowserProjection,
+    pub summary: SummaryProjection,
     pub annotations: ThreadAnnotationsProjection,
 }
 
@@ -326,6 +327,22 @@ pub struct SourceItemProjection {
     pub title: String,
     pub detail: String,
     pub added_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SummaryProjection {
+    pub current_goal: Option<String>,
+    pub current_status: String,
+    pub plan: Vec<String>,
+    pub todos: Vec<String>,
+    pub pinned_context: Vec<String>,
+    pub highlighted_context: Vec<String>,
+    pub files_changed: Vec<String>,
+    pub commands_run: Vec<String>,
+    pub browser_pages: Vec<String>,
+    pub decisions: Vec<String>,
+    pub blockers: Vec<String>,
+    pub next_action: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -723,6 +740,7 @@ impl DesktopStore {
             plugins: self.plugin_registry.clone(),
             skills: self.skill_registry.clone(),
             browser: self.browser.clone(),
+            summary: self.summary_projection(),
             annotations: self.annotations_projection(),
         }
     }
@@ -1010,6 +1028,179 @@ impl DesktopStore {
                 + annotations.todos.len()
                 + annotations.review_comments.len(),
             items,
+        }
+    }
+
+    #[must_use]
+    pub fn summary_projection(&self) -> SummaryProjection {
+        let Some(thread) = self.active_thread() else {
+            return SummaryProjection {
+                current_status: "No active thread is selected.".to_string(),
+                ..SummaryProjection::default()
+            };
+        };
+        let annotations = self.annotations_projection();
+        let review = self.review_projection();
+        let terminal = self.terminal_projection();
+        let editor = self.editor_projection();
+        let browser = &self.browser;
+        let messages = self
+            .persisted_messages
+            .get(&thread.id)
+            .cloned()
+            .unwrap_or_default();
+
+        let current_goal = messages
+            .iter()
+            .find(|message| message.role == ChatMessageRole::User)
+            .map(message_excerpt)
+            .filter(|goal| !goal.is_empty())
+            .or_else(|| (!thread.title.trim().is_empty()).then(|| thread.title.clone()));
+        let mut plan = Vec::new();
+        if thread.has_actionable_plan {
+            plan.push("Active thread reports an actionable plan.".to_string());
+        }
+        if !review.files.is_empty() {
+            plan.push(format!(
+                "Review {} changed file{} before commit.",
+                review.files.len(),
+                plural(review.files.len())
+            ));
+        }
+        if annotations.open_todo_count > 0 {
+            plan.push(format!(
+                "Work through {} open todo{}.",
+                annotations.open_todo_count,
+                plural(annotations.open_todo_count)
+            ));
+        }
+        if !thread_status_is_terminal(thread.status) {
+            plan.push("Monitor the active run until it reaches a terminal state.".to_string());
+        }
+
+        let todos = annotations
+            .todos
+            .iter()
+            .take(12)
+            .map(todo_context_line)
+            .collect::<Vec<_>>();
+        let pinned_context = annotations
+            .pinned_items
+            .iter()
+            .take(8)
+            .map(|item| format!("{}: {}", item.display_title, item.display_excerpt))
+            .collect::<Vec<_>>();
+        let highlighted_context = annotations
+            .highlighted_items
+            .iter()
+            .take(8)
+            .map(|item| format!("{}: {}", item.display_title, item.display_excerpt))
+            .collect::<Vec<_>>();
+        let files_changed = review
+            .files
+            .iter()
+            .take(16)
+            .map(review_file_summary)
+            .collect::<Vec<_>>();
+        let commands_run = terminal
+            .session
+            .as_ref()
+            .and_then(|session| {
+                (!session.history.trim().is_empty()).then(|| {
+                    vec![format!(
+                        "{} · {}",
+                        short_status(&session.status),
+                        tail_chars(&session.history, 240)
+                    )]
+                })
+            })
+            .unwrap_or_default();
+        let browser_pages = browser
+            .bridge
+            .as_ref()
+            .map(|bridge| {
+                vec![format!(
+                    "Browser bridge {} with {} action{}.",
+                    bridge.status,
+                    bridge.actions.len(),
+                    plural(bridge.actions.len())
+                )]
+            })
+            .unwrap_or_default();
+        let mut decisions = Vec::new();
+        if let Some(selection) = thread.model.as_deref() {
+            decisions.push(format!(
+                "Thread is using {} on {}.",
+                selection,
+                thread.provider.display_name()
+            ));
+        }
+        if let Some(workspace_root) = editor.workspace_root.as_deref() {
+            decisions.push(format!("Active workspace is {workspace_root}."));
+        }
+        let mut blockers = Vec::new();
+        if thread.pending_approvals > 0 || !self.approval_registry.pending.is_empty() {
+            blockers.push(format!(
+                "{} approval{} pending.",
+                thread
+                    .pending_approvals
+                    .max(self.approval_registry.pending.len()),
+                plural(
+                    thread
+                        .pending_approvals
+                        .max(self.approval_registry.pending.len())
+                )
+            ));
+        }
+        if thread.pending_user_inputs > 0 {
+            blockers.push(format!(
+                "{} user input prompt{} pending.",
+                thread.pending_user_inputs,
+                plural(thread.pending_user_inputs)
+            ));
+        }
+        if let Some(error) = review.error.as_deref() {
+            blockers.push(format!("Review: {error}"));
+        }
+        if let Some(error) = self.runtime_status.error.as_deref() {
+            blockers.push(format!("Runtime: {error}"));
+        }
+        let next_action = if !blockers.is_empty() {
+            Some("Resolve the listed blocker before continuing agent execution.".to_string())
+        } else if annotations.open_todo_count > 0 {
+            Some("Pick the next open todo or attach it to the composer with @todo.".to_string())
+        } else if !review.files.is_empty() {
+            Some(
+                "Review changed files and either ask the agent for follow-up changes or commit."
+                    .to_string(),
+            )
+        } else if thread.status == ThreadStatus::Idle {
+            Some("Ask for follow-up changes in the composer.".to_string())
+        } else {
+            Some("Monitor the active thread status and latest timeline message.".to_string())
+        };
+
+        let source_count = self.sources_projection().items.len();
+        SummaryProjection {
+            current_goal,
+            current_status: format!(
+                "{} · {} message{} · {} source{}",
+                thread.status.label(),
+                messages.len(),
+                plural(messages.len()),
+                source_count,
+                plural(source_count)
+            ),
+            plan,
+            todos,
+            pinned_context,
+            highlighted_context,
+            files_changed,
+            commands_run,
+            browser_pages,
+            decisions,
+            blockers,
+            next_action,
         }
     }
 
@@ -4497,6 +4688,25 @@ fn generated_review_commit_message(review: &ReviewProjection) -> String {
     }
 }
 
+fn review_file_summary(file: &ReviewFileProjection) -> String {
+    let stat = match (file.additions, file.deletions) {
+        (Some(additions), Some(deletions)) => format!("+{additions} -{deletions}"),
+        _ => "diff stat unavailable".to_string(),
+    };
+    format!("{} · {} · {stat}", file.path, file.status)
+}
+
+fn thread_status_is_terminal(status: ThreadStatus) -> bool {
+    matches!(
+        status,
+        ThreadStatus::Error | ThreadStatus::Completed | ThreadStatus::Idle | ThreadStatus::Archived
+    )
+}
+
+fn plural(count: usize) -> &'static str {
+    if count == 1 { "" } else { "s" }
+}
+
 fn message_excerpt(message: &ChatMessageProjection) -> String {
     let raw = message
         .text
@@ -5152,6 +5362,99 @@ mod tests {
         assert_eq!(
             store.editor_service_status().missing_reason(),
             Some("Select a thread with a project workspace before opening editor buffers.")
+        );
+    }
+
+    #[test]
+    fn summary_projection_uses_observed_thread_state() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.send_message(
+            thread_id.clone(),
+            ComposerPayload {
+                prompt: "Fix the checkout regression".to_string(),
+            },
+        );
+        let message_id = store.projection().chat.messages[0].id.clone();
+        store.create_todo_from_timeline_item(thread_id.clone(), &message_id);
+        store.pin_timeline_item(thread_id.clone(), &message_id);
+        store.review_snapshots.insert(
+            project_id,
+            ReviewProjection {
+                repo_path: Some("/tmp/project".to_string()),
+                files: vec![ReviewFileProjection {
+                    path: "src/checkout.rs".to_string(),
+                    original_path: None,
+                    status: "modified".to_string(),
+                    additions: Some(8),
+                    deletions: Some(3),
+                }],
+                total_additions: 8,
+                total_deletions: 3,
+                ..ReviewProjection::default()
+            },
+        );
+        store.terminal_sessions.insert(
+            TerminalKey::default_for_thread(&thread_id),
+            TerminalSessionProjection {
+                thread_id: thread_id.0.clone(),
+                terminal_id: DEFAULT_TERMINAL_ID.to_string(),
+                cwd: "/tmp/project".to_string(),
+                title: None,
+                status: TerminalSessionStatus::Running,
+                pid: Some(7),
+                history: "cargo test checkout failed".to_string(),
+                exit_code: None,
+                exit_signal: None,
+                cols: DEFAULT_TERMINAL_COLS,
+                rows: DEFAULT_TERMINAL_ROWS,
+                updated_at: "terminal".to_string(),
+                next_sequence: 1,
+                truncated_before_sequence: None,
+            },
+        );
+
+        let summary = store.summary_projection();
+
+        assert_eq!(
+            summary.current_goal.as_deref(),
+            Some("Fix the checkout regression")
+        );
+        assert!(summary.current_status.contains("message"));
+        assert!(
+            summary
+                .plan
+                .iter()
+                .any(|item| item.contains("Review 1 changed file"))
+        );
+        assert!(
+            summary
+                .todos
+                .iter()
+                .any(|item| item.contains("Fix the checkout regression"))
+        );
+        assert!(
+            summary
+                .pinned_context
+                .iter()
+                .any(|item| item.contains("Fix the checkout"))
+        );
+        assert!(
+            summary
+                .files_changed
+                .iter()
+                .any(|item| item.contains("src/checkout.rs"))
+        );
+        assert!(
+            summary
+                .commands_run
+                .iter()
+                .any(|item| item.contains("cargo test checkout failed"))
+        );
+        assert_eq!(
+            summary.next_action.as_deref(),
+            Some("Pick the next open todo or attach it to the composer with @todo.")
         );
     }
 
