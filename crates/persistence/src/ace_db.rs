@@ -270,6 +270,7 @@ fn load_messages(
                 status: ThreadItemStatus::Completed,
                 title: None,
                 text: Some(row.get(3)?),
+                turn_settings_summary: None,
             },
         })
     })?;

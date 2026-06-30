@@ -556,13 +556,19 @@ fn timeline_message_card(
                     .border_color(theme.border)
                     .px_4()
                     .py_3()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
                     .child(markdown_render(
                         theme,
                         stable_id(&message.id),
                         &text,
                         window,
                         cx,
-                    )),
+                    ))
+                    .when_some(message.turn_settings_summary.as_deref(), |this, summary| {
+                        this.child(turn_settings_meta(theme, summary))
+                    }),
             )
             .into_any_element(),
         ChatMessageRole::Assistant => div()
@@ -643,6 +649,21 @@ fn message_label(theme: Theme, label: &'static str) -> AnyElement {
         .text_size(px(11.0))
         .text_color(theme.muted)
         .child(label)
+        .into_any_element()
+}
+
+fn turn_settings_meta(theme: Theme, summary: &str) -> AnyElement {
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel_deep)
+        .px_2()
+        .py_1()
+        .text_size(px(11.0))
+        .line_height(px(16.0))
+        .text_color(theme.muted)
+        .child(summary.to_string())
         .into_any_element()
 }
 

@@ -390,6 +390,8 @@ pub struct ChatMessageProjection {
     pub status: ThreadItemStatus,
     pub title: Option<String>,
     pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_settings_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -561,6 +563,7 @@ pub fn build_chat_projection(
             status: item.status,
             title: item.title.clone(),
             text: item.text.clone(),
+            turn_settings_summary: None,
         })
         .collect::<Vec<_>>();
 

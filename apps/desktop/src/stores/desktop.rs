@@ -3191,10 +3191,11 @@ impl DesktopStore {
         self.persisted_messages
             .entry(thread_id.clone())
             .or_default()
-            .push(chat_message(
+            .push(chat_message_with_settings(
                 format!("{now}-user"),
                 ChatMessageRole::User,
                 trimmed.to_string(),
+                Some(composer_status_line(&draft)),
             ));
 
         let turn_result = self.start_backend_turn(&thread_id, &draft, input_items);
@@ -3754,6 +3755,7 @@ impl DesktopStore {
             status: item.status,
             title: item.title.clone(),
             text: Some(text),
+            turn_settings_summary: None,
         });
         self.mark_thread_status(&thread_id, ThreadStatus::Working);
     }
@@ -4624,6 +4626,7 @@ impl DesktopStore {
                         status: item.status,
                         title: item.title.clone(),
                         text: item.text.clone(),
+                        turn_settings_summary: None,
                     })
             })?;
         Some((thread_id, message))
@@ -4664,6 +4667,7 @@ impl DesktopStore {
                         status: item.status,
                         title: item.title.clone(),
                         text: item.text.clone(),
+                        turn_settings_summary: None,
                     })
             })
     }
@@ -4836,12 +4840,22 @@ fn thread_item_fallback_id(kind: ThreadItemKind) -> String {
 }
 
 fn chat_message(id: String, role: ChatMessageRole, text: String) -> ChatMessageProjection {
+    chat_message_with_settings(id, role, text, None)
+}
+
+fn chat_message_with_settings(
+    id: String,
+    role: ChatMessageRole,
+    text: String,
+    turn_settings_summary: Option<String>,
+) -> ChatMessageProjection {
     ChatMessageProjection {
         id,
         role,
         status: ThreadItemStatus::Completed,
         title: None,
         text: Some(text),
+        turn_settings_summary,
     }
 }
 
@@ -7812,6 +7826,21 @@ mod tests {
         store.send_active_composer();
 
         let projection = store.projection();
+        let user_message = projection
+            .chat
+            .messages
+            .iter()
+            .find(|message| message.role == ChatMessageRole::User)
+            .expect("user message");
+        let summary = user_message
+            .turn_settings_summary
+            .as_deref()
+            .expect("turn settings summary");
+        assert!(summary.contains("gpt-5"), "{summary}");
+        assert!(summary.contains("Full access"), "{summary}");
+        assert!(summary.contains("High reasoning"), "{summary}");
+        assert!(summary.contains("Precise"), "{summary}");
+        assert!(summary.contains("Todos"), "{summary}");
         let thread = projection.chat.active_thread.expect("active thread");
         assert_eq!(thread.provider, ProviderKind::Codex);
         assert_eq!(thread.model.as_deref(), Some("gpt-5"));
