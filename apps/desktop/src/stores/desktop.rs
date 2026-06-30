@@ -87,6 +87,7 @@ pub struct DesktopStore {
     plugin_registry: ToolRegistryProjection,
     skill_registry: ToolRegistryProjection,
     browser: BrowserProjection,
+    artifacts: Vec<ArtifactItemProjection>,
     pinned_items: Vec<PinnedTimelineItem>,
     highlighted_items: Vec<HighlightedTimelineItem>,
     todos: Vec<TodoItem>,
@@ -319,6 +320,7 @@ pub struct SourcesProjection {
     pub changed_files: usize,
     pub terminal_sessions: usize,
     pub context_items: usize,
+    pub artifacts: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -328,6 +330,20 @@ pub struct SourceItemProjection {
     pub title: String,
     pub detail: String,
     pub added_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtifactItemProjection {
+    pub id: String,
+    pub thread_id: ThreadId,
+    pub message_id: String,
+    pub kind: String,
+    pub title: String,
+    pub detail: String,
+    pub url: Option<String>,
+    pub path: Option<String>,
+    pub mime_type: Option<String>,
+    pub observed_at: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -662,6 +678,7 @@ impl DesktopStore {
                 ..ToolRegistryProjection::default()
             },
             browser: BrowserProjection::default(),
+            artifacts: Vec::new(),
             pinned_items: Vec::new(),
             highlighted_items: Vec::new(),
             todos: Vec::new(),
@@ -708,6 +725,7 @@ impl DesktopStore {
         self.project_drafts.clear();
         self.composer_drafts.clear();
         self.persisted_messages.clear();
+        self.artifacts.clear();
         self.metadata.active_thread_id = self
             .threads
             .iter()
@@ -983,6 +1001,7 @@ impl DesktopStore {
 
     #[must_use]
     pub fn sources_projection(&self) -> SourcesProjection {
+        let active_thread_id = self.active_thread().map(|thread| thread.id.clone());
         let review = self.review_projection();
         let terminal = self.terminal_projection();
         let annotations = self.annotations_projection();
@@ -1052,6 +1071,28 @@ impl DesktopStore {
             });
         }
 
+        let artifact_count = active_thread_id.as_ref().map_or(0, |thread_id| {
+            self.artifacts
+                .iter()
+                .filter(|artifact| &artifact.thread_id == thread_id)
+                .count()
+        });
+        if let Some(thread_id) = active_thread_id.as_ref() {
+            for artifact in self
+                .artifacts
+                .iter()
+                .filter(|artifact| &artifact.thread_id == thread_id)
+            {
+                items.push(SourceItemProjection {
+                    id: format!("artifact:{}", artifact.id),
+                    kind: "artifact".to_string(),
+                    title: artifact.title.clone(),
+                    detail: artifact.detail.clone(),
+                    added_at: artifact.observed_at.clone(),
+                });
+            }
+        }
+
         SourcesProjection {
             changed_files: review.files.len(),
             terminal_sessions: usize::from(terminal.session.is_some()),
@@ -1059,6 +1100,7 @@ impl DesktopStore {
                 + annotations.highlighted_items.len()
                 + annotations.todos.len()
                 + annotations.review_comments.len(),
+            artifacts: artifact_count,
             items,
         }
     }
@@ -3142,13 +3184,21 @@ impl DesktopStore {
         if item.kind == ThreadItemKind::UserMessage {
             return;
         }
-        let Some(text) = item.text.clone().filter(|text| !text.trim().is_empty()) else {
-            return;
-        };
         let id = item
             .item_id
             .clone()
             .unwrap_or_else(|| format!("provider-{}", sequence.unwrap_or_default()));
+        self.upsert_provider_artifacts(
+            &thread_id,
+            &id,
+            item.attachments.as_ref(),
+            sequence,
+            item.title.as_deref(),
+            item.url.as_deref(),
+        );
+        let Some(text) = item.text.clone().filter(|text| !text.trim().is_empty()) else {
+            return;
+        };
         let messages = self
             .persisted_messages
             .entry(thread_id.clone())
@@ -3166,6 +3216,41 @@ impl DesktopStore {
             text: Some(text),
         });
         self.mark_thread_status(&thread_id, ThreadStatus::Working);
+    }
+
+    fn upsert_provider_artifacts(
+        &mut self,
+        thread_id: &ThreadId,
+        message_id: &str,
+        attachments: Option<&serde_json::Value>,
+        sequence: Option<i64>,
+        fallback_title: Option<&str>,
+        fallback_url: Option<&str>,
+    ) {
+        let Some(attachments) = attachments else {
+            return;
+        };
+        let observed_at = sequence
+            .map(|sequence| sequence.to_string())
+            .unwrap_or_else(|| self.next_timestamp());
+        for artifact in parse_artifact_items(
+            thread_id,
+            message_id,
+            attachments,
+            &observed_at,
+            fallback_title,
+            fallback_url,
+        ) {
+            if let Some(existing) = self
+                .artifacts
+                .iter_mut()
+                .find(|existing| existing.id == artifact.id)
+            {
+                *existing = artifact;
+            } else {
+                self.artifacts.push(artifact);
+            }
+        }
     }
 
     fn upsert_pending_approval(&mut self, request: NormalizedServerRequest) {
@@ -4557,6 +4642,123 @@ fn parse_review_files(value: serde_json::Value) -> Vec<ReviewFileProjection> {
         .unwrap_or_default()
 }
 
+fn parse_artifact_items(
+    thread_id: &ThreadId,
+    message_id: &str,
+    value: &serde_json::Value,
+    observed_at: &str,
+    fallback_title: Option<&str>,
+    fallback_url: Option<&str>,
+) -> Vec<ArtifactItemProjection> {
+    match value {
+        serde_json::Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| {
+                parse_artifact_item(
+                    thread_id,
+                    message_id,
+                    item,
+                    index,
+                    observed_at,
+                    fallback_title,
+                    fallback_url,
+                )
+            })
+            .collect(),
+        _ => parse_artifact_item(
+            thread_id,
+            message_id,
+            value,
+            0,
+            observed_at,
+            fallback_title,
+            fallback_url,
+        )
+        .into_iter()
+        .collect(),
+    }
+}
+
+fn parse_artifact_item(
+    thread_id: &ThreadId,
+    message_id: &str,
+    value: &serde_json::Value,
+    index: usize,
+    observed_at: &str,
+    fallback_title: Option<&str>,
+    fallback_url: Option<&str>,
+) -> Option<ArtifactItemProjection> {
+    let (kind, title, url, path, mime_type) = match value {
+        serde_json::Value::String(value) => {
+            let title = value
+                .rsplit(['/', '\\'])
+                .next()
+                .filter(|part| !part.is_empty())
+                .unwrap_or("Attachment")
+                .to_string();
+            let url = value.contains("://").then(|| value.clone());
+            let path = (!value.contains("://")).then(|| value.clone());
+            ("artifact".to_string(), title, url, path, None)
+        }
+        serde_json::Value::Object(object) => {
+            let url = string_field(object, &["url", "src", "href"]);
+            let path = string_field(object, &["path", "file", "relative_path", "relativePath"]);
+            let mime_type = string_field(object, &["mime_type", "mimeType", "contentType"]);
+            let kind = string_field(object, &["kind", "type"])
+                .or_else(|| artifact_kind_from_mime(mime_type.as_deref()).map(ToString::to_string))
+                .unwrap_or_else(|| "artifact".to_string());
+            let title = string_field(object, &["title", "name", "filename", "file_name"])
+                .or_else(|| {
+                    path.as_deref()
+                        .or(url.as_deref())
+                        .and_then(|value| value.rsplit(['/', '\\']).next())
+                        .filter(|part| !part.is_empty())
+                        .map(ToString::to_string)
+                })
+                .or_else(|| fallback_title.map(ToString::to_string))
+                .unwrap_or_else(|| format!("Artifact {}", index + 1));
+            (kind, title, url, path, mime_type)
+        }
+        _ => return None,
+    };
+
+    let url = url.or_else(|| fallback_url.map(ToString::to_string));
+    let location = path
+        .as_deref()
+        .or(url.as_deref())
+        .unwrap_or("provider attachment");
+    let mime = mime_type
+        .as_deref()
+        .map(|mime| format!(" · {mime}"))
+        .unwrap_or_default();
+    Some(ArtifactItemProjection {
+        id: format!("{message_id}:{index}"),
+        thread_id: thread_id.clone(),
+        message_id: message_id.to_string(),
+        kind: kind.clone(),
+        title,
+        detail: format!("{kind} · {location}{mime}"),
+        url,
+        path,
+        mime_type,
+        observed_at: observed_at.to_string(),
+    })
+}
+
+fn artifact_kind_from_mime(mime_type: Option<&str>) -> Option<&'static str> {
+    let mime_type = mime_type?;
+    if mime_type.starts_with("image/") {
+        Some("image")
+    } else if mime_type.starts_with("audio/") {
+        Some("audio")
+    } else if mime_type == "application/pdf" || mime_type.starts_with("text/") {
+        Some("document")
+    } else {
+        None
+    }
+}
+
 fn parse_worktree_entries(
     value: serde_json::Value,
     repo_path: &str,
@@ -5508,6 +5710,115 @@ mod tests {
         assert!(sources.items.iter().any(|item| item.kind == "terminal"));
         assert!(sources.items.iter().any(|item| item.kind == "pinned"));
         assert!(sources.items.iter().any(|item| item.kind == "diff_comment"));
+    }
+
+    #[test]
+    fn sources_projection_reads_provider_artifacts() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.apply_provider_thread_item(
+            ace_runtime::provider::NormalizedThreadItem {
+                kind: ThreadItemKind::AgentMessage,
+                status: ThreadItemStatus::Completed,
+                thread_id: Some(thread_id.0.clone()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("item-1".to_string()),
+                parent_thread_id: None,
+                child_thread_id: None,
+                sender: None,
+                role: None,
+                title: Some("Screenshot captured".to_string()),
+                text: Some("Captured the login screenshot".to_string()),
+                status_text: None,
+                model: None,
+                target: None,
+                url: None,
+                files: None,
+                attachments: Some(serde_json::json!([
+                    {
+                        "kind": "image",
+                        "title": "Login screenshot",
+                        "url": "codex://attachment/login.png",
+                        "mimeType": "image/png"
+                    }
+                ])),
+                diff: None,
+                token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
+                metadata: serde_json::Value::Null,
+                provider: ace_runtime::provider::ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("item/agentMessage".to_string()),
+                    schema_version: None,
+                    raw_payload: serde_json::Value::Null,
+                },
+            },
+            Some(42),
+        );
+
+        let sources = store.projection().sources;
+
+        assert_eq!(sources.artifacts, 1);
+        assert!(sources.items.iter().any(|item| {
+            item.kind == "artifact"
+                && item.title == "Login screenshot"
+                && item.detail.contains("image/png")
+        }));
+    }
+
+    #[test]
+    fn artifact_only_provider_thread_items_are_not_dropped() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store.apply_provider_thread_item(
+            ace_runtime::provider::NormalizedThreadItem {
+                kind: ThreadItemKind::ImageGeneration,
+                status: ThreadItemStatus::Completed,
+                thread_id: Some(thread_id.0.clone()),
+                turn_id: Some("turn-1".to_string()),
+                item_id: Some("artifact-only".to_string()),
+                parent_thread_id: None,
+                child_thread_id: None,
+                sender: None,
+                role: None,
+                title: Some("Generated report".to_string()),
+                text: None,
+                status_text: None,
+                model: None,
+                target: None,
+                url: Some("codex://attachment/report.pdf".to_string()),
+                files: None,
+                attachments: Some(serde_json::json!({
+                    "path": "reports/report.pdf",
+                    "mimeType": "application/pdf"
+                })),
+                diff: None,
+                token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
+                metadata: serde_json::Value::Null,
+                provider: ace_runtime::provider::ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("item/artifact".to_string()),
+                    schema_version: None,
+                    raw_payload: serde_json::Value::Null,
+                },
+            },
+            Some(43),
+        );
+
+        let projection = store.projection();
+
+        assert!(projection.chat.messages.is_empty());
+        assert_eq!(projection.sources.artifacts, 1);
+        assert!(projection.sources.items.iter().any(|item| {
+            item.kind == "artifact"
+                && item.title == "report.pdf"
+                && item.detail.contains("reports/report.pdf")
+        }));
     }
 
     #[test]

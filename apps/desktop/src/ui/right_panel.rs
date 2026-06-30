@@ -1939,6 +1939,11 @@ fn sources_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
             "Context items",
             &projection.sources.context_items.to_string(),
         ))
+        .child(info_row(
+            theme,
+            "Artifacts",
+            &projection.sources.artifacts.to_string(),
+        ))
         .child(
             div()
                 .flex_1()
@@ -1963,6 +1968,7 @@ fn source_item_card(theme: Theme, source: &SourceItemProjection) -> AnyElement {
     let icon = match source.kind.as_str() {
         "file" => IconName::File,
         "terminal" => IconName::SquareTerminal,
+        "artifact" => IconName::Inbox,
         "pinned" | "highlight" => IconName::Star,
         "todo" => IconName::Check,
         _ => IconName::Inbox,
