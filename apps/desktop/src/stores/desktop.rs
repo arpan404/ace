@@ -1,7 +1,9 @@
+mod annotation_state;
 mod git_state;
 mod registry_state;
 mod terminal_state;
 
+use self::annotation_state::{extend_unique, review_comment_detail, todo_context_line};
 use self::git_state::{
     generated_review_commit_message, parse_review_files, parse_worktree_entries,
     review_file_summary, suggested_worktree_branch, truncate_diff_preview,
@@ -6992,14 +6994,6 @@ fn truncate_preview(raw: &str, limit: usize) -> String {
     format!("{}...", &raw[..end])
 }
 
-fn review_comment_detail(comment: &ReviewCommentItem) -> String {
-    let status = if comment.resolved { "resolved" } else { "open" };
-    match comment.line {
-        Some(line) => format!("{status} · line {line} · {}", comment.body),
-        None => format!("{status} · {}", comment.body),
-    }
-}
-
 fn stable_token(value: &str) -> String {
     value
         .chars()
@@ -7294,59 +7288,6 @@ fn toggle_vec_value<T: Copy + PartialEq>(values: &mut Vec<T>, value: T) {
         values.remove(index);
     } else {
         values.push(value);
-    }
-}
-
-fn todo_status_label(status: TodoStatus) -> &'static str {
-    match status {
-        TodoStatus::Open => "open",
-        TodoStatus::InProgress => "in progress",
-        TodoStatus::Blocked => "blocked",
-        TodoStatus::Done => "done",
-        TodoStatus::Canceled => "canceled",
-    }
-}
-
-fn todo_priority_label(priority: TodoPriority) -> &'static str {
-    match priority {
-        TodoPriority::Low => "low",
-        TodoPriority::Normal => "normal",
-        TodoPriority::High => "high",
-    }
-}
-
-fn todo_assignee_label(assignee: TodoAssignee) -> &'static str {
-    match assignee {
-        TodoAssignee::User => "user",
-        TodoAssignee::Agent => "agent",
-        TodoAssignee::Both => "user and agent",
-    }
-}
-
-fn todo_context_line(todo: &TodoItem) -> String {
-    let mut parts = vec![
-        format!("[{}]", todo_status_label(todo.status)),
-        format!("priority {}", todo_priority_label(todo.priority)),
-        format!("assigned to {}", todo_assignee_label(todo.assigned_to)),
-        todo.title.clone(),
-    ];
-    if !todo.related_files.is_empty() {
-        parts.push(format!("files: {}", todo.related_files.join(", ")));
-    }
-    if !todo.related_diff_comments.is_empty() {
-        parts.push(format!(
-            "diff comments: {}",
-            todo.related_diff_comments.join(", ")
-        ));
-    }
-    parts.join(" · ")
-}
-
-fn extend_unique(target: &mut Vec<String>, values: Vec<String>) {
-    for value in values {
-        if !target.contains(&value) {
-            target.push(value);
-        }
     }
 }
 
