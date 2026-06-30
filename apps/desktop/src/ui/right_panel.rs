@@ -764,6 +764,7 @@ fn browser_body(theme: Theme, browser: &BrowserProjection) -> AnyElement {
             "Actions",
             &bridge.actions.len().to_string(),
         ))
+        .child(browser_control_grid(theme, bridge))
         .child(browser_action_list(theme, bridge))
         .child(browser_preview_list(theme, &browser.previews))
         .child(browser_activity_list(theme, &browser.activities))
@@ -796,6 +797,162 @@ fn browser_body(theme: Theme, browser: &BrowserProjection) -> AnyElement {
                     .child("No browser viewport session is attached yet. Provider tools can use the connected bridge; frame streaming will appear here once the host publishes BrowserFrame events."),
             )
         })
+        .into_any_element()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BrowserControlSpec {
+    label: &'static str,
+    detail: &'static str,
+    actions: &'static [&'static str],
+}
+
+fn browser_control_specs() -> &'static [BrowserControlSpec] {
+    &[
+        BrowserControlSpec {
+            label: "URL",
+            detail: "Open localhost, file previews, and public pages.",
+            actions: &["browser.navigate"],
+        },
+        BrowserControlSpec {
+            label: "Input",
+            detail: "Forward click, type, scroll, and keyboard events.",
+            actions: &[
+                "browser.click",
+                "browser.type",
+                "browser.scroll",
+                "browser.key",
+            ],
+        },
+        BrowserControlSpec {
+            label: "Screenshot",
+            detail: "Capture a viewport frame from the host browser service.",
+            actions: &["browser.screenshot"],
+        },
+        BrowserControlSpec {
+            label: "Inspect",
+            detail: "Read DOM snapshots or inspect rendered state with approval.",
+            actions: &["browser.inspect"],
+        },
+        BrowserControlSpec {
+            label: "Logs",
+            detail: "Read console and network-style browser activity.",
+            actions: &["browser.logs", "browser.console"],
+        },
+        BrowserControlSpec {
+            label: "Viewport",
+            detail: "Resize, zoom, or switch browser viewport/tab state.",
+            actions: &["browser.viewport", "browser.zoom", "browser.tab"],
+        },
+    ]
+}
+
+fn browser_control_supported(bridge: &BrowserBridgeProjection, spec: BrowserControlSpec) -> bool {
+    spec.actions
+        .iter()
+        .any(|action| bridge.actions.iter().any(|available| available == action))
+}
+
+fn browser_control_grid(theme: Theme, bridge: &BrowserBridgeProjection) -> AnyElement {
+    div()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border_subtle)
+        .bg(theme.panel)
+        .p_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme.muted)
+                .child("Browser controls"),
+        )
+        .child(
+            div().grid().grid_cols(2).gap_2().children(
+                browser_control_specs()
+                    .iter()
+                    .map(|spec| browser_control_chip(theme, bridge, *spec))
+                    .collect::<Vec<_>>(),
+            ),
+        )
+        .into_any_element()
+}
+
+fn browser_control_icon(spec: BrowserControlSpec) -> IconName {
+    match spec.label {
+        "URL" | "Viewport" => IconName::Globe,
+        "Input" => IconName::SquareTerminal,
+        "Screenshot" => IconName::File,
+        "Inspect" | "Logs" => IconName::Info,
+        _ => IconName::Check,
+    }
+}
+
+fn browser_control_chip(
+    theme: Theme,
+    bridge: &BrowserBridgeProjection,
+    spec: BrowserControlSpec,
+) -> AnyElement {
+    let supported = browser_control_supported(bridge, spec);
+    let color = if supported {
+        theme.foreground.opacity(0.82)
+    } else {
+        theme.muted_subtle.opacity(0.64)
+    };
+    let icon_color = if supported {
+        theme.accent_success
+    } else {
+        theme.muted_subtle.opacity(0.64)
+    };
+    let tooltip = if supported {
+        spec.detail.to_string()
+    } else {
+        format!(
+            "{} Missing bridge action: {}",
+            spec.detail,
+            spec.actions.join(" or ")
+        )
+    };
+
+    div()
+        .id(("browser-control", stable_id(spec.label)))
+        .min_h(px(34.0))
+        .rounded_md()
+        .border_1()
+        .border_color(if supported {
+            theme.border_subtle
+        } else {
+            theme.border_subtle.opacity(0.48)
+        })
+        .bg(if supported {
+            theme.panel_deep
+        } else {
+            theme.panel_deep.opacity(0.54)
+        })
+        .px_2()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .text_size(px(12.0))
+        .text_color(color)
+        .child(icon_svg(browser_control_icon(spec), icon_color))
+        .child(spec.label)
+        .child(div().flex_1())
+        .child(
+            div()
+                .text_size(px(10.0))
+                .text_color(if supported {
+                    theme.accent_success
+                } else {
+                    theme.muted_subtle
+                })
+                .child(if supported { "Ready" } else { "Missing" }),
+        )
+        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .into_any_element()
 }
 
@@ -4129,5 +4286,35 @@ mod tests {
             right_panel_primary_action(RightPanelTab::Worktrees, &projection),
             Some(RightPanelPrimaryAction::CreateWorktree)
         );
+    }
+
+    #[test]
+    fn browser_controls_are_backed_by_bridge_actions() {
+        let bridge = BrowserBridgeProjection {
+            status: "connected".to_string(),
+            descriptor_name: Some("browser.bridge".to_string()),
+            aliases: vec!["ace_browser".to_string()],
+            actions: vec![
+                "browser.navigate".to_string(),
+                "browser.screenshot".to_string(),
+                "browser.viewport".to_string(),
+                "browser.console".to_string(),
+            ],
+            capability_keys: Vec::new(),
+        };
+
+        let specs = browser_control_specs();
+        let url = specs.iter().find(|spec| spec.label == "URL").unwrap();
+        let screenshot = specs
+            .iter()
+            .find(|spec| spec.label == "Screenshot")
+            .unwrap();
+        let logs = specs.iter().find(|spec| spec.label == "Logs").unwrap();
+        let input = specs.iter().find(|spec| spec.label == "Input").unwrap();
+
+        assert!(browser_control_supported(&bridge, *url));
+        assert!(browser_control_supported(&bridge, *screenshot));
+        assert!(browser_control_supported(&bridge, *logs));
+        assert!(!browser_control_supported(&bridge, *input));
     }
 }
