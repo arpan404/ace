@@ -45,10 +45,12 @@ use ace_runtime::{
     },
     threads::{
         AgentRuntimeSnapshot, ApprovalRecord, ApprovalRetryRecord, ApprovalStatus,
-        ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus, ModelRerouteRecord,
-        PlanImplementationRecord, PlanSessionStatus, ProcessExitRecord, ProviderStateRecord,
-        RealtimeSessionRecord, RemoteConnectionRecord, RuntimeWarningRecord, SubagentActionKind,
-        SubagentActionRecord, TerminalOutputRecord, TurnDiffRecord, TurnMode,
+        AutoApprovalReviewRecord, ExecutionLocation, GoalState, GoalStatus, HandoffPlan,
+        HandoffStatus, ModelRerouteRecord, PlanImplementationRecord, PlanSessionStatus,
+        ProcessExitRecord, ProviderStateRecord, RealtimeAudioRecord, RealtimeSessionRecord,
+        RealtimeTranscriptRecord, RemoteConnectionRecord, RuntimeWarningRecord, SubagentActionKind,
+        SubagentActionRecord, TerminalOutputRecord, ThreadLifecycleActionKind,
+        ThreadLifecycleRecord, Turn, TurnDiffRecord, TurnMode, TurnModerationRecord,
     },
     tools::{SemanticToolCall, ToolRunStatus, ToolSurface},
 };
@@ -65,6 +67,8 @@ const DEFAULT_TERMINAL_COLS: u16 = 120;
 const DEFAULT_TERMINAL_ROWS: u16 = 32;
 const DESKTOP_TERMINAL_HISTORY_LIMIT: usize = 128 * 1024;
 const DESKTOP_DIFF_PREVIEW_LIMIT: usize = 96 * 1024;
+const DESKTOP_REALTIME_TRANSCRIPT_LIMIT: usize = 128 * 1024;
+const DESKTOP_REALTIME_AUDIO_CHUNK_LIMIT: usize = 1024;
 const MAX_BROWSER_ACTIVITIES: usize = 32;
 
 #[derive(Debug, Clone)]
@@ -1740,6 +1744,71 @@ impl DesktopStore {
                     format!(
                         "Realtime session {} · {}{}",
                         session.provider, session.status, message
+                    )
+                }),
+        );
+
+        signals.extend(
+            self.runtime
+                .turn_moderation
+                .iter()
+                .filter(|moderation| matches_optional_thread(moderation.thread_id.as_deref()))
+                .map(|moderation| {
+                    format!(
+                        "Turn moderation {} · {}",
+                        moderation.provider, moderation.status
+                    )
+                }),
+        );
+
+        signals.extend(
+            self.runtime
+                .auto_approval_reviews
+                .iter()
+                .filter(|review| matches_optional_thread(review.thread_id.as_deref()))
+                .map(|review| {
+                    let decision = review
+                        .decision
+                        .as_deref()
+                        .map(|decision| format!(" · {decision}"))
+                        .unwrap_or_default();
+                    let message = review
+                        .message
+                        .as_deref()
+                        .map(|message| format!(" · {message}"))
+                        .unwrap_or_default();
+                    format!(
+                        "Auto approval review {} · {}{}{}",
+                        review.provider, review.status, decision, message
+                    )
+                }),
+        );
+
+        signals.extend(
+            self.runtime
+                .realtime_transcripts
+                .iter()
+                .filter(|transcript| matches_optional_thread(transcript.thread_id.as_deref()))
+                .map(|transcript| {
+                    format!(
+                        "Realtime transcript {} · {} bytes",
+                        transcript.provider,
+                        transcript.text.len()
+                    )
+                }),
+        );
+
+        signals.extend(
+            self.runtime
+                .realtime_audio
+                .iter()
+                .filter(|audio| matches_optional_thread(audio.thread_id.as_deref()))
+                .map(|audio| {
+                    format!(
+                        "Realtime audio {} · {} chunk{}",
+                        audio.provider,
+                        audio.chunks.len(),
+                        plural(audio.chunks.len())
                     )
                 }),
         );
@@ -3992,6 +4061,93 @@ impl DesktopStore {
                     metadata,
                 });
             }
+            ProviderRuntimeProjectionDelta::RealtimeTranscriptDelta {
+                provider,
+                thread_id,
+                turn_id,
+                text,
+            } => {
+                self.append_realtime_transcript(provider, thread_id, turn_id, text);
+            }
+            ProviderRuntimeProjectionDelta::RealtimeAudioDelta {
+                provider,
+                thread_id,
+                turn_id,
+                audio,
+            } => {
+                self.append_realtime_audio(provider, thread_id, turn_id, audio);
+            }
+            ProviderRuntimeProjectionDelta::ThreadLifecycleChanged {
+                provider: _,
+                thread_id,
+                status,
+                name,
+                active,
+                archived,
+                metadata,
+            } => {
+                self.apply_thread_lifecycle_delta(
+                    thread_id, status, name, active, archived, metadata,
+                );
+            }
+            ProviderRuntimeProjectionDelta::TurnModerationUpdated {
+                provider,
+                thread_id,
+                turn_id,
+                status,
+                metadata,
+            } => {
+                self.upsert_turn_moderation(TurnModerationRecord {
+                    provider,
+                    thread_id,
+                    turn_id,
+                    status,
+                    metadata,
+                });
+            }
+            ProviderRuntimeProjectionDelta::AutoApprovalReviewUpdated {
+                provider,
+                thread_id,
+                turn_id,
+                item_id,
+                status,
+                message,
+                decision,
+                action_id,
+                request_id,
+                selected_policy,
+                decided_by,
+                retryable,
+                metadata,
+            } => {
+                self.upsert_auto_approval_review(AutoApprovalReviewRecord {
+                    provider,
+                    thread_id,
+                    turn_id,
+                    item_id,
+                    status,
+                    message,
+                    decision,
+                    action_id,
+                    request_id,
+                    selected_policy,
+                    decided_by,
+                    retryable,
+                    metadata,
+                });
+            }
+            ProviderRuntimeProjectionDelta::ActiveTurnChanged {
+                provider: _,
+                thread_id,
+                turn_id,
+                active,
+            } => {
+                self.apply_active_turn_delta(thread_id, turn_id, active);
+            }
+            ProviderRuntimeProjectionDelta::ActiveTurnsCleared { provider: _ } => {
+                self.runtime.active_turns.clear();
+                self.refresh_runtime_status_from_snapshot();
+            }
             ProviderRuntimeProjectionDelta::GoalUpdated {
                 provider: _, goal, ..
             } => {
@@ -4264,6 +4420,203 @@ impl DesktopStore {
             *existing = retry;
         } else {
             self.runtime.approval_retries.push(retry);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn append_realtime_transcript(
+        &mut self,
+        provider: String,
+        thread_id: Option<String>,
+        turn_id: Option<String>,
+        text: String,
+    ) {
+        if text.is_empty() {
+            return;
+        }
+        if let Some(existing) = self
+            .runtime
+            .realtime_transcripts
+            .iter_mut()
+            .find(|existing| {
+                existing.provider == provider
+                    && existing.thread_id == thread_id
+                    && existing.turn_id == turn_id
+            })
+        {
+            existing.text.push_str(&text);
+            trim_realtime_transcript(existing);
+        } else {
+            let mut record = RealtimeTranscriptRecord {
+                provider,
+                thread_id,
+                turn_id,
+                text,
+                truncated_bytes: 0,
+            };
+            trim_realtime_transcript(&mut record);
+            self.runtime.realtime_transcripts.push(record);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn append_realtime_audio(
+        &mut self,
+        provider: String,
+        thread_id: Option<String>,
+        turn_id: Option<String>,
+        audio: String,
+    ) {
+        if audio.is_empty() {
+            return;
+        }
+        if let Some(existing) = self.runtime.realtime_audio.iter_mut().find(|existing| {
+            existing.provider == provider
+                && existing.thread_id == thread_id
+                && existing.turn_id == turn_id
+        }) {
+            existing.chunks.push(audio);
+            trim_realtime_audio(existing);
+        } else {
+            let mut record = RealtimeAudioRecord {
+                provider,
+                thread_id,
+                turn_id,
+                chunks: vec![audio],
+                truncated_chunks: 0,
+            };
+            trim_realtime_audio(&mut record);
+            self.runtime.realtime_audio.push(record);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn apply_thread_lifecycle_delta(
+        &mut self,
+        thread_id: Option<String>,
+        status: Option<String>,
+        name: Option<String>,
+        active: Option<bool>,
+        archived: Option<bool>,
+        metadata: serde_json::Value,
+    ) {
+        let Some(provider_thread_id) = thread_id else {
+            return;
+        };
+        let action = thread_lifecycle_action_from_delta(
+            status.as_deref(),
+            name.as_deref(),
+            active,
+            archived,
+            &metadata,
+        );
+        if let Some(local_thread_id) = self.local_thread_id_for_provider(&provider_thread_id)
+            && let Some(thread) = self
+                .threads
+                .iter_mut()
+                .find(|thread| thread.id == local_thread_id)
+        {
+            if let Some(name) = name.as_ref().filter(|name| !name.trim().is_empty()) {
+                thread.title.clone_from(name);
+            }
+            if let Some(archived) = archived {
+                thread.archived = archived;
+                thread.status = if archived {
+                    ThreadStatus::Archived
+                } else {
+                    ThreadStatus::Idle
+                };
+            }
+            if let Some(active) = active {
+                thread.status = if active {
+                    ThreadStatus::Working
+                } else {
+                    ThreadStatus::Idle
+                };
+            }
+            if let Some(status) = status.as_deref().and_then(thread_status_from_provider) {
+                thread.status = status;
+                thread.archived = status == ThreadStatus::Archived;
+            }
+        }
+        self.runtime.thread_lifecycle.push(ThreadLifecycleRecord {
+            thread_id: provider_thread_id,
+            action,
+            turn_id: string_at_value(&metadata, &["turn_id", "turnId"]),
+            name,
+            item_count: metadata
+                .get("item_count")
+                .or_else(|| metadata.get("itemCount"))
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|count| usize::try_from(count).ok()),
+            request: serde_json::Value::Null,
+            provider_response: metadata,
+        });
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_turn_moderation(&mut self, moderation: TurnModerationRecord) {
+        if let Some(existing) = self.runtime.turn_moderation.iter_mut().find(|existing| {
+            existing.provider == moderation.provider
+                && existing.thread_id == moderation.thread_id
+                && existing.turn_id == moderation.turn_id
+        }) {
+            *existing = moderation;
+        } else {
+            self.runtime.turn_moderation.push(moderation);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_auto_approval_review(&mut self, review: AutoApprovalReviewRecord) {
+        if let Some(existing) = self
+            .runtime
+            .auto_approval_reviews
+            .iter_mut()
+            .find(|existing| {
+                existing.provider == review.provider
+                    && existing.thread_id == review.thread_id
+                    && existing.turn_id == review.turn_id
+                    && existing.item_id == review.item_id
+            })
+        {
+            *existing = review;
+        } else {
+            self.runtime.auto_approval_reviews.push(review);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn apply_active_turn_delta(
+        &mut self,
+        thread_id: Option<String>,
+        turn_id: Option<String>,
+        active: bool,
+    ) {
+        let Some(thread_id) = thread_id else {
+            return;
+        };
+        if active {
+            if let Some(existing) = self
+                .runtime
+                .active_turns
+                .iter_mut()
+                .find(|turn| turn.thread_id == thread_id)
+            {
+                existing.turn_id = turn_id;
+                existing.active = true;
+            } else {
+                self.runtime.active_turns.push(Turn {
+                    thread_id,
+                    turn_id,
+                    mode: TurnMode::Normal,
+                    active: true,
+                });
+            }
+        } else {
+            self.runtime
+                .active_turns
+                .retain(|turn| turn.thread_id != thread_id);
         }
         self.refresh_runtime_status_from_snapshot();
     }
@@ -6360,6 +6713,96 @@ fn subagent_action_from_value(action: &str) -> SubagentActionKind {
         "close" => SubagentActionKind::Close,
         _ => SubagentActionKind::Steer,
     }
+}
+
+fn thread_status_from_provider(status: &str) -> Option<ThreadStatus> {
+    match status
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', ' '], "_")
+        .as_str()
+    {
+        "error" | "failed" | "failure" => Some(ThreadStatus::Error),
+        "working" | "running" | "active" | "started" | "resumed" => Some(ThreadStatus::Working),
+        "connecting" | "starting" => Some(ThreadStatus::Connecting),
+        "pending_approval" | "approval_required" | "needs_approval" => {
+            Some(ThreadStatus::PendingApproval)
+        }
+        "awaiting_input" | "input_required" | "needs_input" => Some(ThreadStatus::AwaitingInput),
+        "plan_ready" | "plan" => Some(ThreadStatus::PlanReady),
+        "completed" | "complete" | "done" => Some(ThreadStatus::Completed),
+        "draft" => Some(ThreadStatus::Draft),
+        "idle" | "inactive" | "stopped" => Some(ThreadStatus::Idle),
+        "archived" | "archive" => Some(ThreadStatus::Archived),
+        _ => None,
+    }
+}
+
+fn thread_lifecycle_action_from_delta(
+    status: Option<&str>,
+    name: Option<&str>,
+    active: Option<bool>,
+    archived: Option<bool>,
+    metadata: &serde_json::Value,
+) -> ThreadLifecycleActionKind {
+    if archived == Some(true) {
+        return ThreadLifecycleActionKind::Archive;
+    }
+    if archived == Some(false) {
+        return ThreadLifecycleActionKind::Unarchive;
+    }
+    if name.is_some_and(|name| !name.trim().is_empty()) {
+        return ThreadLifecycleActionKind::SetName;
+    }
+    if active == Some(true) {
+        return ThreadLifecycleActionKind::Resume;
+    }
+    match string_at_value(metadata, &["action", "kind", "type"])
+        .as_deref()
+        .or(status)
+        .map(|value| value.trim().to_ascii_lowercase().replace(['-', ' '], "_"))
+        .as_deref()
+    {
+        Some("start" | "started") => ThreadLifecycleActionKind::Start,
+        Some("resume" | "resumed") => ThreadLifecycleActionKind::Resume,
+        Some("archive" | "archived") => ThreadLifecycleActionKind::Archive,
+        Some("unarchive" | "unarchived") => ThreadLifecycleActionKind::Unarchive,
+        Some("delete" | "deleted") => ThreadLifecycleActionKind::Delete,
+        Some("unsubscribe" | "unsubscribed") => ThreadLifecycleActionKind::Unsubscribe,
+        Some("set_name" | "rename" | "renamed") => ThreadLifecycleActionKind::SetName,
+        Some("compact" | "compacted") => ThreadLifecycleActionKind::Compact,
+        Some("rollback" | "rolled_back") => ThreadLifecycleActionKind::Rollback,
+        Some("inject_items" | "items_injected") => ThreadLifecycleActionKind::InjectItems,
+        _ => ThreadLifecycleActionKind::UpdateMetadata,
+    }
+}
+
+fn string_at_value(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(serde_json::Value::as_str))
+        .map(ToString::to_string)
+}
+
+fn trim_realtime_transcript(record: &mut RealtimeTranscriptRecord) {
+    if record.text.len() <= DESKTOP_REALTIME_TRANSCRIPT_LIMIT {
+        return;
+    }
+    let overflow = record.text.len() - DESKTOP_REALTIME_TRANSCRIPT_LIMIT;
+    let mut start = overflow;
+    while !record.text.is_char_boundary(start) {
+        start += 1;
+    }
+    record.text.drain(..start);
+    record.truncated_bytes = record.truncated_bytes.saturating_add(start);
+}
+
+fn trim_realtime_audio(record: &mut RealtimeAudioRecord) {
+    if record.chunks.len() <= DESKTOP_REALTIME_AUDIO_CHUNK_LIMIT {
+        return;
+    }
+    let overflow = record.chunks.len() - DESKTOP_REALTIME_AUDIO_CHUNK_LIMIT;
+    record.chunks.drain(0..overflow);
+    record.truncated_chunks = record.truncated_chunks.saturating_add(overflow);
 }
 
 fn thread_run_mode_label(thread: &ThreadSummary) -> String {
@@ -9157,6 +9600,200 @@ mod tests {
             signal == "Realtime session codex · listening · voice bridge ready"
         }));
         assert_eq!(store.runtime.provider_states.len(), 1);
+    }
+
+    #[test]
+    fn provider_runtime_batch_applies_active_turn_projection_deltas() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![ProviderRuntimeProjectionDelta::ActiveTurnChanged {
+                provider: "codex".to_string(),
+                thread_id: Some("provider-thread-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
+                active: true,
+            }],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        let run = store.run_projection();
+        assert!(run.active);
+        assert_eq!(run.mode_label, "Run");
+        assert_eq!(run.turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(store.projection().runtime_status.active_turns, 1);
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(2),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![ProviderRuntimeProjectionDelta::ActiveTurnsCleared {
+                provider: "codex".to_string(),
+            }],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        assert!(!store.run_projection().active);
+        assert_eq!(store.projection().runtime_status.active_turns, 0);
+    }
+
+    #[test]
+    fn provider_runtime_batch_applies_realtime_and_review_signal_deltas() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![
+                ProviderRuntimeProjectionDelta::RealtimeTranscriptDelta {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    text: "hello ".to_string(),
+                },
+                ProviderRuntimeProjectionDelta::RealtimeTranscriptDelta {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    text: "world".to_string(),
+                },
+                ProviderRuntimeProjectionDelta::RealtimeAudioDelta {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    audio: "chunk-1".to_string(),
+                },
+                ProviderRuntimeProjectionDelta::TurnModerationUpdated {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    status: "flagged".to_string(),
+                    metadata: serde_json::json!({ "category": "test" }),
+                },
+                ProviderRuntimeProjectionDelta::AutoApprovalReviewUpdated {
+                    provider: "codex".to_string(),
+                    thread_id: Some("provider-thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("approval-1".to_string()),
+                    status: "completed".to_string(),
+                    message: Some("Policy matched".to_string()),
+                    decision: Some("approved".to_string()),
+                    action_id: Some("run-tests".to_string()),
+                    request_id: Some("request-1".to_string()),
+                    selected_policy: Some("auto".to_string()),
+                    decided_by: Some("policy".to_string()),
+                    retryable: false,
+                    metadata: serde_json::Value::Null,
+                },
+            ],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        assert_eq!(store.runtime.realtime_transcripts.len(), 1);
+        assert_eq!(store.runtime.realtime_transcripts[0].text, "hello world");
+        assert_eq!(store.runtime.realtime_audio.len(), 1);
+        assert_eq!(store.runtime.realtime_audio[0].chunks, vec!["chunk-1"]);
+        assert_eq!(store.runtime.turn_moderation.len(), 1);
+        assert_eq!(store.runtime.auto_approval_reviews.len(), 1);
+
+        let signals = store.summary_projection().runtime_signals;
+        assert!(
+            signals
+                .iter()
+                .any(|signal| signal == "Turn moderation codex · flagged")
+        );
+        assert!(signals.iter().any(|signal| {
+            signal == "Auto approval review codex · completed · approved · Policy matched"
+        }));
+        assert!(
+            signals
+                .iter()
+                .any(|signal| signal == "Realtime transcript codex · 11 bytes")
+        );
+        assert!(
+            signals
+                .iter()
+                .any(|signal| signal == "Realtime audio codex · 1 chunk")
+        );
+    }
+
+    #[test]
+    fn provider_runtime_batch_applies_thread_lifecycle_projection_deltas() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![ProviderRuntimeProjectionDelta::ThreadLifecycleChanged {
+                provider: "codex".to_string(),
+                thread_id: Some("provider-thread-1".to_string()),
+                status: Some("archived".to_string()),
+                name: Some("Runtime parity".to_string()),
+                active: Some(false),
+                archived: Some(true),
+                metadata: serde_json::json!({
+                    "action": "archive",
+                    "turnId": "turn-1",
+                    "itemCount": 3
+                }),
+            }],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        let thread = store
+            .threads
+            .iter()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist");
+        assert_eq!(thread.title, "Runtime parity");
+        assert_eq!(thread.status, ThreadStatus::Archived);
+        assert!(thread.archived);
+        assert_eq!(store.runtime.thread_lifecycle.len(), 1);
+        assert_eq!(
+            store.runtime.thread_lifecycle[0].action,
+            ThreadLifecycleActionKind::Archive
+        );
+        assert_eq!(
+            store.runtime.thread_lifecycle[0].turn_id.as_deref(),
+            Some("turn-1")
+        );
+        assert_eq!(store.runtime.thread_lifecycle[0].item_count, Some(3));
     }
 
     #[test]
