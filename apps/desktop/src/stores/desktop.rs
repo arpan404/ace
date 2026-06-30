@@ -2153,6 +2153,9 @@ impl DesktopStore {
         if let Some(effort) = reasoning_effort {
             payload["reasoning_effort"] = serde_json::Value::String(effort.to_string());
         }
+        if let Some(cwd) = self.composer_cwd_for_thread(thread_id, draft.runtime_mode) {
+            payload["cwd"] = serde_json::Value::String(cwd);
+        }
         if draft.interaction_mode == InteractionMode::Plan {
             payload["collaboration_mode"] = serde_json::json!({
                 "mode": "plan",
@@ -2580,6 +2583,28 @@ impl DesktopStore {
                     .find(|entry| entry.id == model)
                     .map(|entry| entry.supports_reasoning)
             })
+    }
+
+    fn composer_cwd_for_thread(
+        &self,
+        thread_id: &ThreadId,
+        runtime_mode: RuntimeMode,
+    ) -> Option<String> {
+        let thread = self.threads.iter().find(|thread| &thread.id == thread_id)?;
+        match runtime_mode {
+            RuntimeMode::Worktree => thread.worktree_path.clone().or_else(|| {
+                self.projects
+                    .iter()
+                    .find(|project| project.id == thread.project_id)
+                    .map(|project| project.workspace_root.clone())
+            }),
+            RuntimeMode::Local => self
+                .projects
+                .iter()
+                .find(|project| project.id == thread.project_id)
+                .map(|project| project.workspace_root.clone()),
+            RuntimeMode::Normal => None,
+        }
     }
 
     fn record_composer_history(&mut self, thread_id: &ThreadId, prompt: &str) {
@@ -4563,6 +4588,34 @@ mod tests {
         assert_eq!(
             store.projection().chat.composer.unwrap().prompt,
             "please /model "
+        );
+    }
+
+    #[test]
+    fn composer_runtime_mode_resolves_backend_cwd() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+
+        assert_eq!(
+            store.composer_cwd_for_thread(&thread_id, RuntimeMode::Normal),
+            None
+        );
+        assert_eq!(
+            store.composer_cwd_for_thread(&thread_id, RuntimeMode::Local),
+            Some("/tmp/project".to_string())
+        );
+
+        let thread = store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread");
+        thread.worktree_path = Some("/tmp/project-worktree".to_string());
+
+        assert_eq!(
+            store.composer_cwd_for_thread(&thread_id, RuntimeMode::Worktree),
+            Some("/tmp/project-worktree".to_string())
         );
     }
 
