@@ -13,6 +13,8 @@ pub(super) fn thread_row(
     active: bool,
 ) -> AnyElement {
     let id = thread.id.clone();
+    let terminal_thread_id = thread.id.clone();
+    let browser_thread_id = thread.id.clone();
     let pin_thread_id = thread.id.clone();
     let archive_thread_id = thread.id.clone();
     let tooltip_thread = thread.clone();
@@ -109,6 +111,28 @@ pub(super) fn thread_row(
                     );
                 }),
         )
+        .child(thread_row_icon_button(
+            theme,
+            AceIconName::Terminal,
+            "Open terminal here",
+            move || {
+                Box::new(crate::actions::OpenThreadRightPanelTab {
+                    thread_id: terminal_thread_id.clone(),
+                    tab: RightPanelTab::Terminal,
+                })
+            },
+        ))
+        .child(thread_row_icon_button(
+            theme,
+            AceIconName::Browser,
+            "Open browser preview",
+            move || {
+                Box::new(crate::actions::OpenThreadRightPanelTab {
+                    thread_id: browser_thread_id.clone(),
+                    tab: RightPanelTab::Browser,
+                })
+            },
+        ))
         .child(thread_row_icon_button(
             theme,
             AceIconName::PinFilled,
