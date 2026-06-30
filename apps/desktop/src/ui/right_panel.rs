@@ -1891,6 +1891,12 @@ fn summary_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
         ))
         .child(summary_section(
             theme,
+            "Runtime relationships",
+            &projection.summary.runtime_relationships,
+            "No forks, side chats, subagents, or handoffs observed.",
+        ))
+        .child(summary_section(
+            theme,
             "Artifacts",
             &projection.summary.artifacts,
             "No provider artifacts observed.",

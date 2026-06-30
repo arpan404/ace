@@ -44,8 +44,8 @@ use ace_runtime::{
         ThreadItemStatus,
     },
     threads::{
-        AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation, PlanSessionStatus,
-        RemoteConnectionRecord, TurnMode,
+        AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation, HandoffStatus,
+        PlanSessionStatus, RemoteConnectionRecord, SubagentActionKind, TurnMode,
     },
     tools::{SemanticToolCall, ToolRunStatus, ToolSurface},
 };
@@ -368,6 +368,7 @@ pub struct SummaryProjection {
     pub current_status: String,
     pub run_status: Option<String>,
     pub composer_status: Option<String>,
+    pub runtime_relationships: Vec<String>,
     pub plan: Vec<String>,
     pub todos: Vec<String>,
     pub pinned_context: Vec<String>,
@@ -1215,6 +1216,129 @@ impl DesktopStore {
         keys
     }
 
+    fn runtime_relationships_for_thread(&self, thread: &ThreadSummary) -> Vec<String> {
+        let keys = self.runtime_thread_keys(thread);
+        let matches_thread = |id: &str| keys.iter().any(|key| key == id);
+        let mut relationships = Vec::new();
+
+        relationships.extend(
+            self.runtime
+                .fork_points
+                .iter()
+                .filter(|fork| {
+                    matches_thread(&fork.parent_thread_id) || matches_thread(&fork.child_thread_id)
+                })
+                .map(|fork| {
+                    let turn = fork
+                        .turn_id
+                        .as_deref()
+                        .map(|turn| format!(" · turn {turn}"))
+                        .unwrap_or_default();
+                    format!(
+                        "Fork {} -> {}{}",
+                        fork.parent_thread_id, fork.child_thread_id, turn
+                    )
+                }),
+        );
+
+        relationships.extend(
+            self.runtime
+                .side_chats
+                .iter()
+                .filter(|side_chat| {
+                    matches_thread(&side_chat.parent_thread_id)
+                        || matches_thread(&side_chat.thread_id)
+                })
+                .map(|side_chat| {
+                    format!(
+                        "Side chat {} -> {} · {}",
+                        side_chat.parent_thread_id,
+                        side_chat.thread_id,
+                        if side_chat.ephemeral {
+                            "ephemeral"
+                        } else {
+                            "persistent"
+                        }
+                    )
+                }),
+        );
+
+        relationships.extend(
+            self.runtime
+                .subagents
+                .iter()
+                .filter(|subagent| {
+                    matches_thread(&subagent.parent_thread_id)
+                        || matches_thread(&subagent.thread_id)
+                })
+                .map(|subagent| {
+                    let role = subagent
+                        .role
+                        .as_deref()
+                        .or(subagent.nickname.as_deref())
+                        .unwrap_or("agent");
+                    format!(
+                        "Subagent {role} · {} -> {}",
+                        subagent.parent_thread_id, subagent.thread_id
+                    )
+                }),
+        );
+
+        relationships.extend(
+            self.runtime
+                .handoffs
+                .iter()
+                .filter(|handoff| {
+                    matches_thread(&handoff.source_thread_id)
+                        || handoff
+                            .target_thread_id
+                            .as_deref()
+                            .is_some_and(matches_thread)
+                })
+                .map(|handoff| {
+                    let target = handoff
+                        .target_thread_id
+                        .as_deref()
+                        .or(handoff.worktree_path.as_deref())
+                        .or(handoff.remote_host.as_deref())
+                        .unwrap_or("pending target");
+                    let branch = handoff
+                        .branch
+                        .as_deref()
+                        .map(|branch| format!(" · {branch}"))
+                        .unwrap_or_default();
+                    format!(
+                        "Handoff {} -> {} · {}{}",
+                        handoff.source_thread_id,
+                        target,
+                        handoff_status_label(handoff.status),
+                        branch
+                    )
+                }),
+        );
+
+        relationships.extend(
+            self.runtime
+                .subagent_actions
+                .iter()
+                .filter(|action| {
+                    matches_thread(&action.parent_thread_id)
+                        || matches_thread(&action.subagent_thread_id)
+                })
+                .map(|action| {
+                    format!(
+                        "Subagent action {} · {} -> {}",
+                        subagent_action_label(action.action),
+                        action.parent_thread_id,
+                        action.subagent_thread_id
+                    )
+                }),
+        );
+
+        relationships.truncate(12);
+        relationships
+    }
+
     #[must_use]
     pub fn summary_projection(&self) -> SummaryProjection {
         let Some(thread) = self.active_thread() else {
@@ -1233,6 +1357,7 @@ impl DesktopStore {
             .composer_drafts
             .get(&thread.id)
             .map(composer_status_line);
+        let runtime_relationships = self.runtime_relationships_for_thread(thread);
         let messages = self
             .persisted_messages
             .get(&thread.id)
@@ -1406,6 +1531,7 @@ impl DesktopStore {
             ),
             run_status,
             composer_status,
+            runtime_relationships,
             plan,
             todos,
             pinned_context,
@@ -5294,6 +5420,24 @@ fn plan_session_status_label(status: PlanSessionStatus) -> &'static str {
     }
 }
 
+fn handoff_status_label(status: HandoffStatus) -> &'static str {
+    match status {
+        HandoffStatus::Requested => "requested",
+        HandoffStatus::Interrupted => "interrupted",
+        HandoffStatus::Transferring => "transferring",
+        HandoffStatus::Completed => "completed",
+        HandoffStatus::Failed => "failed",
+    }
+}
+
+fn subagent_action_label(action: SubagentActionKind) -> &'static str {
+    match action {
+        SubagentActionKind::Steer => "steer",
+        SubagentActionKind::Stop => "stop",
+        SubagentActionKind::Close => "close",
+    }
+}
+
 fn thread_run_mode_label(thread: &ThreadSummary) -> String {
     if thread.worktree_path.is_some() {
         "Worktree".to_string()
@@ -6398,6 +6542,83 @@ mod tests {
             Some(
                 "Plan local · gpt-5-large · Auto review · High reasoning · This computer · Precise, Tested · Todos"
             )
+        );
+    }
+
+    #[test]
+    fn summary_projection_surfaces_runtime_relationships() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+        store.runtime.fork_points = vec![ace_runtime::threads::ForkPoint {
+            parent_thread_id: "provider-thread-1".to_string(),
+            child_thread_id: "fork-thread-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+        }];
+        store.runtime.side_chats = vec![ace_runtime::threads::SideChat {
+            parent_thread_id: "provider-thread-1".to_string(),
+            thread_id: "side-thread-1".to_string(),
+            ephemeral: true,
+        }];
+        store.runtime.subagents = vec![ace_runtime::threads::SubagentThread {
+            parent_thread_id: "provider-thread-1".to_string(),
+            thread_id: "subagent-1".to_string(),
+            role: Some("reviewer".to_string()),
+            nickname: None,
+        }];
+        store.runtime.handoffs = vec![ace_runtime::threads::HandoffPlan {
+            source_thread_id: "provider-thread-1".to_string(),
+            target_location: ExecutionLocation::Worktree,
+            status: HandoffStatus::Completed,
+            target_thread_id: Some("handoff-thread-1".to_string()),
+            repo_root: Some("/tmp/project".to_string()),
+            worktree_path: Some("/tmp/project-feature".to_string()),
+            branch: Some("feature/runtime".to_string()),
+            start_point: Some("main".to_string()),
+            checkpoint_ref: None,
+            remote_host: None,
+            transfer_status: None,
+            interrupted_active_turn: Some(true),
+            metadata: serde_json::Value::Null,
+        }];
+        store.runtime.subagent_actions = vec![ace_runtime::threads::SubagentActionRecord {
+            parent_thread_id: "provider-thread-1".to_string(),
+            subagent_thread_id: "subagent-1".to_string(),
+            action: SubagentActionKind::Steer,
+            prompt: Some("Review the diff".to_string()),
+            provider_response: serde_json::Value::Null,
+        }];
+
+        let relationships = store.summary_projection().runtime_relationships;
+
+        assert!(
+            relationships
+                .iter()
+                .any(|item| item == "Fork provider-thread-1 -> fork-thread-1 · turn turn-1")
+        );
+        assert!(
+            relationships
+                .iter()
+                .any(|item| item == "Side chat provider-thread-1 -> side-thread-1 · ephemeral")
+        );
+        assert!(
+            relationships
+                .iter()
+                .any(|item| item == "Subagent reviewer · provider-thread-1 -> subagent-1")
+        );
+        assert!(relationships.iter().any(|item| {
+            item == "Handoff provider-thread-1 -> handoff-thread-1 · completed · feature/runtime"
+        }));
+        assert!(
+            relationships
+                .iter()
+                .any(|item| { item == "Subagent action steer · provider-thread-1 -> subagent-1" })
         );
     }
 
