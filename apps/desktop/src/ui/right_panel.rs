@@ -7,8 +7,9 @@ use crate::{
         SelectRightPanelTab, SetCodeFont, SetThemeAccent, SetThemeDensity, SetThemeMotion,
         SetThemePreset, SetUiFont, StageReviewAll, StageReviewFile, ToggleBottomPanel,
         ToggleComposerContext, ToggleFirstOpenTodo, ToggleHighlightLatestTimelineItem,
-        ToggleReviewCommentResolved, ToggleRightPanel, UnpinTimelineItem, UnstageReviewAll,
-        UnstageReviewFile, UpdateTodoAssignee, UpdateTodoPriority, UpdateTodoStatus,
+        ToggleHighlightTimelineItem, ToggleReviewCommentResolved, ToggleRightPanel,
+        UnpinTimelineItem, UnstageReviewAll, UnstageReviewFile, UpdateTodoAssignee,
+        UpdateTodoPriority, UpdateTodoStatus,
     },
     stores::{
         ApprovalItemProjection, ApprovalRegistryProjection, BrowserActivityProjection,
@@ -18,7 +19,7 @@ use crate::{
         ServiceReadiness, ServiceStatus, SourceItemProjection, SummaryProjection, TodoAssignee,
         TodoItem, TodoPriority, TodoStatus, ToolRegistryEntryProjection, ToolRegistryProjection,
         WorktreeEntryProjection, WorktreeProjection,
-        desktop::PinnedTimelineItem,
+        desktop::{HighlightedTimelineItem, PinnedTimelineItem},
         ui::{BottomPanelTab, RightPanelTab, UiState},
     },
     ui::{
@@ -3490,13 +3491,15 @@ fn summary_annotation_actions(theme: Theme, projection: &DesktopProjection) -> A
 }
 
 fn pinned_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
-    if projection.annotations.pinned_items.is_empty() {
+    if projection.annotations.pinned_items.is_empty()
+        && projection.annotations.highlighted_items.is_empty()
+    {
         return annotation_empty_body(
             theme,
             AnnotationEmptyState {
                 icon: AceIconName::PinFilled,
                 label: "Pinned",
-                message: "No pinned context yet.",
+                message: "No pinned or highlighted context yet.",
                 action_icon: IconName::Star,
                 action_label: "Pin latest",
                 action: || Box::new(PinLatestTimelineItem),
@@ -3514,14 +3517,9 @@ fn pinned_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
             div()
                 .text_size(px(12.0))
                 .text_color(theme.muted)
-                .child(format!(
-                    "{} pinned item{}",
+                .child(pinned_context_count_label(
                     projection.annotations.pinned_items.len(),
-                    if projection.annotations.pinned_items.len() == 1 {
-                        ""
-                    } else {
-                        "s"
-                    }
+                    projection.annotations.highlighted_items.len(),
                 )),
         )
         .child(
@@ -3539,9 +3537,25 @@ fn pinned_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
                         .map(|item| pinned_item_card(theme, item))
                         .collect::<Vec<_>>(),
                 )
+                .children(
+                    projection
+                        .annotations
+                        .highlighted_items
+                        .iter()
+                        .map(|item| highlighted_item_card(theme, projection, item))
+                        .collect::<Vec<_>>(),
+                )
                 .overflow_y_scrollbar(),
         )
         .into_any_element()
+}
+
+fn pinned_context_count_label(pinned_count: usize, highlight_count: usize) -> String {
+    format!(
+        "{pinned_count} pinned item{} · {highlight_count} highlight{}",
+        if pinned_count == 1 { "" } else { "s" },
+        if highlight_count == 1 { "" } else { "s" },
+    )
 }
 
 fn pinned_item_card(theme: Theme, item: &PinnedTimelineItem) -> AnyElement {
@@ -3574,6 +3588,62 @@ fn pinned_item_card(theme: Theme, item: &PinnedTimelineItem) -> AnyElement {
             }),
         ],
     )
+}
+
+fn highlighted_item_card(
+    theme: Theme,
+    projection: &DesktopProjection,
+    item: &HighlightedTimelineItem,
+) -> AnyElement {
+    let thread_id = item.thread_id.clone();
+    let message_id = item.message_id.clone();
+    let highlighted_context_selected = projection
+        .chat
+        .composer
+        .as_ref()
+        .is_some_and(|draft| draft.context.contains(&ComposerContextKind::Highlights));
+
+    annotation_card_with_actions(
+        theme,
+        IconName::Star,
+        &item.display_title,
+        &item.display_excerpt,
+        &format!("Highlighted {}", item.highlighted_at),
+        vec![
+            action_button(IconName::Search, "Open thread", theme, {
+                let thread_id = thread_id.clone();
+                move || {
+                    Box::new(OpenThread {
+                        thread_id: thread_id.clone(),
+                    })
+                }
+            }),
+            action_button(
+                IconName::Plus,
+                highlighted_context_action_label(highlighted_context_selected),
+                theme,
+                || {
+                    Box::new(ToggleComposerContext {
+                        context: ComposerContextKind::Highlights,
+                    })
+                },
+            ),
+            action_button(IconName::CircleX, "Remove", theme, move || {
+                Box::new(ToggleHighlightTimelineItem {
+                    thread_id: thread_id.clone(),
+                    message_id: message_id.clone(),
+                })
+            }),
+        ],
+    )
+}
+
+fn highlighted_context_action_label(selected: bool) -> &'static str {
+    if selected {
+        "Remove context"
+    } else {
+        "Add context"
+    }
 }
 
 fn todos_body(theme: Theme, projection: &DesktopProjection) -> AnyElement {
@@ -4513,6 +4583,28 @@ mod tests {
     fn todo_context_action_label_reflects_composer_state() {
         assert_eq!(todo_context_action_label(false), "Add context");
         assert_eq!(todo_context_action_label(true), "Remove context");
+    }
+
+    #[test]
+    fn pinned_context_count_label_includes_highlights() {
+        assert_eq!(
+            pinned_context_count_label(0, 1),
+            "0 pinned items · 1 highlight"
+        );
+        assert_eq!(
+            pinned_context_count_label(2, 0),
+            "2 pinned items · 0 highlights"
+        );
+        assert_eq!(
+            pinned_context_count_label(1, 2),
+            "1 pinned item · 2 highlights"
+        );
+    }
+
+    #[test]
+    fn highlighted_context_action_label_reflects_composer_state() {
+        assert_eq!(highlighted_context_action_label(false), "Add context");
+        assert_eq!(highlighted_context_action_label(true), "Remove context");
     }
 
     #[test]
