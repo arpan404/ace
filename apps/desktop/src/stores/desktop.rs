@@ -8,6 +8,7 @@ mod model_state;
 mod registry_state;
 mod runtime_state;
 mod terminal_state;
+mod thread_state;
 
 use self::annotation_state::{extend_unique, review_comment_detail, todo_context_line};
 use self::approval_state::{
@@ -35,6 +36,17 @@ use self::runtime_state::{
     runtime_status_projection_from_state,
 };
 use self::terminal_state::{TerminalKey, append_terminal_history, short_status};
+#[cfg(test)]
+use self::thread_state::chat_message;
+use self::thread_state::{
+    chat_message_with_settings, chat_role_from_thread_item, child_thread_metadata_with_status_text,
+    extract_thread_id, goal_signal_summary, handoff_status_label,
+    plan_session_status_from_thread_item_status, plan_session_status_label,
+    provider_metadata_from_name, string_at_value, subagent_action_from_value,
+    subagent_action_label, thread_item_fallback_id, thread_item_status_key,
+    thread_lifecycle_action_from_delta, thread_run_mode_label, thread_status_from_provider,
+    thread_status_is_terminal, turn_mode_label,
+};
 use crate::backend::{
     BackendError, BackendHostClient, ProjectsAdd, ProjectsDelete, ProjectsProjectThreads,
     ProjectsSnapshot, ProjectsThreadMessages,
@@ -75,16 +87,15 @@ use ace_runtime::{
         SidebarProjection, ThreadDraft, ThreadStatus, ThreadSummary, build_chat_projection,
         build_sidebar_projection, resolve_thread_creation_options,
     },
-    provider::{NormalizedServerRequest, ProviderMetadata, ThreadItemKind, ThreadItemStatus},
+    provider::{NormalizedServerRequest, ProviderMetadata, ThreadItemKind},
     threads::{
         AgentRuntimeSnapshot, AgentThread, ApprovalRetryRecord, AutoApprovalReviewRecord,
         ChildThreadRecord, ChildThreadRelationship, ExecutionLocation, ForkPoint, GoalState,
-        GoalStatus, HandoffPlan, HandoffStatus, ModelRerouteRecord, PlanImplementationRecord,
-        PlanSession, PlanSessionStatus, ProcessExitRecord, ProviderStateRecord,
-        RealtimeAudioRecord, RealtimeSessionRecord, RealtimeTranscriptRecord,
-        RemoteConnectionRecord, RuntimeWarningRecord, SideChat, SubagentActionKind,
-        SubagentActionRecord, SubagentThread, TerminalOutputRecord, ThreadLifecycleActionKind,
-        ThreadLifecycleRecord, Turn, TurnDiffRecord, TurnMode, TurnModerationRecord,
+        HandoffPlan, ModelRerouteRecord, PlanImplementationRecord, PlanSession, ProcessExitRecord,
+        ProviderStateRecord, RealtimeAudioRecord, RealtimeSessionRecord, RealtimeTranscriptRecord,
+        RemoteConnectionRecord, RuntimeWarningRecord, SideChat, SubagentActionRecord,
+        SubagentThread, TerminalOutputRecord, ThreadLifecycleRecord, Turn, TurnDiffRecord,
+        TurnMode, TurnModerationRecord,
     },
     tools::{SemanticToolCall, ToolSurface},
 };
@@ -6112,63 +6123,6 @@ fn project_from_summary(value: ProjectSummary) -> Project {
     }
 }
 
-fn extract_thread_id(value: &serde_json::Value) -> Option<String> {
-    value
-        .pointer("/thread/id")
-        .or_else(|| value.pointer("/thread/threadId"))
-        .or_else(|| value.get("threadId"))
-        .or_else(|| value.get("id"))
-        .and_then(serde_json::Value::as_str)
-        .map(ToString::to_string)
-}
-
-fn chat_role_from_thread_item(kind: ThreadItemKind) -> ChatMessageRole {
-    match kind {
-        ThreadItemKind::UserMessage => ChatMessageRole::User,
-        ThreadItemKind::AgentMessage | ThreadItemKind::Reasoning => ChatMessageRole::Assistant,
-        ThreadItemKind::Plan => ChatMessageRole::Plan,
-        ThreadItemKind::CommandExecution
-        | ThreadItemKind::FileChange
-        | ThreadItemKind::McpToolCall
-        | ThreadItemKind::DynamicToolCall
-        | ThreadItemKind::CollabAgentToolCall
-        | ThreadItemKind::WebSearch
-        | ThreadItemKind::ImageView
-        | ThreadItemKind::ImageGeneration => ChatMessageRole::Tool,
-        ThreadItemKind::HookPrompt
-        | ThreadItemKind::SubAgentActivity
-        | ThreadItemKind::EnteredReviewMode
-        | ThreadItemKind::ExitedReviewMode
-        | ThreadItemKind::ContextCompaction
-        | ThreadItemKind::Unknown => ChatMessageRole::Activity,
-    }
-}
-
-fn thread_item_fallback_id(kind: ThreadItemKind) -> String {
-    format!("thread-item:{kind:?}")
-}
-
-#[cfg(test)]
-fn chat_message(id: String, role: ChatMessageRole, text: String) -> ChatMessageProjection {
-    chat_message_with_settings(id, role, text, None)
-}
-
-fn chat_message_with_settings(
-    id: String,
-    role: ChatMessageRole,
-    text: String,
-    turn_settings_summary: Option<String>,
-) -> ChatMessageProjection {
-    ChatMessageProjection {
-        id,
-        role,
-        status: ThreadItemStatus::Completed,
-        title: None,
-        text: Some(text),
-        turn_settings_summary,
-    }
-}
-
 fn slash_command_projections(
     response: &ProviderRuntimeSlashCommandsListResponse,
 ) -> Vec<ProviderSlashCommandProjection> {
@@ -6217,166 +6171,6 @@ fn timestamp(value: u64) -> String {
     value.to_string()
 }
 
-fn thread_status_is_terminal(status: ThreadStatus) -> bool {
-    matches!(
-        status,
-        ThreadStatus::Error | ThreadStatus::Completed | ThreadStatus::Idle | ThreadStatus::Archived
-    )
-}
-
-fn turn_mode_label(mode: TurnMode) -> &'static str {
-    match mode {
-        TurnMode::Normal => "Run",
-        TurnMode::Plan => "Plan",
-    }
-}
-
-fn plan_session_status_label(status: PlanSessionStatus) -> &'static str {
-    match status {
-        PlanSessionStatus::Active => "active",
-        PlanSessionStatus::Completed => "completed",
-        PlanSessionStatus::Rejected => "rejected",
-        PlanSessionStatus::Implementing => "implementing",
-    }
-}
-
-fn handoff_status_label(status: HandoffStatus) -> &'static str {
-    match status {
-        HandoffStatus::Requested => "requested",
-        HandoffStatus::Interrupted => "interrupted",
-        HandoffStatus::Transferring => "transferring",
-        HandoffStatus::Completed => "completed",
-        HandoffStatus::Failed => "failed",
-    }
-}
-
-fn subagent_action_label(action: SubagentActionKind) -> &'static str {
-    match action {
-        SubagentActionKind::Steer => "steer",
-        SubagentActionKind::Stop => "stop",
-        SubagentActionKind::Close => "close",
-    }
-}
-
-fn subagent_action_from_value(action: &str) -> SubagentActionKind {
-    match action.trim().to_ascii_lowercase().as_str() {
-        "stop" => SubagentActionKind::Stop,
-        "close" => SubagentActionKind::Close,
-        _ => SubagentActionKind::Steer,
-    }
-}
-
-fn thread_item_status_key(status: ThreadItemStatus) -> &'static str {
-    match status {
-        ThreadItemStatus::Started => "started",
-        ThreadItemStatus::Updated => "updated",
-        ThreadItemStatus::Completed => "completed",
-        ThreadItemStatus::Failed => "failed",
-    }
-}
-
-fn plan_session_status_from_thread_item_status(status: ThreadItemStatus) -> PlanSessionStatus {
-    match status {
-        ThreadItemStatus::Started | ThreadItemStatus::Updated => PlanSessionStatus::Active,
-        ThreadItemStatus::Completed => PlanSessionStatus::Completed,
-        ThreadItemStatus::Failed => PlanSessionStatus::Rejected,
-    }
-}
-
-fn provider_metadata_from_name(provider: String) -> ProviderMetadata {
-    ProviderMetadata {
-        provider,
-        method: None,
-        schema_version: None,
-        raw_payload: serde_json::Value::Null,
-    }
-}
-
-fn child_thread_metadata_with_status_text(
-    mut metadata: serde_json::Value,
-    status_text: Option<String>,
-) -> serde_json::Value {
-    let Some(status_text) = status_text else {
-        return metadata;
-    };
-    if let serde_json::Value::Object(object) = &mut metadata {
-        object.insert(
-            "status_text".to_string(),
-            serde_json::Value::String(status_text),
-        );
-        return metadata;
-    }
-    serde_json::json!({ "status_text": status_text, "metadata": metadata })
-}
-
-fn thread_status_from_provider(status: &str) -> Option<ThreadStatus> {
-    match status
-        .trim()
-        .to_ascii_lowercase()
-        .replace(['-', ' '], "_")
-        .as_str()
-    {
-        "error" | "failed" | "failure" => Some(ThreadStatus::Error),
-        "working" | "running" | "active" | "started" | "resumed" => Some(ThreadStatus::Working),
-        "connecting" | "starting" => Some(ThreadStatus::Connecting),
-        "pending_approval" | "approval_required" | "needs_approval" => {
-            Some(ThreadStatus::PendingApproval)
-        }
-        "awaiting_input" | "input_required" | "needs_input" => Some(ThreadStatus::AwaitingInput),
-        "plan_ready" | "plan" => Some(ThreadStatus::PlanReady),
-        "completed" | "complete" | "done" => Some(ThreadStatus::Completed),
-        "draft" => Some(ThreadStatus::Draft),
-        "idle" | "inactive" | "stopped" => Some(ThreadStatus::Idle),
-        "archived" | "archive" => Some(ThreadStatus::Archived),
-        _ => None,
-    }
-}
-
-fn thread_lifecycle_action_from_delta(
-    status: Option<&str>,
-    name: Option<&str>,
-    active: Option<bool>,
-    archived: Option<bool>,
-    metadata: &serde_json::Value,
-) -> ThreadLifecycleActionKind {
-    if archived == Some(true) {
-        return ThreadLifecycleActionKind::Archive;
-    }
-    if archived == Some(false) {
-        return ThreadLifecycleActionKind::Unarchive;
-    }
-    if name.is_some_and(|name| !name.trim().is_empty()) {
-        return ThreadLifecycleActionKind::SetName;
-    }
-    if active == Some(true) {
-        return ThreadLifecycleActionKind::Resume;
-    }
-    match string_at_value(metadata, &["action", "kind", "type"])
-        .as_deref()
-        .or(status)
-        .map(|value| value.trim().to_ascii_lowercase().replace(['-', ' '], "_"))
-        .as_deref()
-    {
-        Some("start" | "started") => ThreadLifecycleActionKind::Start,
-        Some("resume" | "resumed") => ThreadLifecycleActionKind::Resume,
-        Some("archive" | "archived") => ThreadLifecycleActionKind::Archive,
-        Some("unarchive" | "unarchived") => ThreadLifecycleActionKind::Unarchive,
-        Some("delete" | "deleted") => ThreadLifecycleActionKind::Delete,
-        Some("unsubscribe" | "unsubscribed") => ThreadLifecycleActionKind::Unsubscribe,
-        Some("set_name" | "rename" | "renamed") => ThreadLifecycleActionKind::SetName,
-        Some("compact" | "compacted") => ThreadLifecycleActionKind::Compact,
-        Some("rollback" | "rolled_back") => ThreadLifecycleActionKind::Rollback,
-        Some("inject_items" | "items_injected") => ThreadLifecycleActionKind::InjectItems,
-        _ => ThreadLifecycleActionKind::UpdateMetadata,
-    }
-}
-
-fn string_at_value(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| value.get(*key).and_then(serde_json::Value::as_str))
-        .map(ToString::to_string)
-}
-
 fn trim_realtime_transcript(record: &mut RealtimeTranscriptRecord) {
     if record.text.len() <= DESKTOP_REALTIME_TRANSCRIPT_LIMIT {
         return;
@@ -6399,49 +6193,8 @@ fn trim_realtime_audio(record: &mut RealtimeAudioRecord) {
     record.truncated_chunks = record.truncated_chunks.saturating_add(overflow);
 }
 
-fn thread_run_mode_label(thread: &ThreadSummary) -> String {
-    if thread.worktree_path.is_some() {
-        "Worktree".to_string()
-    } else {
-        "Thread".to_string()
-    }
-}
-
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
-}
-
-fn goal_signal_summary(goal: &ace_runtime::threads::GoalState) -> String {
-    let objective = goal.objective.as_deref().unwrap_or("No objective");
-    let budget = match (goal.tokens_used, goal.token_budget) {
-        (Some(used), Some(budget)) => format!(" · {used}/{budget} tokens"),
-        (Some(used), None) => format!(" · {used} tokens used"),
-        (None, Some(budget)) => format!(" · {budget} token budget"),
-        (None, None) => String::new(),
-    };
-    let time = goal
-        .time_used_seconds
-        .map(|seconds| format!(" · {seconds}s"))
-        .unwrap_or_default();
-    format!(
-        "Goal {} · {}{}{}",
-        goal_status_label(goal.status),
-        objective,
-        budget,
-        time
-    )
-}
-
-fn goal_status_label(status: GoalStatus) -> &'static str {
-    match status {
-        GoalStatus::Active => "active",
-        GoalStatus::Paused => "paused",
-        GoalStatus::Blocked => "blocked",
-        GoalStatus::UsageLimited => "usage limited",
-        GoalStatus::BudgetLimited => "budget limited",
-        GoalStatus::Complete => "complete",
-        GoalStatus::Cleared => "cleared",
-    }
 }
 
 fn json_collection_len(value: &serde_json::Value) -> usize {
@@ -6620,6 +6373,13 @@ fn tail_chars(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ace_runtime::{
+        provider::ThreadItemStatus,
+        threads::{
+            GoalStatus, HandoffStatus, PlanSessionStatus, SubagentActionKind,
+            ThreadLifecycleActionKind,
+        },
+    };
 
     fn remote_connection(host_id: &str, status: Option<&str>) -> RemoteConnectionRecord {
         RemoteConnectionRecord {
