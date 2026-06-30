@@ -44,10 +44,11 @@ use ace_runtime::{
         ThreadItemStatus,
     },
     threads::{
-        AgentRuntimeSnapshot, ApprovalRecord, ApprovalStatus, ExecutionLocation, GoalStatus,
-        HandoffStatus, ModelRerouteRecord, PlanSessionStatus, ProcessExitRecord,
-        ProviderStateRecord, RealtimeSessionRecord, RemoteConnectionRecord, RuntimeWarningRecord,
-        SubagentActionKind, TerminalOutputRecord, TurnDiffRecord, TurnMode,
+        AgentRuntimeSnapshot, ApprovalRecord, ApprovalRetryRecord, ApprovalStatus,
+        ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus, ModelRerouteRecord,
+        PlanImplementationRecord, PlanSessionStatus, ProcessExitRecord, ProviderStateRecord,
+        RealtimeSessionRecord, RemoteConnectionRecord, RuntimeWarningRecord, SubagentActionKind,
+        SubagentActionRecord, TerminalOutputRecord, TurnDiffRecord, TurnMode,
     },
     tools::{SemanticToolCall, ToolRunStatus, ToolSurface},
 };
@@ -3991,6 +3992,52 @@ impl DesktopStore {
                     metadata,
                 });
             }
+            ProviderRuntimeProjectionDelta::GoalUpdated {
+                provider: _, goal, ..
+            } => {
+                self.upsert_goal(goal);
+            }
+            ProviderRuntimeProjectionDelta::GoalCleared {
+                provider: _,
+                thread_id,
+            } => {
+                self.runtime
+                    .goals
+                    .retain(|goal| goal.thread_id != thread_id);
+                self.refresh_runtime_status_from_snapshot();
+            }
+            ProviderRuntimeProjectionDelta::HandoffUpdated {
+                provider: _,
+                handoff,
+            } => {
+                self.upsert_handoff(handoff);
+            }
+            ProviderRuntimeProjectionDelta::SubagentActionRecorded {
+                provider: _,
+                parent_thread_id,
+                subagent_thread_id,
+                action,
+                prompt,
+                metadata,
+            } => {
+                self.runtime.subagent_actions.push(SubagentActionRecord {
+                    parent_thread_id,
+                    subagent_thread_id,
+                    action: subagent_action_from_value(&action),
+                    prompt,
+                    provider_response: metadata,
+                });
+                self.refresh_runtime_status_from_snapshot();
+            }
+            ProviderRuntimeProjectionDelta::PlanImplementationUpdated {
+                provider: _,
+                implementation,
+            } => {
+                self.upsert_plan_implementation(implementation);
+            }
+            ProviderRuntimeProjectionDelta::ApprovalRetryRecorded { provider: _, retry } => {
+                self.upsert_approval_retry(retry);
+            }
             _ => {}
         }
     }
@@ -4159,6 +4206,64 @@ impl DesktopStore {
             *existing = session;
         } else {
             self.runtime.realtime_sessions.push(session);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_goal(&mut self, goal: GoalState) {
+        if let Some(existing) = self
+            .runtime
+            .goals
+            .iter_mut()
+            .find(|existing| existing.thread_id == goal.thread_id)
+        {
+            *existing = goal;
+        } else {
+            self.runtime.goals.push(goal);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_handoff(&mut self, handoff: HandoffPlan) {
+        if let Some(existing) = self.runtime.handoffs.iter_mut().find(|existing| {
+            existing.source_thread_id == handoff.source_thread_id
+                && existing.target_thread_id == handoff.target_thread_id
+                && existing.worktree_path == handoff.worktree_path
+                && existing.remote_host == handoff.remote_host
+        }) {
+            *existing = handoff;
+        } else {
+            self.runtime.handoffs.push(handoff);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_plan_implementation(&mut self, implementation: PlanImplementationRecord) {
+        if let Some(existing) = self
+            .runtime
+            .plan_implementations
+            .iter_mut()
+            .find(|existing| {
+                existing.parent_thread_id == implementation.parent_thread_id
+                    && existing.target_thread_id == implementation.target_thread_id
+            })
+        {
+            *existing = implementation;
+        } else {
+            self.runtime.plan_implementations.push(implementation);
+        }
+        self.refresh_runtime_status_from_snapshot();
+    }
+
+    fn upsert_approval_retry(&mut self, retry: ApprovalRetryRecord) {
+        if let Some(existing) = self.runtime.approval_retries.iter_mut().find(|existing| {
+            existing.thread_id == retry.thread_id
+                && existing.item_id == retry.item_id
+                && existing.action_id == retry.action_id
+        }) {
+            *existing = retry;
+        } else {
+            self.runtime.approval_retries.push(retry);
         }
         self.refresh_runtime_status_from_snapshot();
     }
@@ -6246,6 +6351,14 @@ fn subagent_action_label(action: SubagentActionKind) -> &'static str {
         SubagentActionKind::Steer => "steer",
         SubagentActionKind::Stop => "stop",
         SubagentActionKind::Close => "close",
+    }
+}
+
+fn subagent_action_from_value(action: &str) -> SubagentActionKind {
+    match action.trim().to_ascii_lowercase().as_str() {
+        "stop" => SubagentActionKind::Stop,
+        "close" => SubagentActionKind::Close,
+        _ => SubagentActionKind::Steer,
     }
 }
 
@@ -9044,6 +9157,119 @@ mod tests {
             signal == "Realtime session codex · listening · voice bridge ready"
         }));
         assert_eq!(store.runtime.provider_states.len(), 1);
+    }
+
+    #[test]
+    fn provider_runtime_batch_applies_relationship_and_goal_deltas() {
+        let mut store = DesktopStore::new();
+        let project_id = store.add_project("/tmp/project".to_string());
+        let thread_id = store.new_thread(project_id);
+        store
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == thread_id)
+            .expect("thread should exist")
+            .provider_thread_id = Some("provider-thread-1".to_string());
+
+        store.apply_provider_runtime_event_batch(ProviderRuntimeEventBatch {
+            provider: "codex".to_string(),
+            last_persisted_sequence: Some(1),
+            max_batch_size: 512,
+            events: Vec::new(),
+            projection_deltas: vec![
+                ProviderRuntimeProjectionDelta::GoalUpdated {
+                    provider: "codex".to_string(),
+                    goal: GoalState {
+                        thread_id: "provider-thread-1".to_string(),
+                        status: GoalStatus::UsageLimited,
+                        objective: Some("finish adapter parity".to_string()),
+                        token_budget: Some(1000),
+                        tokens_used: Some(1200),
+                        time_used_seconds: Some(55),
+                    },
+                    turn_id: Some("turn-1".to_string()),
+                },
+                ProviderRuntimeProjectionDelta::HandoffUpdated {
+                    provider: "codex".to_string(),
+                    handoff: HandoffPlan {
+                        source_thread_id: "provider-thread-1".to_string(),
+                        target_location: ExecutionLocation::Worktree,
+                        status: HandoffStatus::Completed,
+                        target_thread_id: Some("handoff-thread-1".to_string()),
+                        repo_root: Some("/tmp/project".to_string()),
+                        worktree_path: None,
+                        branch: Some("feature/runtime".to_string()),
+                        start_point: None,
+                        checkpoint_ref: None,
+                        remote_host: None,
+                        transfer_status: None,
+                        interrupted_active_turn: None,
+                        metadata: serde_json::Value::Null,
+                    },
+                },
+                ProviderRuntimeProjectionDelta::SubagentActionRecorded {
+                    provider: "codex".to_string(),
+                    parent_thread_id: "provider-thread-1".to_string(),
+                    subagent_thread_id: "subagent-1".to_string(),
+                    action: "steer".to_string(),
+                    prompt: Some("Review the diff".to_string()),
+                    metadata: serde_json::Value::Null,
+                },
+                ProviderRuntimeProjectionDelta::PlanImplementationUpdated {
+                    provider: "codex".to_string(),
+                    implementation: PlanImplementationRecord {
+                        parent_thread_id: "provider-thread-1".to_string(),
+                        target_thread_id: "implementation-thread-1".to_string(),
+                        mode: ace_runtime::threads::PlanImplementationMode::ForkForImplementation,
+                        prompt: "Implement the plan".to_string(),
+                        model: Some("gpt-5".to_string()),
+                        reasoning_effort: None,
+                        cwd: Some("/tmp/project".to_string()),
+                        plan: serde_json::Value::Null,
+                        sandbox_policy: serde_json::Value::Null,
+                        approval_policy: serde_json::Value::Null,
+                        approvals_reviewer: None,
+                        provider_response: serde_json::Value::Null,
+                    },
+                },
+                ProviderRuntimeProjectionDelta::ApprovalRetryRecorded {
+                    provider: "codex".to_string(),
+                    retry: ApprovalRetryRecord {
+                        thread_id: "provider-thread-1".to_string(),
+                        item_id: Some("approval-1".to_string()),
+                        action_id: Some("run-tests".to_string()),
+                        approved: true,
+                        reason: Some("retry after approval".to_string()),
+                        audit: serde_json::Value::Null,
+                        provider_response: serde_json::Value::Null,
+                    },
+                },
+            ],
+            raw_event_summaries: Vec::new(),
+            raw_events: None,
+        });
+
+        let summary = store.summary_projection();
+        assert!(summary.runtime_relationships.iter().any(|item| item
+            == "Handoff provider-thread-1 -> handoff-thread-1 · completed · feature/runtime"));
+        assert!(
+            summary
+                .runtime_relationships
+                .iter()
+                .any(|item| item == "Subagent action steer · provider-thread-1 -> subagent-1")
+        );
+        assert!(summary.runtime_signals.iter().any(|item| {
+            item.contains("Goal usage limited")
+                && item.contains("finish adapter parity")
+                && item.contains("1200/1000 tokens")
+        }));
+        assert!(
+            summary
+                .runtime_signals
+                .iter()
+                .any(|item| item == "Approval retry approved · retry after approval")
+        );
+        assert_eq!(store.runtime.plan_implementations.len(), 1);
     }
 
     #[test]
