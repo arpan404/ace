@@ -1,4 +1,7 @@
-use crate::ui::{components::*, theme::Theme};
+use crate::{
+    stores::ui::RightPanelTab,
+    ui::{components::*, theme::Theme},
+};
 use gpui::{AnyElement, IntoElement, MouseButton, div, prelude::*, px};
 use gpui_component::IconName;
 
@@ -8,6 +11,7 @@ pub(in crate::ui) struct SidebarHeaderMetrics {
     pub skill_count: usize,
     pub provider_count: usize,
     pub model_count: usize,
+    pub active_right_tab: Option<RightPanelTab>,
 }
 
 pub(super) fn sidebar_header(
@@ -53,9 +57,14 @@ pub(super) fn sidebar_header(
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(command_row(IconName::Plus, "New chat", None, theme, || {
-                    Box::new(crate::actions::NewThread)
-                }))
+                .child(command_row(
+                    IconName::Plus,
+                    "New chat",
+                    None,
+                    false,
+                    theme,
+                    || Box::new(crate::actions::NewThread),
+                ))
                 .child(sidebar_search(theme)),
         )
         .child(
@@ -68,10 +77,11 @@ pub(super) fn sidebar_header(
                     IconName::Calendar,
                     "Scheduled",
                     None,
+                    nav_tab_active(metrics.active_right_tab, RightPanelTab::Scheduled),
                     theme,
                     || {
                         Box::new(crate::actions::SelectRightPanelTab {
-                            tab: crate::stores::ui::RightPanelTab::Scheduled,
+                            tab: RightPanelTab::Scheduled,
                         })
                     },
                 ))
@@ -79,10 +89,11 @@ pub(super) fn sidebar_header(
                     AceIconName::Box,
                     "Plugins",
                     plugin_suffix,
+                    nav_tab_active(metrics.active_right_tab, RightPanelTab::Plugins),
                     theme,
                     || {
                         Box::new(crate::actions::SelectRightPanelTab {
-                            tab: crate::stores::ui::RightPanelTab::Plugins,
+                            tab: RightPanelTab::Plugins,
                         })
                     },
                 ))
@@ -90,10 +101,11 @@ pub(super) fn sidebar_header(
                     AceIconName::FlaskConical,
                     "Skills",
                     skill_suffix,
+                    nav_tab_active(metrics.active_right_tab, RightPanelTab::Skills),
                     theme,
                     || {
                         Box::new(crate::actions::SelectRightPanelTab {
-                            tab: crate::stores::ui::RightPanelTab::Skills,
+                            tab: RightPanelTab::Skills,
                         })
                     },
                 ))
@@ -101,10 +113,11 @@ pub(super) fn sidebar_header(
                     AceIconName::Code2,
                     "Providers/Models",
                     provider_model_suffix,
+                    nav_tab_active(metrics.active_right_tab, RightPanelTab::Providers),
                     theme,
                     || {
                         Box::new(crate::actions::SelectRightPanelTab {
-                            tab: crate::stores::ui::RightPanelTab::Providers,
+                            tab: RightPanelTab::Providers,
                         })
                     },
                 )),
@@ -112,7 +125,7 @@ pub(super) fn sidebar_header(
         .into_any_element()
 }
 
-pub(super) fn sidebar_footer(theme: Theme) -> AnyElement {
+pub(super) fn sidebar_footer(theme: Theme, active_right_tab: Option<RightPanelTab>) -> AnyElement {
     div()
         .px_3()
         .pt_2()
@@ -124,10 +137,11 @@ pub(super) fn sidebar_footer(theme: Theme) -> AnyElement {
             AceIconName::TablerSettings,
             "Settings",
             None,
+            nav_tab_active(active_right_tab, RightPanelTab::Settings),
             theme,
             || {
                 Box::new(crate::actions::SelectRightPanelTab {
-                    tab: crate::stores::ui::RightPanelTab::Settings,
+                    tab: RightPanelTab::Settings,
                 })
             },
         ))
@@ -166,32 +180,42 @@ fn ace_command_row<F>(
     icon: AceIconName,
     label: &'static str,
     suffix: Option<String>,
+    active: bool,
     theme: Theme,
     action: F,
 ) -> AnyElement
 where
     F: Fn() -> Box<dyn gpui::Action> + 'static,
 {
-    row(theme, label, suffix, ace_icon_tile(icon, theme), action)
+    row(
+        theme,
+        label,
+        suffix,
+        active,
+        ace_icon_tile(icon, theme),
+        action,
+    )
 }
 
 fn command_row<F>(
     icon: IconName,
     label: &'static str,
     suffix: Option<String>,
+    active: bool,
     theme: Theme,
     action: F,
 ) -> AnyElement
 where
     F: Fn() -> Box<dyn gpui::Action> + 'static,
 {
-    row(theme, label, suffix, icon_tile(icon, theme), action)
+    row(theme, label, suffix, active, icon_tile(icon, theme), action)
 }
 
 fn row<F>(
     theme: Theme,
     label: &'static str,
     suffix: Option<String>,
+    active: bool,
     icon: AnyElement,
     action: F,
 ) -> AnyElement
@@ -207,8 +231,23 @@ where
         .items_center()
         .justify_between()
         .text_size(px(13.0))
-        .text_color(theme.foreground.opacity(0.78))
-        .hover(|this| this.bg(theme.button))
+        .text_color(if active {
+            theme.foreground
+        } else {
+            theme.foreground.opacity(0.78)
+        })
+        .bg(if active {
+            theme.selection
+        } else {
+            theme.sidebar
+        })
+        .hover(move |this| {
+            this.bg(if active {
+                theme.selection
+            } else {
+                theme.button
+            })
+        })
         .child(
             div()
                 .flex()
@@ -223,6 +262,10 @@ where
             window.dispatch_action(action(), cx);
         })
         .into_any_element()
+}
+
+fn nav_tab_active(active_right_tab: Option<RightPanelTab>, tab: RightPanelTab) -> bool {
+    active_right_tab == Some(tab)
 }
 
 fn count_badge(count: usize) -> Option<String> {
@@ -248,5 +291,18 @@ mod tests {
         assert_eq!(provider_model_badge(2, 0), Some("2".to_string()));
         assert_eq!(provider_model_badge(0, 8), Some("0/8".to_string()));
         assert_eq!(provider_model_badge(2, 37), Some("2/37".to_string()));
+    }
+
+    #[test]
+    fn global_nav_active_state_tracks_visible_right_panel_tab() {
+        assert!(nav_tab_active(
+            Some(RightPanelTab::Providers),
+            RightPanelTab::Providers
+        ));
+        assert!(!nav_tab_active(
+            Some(RightPanelTab::Providers),
+            RightPanelTab::Skills
+        ));
+        assert!(!nav_tab_active(None, RightPanelTab::Settings));
     }
 }

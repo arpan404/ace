@@ -23,6 +23,8 @@ pub(super) fn sidebar_panel(
     resizing: bool,
     reserve_titlebar_controls: bool,
 ) -> AnyElement {
+    let active_right_tab = header_metrics.active_right_tab;
+
     div()
         .id("ace-sidebar")
         .w(layout.sidebar_width)
@@ -91,6 +93,6 @@ pub(super) fn sidebar_panel(
                         .collect::<Vec<_>>(),
                 ),
         ))
-        .child(sidebar_footer(theme))
+        .child(sidebar_footer(theme, active_right_tab))
         .into_any_element()
 }

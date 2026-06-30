@@ -81,6 +81,9 @@ pub fn shell_layout(
         skill_count: projection.skills.entries.len(),
         provider_count: projection.providers.providers.len(),
         model_count: projection.models.total_models,
+        active_right_tab: ui_state
+            .right_panel_visible
+            .then_some(ui_state.right_panel_tab),
     };
 
     div()
