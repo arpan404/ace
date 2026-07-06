@@ -199,50 +199,6 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     });
   });
 
-  it("maps rendered row windows back to global timeline indexes", async () => {
-    const { deriveGlobalTimelineRenderedWindowState, deriveTimelineRenderedWindowState } =
-      await import("./messagesTimelineUtils");
-    const rows = [
-      {
-        id: "entry-5000",
-        kind: "message",
-      },
-      {
-        id: "completed-work-summary:entry-5001",
-        kind: "completed-work-summary",
-        sourceEntryIds: ["entry-5001", "entry-5002"],
-        detailRows: [],
-        visibleDiagnosticRows: [],
-      },
-      {
-        id: "entry-5003",
-        kind: "message",
-      },
-    ] as unknown as Parameters<typeof deriveGlobalTimelineRenderedWindowState>[0]["rows"];
-    const renderedWindowState = deriveTimelineRenderedWindowState({
-      renderedVirtualItems: [makeTimelineVirtualItem(1), makeTimelineVirtualItem(2)],
-      virtualizedRows: rows,
-    });
-
-    expect(
-      deriveGlobalTimelineRenderedWindowState({
-        renderedWindowState,
-        rows,
-        timelineIndexByEntryId: new Map([
-          ["entry-5000", 5_000],
-          ["entry-5001", 5_001],
-          ["entry-5002", 5_002],
-          ["entry-5003", 5_003],
-        ]),
-      }),
-    ).toMatchObject({
-      loadedEndIndexExclusive: 5_004,
-      loadedStartIndex: 5_001,
-      overscanLoadedEndIndexExclusive: 5_004,
-      overscanLoadedStartIndex: 5_001,
-    });
-  });
-
   it("returns null when no loaded rows are rendered", async () => {
     const { deriveTimelineRenderedWindowState } = await import("./messagesTimelineUtils");
 

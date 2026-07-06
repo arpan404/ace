@@ -21,7 +21,6 @@ import {
   isThreadTimelineRowsFullyHydrated,
   readTimelineRow,
   readTimelineRowsProjection,
-  readTimelineRowsWindowProjection,
   primeThreadTimelineRowsMetadataFromReadModelThread,
   primeThreadTimelineRowsMetadataFromReadModelThreads,
   setThreadReadModelObserver,
@@ -99,37 +98,6 @@ describe("timelineModelStore", () => {
     ]);
 
     expect(useTimelineModelStore.getState().revision).toBe(stateAfterBatch.revision);
-  });
-
-  it("does not notify subscribers for unchanged active timeline windows", () => {
-    const activeWindow = {
-      startRowIndex: 8,
-      endRowIndexExclusive: 18,
-      overscanStartRowIndex: 4,
-      overscanEndRowIndexExclusive: 22,
-      revision: "rev:window",
-    };
-
-    useTimelineModelStore.getState().setActiveWindow(threadId, activeWindow);
-    const stateAfterFirstWrite = useTimelineModelStore.getState();
-    const listener = vi.fn();
-    const unsubscribe = useTimelineModelStore.subscribe(listener);
-
-    try {
-      useTimelineModelStore.getState().setActiveWindow(threadId, { ...activeWindow });
-
-      expect(useTimelineModelStore.getState()).toBe(stateAfterFirstWrite);
-      expect(listener).not.toHaveBeenCalled();
-
-      useTimelineModelStore.getState().setActiveWindow(threadId, {
-        ...activeWindow,
-        endRowIndexExclusive: 19,
-      });
-
-      expect(listener).toHaveBeenCalledTimes(1);
-    } finally {
-      unsubscribe();
-    }
   });
 
   it("does not notify subscribers for unchanged timeline metadata", () => {
@@ -1116,26 +1084,6 @@ describe("timelineModelStore", () => {
     await vi.advanceTimersByTimeAsync(16);
 
     expect(useTimelineModelStore.getState().rowHeightRevision).toBe(1);
-  });
-
-  it("projects bounded placeholder windows for large unloaded timelines", () => {
-    useTimelineModelStore.getState().primeMetadata({
-      threadId,
-      revision: "rev:1m",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      totalRows: 1_000_000,
-      tailStartRowIndex: 999_900,
-    });
-
-    const windowProjection = readTimelineRowsWindowProjection({
-      threadId,
-      startRowIndex: 500_000,
-      endRowIndexExclusive: 500_050,
-    });
-
-    expect(windowProjection.totalRows).toBe(1_000_000);
-    expect(windowProjection.slots).toHaveLength(50);
-    expect(windowProjection.slots.every((slot) => slot.kind === "placeholder")).toBe(true);
   });
 
   it("hydrates all thread timeline rows from the thread source model and reuses them", async () => {

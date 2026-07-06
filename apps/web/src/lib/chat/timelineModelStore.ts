@@ -81,14 +81,6 @@ export interface TimelineRowsCompleteSnapshot {
   readonly loadedAt: number;
 }
 
-export interface TimelineRowsActiveWindow {
-  readonly startRowIndex: number;
-  readonly endRowIndexExclusive: number;
-  readonly overscanStartRowIndex: number;
-  readonly overscanEndRowIndexExclusive: number;
-  readonly revision: string | null;
-}
-
 export interface TimelineRowsProjection {
   readonly rowIds: readonly string[];
   readonly rows: readonly TimelineSourceRow[];
@@ -102,28 +94,6 @@ interface TimelineRowsProjectionCacheEntry {
   readonly projection: TimelineRowsProjection;
   readonly rowIds: readonly string[];
   readonly threadRevision: number;
-}
-
-export type TimelineRowsWindowSlot =
-  | {
-      readonly kind: "row";
-      readonly rowIndex: number;
-      readonly rowId: string;
-      readonly row: TimelineSourceRow;
-    }
-  | {
-      readonly kind: "placeholder";
-      readonly rowIndex: number;
-      readonly rowId: string;
-    };
-
-export interface TimelineRowsWindowProjection {
-  readonly threadId: ThreadId;
-  readonly revision: string | null;
-  readonly totalRows: number;
-  readonly startRowIndex: number;
-  readonly endRowIndexExclusive: number;
-  readonly slots: readonly TimelineRowsWindowSlot[];
 }
 
 export interface PrimeLiveTimelineRowInput {
@@ -184,7 +154,6 @@ interface TimelineModelState {
   readonly messagesById: Record<string, OrchestrationMessage>;
   readonly activitiesById: Record<string, OrchestrationThreadActivity>;
   readonly proposedPlansById: Record<string, OrchestrationProposedPlan>;
-  readonly activeWindowByThreadId: Record<string, TimelineRowsActiveWindow>;
   readonly completeSnapshotByThreadId: Record<string, TimelineRowsCompleteSnapshot>;
   readonly fetchStateByThreadId: Record<string, TimelineRowsFetchState>;
   readonly revisionByThreadId: Record<string, number>;
@@ -195,7 +164,6 @@ interface TimelineModelState {
   readonly primeMetadata: (metadata: TimelineRowsMetadata) => void;
   readonly primeSnapshot: (snapshot: TimelineRowsSnapshot) => void;
   readonly patchRow: (threadId: ThreadId, row: TimelineSourceRow) => void;
-  readonly setActiveWindow: (threadId: ThreadId, window: TimelineRowsActiveWindow) => void;
   readonly noteRowHeightWrite: () => void;
   readonly clearThread: (threadId: ThreadId) => void;
   readonly reset: () => void;
@@ -375,7 +343,6 @@ function rowIdForSource(kind: TimelineSourceKind, id: string): string {
 
 function createInitialTimelineModelState(): Pick<
   TimelineModelState,
-  | "activeWindowByThreadId"
   | "activitiesById"
   | "completeSnapshotByThreadId"
   | "fetchStateByThreadId"
@@ -395,7 +362,6 @@ function createInitialTimelineModelState(): Pick<
     messagesById: {},
     activitiesById: {},
     proposedPlansById: {},
-    activeWindowByThreadId: {},
     completeSnapshotByThreadId: {},
     fetchStateByThreadId: {},
     revisionByThreadId: {},
@@ -860,19 +826,6 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
         revision: state.revision + 1,
       };
     }),
-  setActiveWindow: (threadId, window) =>
-    set((state) => {
-      if (timelineRowsActiveWindowEquals(state.activeWindowByThreadId[threadId], window)) {
-        return state;
-      }
-      return {
-        ...state,
-        activeWindowByThreadId: {
-          ...state.activeWindowByThreadId,
-          [threadId]: window,
-        },
-      };
-    }),
   noteRowHeightWrite: () =>
     set((state) => ({ ...state, rowHeightRevision: state.rowHeightRevision + 1 })),
   clearThread: (threadId) => {
@@ -881,7 +834,6 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
       const { [threadId]: _metadata, ...metadataByThreadId } = state.metadataByThreadId;
       const { [threadId]: rowIds = [], ...rowIdsByThreadId } = state.rowIdsByThreadId;
       const { [threadId]: _fetchState, ...fetchStateByThreadId } = state.fetchStateByThreadId;
-      const { [threadId]: _activeWindow, ...activeWindowByThreadId } = state.activeWindowByThreadId;
       const { [threadId]: _completeSnapshot, ...completeSnapshotByThreadId } =
         state.completeSnapshotByThreadId;
       const { [threadId]: _threadRevision, ...revisionByThreadId } = state.revisionByThreadId;
@@ -894,7 +846,6 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
         metadataByThreadId,
         rowIdsByThreadId,
         rowsById,
-        activeWindowByThreadId,
         completeSnapshotByThreadId,
         fetchStateByThreadId,
         revisionByThreadId,
@@ -1047,20 +998,6 @@ function timelineRowsMetadataEquals(
     left.updatedAt === right.updatedAt &&
     left.totalRows === right.totalRows &&
     left.tailStartRowIndex === right.tailStartRowIndex
-  );
-}
-
-function timelineRowsActiveWindowEquals(
-  left: TimelineRowsActiveWindow | undefined,
-  right: TimelineRowsActiveWindow,
-): boolean {
-  return (
-    left !== undefined &&
-    left.startRowIndex === right.startRowIndex &&
-    left.endRowIndexExclusive === right.endRowIndexExclusive &&
-    left.overscanStartRowIndex === right.overscanStartRowIndex &&
-    left.overscanEndRowIndexExclusive === right.overscanEndRowIndexExclusive &&
-    left.revision === right.revision
   );
 }
 
@@ -1434,58 +1371,6 @@ export function readTimelineRowsProjection(threadId: ThreadId): TimelineRowsProj
     threadRevision,
   });
   return projection;
-}
-
-export function readTimelineRowsWindowProjection(input: {
-  readonly threadId: ThreadId;
-  readonly startRowIndex: number;
-  readonly endRowIndexExclusive: number;
-}): TimelineRowsWindowProjection {
-  const state = useTimelineModelStore.getState();
-  const metadata = state.metadataByThreadId[input.threadId] ?? null;
-  const totalRows = metadata?.totalRows ?? state.rowIdsByThreadId[input.threadId]?.length ?? 0;
-  const startRowIndex = Math.min(
-    totalRows,
-    Math.max(0, Math.trunc(Number.isFinite(input.startRowIndex) ? input.startRowIndex : 0)),
-  );
-  const endRowIndexExclusive = Math.min(
-    totalRows,
-    Math.max(
-      startRowIndex,
-      Math.trunc(
-        Number.isFinite(input.endRowIndexExclusive) ? input.endRowIndexExclusive : startRowIndex,
-      ),
-    ),
-  );
-  const rowBySourceIndex = new Map<number, TimelineSourceRow>();
-  for (const rowId of state.rowIdsByThreadId[input.threadId] ?? []) {
-    const row = state.rowsById[rowKey(input.threadId, rowId)];
-    if (!row) {
-      continue;
-    }
-    rowBySourceIndex.set(row.startSourceIndex, row);
-  }
-  const slots: TimelineRowsWindowSlot[] = [];
-  for (let rowIndex = startRowIndex; rowIndex < endRowIndexExclusive; rowIndex += 1) {
-    const row = rowBySourceIndex.get(rowIndex);
-    if (row) {
-      slots.push({ kind: "row", rowIndex, rowId: row.id, row });
-    } else {
-      slots.push({
-        kind: "placeholder",
-        rowIndex,
-        rowId: `placeholder:${input.threadId}:${String(rowIndex)}`,
-      });
-    }
-  }
-  return {
-    threadId: input.threadId,
-    revision: metadata?.revision ?? null,
-    totalRows,
-    startRowIndex,
-    endRowIndexExclusive,
-    slots,
-  };
 }
 
 export function applyLiveTimelineRowUpdates(input: {

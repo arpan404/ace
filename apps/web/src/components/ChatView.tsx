@@ -1067,7 +1067,6 @@ function useChatViewComponent({
   const activeThreadTimelineRevision = activeThreadTimelineViewModel.revision;
   const activeThreadTimelineCompleteSnapshot = activeThreadTimelineViewModel.completeSnapshot;
   const activeThreadTimelineProjection = activeThreadTimelineViewModel.projection;
-  const activeThreadTimelineIndexByEntryId = activeThreadTimelineViewModel.timelineIndexByEntryId;
   useEffect(() => {
     if (
       !ownsGlobalSideEffects ||
@@ -6461,7 +6460,6 @@ function useChatViewComponent({
     timelineCacheScope,
     rows: timelineRows,
     timelineRowsLoading: sourceTimelineRowsLoading,
-    timelineIndexByEntryId: activeThreadTimelineIndexByEntryId,
     completionDividerBeforeEntryId,
     completionSummary,
     turnDiffSummaryByAssistantMessageId,

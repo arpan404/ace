@@ -138,7 +138,6 @@ import {
   buildAssistantMarkdownAnalysisStableKey,
   deriveFallbackTimelineVirtualItems,
   deriveFirstUnvirtualizedTimelineRowIndex,
-  deriveGlobalTimelineRenderedWindowState,
   derivePendingAssistantMarkdownMessageIdsBottomUp,
   deriveTimelineRenderedWindowState,
   deriveTimelineScrollPrefetchRequest,
@@ -166,7 +165,6 @@ const DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED = false;
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
-const TIMELINE_ACTIVE_WINDOW_SYNC_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
 const EMPTY_PROVIDER_COMMANDS: ReadonlyArray<ProviderSlashCommand> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
@@ -660,7 +658,6 @@ interface MessagesTimelineProps {
   timelineCacheScope?: string | null;
   rows: ReadonlyArray<TimelineRow>;
   timelineRowsLoading?: boolean;
-  timelineIndexByEntryId?: ReadonlyMap<string, number> | null;
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
@@ -710,7 +707,6 @@ export function MessagesTimeline({
   timelineCacheScope = null,
   rows,
   timelineRowsLoading = false,
-  timelineIndexByEntryId = null,
   turnDiffSummaryByAssistantMessageId,
   expandedWorkGroups,
   onToggleWorkGroup,
@@ -1145,13 +1141,6 @@ export function MessagesTimeline({
     totalRowCount: rows.length,
     virtualizedRows,
   });
-  const renderedWindowIndexRows =
-    shouldUseVirtualizedBuffer || renderedVirtualItems.length > 0 ? virtualizedRows : rows;
-  const globalRenderedWindowState = deriveGlobalTimelineRenderedWindowState({
-    renderedWindowState,
-    rows: renderedWindowIndexRows,
-    timelineIndexByEntryId,
-  });
   const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
     virtualizedRowCount: virtualizedRows.length,
   });
@@ -1217,29 +1206,6 @@ export function MessagesTimeline({
     timelineCacheScope,
     virtualizedRows.length,
   ]);
-  useEffect(() => {
-    if (!activeThreadId || !globalRenderedWindowState) {
-      return;
-    }
-    if (
-      globalRenderedWindowState.loadedEndIndexExclusive <=
-      globalRenderedWindowState.loadedStartIndex
-    ) {
-      return;
-    }
-    const timeoutId = window.setTimeout(() => {
-      useTimelineModelStore.getState().setActiveWindow(activeThreadId as ThreadId, {
-        startRowIndex: globalRenderedWindowState.loadedStartIndex,
-        endRowIndexExclusive: globalRenderedWindowState.loadedEndIndexExclusive,
-        overscanStartRowIndex: globalRenderedWindowState.overscanLoadedStartIndex,
-        overscanEndRowIndexExclusive: globalRenderedWindowState.overscanLoadedEndIndexExclusive,
-        revision: timelineCacheScope,
-      });
-    }, TIMELINE_ACTIVE_WINDOW_SYNC_DEBOUNCE_MS);
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [activeThreadId, globalRenderedWindowState, timelineCacheScope]);
   useEffect(() => {
     if (!activeThreadId || activeTurnInProgress || !renderedWindowState || rows.length === 0) {
       return;
