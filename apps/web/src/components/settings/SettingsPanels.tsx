@@ -4215,32 +4215,33 @@ function ProjectEnvironmentWorktrees({
 
   return (
     <div id={`project-environment-${project.id}`} className="flex min-w-0 flex-col gap-5 sm:gap-6">
-      <SettingsPageHeader
-        pageLabel={
-          <span className="flex min-w-0 items-center gap-2">
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              className="size-6 shrink-0 text-muted-foreground/65 hover:text-foreground"
-              onClick={() => void navigate({ to: "/settings/environment" })}
-              aria-label="Back to projects"
-            >
-              <ArrowLeftIcon className="size-3.5" />
-            </Button>
-            <span className="min-w-0 truncate">{project.name}</span>
-          </span>
-        }
-      />
+      <div className="flex min-w-0 items-center gap-2.5">
+        <button
+          type="button"
+          onClick={() => void navigate({ to: "/settings/environment" })}
+          aria-label="Back to projects"
+          className="flex size-7 shrink-0 items-center justify-center rounded-[0.7rem] border border-border/40 text-muted-foreground/65 transition-colors hover:bg-accent/40 hover:text-foreground"
+        >
+          <ArrowLeftIcon className="size-4" />
+        </button>
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-semibold leading-tight text-foreground">
+            {project.name}
+          </h1>
+          <p className="truncate text-xs text-muted-foreground/55">Project environment</p>
+        </div>
+      </div>
 
       <SettingsSection
         title="Worktree setup"
         description="Runs after a new worktree is created. Use it for install, bootstrap, or generated files."
       >
-        <ProjectWorktreeSetupEditor
-          key={projectWorktreeSetupEditorKey(project)}
-          project={project}
-        />
+        <div className="py-4">
+          <ProjectWorktreeSetupEditor
+            key={projectWorktreeSetupEditorKey(project)}
+            project={project}
+          />
+        </div>
       </SettingsSection>
 
       <SettingsSection title="Credentials">
@@ -4297,12 +4298,13 @@ function ProjectEnvironmentWorktrees({
             <label htmlFor={worktreeSearchInputId} className="min-w-0 space-y-1">
               <span className="block text-[10px] font-medium text-muted-foreground/58">Search</span>
               <span className="relative block">
-                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
-                <SettingsInput
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground/45" />
+                <input
+                  type="text"
                   id={worktreeSearchInputId}
                   value={worktreeSearch}
                   placeholder="Name, path, branch"
-                  className="h-8 pl-8"
+                  className="h-9 w-full rounded-[0.8rem] border border-border/40 bg-foreground/[0.02] pl-9 pr-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/45 focus-visible:border-ring/50 focus-visible:ring-2 focus-visible:ring-ring/15 dark:bg-white/[0.02]"
                   onChange={(event) =>
                     dispatchWorktreesState({
                       type: "set-worktree-search",
@@ -4714,13 +4716,14 @@ export function EnvironmentSettingsPanel() {
           <div className="min-w-0 space-y-4 py-3.5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <div className="relative min-w-0 flex-1 sm:max-w-xs">
-                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
-                <SettingsInput
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground/45" />
+                <input
+                  type="text"
                   value={projectSearch}
                   placeholder="Search projects"
-                  className="h-8 pl-8"
                   aria-label="Search projects"
                   onChange={(event) => setProjectSearch(event.target.value)}
+                  className="h-9 w-full rounded-[0.8rem] border border-border/40 bg-foreground/[0.02] pl-9 pr-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/45 focus-visible:border-ring/50 focus-visible:ring-2 focus-visible:ring-ring/15 dark:bg-white/[0.02]"
                 />
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
@@ -4730,7 +4733,7 @@ export function EnvironmentSettingsPanel() {
                 >
                   <SelectTrigger
                     aria-label="Filter projects"
-                    className={cn(SETTINGS_FIELD_CLASS, "w-[8.75rem]")}
+                    className={cn(SETTINGS_FIELD_CLASS, "!h-9 w-[8.75rem]")}
                     size="default"
                   >
                     <SelectValue>{ENVIRONMENT_PROJECT_FILTER_LABELS[projectFilter]}</SelectValue>
@@ -4756,7 +4759,7 @@ export function EnvironmentSettingsPanel() {
                 >
                   <SelectTrigger
                     aria-label="Sort projects"
-                    className={cn(SETTINGS_FIELD_CLASS, "w-[8.75rem]")}
+                    className={cn(SETTINGS_FIELD_CLASS, "!h-9 w-[8.75rem]")}
                     size="default"
                   >
                     <SelectValue>{ENVIRONMENT_PROJECT_SORT_LABELS[projectSort]}</SelectValue>

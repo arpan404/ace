@@ -22,7 +22,7 @@ export function DeviceSection({
         actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null
       }
     >
-      {children}
+      <div className="py-4">{children}</div>
     </SettingsSection>
   );
 }
