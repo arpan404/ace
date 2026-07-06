@@ -1,6 +1,8 @@
 export const DESKTOP_TITLEBAR_LEFT_INSET_CSS_VARIABLE = "--desktop-titlebar-left-inset";
 export const MAC_TITLEBAR_LEFT_INSET_STYLE = {
-  paddingLeft: `var(${DESKTOP_TITLEBAR_LEFT_INSET_CSS_VARIABLE})`,
+  // Clear the macOS traffic lights when they overlap this row, but never collapse to 0 — keep
+  // at least the standard chrome gutter so the toggle is never jammed against the window edge.
+  paddingLeft: `max(var(${DESKTOP_TITLEBAR_LEFT_INSET_CSS_VARIABLE}, 0px), 0.875rem)`,
 } as const;
 export const DESKTOP_HEADER_CHROME_CLASS_NAME = "px-3.5 py-3";
 export const DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME =
