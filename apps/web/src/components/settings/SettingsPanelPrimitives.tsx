@@ -310,7 +310,7 @@ export function SettingsSegmentedControl<TValue extends string>({
       role="radiogroup"
       aria-label={ariaLabel}
       className={cn(
-        "inline-flex items-center gap-0.5 rounded-[var(--control-radius)] border border-border/55 bg-muted/45 p-0.5",
+        "inline-flex items-center gap-0.5 rounded-[0.8rem] border border-border/55 bg-muted/45 p-0.5",
         className,
       )}
     >
@@ -324,7 +324,7 @@ export function SettingsSegmentedControl<TValue extends string>({
             aria-checked={active}
             onClick={() => onValueChange(option.value)}
             className={cn(
-              "rounded-[calc(var(--control-radius)-2px)] px-2.5 py-1 text-xs font-medium transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+              "rounded-[0.62rem] px-2.5 py-1 text-xs font-medium transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
               active
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground/90",
@@ -383,7 +383,7 @@ export function SettingsCardChoice<TValue extends string>({
             aria-checked={active}
             onClick={() => onValueChange(option.value)}
             className={cn(
-              "group/card relative flex items-start gap-3 rounded-[var(--panel-radius)] border p-3.5 text-left transition-[border-color,background-color,box-shadow] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+              "group/card relative flex items-start gap-3 rounded-[1.1rem] border p-3.5 text-left transition-[border-color,background-color,box-shadow] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
               active
                 ? "border-primary/55 bg-primary/[0.06] ring-1 ring-primary/15"
                 : "border-border/55 bg-card/40 hover:border-border hover:bg-accent/40",

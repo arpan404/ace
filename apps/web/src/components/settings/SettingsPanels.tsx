@@ -14,7 +14,7 @@ import {
   Trash2Icon,
   WrenchIcon,
 } from "lucide-react";
-import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
+import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2, IconPalette } from "@tabler/icons-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useReducer, useRef, useState } from "react";
@@ -145,19 +145,18 @@ import {
 import { getProviderSummary, getProviderVersionLabel } from "./providerSummary";
 import { applyProvidersUpdated, useServerProviders } from "../../rpc/serverState";
 
-
-/** Small "Aa" theme chip used in the color-preset picker (trigger + items). */
+/** Palette chip used in the color-preset picker (trigger + items): the preset's gradient
+ *  surface with a palette glyph tinted in its accent. */
 function ThemePresetSwatch({ preview }: { preview: ThemePresetPreview }) {
   return (
     <span
       aria-hidden
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-black/10 text-[0.6875rem] font-semibold leading-none shadow-sm dark:border-white/10"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[0.62rem] border border-black/10 shadow-sm dark:border-white/10"
       style={{
         background: `linear-gradient(135deg, ${preview.panel}, ${preview.panelDeep})`,
-        color: preview.accent,
       }}
     >
-      Aa
+      <IconPalette className="size-3.5" stroke={2} style={{ color: preview.accent }} />
     </span>
   );
 }
@@ -892,7 +891,7 @@ function ThemeModeCards({
           >
             <div
               className={cn(
-                "w-full overflow-hidden rounded-[var(--control-radius)] border transition-all",
+                "w-full overflow-hidden rounded-[0.9rem] border transition-all",
                 active
                   ? "border-primary ring-2 ring-primary/25"
                   : "border-border/60 group-hover/mode:border-border",

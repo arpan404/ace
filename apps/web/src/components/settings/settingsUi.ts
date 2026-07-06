@@ -27,7 +27,7 @@ export const SETTINGS_CONTENT_TOP_PADDING_CLASS = "pt-8 sm:pt-10";
 export const SETTINGS_CONTENT_BOTTOM_PADDING_CLASS = "pb-10 sm:pb-12";
 
 export const SETTINGS_SECTION_TITLE_CLASS =
-  "text-[13px] font-semibold leading-snug tracking-tight text-foreground/90";
+  "text-sm font-semibold leading-snug tracking-tight text-foreground/90";
 
 export const SETTINGS_SECTION_DESCRIPTION_CLASS =
   "mt-0.5 text-xs leading-relaxed text-muted-foreground/65";
@@ -44,7 +44,7 @@ export const SETTINGS_GROUP_CLASS_NAME = "divide-y divide-border/40";
 /** One card per settings section — rows stay flat inside. Uses the app's larger panel
  *  radius so settings surfaces match the rest of the app's rounding. */
 export const SETTINGS_SECTION_CARD_CLASS = cn(
-  "overflow-hidden rounded-[calc(var(--panel-radius)+2px)] border border-border/40 bg-card shadow-none",
+  "overflow-hidden rounded-[1.15rem] border border-border/40 bg-card shadow-none",
 );
 
 export const SETTINGS_SECTION_CARD_BODY_CLASS = cn(SETTINGS_GROUP_CLASS_NAME, "px-3 sm:px-4");
@@ -64,7 +64,7 @@ export const SETTINGS_SHELL_CLASS = cn(APP_SHELL_CLASS_NAME, "text-foreground");
 
 export const SETTINGS_FIELD_CLASS = cn(
   APP_SETTINGS_FIELD_CLASS_NAME,
-  "h-8 rounded-[var(--control-radius)] shadow-none",
+  "h-8 rounded-[0.8rem] shadow-none",
 );
 
 export const SETTINGS_SELECT_TRIGGER_CLASS = cn("w-full min-w-0", SETTINGS_FIELD_CLASS);
@@ -73,7 +73,7 @@ const SETTINGS_SIDEBAR_FOCUS_RING_CLASS =
   "outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background";
 
 export const SETTINGS_ICON_CHOICE_BUTTON_CLASS = cn(
-  "size-7 shrink-0 rounded-[var(--control-radius)] shadow-none",
+  "size-7 shrink-0 rounded-[0.8rem] shadow-none",
   SETTINGS_SIDEBAR_FOCUS_RING_CLASS,
 );
 
@@ -94,11 +94,11 @@ export const SETTINGS_WIZARD_STEP_BUTTON_CLASS = cn(
 
 export const SETTINGS_INSET_PANEL_CLASS = cn(
   APP_WORKSPACE_INSET_CLASS_NAME,
-  "overflow-hidden rounded-[var(--panel-radius)]",
+  "overflow-hidden rounded-[1rem]",
 );
 
 export const SETTINGS_SIDEBAR_BACK_CLASS = cn(
-  "mb-0.5 h-auto w-full justify-start text-left gap-2 rounded-[var(--control-radius)] px-2 py-1.5 text-[13px] font-medium text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+  "mb-0.5 h-auto w-full justify-start text-left gap-2 rounded-[0.8rem] px-2 py-1.5 text-[13px] font-medium text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
   SETTINGS_SIDEBAR_FOCUS_RING_CLASS,
 );
 
@@ -106,7 +106,7 @@ export const SETTINGS_SIDEBAR_GROUP_LABEL_CLASS =
   "mb-1 h-auto px-2 py-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-sidebar-foreground/35";
 
 export const SETTINGS_SIDEBAR_ITEM_CLASS = cn(
-  "h-7 rounded-[var(--control-radius)] px-2 text-[13px] font-normal text-sidebar-foreground/60 shadow-none transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground data-[active=true]:bg-sidebar-accent/80 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground",
+  "h-7 rounded-[0.8rem] px-2 text-[13px] font-normal text-sidebar-foreground/60 shadow-none transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground data-[active=true]:bg-sidebar-accent/80 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground",
   SETTINGS_SIDEBAR_FOCUS_RING_CLASS,
 );
 
@@ -117,7 +117,7 @@ export const SETTINGS_PROVIDER_LAYOUT_CLASS =
   "grid min-h-[32rem] grid-cols-1 lg:grid-cols-[minmax(11rem,13rem)_minmax(0,1fr)] lg:divide-x lg:divide-border/40";
 
 export const SETTINGS_PROVIDER_LIST_ITEM_CLASS =
-  "flex w-full items-center gap-1.5 rounded-[var(--control-radius)] px-1.5 py-1.5 text-left transition-colors";
+  "flex w-full items-center gap-1.5 rounded-[0.8rem] px-1.5 py-1.5 text-left transition-colors";
 
 export const SETTINGS_PROVIDER_LIST_NAME_CLASS =
   "block truncate text-[12px] font-medium leading-tight text-foreground";
@@ -133,7 +133,7 @@ export const SETTINGS_PROVIDER_DETAIL_SECTION_CLASS =
 
 export const SETTINGS_CONTROL_SURFACE_CLASS_NAMES = [
   "[&_[data-slot=input-control]]:h-8",
-  "[&_[data-slot=input-control]]:rounded-[var(--control-radius)]",
+  "[&_[data-slot=input-control]]:rounded-[0.8rem]",
   "[&_[data-slot=input-control]]:border-border/40",
   "[&_[data-slot=input-control]]:shadow-none",
   "[&_[data-slot=input]]:h-8",
@@ -141,19 +141,19 @@ export const SETTINGS_CONTROL_SURFACE_CLASS_NAMES = [
   "[&_[data-slot=input]]:text-[13px]",
   "[&_[data-slot=select-trigger]]:h-8",
   "[&_[data-slot=select-trigger]]:min-h-8",
-  "[&_[data-slot=select-trigger]]:rounded-[var(--control-radius)]",
+  "[&_[data-slot=select-trigger]]:rounded-[0.8rem]",
   "[&_[data-slot=select-trigger]]:border-border/40",
   "[&_[data-slot=select-trigger]]:text-[13px]",
   "[&_[data-slot=select-trigger]]:shadow-none",
   "[&_[data-slot=select-button]]:h-8",
-  "[&_[data-slot=select-button]]:rounded-[var(--control-radius)]",
+  "[&_[data-slot=select-button]]:rounded-[0.8rem]",
   "[&_[data-slot=select-button]]:border-border/40",
   "[&_[data-slot=select-button]]:text-[13px]",
   "[&_[data-slot=select-button]]:shadow-none",
   "[&_[data-slot=switch][data-checked]]:border-primary/25",
   "[&_[data-slot=switch][data-checked]]:bg-primary",
   "[&_button[data-slot=button][data-size=default]:not([data-size^=icon])]:h-8",
-  "[&_button[data-slot=button][data-size=default]:not([data-size^=icon])]:rounded-[var(--control-radius)]",
+  "[&_button[data-slot=button][data-size=default]:not([data-size^=icon])]:rounded-[0.8rem]",
   "[&_button[data-slot=button][data-size=default]:not([data-size^=icon])]:px-2.5",
   "[&_button[data-slot=button][data-size=default]:not([data-size^=icon])]:text-[13px]",
 ] as const;
