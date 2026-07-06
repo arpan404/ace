@@ -7,6 +7,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import type { ComponentProps } from "react";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Slider } from "../ui/slider";
 import { Switch } from "../ui/switch";
 import { SidebarTrigger } from "../ui/sidebar";
 import {
@@ -284,6 +285,179 @@ export function SettingsChoiceGroup<TValue extends string>({
         ))}
       </SelectPopup>
     </Select>
+  );
+}
+
+/**
+ * Compact pill-style segmented control (e.g. Bottom/Right, System/On/Off). Interactive
+ * replacement for a two/three-way select where the options fit inline.
+ */
+export function SettingsSegmentedControl<TValue extends string>({
+  options,
+  value,
+  onValueChange,
+  ariaLabel,
+  className,
+}: {
+  options: readonly { value: TValue; label: ReactNode }[];
+  value: TValue;
+  onValueChange: (value: TValue) => void;
+  ariaLabel: string;
+  className?: string;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={ariaLabel}
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-[var(--control-radius)] border border-border/55 bg-muted/45 p-0.5",
+        className,
+      )}
+    >
+      {options.map((option) => {
+        const active = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onValueChange(option.value)}
+            className={cn(
+              "rounded-[calc(var(--control-radius)-2px)] px-2.5 py-1 text-xs font-medium transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+              active
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground/90",
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Big card radio group (e.g. "For coding" / "For everyday work") with an icon, title,
+ * and description. The expressive, interactive way to present a small mutually-exclusive
+ * choice that benefits from explanation.
+ */
+export function SettingsCardChoice<TValue extends string>({
+  options,
+  value,
+  onValueChange,
+  ariaLabel,
+  columns = 2,
+  className,
+}: {
+  options: readonly {
+    value: TValue;
+    label: ReactNode;
+    description?: ReactNode;
+    icon?: ReactNode;
+  }[];
+  value: TValue;
+  onValueChange: (value: TValue) => void;
+  ariaLabel: string;
+  columns?: 1 | 2 | 3;
+  className?: string;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={ariaLabel}
+      className={cn(
+        "grid gap-3",
+        columns === 3 ? "sm:grid-cols-3" : columns === 2 ? "sm:grid-cols-2" : "grid-cols-1",
+        className,
+      )}
+    >
+      {options.map((option) => {
+        const active = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onValueChange(option.value)}
+            className={cn(
+              "group/card relative flex items-start gap-3 rounded-[var(--panel-radius)] border p-3.5 text-left transition-[border-color,background-color,box-shadow] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+              active
+                ? "border-primary/55 bg-primary/[0.06] ring-1 ring-primary/15"
+                : "border-border/55 bg-card/40 hover:border-border hover:bg-accent/40",
+            )}
+          >
+            {option.icon ? (
+              <span
+                className={cn(
+                  "mt-px shrink-0 transition-colors [&_svg]:size-4",
+                  active ? "text-primary" : "text-muted-foreground",
+                )}
+              >
+                {option.icon}
+              </span>
+            ) : null}
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium text-foreground">{option.label}</span>
+              {option.description ? (
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                  {option.description}
+                </span>
+              ) : null}
+            </span>
+            <span
+              className={cn(
+                "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors",
+                active ? "border-primary bg-primary" : "border-border/70 bg-transparent",
+              )}
+              aria-hidden="true"
+            >
+              {active ? <span className="size-1.5 rounded-full bg-primary-foreground" /> : null}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Labeled slider (shadcn/Base UI) with a live value read-out (e.g. Contrast). */
+export function SettingsSlider({
+  value,
+  min,
+  max,
+  step = 1,
+  onValueChange,
+  ariaLabel,
+  formatValue,
+  className,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onValueChange: (value: number) => void;
+  ariaLabel: string;
+  formatValue?: (value: number) => ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex min-w-40 items-center gap-3", className)}>
+      <Slider
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        aria-label={ariaLabel}
+        onValueChange={(next) => onValueChange(Array.isArray(next) ? (next[0] ?? value) : next)}
+        className="min-w-24"
+      />
+      <span className="w-8 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+        {formatValue ? formatValue(value) : value}
+      </span>
+    </div>
   );
 }
 

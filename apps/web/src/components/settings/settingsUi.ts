@@ -41,9 +41,10 @@ export const SETTINGS_ROW_STATUS_CLASS = "mt-1 text-[11px] text-muted-foreground
 
 export const SETTINGS_GROUP_CLASS_NAME = "divide-y divide-border/40";
 
-/** One card per settings section — rows stay flat inside. */
+/** One card per settings section — rows stay flat inside. Uses the app's larger panel
+ *  radius so settings surfaces match the rest of the app's rounding. */
 export const SETTINGS_SECTION_CARD_CLASS = cn(
-  "overflow-hidden rounded-[var(--control-radius)] border border-border/40 bg-card shadow-none",
+  "overflow-hidden rounded-[calc(var(--panel-radius)+2px)] border border-border/40 bg-card shadow-none",
 );
 
 export const SETTINGS_SECTION_CARD_BODY_CLASS = cn(SETTINGS_GROUP_CLASS_NAME, "px-3 sm:px-4");
@@ -93,7 +94,7 @@ export const SETTINGS_WIZARD_STEP_BUTTON_CLASS = cn(
 
 export const SETTINGS_INSET_PANEL_CLASS = cn(
   APP_WORKSPACE_INSET_CLASS_NAME,
-  "overflow-hidden rounded-[var(--control-radius)]",
+  "overflow-hidden rounded-[var(--panel-radius)]",
 );
 
 export const SETTINGS_SIDEBAR_BACK_CLASS = cn(
