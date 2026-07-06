@@ -2282,7 +2282,10 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
 
       {isEditorPage ? (
         <>
-          <SettingsSection title="Workspace editor">
+          <SettingsSection
+            title="Editor"
+            description="Display and behavior of the built-in workspace editor."
+          >
             <SettingsRow
               title="Editor line wrapping"
               description="Wrap long lines in the workspace editor."
@@ -2377,36 +2380,26 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   />
                 ) : null
               }
+              layout="compact"
               control={
-                <Select
+                <SettingsSegmentedControl
+                  ariaLabel="Editor line numbers"
                   value={settings.editorLineNumbers}
-                  onValueChange={(value) => {
-                    if (value === "off" || value === "on" || value === "relative") {
-                      updateSettings({ editorLineNumbers: value });
-                    }
-                  }}
-                >
-                  <SelectTrigger
-                    className={SETTINGS_SELECT_TRIGGER_CLASS}
-                    aria-label="Editor line numbers"
-                  >
-                    <SelectValue>{settings.editorLineNumbers}</SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end" alignItemWithTrigger={false}>
-                    <SelectItem hideIndicator value="on">
-                      On
-                    </SelectItem>
-                    <SelectItem hideIndicator value="relative">
-                      Relative
-                    </SelectItem>
-                    <SelectItem hideIndicator value="off">
-                      Off
-                    </SelectItem>
-                  </SelectPopup>
-                </Select>
+                  onValueChange={(value) => updateSettings({ editorLineNumbers: value })}
+                  options={[
+                    { value: "on", label: "On" },
+                    { value: "relative", label: "Relative" },
+                    { value: "off", label: "Off" },
+                  ]}
+                />
               }
             />
+          </SettingsSection>
 
+          <SettingsSection
+            title="Language servers"
+            description="Install and manage language servers that power code intelligence."
+          >
             <SettingsRow
               title="Language server tools"
               status={
@@ -2970,17 +2963,21 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                 />
               ) : null
             }
-          >
-            <SettingsChoiceGroup
-              label="Summary generation"
-              className="w-full"
-              options={WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS}
-              value={settings.workspaceSummaryGenerationMode}
-              onValueChange={(workspaceSummaryGenerationMode) =>
-                updateSettings({ workspaceSummaryGenerationMode })
-              }
-            />
-          </SettingsRow>
+            layout="compact"
+            control={
+              <SettingsSegmentedControl
+                ariaLabel="Summary generation"
+                value={settings.workspaceSummaryGenerationMode}
+                onValueChange={(workspaceSummaryGenerationMode) =>
+                  updateSettings({ workspaceSummaryGenerationMode })
+                }
+                options={WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                }))}
+              />
+            }
+          />
         </SettingsSection>
       ) : null}
 
