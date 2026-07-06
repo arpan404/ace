@@ -1,6 +1,7 @@
 export {
   AboutSettingsPanel as AboutSettingsPanelRoute,
   AdvancedSettingsPanel as AdvancedSettingsPanelRoute,
+  AppearanceSettingsPanel as AppearanceSettingsPanelRoute,
   ArchivedThreadsPanel as ArchivedThreadsPanelRoute,
   BrowserSettingsPanel as BrowserSettingsPanelRoute,
   ChatSettingsPanel as ChatSettingsPanelRoute,

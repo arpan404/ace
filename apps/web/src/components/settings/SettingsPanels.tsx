@@ -843,6 +843,7 @@ function AboutCliInstallSection() {
 
 type SettingsPanelPage =
   | "general"
+  | "appearance"
   | "browser"
   | "chat"
   | "editor"
@@ -1241,6 +1242,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       : null;
 
   const isGeneralPage = page === "general";
+  const isAppearancePage = page === "appearance";
   const isBrowserPage = page === "browser";
   const isChatPage = page === "chat";
   const isEditorPage = page === "editor";
@@ -1453,7 +1455,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
 
   return (
     <SettingsPageContainer>
-      {isGeneralPage ? (
+      {isAppearancePage ? (
         <>
           <SettingsSection title="Appearance">
             <SettingsRow
@@ -1703,7 +1705,13 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                 </Select>
               }
             />
+          </SettingsSection>
+        </>
+      ) : null}
 
+      {isGeneralPage ? (
+        <>
+          <SettingsSection title="General">
             <SettingsRow
               title="Time format"
               description="System default follows your browser or OS clock preference."
@@ -3187,6 +3195,10 @@ function SettingsPanel(props: { page: SettingsPanelPage }) {
 
 export function GeneralSettingsPanel() {
   return <SettingsPanel page="general" />;
+}
+
+export function AppearanceSettingsPanel() {
+  return <SettingsPanel page="appearance" />;
 }
 
 export function BrowserSettingsPanel() {

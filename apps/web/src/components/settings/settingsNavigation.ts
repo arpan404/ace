@@ -6,6 +6,7 @@ import {
   IconDevices2,
   IconInfoCircle,
   IconMessageCircle,
+  IconPalette,
   IconPlug,
   IconStack2,
   IconTool,
@@ -21,6 +22,7 @@ export type SettingsNavIcon = ComponentType<{
 export type SettingsNavGroup = "personal" | "coding" | "system" | "archive";
 export type SettingsSectionPath =
   | "/settings/general"
+  | "/settings/appearance"
   | "/settings/browser"
   | "/settings/chat"
   | "/settings/editor"
@@ -56,6 +58,13 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     description: "Time format and thread defaults",
     to: "/settings/general",
     icon: IconAdjustmentsHorizontal,
+  },
+  {
+    group: "personal",
+    label: "Appearance",
+    description: "Theme, color palette, fonts, and sizing",
+    to: "/settings/appearance",
+    icon: IconPalette,
   },
   {
     group: "personal",

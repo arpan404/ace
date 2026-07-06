@@ -13,23 +13,25 @@ export type SettingsSearchEntry = {
  * specific controls (e.g. "Theme", "Translucent sidebar") — not just page names.
  */
 export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
-  // General
-  { to: "/settings/general", title: "Theme", keywords: "light dark system appearance mode" },
+  // Appearance
+  { to: "/settings/appearance", title: "Theme", keywords: "light dark system appearance mode" },
   {
-    to: "/settings/general",
+    to: "/settings/appearance",
     title: "Color preset",
     keywords:
       "palette accent ace dracula github nord monokai solarized xcode gruvbox tokyo catppuccin ayu",
   },
   {
-    to: "/settings/general",
+    to: "/settings/appearance",
     title: "Translucent sidebar",
     keywords: "transparent glass vibrancy blur sidebar",
   },
-  { to: "/settings/general", title: "UI font", keywords: "typeface sans interface font" },
-  { to: "/settings/general", title: "Monospace font", keywords: "code font mono typeface" },
-  { to: "/settings/general", title: "Text size", keywords: "scale ui font size zoom" },
-  { to: "/settings/general", title: "Letter spacing", keywords: "tracking kerning" },
+  { to: "/settings/appearance", title: "UI font", keywords: "typeface sans interface font" },
+  { to: "/settings/appearance", title: "Monospace font", keywords: "code font mono typeface" },
+  { to: "/settings/appearance", title: "Text size", keywords: "scale ui font size zoom" },
+  { to: "/settings/appearance", title: "Letter spacing", keywords: "tracking kerning" },
+
+  // General
   { to: "/settings/general", title: "Time format", keywords: "clock 12 24 hour timestamp" },
   { to: "/settings/general", title: "New threads", keywords: "default workspace mode draft local" },
   {
