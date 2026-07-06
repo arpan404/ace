@@ -1286,335 +1286,331 @@ function useDevicesSettingsPanelComponent() {
           </>
         }
       >
-        <div className="space-y-0">
-          <div className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-3 py-2.5`}>
-            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <div className="text-[13px] font-medium text-foreground/88">Local endpoint</div>
-                <div className="mt-1 break-all font-mono text-xs text-foreground">
-                  {localAdvertisedWsUrl}
-                </div>
+        <div className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-3 py-2.5`}>
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-[13px] font-medium text-foreground/88">Local endpoint</div>
+              <div className="mt-1 break-all font-mono text-xs text-foreground">
+                {localAdvertisedWsUrl}
               </div>
-              <DeviceStatusBadge tone="info">Main host</DeviceStatusBadge>
             </div>
-            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground/62">
-              <span>
-                {localDeviceConnection.authToken
-                  ? "Host auth token enabled"
-                  : "No host auth token configured"}
-              </span>
-              <span>This device remains the primary host.</span>
-            </div>
+            <DeviceStatusBadge tone="info">Main host</DeviceStatusBadge>
           </div>
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground/62">
+            <span>
+              {localDeviceConnection.authToken
+                ? "Host auth token enabled"
+                : "No host auth token configured"}
+            </span>
+            <span>This device remains the primary host.</span>
+          </div>
+        </div>
+      </DeviceSection>
 
-          <DeviceSubPanel
-            title="Pairing link"
-            description={
-              remoteRelaySettings.enabled
-                ? "Create a one-time link for another device."
-                : "Relay pairing is unavailable while the remote relay is disabled."
-            }
-            actions={
-              <>
-                {pairingLink ? (
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    className={DEVICE_ACTION_BUTTON_CLASS_NAME}
-                    onClick={() => void revokePairingLink()}
-                    disabled={revokingPairingLink}
-                  >
-                    {revokingPairingLink ? "Revoking..." : "Revoke link"}
-                  </Button>
-                ) : null}
-                <Button
-                  size="xs"
-                  className={DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
-                  onClick={() => void createPairingLink()}
-                  disabled={creatingPairingLink || !remoteRelaySettings.enabled}
-                >
-                  {creatingPairingLink ? "Creating..." : "Create link"}
-                </Button>
-              </>
-            }
-          >
-            <div className="max-w-xl">
-              <SettingsInput
-                value={pairingLabel}
-                onChange={(event) => {
-                  dispatchPanelState({
-                    type: "set-pairing-label",
-                    pairingLabel: event.currentTarget.value,
-                  });
-                }}
-                placeholder="Device label (for example: Office Mac mini)"
-              />
-            </div>
+      <DeviceSection
+        title="Pairing link"
+        description={
+          remoteRelaySettings.enabled
+            ? "Create a one-time link for another device."
+            : "Relay pairing is unavailable while the remote relay is disabled."
+        }
+        actions={
+          <>
             {pairingLink ? (
-              <div className="mt-3 space-y-2">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <code
-                    className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} max-w-full break-all px-2 py-1 text-[10px]`}
-                  >
-                    {maskPairingLinkForDisplay(pairingLink.connectionString)}
-                  </code>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    className={DEVICE_ACTION_BUTTON_CLASS_NAME}
-                    onClick={() =>
-                      copyToClipboard(pairingLink.connectionString, {
-                        label: "Pairing link",
-                      })
-                    }
-                  >
-                    <CopyIcon className="size-3" />
-                    Copy link
-                  </Button>
-                  <Popover>
-                    <PopoverTrigger
-                      render={
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className={cn(
-                            SETTINGS_FIELD_CLASS,
-                            "h-8 gap-1.5 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground",
-                          )}
-                        />
-                      }
-                    >
-                      <QrCodeIcon className="size-3.5" />
-                      QR
-                    </PopoverTrigger>
-                    <PopoverPopup side="bottom" align="end" className="w-fit p-2">
-                      <div className={`${DEVICE_INSET_PANEL_CLASS_NAME} w-fit p-2`}>
-                        {pairingLink.qrDataUrl ? (
-                          <img
-                            src={pairingLink.qrDataUrl}
-                            alt="Pairing link QR code"
-                            className="size-40 rounded-sm bg-white p-1"
-                          />
-                        ) : null}
-                        <div className="mt-1 text-[10px] text-muted-foreground">
-                          Expires {formatRelativeTimeLabel(pairingLink.expiresAt)}
-                        </div>
-                      </div>
-                    </PopoverPopup>
-                  </Popover>
-                </div>
-                {pairingSessionStatus ? (
-                  <div
-                    className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-2 py-1.5 text-xs text-muted-foreground`}
-                  >
-                    {pairingSessionStatus.status === "waiting-claim"
-                      ? "Waiting for a device to claim this pairing link."
-                      : pairingSessionStatus.status === "claim-pending"
-                        ? `Auto-approving ${pairingSessionStatus.requesterName ?? "remote device"}...`
-                        : pairingSessionStatus.status === "approved"
-                          ? "Pairing completed."
-                          : pairingSessionStatus.status === "rejected"
-                            ? "Pairing request was rejected."
-                            : "Pairing link expired."}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </DeviceSubPanel>
-
-          <DeviceSubPanel
-            title="Remote relay"
-            description="Used for new pairings and daemon registration."
-            actions={
-              <>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  className={DEVICE_ACTION_BUTTON_CLASS_NAME}
-                  onClick={() => {
-                    updateSettings({
-                      remoteRelay: {
-                        enabled: remoteRelaySettings.enabled,
-                        defaultUrl: DEFAULT_MANAGED_RELAY_URL,
-                        allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
-                      },
-                    });
-                  }}
-                >
-                  Reset
-                </Button>
-                <Button
-                  size="xs"
-                  className={DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
-                  onClick={saveRelaySettings}
-                >
-                  Save relay
-                </Button>
-              </>
-            }
-          >
-            <div className="space-y-3">
-              <label
-                htmlFor="remote-relay-enabled"
-                className={`${DEVICE_INSET_PANEL_CLASS_NAME} flex h-9 items-center gap-2 px-3 text-sm text-muted-foreground`}
-              >
-                <Switch
-                  id="remote-relay-enabled"
-                  checked={remoteRelaySettings.enabled}
-                  onCheckedChange={toggleRemoteRelayEnabled}
-                />
-                <span>Enable remote relay</span>
-              </label>
-              <div className="grid gap-2">
-                <SettingsInput
-                  value={relayUrlDraft}
-                  onChange={(event) =>
-                    dispatchPanelState({
-                      type: "set-relay-url-draft",
-                      relayUrlDraft: event.currentTarget.value,
-                    })
-                  }
-                  placeholder={DEFAULT_MANAGED_RELAY_URL}
-                />
-                <label
-                  htmlFor="remote-relay-allow-local-ws"
-                  className={`${DEVICE_INSET_PANEL_CLASS_NAME} flex h-9 w-fit items-center gap-2 px-2.5 text-sm text-muted-foreground`}
-                >
-                  <Switch
-                    id="remote-relay-allow-local-ws"
-                    checked={remoteRelaySettings.allowInsecureLocalUrls}
-                    onCheckedChange={toggleInsecureRelayUrls}
-                  />
-                  <span>Allow local ws://</span>
-                </label>
-              </div>
-              <div
-                className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-3 py-2 text-sm text-muted-foreground`}
-              >
-                {!remoteRelaySettings.enabled ? (
-                  "Remote relay is disabled."
-                ) : hasPinnedRelayMismatch ? (
-                  <span className="text-warning-foreground">
-                    Some paired devices were created against another relay URL.
-                  </span>
-                ) : serverConfig?.relay ? (
-                  <>
-                    Host device:{" "}
-                    <span className="font-mono text-foreground">{serverConfig.relay.deviceId}</span>
-                  </>
-                ) : (
-                  <>Managed default: {DEFAULT_MANAGED_RELAY_URL}</>
-                )}
-              </div>
-              {relayRegistrations.length === 0 ? null : (
-                <div className="space-y-2">
-                  {relayRegistrations.map((registration) => (
-                    <div
-                      key={registration.relayUrl}
-                      className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} flex min-w-0 flex-wrap items-center gap-2 px-2.5 py-2 text-sm`}
-                    >
-                      {registration.status === "connected" ? (
-                        <CheckCircle2Icon className="size-3.5 text-success-foreground" />
-                      ) : registration.status === "connecting" ? (
-                        <ShieldAlertIcon className="size-3.5 text-warning-foreground" />
-                      ) : (
-                        <CircleOffIcon className="size-3.5 text-destructive-foreground" />
-                      )}
-                      <span className="min-w-0 break-all font-mono text-foreground">
-                        {registration.relayUrl}
-                      </span>
-                      <span className="text-muted-foreground">{registration.status}</span>
-                      {registration.connectedAt ? (
-                        <span className="text-muted-foreground">
-                          since {formatRelativeTimeLabel(registration.connectedAt)}
-                        </span>
-                      ) : null}
-                      {registration.lastError ? (
-                        <span className="text-destructive-foreground">
-                          {registration.lastError}
-                        </span>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </DeviceSubPanel>
-
-          <DeviceSubPanel
-            title="Paired devices"
-            description="Devices that requested access through this host's pairing links."
-            actions={
               <Button
                 size="xs"
                 variant="outline"
                 className={DEVICE_ACTION_BUTTON_CLASS_NAME}
-                onClick={() => void refreshPairedSessions()}
-                disabled={refreshingPairedSessions}
+                onClick={() => void revokePairingLink()}
+                disabled={revokingPairingLink}
               >
-                {refreshingPairedSessions ? "Refreshing..." : "Refresh"}
+                {revokingPairingLink ? "Revoking..." : "Revoke link"}
               </Button>
-            }
-          >
-            {pairedSessions.length === 0 ? (
-              <div
-                className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-3 py-2 text-sm text-muted-foreground`}
-              >
-                No paired devices yet.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {pairedSessions.map((session) => (
-                  <div
-                    key={session.sessionId}
-                    className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} flex min-w-0 flex-col gap-2 px-2.5 py-2 sm:flex-row sm:items-center`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-medium text-foreground/90">
-                        {session.requesterName ?? "Unnamed device"}
-                      </div>
-                      <div className="truncate text-xs text-muted-foreground">{session.name}</div>
-                    </div>
-                    <DeviceStatusBadge
-                      tone={
-                        session.status === "approved"
-                          ? "success"
-                          : session.status === "claim-pending" || session.status === "waiting-claim"
-                            ? "warning"
-                            : "neutral"
-                      }
-                    >
-                      {session.status === "waiting-claim"
-                        ? "Waiting"
-                        : session.status === "claim-pending"
-                          ? "Pending"
-                          : session.status === "approved"
-                            ? "Approved"
-                            : session.status === "rejected"
-                              ? "Rejected"
-                              : "Expired"}
-                    </DeviceStatusBadge>
-                    <span className="text-xs text-muted-foreground">
-                      {session.resolvedAt
-                        ? `Updated ${formatRelativeTimeLabel(session.resolvedAt)}`
-                        : `Created ${formatRelativeTimeLabel(session.createdAt)}`}
-                    </span>
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      className={DEVICE_ACTION_BUTTON_CLASS_NAME}
-                      onClick={() => void revokePairedSession(session)}
-                      disabled={Boolean(revokingPairedSessionIds[session.sessionId])}
-                    >
-                      {revokingPairedSessionIds[session.sessionId] ? "Revoking..." : "Revoke"}
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </DeviceSubPanel>
+            ) : null}
+            <Button
+              size="xs"
+              className={DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
+              onClick={() => void createPairingLink()}
+              disabled={creatingPairingLink || !remoteRelaySettings.enabled}
+            >
+              {creatingPairingLink ? "Creating..." : "Create link"}
+            </Button>
+          </>
+        }
+      >
+        <div className="max-w-xl">
+          <SettingsInput
+            value={pairingLabel}
+            onChange={(event) => {
+              dispatchPanelState({
+                type: "set-pairing-label",
+                pairingLabel: event.currentTarget.value,
+              });
+            }}
+            placeholder="Device label (for example: Office Mac mini)"
+          />
         </div>
+        {pairingLink ? (
+          <div className="mt-3 space-y-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <code
+                className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} max-w-full break-all px-2 py-1 text-[10px]`}
+              >
+                {maskPairingLinkForDisplay(pairingLink.connectionString)}
+              </code>
+              <Button
+                size="xs"
+                variant="outline"
+                className={DEVICE_ACTION_BUTTON_CLASS_NAME}
+                onClick={() =>
+                  copyToClipboard(pairingLink.connectionString, {
+                    label: "Pairing link",
+                  })
+                }
+              >
+                <CopyIcon className="size-3" />
+                Copy link
+              </Button>
+              <Popover>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        SETTINGS_FIELD_CLASS,
+                        "h-8 gap-1.5 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground",
+                      )}
+                    />
+                  }
+                >
+                  <QrCodeIcon className="size-3.5" />
+                  QR
+                </PopoverTrigger>
+                <PopoverPopup side="bottom" align="end" className="w-fit p-2">
+                  <div className={`${DEVICE_INSET_PANEL_CLASS_NAME} w-fit p-2`}>
+                    {pairingLink.qrDataUrl ? (
+                      <img
+                        src={pairingLink.qrDataUrl}
+                        alt="Pairing link QR code"
+                        className="size-40 rounded-sm bg-white p-1"
+                      />
+                    ) : null}
+                    <div className="mt-1 text-[10px] text-muted-foreground">
+                      Expires {formatRelativeTimeLabel(pairingLink.expiresAt)}
+                    </div>
+                  </div>
+                </PopoverPopup>
+              </Popover>
+            </div>
+            {pairingSessionStatus ? (
+              <div
+                className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-2 py-1.5 text-xs text-muted-foreground`}
+              >
+                {pairingSessionStatus.status === "waiting-claim"
+                  ? "Waiting for a device to claim this pairing link."
+                  : pairingSessionStatus.status === "claim-pending"
+                    ? `Auto-approving ${pairingSessionStatus.requesterName ?? "remote device"}...`
+                    : pairingSessionStatus.status === "approved"
+                      ? "Pairing completed."
+                      : pairingSessionStatus.status === "rejected"
+                        ? "Pairing request was rejected."
+                        : "Pairing link expired."}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </DeviceSection>
+
+      <DeviceSection
+        title="Remote relay"
+        description="Used for new pairings and daemon registration."
+        actions={
+          <>
+            <Button
+              size="xs"
+              variant="outline"
+              className={DEVICE_ACTION_BUTTON_CLASS_NAME}
+              onClick={() => {
+                updateSettings({
+                  remoteRelay: {
+                    enabled: remoteRelaySettings.enabled,
+                    defaultUrl: DEFAULT_MANAGED_RELAY_URL,
+                    allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
+                  },
+                });
+              }}
+            >
+              Reset
+            </Button>
+            <Button
+              size="xs"
+              className={DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
+              onClick={saveRelaySettings}
+            >
+              Save relay
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <label
+            htmlFor="remote-relay-enabled"
+            className={`${DEVICE_INSET_PANEL_CLASS_NAME} flex h-9 items-center gap-2 px-3 text-sm text-muted-foreground`}
+          >
+            <Switch
+              id="remote-relay-enabled"
+              checked={remoteRelaySettings.enabled}
+              onCheckedChange={toggleRemoteRelayEnabled}
+            />
+            <span>Enable remote relay</span>
+          </label>
+          <div className="grid gap-2">
+            <SettingsInput
+              value={relayUrlDraft}
+              onChange={(event) =>
+                dispatchPanelState({
+                  type: "set-relay-url-draft",
+                  relayUrlDraft: event.currentTarget.value,
+                })
+              }
+              placeholder={DEFAULT_MANAGED_RELAY_URL}
+            />
+            <label
+              htmlFor="remote-relay-allow-local-ws"
+              className={`${DEVICE_INSET_PANEL_CLASS_NAME} flex h-9 w-fit items-center gap-2 px-2.5 text-sm text-muted-foreground`}
+            >
+              <Switch
+                id="remote-relay-allow-local-ws"
+                checked={remoteRelaySettings.allowInsecureLocalUrls}
+                onCheckedChange={toggleInsecureRelayUrls}
+              />
+              <span>Allow local ws://</span>
+            </label>
+          </div>
+          <div
+            className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-3 py-2 text-sm text-muted-foreground`}
+          >
+            {!remoteRelaySettings.enabled ? (
+              "Remote relay is disabled."
+            ) : hasPinnedRelayMismatch ? (
+              <span className="text-warning-foreground">
+                Some paired devices were created against another relay URL.
+              </span>
+            ) : serverConfig?.relay ? (
+              <>
+                Host device:{" "}
+                <span className="font-mono text-foreground">{serverConfig.relay.deviceId}</span>
+              </>
+            ) : (
+              <>Managed default: {DEFAULT_MANAGED_RELAY_URL}</>
+            )}
+          </div>
+          {relayRegistrations.length === 0 ? null : (
+            <div className="space-y-2">
+              {relayRegistrations.map((registration) => (
+                <div
+                  key={registration.relayUrl}
+                  className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} flex min-w-0 flex-wrap items-center gap-2 px-2.5 py-2 text-sm`}
+                >
+                  {registration.status === "connected" ? (
+                    <CheckCircle2Icon className="size-3.5 text-success-foreground" />
+                  ) : registration.status === "connecting" ? (
+                    <ShieldAlertIcon className="size-3.5 text-warning-foreground" />
+                  ) : (
+                    <CircleOffIcon className="size-3.5 text-destructive-foreground" />
+                  )}
+                  <span className="min-w-0 break-all font-mono text-foreground">
+                    {registration.relayUrl}
+                  </span>
+                  <span className="text-muted-foreground">{registration.status}</span>
+                  {registration.connectedAt ? (
+                    <span className="text-muted-foreground">
+                      since {formatRelativeTimeLabel(registration.connectedAt)}
+                    </span>
+                  ) : null}
+                  {registration.lastError ? (
+                    <span className="text-destructive-foreground">{registration.lastError}</span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </DeviceSection>
+
+      <DeviceSection
+        title="Paired devices"
+        description="Devices that requested access through this host's pairing links."
+        actions={
+          <Button
+            size="xs"
+            variant="outline"
+            className={DEVICE_ACTION_BUTTON_CLASS_NAME}
+            onClick={() => void refreshPairedSessions()}
+            disabled={refreshingPairedSessions}
+          >
+            {refreshingPairedSessions ? "Refreshing..." : "Refresh"}
+          </Button>
+        }
+      >
+        {pairedSessions.length === 0 ? (
+          <div
+            className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-3 py-2 text-sm text-muted-foreground`}
+          >
+            No paired devices yet.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {pairedSessions.map((session) => (
+              <div
+                key={session.sessionId}
+                className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} flex min-w-0 flex-col gap-2 px-2.5 py-2 sm:flex-row sm:items-center`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium text-foreground/90">
+                    {session.requesterName ?? "Unnamed device"}
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground">{session.name}</div>
+                </div>
+                <DeviceStatusBadge
+                  tone={
+                    session.status === "approved"
+                      ? "success"
+                      : session.status === "claim-pending" || session.status === "waiting-claim"
+                        ? "warning"
+                        : "neutral"
+                  }
+                >
+                  {session.status === "waiting-claim"
+                    ? "Waiting"
+                    : session.status === "claim-pending"
+                      ? "Pending"
+                      : session.status === "approved"
+                        ? "Approved"
+                        : session.status === "rejected"
+                          ? "Rejected"
+                          : "Expired"}
+                </DeviceStatusBadge>
+                <span className="text-xs text-muted-foreground">
+                  {session.resolvedAt
+                    ? `Updated ${formatRelativeTimeLabel(session.resolvedAt)}`
+                    : `Created ${formatRelativeTimeLabel(session.createdAt)}`}
+                </span>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  className={DEVICE_ACTION_BUTTON_CLASS_NAME}
+                  onClick={() => void revokePairedSession(session)}
+                  disabled={Boolean(revokingPairedSessionIds[session.sessionId])}
+                >
+                  {revokingPairedSessionIds[session.sessionId] ? "Revoking..." : "Revoke"}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </DeviceSection>
 
       <DeviceSection
