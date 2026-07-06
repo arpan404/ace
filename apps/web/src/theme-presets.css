@@ -31,7 +31,7 @@
 /* Translucent-sidebar setting: when enabled, the base/sidebar surface goes
  * semi-transparent so desktop window vibrancy shows through the sidebar. */
 :root[data-sidebar-translucent="true"] {
-  --sidebar-surface: color-mix(in oklab, var(--sidebar-solid) 46%, transparent);
+  --sidebar-surface: color-mix(in oklab, var(--sidebar-solid) 10%, transparent);
 }
 /* html, body, and #root all paint --sidebar-surface; when translucent, three stacked
  * semi-transparent layers would compound back to near-opaque. Keep a single translucent
