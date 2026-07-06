@@ -33,6 +33,13 @@
 :root[data-sidebar-translucent="true"] {
   --sidebar-surface: color-mix(in oklab, var(--sidebar-solid) 62%, transparent);
 }
+/* html, body, and #root all paint --sidebar-surface; when translucent, three stacked
+ * semi-transparent layers would compound back to near-opaque. Keep a single translucent
+ * layer (body, which also carries the backdrop blur) and clear the other two. */
+:root[data-sidebar-translucent="true"],
+:root[data-sidebar-translucent="true"] #root {
+  background-color: transparent;
+}
 @supports (backdrop-filter: blur(1px)) {
   :root[data-sidebar-translucent="true"] body {
     backdrop-filter: blur(22px) saturate(1.1);
@@ -1204,6 +1211,8 @@
   --terminal-ansi-bright-magenta: #9333ea;
   --terminal-ansi-bright-cyan: #0891b2;
   --terminal-ansi-bright-white: #111827;
+  --composer-surface: color-mix(in oklab, var(--card) 90%, var(--background) 10%);
+  --composer-border: color-mix(in oklab, var(--border) 92%, var(--foreground) 8%);
 }
 
 .dark[data-theme-preset="dracula"],
@@ -1262,6 +1271,8 @@
   --terminal-ansi-bright-magenta: #ddd6fe;
   --terminal-ansi-bright-cyan: #a5f3fc;
   --terminal-ansi-bright-white: #ffffff;
+  --composer-surface: color-mix(in oklab, var(--card) 82%, var(--background) 18%);
+  --composer-border: color-mix(in oklab, var(--border) 90%, var(--foreground) 10%);
 }
 
 [data-theme-preset="dracula"] {
@@ -1288,6 +1299,8 @@
   --ring: #8ab4ff;
   --info: #8ab4ff;
   --info-foreground: #d7e5ff;
+  --composer-surface: #080808;
+  --composer-border: #242424;
 }
 
 [data-theme-preset="monokai"] {
