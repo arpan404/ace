@@ -3576,7 +3576,23 @@ function createWindow(): BrowserWindow {
     height: 780,
     minWidth: 720,
     minHeight: 520,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111313" : "#f4f7f6",
+    // Run the window with a translucent, blurred native material behind the web content so the
+    // translucent-sidebar setting can reveal the desktop. The workspace paints an opaque
+    // background over the material; the sidebar surface is transparent, so when
+    // `--sidebar-surface` goes semi-transparent (+ the CSS backdrop blur) the desktop shows
+    // through the sidebar. macOS uses vibrancy, Windows 11 uses an acrylic backdrop material;
+    // both need a transparent window backgroundColor. Linux/older Windows stay opaque.
+    backgroundColor:
+      process.platform === "darwin" || process.platform === "win32"
+        ? "#00000000"
+        : nativeTheme.shouldUseDarkColors
+          ? "#111313"
+          : "#f4f7f6",
+    ...(process.platform === "darwin"
+      ? { vibrancy: "sidebar" as const, visualEffectState: "active" as const }
+      : process.platform === "win32"
+        ? { backgroundMaterial: "acrylic" as const }
+        : {}),
     show: false,
     autoHideMenuBar: true,
     ...getIconOption(),

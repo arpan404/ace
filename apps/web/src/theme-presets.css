@@ -31,7 +31,7 @@
 /* Translucent-sidebar setting: when enabled, the base/sidebar surface goes
  * semi-transparent so desktop window vibrancy shows through the sidebar. */
 :root[data-sidebar-translucent="true"] {
-  --sidebar-surface: color-mix(in oklab, var(--sidebar-solid) 72%, transparent);
+  --sidebar-surface: color-mix(in oklab, var(--sidebar-solid) 62%, transparent);
 }
 @supports (backdrop-filter: blur(1px)) {
   :root[data-sidebar-translucent="true"] body {
