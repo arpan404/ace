@@ -239,7 +239,7 @@ export const ChatViewBottomPanelContent = React.memo(function ChatViewBottomPane
 }: ChatViewBottomPanelContentProps) {
   return (
     <>
-      <div className="flex h-12 shrink-0 items-stretch bg-background shadow-[0_1px_0_color-mix(in_oklch,var(--border)_26%,transparent)]">
+      <div className="flex h-12 shrink-0 items-stretch bg-background">
         {bottomPanelBodyDeferred ? <DeferredPanelTabStripPlaceholder /> : bottomPanelTabStripNode}
       </div>
       <div

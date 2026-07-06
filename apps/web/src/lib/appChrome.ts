@@ -20,7 +20,7 @@ const APP_CHROME_HEADER_CLASS_NAME = "border-b border-border/40 bg-background";
 const APP_DOCKED_PANEL_CLASS_NAME = "bg-background";
 
 export const APP_COMPOSER_CLASS_NAME =
-  "rounded-[1.625rem] border border-border/75 bg-[color:color-mix(in_oklch,var(--popover)_94%,var(--background)_6%)] shadow-[0_10px_28px_-24px_rgb(0_0_0/.24),0_1px_0_rgb(255_255_255/.08)_inset] transition-[background-color,border-color] duration-150 supports-[backdrop-filter]:backdrop-blur-2xl supports-[backdrop-filter]:backdrop-saturate-[1.16] dark:border-border/38 dark:bg-[color:color-mix(in_oklch,var(--popover)_92%,var(--background)_8%)] dark:shadow-[0_18px_48px_-36px_rgb(0_0_0/.72),0_1px_0_rgb(255_255_255/.08)_inset]";
+  "rounded-[1.625rem] border border-border/75 bg-[color:color-mix(in_oklab,var(--background)_93%,var(--foreground)_7%)] shadow-[0_10px_28px_-24px_rgb(0_0_0/.24),0_1px_0_rgb(255_255_255/.08)_inset] transition-[background-color,border-color] duration-150 supports-[backdrop-filter]:backdrop-blur-2xl supports-[backdrop-filter]:backdrop-saturate-[1.08] dark:border-border/38 dark:bg-[color:color-mix(in_oklab,var(--background)_88%,var(--foreground)_12%)] dark:shadow-[0_18px_48px_-36px_rgb(0_0_0/.72),0_1px_0_rgb(255_255_255/.08)_inset]";
 
 export const APP_COMPOSER_HEADER_CLASS_NAME =
   "rounded-t-[calc(var(--panel-radius)-2px)] border-b border-border/40 bg-muted/25";

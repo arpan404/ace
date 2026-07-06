@@ -992,7 +992,7 @@ export function RightSidePanelTabStrip(props: RightSidePanelTabStripProps) {
   return (
     <div
       className={cn(
-        "flex h-12 min-w-0 shrink-0 items-center gap-2.5 border-b border-border/25 bg-background",
+        "flex h-12 min-w-0 shrink-0 items-center gap-2.5 bg-background",
         props.className,
       )}
     >

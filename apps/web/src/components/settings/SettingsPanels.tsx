@@ -63,7 +63,11 @@ import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
 import { useSidebarTranslucent } from "../../hooks/useSidebarTranslucent";
 import { useThemePreset } from "../../hooks/useThemePreset";
-import { THEME_PRESET_OPTIONS, type ThemePresetId } from "../../themePresets";
+import {
+  THEME_PRESET_OPTIONS,
+  type ThemePresetFamily,
+  type ThemePresetId,
+} from "../../themePresets";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
@@ -913,14 +917,78 @@ function ThemeModeCards({
   );
 }
 
-const THEME_PRESET_FAMILIES: { id: "signature" | "editor" | "accent"; label: string }[] = [
+const THEME_PRESET_FAMILIES: { id: ThemePresetFamily; label: string }[] = [
   { id: "signature", label: "Signature" },
-  { id: "editor", label: "Editor themes" },
+  { id: "editor", label: "Editor" },
   { id: "accent", label: "Accents" },
 ];
 
-/** Interactive palette grid for the color preset — each preset is a clickable chip showing
- *  its surface gradient + accent, grouped by family, with the active one marked. */
+const THEME_PRESET_FILTERS: { id: "all" | ThemePresetFamily; label: string }[] = [
+  { id: "all", label: "All" },
+  ...THEME_PRESET_FAMILIES,
+];
+
+const THEME_PRESET_FAMILY_LABELS = Object.fromEntries(
+  THEME_PRESET_FAMILIES.map((family) => [family.id, family.label]),
+) as Record<ThemePresetFamily, string>;
+
+type ThemePresetOptionView = (typeof THEME_PRESET_OPTIONS)[number];
+
+function ThemePresetSwatches({
+  preset,
+  className,
+}: {
+  preset: ThemePresetOptionView;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "grid h-3 w-28 shrink-0 grid-cols-4 overflow-hidden rounded-full border border-border/45 bg-background shadow-sm",
+        className,
+      )}
+    >
+      <span style={{ backgroundColor: preset.preview.panel }} />
+      <span style={{ backgroundColor: preset.preview.panelDeep }} />
+      <span style={{ backgroundColor: preset.preview.accentMuted }} />
+      <span style={{ backgroundColor: preset.preview.accent }} />
+    </span>
+  );
+}
+
+function ThemePresetPreview({ preset }: { preset: ThemePresetOptionView }) {
+  return (
+    <div
+      aria-hidden
+      className="relative min-h-24 overflow-hidden rounded-[1.15rem] border border-border/45 p-3 shadow-inner"
+      style={{
+        background: `linear-gradient(135deg, ${preset.preview.panelDeep}, ${preset.preview.panel})`,
+      }}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className="h-2 w-9 rounded-full" style={{ backgroundColor: preset.preview.accent }} />
+        <span className="h-2 w-5 rounded-full bg-white/18" />
+        <span className="h-2 w-12 rounded-full bg-white/12" />
+      </div>
+      <div className="mt-5 grid gap-1.5">
+        <span className="h-2.5 w-3/4 rounded-full bg-white/22" />
+        <span className="h-2.5 w-1/2 rounded-full bg-white/14" />
+      </div>
+      <div className="absolute right-3 bottom-3 flex gap-1.5">
+        <span
+          className="size-5 rounded-[0.45rem]"
+          style={{ backgroundColor: preset.preview.accentMuted }}
+        />
+        <span
+          className="size-5 rounded-[0.45rem]"
+          style={{ backgroundColor: preset.preview.accent }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function ThemePresetGrid({
   value,
   onChange,
@@ -928,62 +996,100 @@ function ThemePresetGrid({
   value: ThemePresetId;
   onChange: (id: ThemePresetId) => void;
 }) {
+  const [familyFilter, setFamilyFilter] = useState<"all" | ThemePresetFamily>("all");
+  const selectedPreset =
+    THEME_PRESET_OPTIONS.find((preset) => preset.id === value) ?? THEME_PRESET_OPTIONS[0];
+  const visiblePresets =
+    familyFilter === "all"
+      ? THEME_PRESET_OPTIONS
+      : THEME_PRESET_OPTIONS.filter((preset) => preset.family === familyFilter);
+
   return (
-    <div className="space-y-3.5">
-      {THEME_PRESET_FAMILIES.map((family) => {
-        const presets = THEME_PRESET_OPTIONS.filter((preset) => preset.family === family.id);
-        if (presets.length === 0) {
-          return null;
-        }
-        return (
-          <div key={family.id} className="space-y-1.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/45">
-              {family.label}
-            </div>
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-              {presets.map((preset) => {
-                const active = value === preset.id;
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    aria-pressed={active}
-                    aria-label={`${preset.label} palette`}
-                    title={preset.description}
-                    onClick={() => onChange(preset.id)}
-                    className={cn(
-                      "group/preset flex items-center gap-2 rounded-[0.85rem] border p-1.5 text-left transition-[border-color,background-color,box-shadow] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
-                      active
-                        ? "border-primary/60 bg-primary/[0.05] ring-1 ring-primary/15"
-                        : "border-border/50 hover:border-border hover:bg-accent/40",
-                    )}
-                  >
-                    <span
-                      aria-hidden
-                      className="flex size-7 shrink-0 items-center justify-center rounded-[0.6rem] border border-black/10 shadow-sm dark:border-white/10"
-                      style={{
-                        background: `linear-gradient(135deg, ${preset.preview.panel}, ${preset.preview.panelDeep})`,
-                      }}
-                    >
-                      <IconPalette
-                        className="size-3.5"
-                        stroke={2}
-                        style={{ color: preset.preview.accent }}
-                      />
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
-                      {preset.label}
-                    </span>
-                    {active ? (
-                      <IconCheck className="size-3.5 shrink-0 text-primary" stroke={2.5} />
-                    ) : null}
-                  </button>
-                );
-              })}
+    <div className="space-y-3">
+      <div className="grid gap-4 rounded-[1.35rem] border border-border/45 bg-foreground/[0.025] p-3.5 md:grid-cols-[minmax(0,1fr)_minmax(12rem,0.48fr)]">
+        <div className="min-w-0 self-center">
+          <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+            <IconPalette className="size-4" stroke={2} />
+            <span>{THEME_PRESET_FAMILY_LABELS[selectedPreset.family]}</span>
+          </div>
+          <div className="mt-3 flex min-w-0 items-center gap-3">
+            <ThemePresetSwatches preset={selectedPreset} />
+            <div className="min-w-0">
+              <div className="truncate text-base font-semibold text-foreground">
+                {selectedPreset.label}
+              </div>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground/75">
+                {selectedPreset.description}
+              </p>
             </div>
           </div>
-        );
-      })}
+        </div>
+        <ThemePresetPreview preset={selectedPreset} />
+      </div>
+
+      <div className="flex flex-wrap gap-1.5" aria-label="Theme preset groups">
+        {THEME_PRESET_FILTERS.map((filter) => {
+          const active = familyFilter === filter.id;
+          return (
+            <button
+              key={filter.id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setFamilyFilter(filter.id)}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-xs font-medium transition-[border-color,background-color,color] outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                active
+                  ? "border-primary/50 bg-primary/10 text-primary"
+                  : "border-border/45 bg-background/30 text-muted-foreground hover:border-border hover:bg-accent/35 hover:text-foreground",
+              )}
+            >
+              {filter.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {visiblePresets.map((preset) => {
+          const active = value === preset.id;
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              aria-pressed={active}
+              aria-label={`${preset.label} palette`}
+              title={preset.description}
+              onClick={() => onChange(preset.id)}
+              className={cn(
+                "group/preset min-w-0 rounded-[1rem] border p-3 text-left transition-[border-color,background-color,box-shadow,transform] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                active
+                  ? "border-primary/60 bg-primary/[0.06] shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_18%,transparent)]"
+                  : "border-border/40 bg-background/20 hover:-translate-y-px hover:border-border/80 hover:bg-accent/30",
+              )}
+            >
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <ThemePresetSwatches preset={preset} className="h-2.5 w-20" />
+                {active ? (
+                  <IconCheck className="size-4 shrink-0 text-primary" stroke={2.5} />
+                ) : null}
+              </div>
+              <div className="mt-3 flex min-w-0 items-center gap-2">
+                <span
+                  aria-hidden
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: preset.preview.accent }}
+                />
+                <span className="min-w-0 truncate text-[13px] font-medium text-foreground">
+                  {preset.label}
+                </span>
+              </div>
+              <div className="mt-1 text-[11px] font-medium text-muted-foreground/55">
+                {THEME_PRESET_FAMILY_LABELS[preset.family]}
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

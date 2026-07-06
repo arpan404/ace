@@ -29,12 +29,7 @@ export function ConnectionHealthPill({
   const [open, setOpen] = useState(false);
 
   if (health.kind === "healthy") {
-    return (
-      <span
-        className="inline-flex size-2 shrink-0 rounded-full bg-success/65"
-        aria-label="Connection healthy"
-      />
-    );
+    return null;
   }
 
   const Icon = health.kind === "reconnecting" ? LoaderCircleIcon : AlertCircleIcon;

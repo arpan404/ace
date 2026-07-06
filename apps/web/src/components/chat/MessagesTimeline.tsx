@@ -122,6 +122,7 @@ import { type TurnDiffSummary } from "../../types";
 import { basenameOfPath, inferEntryKindFromPath } from "../../vscode-icons";
 import ChatMarkdown from "../ChatMarkdown";
 import { Button } from "../ui/button";
+import { Marker, MarkerContent, MarkerIcon } from "../ui/marker";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel } from "./DiffStatLabel";
@@ -2860,14 +2861,12 @@ function SystemMessageTimelineRow(props: { message: SystemTimelineMessage }) {
   }
 
   return (
-    <div className="flex items-center gap-3 py-2">
-      <div className="h-px flex-1 bg-border" />
-      <div className="flex max-w-[75%] items-center gap-2 rounded-full border border-border/50 bg-muted px-3 py-1 text-[11px] text-muted-foreground">
-        <ArrowLeftRightIcon className="size-3 text-muted-foreground" />
-        <span className="wrap-break-word text-center leading-relaxed">{props.message.text}</span>
-      </div>
-      <div className="h-px flex-1 bg-border" />
-    </div>
+    <Marker variant="separator" className="py-2">
+      <MarkerIcon>
+        <ArrowLeftRightIcon />
+      </MarkerIcon>
+      <MarkerContent>{props.message.text}</MarkerContent>
+    </Marker>
   );
 }
 
@@ -4221,7 +4220,7 @@ export function SimpleWorkEntryRow(props: {
   const iconConfig = workToneIcon(workEntry.tone);
   const tone = resolveWorkEntryTone(workEntry.tone);
   const entryIcon = createElement(workEntryIcon(workEntry), {
-    className: cn("mt-1 shrink-0", "size-3.5", iconConfig.className, metaToneTextClass(tone)),
+    className: cn("shrink-0", "size-3.5", iconConfig.className, metaToneTextClass(tone)),
   });
   const heading = nonCommandWorkEntryHeading(workEntry);
   const commandIsAlreadyInHeading =
@@ -4255,155 +4254,153 @@ export function SimpleWorkEntryRow(props: {
       data-work-entry-tone={workEntry.tone}
       data-work-entry-nested={isNested ? "true" : undefined}
     >
-      <div
+      <Marker
         className={cn(
-          "flex items-start transition-[opacity,translate] duration-200",
-          isNested ? "gap-2.5" : "gap-3",
+          "text-muted-foreground/70 transition-colors duration-100",
+          isNested ? "gap-2.5 text-[12px]" : "gap-3 text-[12.5px]",
+          workEntry.tone === "thinking" && "tracking-[0.01em]",
+          hasExpandableDetail
+            ? "cursor-pointer hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none"
+            : "cursor-default",
         )}
-      >
-        {entryIcon}
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="mb-0.5 flex min-w-0 items-center gap-2">
+        render={
+          hasExpandableDetail ? (
             <button
               type="button"
-              className={cn(
-                "group/work-detail flex min-w-0 max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-5 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
-                isNested ? "text-[12px]" : "text-[12.5px]",
-                workEntry.tone === "thinking" && "tracking-[0.01em]",
-                !hasExpandableDetail && "cursor-default hover:text-muted-foreground/70",
-              )}
-              onClick={() => {
-                if (hasExpandableDetail) {
-                  props.onToggleWorkGroup(detailDisclosureKey, defaultDetailOpen);
-                }
-              }}
-              aria-expanded={hasExpandableDetail ? isDetailOpen : undefined}
-              data-work-detail-disclosure={hasExpandableDetail ? "true" : undefined}
-              data-work-detail-open={hasExpandableDetail ? String(isDetailOpen) : undefined}
-            >
-              <InlineTooltip content={displayText} className="min-w-0 truncate">
-                {heading}
-              </InlineTooltip>
-              {hasExpandableDetail && (
-                <ChevronRightIcon
-                  className={cn(
-                    "size-3.5 shrink-0 text-muted-foreground/55 transition-[color,transform] duration-200 ease-out group-hover/work-detail:text-foreground/82 group-focus-visible/work-detail:text-foreground/82 motion-reduce:transition-none",
-                    isDetailOpen && "rotate-90",
-                  )}
-                  strokeWidth={2.2}
-                />
-              )}
-            </button>
-          </div>
-          {inlineIntentText && (
-            <p
-              className="mb-1 text-[11px] leading-5 text-muted-foreground/68"
-              data-inline-intent="true"
-            >
-              <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
-                Intent
-              </span>
-              <span className="text-foreground/72">{inlineIntentText}</span>
-            </p>
-          )}
-          {detailText && workEntry.tone === "thinking" && (
-            <InlineTooltip
-              content={detailText}
-              className={cn(
-                "wrap-break-word block whitespace-pre-wrap",
-                workEntry.tone === "thinking" && isNested
-                  ? "mt-0.5 text-[11px] leading-5 text-foreground/76"
-                  : workEntry.tone === "thinking"
-                    ? "text-[11px] leading-5 text-foreground/72"
-                    : isNested
-                      ? "font-mono text-[11px] leading-5 text-muted-foreground/62"
-                      : "font-mono text-[10px] leading-5 text-muted-foreground/65",
-              )}
-            >
-              {detailText}
-            </InlineTooltip>
-          )}
-          {showDetailInline && detailText && (
-            <InlineTooltip
-              content={detailText}
-              className={cn(
-                "wrap-break-word block whitespace-pre-wrap",
-                isNested
-                  ? "font-mono text-[11px] leading-5 text-muted-foreground/62"
-                  : "font-mono text-[10px] leading-5 text-muted-foreground/65",
-              )}
-            >
-              {detailText}
-            </InlineTooltip>
-          )}
-          <TimelineDisclosureBody
-            open={isDetailOpen && hasExpandableDetail}
-            className="mt-1.5"
-            dataAttribute={{ "data-work-detail-panel": "true" }}
+              aria-label={displayText}
+              onClick={() => props.onToggleWorkGroup(detailDisclosureKey, defaultDetailOpen)}
+              aria-expanded={isDetailOpen}
+              data-work-detail-disclosure="true"
+              data-work-detail-open={String(isDetailOpen)}
+            />
+          ) : undefined
+        }
+      >
+        <MarkerIcon>{entryIcon}</MarkerIcon>
+        <MarkerContent className="truncate">
+          <InlineTooltip content={displayText} className="min-w-0 truncate">
+            {heading}
+          </InlineTooltip>
+        </MarkerContent>
+        {hasExpandableDetail && (
+          <ChevronRightIcon
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground/55 transition-transform duration-200 ease-out motion-reduce:transition-none",
+              isDetailOpen && "rotate-90",
+            )}
+            strokeWidth={2.2}
+          />
+        )}
+      </Marker>
+      <div className={cn("space-y-0.5", isNested ? "pl-[1.5rem]" : "pl-[1.625rem]")}>
+        {inlineIntentText && (
+          <p
+            className="mb-1 text-[11px] leading-5 text-muted-foreground/68"
+            data-inline-intent="true"
           >
-            <div className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "max-w-full px-3 py-2")}>
-              {detailText && (
-                <InlineTooltip
-                  content={detailText}
-                  className={cn(
-                    "wrap-break-word block whitespace-pre-wrap",
-                    workEntry.tone === "error"
-                      ? "text-[12px] leading-5 text-red-200/88"
-                      : "font-mono text-[11px] leading-5 text-muted-foreground/72",
-                  )}
-                >
-                  {detailText}
-                </InlineTooltip>
-              )}
-              {terminalOutputText && (
-                <InlineTooltip
-                  content={terminalOutputText}
-                  className="mt-1 block whitespace-pre-wrap border-l border-border/55 pl-2 font-mono text-[11px] leading-4 text-muted-foreground/72"
-                >
-                  {terminalOutputText}
-                  {workEntry.terminalOutputTruncated ? "\n... output truncated" : ""}
-                </InlineTooltip>
-              )}
-              {hasChangedFiles && (
-                <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
-                  {workEntry.changedFiles?.slice(0, 6).map((filePath) => (
-                    <InlineTooltip
-                      key={`${workEntry.id}:${filePath}`}
-                      content={filePath}
-                      className="font-mono text-[10px] text-muted-foreground/75"
-                    >
-                      {filePath}
-                    </InlineTooltip>
-                  ))}
-                  {(workEntry.changedFiles?.length ?? 0) > 6 && (
-                    <span className="px-1 text-[10px] text-muted-foreground/55">
-                      +{(workEntry.changedFiles?.length ?? 0) - 6}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          </TimelineDisclosureBody>
-        </div>
-      </div>
-      {hasChangedFiles && !previewIsChangedFiles && !hasExpandableDetail && (
-        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 pl-5.5">
-          {workEntry.changedFiles?.slice(0, 4).map((filePath) => (
-            <InlineTooltip
-              key={`${workEntry.id}:${filePath}`}
-              content={filePath}
-              className="font-mono text-[10px] text-muted-foreground/75"
-            >
-              {filePath}
-            </InlineTooltip>
-          ))}
-          {(workEntry.changedFiles?.length ?? 0) > 4 && (
-            <span className="px-1 text-[10px] text-muted-foreground/55">
-              +{(workEntry.changedFiles?.length ?? 0) - 4}
+            <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
+              Intent
             </span>
-          )}
-        </div>
-      )}
+            <span className="text-foreground/72">{inlineIntentText}</span>
+          </p>
+        )}
+        {detailText && workEntry.tone === "thinking" && (
+          <InlineTooltip
+            content={detailText}
+            className={cn(
+              "wrap-break-word block whitespace-pre-wrap",
+              workEntry.tone === "thinking" && isNested
+                ? "mt-0.5 text-[11px] leading-5 text-foreground/76"
+                : workEntry.tone === "thinking"
+                  ? "text-[11px] leading-5 text-foreground/72"
+                  : isNested
+                    ? "font-mono text-[11px] leading-5 text-muted-foreground/62"
+                    : "font-mono text-[10px] leading-5 text-muted-foreground/65",
+            )}
+          >
+            {detailText}
+          </InlineTooltip>
+        )}
+        {showDetailInline && detailText && (
+          <InlineTooltip
+            content={detailText}
+            className={cn(
+              "wrap-break-word block whitespace-pre-wrap",
+              isNested
+                ? "font-mono text-[11px] leading-5 text-muted-foreground/62"
+                : "font-mono text-[10px] leading-5 text-muted-foreground/65",
+            )}
+          >
+            {detailText}
+          </InlineTooltip>
+        )}
+        <TimelineDisclosureBody
+          open={isDetailOpen && hasExpandableDetail}
+          className="mt-1.5"
+          dataAttribute={{ "data-work-detail-panel": "true" }}
+        >
+          <div className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "max-w-full px-3 py-2")}>
+            {detailText && (
+              <InlineTooltip
+                content={detailText}
+                className={cn(
+                  "wrap-break-word block whitespace-pre-wrap",
+                  workEntry.tone === "error"
+                    ? "text-[12px] leading-5 text-red-200/88"
+                    : "font-mono text-[11px] leading-5 text-muted-foreground/72",
+                )}
+              >
+                {detailText}
+              </InlineTooltip>
+            )}
+            {terminalOutputText && (
+              <InlineTooltip
+                content={terminalOutputText}
+                className="mt-1 block whitespace-pre-wrap border-l border-border/55 pl-2 font-mono text-[11px] leading-4 text-muted-foreground/72"
+              >
+                {terminalOutputText}
+                {workEntry.terminalOutputTruncated ? "\n... output truncated" : ""}
+              </InlineTooltip>
+            )}
+            {hasChangedFiles && (
+              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
+                {workEntry.changedFiles?.slice(0, 6).map((filePath) => (
+                  <InlineTooltip
+                    key={`${workEntry.id}:${filePath}`}
+                    content={filePath}
+                    className="font-mono text-[10px] text-muted-foreground/75"
+                  >
+                    {filePath}
+                  </InlineTooltip>
+                ))}
+                {(workEntry.changedFiles?.length ?? 0) > 6 && (
+                  <span className="px-1 text-[10px] text-muted-foreground/55">
+                    +{(workEntry.changedFiles?.length ?? 0) - 6}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </TimelineDisclosureBody>
+        {hasChangedFiles && !previewIsChangedFiles && !hasExpandableDetail && (
+          <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
+            {workEntry.changedFiles?.slice(0, 4).map((filePath) => (
+              <InlineTooltip
+                key={`${workEntry.id}:${filePath}`}
+                content={filePath}
+                className="font-mono text-[10px] text-muted-foreground/75"
+              >
+                {filePath}
+              </InlineTooltip>
+            ))}
+            {(workEntry.changedFiles?.length ?? 0) > 4 && (
+              <span className="px-1 text-[10px] text-muted-foreground/55">
+                +{(workEntry.changedFiles?.length ?? 0) - 4}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

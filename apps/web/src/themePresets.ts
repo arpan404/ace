@@ -6,12 +6,13 @@ export type ThemePresetPreview = {
   accentMuted: string;
 };
 
+export type ThemePresetFamily = "signature" | "editor" | "accent";
+
 export type ThemePresetOption = {
-  id: ThemePresetId;
+  id: string;
   label: string;
   description: string;
-  /** Broad grouping shown as a section header in the picker. */
-  family: "signature" | "editor" | "accent";
+  family: ThemePresetFamily;
   preview: ThemePresetPreview;
 };
 
@@ -19,8 +20,8 @@ export type ThemePresetOption = {
  *  every other preset layers a fully re-tinted palette (surfaces, accent, semantic
  *  colors AND terminal ANSI) for both light and dark in theme-presets.css.
  *
- *  The non-Ace palettes are faithful to their namesake editor themes: dark uses the
- *  canonical colors, light is a coherent companion built from the same hues. */
+ *  Editor-family presets are readable neutral schemes. Some ids are legacy names so
+ *  saved preferences continue to resolve after palette replacements. */
 export const THEME_PRESET_OPTIONS = [
   {
     id: "ace",
@@ -61,50 +62,50 @@ export const THEME_PRESET_OPTIONS = [
   },
   {
     id: "dracula",
-    label: "Dracula",
-    description: "The iconic vampire palette — muted indigo night with a vivid purple accent.",
+    label: "OLED Black",
+    description: "True-black surfaces for OLED displays with a crisp blue focus accent.",
     family: "editor",
     preview: {
-      panel: "#282a36",
-      panelDeep: "#21222c",
-      accent: "#bd93f9",
-      accentMuted: "#9d7cd8",
+      panel: "#080808",
+      panelDeep: "#000000",
+      accent: "#8ab4ff",
+      accentMuted: "#5f86d6",
     },
   },
   {
     id: "monokai",
-    label: "Monokai",
-    description: "Warm charcoal surfaces with the classic acid-green and magenta highlights.",
+    label: "Graphite",
+    description: "Dense graphite surfaces with quiet contrast and a neutral steel accent.",
     family: "editor",
     preview: {
-      panel: "#2d2e27",
-      panelDeep: "#221f1a",
-      accent: "#a6e22e",
-      accentMuted: "#8bbf27",
+      panel: "#1d2024",
+      panelDeep: "#111317",
+      accent: "#cbd5e1",
+      accentMuted: "#94a3b8",
     },
   },
   {
     id: "solarized",
-    label: "Solarized",
-    description: "Ethan Schoonover's precision palette — teal-tinted base with a calm blue accent.",
+    label: "Paper",
+    description: "Soft paper-light surfaces and ink-dark contrast for long reading sessions.",
     family: "editor",
     preview: {
-      panel: "#073642",
-      panelDeep: "#002b36",
-      accent: "#268bd2",
-      accentMuted: "#2076b4",
+      panel: "#f8f5ef",
+      panelDeep: "#ebe7dd",
+      accent: "#52616b",
+      accentMuted: "#6b7280",
     },
   },
   {
     id: "nord",
-    label: "Nord",
-    description: "Arctic, north-bluish palette — polar-night surfaces with a frost accent.",
+    label: "Fog",
+    description: "Cool neutral grays with restrained blue-gray accents and clear hierarchy.",
     family: "editor",
     preview: {
-      panel: "#3b4252",
-      panelDeep: "#2e3440",
-      accent: "#88c0d0",
-      accentMuted: "#81a1c1",
+      panel: "#252a31",
+      panelDeep: "#171b21",
+      accent: "#9aa7b8",
+      accentMuted: "#748295",
     },
   },
   {
@@ -121,51 +122,50 @@ export const THEME_PRESET_OPTIONS = [
   },
   {
     id: "gruvbox",
-    label: "Gruvbox",
-    description: "Retro, warm and earthy — brown-charcoal surfaces with a golden accent.",
+    label: "Warm Gray",
+    description: "Low-glare warm neutrals with a readable brass accent.",
     family: "editor",
     preview: {
-      panel: "#32302f",
-      panelDeep: "#1d2021",
-      accent: "#fabd2f",
-      accentMuted: "#d79921",
+      panel: "#292724",
+      panelDeep: "#171614",
+      accent: "#d6b06d",
+      accentMuted: "#a9874f",
     },
   },
   {
     id: "tokyo-night",
-    label: "Tokyo Night",
-    description:
-      "Neon dusk over the city — deep blue-violet surfaces with a soft periwinkle accent.",
+    label: "Midnight",
+    description: "Near-black navy surfaces with high-contrast foregrounds and a calm blue accent.",
     family: "editor",
     preview: {
-      panel: "#24283b",
-      panelDeep: "#1a1b26",
-      accent: "#7aa2f7",
-      accentMuted: "#6a8de0",
+      panel: "#101624",
+      panelDeep: "#060913",
+      accent: "#93c5fd",
+      accentMuted: "#60a5fa",
     },
   },
   {
     id: "catppuccin",
-    label: "Catppuccin",
-    description: "Soothing pastel palette (Mocha) — cozy lavender-charcoal with a mauve accent.",
+    label: "Slate",
+    description: "Balanced slate surfaces with muted accents and strong text contrast.",
     family: "editor",
     preview: {
-      panel: "#1e1e2e",
-      panelDeep: "#181825",
-      accent: "#cba6f7",
-      accentMuted: "#b48ee8",
+      panel: "#172033",
+      panelDeep: "#0f172a",
+      accent: "#94a3b8",
+      accentMuted: "#64748b",
     },
   },
   {
     id: "ayu",
-    label: "Ayu",
-    description: "Crisp and modern — ink-blue surfaces with a warm amber accent.",
+    label: "Zinc",
+    description: "Sharp neutral zinc surfaces with minimal color and maximum readability.",
     family: "editor",
     preview: {
-      panel: "#1f2430",
-      panelDeep: "#0f1419",
-      accent: "#ffcc66",
-      accentMuted: "#f0b846",
+      panel: "#18181b",
+      panelDeep: "#09090b",
+      accent: "#e4e4e7",
+      accentMuted: "#a1a1aa",
     },
   },
   {

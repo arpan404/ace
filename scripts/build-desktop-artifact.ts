@@ -467,6 +467,110 @@ const MAC_SIGN_IGNORE_RESOURCE_PATTERNS = [
   "\\.pak$",
 ];
 
+function isMacNotarizationEnabled(): boolean {
+  return process.env.ACE_DESKTOP_MAC_NOTARIZE?.trim() !== "false";
+}
+
+function getRequiredEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+function formatNotarytoolFailure(output: string): string {
+  const normalizedOutput = output.replace(/\s+/g, " ").trim();
+  const agreementMissing =
+    /required agreement is missing or has expired/i.test(normalizedOutput) ||
+    /in-effect agreement/i.test(normalizedOutput);
+
+  if (agreementMissing) {
+    return [
+      "Apple notarization is blocked because the Apple Developer team has a missing or expired legal agreement.",
+      "Sign in to App Store Connect or the Apple Developer portal as an Account Holder/Admin, accept the pending agreement, then rerun the build.",
+      "notarytool output:",
+      normalizedOutput,
+    ].join("\n");
+  }
+
+  return [
+    "Apple notarization preflight failed. The macOS release cannot be built until notarytool accepts the configured credentials.",
+    "notarytool output:",
+    normalizedOutput || "(no output)",
+  ].join("\n");
+}
+
+function preflightMacNotarization(
+  options: ResolvedBuildOptions,
+): Effect.Effect<void, BuildScriptError> {
+  return Effect.gen(function* () {
+    if (options.platform !== "mac" || !options.signed || !isMacNotarizationEnabled()) {
+      return;
+    }
+
+    const appleApiKey = getRequiredEnv("APPLE_API_KEY");
+    const appleApiKeyId = getRequiredEnv("APPLE_API_KEY_ID");
+    const appleApiIssuer = getRequiredEnv("APPLE_API_ISSUER");
+    const missing = [
+      ["APPLE_API_KEY", appleApiKey],
+      ["APPLE_API_KEY_ID", appleApiKeyId],
+      ["APPLE_API_ISSUER", appleApiIssuer],
+    ]
+      .filter(([, value]) => !value)
+      .map(([name]) => name);
+
+    if (missing.length > 0) {
+      return yield* new BuildScriptError({
+        message: `Missing macOS notarization environment values: ${missing.join(", ")}.`,
+      });
+    }
+
+    const keyPath = appleApiKey!;
+    const keyId = appleApiKeyId!;
+    const issuer = appleApiIssuer!;
+
+    yield* Effect.log("[desktop-artifact] Checking Apple notarization credentials...");
+    const result = yield* Effect.try({
+      try: () =>
+        spawnSync(
+          "xcrun",
+          [
+            "notarytool",
+            "history",
+            "--key",
+            keyPath,
+            "--key-id",
+            keyId,
+            "--issuer",
+            issuer,
+            "--output-format",
+            "json",
+          ],
+          {
+            encoding: "utf8",
+            env: process.env,
+          },
+        ),
+      catch: (cause) =>
+        new BuildScriptError({
+          message: "Could not start xcrun notarytool for macOS notarization preflight.",
+          cause,
+        }),
+    });
+
+    if (result.error) {
+      return yield* new BuildScriptError({
+        message: "Could not start xcrun notarytool for macOS notarization preflight.",
+        cause: result.error,
+      });
+    }
+
+    if (result.status !== 0) {
+      return yield* new BuildScriptError({
+        message: formatNotarytoolFailure(`${result.stdout}\n${result.stderr}`),
+      });
+    }
+  });
+}
+
 function resolveGitHubPublishConfig():
   | {
       readonly provider: "github";
@@ -607,6 +711,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       message: `Unsupported platform '${options.platform}'.`,
     });
   }
+
+  yield* preflightMacNotarization(options);
 
   const electronVersion = desktopPackageJson.dependencies.electron;
 

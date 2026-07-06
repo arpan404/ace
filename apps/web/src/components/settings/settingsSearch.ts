@@ -19,7 +19,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     to: "/settings/appearance",
     title: "Color preset",
     keywords:
-      "palette accent ace dracula github nord monokai solarized xcode gruvbox tokyo catppuccin ayu",
+      "palette accent ace github xcode oled black graphite paper fog one dark warm gray midnight slate zinc neutral readable",
   },
   {
     to: "/settings/appearance",

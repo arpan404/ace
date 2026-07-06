@@ -54,8 +54,6 @@ export const ChatViewHeader = React.memo(function ChatViewHeader({
     <div
       className={cn(
         "relative flex shrink-0 items-stretch overflow-hidden bg-background transition-[max-height,opacity] duration-200 ease-out",
-        showThreadHeaderIdentity &&
-          "border-b border-border/25 after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
         isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
       )}
     >

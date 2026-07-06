@@ -7221,7 +7221,7 @@ function useChatViewComponent({
           transition={rightSidePanelLayoutTransition}
         >
           <m.div
-            className="flex h-full min-h-[44px] items-stretch overflow-hidden border-b border-border/25 bg-background [-webkit-app-region:no-drag] transform-gpu will-change-[transform,opacity]"
+            className="flex h-full min-h-[44px] items-stretch overflow-hidden bg-background [-webkit-app-region:no-drag] transform-gpu will-change-[transform,opacity]"
             style={{
               ...dockedRightSidePanelSurfaceStyle,
               transformOrigin: "right center",
@@ -7244,7 +7244,7 @@ function useChatViewComponent({
         <m.div
           key="thread-right-side-panel-fullscreen-top-bar"
           className={cn(
-            "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden border-b border-border/25 bg-background [-webkit-app-region:no-drag]",
+            "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden bg-background [-webkit-app-region:no-drag]",
             !rightSidePanelInteractive && "pointer-events-none select-none",
           )}
           initial={{ opacity: 0, y: -10 }}
