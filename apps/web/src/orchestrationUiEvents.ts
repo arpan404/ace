@@ -1,50 +1,13 @@
 import type { OrchestrationEvent } from "@ace/contracts";
 
-export type OrchestrationUiEventFlushPriority = "animation-frame" | "microtask";
-
-const IMMEDIATE_ASSISTANT_FLUSH_ID_LIMIT = 128;
+// The event router coalesces and applies all thread events once per animation frame
+// (see __root.tsx), so there is no longer a per-event "flush priority" or an
+// immediate-flush fast path — every streamed delta is paint-aligned.
 
 type ThreadActivityAppendedEvent = Extract<
   OrchestrationEvent,
   { type: "thread.activity-appended" }
 >;
-
-export function resolveOrchestrationUiEventFlushPriority(
-  event: OrchestrationEvent,
-): OrchestrationUiEventFlushPriority {
-  void event;
-  // All server-originated orchestration state is paint-aligned. User-initiated
-  // optimistic updates can still update immediately in their event handlers, but
-  // agent/runtime event bursts must not force React/Zustand to publish more often
-  // than the renderer can paint.
-  return "animation-frame";
-}
-
-export function shouldFlushOrchestrationUiEventImmediately(
-  event: OrchestrationEvent,
-  immediatelyFlushedAssistantMessageIds: Set<string>,
-): boolean {
-  if (event.type !== "thread.message-sent" || event.payload.role !== "assistant") {
-    return false;
-  }
-
-  if (!event.payload.streaming) {
-    immediatelyFlushedAssistantMessageIds.delete(event.payload.messageId);
-    return false;
-  }
-
-  if (immediatelyFlushedAssistantMessageIds.has(event.payload.messageId)) {
-    return false;
-  }
-
-  while (immediatelyFlushedAssistantMessageIds.size >= IMMEDIATE_ASSISTANT_FLUSH_ID_LIMIT) {
-    const oldest = immediatelyFlushedAssistantMessageIds.values().next().value;
-    if (oldest === undefined) break;
-    immediatelyFlushedAssistantMessageIds.delete(oldest);
-  }
-  immediatelyFlushedAssistantMessageIds.add(event.payload.messageId);
-  return true;
-}
 
 export function coalesceOrchestrationUiEvents(
   events: ReadonlyArray<OrchestrationEvent>,

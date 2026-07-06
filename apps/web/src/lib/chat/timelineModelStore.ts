@@ -478,94 +478,41 @@ function hasRenderableMessageText(message: OrchestrationMessage): boolean {
   return message.text.trim().length > 0;
 }
 
-function mergeStreamingMessageText(existingText: string, incomingText: string): string {
-  if (incomingText.length === 0) {
-    return existingText;
-  }
-  if (incomingText.startsWith(existingText)) {
-    return incomingText;
-  }
-  if (existingText.endsWith(incomingText)) {
-    return existingText;
-  }
-  return `${existingText}${incomingText}`;
-}
-
+// Streaming text is accumulated exactly once upstream (in the app store reducer), so
+// every message that reaches this store already carries its FULL text — never a delta.
+// The merge is therefore a plain freshness check: the newer update wins, and its text is
+// authoritative. This deliberately does NOT try to infer deltas, concatenate, or keep the
+// longer of two texts — those heuristics were the source of dropped completions and
+// duplicated ("come and go") streaming text.
 function chooseFreshestMessage(
   existing: OrchestrationMessage | undefined,
   incoming: OrchestrationMessage,
   connectionUrl?: string,
 ): OrchestrationMessage {
-  if (!existing) {
-    return normalizeTimelineMessage(incoming, connectionUrl);
-  }
   const normalizedIncoming = normalizeTimelineMessage(incoming, connectionUrl);
-  const updatedAtComparison = existing.updatedAt.localeCompare(incoming.updatedAt);
-  if (updatedAtComparison > 0) {
-    return existing;
-  }
-  if (
-    updatedAtComparison === 0 &&
-    existing.streaming &&
-    existing.text.length > incoming.text.length
-  ) {
-    return existing;
-  }
-  if (normalizedIncoming.streaming && existing.streaming) {
-    const attachments = mergeTimelineMessageAttachments(
-      existing.attachments,
-      normalizedIncoming.attachments,
-      connectionUrl,
-    );
-    return {
-      ...normalizedIncoming,
-      text: mergeStreamingMessageText(existing.text, normalizedIncoming.text),
-      ...(attachments && attachments.length > 0 ? { attachments } : {}),
-    };
-  }
-  if (
-    existing.role === "assistant" &&
-    normalizedIncoming.role === "assistant" &&
-    existing.text.length > normalizedIncoming.text.length &&
-    (existing.streaming ||
-      normalizedIncoming.streaming ||
-      normalizedIncoming.sequence === undefined ||
-      existing.sequence === undefined ||
-      normalizedIncoming.sequence <= existing.sequence)
-  ) {
-    const attachments = mergeTimelineMessageAttachments(
-      existing.attachments,
-      normalizedIncoming.attachments,
-      connectionUrl,
-    );
-    return {
-      ...existing,
-      streaming: normalizedIncoming.streaming,
-      updatedAt: normalizedIncoming.updatedAt,
-      ...(attachments && attachments.length > 0 ? { attachments } : {}),
-    };
-  }
-  if (!hasRenderableMessageText(normalizedIncoming) && hasRenderableMessageText(existing)) {
-    const attachments = mergeTimelineMessageAttachments(
-      existing.attachments,
-      normalizedIncoming.attachments,
-      connectionUrl,
-    );
-    return {
-      ...existing,
-      streaming: normalizedIncoming.streaming,
-      updatedAt: normalizedIncoming.updatedAt,
-      ...(attachments && attachments.length > 0 ? { attachments } : {}),
-    };
+  if (!existing) {
+    return normalizedIncoming;
   }
   const attachments = mergeTimelineMessageAttachments(
     existing.attachments,
     normalizedIncoming.attachments,
     connectionUrl,
   );
-  return attachments && attachments.length > 0
-    ? { ...normalizedIncoming, attachments }
-    : normalizedIncoming;
+  const withMergedAttachments = (message: OrchestrationMessage): OrchestrationMessage =>
+    attachments && attachments.length > 0 ? { ...message, attachments } : message;
+
+  // Reject strictly older updates so a lagging read-model snapshot can never revert
+  // newer live text.
+  if (existing.updatedAt.localeCompare(normalizedIncoming.updatedAt) > 0) {
+    return withMergedAttachments(existing);
+  }
+
+  // Incoming is same-or-newer: its full text is authoritative. Keep the existing text
+  // only when the incoming update carries none (e.g. a metadata-only re-emit).
+  const text = hasRenderableMessageText(normalizedIncoming)
+    ? normalizedIncoming.text
+    : existing.text;
+  return withMergedAttachments({ ...normalizedIncoming, text });
 }
 
 function chooseFreshestProposedPlan(

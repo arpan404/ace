@@ -10,7 +10,7 @@ import React, {
   Suspense,
   isValidElement,
   useEffect,
-  useReducer,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -87,15 +87,6 @@ interface ChatMarkdownProps {
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
-const STREAMING_REVEAL_MIN_CHARS_PER_FRAME = 4;
-const STREAMING_REVEAL_SMALL_BACKLOG_MAX_CHARS_PER_FRAME = 96;
-const STREAMING_REVEAL_MEDIUM_BACKLOG_MAX_CHARS_PER_FRAME = 256;
-const STREAMING_REVEAL_LARGE_BACKLOG_MAX_CHARS_PER_FRAME = 640;
-const STREAMING_REVEAL_MEDIUM_BACKLOG_CHAR_COUNT = 900;
-const STREAMING_REVEAL_LARGE_BACKLOG_CHAR_COUNT = 3_600;
-const STREAMING_REVEAL_BURST_RATIO = 0.18;
-const STREAMING_UPDATE_TAIL_CHAR_COUNT = 180;
-const STREAMING_UPDATE_TAIL_NEWLINE_LOOKBACK = 48;
 const MAX_HIGHLIGHT_CACHE_ENTRIES = clampCacheEntryCount(500, {
   moderateCapEntries: 320,
   constrainedCapEntries: 160,
@@ -571,75 +562,23 @@ function HighlightedShikiCodeBlock({ highlightedHtml }: { highlightedHtml: strin
   return <div className="chat-markdown-shiki">{highlightedChildren}</div>;
 }
 
-function resolveStreamingRevealCharCount(remainingCharCount: number): number {
-  const maxCharsPerFrame =
-    remainingCharCount >= STREAMING_REVEAL_LARGE_BACKLOG_CHAR_COUNT
-      ? STREAMING_REVEAL_LARGE_BACKLOG_MAX_CHARS_PER_FRAME
-      : remainingCharCount >= STREAMING_REVEAL_MEDIUM_BACKLOG_CHAR_COUNT
-        ? STREAMING_REVEAL_MEDIUM_BACKLOG_MAX_CHARS_PER_FRAME
-        : STREAMING_REVEAL_SMALL_BACKLOG_MAX_CHARS_PER_FRAME;
-
-  return Math.min(
-    remainingCharCount,
-    Math.max(
-      STREAMING_REVEAL_MIN_CHARS_PER_FRAME,
-      Math.min(maxCharsPerFrame, Math.ceil(remainingCharCount * STREAMING_REVEAL_BURST_RATIO)),
-    ),
-  );
-}
-
-function splitStreamingUpdateTail(text: string): { stableText: string; updateText: string } {
-  if (text.length <= STREAMING_UPDATE_TAIL_CHAR_COUNT) {
-    return { stableText: "", updateText: text };
-  }
-
-  const tailStart = text.length - STREAMING_UPDATE_TAIL_CHAR_COUNT;
-  const newlineTailStart = text.lastIndexOf(
-    "\n",
-    tailStart + STREAMING_UPDATE_TAIL_NEWLINE_LOOKBACK,
-  );
-  const adjustedTailStart =
-    newlineTailStart >= tailStart - STREAMING_UPDATE_TAIL_NEWLINE_LOOKBACK
-      ? newlineTailStart + 1
-      : tailStart;
-
-  return {
-    stableText: text.slice(0, adjustedTailStart),
-    updateText: text.slice(adjustedTailStart),
-  };
-}
-
 function StreamingUpdateText({
-  animateUpdates,
   className,
   dataStreamingMarkdown = false,
   text,
 }: {
-  animateUpdates: boolean;
   className: string;
   dataStreamingMarkdown?: boolean;
   text: string;
 }) {
-  if (!animateUpdates || text.length === 0) {
-    return (
-      <div
-        className={className}
-        {...(dataStreamingMarkdown ? { "data-streaming-markdown": "true" } : {})}
-      >
-        {text}
-      </div>
-    );
-  }
-
-  const { stableText, updateText } = splitStreamingUpdateTail(text);
+  // Streaming text is accumulated once upstream and committed at most once per animation
+  // frame, so we render it directly — no per-character reveal, no trailing "wash" span.
   return (
     <div
       className={className}
-      data-chat-streaming-update-text="true"
       {...(dataStreamingMarkdown ? { "data-streaming-markdown": "true" } : {})}
     >
-      {stableText}
-      <span className="chat-markdown-streaming-update">{updateText}</span>
+      {text}
     </div>
   );
 }
@@ -647,7 +586,6 @@ function StreamingUpdateText({
 function StreamingMarkdownText({ text }: { text: string }) {
   return (
     <StreamingUpdateText
-      animateUpdates
       className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
       dataStreamingMarkdown
       text={text}
@@ -655,106 +593,9 @@ function StreamingMarkdownText({ text }: { text: string }) {
   );
 }
 
-function useSmoothStreamingText(
-  text: string,
-  isStreaming: boolean,
-  onDisplayTextChange?: () => void,
-): string {
-  const [displayText, dispatchDisplayText] = useReducer(
-    (_current: string, nextText: string) => nextText,
-    text,
-  );
-  const displayTextRef = useRef(text);
-  const targetTextRef = useRef(text);
-  const frameRef = useRef<number | null>(null);
-  const onDisplayTextChangeRef = useRef(onDisplayTextChange);
-
-  useEffect(() => {
-    displayTextRef.current = displayText;
-  }, [displayText]);
-
-  useEffect(() => {
-    onDisplayTextChangeRef.current = onDisplayTextChange;
-  }, [onDisplayTextChange]);
-
-  useEffect(() => {
-    if (
-      !isStreaming ||
-      typeof window === "undefined" ||
-      typeof window.requestAnimationFrame !== "function"
-    ) {
-      targetTextRef.current = text;
-      displayTextRef.current = text;
-      return;
-    }
-
-    targetTextRef.current = text;
-
-    if (!text.startsWith(displayTextRef.current)) {
-      displayTextRef.current = text;
-      dispatchDisplayText(text);
-      onDisplayTextChangeRef.current?.();
-      return;
-    }
-
-    if (frameRef.current !== null) {
-      return;
-    }
-
-    const revealNextFrame = () => {
-      frameRef.current = null;
-      const currentText = displayTextRef.current;
-      const targetText = targetTextRef.current;
-
-      if (currentText === targetText) {
-        return;
-      }
-
-      const remainingCharCount = targetText.length - currentText.length;
-      if (remainingCharCount <= 0 || !targetText.startsWith(currentText)) {
-        displayTextRef.current = targetText;
-        dispatchDisplayText(targetText);
-        onDisplayTextChangeRef.current?.();
-        return;
-      }
-
-      const revealCharCount = resolveStreamingRevealCharCount(remainingCharCount);
-      const nextText = targetText.slice(0, currentText.length + revealCharCount);
-      displayTextRef.current = nextText;
-      dispatchDisplayText(nextText);
-      onDisplayTextChangeRef.current?.();
-
-      if (nextText !== targetText) {
-        frameRef.current = window.requestAnimationFrame(revealNextFrame);
-      }
-    };
-
-    frameRef.current = window.requestAnimationFrame(revealNextFrame);
-
-    return () => {
-      if (frameRef.current !== null) {
-        window.cancelAnimationFrame(frameRef.current);
-        frameRef.current = null;
-      }
-    };
-  }, [isStreaming, text]);
-
-  return isStreaming ? displayText : text;
-}
-
-function buildStreamingUpdateAnimationKey(text: string): string {
-  const lastCharCode = text.length > 0 ? text.charCodeAt(text.length - 1) : 0;
-  return `${text.length}:${lastCharCode}`;
-}
-
-function StreamingUpdateWash({ animationKey }: { animationKey: string }) {
-  return <span key={animationKey} aria-hidden="true" className="chat-markdown-update-wash" />;
-}
-
 function PlainMarkdownText({ text, isStreaming = false }: { text: string; isStreaming?: boolean }) {
   return (
     <StreamingUpdateText
-      animateUpdates={isStreaming}
       className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
       dataStreamingMarkdown={isStreaming}
       text={text}
@@ -799,11 +640,9 @@ function MarkdownBody({
 
 function PreviewTextPanel({
   text,
-  animateUpdates = false,
   dataAttribute,
 }: {
   text: string;
-  animateUpdates?: boolean;
   dataAttribute?: "data-streaming-markdown" | "data-large-markdown-preview";
 }) {
   return (
@@ -812,7 +651,6 @@ function PreviewTextPanel({
       {...(dataAttribute ? { [dataAttribute]: "true" } : {})}
     >
       <StreamingUpdateText
-        animateUpdates={animateUpdates}
         className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
         text={text}
       />
@@ -847,7 +685,7 @@ function StreamingMarkdownPreview({
         </span>{" "}
         lines while the response streams.
       </p>
-      <PreviewTextPanel text={text} animateUpdates />
+      <PreviewTextPanel text={text} />
     </div>
   );
 }
@@ -978,8 +816,18 @@ function ChatMarkdown({
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
-  const displayText = useSmoothStreamingText(text, isStreaming, onLayoutChange);
-  const streamingUpdateAnimationKey = buildStreamingUpdateAnimationKey(text);
+  // Render committed text directly. Upstream the store commits streamed deltas at most
+  // once per animation frame, so this component naturally re-renders at most once per
+  // frame while streaming — no separate char-by-char reveal loop is needed.
+  const displayText = text;
+  // Notify the timeline when streamed text grows so it can keep the view pinned to bottom.
+  // This reacts to external streamed-text growth (not a user event), and runs in a layout
+  // effect so the scroll adjustment happens before the browser paints the new content.
+  useLayoutEffect(() => {
+    if (isStreaming) {
+      onLayoutChange?.();
+    }
+  }, [isStreaming, text, onLayoutChange]);
   const {
     markdownRenderAnalysis,
     shouldFastPathPlainText,
@@ -1183,7 +1031,7 @@ function ChatMarkdown({
   }, [onLayoutChange, shouldObserveLayout]);
 
   const content = renderPlainText ? (
-    <PreviewTextPanel text={displayText} animateUpdates={isStreaming} />
+    <PreviewTextPanel text={displayText} />
   ) : markdownRenderAnalysis.usesStreamingPreview && streamingTextState ? (
     <StreamingMarkdownPreview text={displayText} streamingTextState={streamingTextState} />
   ) : useLargePreview ? (
@@ -1214,9 +1062,12 @@ function ChatMarkdown({
       data-chat-markdown-live={isStreaming ? "true" : undefined}
     >
       {content}
-      {isStreaming && <StreamingUpdateWash animationKey={streamingUpdateAnimationKey} />}
     </div>
   );
 }
 
+// React Compiler auto-memoizes this component on its props, so an unrelated parent
+// re-render (e.g. another row streaming) does not re-render an unchanged message — no
+// manual memo() needed. While streaming, `text` changes at most once per animation frame
+// (the store commits deltas paint-aligned), so this re-renders at most once per frame.
 export default ChatMarkdown;

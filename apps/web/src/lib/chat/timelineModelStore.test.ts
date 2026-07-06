@@ -750,9 +750,13 @@ describe("timelineModelStore", () => {
     });
   });
 
-  it("appends streaming assistant deltas for the same live row", async () => {
+  it("takes the newest full text for a live row without concatenating or keeping the longer text", async () => {
     const { primeLiveTimelineRow } = await import("./timelineModelStore");
 
+    // Streaming text is accumulated once upstream, so this store always receives the FULL
+    // message text — never a delta. The newest update therefore replaces the previous one
+    // wholesale, even when it is shorter (e.g. a same-turn correction). It must never
+    // concatenate ("Hello worldHi") or keep the longer stale text ("Hello world").
     primeLiveTimelineRow(
       {
         threadId,
@@ -767,7 +771,7 @@ describe("timelineModelStore", () => {
         message: {
           id: messageId,
           role: "assistant",
-          text: "Hel",
+          text: "Hello world",
           turnId,
           streaming: true,
           sequence: 1,
@@ -791,7 +795,7 @@ describe("timelineModelStore", () => {
         message: {
           id: messageId,
           role: "assistant",
-          text: "lo",
+          text: "Hi",
           turnId,
           streaming: true,
           sequence: 2,
@@ -803,7 +807,7 @@ describe("timelineModelStore", () => {
     );
 
     expect(readTimelineRowsProjection(threadId).messages[0]).toMatchObject({
-      text: "Hello",
+      text: "Hi",
       streaming: true,
     });
   });
@@ -1577,7 +1581,7 @@ describe("timelineModelStore", () => {
     ]);
   });
 
-  it("does not shrink live assistant text when a shorter final update arrives", async () => {
+  it("replaces live assistant text with the authoritative final update", async () => {
     vi.useFakeTimers();
     const { primeLiveTimelineRow } = await import("./timelineModelStore");
 
@@ -1604,6 +1608,10 @@ describe("timelineModelStore", () => {
     });
     await vi.advanceTimersByTimeAsync(16);
 
+    // The final (streaming:false) update is the authoritative full text. Because streaming
+    // text is accumulated once upstream, the completion carries the true final text and
+    // must replace the live text — even if shorter. The old "keep the longer text"
+    // heuristic silently dropped legitimate completions ("come and go" text).
     primeLiveTimelineRow({
       threadId,
       updatedAt: "2026-01-01T00:00:03.000Z",
@@ -1617,7 +1625,7 @@ describe("timelineModelStore", () => {
       message: {
         id: messageId,
         role: "assistant",
-        text: "I checked",
+        text: "I checked.",
         turnId,
         streaming: false,
         sequence: 3,
@@ -1628,7 +1636,7 @@ describe("timelineModelStore", () => {
     await vi.advanceTimersByTimeAsync(16);
 
     expect(readTimelineRowsProjection(threadId).messages[0]).toMatchObject({
-      text: "I checked contracts and adapters.",
+      text: "I checked.",
       streaming: false,
     });
   });

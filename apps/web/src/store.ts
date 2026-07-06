@@ -2076,10 +2076,27 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
 
     case "thread.message-sent": {
       const connectionUrl = resolveConnectionForThreadId(event.payload.threadId);
+      // Accumulate streaming text exactly once, here at the single ingestion point.
+      // During streaming `event.payload.text` is a delta; on completion it is the full
+      // authoritative text. We resolve the full text up front so every downstream store
+      // (this app store AND the timeline model store) is fed the same full text and can
+      // never disagree — no store re-guesses whether a payload is a delta or a replace.
+      const existingMessageForText = getThreadByIdFromState(
+        state,
+        event.payload.threadId,
+      )?.messages.find((entry) => entry.id === event.payload.messageId);
+      const previousFullText = existingMessageForText
+        ? getChatMessageFullText(existingMessageForText)
+        : "";
+      const accumulatedText = event.payload.streaming
+        ? `${previousFullText}${event.payload.text}`
+        : event.payload.text.length > 0
+          ? event.payload.text
+          : previousFullText;
       const orchestrationMessage = {
         id: event.payload.messageId,
         role: event.payload.role,
-        text: event.payload.text,
+        text: accumulatedText,
         ...(event.payload.attachments !== undefined
           ? { attachments: event.payload.attachments }
           : {}),

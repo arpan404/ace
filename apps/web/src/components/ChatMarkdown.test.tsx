@@ -45,7 +45,7 @@ describe("ChatMarkdown", () => {
     expect(markup).toContain("<li>item</li>");
   });
 
-  it("animates streaming text updates without rendering a cursor", () => {
+  it("renders streaming text on commit without a reveal animation or cursor", () => {
     const markup = renderToStaticMarkup(
       <ChatMarkdown
         text="Plain assistant response that is still arriving in chunks from the provider."
@@ -55,8 +55,15 @@ describe("ChatMarkdown", () => {
       />,
     );
 
-    expect(markup).toContain('data-chat-streaming-update-text="true"');
-    expect(markup).toContain("chat-markdown-streaming-update");
+    // Streaming text is committed once per animation frame upstream, so it renders
+    // directly: no per-character reveal span, no trailing "wash", no cursor.
+    expect(markup).toContain('data-chat-markdown-live="true"');
+    expect(markup).toContain(
+      "Plain assistant response that is still arriving in chunks from the provider.",
+    );
+    expect(markup).not.toContain("data-chat-streaming-update-text");
+    expect(markup).not.toContain("chat-markdown-streaming-update");
+    expect(markup).not.toContain("chat-markdown-update-wash");
     expect(markup).not.toContain("chat-markdown-live-cursor");
   });
 

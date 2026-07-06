@@ -41,10 +41,7 @@ import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import { deriveOrchestrationBatchEffects } from "../orchestrationEventEffects";
-import {
-  coalesceOrchestrationUiEvents,
-  shouldFlushOrchestrationUiEventImmediately,
-} from "../orchestrationUiEvents";
+import { coalesceOrchestrationUiEvents } from "../orchestrationUiEvents";
 import { resetWsRpcClient } from "../wsRpcClient";
 import { clearThreadHydrationCache } from "../lib/threadHydrationCache";
 import { getRouteRpcClient, subscribeToRemoteRelayConnectionState } from "../lib/remoteWsRouter";
@@ -585,7 +582,6 @@ function useScopedEventRouterLifecycle() {
     let threadUiFlushHandle: number | null = null;
     let catchupTimeoutHandle: number | null = null;
     let reconnectReplayRetryHandle: number | null = null;
-    const immediatelyFlushedAssistantMessageIds = new Set<string>();
     let replayInFlight = false;
     let bootstrapReplayInFlight = false;
     let reconnectReplayRequired = false;
@@ -617,34 +613,29 @@ function useScopedEventRouterLifecycle() {
       pendingThreadUiEvents = [];
       applyThreadEvents(events);
     };
+    const cancelThreadUiFlush = () => {
+      if (threadUiFlushHandle !== null) {
+        window.cancelAnimationFrame(threadUiFlushHandle);
+        threadUiFlushHandle = null;
+      }
+    };
+    // The UI store is paint-aligned: every server-originated thread event is
+    // coalesced and published at most once per animation frame. Nothing forces
+    // React/Zustand to commit faster than the renderer can paint.
     const scheduleThreadUiFlush = () => {
       if (threadUiFlushHandle !== null) {
         return;
       }
-      threadUiFlushHandle = window.setTimeout(
-        flushThreadUiEvents,
-        BACKGROUND_DOMAIN_EVENT_FLUSH_DELAY_MS,
-      );
+      threadUiFlushHandle = window.requestAnimationFrame(flushThreadUiEvents);
     };
     const queueThreadUiEvent = (event: OrchestrationEvent) => {
       if (pendingThreadUiEvents.length >= PENDING_THREAD_EVENT_BUFFER_LIMIT) {
-        if (threadUiFlushHandle !== null) {
-          window.clearTimeout(threadUiFlushHandle);
-          threadUiFlushHandle = null;
-        }
+        // Burst safety valve: a backlog larger than the buffer limit is drained
+        // immediately rather than waiting for the next frame.
+        cancelThreadUiFlush();
         flushThreadUiEvents();
       }
       pendingThreadUiEvents.push(event);
-      if (
-        shouldFlushOrchestrationUiEventImmediately(event, immediatelyFlushedAssistantMessageIds)
-      ) {
-        if (threadUiFlushHandle !== null) {
-          window.clearTimeout(threadUiFlushHandle);
-          threadUiFlushHandle = null;
-        }
-        flushThreadUiEvents();
-        return;
-      }
       scheduleThreadUiFlush();
     };
     const replayThreadEvents = async () => {
@@ -826,10 +817,7 @@ function useScopedEventRouterLifecycle() {
         pendingThreadUiEvents = [];
         threadLatestSequenceById.delete(threadId);
         clearCatchupTimeout();
-        if (threadUiFlushHandle !== null) {
-          window.clearTimeout(threadUiFlushHandle);
-          threadUiFlushHandle = null;
-        }
+        cancelThreadUiFlush();
         return;
       }
       if (state.kind === "connected" || state.kind === "reconnected") {
@@ -881,9 +869,7 @@ function useScopedEventRouterLifecycle() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       pendingThreadEvents = [];
       pendingThreadUiEvents = [];
-      if (threadUiFlushHandle !== null) {
-        window.clearTimeout(threadUiFlushHandle);
-      }
+      cancelThreadUiFlush();
       if (reconnectReplayRetryHandle !== null) {
         window.clearTimeout(reconnectReplayRetryHandle);
       }
