@@ -2448,8 +2448,8 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
             >
               <div className="mt-3 space-y-3">
                 <div className="py-2">
-                  <div className="flex flex-col gap-2">
-                    <div className="relative min-w-0">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="relative min-w-0 sm:flex-1">
                       <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
                       <SettingsInput
                         className="w-full pl-8"
@@ -2486,7 +2486,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     >
                       <SelectTrigger
                         size="sm"
-                        className={SETTINGS_SELECT_TRIGGER_CLASS}
+                        className={cn(SETTINGS_SELECT_TRIGGER_CLASS, "sm:w-48 sm:shrink-0")}
                         aria-label="Language server category filter"
                       >
                         <SelectValue>{lspCatalogCategoryLabel}</SelectValue>
@@ -2505,48 +2505,64 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   </div>
                 </div>
 
-                <div>
+                <div className="overflow-hidden rounded-[1rem] border border-border/40">
                   {filteredLspCatalogTools.length === 0 ? (
-                    <div className="px-4 py-8 text-center text-sm text-muted-foreground/62">
+                    <div className="px-4 py-10 text-center text-sm text-muted-foreground/55">
                       No language servers match this filter.
                     </div>
                   ) : (
-                    <div className="space-y-1">
+                    <div className="divide-y divide-border/35">
                       {filteredLspCatalogTools.map((tool) => {
                         const isWorking = isInstallingCustomLsp && lspInstallTargetId === tool.id;
                         const versionLabel = resolveLspToolVersionLabel(tool);
                         return (
                           <div
                             key={tool.id}
-                            className={cn(SETTINGS_LIST_ROW_CLASS_NAME, "flex items-center gap-3")}
+                            className="group/lsp flex items-center gap-2.5 px-3.5 py-2.5 transition-colors hover:bg-accent/30"
                           >
-                            <div className="flex min-w-0 flex-1 items-baseline gap-2">
-                              <span className="truncate text-[13px] font-medium text-foreground">
-                                {tool.label}
-                              </span>
-                              <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                            <span
+                              aria-hidden
+                              className={cn(
+                                "size-1.5 shrink-0 rounded-full",
+                                tool.installed ? "bg-[var(--success)]" : "bg-muted-foreground/25",
+                              )}
+                            />
+                            <span className="truncate text-[13px] font-medium text-foreground">
+                              {tool.label}
+                            </span>
+                            {versionLabel ? (
+                              <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground/55">
                                 {versionLabel}
                               </span>
-                            </div>
-                            <Button
-                              size="sm"
-                              variant={tool.installed ? "outline" : "default"}
-                              onClick={() =>
-                                tool.installed
-                                  ? uninstallCatalogTool(tool)
-                                  : installCatalogTool(tool)
-                              }
-                              disabled={isInstallingCustomLsp}
-                              className="shrink-0"
-                            >
-                              {isWorking
-                                ? tool.installed
-                                  ? "Uninstalling..."
-                                  : "Installing..."
-                                : tool.installed
-                                  ? "Uninstall"
-                                  : "Install"}
-                            </Button>
+                            ) : null}
+                            <span className="min-w-2 flex-1" />
+                            {tool.installed ? (
+                              <div className="flex shrink-0 items-center gap-2.5">
+                                <span className="flex items-center gap-1 text-[11px] font-medium text-[var(--success)]">
+                                  <IconCheck className="size-3.5" stroke={2.5} />
+                                  Installed
+                                </span>
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  onClick={() => uninstallCatalogTool(tool)}
+                                  disabled={isInstallingCustomLsp}
+                                  className="text-muted-foreground/55 opacity-0 transition-opacity group-hover/lsp:opacity-100 hover:text-destructive"
+                                >
+                                  {isWorking ? "Removing…" : "Remove"}
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => installCatalogTool(tool)}
+                                disabled={isInstallingCustomLsp}
+                                className="shrink-0 text-primary"
+                              >
+                                {isWorking ? "Installing…" : "Install"}
+                              </Button>
+                            )}
                           </div>
                         );
                       })}
