@@ -14,7 +14,12 @@ import {
   Trash2Icon,
   WrenchIcon,
 } from "lucide-react";
-import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2, IconPalette } from "@tabler/icons-react";
+import {
+  IconArrowsDiagonal,
+  IconArrowsDiagonalMinimize2,
+  IconCheck,
+  IconPalette,
+} from "@tabler/icons-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useReducer, useRef, useState } from "react";
@@ -58,7 +63,7 @@ import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
 import { useSidebarTranslucent } from "../../hooks/useSidebarTranslucent";
 import { useThemePreset } from "../../hooks/useThemePreset";
-import { THEME_PRESET_OPTIONS, type ThemePresetPreview } from "../../themePresets";
+import { THEME_PRESET_OPTIONS, type ThemePresetId } from "../../themePresets";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
@@ -144,22 +149,6 @@ import {
 } from "./SettingsPanelPrimitives";
 import { getProviderSummary, getProviderVersionLabel } from "./providerSummary";
 import { applyProvidersUpdated, useServerProviders } from "../../rpc/serverState";
-
-/** Palette chip used in the color-preset picker (trigger + items): the preset's gradient
- *  surface with a palette glyph tinted in its accent. */
-function ThemePresetSwatch({ preview }: { preview: ThemePresetPreview }) {
-  return (
-    <span
-      aria-hidden
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[0.62rem] border border-black/10 shadow-sm dark:border-white/10"
-      style={{
-        background: `linear-gradient(135deg, ${preview.panel}, ${preview.panelDeep})`,
-      }}
-    >
-      <IconPalette className="size-3.5" stroke={2} style={{ color: preview.accent }} />
-    </span>
-  );
-}
 
 const UI_FONT_FAMILY_OPTIONS: { value: UiFontFamily; label: string }[] = [
   { value: "plus-jakarta", label: "Plus Jakarta Sans" },
@@ -923,12 +912,86 @@ function ThemeModeCards({
   );
 }
 
+const THEME_PRESET_FAMILIES: { id: "signature" | "editor" | "accent"; label: string }[] = [
+  { id: "signature", label: "Signature" },
+  { id: "editor", label: "Editor themes" },
+  { id: "accent", label: "Accents" },
+];
+
+/** Interactive palette grid for the color preset — each preset is a clickable chip showing
+ *  its surface gradient + accent, grouped by family, with the active one marked. */
+function ThemePresetGrid({
+  value,
+  onChange,
+}: {
+  value: ThemePresetId;
+  onChange: (id: ThemePresetId) => void;
+}) {
+  return (
+    <div className="space-y-3.5">
+      {THEME_PRESET_FAMILIES.map((family) => {
+        const presets = THEME_PRESET_OPTIONS.filter((preset) => preset.family === family.id);
+        if (presets.length === 0) {
+          return null;
+        }
+        return (
+          <div key={family.id} className="space-y-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/45">
+              {family.label}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+              {presets.map((preset) => {
+                const active = value === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    aria-pressed={active}
+                    aria-label={`${preset.label} palette`}
+                    title={preset.description}
+                    onClick={() => onChange(preset.id)}
+                    className={cn(
+                      "group/preset flex items-center gap-2 rounded-[0.85rem] border p-1.5 text-left transition-[border-color,background-color,box-shadow] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                      active
+                        ? "border-primary/60 bg-primary/[0.05] ring-1 ring-primary/15"
+                        : "border-border/50 hover:border-border hover:bg-accent/40",
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className="flex size-7 shrink-0 items-center justify-center rounded-[0.6rem] border border-black/10 shadow-sm dark:border-white/10"
+                      style={{
+                        background: `linear-gradient(135deg, ${preset.preview.panel}, ${preset.preview.panelDeep})`,
+                      }}
+                    >
+                      <IconPalette
+                        className="size-3.5"
+                        stroke={2}
+                        style={{ color: preset.preview.accent }}
+                      />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
+                      {preset.label}
+                    </span>
+                    {active ? (
+                      <IconCheck className="size-3.5 shrink-0 text-primary" stroke={2.5} />
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
   const { preset, setPreset } = useThemePreset();
   const { translucent: sidebarTranslucent, setTranslucent: setSidebarTranslucent } =
     useSidebarTranslucent();
-  const activePreset = THEME_PRESET_OPTIONS.find((option) => option.id === preset);
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const [notificationState, dispatchNotificationState] = useReducer(
@@ -1537,53 +1600,22 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               <ThemeModeCards value={theme} onChange={setTheme} />
             </div>
 
-            <SettingsRow
-              title="Color preset"
-              description="Palette for surfaces and accents. Applies in both light and dark."
-              resetAction={
-                preset !== "ace" ? (
+            <div className="py-3.5">
+              <div className="mb-2.5 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[13px] font-medium leading-snug text-foreground">
+                    Color preset
+                  </div>
+                  <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground/70">
+                    Palette for surfaces and accents. Applies in both light and dark.
+                  </p>
+                </div>
+                {preset !== "ace" ? (
                   <SettingResetButton label="color preset" onClick={() => setPreset("ace")} />
-                ) : null
-              }
-              control={
-                <Select
-                  value={preset}
-                  onValueChange={(value) => {
-                    const match = THEME_PRESET_OPTIONS.find((option) => option.id === value);
-                    if (match) {
-                      setPreset(match.id);
-                    }
-                  }}
-                >
-                  <SelectTrigger
-                    className={SETTINGS_SELECT_TRIGGER_CLASS}
-                    aria-label="Color preset"
-                  >
-                    <SelectValue>
-                      <span className="flex items-center gap-2">
-                        {activePreset ? <ThemePresetSwatch preview={activePreset.preview} /> : null}
-                        <span>{activePreset?.label ?? "Ace"}</span>
-                      </span>
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end" alignItemWithTrigger={false}>
-                    {THEME_PRESET_OPTIONS.map((option) => (
-                      <SelectItem hideIndicator key={option.id} value={option.id}>
-                        <span className="flex items-center gap-2.5">
-                          <ThemePresetSwatch preview={option.preview} />
-                          <span className="flex flex-col gap-0.5">
-                            <span className="text-sm leading-none">{option.label}</span>
-                            <span className="text-muted-foreground text-xs leading-tight">
-                              {option.description}
-                            </span>
-                          </span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              }
-            />
+                ) : null}
+              </div>
+              <ThemePresetGrid value={preset} onChange={setPreset} />
+            </div>
           </SettingsSection>
 
           <SettingsSection
