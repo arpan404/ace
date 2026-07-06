@@ -749,10 +749,10 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
       className={cn(
         "relative flex min-w-0 w-full flex-1 flex-col",
         APP_SHELL_CLASS_NAME,
-        // Round the left edge only while the sidebar is open (so it reads as an inset card next
-        // to the sidebar). When the sidebar is collapsed the content goes full-bleed with a
-        // square left edge instead of leaving a floating rounded corner against the window.
-        "md:overflow-hidden md:peer-data-[state=expanded]:rounded-l-[1.25rem]",
+        // Inset the content as a floating panel: a consistent left margin + rounded left edge
+        // in both states, so there's the same left gap whether the sidebar is open (gap from
+        // the sidebar) or collapsed (gap from the window edge).
+        "md:ms-2 md:overflow-hidden md:rounded-l-[1.25rem]",
         "md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-2 md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ms-0 md:peer-data-[variant=inset]:rounded-xl",
         className,
       )}
