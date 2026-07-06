@@ -31,7 +31,7 @@
 /* Translucent-sidebar setting: when enabled, the base/sidebar surface goes
  * semi-transparent so desktop window vibrancy shows through the sidebar. */
 :root[data-sidebar-translucent="true"] {
-  --sidebar-surface: color-mix(in oklab, var(--sidebar-solid) 10%, transparent);
+  --sidebar-surface: color-mix(in oklab, var(--sidebar-solid) 30%, transparent);
 }
 /* html, body, and #root all paint --sidebar-surface; when translucent, three stacked
  * semi-transparent layers would compound back to near-opaque. Keep a single translucent
@@ -1285,7 +1285,7 @@
   --info-foreground: #1d4ed8;
 }
 .dark[data-theme-preset="dracula"] {
-  --sidebar-solid: #000000;
+  --sidebar-solid: #050505;
   --sidebar-accent: #0d0d0d;
   --background: #000000;
   --card: #080808;
@@ -1313,7 +1313,7 @@
   --info-foreground: #334155;
 }
 .dark[data-theme-preset="monokai"] {
-  --sidebar-solid: #111317;
+  --sidebar-solid: #0c0e11;
   --background: #111317;
   --card: #1d2024;
   --popover: #24282e;
@@ -1342,7 +1342,7 @@
   --info-foreground: #3f4b54;
 }
 .dark[data-theme-preset="solarized"] {
-  --sidebar-solid: #11100e;
+  --sidebar-solid: #0e0d0b;
   --background: #151411;
   --card: #211f1b;
   --popover: #28251f;
@@ -1367,7 +1367,7 @@
   --info-foreground: #475569;
 }
 .dark[data-theme-preset="nord"] {
-  --sidebar-solid: #171b21;
+  --sidebar-solid: #11151a;
   --background: #171b21;
   --card: #252a31;
   --popover: #2c323a;
@@ -1395,7 +1395,7 @@
   --info-foreground: #6f5428;
 }
 .dark[data-theme-preset="gruvbox"] {
-  --sidebar-solid: #171614;
+  --sidebar-solid: #11100e;
   --background: #171614;
   --card: #292724;
   --popover: #302d29;
@@ -1420,7 +1420,7 @@
   --info-foreground: #1d4ed8;
 }
 .dark[data-theme-preset="tokyo-night"] {
-  --sidebar-solid: #060913;
+  --sidebar-solid: #02050d;
   --background: #060913;
   --card: #101624;
   --popover: #151d2e;
@@ -1445,7 +1445,7 @@
   --info-foreground: #334155;
 }
 .dark[data-theme-preset="catppuccin"] {
-  --sidebar-solid: #0f172a;
+  --sidebar-solid: #0a1020;
   --background: #0f172a;
   --card: #172033;
   --popover: #1d2940;
@@ -1470,7 +1470,7 @@
   --info-foreground: #27272a;
 }
 .dark[data-theme-preset="ayu"] {
-  --sidebar-solid: #09090b;
+  --sidebar-solid: #050507;
   --background: #09090b;
   --card: #18181b;
   --popover: #202024;
