@@ -56,6 +56,7 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
+import { useSidebarTranslucent } from "../../hooks/useSidebarTranslucent";
 import { useThemePreset } from "../../hooks/useThemePreset";
 import { THEME_PRESET_OPTIONS, type ThemePresetPreview } from "../../themePresets";
 import { useStableCallback } from "../../hooks/useStableCallback";
@@ -851,6 +852,8 @@ type SettingsPanelPage =
 function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
   const { preset, setPreset } = useThemePreset();
+  const { translucent: sidebarTranslucent, setTranslucent: setSidebarTranslucent } =
+    useSidebarTranslucent();
   const activePreset = THEME_PRESET_OPTIONS.find((option) => option.id === preset);
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
@@ -1492,8 +1495,8 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               title="Color preset"
               description="Palette for surfaces and accents. Applies in both light and dark."
               resetAction={
-                preset !== "neutral" ? (
-                  <SettingResetButton label="color preset" onClick={() => setPreset("neutral")} />
+                preset !== "ace" ? (
+                  <SettingResetButton label="color preset" onClick={() => setPreset("ace")} />
                 ) : null
               }
               control={
@@ -1513,7 +1516,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     <SelectValue>
                       <span className="flex items-center gap-2">
                         {activePreset ? <ThemePresetSwatch preview={activePreset.preview} /> : null}
-                        <span>{activePreset?.label ?? "Neutral"}</span>
+                        <span>{activePreset?.label ?? "Ace"}</span>
                       </span>
                     </SelectValue>
                   </SelectTrigger>
@@ -1533,6 +1536,26 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     ))}
                   </SelectPopup>
                 </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Translucent sidebar"
+              description="Let the sidebar surface go semi-transparent so the desktop shows through."
+              resetAction={
+                sidebarTranslucent ? (
+                  <SettingResetButton
+                    label="translucent sidebar"
+                    onClick={() => setSidebarTranslucent(false)}
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={sidebarTranslucent}
+                  onCheckedChange={(checked) => setSidebarTranslucent(checked === true)}
+                  aria-label="Translucent sidebar"
+                />
               }
             />
 

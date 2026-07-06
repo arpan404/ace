@@ -35,10 +35,10 @@
   --color-background: var(--background);
   --color-terminal: var(--terminal-surface);
   --color-sidebar: var(--sidebar-surface);
-  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
-  --color-sidebar-border: hsl(var(--sidebar-border));
-  --color-sidebar-accent: hsl(var(--sidebar-accent));
-  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -144,10 +144,10 @@
         180deg,
         transparent 0,
         transparent calc(100% - 4.7rem),
-        color-mix(in oklch, var(--popover) 88%, var(--background) 12%) calc(100% - 4.7rem),
-        color-mix(in oklch, var(--card) 88%, var(--background) 12%) 100%
+        color-mix(in oklab, var(--popover) 88%, var(--background) 12%) calc(100% - 4.7rem),
+        color-mix(in oklab, var(--card) 88%, var(--background) 12%) 100%
       ),
-      color-mix(in oklch, var(--card) 90%, var(--background) 10%);
+      color-mix(in oklab, var(--card) 90%, var(--background) 10%);
     box-shadow: 0 26px 70px -54px oklch(0 0 0 / 0.76);
     overflow: visible;
   }
@@ -158,10 +158,10 @@
         180deg,
         transparent 0,
         transparent calc(100% - 4.7rem),
-        color-mix(in oklch, var(--popover) 80%, var(--background) 20%) calc(100% - 4.7rem),
-        color-mix(in oklch, var(--card) 86%, var(--background) 14%) 100%
+        color-mix(in oklab, var(--popover) 80%, var(--background) 20%) calc(100% - 4.7rem),
+        color-mix(in oklab, var(--card) 86%, var(--background) 14%) 100%
       ),
-      color-mix(in oklch, var(--card) 88%, var(--background) 12%);
+      color-mix(in oklab, var(--card) 88%, var(--background) 12%);
   }
 
   .new-thread-start-composer {
@@ -183,7 +183,7 @@
     width: 100%;
     margin-top: -0.15rem;
     padding: 0.85rem 1.6rem 0.45rem;
-    color: color-mix(in oklch, var(--muted-foreground) 90%, transparent);
+    color: color-mix(in oklab, var(--muted-foreground) 90%, transparent);
   }
 
   @supports (backdrop-filter: blur(1px)) {
@@ -206,7 +206,7 @@
   .new-thread-start-composer-placeholder {
     max-width: min(100%, 38rem);
     padding-right: clamp(3.25rem, 10cqw, 5.5rem);
-    color: color-mix(in oklch, var(--foreground) 72%, transparent);
+    color: color-mix(in oklab, var(--foreground) 72%, transparent);
   }
 
   @container (max-width: 520px) {
@@ -482,15 +482,17 @@ html.native-window-resizing *::after {
   --ui-font-size: 15px;
   --ui-letter-spacing: -0.018em;
   --desktop-titlebar-left-inset: 0px;
-  /* HSL triplets — used by sidebar primitives with hsl(var(--sidebar-*)) */
-  /* ===== Neutral preset — Light (base palette; refined off-white with soft tiers) ===== */
-  --sidebar: 0 0% 97%;
-  --sidebar-foreground: 0 0% 20%;
-  --sidebar-border: 0 0% 90%;
-  --sidebar-accent: 0 0% 93.5%;
-  --sidebar-accent-foreground: 0 0% 12%;
+  /* ===== Ace preset — Light (signature base palette; refined off-white, soft tiers) ===== */
+  /* Sidebar tokens are plain colors (same format as every other surface token).
+   * Presets set `--sidebar-solid`; `--sidebar-surface` derives from it so the
+   * translucent-sidebar setting can swap in a see-through variant in one place. */
+  --sidebar-solid: oklch(0.975 0 0);
+  --sidebar-surface: var(--sidebar-solid);
+  --sidebar-foreground: oklch(0.32 0 0);
+  --sidebar-border: oklch(0.9 0 0);
+  --sidebar-accent: oklch(0.945 0 0);
+  --sidebar-accent-foreground: oklch(0.2 0 0);
   --background: oklch(0.993 0 0);
-  --sidebar-surface: hsl(var(--sidebar));
   --foreground: oklch(0.17 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.17 0 0);
@@ -510,7 +512,7 @@ html.native-window-resizing *::after {
   --ring: oklch(0.58 0.16 252);
   --destructive-foreground: oklch(0.46 0.17 25);
   --info: oklch(0.55 0.16 252);
-  --info-foreground: color-mix(in oklch, oklch(0.55 0.16 252) 80%, oklch(0.16 0 0));
+  --info-foreground: color-mix(in oklab, oklch(0.55 0.16 252) 80%, oklch(0.16 0 0));
   --success: oklch(0.58 0.15 155);
   --success-foreground: oklch(0.4 0.13 155);
   --warning: oklch(0.68 0.15 75);
@@ -528,7 +530,7 @@ html.native-window-resizing *::after {
   --ultrathink-pink: oklch(0.68 0.2 350);
   --bg-glow: radial-gradient(
     120% 80% at 50% -10%,
-    color-mix(in oklch, var(--foreground) 3%, transparent),
+    color-mix(in oklab, var(--foreground) 3%, transparent),
     transparent 60%
   );
   --pill: oklch(1 0 0 / 0.94);
@@ -536,10 +538,10 @@ html.native-window-resizing *::after {
   --pill-border: oklch(0.875 0 0 / 0.6);
   --chat-bubble: oklch(1 0 0 / 0.96);
   --terminal-surface: var(--background);
-  --terminal-surface-elevated: color-mix(in oklch, var(--background) 96%, var(--card) 4%);
+  --terminal-surface-elevated: color-mix(in oklab, var(--background) 96%, var(--card) 4%);
   --terminal-foreground: oklch(0.205 0 0);
   --terminal-cursor: oklch(0.34 0 0);
-  --terminal-selection-background: color-mix(in oklch, rgb(30 144 255) 20%, transparent);
+  --terminal-selection-background: color-mix(in oklab, rgb(30 144 255) 20%, transparent);
   --terminal-scrollbar-slider: rgba(22, 28, 36, 0.1);
   --terminal-scrollbar-slider-hover: rgba(22, 28, 36, 0.2);
   --terminal-scrollbar-slider-active: rgba(22, 28, 36, 0.28);
@@ -562,14 +564,13 @@ html.native-window-resizing *::after {
 
   @variant dark {
     color-scheme: dark;
-    /* ===== Neutral preset — Dark (deep near-black, subtle elevation tiers) ===== */
-    --sidebar: 0 0% 6%;
-    --sidebar-foreground: 0 0% 90%;
-    --sidebar-border: 0 0% 15%;
-    --sidebar-accent: 0 0% 13%;
-    --sidebar-accent-foreground: 0 0% 95%;
+    /* ===== Ace preset — Dark (deep near-black, subtle elevation tiers) ===== */
+    --sidebar-solid: oklch(0.145 0 0);
+    --sidebar-foreground: oklch(0.9 0 0);
+    --sidebar-border: oklch(0.26 0 0);
+    --sidebar-accent: oklch(0.225 0 0);
+    --sidebar-accent-foreground: oklch(0.96 0 0);
     --background: oklch(0.17 0 0);
-    --sidebar-surface: hsl(var(--sidebar));
     --foreground: oklch(0.925 0 0);
     --card: oklch(0.205 0 0);
     --card-foreground: oklch(0.925 0 0);
@@ -589,25 +590,25 @@ html.native-window-resizing *::after {
     --ring: oklch(0.68 0.16 252);
     --destructive-foreground: oklch(0.42 0.17 25);
     --info: oklch(0.7 0.15 252);
-    --info-foreground: color-mix(in oklch, oklch(0.7 0.15 252) 88%, white);
+    --info-foreground: color-mix(in oklab, oklch(0.7 0.15 252) 88%, white);
     --success: oklch(0.6 0.15 155);
     --success-foreground: oklch(0.35 0.13 155);
     --warning: oklch(0.7 0.15 75);
     --warning-foreground: oklch(0.4 0.13 60);
     --bg-glow: radial-gradient(
       120% 80% at 50% -10%,
-      color-mix(in oklch, var(--foreground) 5%, transparent),
+      color-mix(in oklab, var(--foreground) 5%, transparent),
       transparent 55%
     );
-    --pill: color-mix(in oklch, var(--card) 82%, white 5%);
+    --pill: color-mix(in oklab, var(--card) 82%, white 5%);
     --pill-foreground: var(--foreground);
-    --pill-border: color-mix(in oklch, var(--foreground) 12%, var(--background) 88%);
-    --chat-bubble: color-mix(in oklch, var(--card) 92%, var(--background) 8%);
+    --pill-border: color-mix(in oklab, var(--foreground) 12%, var(--background) 88%);
+    --chat-bubble: color-mix(in oklab, var(--card) 92%, var(--background) 8%);
     --terminal-surface: var(--background);
-    --terminal-surface-elevated: color-mix(in oklch, var(--background) 96%, var(--card) 4%);
+    --terminal-surface-elevated: color-mix(in oklab, var(--background) 96%, var(--card) 4%);
     --terminal-foreground: oklch(0.9 0 0);
     --terminal-cursor: oklch(0.78 0 0);
-    --terminal-selection-background: color-mix(in oklch, rgb(30 144 255) 24%, transparent);
+    --terminal-selection-background: color-mix(in oklab, rgb(30 144 255) 24%, transparent);
     --terminal-scrollbar-slider: rgba(255, 255, 255, 0.08);
     --terminal-scrollbar-slider-hover: rgba(255, 255, 255, 0.14);
     --terminal-scrollbar-slider-active: rgba(255, 255, 255, 0.2);
@@ -657,25 +658,25 @@ body {
 :root {
   --glass-blur: 18px;
   --glass-saturate: 1.18;
-  --glass-surface: color-mix(in oklch, var(--popover) 85%, transparent);
-  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 89%, transparent);
-  --glass-surface-panel: color-mix(in oklch, var(--popover) 92%, transparent);
-  --glass-surface-border: color-mix(in oklch, var(--border) 72%, transparent);
-  --glass-highlight: color-mix(in oklch, white 55%, transparent);
-  --glass-shadow: 0 12px 32px -18px color-mix(in oklch, var(--foreground) 24%, transparent);
-  --glass-backdrop: color-mix(in oklch, var(--background) 55%, transparent);
+  --glass-surface: color-mix(in oklab, var(--popover) 85%, transparent);
+  --glass-surface-tooltip: color-mix(in oklab, var(--popover) 89%, transparent);
+  --glass-surface-panel: color-mix(in oklab, var(--popover) 92%, transparent);
+  --glass-surface-border: color-mix(in oklab, var(--border) 72%, transparent);
+  --glass-highlight: color-mix(in oklab, white 55%, transparent);
+  --glass-shadow: 0 12px 32px -18px color-mix(in oklab, var(--foreground) 24%, transparent);
+  --glass-backdrop: color-mix(in oklab, var(--background) 55%, transparent);
 }
 
 .dark {
   --glass-blur: 22px;
   --glass-saturate: 1.2;
-  --glass-surface: color-mix(in oklch, var(--popover) 78%, transparent);
-  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 84%, transparent);
-  --glass-surface-panel: color-mix(in oklch, var(--popover) 88%, transparent);
-  --glass-surface-border: color-mix(in oklch, var(--border) 92%, transparent);
-  --glass-highlight: color-mix(in oklch, white 9%, transparent);
+  --glass-surface: color-mix(in oklab, var(--popover) 78%, transparent);
+  --glass-surface-tooltip: color-mix(in oklab, var(--popover) 84%, transparent);
+  --glass-surface-panel: color-mix(in oklab, var(--popover) 88%, transparent);
+  --glass-surface-border: color-mix(in oklab, var(--border) 92%, transparent);
+  --glass-highlight: color-mix(in oklab, white 9%, transparent);
   --glass-shadow: 0 18px 44px -20px oklch(0 0 0 / 0.62);
-  --glass-backdrop: color-mix(in oklch, var(--background) 62%, transparent);
+  --glass-backdrop: color-mix(in oklab, var(--background) 62%, transparent);
 }
 
 .glass-surface {
@@ -718,8 +719,8 @@ body {
 
 .frosted-refraction-surface {
   box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--foreground) 10%, transparent),
-    inset 0 0 0 1px color-mix(in oklch, var(--background) 24%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--foreground) 10%, transparent),
+    inset 0 0 0 1px color-mix(in oklab, var(--background) 24%, transparent),
     var(--tw-shadow, 0 0 #0000);
 }
 
@@ -736,8 +737,8 @@ body {
   background:
     linear-gradient(
       180deg,
-      color-mix(in oklch, var(--popover) 90%, transparent),
-      color-mix(in oklch, var(--background) 92%, var(--popover) 8%)
+      color-mix(in oklab, var(--popover) 90%, transparent),
+      color-mix(in oklab, var(--background) 92%, var(--popover) 8%)
     ),
     linear-gradient(
       135deg,
@@ -749,8 +750,8 @@ body {
       transparent 54%
     ) !important;
   box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--foreground) 10%, transparent),
-    inset 0 0 0 1px color-mix(in oklch, var(--background) 42%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--foreground) 10%, transparent),
+    inset 0 0 0 1px color-mix(in oklab, var(--background) 42%, transparent),
     0 18px 54px -22px color-mix(in srgb, var(--background) 52%, black 48%);
   -webkit-backdrop-filter: blur(22px) saturate(1.16);
   backdrop-filter: blur(22px) saturate(1.16);
@@ -791,14 +792,14 @@ body {
 }
 
 .glass-inset {
-  background: color-mix(in oklch, var(--card) 92%, var(--background) 8%) !important;
+  background: color-mix(in oklab, var(--card) 92%, var(--background) 8%) !important;
   -webkit-backdrop-filter: blur(16px) saturate(1.14);
   backdrop-filter: blur(16px) saturate(1.14);
   box-shadow: none;
 }
 
 .dark .glass-inset {
-  background: color-mix(in oklch, var(--popover) 86%, var(--background) 14%) !important;
+  background: color-mix(in oklab, var(--popover) 86%, var(--background) 14%) !important;
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -809,26 +810,26 @@ body {
   }
 
   .glass-inset {
-    background: color-mix(in oklch, var(--background) 88%, var(--muted) 12%);
+    background: color-mix(in oklab, var(--background) 88%, var(--muted) 12%);
   }
 
   .glass-backdrop {
-    background: color-mix(in oklch, black 55%, transparent);
+    background: color-mix(in oklab, black 55%, transparent);
   }
 }
 
 .proposed-plan-card-fade {
-  --plan-card-fade-bg: color-mix(in oklch, var(--card) 88%, var(--background));
+  --plan-card-fade-bg: color-mix(in oklab, var(--card) 88%, var(--background));
   background: linear-gradient(
     to top,
     var(--plan-card-fade-bg) 0%,
-    color-mix(in oklch, var(--plan-card-fade-bg) 82%, transparent) 50%,
+    color-mix(in oklab, var(--plan-card-fade-bg) 82%, transparent) 50%,
     transparent 100%
   );
 }
 
 .dark .proposed-plan-card-fade {
-  --plan-card-fade-bg: color-mix(in oklch, var(--popover) 52%, var(--background));
+  --plan-card-fade-bg: color-mix(in oklab, var(--popover) 52%, var(--background));
 }
 
 [data-slot="menu-popup"],
@@ -891,7 +892,7 @@ label {
 }
 
 ::selection {
-  background: color-mix(in oklch, var(--info) 28%, transparent);
+  background: color-mix(in oklab, var(--info) 28%, transparent);
 }
 
 ::-webkit-scrollbar {
@@ -987,11 +988,11 @@ label {
 }
 
 .thread-terminal-drawer .terminal-resize-handle:hover {
-  background-color: color-mix(in oklch, var(--accent) 30%, transparent);
+  background-color: color-mix(in oklab, var(--accent) 30%, transparent);
 }
 
 .thread-terminal-drawer .terminal-resize-handle:active {
-  background-color: color-mix(in oklch, var(--accent) 45%, transparent);
+  background-color: color-mix(in oklab, var(--accent) 45%, transparent);
 }
 
 .thread-terminal-drawer .terminal-split-divider {
@@ -1002,11 +1003,11 @@ label {
 }
 
 .thread-terminal-drawer .terminal-split-divider:hover {
-  background-color: color-mix(in oklch, var(--accent) 35%, transparent);
+  background-color: color-mix(in oklab, var(--accent) 35%, transparent);
 }
 
 .thread-terminal-drawer .terminal-split-divider:active {
-  background-color: color-mix(in oklch, var(--accent) 48%, transparent);
+  background-color: color-mix(in oklab, var(--accent) 48%, transparent);
 }
 
 @keyframes terminal-pulse {
@@ -1055,20 +1056,20 @@ label {
 }
 
 .image-generation-placeholder-frame {
-  border-color: color-mix(in oklch, var(--border) 72%, transparent);
+  border-color: color-mix(in oklab, var(--border) 72%, transparent);
   background: linear-gradient(
     180deg,
-    color-mix(in oklch, var(--background) 94%, var(--muted) 6%),
-    color-mix(in oklch, var(--background) 88%, var(--muted) 12%)
+    color-mix(in oklab, var(--background) 94%, var(--muted) 6%),
+    color-mix(in oklab, var(--background) 88%, var(--muted) 12%)
   );
   isolation: isolate;
-  box-shadow: inset 0 1px 0 color-mix(in oklch, white 74%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, white 74%, transparent);
 }
 
 .image-generation-placeholder-surface {
   background:
-    linear-gradient(180deg, color-mix(in oklch, white 28%, transparent), transparent 34%),
-    linear-gradient(0deg, color-mix(in oklch, var(--foreground) 3%, transparent), transparent 40%);
+    linear-gradient(180deg, color-mix(in oklab, white 28%, transparent), transparent 34%),
+    linear-gradient(0deg, color-mix(in oklab, var(--foreground) 3%, transparent), transparent 40%);
   opacity: 0.92;
 }
 
@@ -1078,7 +1079,7 @@ label {
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in oklch, white 34%, transparent),
+    color-mix(in oklab, white 34%, transparent),
     transparent
   );
   filter: blur(0.5px);
@@ -1086,19 +1087,19 @@ label {
 }
 
 .dark .image-generation-placeholder-frame {
-  border-color: color-mix(in oklch, var(--border) 58%, transparent);
+  border-color: color-mix(in oklab, var(--border) 58%, transparent);
   background: linear-gradient(
     180deg,
-    color-mix(in oklch, var(--background) 88%, var(--muted) 12%),
-    color-mix(in oklch, var(--background) 82%, var(--muted) 18%)
+    color-mix(in oklab, var(--background) 88%, var(--muted) 12%),
+    color-mix(in oklab, var(--background) 82%, var(--muted) 18%)
   );
-  box-shadow: inset 0 1px 0 color-mix(in oklch, white 5%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, white 5%, transparent);
 }
 
 .dark .image-generation-placeholder-surface {
   background:
-    linear-gradient(180deg, color-mix(in oklch, white 4%, transparent), transparent 34%),
-    linear-gradient(0deg, color-mix(in oklch, var(--foreground) 3%, transparent), transparent 42%);
+    linear-gradient(180deg, color-mix(in oklab, white 4%, transparent), transparent 34%),
+    linear-gradient(0deg, color-mix(in oklab, var(--foreground) 3%, transparent), transparent 42%);
   opacity: 0.9;
 }
 
@@ -1106,7 +1107,7 @@ label {
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in oklch, white 8%, transparent),
+    color-mix(in oklab, white 8%, transparent),
     transparent
   );
 }
@@ -1122,21 +1123,21 @@ label {
 .thread-terminal-drawer .terminal-sidebar-header {
   background: linear-gradient(
     180deg,
-    color-mix(in oklch, var(--foreground) 4%, transparent),
+    color-mix(in oklab, var(--foreground) 4%, transparent),
     transparent
   );
-  border-bottom: 1px solid color-mix(in oklch, var(--border) 40%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
 }
 
 .thread-terminal-drawer .terminal-sidebar {
-  border-left: 1px solid color-mix(in oklch, var(--border) 32%, transparent);
+  border-left: 1px solid color-mix(in oklab, var(--border) 32%, transparent);
   background:
     linear-gradient(
       180deg,
-      color-mix(in oklch, var(--background) 10%, transparent),
+      color-mix(in oklab, var(--background) 10%, transparent),
       transparent 120px
     ),
-    color-mix(in oklch, var(--terminal-surface) 94%, var(--background));
+    color-mix(in oklab, var(--terminal-surface) 94%, var(--background));
 }
 
 .thread-terminal-drawer .terminal-item {
@@ -1149,22 +1150,22 @@ label {
 }
 
 .thread-terminal-drawer .terminal-item:hover {
-  background-color: color-mix(in oklch, var(--accent) 36%, transparent);
+  background-color: color-mix(in oklab, var(--accent) 36%, transparent);
 }
 
 .thread-terminal-drawer .terminal-item.active {
-  background-color: color-mix(in oklch, var(--accent) 46%, transparent);
-  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+  background-color: color-mix(in oklab, var(--accent) 46%, transparent);
+  border-color: color-mix(in oklab, var(--foreground) 14%, transparent);
   box-shadow: none;
 }
 
 .thread-terminal-drawer .terminal-item.active:hover {
-  background-color: color-mix(in oklch, var(--accent) 54%, transparent);
+  background-color: color-mix(in oklab, var(--accent) 54%, transparent);
 }
 
 .thread-terminal-drawer .terminal-item[data-drop-active="true"] {
-  background-color: color-mix(in oklch, var(--accent) 44%, transparent);
-  border-color: color-mix(in oklch, var(--primary) 42%, transparent);
+  background-color: color-mix(in oklab, var(--accent) 44%, transparent);
+  border-color: color-mix(in oklab, var(--primary) 42%, transparent);
 }
 
 .thread-terminal-drawer .terminal-action-btn {
@@ -1190,7 +1191,7 @@ label {
 }
 
 .thread-terminal-drawer .terminal-context-menu .menu-item-danger:hover {
-  background-color: color-mix(in oklch, var(--destructive) 12%, transparent);
+  background-color: color-mix(in oklab, var(--destructive) 12%, transparent);
   color: var(--destructive);
 }
 
@@ -1226,8 +1227,8 @@ label {
 }
 
 .terminal-icon-picker .icon-option.selected {
-  background-color: color-mix(in oklch, var(--primary) 15%, transparent);
-  border-color: color-mix(in oklch, var(--primary) 70%, transparent);
+  background-color: color-mix(in oklab, var(--primary) 15%, transparent);
+  border-color: color-mix(in oklab, var(--primary) 70%, transparent);
 }
 
 .terminal-icon-picker .icon-option:active {
@@ -1271,8 +1272,8 @@ label {
 }
 
 .terminal-color-picker .color-option.selected {
-  background-color: color-mix(in oklch, var(--primary) 12%, transparent);
-  border-color: color-mix(in oklch, var(--primary) 70%, transparent);
+  background-color: color-mix(in oklab, var(--primary) 12%, transparent);
+  border-color: color-mix(in oklab, var(--primary) 70%, transparent);
 }
 
 .terminal-color-picker .color-option:active {

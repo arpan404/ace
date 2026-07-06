@@ -79,7 +79,66 @@ export function resetThemePresetToDefault() {
   persistThemePreset(DEFAULT_THEME_PRESET);
 }
 
+/* ============================ Sidebar translucency ============================ */
+
+const STORAGE_SIDEBAR_TRANSLUCENT = "ace:sidebar-translucent";
+
+let translucentListeners: Array<() => void> = [];
+
+export function readStoredSidebarTranslucent(): boolean {
+  if (typeof localStorage === "undefined") {
+    return false;
+  }
+  return localStorage.getItem(STORAGE_SIDEBAR_TRANSLUCENT) === "true";
+}
+
+/** Toggles `data-sidebar-translucent` on the root element (read by theme-presets.css). */
+function applySidebarTranslucent(enabled: boolean) {
+  if (typeof document === "undefined") {
+    return;
+  }
+  if (enabled) {
+    document.documentElement.setAttribute("data-sidebar-translucent", "true");
+  } else {
+    document.documentElement.removeAttribute("data-sidebar-translucent");
+  }
+}
+
+function emitTranslucentChange() {
+  for (const listener of translucentListeners) listener();
+}
+
+export function setStoredSidebarTranslucent(enabled: boolean) {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(STORAGE_SIDEBAR_TRANSLUCENT, enabled ? "true" : "false");
+  }
+  applySidebarTranslucent(enabled);
+  emitTranslucentChange();
+}
+
+export function subscribeSidebarTranslucent(listener: () => void): () => void {
+  translucentListeners.push(listener);
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === STORAGE_SIDEBAR_TRANSLUCENT) {
+      applySidebarTranslucent(readStoredSidebarTranslucent());
+      emitTranslucentChange();
+    }
+  };
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", handleStorage);
+  }
+
+  return () => {
+    translucentListeners = translucentListeners.filter((l) => l !== listener);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("storage", handleStorage);
+    }
+  };
+}
+
 if (typeof window !== "undefined") {
   migrateLegacyKeys();
   applyThemePreset(readStoredThemePreset());
+  applySidebarTranslucent(readStoredSidebarTranslucent());
 }
