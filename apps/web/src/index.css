@@ -483,33 +483,34 @@ html.native-window-resizing *::after {
   --ui-letter-spacing: -0.018em;
   --desktop-titlebar-left-inset: 0px;
   /* HSL triplets — used by sidebar primitives with hsl(var(--sidebar-*)) */
-  --sidebar: 0 0% 100%;
-  --sidebar-foreground: 0 0% 12%;
-  --sidebar-border: 0 0% 86%;
-  --sidebar-accent: 0 0% 97%;
+  /* ===== Neutral preset — Light (base palette; refined off-white with soft tiers) ===== */
+  --sidebar: 0 0% 97%;
+  --sidebar-foreground: 0 0% 20%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-accent: 0 0% 93.5%;
   --sidebar-accent-foreground: 0 0% 12%;
-  --background: oklch(1 0 0);
+  --background: oklch(0.993 0 0);
   --sidebar-surface: hsl(var(--sidebar));
-  --foreground: oklch(0.13 0 0);
+  --foreground: oklch(0.17 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.13 0 0);
+  --card-foreground: oklch(0.17 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.13 0 0);
-  --primary: rgb(30 144 255);
-  --primary-foreground: oklch(0.12 0 0);
-  --secondary: oklch(0.986 0 0);
-  --secondary-foreground: oklch(0.22 0 0);
-  --muted: oklch(0.984 0 0);
-  --muted-foreground: oklch(0.38 0 0);
-  --accent: oklch(0.976 0 0);
-  --accent-foreground: oklch(0.18 0 0);
+  --popover-foreground: oklch(0.17 0 0);
+  --primary: oklch(0.58 0.16 252);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.974 0 0);
+  --secondary-foreground: oklch(0.28 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.46 0 0);
+  --accent: oklch(0.955 0 0);
+  --accent-foreground: oklch(0.2 0 0);
   --destructive: oklch(0.57 0.21 25);
-  --border: oklch(0.875 0 0 / 0.78);
+  --border: oklch(0.9 0 0 / 0.68);
   --input: oklch(1 0 0);
-  --ring: rgb(30 144 255);
+  --ring: oklch(0.58 0.16 252);
   --destructive-foreground: oklch(0.46 0.17 25);
-  --info: rgb(30 144 255);
-  --info-foreground: color-mix(in oklch, rgb(30 144 255) 68%, oklch(0.16 0 0));
+  --info: oklch(0.55 0.16 252);
+  --info-foreground: color-mix(in oklch, oklch(0.55 0.16 252) 80%, oklch(0.16 0 0));
   --success: oklch(0.58 0.15 155);
   --success-foreground: oklch(0.4 0.13 155);
   --warning: oklch(0.68 0.15 75);
@@ -525,10 +526,14 @@ html.native-window-resizing *::after {
   --ultrathink-teal: oklch(0.7 0.12 190);
   --ultrathink-blue: oklch(0.64 0.18 255);
   --ultrathink-pink: oklch(0.68 0.2 350);
-  --bg-glow: transparent;
+  --bg-glow: radial-gradient(
+    120% 80% at 50% -10%,
+    color-mix(in oklch, var(--foreground) 3%, transparent),
+    transparent 60%
+  );
   --pill: oklch(1 0 0 / 0.94);
   --pill-foreground: var(--foreground);
-  --pill-border: oklch(0.875 0 0 / 0.62);
+  --pill-border: oklch(0.875 0 0 / 0.6);
   --chat-bubble: oklch(1 0 0 / 0.96);
   --terminal-surface: var(--background);
   --terminal-surface-elevated: color-mix(in oklch, var(--background) 96%, var(--card) 4%);
@@ -557,42 +562,47 @@ html.native-window-resizing *::after {
 
   @variant dark {
     color-scheme: dark;
-    --sidebar: 0 0% 8%;
-    --sidebar-foreground: 0 0% 91%;
-    --sidebar-border: 0 0% 20%;
-    --sidebar-accent: 0 0% 14%;
-    --sidebar-accent-foreground: 0 0% 94%;
-    --background: oklch(0.205 0 0);
+    /* ===== Neutral preset — Dark (deep near-black, subtle elevation tiers) ===== */
+    --sidebar: 0 0% 6%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-border: 0 0% 15%;
+    --sidebar-accent: 0 0% 13%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --background: oklch(0.17 0 0);
     --sidebar-surface: hsl(var(--sidebar));
-    --foreground: oklch(0.91 0 0);
-    --card: oklch(0.245 0 0);
-    --card-foreground: oklch(0.91 0 0);
-    --popover: oklch(0.265 0 0);
-    --popover-foreground: oklch(0.91 0 0);
-    --primary: oklch(0.68 0.16 250);
-    --primary-foreground: oklch(0.98 0 0);
-    --secondary: oklch(0.255 0 0);
-    --secondary-foreground: oklch(0.88 0 0);
-    --muted: oklch(0.245 0 0);
-    --muted-foreground: oklch(0.72 0 0);
-    --accent: oklch(0.295 0 0);
-    --accent-foreground: oklch(0.92 0 0);
+    --foreground: oklch(0.925 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.925 0 0);
+    --popover: oklch(0.225 0 0);
+    --popover-foreground: oklch(0.925 0 0);
+    --primary: oklch(0.68 0.16 252);
+    --primary-foreground: oklch(0.99 0 0);
+    --secondary: oklch(0.215 0 0);
+    --secondary-foreground: oklch(0.9 0 0);
+    --muted: oklch(0.215 0 0);
+    --muted-foreground: oklch(0.64 0 0);
+    --accent: oklch(0.255 0 0);
+    --accent-foreground: oklch(0.94 0 0);
     --destructive: oklch(0.6 0.19 25);
-    --border: oklch(0.4 0 0 / 0.82);
-    --input: oklch(0.23 0 0);
-    --ring: rgb(30 144 255);
+    --border: oklch(0.34 0 0 / 0.5);
+    --input: oklch(0.235 0 0);
+    --ring: oklch(0.68 0.16 252);
     --destructive-foreground: oklch(0.42 0.17 25);
-    --info: rgb(30 144 255);
-    --info-foreground: color-mix(in oklch, rgb(30 144 255) 82%, white);
+    --info: oklch(0.7 0.15 252);
+    --info-foreground: color-mix(in oklch, oklch(0.7 0.15 252) 88%, white);
     --success: oklch(0.6 0.15 155);
     --success-foreground: oklch(0.35 0.13 155);
     --warning: oklch(0.7 0.15 75);
     --warning-foreground: oklch(0.4 0.13 60);
-    --bg-glow: transparent;
-    --pill: color-mix(in oklch, var(--card) 82%, white 6%);
+    --bg-glow: radial-gradient(
+      120% 80% at 50% -10%,
+      color-mix(in oklch, var(--foreground) 5%, transparent),
+      transparent 55%
+    );
+    --pill: color-mix(in oklch, var(--card) 82%, white 5%);
     --pill-foreground: var(--foreground);
-    --pill-border: color-mix(in oklch, var(--foreground) 14%, var(--background) 86%);
-    --chat-bubble: color-mix(in oklch, var(--card) 94%, var(--background) 6%);
+    --pill-border: color-mix(in oklch, var(--foreground) 12%, var(--background) 88%);
+    --chat-bubble: color-mix(in oklch, var(--card) 92%, var(--background) 8%);
     --terminal-surface: var(--background);
     --terminal-surface-elevated: color-mix(in oklch, var(--background) 96%, var(--card) 4%);
     --terminal-foreground: oklch(0.9 0 0);
@@ -632,7 +642,8 @@ body {
   padding: 0;
   min-height: 100vh;
   background-color: var(--sidebar-surface);
-  background-image: none;
+  background-image: var(--bg-glow);
+  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition:
@@ -640,28 +651,31 @@ body {
     color 200ms ease;
 }
 
+/* Glass = a treatment for floating overlays only (menus, popovers, tooltips,
+   toasts). Surfaces carry real alpha so backdrop-filter blur is actually
+   visible — mixing two opaque tokens (the old approach) produced no blur. */
 :root {
-  --glass-blur: 26px;
-  --glass-saturate: 1.16;
-  --glass-surface: color-mix(in oklch, var(--popover) 94%, var(--background) 6%);
-  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 96%, var(--background) 4%);
-  --glass-surface-panel: color-mix(in oklch, var(--popover) 97%, var(--background) 3%);
-  --glass-surface-border: color-mix(in oklch, var(--border) 58%, transparent);
-  --glass-highlight: color-mix(in oklch, var(--border) 24%, transparent);
-  --glass-shadow: 0 16px 40px -24px color-mix(in oklch, var(--foreground) 10%, transparent);
-  --glass-backdrop: color-mix(in oklch, var(--background) 52%, transparent);
+  --glass-blur: 18px;
+  --glass-saturate: 1.18;
+  --glass-surface: color-mix(in oklch, var(--popover) 85%, transparent);
+  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 89%, transparent);
+  --glass-surface-panel: color-mix(in oklch, var(--popover) 92%, transparent);
+  --glass-surface-border: color-mix(in oklch, var(--border) 72%, transparent);
+  --glass-highlight: color-mix(in oklch, white 55%, transparent);
+  --glass-shadow: 0 12px 32px -18px color-mix(in oklch, var(--foreground) 24%, transparent);
+  --glass-backdrop: color-mix(in oklch, var(--background) 55%, transparent);
 }
 
 .dark {
-  --glass-blur: 28px;
-  --glass-saturate: 1.16;
-  --glass-surface: color-mix(in oklch, var(--popover) 92%, var(--background) 8%);
-  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 94%, var(--background) 6%);
-  --glass-surface-panel: color-mix(in oklch, var(--popover) 95%, var(--background) 5%);
-  --glass-surface-border: color-mix(in oklch, var(--border) 62%, transparent);
-  --glass-highlight: color-mix(in oklch, var(--border) 30%, transparent);
-  --glass-shadow: 0 16px 40px -24px oklch(0 0 0 / 0.42);
-  --glass-backdrop: color-mix(in oklch, var(--background) 65%, transparent);
+  --glass-blur: 22px;
+  --glass-saturate: 1.2;
+  --glass-surface: color-mix(in oklch, var(--popover) 78%, transparent);
+  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 84%, transparent);
+  --glass-surface-panel: color-mix(in oklch, var(--popover) 88%, transparent);
+  --glass-surface-border: color-mix(in oklch, var(--border) 92%, transparent);
+  --glass-highlight: color-mix(in oklch, white 9%, transparent);
+  --glass-shadow: 0 18px 44px -20px oklch(0 0 0 / 0.62);
+  --glass-backdrop: color-mix(in oklch, var(--background) 62%, transparent);
 }
 
 .glass-surface {
@@ -762,96 +776,12 @@ body {
   --glass-saturate: 1.1;
 }
 
-[data-theme-preset="glass"] {
-  --glass-blur: 32px;
-  --glass-saturate: 1.2;
-  --glass-surface: color-mix(in oklch, var(--popover) 95%, var(--background) 5%);
-  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 97%, var(--background) 3%);
-  --glass-surface-panel: color-mix(in oklch, var(--popover) 98%, var(--background) 2%);
-  --glass-surface-border: color-mix(in oklch, var(--border) 82%, transparent);
-  --glass-highlight: transparent;
-  --glass-shadow: 0 18px 48px -34px oklch(0 0 0 / 0.2);
-  --glass-backdrop: color-mix(in oklch, var(--background) 76%, transparent);
-}
-
-[data-theme-preset="glass"] *:focus-visible,
-[data-theme-preset="glass"] *:focus-within {
-  --tw-ring-color: color-mix(in oklch, var(--ring) 52%, transparent);
-  outline-color: color-mix(in oklch, var(--ring) 52%, transparent);
-}
-
-[data-theme-preset="glass"] body {
-  background-color: var(--sidebar-surface);
-  background-image: var(--bg-glow);
-  background-attachment: fixed;
-}
-
-[data-theme-preset="glass"] [data-sidebar="sidebar"] {
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklch, var(--popover) 72%, transparent),
-    color-mix(in oklch, var(--background) 82%, transparent)
-  ) !important;
-  border-color: transparent !important;
-  box-shadow: inset -1px 0 0 color-mix(in oklch, var(--foreground) 6%, transparent);
-  -webkit-backdrop-filter: blur(30px) saturate(1.18);
-  backdrop-filter: blur(30px) saturate(1.18);
-}
-
-[data-theme-preset="glass"] [data-slot="sidebar-inset"] {
-  background: var(--card);
-}
-
-.dark[data-theme-preset="glass"] {
-  --glass-blur: 36px;
-  --glass-saturate: 1.24;
-  --glass-surface: color-mix(in oklch, var(--popover) 91%, var(--background) 9%);
-  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 93%, var(--background) 7%);
-  --glass-surface-panel: color-mix(in oklch, var(--popover) 94%, var(--background) 6%);
-  --glass-surface-border: color-mix(in oklch, var(--border) 78%, transparent);
-  --glass-highlight: transparent;
-  --glass-shadow: 0 28px 60px -30px oklch(0 0 0 / 0.45);
-  --glass-backdrop: color-mix(in oklch, var(--background) 62%, transparent);
-}
-
-.dark[data-theme-preset="glass"] *:focus-visible,
-.dark[data-theme-preset="glass"] *:focus-within {
-  --tw-ring-color: color-mix(in oklch, var(--foreground) 8%, transparent);
-  outline-color: color-mix(in oklch, var(--foreground) 8%, transparent);
-}
-
-.dark[data-theme-preset="glass"] body {
-  background-color: var(--sidebar-surface);
-  background-image: var(--bg-glow);
-  background-attachment: fixed;
-}
-
-.dark[data-theme-preset="glass"] [data-sidebar="sidebar"] {
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklch, var(--popover) 42%, transparent),
-    color-mix(in oklch, var(--background) 72%, transparent)
-  ) !important;
-  border-color: transparent !important;
-  box-shadow: inset -1px 0 0 color-mix(in oklch, var(--foreground) 7%, transparent);
-  -webkit-backdrop-filter: blur(34px) saturate(1.22);
-  backdrop-filter: blur(34px) saturate(1.22);
-}
-
-.dark[data-theme-preset="glass"] [data-slot="sidebar-inset"] {
-  background: color-mix(in oklch, var(--card) 94%, var(--background) 6%);
-  -webkit-backdrop-filter: blur(32px) saturate(1.22);
-  backdrop-filter: blur(32px) saturate(1.22);
-}
-
-.dark[data-theme-preset="glass"] .glass-surface {
-  box-shadow: var(--glass-shadow);
-}
-
-.dark[data-theme-preset="glass"] .glass-surface--tooltip,
-.dark[data-theme-preset="glass"] .glass-surface--panel {
-  --glass-blur: 26px;
-  --glass-saturate: 1.2;
+/* Chrome is solid and crisp across every preset. The sidebar shows the solid
+   --sidebar-surface painted on html/body; the workspace inset is a solid
+   surface. No translucent gradients on structural chrome — glass is reserved
+   for floating overlays (menus, popovers, tooltips, toasts). */
+[data-slot="sidebar-inset"] {
+  background: var(--background);
 }
 
 .glass-backdrop {
@@ -861,27 +791,14 @@ body {
 }
 
 .glass-inset {
-  background: color-mix(in oklch, var(--muted) 72%, var(--background) 28%) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(1.12);
-  backdrop-filter: blur(18px) saturate(1.12);
+  background: color-mix(in oklch, var(--card) 92%, var(--background) 8%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.14);
+  backdrop-filter: blur(16px) saturate(1.14);
+  box-shadow: none;
 }
 
 .dark .glass-inset {
-  background: color-mix(in oklch, var(--muted) 82%, var(--background) 18%) !important;
-}
-
-[data-theme-preset="glass"] .glass-inset {
-  background: color-mix(in oklch, var(--card) 92%, var(--background) 8%) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(1.18);
-  backdrop-filter: blur(24px) saturate(1.18);
-  box-shadow: none;
-}
-
-.dark[data-theme-preset="glass"] .glass-inset {
-  background: color-mix(in oklch, var(--popover) 88%, var(--background) 12%) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(1.22);
-  backdrop-filter: blur(28px) saturate(1.22);
-  box-shadow: none;
+  background: color-mix(in oklch, var(--popover) 86%, var(--background) 14%) !important;
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -901,7 +818,7 @@ body {
 }
 
 .proposed-plan-card-fade {
-  --plan-card-fade-bg: color-mix(in oklch, var(--muted) 46%, var(--background));
+  --plan-card-fade-bg: color-mix(in oklch, var(--card) 88%, var(--background));
   background: linear-gradient(
     to top,
     var(--plan-card-fade-bg) 0%,
@@ -911,14 +828,6 @@ body {
 }
 
 .dark .proposed-plan-card-fade {
-  --plan-card-fade-bg: color-mix(in oklch, var(--muted) 54%, var(--background));
-}
-
-[data-theme-preset="glass"] .proposed-plan-card-fade {
-  --plan-card-fade-bg: color-mix(in oklch, var(--card) 88%, var(--background));
-}
-
-.dark[data-theme-preset="glass"] .proposed-plan-card-fade {
   --plan-card-fade-bg: color-mix(in oklch, var(--popover) 52%, var(--background));
 }
 

@@ -56,6 +56,8 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
+import { useThemePreset } from "../../hooks/useThemePreset";
+import { THEME_PRESET_OPTIONS, type ThemePresetPreview } from "../../themePresets";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
@@ -155,6 +157,22 @@ const THEME_OPTIONS = [
     label: "Dark",
   },
 ] as const;
+
+/** Small "Aa" theme chip used in the color-preset picker (trigger + items). */
+function ThemePresetSwatch({ preview }: { preview: ThemePresetPreview }) {
+  return (
+    <span
+      aria-hidden
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-black/10 text-[0.6875rem] font-semibold leading-none shadow-sm dark:border-white/10"
+      style={{
+        background: `linear-gradient(135deg, ${preview.panel}, ${preview.panelDeep})`,
+        color: preview.accent,
+      }}
+    >
+      Aa
+    </span>
+  );
+}
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
@@ -832,6 +850,8 @@ type SettingsPanelPage =
 
 function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
+  const { preset, setPreset } = useThemePreset();
+  const activePreset = THEME_PRESET_OPTIONS.find((option) => option.id === preset);
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const [notificationState, dispatchNotificationState] = useReducer(
@@ -1461,6 +1481,54 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     {THEME_OPTIONS.map((option) => (
                       <SelectItem hideIndicator key={option.value} value={option.value}>
                         {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Color preset"
+              description="Palette for surfaces and accents. Applies in both light and dark."
+              resetAction={
+                preset !== "neutral" ? (
+                  <SettingResetButton label="color preset" onClick={() => setPreset("neutral")} />
+                ) : null
+              }
+              control={
+                <Select
+                  value={preset}
+                  onValueChange={(value) => {
+                    const match = THEME_PRESET_OPTIONS.find((option) => option.id === value);
+                    if (match) {
+                      setPreset(match.id);
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    className={SETTINGS_SELECT_TRIGGER_CLASS}
+                    aria-label="Color preset"
+                  >
+                    <SelectValue>
+                      <span className="flex items-center gap-2">
+                        {activePreset ? <ThemePresetSwatch preview={activePreset.preview} /> : null}
+                        <span>{activePreset?.label ?? "Neutral"}</span>
+                      </span>
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    {THEME_PRESET_OPTIONS.map((option) => (
+                      <SelectItem hideIndicator key={option.id} value={option.id}>
+                        <span className="flex items-center gap-2.5">
+                          <ThemePresetSwatch preview={option.preview} />
+                          <span className="flex flex-col gap-0.5">
+                            <span className="text-sm leading-none">{option.label}</span>
+                            <span className="text-muted-foreground text-xs leading-tight">
+                              {option.description}
+                            </span>
+                          </span>
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectPopup>
