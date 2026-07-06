@@ -145,20 +145,6 @@ import {
 import { getProviderSummary, getProviderVersionLabel } from "./providerSummary";
 import { applyProvidersUpdated, useServerProviders } from "../../rpc/serverState";
 
-const THEME_OPTIONS = [
-  {
-    value: "system",
-    label: "System",
-  },
-  {
-    value: "light",
-    label: "Light",
-  },
-  {
-    value: "dark",
-    label: "Dark",
-  },
-] as const;
 
 /** Small "Aa" theme chip used in the color-preset picker (trigger + items). */
 function ThemePresetSwatch({ preview }: { preview: ThemePresetPreview }) {
@@ -851,6 +837,99 @@ type SettingsPanelPage =
   | "advanced"
   | "about";
 
+type ThemeModeValue = "system" | "light" | "dark";
+
+const THEME_MODE_CARDS: { value: ThemeModeValue; label: string }[] = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
+
+/** A miniature window mock (sidebar rail + content skeleton) in a fixed light/dark palette,
+ *  used inside the theme-mode preview cards — independent of the currently active theme. */
+function ThemeMockPanel({ scheme }: { scheme: "light" | "dark" }) {
+  const isDark = scheme === "dark";
+  const surface = isDark ? "#18181b" : "#f4f4f5";
+  const rail = isDark ? "#0f0f11" : "#e8e8eb";
+  const card = isDark ? "#26262a" : "#ffffff";
+  const line = isDark ? "#37373c" : "#dcdce0";
+  return (
+    <div className="flex h-full w-full" style={{ backgroundColor: surface }}>
+      <div className="flex h-full w-[30%] flex-col gap-1 p-1.5" style={{ backgroundColor: rail }}>
+        <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#4f8cff" }} />
+        <div className="h-1 w-4/5 rounded-full" style={{ backgroundColor: line }} />
+        <div className="h-1 w-3/5 rounded-full" style={{ backgroundColor: line }} />
+      </div>
+      <div className="flex flex-1 flex-col gap-1.5 p-2">
+        <div className="h-1.5 w-2/3 rounded-full" style={{ backgroundColor: line }} />
+        <div className="h-4 w-full rounded-sm" style={{ backgroundColor: card }} />
+        <div className="h-1 w-4/5 rounded-full" style={{ backgroundColor: line }} />
+      </div>
+    </div>
+  );
+}
+
+function ThemeModeCards({
+  value,
+  onChange,
+}: {
+  value: ThemeModeValue;
+  onChange: (value: ThemeModeValue) => void;
+}) {
+  return (
+    <div role="radiogroup" aria-label="Theme mode" className="grid grid-cols-3 gap-3">
+      {THEME_MODE_CARDS.map((mode) => {
+        const active = value === mode.value;
+        return (
+          <button
+            key={mode.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            aria-label={`${mode.label} theme`}
+            onClick={() => onChange(mode.value)}
+            className="group/mode flex flex-col items-center gap-2 outline-none focus-visible:[&>div]:ring-2 focus-visible:[&>div]:ring-ring/40"
+          >
+            <div
+              className={cn(
+                "w-full overflow-hidden rounded-[var(--control-radius)] border transition-all",
+                active
+                  ? "border-primary ring-2 ring-primary/25"
+                  : "border-border/60 group-hover/mode:border-border",
+              )}
+            >
+              <div className="flex aspect-[16/10] w-full">
+                {mode.value === "system" ? (
+                  <>
+                    <div className="h-full w-1/2">
+                      <ThemeMockPanel scheme="light" />
+                    </div>
+                    <div className="h-full w-1/2">
+                      <ThemeMockPanel scheme="dark" />
+                    </div>
+                  </>
+                ) : (
+                  <ThemeMockPanel scheme={mode.value} />
+                )}
+              </div>
+            </div>
+            <span
+              className={cn(
+                "text-[13px] transition-colors",
+                active
+                  ? "font-medium text-foreground"
+                  : "text-muted-foreground group-hover/mode:text-foreground/80",
+              )}
+            >
+              {mode.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
   const { preset, setPreset } = useThemePreset();
@@ -1457,25 +1536,13 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
     <SettingsPageContainer>
       {isAppearancePage ? (
         <>
-          <SettingsSection title="Appearance">
-            <SettingsRow
-              title="Theme"
-              description="Light, dark, or follow the system appearance."
-              layout="compact"
-              resetAction={
-                theme !== "system" ? (
-                  <SettingResetButton label="theme" onClick={() => setTheme("system")} />
-                ) : null
-              }
-              control={
-                <SettingsSegmentedControl
-                  ariaLabel="Theme preference"
-                  value={theme}
-                  onValueChange={(value) => setTheme(value)}
-                  options={THEME_OPTIONS}
-                />
-              }
-            />
+          <SettingsSection
+            title="Theme"
+            description="Pick light or dark and the accent palette — applies in both modes."
+          >
+            <div className="py-3">
+              <ThemeModeCards value={theme} onChange={setTheme} />
+            </div>
 
             <SettingsRow
               title="Color preset"
@@ -1524,7 +1591,12 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                 </Select>
               }
             />
+          </SettingsSection>
 
+          <SettingsSection
+            title="Surfaces"
+            description="How the app's chrome renders behind your content."
+          >
             <SettingsRow
               title="Translucent sidebar"
               description="Let the sidebar surface go semi-transparent so the desktop shows through."
@@ -1544,7 +1616,9 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                 />
               }
             />
+          </SettingsSection>
 
+          <SettingsSection title="Typography" description="Fonts and sizing across the interface.">
             <SettingsRow
               title="UI font"
               description="Sans-serif typeface for interface text, sidebars, and chat."
@@ -1635,34 +1709,17 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   />
                 ) : null
               }
+              layout="compact"
               control={
-                <Select
+                <SettingsSegmentedControl
+                  ariaLabel="Text size"
                   value={settings.uiFontSizeScale}
-                  onValueChange={(value) => {
-                    if (value != null && UI_FONT_SIZE_VALUE_SET.has(value)) {
-                      updateSettings({ uiFontSizeScale: value });
-                    }
-                  }}
-                >
-                  <SelectTrigger className={SETTINGS_SELECT_TRIGGER_CLASS} aria-label="Text size">
-                    <SelectValue>
-                      {UI_FONT_SIZE_OPTIONS.find((o) => o.value === settings.uiFontSizeScale)
-                        ?.label ?? "Text size"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end" alignItemWithTrigger={false}>
-                    {UI_FONT_SIZE_OPTIONS.map((option) => (
-                      <SelectItem hideIndicator key={option.value} value={option.value}>
-                        <span className="flex flex-col gap-0.5">
-                          <span>{option.label}</span>
-                          <span className="text-xs font-normal text-muted-foreground">
-                            {option.description}
-                          </span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
+                  onValueChange={(value) => updateSettings({ uiFontSizeScale: value })}
+                  options={UI_FONT_SIZE_OPTIONS.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                />
               }
             />
 
@@ -1677,32 +1734,14 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   />
                 ) : null
               }
+              layout="compact"
               control={
-                <Select
+                <SettingsSegmentedControl
+                  ariaLabel="Letter spacing"
                   value={settings.uiLetterSpacing}
-                  onValueChange={(value) => {
-                    if (value != null && UI_LETTER_SPACING_VALUE_SET.has(value)) {
-                      updateSettings({ uiLetterSpacing: value });
-                    }
-                  }}
-                >
-                  <SelectTrigger
-                    className={SETTINGS_SELECT_TRIGGER_CLASS}
-                    aria-label="Letter spacing"
-                  >
-                    <SelectValue>
-                      {UI_LETTER_SPACING_OPTIONS.find((o) => o.value === settings.uiLetterSpacing)
-                        ?.label ?? "Letter spacing"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end" alignItemWithTrigger={false}>
-                    {UI_LETTER_SPACING_OPTIONS.map((option) => (
-                      <SelectItem hideIndicator key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
+                  onValueChange={(value) => updateSettings({ uiLetterSpacing: value })}
+                  options={UI_LETTER_SPACING_OPTIONS}
+                />
               }
             />
           </SettingsSection>
@@ -1774,32 +1813,17 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   />
                 ) : null
               }
+              layout="compact"
               control={
-                <Select
+                <SettingsSegmentedControl
+                  ariaLabel="Default thread mode"
                   value={settings.defaultThreadEnvMode}
-                  onValueChange={(value) => {
-                    if (value === "local" || value === "worktree") {
-                      updateSettings({ defaultThreadEnvMode: value });
-                    }
-                  }}
-                >
-                  <SelectTrigger
-                    className={SETTINGS_SELECT_TRIGGER_CLASS}
-                    aria-label="Default thread mode"
-                  >
-                    <SelectValue>
-                      {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end" alignItemWithTrigger={false}>
-                    <SelectItem hideIndicator value="local">
-                      Local
-                    </SelectItem>
-                    <SelectItem hideIndicator value="worktree">
-                      New worktree
-                    </SelectItem>
-                  </SelectPopup>
-                </Select>
+                  onValueChange={(value) => updateSettings({ defaultThreadEnvMode: value })}
+                  options={[
+                    { value: "local", label: "Local" },
+                    { value: "worktree", label: "New worktree" },
+                  ]}
+                />
               }
             />
 
@@ -1819,32 +1843,17 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   />
                 ) : null
               }
+              layout="compact"
               control={
-                <Select
+                <SettingsSegmentedControl
+                  ariaLabel="Workspace editor opening mode"
                   value={settings.workspaceEditorOpenMode}
-                  onValueChange={(value) => {
-                    if (value === "split" || value === "full") {
-                      updateSettings({ workspaceEditorOpenMode: value });
-                    }
-                  }}
-                >
-                  <SelectTrigger
-                    className={SETTINGS_SELECT_TRIGGER_CLASS}
-                    aria-label="Workspace editor opening mode"
-                  >
-                    <SelectValue>
-                      {settings.workspaceEditorOpenMode === "split" ? "Split view" : "Full editor"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end" alignItemWithTrigger={false}>
-                    <SelectItem hideIndicator value="split">
-                      Split view
-                    </SelectItem>
-                    <SelectItem hideIndicator value="full">
-                      Full editor
-                    </SelectItem>
-                  </SelectPopup>
-                </Select>
+                  onValueChange={(value) => updateSettings({ workspaceEditorOpenMode: value })}
+                  options={[
+                    { value: "split", label: "Split view" },
+                    { value: "full", label: "Full editor" },
+                  ]}
+                />
               }
             />
 
