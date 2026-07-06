@@ -75,9 +75,9 @@ const DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME = cn(
   SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME,
 );
 const DEVICE_INSET_PANEL_CLASS_NAME =
-  "overflow-hidden rounded-[var(--control-radius)] border border-border/40 glass-inset";
+  "overflow-hidden rounded-[0.9rem] border border-border/40 glass-inset";
 const DEVICE_INSET_PANEL_MUTED_CLASS_NAME =
-  "overflow-hidden rounded-[var(--control-radius)] border border-border/40 bg-muted/10";
+  "overflow-hidden rounded-[0.9rem] border border-border/40 bg-muted/10";
 
 interface HostDraftState {
   readonly name: string;

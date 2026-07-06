@@ -1349,7 +1349,7 @@ function useProviderSettingsSectionComponent({
                   </label>
                   <Textarea
                     id={`provider-install-${providerCard.provider}-launch-env`}
-                    className="w-full !h-24 !p-3 border-border/40 focus:border-primary/40 focus:ring-1 focus:ring-primary/20 transition-all bg-foreground/[0.01] dark:bg-white/[0.01] font-mono text-[12px] rounded-[var(--control-radius)]"
+                    className="w-full !h-24 !p-3 border-border/40 focus:border-primary/40 focus:ring-1 focus:ring-primary/20 transition-all bg-foreground/[0.01] dark:bg-white/[0.01] font-mono text-[12px] rounded-[0.8rem]"
                     size="sm"
                     value={formatLaunchEnv(selectedLaunchEnv)}
                     onChange={(event) =>
@@ -1550,7 +1550,7 @@ function useProviderSettingsSectionComponent({
                     <div className="mt-3 relative flex items-center">
                       <SettingsInput
                         id={`custom-model-${providerCard.provider}`}
-                        className="w-full !h-9 pr-10 pl-3 border-border/40 focus:border-primary/40 focus:ring-1 focus:ring-primary/20 bg-foreground/[0.01] dark:bg-white/[0.01] transition-all rounded-[var(--control-radius)]"
+                        className="w-full !h-9 pr-10 pl-3 border-border/40 focus:border-primary/40 focus:ring-1 focus:ring-primary/20 bg-foreground/[0.01] dark:bg-white/[0.01] transition-all rounded-[0.8rem]"
                         value={customModelInput}
                         onChange={(event) => {
                           const value = event.target.value;
@@ -1610,7 +1610,7 @@ function useProviderSettingsSectionComponent({
         <DialogPopup className="max-w-2xl" data-provider-settings-add-provider-modal="true">
           <DialogHeader className="gap-2 px-4 py-3 sm:px-5 sm:py-4">
             <div className="flex items-center gap-2">
-              <span className="relative flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] bg-foreground/[0.06]">
+              <span className="relative flex size-8 shrink-0 items-center justify-center rounded-[0.8rem] bg-foreground/[0.06]">
                 <AddProviderLogo className="size-4" />
                 {addProviderStep !== "provider" ? (
                   <ProviderInstanceBadge
@@ -1680,14 +1680,14 @@ function useProviderSettingsSectionComponent({
                       variant="ghost"
                       className={cn(
                         SETTINGS_LIST_ROW_BUTTON_CLASS,
-                        "h-auto w-full justify-start gap-3 rounded-[var(--control-radius)] px-3 py-2.5",
+                        "h-auto w-full justify-start gap-3 rounded-[0.8rem] px-3 py-2.5",
                         isSelected
                           ? "bg-foreground/[0.07] text-foreground"
                           : "bg-transparent text-muted-foreground hover:bg-foreground/[0.04]",
                       )}
                       onClick={() => selectAddProvider(candidate.provider)}
                     >
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-[var(--control-radius)] bg-foreground/[0.06]">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-[0.8rem] bg-foreground/[0.06]">
                         <CandidateLogo className="size-4.5" />
                       </span>
                       <span className="min-w-0 flex-1">
@@ -1935,7 +1935,7 @@ function useProviderSettingsSectionComponent({
             {addProviderStep === "review" ? (
               <div className="space-y-3" data-provider-setup-step="review">
                 <div className="flex items-center gap-3 py-3">
-                  <span className="relative flex size-10 shrink-0 items-center justify-center rounded-[var(--control-radius)] bg-foreground/[0.06]">
+                  <span className="relative flex size-10 shrink-0 items-center justify-center rounded-[0.8rem] bg-foreground/[0.06]">
                     <AddProviderLogo className="size-5" />
                     <ProviderInstanceBadge
                       color={addProviderDraft.badgeColor}
@@ -1954,13 +1954,13 @@ function useProviderSettingsSectionComponent({
                 </div>
 
                 <div className="flex flex-col gap-2 text-xs">
-                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
+                  <div className="rounded-[0.8rem] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">Binary</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderDraft.binaryPath.trim() || addProviderCard?.binaryPlaceholder}
                     </div>
                   </div>
-                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
+                  <div className="rounded-[0.8rem] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">State path</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderPathLabel
@@ -1968,7 +1968,7 @@ function useProviderSettingsSectionComponent({
                         : "Provider default"}
                     </div>
                   </div>
-                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
+                  <div className="rounded-[0.8rem] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">Env</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderLaunchEnvCount === 0
@@ -1978,7 +1978,7 @@ function useProviderSettingsSectionComponent({
                           }`}
                     </div>
                   </div>
-                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
+                  <div className="rounded-[0.8rem] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">Status</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderDraft.enabled ? "Enabled" : "Off"}
