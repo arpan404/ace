@@ -47,14 +47,14 @@ export const SETTINGS_SECTION_CARD_CLASS = cn(
   "overflow-hidden rounded-[1.15rem] border border-border/40 bg-card shadow-none",
 );
 
-export const SETTINGS_SECTION_CARD_BODY_CLASS = cn(SETTINGS_GROUP_CLASS_NAME, "px-3 sm:px-4");
+export const SETTINGS_SECTION_CARD_BODY_CLASS = cn(SETTINGS_GROUP_CLASS_NAME, "px-4 sm:px-5");
 
 /** Full-bleed card body for custom layouts (e.g. providers master-detail). */
 export const SETTINGS_SECTION_CARD_FLUSH_BODY_CLASS = "min-w-0 overflow-hidden";
 
 export const SETTINGS_SECTION_FRAME_CLASS = "min-w-0";
 
-export const SETTINGS_ROW_CLASS = "py-3.5";
+export const SETTINGS_ROW_CLASS = "py-4";
 
 export const SETTINGS_COMPACT_CONTROL_CLASS = "w-full min-w-0 sm:w-52 sm:max-w-[14rem]";
 

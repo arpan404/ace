@@ -153,7 +153,7 @@ export function SettingsSection({
 
   return (
     <section className={cn("min-w-0", contentClassName)}>
-      <div className="mb-2 flex items-center justify-between gap-3">
+      <div className="mb-3 flex items-start justify-between gap-3 px-0.5">
         <div className="min-w-0">
           <h2 className={SETTINGS_SECTION_TITLE_CLASS}>{title}</h2>
           {description ? <p className={SETTINGS_SECTION_DESCRIPTION_CLASS}>{description}</p> : null}
@@ -208,7 +208,7 @@ export function SettingsRow({
       )}
     >
       {useCompactLayout && control ? (
-        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-8">
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
           {label}
           <div
             className={cn(
@@ -497,7 +497,7 @@ export function SettingsPageContainer({ children }: { children: ReactNode }) {
           ...SETTINGS_CONTROL_SURFACE_CLASS_NAMES,
         )}
       >
-        <div className="space-y-8">{children}</div>
+        <div className="space-y-9">{children}</div>
       </div>
     </div>
   );
