@@ -161,12 +161,6 @@ function ThemePresetSwatch({ preview }: { preview: ThemePresetPreview }) {
   );
 }
 
-const TIMESTAMP_FORMAT_LABELS = {
-  locale: "System default",
-  "12-hour": "12-hour",
-  "24-hour": "24-hour",
-} as const;
-
 const UI_FONT_FAMILY_OPTIONS: { value: UiFontFamily; label: string }[] = [
   { value: "plus-jakarta", label: "Plus Jakarta Sans" },
   { value: "inter", label: "Inter" },
@@ -1765,33 +1759,18 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   />
                 ) : null
               }
+              layout="compact"
               control={
-                <Select
+                <SettingsSegmentedControl
+                  ariaLabel="Timestamp format"
                   value={settings.timestampFormat}
-                  onValueChange={(value) => {
-                    if (value === "locale" || value === "12-hour" || value === "24-hour") {
-                      updateSettings({ timestampFormat: value });
-                    }
-                  }}
-                >
-                  <SelectTrigger
-                    className={SETTINGS_SELECT_TRIGGER_CLASS}
-                    aria-label="Timestamp format"
-                  >
-                    <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end" alignItemWithTrigger={false}>
-                    <SelectItem hideIndicator value="locale">
-                      {TIMESTAMP_FORMAT_LABELS.locale}
-                    </SelectItem>
-                    <SelectItem hideIndicator value="12-hour">
-                      {TIMESTAMP_FORMAT_LABELS["12-hour"]}
-                    </SelectItem>
-                    <SelectItem hideIndicator value="24-hour">
-                      {TIMESTAMP_FORMAT_LABELS["24-hour"]}
-                    </SelectItem>
-                  </SelectPopup>
-                </Select>
+                  onValueChange={(value) => updateSettings({ timestampFormat: value })}
+                  options={[
+                    { value: "locale", label: "System" },
+                    { value: "12-hour", label: "12h" },
+                    { value: "24-hour", label: "24h" },
+                  ]}
+                />
               }
             />
           </SettingsSection>
