@@ -33,12 +33,46 @@ function applyThemePreset(preset: ThemePresetId) {
   document.documentElement.setAttribute("data-theme-preset", preset);
 }
 
+let listeners: Array<() => void> = [];
+
+function emitChange() {
+  for (const listener of listeners) listener();
+}
+
 function persistThemePreset(preset: ThemePresetId) {
   if (typeof localStorage === "undefined") {
     return;
   }
   localStorage.setItem(STORAGE_PRESET, preset);
   applyThemePreset(preset);
+  emitChange();
+}
+
+/** Set and persist the active color preset. */
+export function setStoredThemePreset(preset: ThemePresetId) {
+  persistThemePreset(preset);
+}
+
+/** Subscribe to preset changes (this tab and cross-tab). */
+export function subscribeThemePreset(listener: () => void): () => void {
+  listeners.push(listener);
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === STORAGE_PRESET) {
+      applyThemePreset(readStoredThemePreset());
+      emitChange();
+    }
+  };
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", handleStorage);
+  }
+
+  return () => {
+    listeners = listeners.filter((l) => l !== listener);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("storage", handleStorage);
+    }
+  };
 }
 
 export function resetThemePresetToDefault() {
