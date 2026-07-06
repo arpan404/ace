@@ -8,6 +8,7 @@ export {
   EditorSettingsPanel as EditorSettingsPanelRoute,
   EnvironmentSettingsPanel as EnvironmentSettingsPanelRoute,
   GeneralSettingsPanel as GeneralSettingsPanelRoute,
+  KeyboardShortcutsSettingsPanel as KeyboardShortcutsSettingsPanelRoute,
   ProjectEnvironmentSettingsPanel as ProjectEnvironmentSettingsPanelRoute,
   ProvidersSettingsPanel as ProvidersSettingsPanelRoute,
 } from "./SettingsPanels";

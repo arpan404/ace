@@ -96,7 +96,11 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
 
   // Advanced
   { to: "/settings/advanced", title: "Git credentials", keywords: "auth token github credentials" },
-  { to: "/settings/advanced", title: "Keybindings", keywords: "keyboard shortcuts hotkeys" },
+  {
+    to: "/settings/keyboard-shortcuts",
+    title: "Keyboard shortcuts",
+    keywords: "keybindings hotkeys shortcuts keys",
+  },
   {
     to: "/settings/advanced",
     title: "Cache controls",

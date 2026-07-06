@@ -5,6 +5,7 @@ import {
   IconCode,
   IconDevices2,
   IconInfoCircle,
+  IconKeyboard,
   IconMessageCircle,
   IconPalette,
   IconPlug,
@@ -30,6 +31,7 @@ export type SettingsSectionPath =
   | "/settings/providers"
   | "/settings/devices"
   | "/settings/advanced"
+  | "/settings/keyboard-shortcuts"
   | "/settings/about"
   | "/settings/archived";
 
@@ -111,9 +113,16 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   {
     group: "system",
     label: "Advanced",
-    description: "Git credentials, keybindings, and cache controls",
+    description: "Git credentials and cache controls",
     to: "/settings/advanced",
     icon: IconTool,
+  },
+  {
+    group: "system",
+    label: "Keyboard shortcuts",
+    description: "View and customize keyboard shortcuts",
+    to: "/settings/keyboard-shortcuts",
+    icon: IconKeyboard,
   },
   {
     group: "system",

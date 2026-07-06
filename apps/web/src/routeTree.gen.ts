@@ -15,6 +15,7 @@ import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsProvidersRouteImport } from './routes/settings.providers'
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
+import { Route as SettingsKeyboardShortcutsRouteImport } from './routes/settings.keyboard-shortcuts'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsEnvironmentRouteImport } from './routes/settings.environment'
 import { Route as SettingsEditorRouteImport } from './routes/settings.editor'
@@ -57,6 +58,12 @@ const SettingsModelsRoute = SettingsModelsRouteImport.update({
   path: '/models',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsKeyboardShortcutsRoute =
+  SettingsKeyboardShortcutsRouteImport.update({
+    id: '/keyboard-shortcuts',
+    path: '/keyboard-shortcuts',
+    getParentRoute: () => SettingsRoute,
+  } as any)
 const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
   id: '/general',
   path: '/general',
@@ -134,6 +141,7 @@ export interface FileRoutesByFullPath {
   '/settings/editor': typeof SettingsEditorRoute
   '/settings/environment': typeof SettingsEnvironmentRoute
   '/settings/general': typeof SettingsGeneralRoute
+  '/settings/keyboard-shortcuts': typeof SettingsKeyboardShortcutsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/providers': typeof SettingsProvidersRoute
   '/settings/project-environment/$projectId': typeof SettingsProjectEnvironmentProjectIdRoute
@@ -152,6 +160,7 @@ export interface FileRoutesByTo {
   '/settings/editor': typeof SettingsEditorRoute
   '/settings/environment': typeof SettingsEnvironmentRoute
   '/settings/general': typeof SettingsGeneralRoute
+  '/settings/keyboard-shortcuts': typeof SettingsKeyboardShortcutsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/providers': typeof SettingsProvidersRoute
   '/': typeof ChatIndexRoute
@@ -173,6 +182,7 @@ export interface FileRoutesById {
   '/settings/editor': typeof SettingsEditorRoute
   '/settings/environment': typeof SettingsEnvironmentRoute
   '/settings/general': typeof SettingsGeneralRoute
+  '/settings/keyboard-shortcuts': typeof SettingsKeyboardShortcutsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/providers': typeof SettingsProvidersRoute
   '/_chat/': typeof ChatIndexRoute
@@ -195,6 +205,7 @@ export interface FileRouteTypes {
     | '/settings/editor'
     | '/settings/environment'
     | '/settings/general'
+    | '/settings/keyboard-shortcuts'
     | '/settings/models'
     | '/settings/providers'
     | '/settings/project-environment/$projectId'
@@ -213,6 +224,7 @@ export interface FileRouteTypes {
     | '/settings/editor'
     | '/settings/environment'
     | '/settings/general'
+    | '/settings/keyboard-shortcuts'
     | '/settings/models'
     | '/settings/providers'
     | '/'
@@ -233,6 +245,7 @@ export interface FileRouteTypes {
     | '/settings/editor'
     | '/settings/environment'
     | '/settings/general'
+    | '/settings/keyboard-shortcuts'
     | '/settings/models'
     | '/settings/providers'
     | '/_chat/'
@@ -287,6 +300,13 @@ declare module '@tanstack/react-router' {
       path: '/models'
       fullPath: '/settings/models'
       preLoaderRoute: typeof SettingsModelsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/keyboard-shortcuts': {
+      id: '/settings/keyboard-shortcuts'
+      path: '/keyboard-shortcuts'
+      fullPath: '/settings/keyboard-shortcuts'
+      preLoaderRoute: typeof SettingsKeyboardShortcutsRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/general': {
@@ -399,6 +419,7 @@ interface SettingsRouteChildren {
   SettingsEditorRoute: typeof SettingsEditorRoute
   SettingsEnvironmentRoute: typeof SettingsEnvironmentRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
+  SettingsKeyboardShortcutsRoute: typeof SettingsKeyboardShortcutsRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsProvidersRoute: typeof SettingsProvidersRoute
   SettingsProjectEnvironmentProjectIdRoute: typeof SettingsProjectEnvironmentProjectIdRoute
@@ -415,6 +436,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsEditorRoute: SettingsEditorRoute,
   SettingsEnvironmentRoute: SettingsEnvironmentRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
+  SettingsKeyboardShortcutsRoute: SettingsKeyboardShortcutsRoute,
   SettingsModelsRoute: SettingsModelsRoute,
   SettingsProvidersRoute: SettingsProvidersRoute,
   SettingsProjectEnvironmentProjectIdRoute:

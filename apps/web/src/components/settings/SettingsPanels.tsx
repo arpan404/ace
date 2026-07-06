@@ -817,6 +817,7 @@ type SettingsPanelPage =
   | "editor"
   | "providers"
   | "advanced"
+  | "keyboard-shortcuts"
   | "about";
 
 type ThemeModeValue = "system" | "light" | "dark";
@@ -1383,6 +1384,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   const isEditorPage = page === "editor";
   const isProvidersPage = page === "providers";
   const isAdvancedPage = page === "advanced";
+  const isKeyboardShortcutsPage = page === "keyboard-shortcuts";
   const isAboutPage = page === "about";
   const lspTools = lspToolsStatus?.tools ?? EMPTY_LSP_TOOL_LIST;
   const lspCoreTools = lspTools.filter((tool) => tool.builtin);
@@ -3172,19 +3174,10 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               }
             />
           </SettingsSection>
-
-          <SettingsSection title="Keybindings">
-            <SettingsRow
-              title="Keybindings"
-              description="Configure shortcuts directly here. Press keys to record bindings, then save or revert."
-            >
-              <div className="mt-3">
-                <KeybindingsSettingsEditor />
-              </div>
-            </SettingsRow>
-          </SettingsSection>
         </>
       ) : null}
+
+      {isKeyboardShortcutsPage ? <KeybindingsSettingsEditor /> : null}
 
       {isAboutPage ? (
         <SettingsSection title="Application">
@@ -3235,6 +3228,10 @@ export function ProvidersSettingsPanel() {
 
 export function AdvancedSettingsPanel() {
   return <SettingsPanel page="advanced" />;
+}
+
+export function KeyboardShortcutsSettingsPanel() {
+  return <SettingsPanel page="keyboard-shortcuts" />;
 }
 
 export function AboutSettingsPanel() {
