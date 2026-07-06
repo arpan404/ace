@@ -5084,17 +5084,15 @@ export function ArchivedThreadsPanel() {
   return (
     <SettingsPageContainer>
       {!hasArchivedItems ? (
-        <SettingsSection title="Archived">
-          <Empty className="min-h-88">
-            <EmptyMedia variant="icon">
-              <ArchiveIcon />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle>No archived items</EmptyTitle>
-              <EmptyDescription>Archived projects and threads will appear here.</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        </SettingsSection>
+        <div className="flex min-h-[58vh] flex-col items-center justify-center px-6 text-center">
+          <div className="flex size-14 items-center justify-center rounded-2xl border border-border/50 bg-muted/25 text-muted-foreground/55">
+            <ArchiveIcon className="size-6" strokeWidth={1.75} />
+          </div>
+          <h2 className="mt-4 text-sm font-semibold text-foreground">No archived items</h2>
+          <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-muted-foreground/60">
+            Projects and threads you archive will appear here so you can restore them later.
+          </p>
+        </div>
       ) : (
         <SettingsSection
           title="Archived items"
