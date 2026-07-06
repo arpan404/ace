@@ -1,4 +1,18 @@
-export type SettingsNavGroup = "experience" | "workspace" | "system";
+import {
+  ArchiveIcon,
+  BoxesIcon,
+  GlobeIcon,
+  InfoIcon,
+  type LucideIcon,
+  MessageSquareIcon,
+  MonitorSmartphoneIcon,
+  PlugIcon,
+  SlidersHorizontalIcon,
+  SquareCodeIcon,
+  WrenchIcon,
+} from "lucide-react";
+
+export type SettingsNavGroup = "general" | "workspace" | "system" | "archive";
 export type SettingsSectionPath =
   | "/settings/general"
   | "/settings/browser"
@@ -16,12 +30,14 @@ type SettingsNavItem = {
   readonly label: string;
   readonly description: string;
   readonly to: SettingsSectionPath;
+  readonly icon: LucideIcon;
 };
 
 export const SETTINGS_NAV_GROUPS = [
-  { id: "experience", label: "Experience" },
+  { id: "general", label: "General" },
   { id: "workspace", label: "Workspace" },
   { id: "system", label: "System" },
+  { id: "archive", label: "Archive" },
 ] as const satisfies ReadonlyArray<{
   id: SettingsNavGroup;
   label: string;
@@ -29,64 +45,74 @@ export const SETTINGS_NAV_GROUPS = [
 
 export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   {
-    group: "experience",
+    group: "general",
     label: "General",
     description: "Appearance, time, and thread defaults",
     to: "/settings/general",
+    icon: SlidersHorizontalIcon,
   },
   {
-    group: "experience",
-    label: "Browser",
-    description: "Search engine and mounted browser limits",
-    to: "/settings/browser",
-  },
-  {
-    group: "experience",
+    group: "general",
     label: "Chat",
     description: "Streaming, notifications, and confirmation behavior",
     to: "/settings/chat",
+    icon: MessageSquareIcon,
   },
   {
-    group: "experience",
+    group: "general",
+    label: "Browser",
+    description: "Search engine and mounted browser limits",
+    to: "/settings/browser",
+    icon: GlobeIcon,
+  },
+  {
+    group: "general",
     label: "Editor",
     description: "Workspace editor and language servers",
     to: "/settings/editor",
+    icon: SquareCodeIcon,
   },
   {
     group: "workspace",
     label: "Environment",
     description: "Worktrees, linked chats, and cleanup",
     to: "/settings/environment",
+    icon: BoxesIcon,
   },
   {
     group: "workspace",
     label: "Providers",
     description: "Models, provider CLI status, installs, and custom configurations",
     to: "/settings/providers",
+    icon: PlugIcon,
   },
   {
     group: "system",
     label: "Devices",
     description: "Remote host control and pairing",
     to: "/settings/devices",
+    icon: MonitorSmartphoneIcon,
   },
   {
     group: "system",
     label: "Advanced",
     description: "Git credentials, keybindings, and cache controls",
     to: "/settings/advanced",
+    icon: WrenchIcon,
   },
   {
     group: "system",
     label: "About",
     description: "Version details, CLI install, and desktop updates",
     to: "/settings/about",
+    icon: InfoIcon,
   },
   {
-    group: "system",
+    group: "archive",
     label: "Archived",
     description: "Recover archived projects and threads",
     to: "/settings/archived",
+    icon: ArchiveIcon,
   },
 ];
 

@@ -39,6 +39,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               <SidebarMenu className="gap-px">
                 {items.map((item) => {
                   const isActive = isSettingsNavItemActive(pathname, item);
+                  const Icon = item.icon;
                   return (
                     <SidebarMenuItem key={item.to}>
                       <SidebarMenuButton
@@ -46,9 +47,16 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                         aria-label={`${item.label} settings`}
                         aria-current={isActive ? "page" : undefined}
                         isActive={isActive}
-                        className={cn(SETTINGS_SIDEBAR_ITEM_CLASS)}
+                        className={cn(SETTINGS_SIDEBAR_ITEM_CLASS, "gap-2.5")}
                         onClick={() => void navigate({ to: item.to })}
                       >
+                        <Icon
+                          className={cn(
+                            "size-4 shrink-0 transition-colors",
+                            isActive ? "opacity-90" : "opacity-55",
+                          )}
+                          strokeWidth={2}
+                        />
                         <span className="truncate">{item.label}</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

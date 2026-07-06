@@ -139,6 +139,7 @@ import {
   SettingsPageHeader,
   SettingsRow,
   SettingsSection,
+  SettingsSegmentedControl,
   SettingResetButton,
 } from "./SettingsPanelPrimitives";
 import { getProviderSummary, getProviderVersionLabel } from "./providerSummary";
@@ -1458,36 +1459,19 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
             <SettingsRow
               title="Theme"
               description="Light, dark, or follow the system appearance."
+              layout="compact"
               resetAction={
                 theme !== "system" ? (
                   <SettingResetButton label="theme" onClick={() => setTheme("system")} />
                 ) : null
               }
               control={
-                <Select
+                <SettingsSegmentedControl
+                  ariaLabel="Theme preference"
                   value={theme}
-                  onValueChange={(value) => {
-                    if (value === "system" || value === "light" || value === "dark") {
-                      setTheme(value);
-                    }
-                  }}
-                >
-                  <SelectTrigger
-                    className={SETTINGS_SELECT_TRIGGER_CLASS}
-                    aria-label="Theme preference"
-                  >
-                    <SelectValue>
-                      {THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end" alignItemWithTrigger={false}>
-                    {THEME_OPTIONS.map((option) => (
-                      <SelectItem hideIndicator key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
+                  onValueChange={(value) => setTheme(value)}
+                  options={THEME_OPTIONS}
+                />
               }
             />
 

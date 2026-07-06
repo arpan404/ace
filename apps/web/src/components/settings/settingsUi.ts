@@ -27,10 +27,10 @@ export const SETTINGS_CONTENT_TOP_PADDING_CLASS = "pt-8 sm:pt-10";
 export const SETTINGS_CONTENT_BOTTOM_PADDING_CLASS = "pb-10 sm:pb-12";
 
 export const SETTINGS_SECTION_TITLE_CLASS =
-  "text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50";
+  "text-[13px] font-semibold leading-snug tracking-tight text-foreground/90";
 
 export const SETTINGS_SECTION_DESCRIPTION_CLASS =
-  "mt-1 text-xs leading-relaxed text-muted-foreground/65";
+  "mt-0.5 text-xs leading-relaxed text-muted-foreground/65";
 
 export const SETTINGS_ROW_TITLE_CLASS = "text-[13px] font-medium leading-snug text-foreground";
 
