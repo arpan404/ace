@@ -1,6 +1,6 @@
 import type { DesktopMenuAction } from "@ace/contracts";
 import { useEffect, useState, type ReactNode } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { requestInAppBrowserFromShell } from "../lib/browser/launcher";
@@ -20,7 +20,7 @@ import ThreadSidebar from "./Sidebar";
 import { Sidebar, SidebarProvider, SidebarRail } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
 
-const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width";
+const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width_v2";
 const THREAD_SIDEBAR_MIN_WIDTH = 13 * 16;
 const THREAD_SIDEBAR_MAX_WIDTH = 24 * 16;
 const THREAD_MAIN_CONTENT_MIN_WIDTH = 40 * 16;
@@ -42,9 +42,11 @@ function isEditableHotkeyTarget(target: EventTarget | null): boolean {
 
 function SidebarGlobalHotkeyHandler({
   disabled,
+  disableSidebarToggle,
   onToggleSidebar,
 }: {
   readonly disabled: boolean;
+  readonly disableSidebarToggle?: boolean;
   readonly onToggleSidebar: () => void;
 }) {
   const keybindings = useServerKeybindings();
@@ -81,7 +83,7 @@ function SidebarGlobalHotkeyHandler({
         return;
       }
 
-      if (command !== "sidebar.toggle") return;
+      if (command !== "sidebar.toggle" || disableSidebarToggle) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -92,21 +94,29 @@ function SidebarGlobalHotkeyHandler({
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [disabled, keybindings]);
+  }, [disableSidebarToggle, disabled, keybindings]);
 
   return null;
 }
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { activeDraftThread, activeThread, defaultProjectId, handleNewThread, routeThreadId } =
     useHandleNewThread();
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const activeThreadId = useUiStateStore((store) => store.activeThreadId);
   const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
   const isMobile = useIsMobile();
+  const isSettingsRoute = location.pathname.startsWith("/settings");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const effectiveSidebarOpen = isSettingsRoute ? true : sidebarOpen;
+  const handleSidebarOpenChange = (open: boolean) => {
+    if (isSettingsRoute) return;
+    setSidebarOpen(open);
+  };
   const toggleSidebar = () => {
+    if (isSettingsRoute) return;
     setSidebarOpen((open) => !open);
   };
 
@@ -229,8 +239,12 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   ]);
 
   return (
-    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
-      <SidebarGlobalHotkeyHandler disabled={isMobile} onToggleSidebar={toggleSidebar} />
+    <SidebarProvider open={effectiveSidebarOpen} onOpenChange={handleSidebarOpenChange}>
+      <SidebarGlobalHotkeyHandler
+        disabled={isMobile}
+        disableSidebarToggle={isSettingsRoute}
+        onToggleSidebar={toggleSidebar}
+      />
       <Sidebar
         side="left"
         collapsible="offcanvas"
@@ -243,6 +257,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           window.dispatchEvent(new CustomEvent("ace:sidebar-interaction"));
         }}
         resizable={{
+          collapseBelowMin: !isSettingsRoute,
           minWidth: THREAD_SIDEBAR_MIN_WIDTH,
           maxWidth: THREAD_SIDEBAR_MAX_WIDTH,
           shouldAcceptWidth: ({ nextWidth, wrapperWidth }) =>

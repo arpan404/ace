@@ -2171,7 +2171,7 @@ function SidebarRemoteProjectItem({
 SidebarRemoteProjectItem.displayName = "SidebarRemoteProjectItem";
 
 function useSidebarComponent() {
-  const { isMobile, state: sidebarState } = useSidebar();
+  const { isMobile } = useSidebar();
   const projects = useStore((store) => store.projects);
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const sidebarThreadsById = useStore((store) => store.sidebarThreadsById);
@@ -2465,7 +2465,7 @@ function useSidebarComponent() {
   const dragInProgressRef = useRef(false);
   const suppressProjectClickAfterDragRef = useRef(false);
   const suppressProjectClickForContextMenuRef = useRef(false);
-  const showSidebarHeaderToggle = !isMobile && sidebarState === "expanded";
+  const showSidebarHeaderToggle = !isMobile;
   const selectedThreadIds = useThreadSelectionStore((s) => s.selectedThreadIds);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
@@ -6301,50 +6301,57 @@ function useSidebarComponent() {
       ref={sidebarHeaderRowRef}
       className="grid h-8 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2"
     >
-      <div className={DESKTOP_HEADER_NAV_CLUSTER_CLASS_NAME}>
-        {sidebarHeaderToggle}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className={DESKTOP_HEADER_NAV_BUTTON_CLASS_NAME}
-                aria-label="Go back"
-                onClick={() => window.history.back()}
-              >
-                <ArrowLeftIcon className={sidebarHeaderNavIconClassName} strokeWidth={2.25} />
-              </Button>
-            }
-          />
-          <TooltipPopup side="bottom" sideOffset={4}>
-            <SidebarHeaderTooltipContent label="Back" shortcutLabel={navigationBackShortcutLabel} />
-          </TooltipPopup>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className={DESKTOP_HEADER_NAV_BUTTON_CLASS_NAME}
-                aria-label="Go forward"
-                onClick={() => window.history.forward()}
-              >
-                <ArrowRightIcon className={sidebarHeaderNavIconClassName} strokeWidth={2.25} />
-              </Button>
-            }
-          />
-          <TooltipPopup side="bottom" sideOffset={4}>
-            <SidebarHeaderTooltipContent
-              label="Forward"
-              shortcutLabel={navigationForwardShortcutLabel}
+      {isOnSettings ? (
+        <div />
+      ) : (
+        <div className={DESKTOP_HEADER_NAV_CLUSTER_CLASS_NAME}>
+          {sidebarHeaderToggle}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className={DESKTOP_HEADER_NAV_BUTTON_CLASS_NAME}
+                  aria-label="Go back"
+                  onClick={() => window.history.back()}
+                >
+                  <ArrowLeftIcon className={sidebarHeaderNavIconClassName} strokeWidth={2.25} />
+                </Button>
+              }
             />
-          </TooltipPopup>
-        </Tooltip>
-      </div>
+            <TooltipPopup side="bottom" sideOffset={4}>
+              <SidebarHeaderTooltipContent
+                label="Back"
+                shortcutLabel={navigationBackShortcutLabel}
+              />
+            </TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className={DESKTOP_HEADER_NAV_BUTTON_CLASS_NAME}
+                  aria-label="Go forward"
+                  onClick={() => window.history.forward()}
+                >
+                  <ArrowRightIcon className={sidebarHeaderNavIconClassName} strokeWidth={2.25} />
+                </Button>
+              }
+            />
+            <TooltipPopup side="bottom" sideOffset={4}>
+              <SidebarHeaderTooltipContent
+                label="Forward"
+                shortcutLabel={navigationForwardShortcutLabel}
+              />
+            </TooltipPopup>
+          </Tooltip>
+        </div>
+      )}
       <div className="min-w-0" />
       <div className="shrink-0" />
     </div>

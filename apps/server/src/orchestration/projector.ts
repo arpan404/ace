@@ -1,4 +1,8 @@
 import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@ace/contracts";
+import {
+  inferOrchestrationMessageTextMode,
+  resolveOrchestrationMessageText,
+} from "@ace/shared/orchestrationMessageText";
 import { appendCompactedThreadActivity } from "@ace/shared/orchestrationThreadActivities";
 import {
   OrchestrationCheckpointSummary,
@@ -494,11 +498,11 @@ export function projectEvent(
               entry.id === message.id
                 ? {
                     ...entry,
-                    text: message.streaming
-                      ? `${entry.text}${message.text}`
-                      : message.text.length > 0
-                        ? message.text
-                        : entry.text,
+                    text: resolveOrchestrationMessageText({
+                      previousText: entry.text,
+                      incomingText: message.text,
+                      textMode: inferOrchestrationMessageTextMode(payload),
+                    }),
                     streaming: message.streaming,
                     ...(entry.sequence !== undefined || message.sequence !== undefined
                       ? { sequence: entry.sequence ?? message.sequence }

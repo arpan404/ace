@@ -188,19 +188,14 @@ export interface WsRpcClient {
     readonly getTurnDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getTurnDiff>;
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
     readonly replayEvents: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.replayEvents>;
+    readonly stream: (
+      input: RpcInput<typeof ORCHESTRATION_WS_METHODS.stream>,
+      listener: Parameters<RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.stream>>[0],
+    ) => () => void;
     readonly onDomainEvent: (
       listener: Parameters<NativeApi["orchestration"]["onDomainEvent"]>[0],
       options?: OrchestrationDomainEventSubscribeOptions,
     ) => () => void;
-    readonly subscribeShell: RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeShell>;
-    readonly unsubscribeShell: RpcUnaryNoArgMethod<
-      typeof ORCHESTRATION_WS_METHODS.unsubscribeShell
-    >;
-    readonly subscribeThread: (
-      input: RpcInput<typeof ORCHESTRATION_WS_METHODS.subscribeThread>,
-      listener: Parameters<RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeThread>>[0],
-    ) => () => void;
-    readonly unsubscribeThread: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.unsubscribeThread>;
   };
 }
 
@@ -404,6 +399,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport
           .request((client) => client[ORCHESTRATION_WS_METHODS.replayEvents](input))
           .then((events) => [...events]),
+      stream: (input, listener) =>
+        transport.subscribe((client) => client[ORCHESTRATION_WS_METHODS.stream](input), listener),
       onDomainEvent: (listener, options) =>
         transport.subscribe(
           (client) =>
@@ -415,20 +412,6 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
             }),
           listener,
         ),
-      subscribeShell: (listener) =>
-        transport.subscribe(
-          (client) => client[ORCHESTRATION_WS_METHODS.subscribeShell]({}),
-          listener,
-        ),
-      unsubscribeShell: () =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.unsubscribeShell]({})),
-      subscribeThread: (input, listener) =>
-        transport.subscribe(
-          (client) => client[ORCHESTRATION_WS_METHODS.subscribeThread](input),
-          listener,
-        ),
-      unsubscribeThread: (input) =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.unsubscribeThread](input)),
     },
   };
 }

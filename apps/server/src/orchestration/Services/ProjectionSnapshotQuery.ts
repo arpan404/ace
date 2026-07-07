@@ -10,12 +10,10 @@ import type {
   OrchestrationCheckpointSummary,
   OrchestrationGetSnapshotInput,
   OrchestrationProject,
-  OrchestrationProjectShell,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationThread,
   OrchestrationThreadDetailSnapshot,
-  OrchestrationThreadShell,
   ProjectId,
   ThreadId,
 } from "@ace/contracts";
@@ -59,20 +57,6 @@ export interface ProjectionSnapshotQueryShape {
     OrchestrationShellSnapshot,
     ProjectionRepositoryError
   >;
-
-  /**
-   * Read a single active project shell row.
-   */
-  readonly getProjectShellById: (
-    projectId: ProjectId,
-  ) => Effect.Effect<Option.Option<OrchestrationProjectShell>, ProjectionRepositoryError>;
-
-  /**
-   * Read a single active thread shell row.
-   */
-  readonly getThreadShellById: (
-    threadId: ThreadId,
-  ) => Effect.Effect<Option.Option<OrchestrationThreadShell>, ProjectionRepositoryError>;
 
   /**
    * Read a single thread with UI presentation history only.

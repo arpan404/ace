@@ -509,7 +509,7 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
-  it("emits disconnect and reconnect notifications for resubscribed streams", async () => {
+  it("retries completed subscriptions without marking the transport offline", async () => {
     const transport = new WsTransport("ws://localhost:3020");
     const listener = vi.fn();
     const connectionListener = vi.fn();
@@ -543,21 +543,16 @@ describe("WsTransport", () => {
     );
 
     await waitFor(() => {
-      expect(connectionListener).toHaveBeenCalledWith(
-        expect.objectContaining({
-          kind: "disconnected",
-        }),
-      );
-    });
-
-    await waitFor(() => {
       expect(socket.sent.length).toBeGreaterThan(1);
     });
 
-    await waitFor(() => {
-      expect(connectionListener).toHaveBeenCalledWith({
-        kind: "reconnected",
-      });
+    expect(connectionListener).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "disconnected",
+      }),
+    );
+    expect(connectionListener).not.toHaveBeenCalledWith({
+      kind: "reconnected",
     });
 
     unsubscribeConnection();
@@ -766,6 +761,13 @@ describe("WsTransport", () => {
       expect(socket.sent).toHaveLength(1);
     });
 
+    await waitFor(() => {
+      expect(connectionListener).toHaveBeenCalledWith({
+        kind: "connected",
+      });
+    });
+    connectionListener.mockClear();
+
     const streamRequest = socket.sent
       .map((message) => JSON.parse(message) as { _tag?: string; id?: string; tag?: string })
       .find(
@@ -775,16 +777,7 @@ describe("WsTransport", () => {
     if (!streamRequest) {
       throw new Error("Expected a server lifecycle request");
     }
-    socket.serverMessage(
-      JSON.stringify({
-        _tag: "Exit",
-        requestId: streamRequest.id,
-        exit: {
-          _tag: "Success",
-          value: null,
-        },
-      }),
-    );
+    socket.close(1006, "abnormal closure");
 
     await waitFor(() => {
       expect(connectionListener).toHaveBeenCalledWith(
@@ -794,10 +787,16 @@ describe("WsTransport", () => {
       );
     });
 
+    await waitFor(() => {
+      expect(sockets.length).toBeGreaterThan(1);
+    });
+    const retrySocket = getSocket();
+    retrySocket.open();
+
     emitWindowEvent("focus");
 
     await waitFor(() => {
-      const probeRequest = socket.sent
+      const probeRequest = retrySocket.sent
         .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
         .find(
           (message) => message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
@@ -805,7 +804,7 @@ describe("WsTransport", () => {
       expect(probeRequest).toBeDefined();
     });
 
-    const probeRequest = socket.sent
+    const probeRequest = retrySocket.sent
       .map((message) => JSON.parse(message) as { _tag?: string; id?: string; tag?: string })
       .find(
         (message): message is { _tag: "Request"; id: string; tag: string } =>
@@ -814,7 +813,7 @@ describe("WsTransport", () => {
     if (!probeRequest) {
       throw new Error("Expected a connection probe request");
     }
-    socket.serverMessage(
+    retrySocket.serverMessage(
       JSON.stringify({
         _tag: "Exit",
         requestId: probeRequest.id,

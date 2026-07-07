@@ -105,8 +105,8 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
-  OrchestrationShellStreamItem,
-  OrchestrationThreadStreamItem,
+  OrchestrationProjectionStreamItem,
+  OrchestrationStreamInput,
   OrchestrationThread,
 } from "./orchestration";
 import { TrimmedNonEmptyString } from "./baseSchemas";
@@ -590,12 +590,10 @@ export interface NativeApi {
       input: OrchestrationGetFullThreadDiffInput,
     ) => Promise<OrchestrationGetFullThreadDiffResult>;
     replayEvents: (fromSequenceExclusive: number) => Promise<OrchestrationEvent[]>;
+    onProjectionStream: (
+      input: OrchestrationStreamInput,
+      callback: (event: OrchestrationProjectionStreamItem) => void,
+    ) => () => void;
     onDomainEvent: (callback: (event: OrchestrationEvent) => void) => () => void;
-    subscribeShell: () => Promise<void>;
-    unsubscribeShell: () => Promise<void>;
-    subscribeThread: (input: OrchestrationGetThreadInput) => Promise<void>;
-    unsubscribeThread: (input: OrchestrationGetThreadInput) => Promise<void>;
-    onShellEvent: (callback: (event: OrchestrationShellStreamItem) => void) => () => void;
-    onThreadEvent: (callback: (event: OrchestrationThreadStreamItem) => void) => () => void;
   };
 }

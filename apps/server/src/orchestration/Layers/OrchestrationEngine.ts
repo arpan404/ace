@@ -153,6 +153,19 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       }
     }),
   );
+  const publishCommittedEvents = (events: ReadonlyArray<OrchestrationEvent>) =>
+    readModelReconcileSemaphore.withPermits(1)(
+      Effect.gen(function* () {
+        for (const event of events) {
+          if (event.sequence > readModel.snapshotSequence) {
+            readModel = yield* projectEvent(readModel, event);
+          }
+        }
+        for (const event of events) {
+          yield* PubSub.publish(eventPubSub, event);
+        }
+      }),
+    );
 
   const ensureThreadProposedPlanLoaded = (threadId: ThreadId, planId: string) =>
     Effect.gen(function* () {
@@ -264,7 +277,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           ),
         );
 
-      yield* reconcilePersistedReadModel;
+      yield* publishCommittedEvents(committedCommand.committedEvents);
       yield* Deferred.succeed(envelope.result, { sequence: committedCommand.lastSequence });
     }).pipe(
       Effect.catch((error) =>

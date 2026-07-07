@@ -15,7 +15,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
-  applyShellEvent,
   dismissThreadError,
   hydrateThreadFromReadModel,
   mergeServerReadModel,
@@ -1462,43 +1461,6 @@ describe("store shell hot path", () => {
     expect(next.threads[0]?.historyLoaded).toBe(true);
   });
 
-  it("preserves hydrated messages when applying a shell upsert event", () => {
-    const threadId = ThreadId.makeUnsafe("thread-1");
-    const hydrated = syncServerThreadDetailHotPath(
-      makeState(makeThread({ historyLoaded: false })),
-      makeReadModelThread({
-        id: threadId,
-        messages: [
-          {
-            id: MessageId.makeUnsafe("message-1"),
-            role: "assistant",
-            text: "kept",
-            turnId: null,
-            streaming: false,
-            createdAt: "2026-02-27T00:00:01.000Z",
-            updatedAt: "2026-02-27T00:00:01.000Z",
-          },
-        ],
-      }),
-    );
-
-    const next = applyShellEvent(hydrated, {
-      kind: "thread-upserted",
-      sequence: 11,
-      thread: makeShellThread({
-        id: threadId,
-        title: "Live Rename",
-        updatedAt: "2026-02-27T00:00:03.000Z",
-      }),
-    });
-
-    expect(next.threads[0]?.title).toBe("Live Rename");
-    expect(next.threads[0]?.historyLoaded).toBe(true);
-    expect(next.threads[0]?.messages.map((message) => message.id)).toEqual([
-      MessageId.makeUnsafe("message-1"),
-    ]);
-  });
-
   it("hydrates only the targeted thread detail hot path", () => {
     const firstThreadId = ThreadId.makeUnsafe("thread-1");
     const secondThreadId = ThreadId.makeUnsafe("thread-2");
@@ -1543,30 +1505,6 @@ describe("store shell hot path", () => {
     expect(next.threads.find((thread) => thread.id === secondThreadId)?.messages[0]?.id).toBe(
       MessageId.makeUnsafe("target-message"),
     );
-  });
-
-  it("removes sidebar and index state when applying a shell thread removal", () => {
-    const threadId = ThreadId.makeUnsafe("thread-1");
-    const synced = syncServerShellSnapshot(
-      {
-        ...makeState(makeThread()),
-        threads: [],
-        threadsById: {},
-        sidebarThreadsById: {},
-        threadIdsByProjectId: {},
-      },
-      makeShellSnapshot({ threads: [makeShellThread({ id: threadId })] }),
-    );
-
-    const next = applyShellEvent(synced, {
-      kind: "thread-removed",
-      sequence: 12,
-      threadId,
-    });
-
-    expect(next.threadsById?.[threadId]).toBeUndefined();
-    expect(next.sidebarThreadsById[threadId]).toBeUndefined();
-    expect(next.threadIdsByProjectId[ProjectId.makeUnsafe("project-1")] ?? []).toEqual([]);
   });
 });
 

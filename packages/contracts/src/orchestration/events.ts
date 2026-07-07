@@ -174,6 +174,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   messageId: MessageId,
   role: OrchestrationMessageRole,
   text: Schema.String,
+  textMode: Schema.optional(Schema.Literals(["append", "replace", "complete"])),
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
@@ -508,61 +509,76 @@ export type OrchestrationReplayEventsInput = typeof OrchestrationReplayEventsInp
 export const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
 export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
 
-export const OrchestrationSubscribeShellInput = Schema.Struct({});
-export type OrchestrationSubscribeShellInput = typeof OrchestrationSubscribeShellInput.Type;
-
-export const OrchestrationUnsubscribeShellInput = Schema.Struct({});
-export type OrchestrationUnsubscribeShellInput = typeof OrchestrationUnsubscribeShellInput.Type;
-
-export const OrchestrationSubscribeThreadInput = Schema.Struct({
-  threadId: ThreadId,
-});
-export type OrchestrationSubscribeThreadInput = typeof OrchestrationSubscribeThreadInput.Type;
-
-export const OrchestrationUnsubscribeThreadInput = Schema.Struct({
-  threadId: ThreadId,
-});
-export type OrchestrationUnsubscribeThreadInput = typeof OrchestrationUnsubscribeThreadInput.Type;
-
-export const OrchestrationShellStreamItem = Schema.Union([
+export const OrchestrationStreamScope = Schema.Union([
   Schema.Struct({
-    kind: Schema.Literal("snapshot"),
-    snapshot: OrchestrationShellSnapshot,
+    kind: Schema.Literal("shell"),
   }),
   Schema.Struct({
-    kind: Schema.Literal("project-upserted"),
-    sequence: NonNegativeInt,
-    project: OrchestrationProjectShell,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("project-removed"),
-    sequence: NonNegativeInt,
-    projectId: ProjectId,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("thread-upserted"),
-    sequence: NonNegativeInt,
-    thread: OrchestrationThreadShell,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("thread-removed"),
-    sequence: NonNegativeInt,
+    kind: Schema.Literal("thread"),
     threadId: ThreadId,
   }),
 ]);
-export type OrchestrationShellStreamItem = typeof OrchestrationShellStreamItem.Type;
+export type OrchestrationStreamScope = typeof OrchestrationStreamScope.Type;
 
-export const OrchestrationThreadStreamItem = Schema.Union([
+export const OrchestrationStreamInput = Schema.Struct({
+  scope: OrchestrationStreamScope,
+  cursor: Schema.optional(
+    Schema.Struct({
+      sequence: NonNegativeInt,
+    }),
+  ),
+});
+export type OrchestrationStreamInput = typeof OrchestrationStreamInput.Type;
+
+const OrchestrationProjectionStreamSnapshot = Schema.Union([
   Schema.Struct({
-    kind: Schema.Literal("snapshot"),
-    snapshot: OrchestrationThreadDetailSnapshot,
+    scope: Schema.Struct({ kind: Schema.Literal("shell") }),
+    sequence: NonNegativeInt,
+    shell: OrchestrationShellSnapshot,
   }),
   Schema.Struct({
-    kind: Schema.Literal("event"),
-    event: OrchestrationEvent,
+    scope: Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
+    sequence: NonNegativeInt,
+    thread: OrchestrationThread,
   }),
 ]);
-export type OrchestrationThreadStreamItem = typeof OrchestrationThreadStreamItem.Type;
+export type OrchestrationProjectionStreamSnapshot =
+  typeof OrchestrationProjectionStreamSnapshot.Type;
+
+const OrchestrationProjectionStreamPatch = Schema.Union([
+  Schema.Struct({
+    scope: Schema.Struct({ kind: Schema.Literal("shell") }),
+    sequence: NonNegativeInt,
+    shell: OrchestrationShellSnapshot,
+  }),
+  Schema.Struct({
+    scope: Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
+    sequence: NonNegativeInt,
+    thread: Schema.NullOr(OrchestrationThread),
+  }),
+]);
+export type OrchestrationProjectionStreamPatch = typeof OrchestrationProjectionStreamPatch.Type;
+
+export const OrchestrationProjectionStreamItem = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    snapshot: OrchestrationProjectionStreamSnapshot,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("patch"),
+    patch: OrchestrationProjectionStreamPatch,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("reset"),
+    reason: TrimmedNonEmptyString,
+    snapshot: OrchestrationProjectionStreamSnapshot,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("heartbeat"),
+    sequence: NonNegativeInt,
+  }),
+]);
+export type OrchestrationProjectionStreamItem = typeof OrchestrationProjectionStreamItem.Type;
 
 export const OrchestrationRpcSchemas = {
   getSnapshot: {
@@ -593,21 +609,9 @@ export const OrchestrationRpcSchemas = {
     input: OrchestrationReplayEventsInput,
     output: OrchestrationReplayEventsResult,
   },
-  subscribeShell: {
-    input: OrchestrationSubscribeShellInput,
-    output: Schema.Void,
-  },
-  unsubscribeShell: {
-    input: OrchestrationUnsubscribeShellInput,
-    output: Schema.Void,
-  },
-  subscribeThread: {
-    input: OrchestrationSubscribeThreadInput,
-    output: Schema.Void,
-  },
-  unsubscribeThread: {
-    input: OrchestrationUnsubscribeThreadInput,
-    output: Schema.Void,
+  stream: {
+    input: OrchestrationStreamInput,
+    output: OrchestrationProjectionStreamItem,
   },
 } as const;
 

@@ -144,11 +144,11 @@
         180deg,
         transparent 0,
         transparent calc(100% - 4.7rem),
-        color-mix(in oklab, var(--popover) 88%, var(--background) 12%) calc(100% - 4.7rem),
-        color-mix(in oklab, var(--card) 88%, var(--background) 12%) 100%
+        color-mix(in oklab, var(--card) 84%, var(--background) 16%) calc(100% - 4.7rem),
+        color-mix(in oklab, var(--card) 78%, var(--background) 22%) 100%
       ),
-      color-mix(in oklab, var(--card) 90%, var(--background) 10%);
-    box-shadow: 0 26px 70px -54px oklch(0 0 0 / 0.76);
+      color-mix(in oklab, var(--background) 94%, var(--card) 6%);
+    box-shadow: none;
     overflow: visible;
   }
 
@@ -158,10 +158,10 @@
         180deg,
         transparent 0,
         transparent calc(100% - 4.7rem),
-        color-mix(in oklab, var(--popover) 80%, var(--background) 20%) calc(100% - 4.7rem),
-        color-mix(in oklab, var(--card) 86%, var(--background) 14%) 100%
+        color-mix(in oklab, var(--card) 72%, var(--background) 28%) calc(100% - 4.7rem),
+        color-mix(in oklab, var(--card) 64%, var(--background) 36%) 100%
       ),
-      color-mix(in oklab, var(--card) 88%, var(--background) 12%);
+      color-mix(in oklab, var(--background) 96%, var(--card) 4%);
   }
 
   .new-thread-start-composer {
@@ -539,6 +539,9 @@ html.native-window-resizing *::after {
   --chat-bubble: oklch(1 0 0 / 0.96);
   --terminal-surface: var(--background);
   --terminal-surface-elevated: color-mix(in oklab, var(--background) 96%, var(--card) 4%);
+  --composer-surface: color-mix(in oklab, var(--card) 90%, var(--background) 10%);
+  --composer-border: color-mix(in oklab, var(--border) 92%, var(--foreground) 8%);
+  --composer-saturate: 1.06;
   --terminal-foreground: oklch(0.205 0 0);
   --terminal-cursor: oklch(0.34 0 0);
   --terminal-selection-background: color-mix(in oklab, rgb(30 144 255) 20%, transparent);
@@ -606,6 +609,9 @@ html.native-window-resizing *::after {
     --chat-bubble: color-mix(in oklab, var(--card) 92%, var(--background) 8%);
     --terminal-surface: var(--background);
     --terminal-surface-elevated: color-mix(in oklab, var(--background) 96%, var(--card) 4%);
+    --composer-surface: color-mix(in oklab, var(--card) 82%, var(--background) 18%);
+    --composer-border: color-mix(in oklab, var(--border) 90%, var(--foreground) 10%);
+    --composer-saturate: 1.08;
     --terminal-foreground: oklch(0.9 0 0);
     --terminal-cursor: oklch(0.78 0 0);
     --terminal-selection-background: color-mix(in oklab, rgb(30 144 255) 24%, transparent);

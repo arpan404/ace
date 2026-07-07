@@ -62,13 +62,9 @@ import {
   OrchestrationGetTurnDiffInput,
   OrchestrationReplayEventsError,
   OrchestrationReplayEventsInput,
+  OrchestrationProjectionStreamItem,
   OrchestrationRpcSchemas,
-  OrchestrationShellStreamItem,
-  OrchestrationSubscribeShellInput,
-  OrchestrationSubscribeThreadInput,
-  OrchestrationThreadStreamItem,
-  OrchestrationUnsubscribeShellInput,
-  OrchestrationUnsubscribeThreadInput,
+  OrchestrationStreamInput,
 } from "./orchestration";
 import {
   ProjectCreateEntryError,
@@ -650,34 +646,11 @@ export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.
   error: OrchestrationReplayEventsError,
 });
 
-export const WsOrchestrationSubscribeShellRpc = Rpc.make(ORCHESTRATION_WS_METHODS.subscribeShell, {
-  payload: OrchestrationSubscribeShellInput,
-  success: OrchestrationShellStreamItem,
+export const WsOrchestrationStreamRpc = Rpc.make(ORCHESTRATION_WS_METHODS.stream, {
+  payload: OrchestrationStreamInput,
+  success: OrchestrationProjectionStreamItem,
   stream: true,
 });
-
-export const WsOrchestrationUnsubscribeShellRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.unsubscribeShell,
-  {
-    payload: OrchestrationUnsubscribeShellInput,
-  },
-);
-
-export const WsOrchestrationSubscribeThreadRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.subscribeThread,
-  {
-    payload: OrchestrationSubscribeThreadInput,
-    success: OrchestrationThreadStreamItem,
-    stream: true,
-  },
-);
-
-export const WsOrchestrationUnsubscribeThreadRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.unsubscribeThread,
-  {
-    payload: OrchestrationUnsubscribeThreadInput,
-  },
-);
 
 export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(
   WS_METHODS.subscribeOrchestrationDomainEvents,
@@ -788,8 +761,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationReplayEventsRpc,
-  WsOrchestrationSubscribeShellRpc,
-  WsOrchestrationUnsubscribeShellRpc,
-  WsOrchestrationSubscribeThreadRpc,
-  WsOrchestrationUnsubscribeThreadRpc,
+  WsOrchestrationStreamRpc,
 );

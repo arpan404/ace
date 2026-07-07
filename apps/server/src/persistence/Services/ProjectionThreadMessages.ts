@@ -27,6 +27,7 @@ export const ProjectionThreadMessage = Schema.Struct({
   turnId: Schema.NullOr(TurnId),
   role: OrchestrationMessageRole,
   text: Schema.String,
+  textMode: Schema.optional(Schema.Literals(["append", "replace", "complete"])),
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   isStreaming: Schema.Boolean,
   sequence: Schema.optional(NonNegativeInt),

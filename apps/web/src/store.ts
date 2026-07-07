@@ -8,7 +8,6 @@ import {
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
-  type OrchestrationShellStreamItem,
   type OrchestrationSession,
   type OrchestrationCheckpointSummary,
   type OrchestrationThread,
@@ -18,6 +17,10 @@ import {
 } from "@ace/contracts";
 import * as Schema from "effect/Schema";
 import { resolveModelSlugForProvider } from "@ace/shared/model";
+import {
+  inferOrchestrationMessageTextMode,
+  resolveOrchestrationMessageText,
+} from "@ace/shared/orchestrationMessageText";
 import { create } from "zustand";
 import {
   findLatestProposedPlan,
@@ -2076,11 +2079,6 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
 
     case "thread.message-sent": {
       const connectionUrl = resolveConnectionForThreadId(event.payload.threadId);
-      // Accumulate streaming text exactly once, here at the single ingestion point.
-      // During streaming `event.payload.text` is a delta; on completion it is the full
-      // authoritative text. We resolve the full text up front so every downstream store
-      // (this app store AND the timeline model store) is fed the same full text and can
-      // never disagree — no store re-guesses whether a payload is a delta or a replace.
       const existingMessageForText = getThreadByIdFromState(
         state,
         event.payload.threadId,
@@ -2088,11 +2086,11 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
       const previousFullText = existingMessageForText
         ? getChatMessageFullText(existingMessageForText)
         : "";
-      const accumulatedText = event.payload.streaming
-        ? `${previousFullText}${event.payload.text}`
-        : event.payload.text.length > 0
-          ? event.payload.text
-          : previousFullText;
+      const accumulatedText = resolveOrchestrationMessageText({
+        previousText: previousFullText,
+        incomingText: event.payload.text,
+        textMode: inferOrchestrationMessageTextMode(event.payload),
+      });
       const orchestrationMessage = {
         id: event.payload.messageId,
         role: event.payload.role,
@@ -2123,6 +2121,11 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         const existingMessageIndex = thread.messages.findIndex((entry) => entry.id === message.id);
         const existingMessage =
           existingMessageIndex >= 0 ? thread.messages[existingMessageIndex] : undefined;
+        // Do not regrow history for a thread whose full history has not loaded
+        // (a background/metadata thread): accumulating only the tail of live
+        // events would build a partial, misleading history. Hydrated projection
+        // snapshots mark the focused thread as historyLoaded before live message
+        // patches arrive, so those are retained and sorted below.
         const shouldRetainMessage =
           thread.historyLoaded !== false ||
           event.payload.role === "user" ||
@@ -2166,8 +2169,11 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
                 return nextMessages;
               })()
             : [...thread.messages, message];
+        // Sort by sequence before capping, mirroring mergeMessagesPreservingLiveText
+        // (the recovery path) so a message that arrives out of order lands in the
+        // same position live as it would after a refresh.
         const cappedMessages = shouldRetainMessage
-          ? messages.slice(-MAX_THREAD_MESSAGES)
+          ? messages.toSorted(compareSequenceThenCreatedAt).slice(-MAX_THREAD_MESSAGES)
           : messages;
         const turnDiffSummaries =
           thread.historyLoaded !== false &&
@@ -2493,102 +2499,12 @@ export function syncServerShellSnapshot(
   };
 }
 
-function upsertShellThread(state: AppState, shellThread: OrchestrationThreadShell): AppState {
-  if (shellThread.deletedAt !== null) {
-    return removeReadModelEntities(state, {
-      projectIds: [],
-      threadIds: [shellThread.id],
-    });
-  }
-  const existing =
-    state.threadsById?.[shellThread.id] ?? getThreadById(state.threads, shellThread.id);
-  const mappedThread = suppressDismissedThreadError(
-    mapThreadShell(shellThread),
-    state.dismissedThreadErrorKeysById,
-  );
-  const nextThread = mergeThreadPreservingHydratedHistory(existing, mappedThread);
-  const threads = existing
-    ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
-    : [...state.threads, nextThread];
-  const nextSummary = buildSidebarThreadSummary(nextThread, state.dismissedThreadErrorKeysById);
-  const previousSummary = state.sidebarThreadsById[nextThread.id];
-  const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
-    ? state.sidebarThreadsById
-    : {
-        ...state.sidebarThreadsById,
-        [nextThread.id]: nextSummary,
-      };
-  const nextThreadIdsByProjectId =
-    existing !== undefined && existing.projectId !== nextThread.projectId
-      ? removeThreadIdByProjectId(state.threadIdsByProjectId, existing.projectId, existing.id)
-      : state.threadIdsByProjectId;
-  const threadIdsByProjectId = appendThreadIdByProjectId(
-    nextThreadIdsByProjectId,
-    nextThread.projectId,
-    nextThread.id,
-  );
-  return {
-    ...state,
-    threads,
-    threadsById: {
-      ...(state.threadsById ?? buildThreadsById(state.threads)),
-      [nextThread.id]: nextThread,
-    },
-    sidebarThreadsById,
-    threadIdsByProjectId,
-    bootstrapComplete: true,
-  };
-}
-
 export function syncServerThreadDetailHotPath(
   state: AppState,
   readModelThread: OrchestrationReadModel["threads"][number],
   options?: SnapshotSyncOptions,
 ): AppState {
   return hydrateThreadFromReadModel(state, readModelThread, options);
-}
-
-export function applyShellEvent(
-  state: AppState,
-  item: Exclude<OrchestrationShellStreamItem, { kind: "snapshot" }>,
-): AppState {
-  switch (item.kind) {
-    case "project-upserted": {
-      if (item.project.deletedAt !== null) {
-        return removeReadModelEntities(state, {
-          projectIds: [item.project.id],
-          threadIds: [],
-        });
-      }
-      const nextProject = mapProject(item.project);
-      const existingIndex = state.projects.findIndex((project) => project.id === nextProject.id);
-      const projects =
-        existingIndex >= 0
-          ? state.projects.map((project, index) =>
-              index === existingIndex
-                ? mergeProjectPreservingIdentity(project, nextProject)
-                : project,
-            )
-          : [...state.projects, nextProject];
-      return {
-        ...state,
-        projects: preserveProjectArrayIdentity(state.projects, projects),
-        bootstrapComplete: true,
-      };
-    }
-    case "project-removed":
-      return removeReadModelEntities(state, {
-        projectIds: [item.projectId],
-        threadIds: [],
-      });
-    case "thread-upserted":
-      return upsertShellThread(state, item.thread);
-    case "thread-removed":
-      return removeReadModelEntities(state, {
-        projectIds: [],
-        threadIds: [item.threadId],
-      });
-  }
 }
 
 export function syncServerReadModel(
@@ -3045,7 +2961,6 @@ interface AppStore extends AppState {
     options?: SnapshotSyncOptions,
   ) => void;
   pruneHydratedThreadHistories: (keepThreadIds: readonly ThreadId[]) => void;
-  applyShellEvent: (item: Exclude<OrchestrationShellStreamItem, { kind: "snapshot" }>) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent) => void;
   applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
@@ -3071,7 +2986,6 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => syncServerThreadDetailHotPath(state, readModelThread, options)),
   pruneHydratedThreadHistories: (keepThreadIds) =>
     set((state) => pruneHydratedThreadHistories(state, keepThreadIds)),
-  applyShellEvent: (item) => set((state) => applyShellEvent(state, item)),
   applyOrchestrationEvent: (event) => set((state) => applyOrchestrationEvent(state, event)),
   applyOrchestrationEvents: (events) => set((state) => applyOrchestrationEvents(state, events)),
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),

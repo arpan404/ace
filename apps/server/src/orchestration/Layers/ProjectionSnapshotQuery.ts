@@ -961,29 +961,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const getActiveProjectRowByProjectId = SqlSchema.findOneOption({
-    Request: ProjectIdLookupInput,
-    Result: ProjectionProjectLookupRowSchema,
-    execute: ({ projectId }) =>
-      sql`
-        SELECT
-          project_id AS "projectId",
-          title,
-          workspace_root AS "workspaceRoot",
-          default_model_selection_json AS "defaultModelSelection",
-          scripts_json AS "scripts",
-          icon_json AS "icon",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          archived_at AS "archivedAt",
-          deleted_at AS "deletedAt"
-        FROM projection_projects
-        WHERE project_id = ${projectId}
-          AND deleted_at IS NULL
-        LIMIT 1
-      `,
-  });
-
   const getFirstActiveThreadIdByProject = SqlSchema.findOneOption({
     Request: ProjectIdLookupInput,
     Result: ProjectionThreadIdLookupRowSchema,
@@ -1235,98 +1212,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
       ),
     );
-
-  const getProjectShellById: ProjectionSnapshotQueryShape["getProjectShellById"] = (projectId) =>
-    getActiveProjectRowByProjectId({ projectId }).pipe(
-      Effect.mapError(
-        toPersistenceSqlOrDecodeError(
-          "ProjectionSnapshotQuery.getProjectShellById:query",
-          "ProjectionSnapshotQuery.getProjectShellById:decodeRow",
-        ),
-      ),
-      Effect.map(Option.map(toProjectShell)),
-    );
-
-  const getThreadShellById: ProjectionSnapshotQueryShape["getThreadShellById"] = (threadId) =>
-    sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const threadRow = yield* getThreadRow({ threadId }).pipe(
-            Effect.mapError(
-              toPersistenceSqlOrDecodeError(
-                "ProjectionSnapshotQuery.getThreadShellById:getThread:query",
-                "ProjectionSnapshotQuery.getThreadShellById:getThread:decodeRow",
-              ),
-            ),
-          );
-          if (Option.isNone(threadRow)) {
-            return Option.none<OrchestrationThreadShell>();
-          }
-
-          const [summaryRow, sessionRow, providerRuntimeRow, latestTurnRow] = yield* Effect.all([
-            getLatestThreadProposedPlanSummaryRowByThread({ threadId }).pipe(
-              Effect.mapError(
-                toPersistenceSqlOrDecodeError(
-                  "ProjectionSnapshotQuery.getThreadShellById:getSummaryProposedPlan:query",
-                  "ProjectionSnapshotQuery.getThreadShellById:getSummaryProposedPlan:decodeRow",
-                ),
-              ),
-            ),
-            getThreadSessionRowByThread({ threadId }).pipe(
-              Effect.mapError(
-                toPersistenceSqlOrDecodeError(
-                  "ProjectionSnapshotQuery.getThreadShellById:getSession:query",
-                  "ProjectionSnapshotQuery.getThreadShellById:getSession:decodeRow",
-                ),
-              ),
-            ),
-            getProviderSessionRuntimeRowByThread({ threadId }).pipe(
-              Effect.mapError(
-                toPersistenceSqlOrDecodeError(
-                  "ProjectionSnapshotQuery.getThreadShellById:getProviderSessionRuntime:query",
-                  "ProjectionSnapshotQuery.getThreadShellById:getProviderSessionRuntime:decodeRow",
-                ),
-              ),
-            ),
-            getLatestTurnRowByThread({ threadId }).pipe(
-              Effect.mapError(
-                toPersistenceSqlOrDecodeError(
-                  "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:query",
-                  "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:decodeRow",
-                ),
-              ),
-            ),
-          ]);
-
-          return Option.some(
-            toThreadShell(threadRow.value, {
-              session: Option.isSome(sessionRow) ? toOrchestrationSession(sessionRow.value) : null,
-              latestTurn: Option.isSome(latestTurnRow)
-                ? toOrchestrationLatestTurn(latestTurnRow.value)
-                : null,
-              runtimeRow: Option.getOrUndefined(providerRuntimeRow),
-              latestProposedPlanSummary: Option.isSome(summaryRow)
-                ? {
-                    id: summaryRow.value.planId,
-                    turnId: summaryRow.value.turnId,
-                    implementedAt: summaryRow.value.implementedAt,
-                    implementationThreadId: summaryRow.value.implementationThreadId,
-                    createdAt: summaryRow.value.createdAt,
-                    updatedAt: summaryRow.value.updatedAt,
-                  }
-                : null,
-            }),
-          );
-        }),
-      )
-      .pipe(
-        Effect.mapError((error) => {
-          if (isPersistenceError(error)) {
-            return error;
-          }
-          return toPersistenceSqlError("ProjectionSnapshotQuery.getThreadShellById:query")(error);
-        }),
-      );
 
   const getThread: ProjectionSnapshotQueryShape["getThread"] = (threadId) =>
     sql
@@ -1621,8 +1506,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   return {
     getSnapshot,
     getShellSnapshot,
-    getProjectShellById,
-    getThreadShellById,
     getThread,
     getThreadDetailSnapshotById,
     getCounts,

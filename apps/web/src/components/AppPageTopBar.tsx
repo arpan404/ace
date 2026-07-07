@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
 import { AnimatePresence, m } from "motion/react";
+import { useLocation } from "@tanstack/react-router";
 
 import { isElectron } from "../env";
 import {
@@ -33,8 +34,11 @@ export function AppPageTopBar({
   desktopDragRegion = true,
   showSidebarTrigger = true,
 }: AppPageTopBarProps) {
+  const location = useLocation();
   const { isMobile, state: sidebarState } = useSidebar();
-  const showHeaderSidebarTrigger = showSidebarTrigger && (isMobile || sidebarState === "collapsed");
+  const isSettingsRoute = location.pathname.startsWith("/settings");
+  const showHeaderSidebarTrigger =
+    !isSettingsRoute && showSidebarTrigger && (isMobile || sidebarState === "collapsed");
 
   return (
     <header

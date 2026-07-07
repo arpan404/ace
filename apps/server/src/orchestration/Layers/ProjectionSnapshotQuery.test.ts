@@ -1027,27 +1027,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.equal(shellThread1 !== undefined && "activities" in shellThread1, false);
       assert.equal(shellThread1 !== undefined && "checkpoints" in shellThread1, false);
 
-      const threadShell = yield* snapshotQuery.getThreadShellById(ThreadId.makeUnsafe("thread-2"));
-      const missingThreadShell = yield* snapshotQuery.getThreadShellById(
-        ThreadId.makeUnsafe("thread-missing"),
-      );
-      assert.equal(Option.isSome(threadShell), true);
-      assert.equal(Option.isNone(missingThreadShell), true);
-      assert.equal(
-        Option.match(threadShell, {
-          onNone: () => null,
-          onSome: (thread) => thread.latestProposedPlanSummary?.id ?? null,
-        }),
-        "plan-1",
-      );
-      assert.equal(
-        Option.match(threadShell, {
-          onNone: () => true,
-          onSome: (thread) => "messages" in thread,
-        }),
-        false,
-      );
-
       const targetedSnapshot = yield* snapshotQuery.getSnapshot({
         hydrateThreadId: ThreadId.makeUnsafe("thread-1"),
       });

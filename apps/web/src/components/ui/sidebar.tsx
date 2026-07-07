@@ -29,10 +29,14 @@ import { Schema } from "effect";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
-const SIDEBAR_WIDTH = "16rem";
+const SIDEBAR_WIDTH = "18rem";
 const SIDEBAR_WIDTH_MOBILE = "min(16.1rem, calc(100vw - 1rem))";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
+const SIDEBAR_RESIZE_COLLAPSE_THRESHOLD = 24;
+const SIDEBAR_PREVIEW_EDGE_WIDTH = "12px";
+const SIDEBAR_PREVIEW_OPEN_DELAY_MS = 180;
+const SIDEBAR_PREVIEW_CLOSE_DELAY_MS = 420;
 const SIDEBAR_CHROME_TRANSITION = {
   type: "spring",
   stiffness: 420,
@@ -51,6 +55,7 @@ type SidebarContextProps = {
 };
 
 type SidebarResizableOptions = {
+  collapseBelowMin?: boolean;
   maxWidth?: number;
   minWidth?: number;
   onResize?: (width: number) => void;
@@ -67,6 +72,7 @@ type SidebarResizableOptions = {
 };
 
 type SidebarResolvedResizableOptions = {
+  collapseBelowMin: boolean;
   maxWidth: number;
   minWidth: number;
   onResize?: (width: number) => void;
@@ -88,6 +94,7 @@ type SidebarInstanceContextProps = {
 };
 
 type SidebarRailResizeState = {
+  collapseRequested: boolean;
   moved: boolean;
   pointerId: number;
   pendingWidth: number;
@@ -219,11 +226,16 @@ function Sidebar({
   collapsible?: "offcanvas" | "icon" | "none";
   resizable?: boolean | SidebarResizableOptions;
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const { isMobile, state, openMobile, setOpen, setOpenMobile } = useSidebar();
+  const [previewOpen, setPreviewOpen] = React.useState(false);
+  const previewOpenTimerRef = React.useRef<number | null>(null);
+  const previewCloseTimerRef = React.useRef<number | null>(null);
   const resolvedResizable: SidebarResolvedResizableOptions | null =
     isMobile || collapsible === "none" || !resizable
       ? null
       : {
+          collapseBelowMin:
+            typeof resizable === "boolean" ? true : (resizable.collapseBelowMin ?? true),
           maxWidth:
             typeof resizable === "boolean"
               ? Number.POSITIVE_INFINITY
@@ -242,6 +254,8 @@ function Sidebar({
         };
   const instanceContextValue = { side, resizable: resolvedResizable };
   const collapsed = state === "collapsed";
+  const previewingCollapsedOffcanvas =
+    previewOpen && collapsed && collapsible === "offcanvas" && !isMobile;
   const iconGapWidth =
     variant === "floating" || variant === "inset"
       ? "calc(var(--sidebar-width-icon) + 1rem)"
@@ -259,7 +273,15 @@ function Sidebar({
   const sidebarContainerWidth =
     collapsed && collapsible === "icon" ? iconContainerWidth : "var(--sidebar-width)";
   const sidebarContainerX =
-    collapsed && collapsible === "offcanvas" ? (side === "left" ? "-100%" : "100%") : "0%";
+    collapsed && collapsible === "offcanvas" && !previewingCollapsedOffcanvas
+      ? side === "left"
+        ? "-100%"
+        : "100%"
+      : "0%";
+  const sidebarContainerOpacity =
+    collapsed && collapsible === "offcanvas" && !previewingCollapsedOffcanvas ? 0 : 1;
+  const sidebarContainerScale =
+    collapsed && collapsible === "offcanvas" && !previewingCollapsedOffcanvas ? 0.985 : 1;
   const sidebarMotionActiveRef = React.useRef(false);
   const handleSidebarMotionStart = () => {
     if (sidebarMotionActiveRef.current) {
@@ -279,6 +301,53 @@ function Sidebar({
     React.ComponentProps<typeof m.div>,
     "animate" | "children" | "className" | "initial" | "style" | "transition"
   >;
+  const canShowCollapsedPreview = collapsed && collapsible === "offcanvas";
+  const clearPreviewOpenTimer = () => {
+    if (previewOpenTimerRef.current === null) return;
+    window.clearTimeout(previewOpenTimerRef.current);
+    previewOpenTimerRef.current = null;
+  };
+  const clearPreviewCloseTimer = () => {
+    if (previewCloseTimerRef.current === null) return;
+    window.clearTimeout(previewCloseTimerRef.current);
+    previewCloseTimerRef.current = null;
+  };
+  const showCollapsedPreview = () => {
+    if (!canShowCollapsedPreview) return;
+    clearPreviewOpenTimer();
+    clearPreviewCloseTimer();
+    setPreviewOpen(true);
+  };
+  const scheduleCollapsedPreview = () => {
+    if (!canShowCollapsedPreview) return;
+    clearPreviewCloseTimer();
+    if (previewOpen || previewOpenTimerRef.current !== null) return;
+    previewOpenTimerRef.current = window.setTimeout(() => {
+      previewOpenTimerRef.current = null;
+      setPreviewOpen(true);
+    }, SIDEBAR_PREVIEW_OPEN_DELAY_MS);
+  };
+  const scheduleHideCollapsedPreview = () => {
+    clearPreviewOpenTimer();
+    if (!previewOpen || previewCloseTimerRef.current !== null) return;
+    previewCloseTimerRef.current = window.setTimeout(() => {
+      previewCloseTimerRef.current = null;
+      setPreviewOpen(false);
+    }, SIDEBAR_PREVIEW_CLOSE_DELAY_MS);
+  };
+  const commitCollapsedPreviewOpen = () => {
+    clearPreviewOpenTimer();
+    clearPreviewCloseTimer();
+    setPreviewOpen(false);
+    void setOpen(true);
+  };
+
+  React.useEffect(() => {
+    return () => {
+      clearPreviewOpenTimer();
+      clearPreviewCloseTimer();
+    };
+  }, []);
 
   if (collapsible === "none") {
     return (
@@ -334,6 +403,7 @@ function Sidebar({
         <div
           className="group peer hidden text-sidebar-foreground md:block"
           data-collapsible={state === "collapsed" ? collapsible : ""}
+          data-preview={previewingCollapsedOffcanvas ? "open" : "closed"}
           data-side={side}
           data-slot="sidebar"
           data-state={state}
@@ -353,18 +423,23 @@ function Sidebar({
               side === "left" ? "left-0" : "right-0",
               // Adjust the padding for floating and inset variants.
               (variant === "floating" || variant === "inset") && "p-2",
+              previewingCollapsedOffcanvas &&
+                "z-30 border-sidebar-border/60 shadow-none data-[side=left]:border-r data-[side=right]:border-l",
               className,
             )}
+            data-side={side}
             data-slot="sidebar-container"
             initial={false}
             animate={{
-              opacity: collapsed && collapsible === "offcanvas" ? 0 : 1,
-              scale: collapsed && collapsible === "offcanvas" ? 0.985 : 1,
+              opacity: sidebarContainerOpacity,
+              scale: sidebarContainerScale,
               width: sidebarContainerWidth,
               x: sidebarContainerX,
             }}
             onAnimationComplete={handleSidebarMotionComplete}
             onAnimationStart={handleSidebarMotionStart}
+            onPointerEnter={showCollapsedPreview}
+            onPointerLeave={scheduleHideCollapsedPreview}
             transition={SIDEBAR_CHROME_TRANSITION}
             style={
               {
@@ -376,7 +451,7 @@ function Sidebar({
           >
             <div
               className={cn(
-                "flex h-full w-full flex-col group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border",
+                "flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border",
                 APP_SIDEBAR_CLASS_NAME,
               )}
               data-sidebar="sidebar"
@@ -385,6 +460,21 @@ function Sidebar({
               {children}
             </div>
           </m.div>
+          {collapsed && collapsible === "offcanvas" ? (
+            <button
+              aria-label="Preview sidebar"
+              className={cn(
+                "fixed inset-y-0 z-20 hidden cursor-e-resize bg-transparent md:block",
+                side === "left" ? "left-0" : "right-0 cursor-w-resize",
+              )}
+              onClick={commitCollapsedPreviewOpen}
+              onPointerEnter={scheduleCollapsedPreview}
+              onPointerLeave={clearPreviewOpenTimer}
+              style={{ width: SIDEBAR_PREVIEW_EDGE_WIDTH }}
+              tabIndex={-1}
+              type="button"
+            />
+          ) : null}
         </div>
       </LazyMotion>
     </SidebarInstanceContext.Provider>
@@ -459,7 +549,7 @@ function useSidebarRailInteractions({
   React.ComponentProps<"button">,
   "onClick" | "onPointerCancel" | "onPointerDown" | "onPointerMove" | "onPointerUp"
 >) {
-  const { open, toggleSidebar } = useSidebar();
+  const { open, setOpen, toggleSidebar } = useSidebar();
   const sidebarInstance = React.use(SidebarInstanceContext);
   const railRef = React.useRef<HTMLButtonElement | null>(null);
   const releaseInlineWidthFrameIdsRef = React.useRef<number[]>([]);
@@ -498,14 +588,20 @@ function useSidebarRailInteractions({
       window.cancelAnimationFrame(resizeState.rafId);
     }
     cancelScheduledInlineWidthRelease();
-    if (resolvedResizable) {
+    if (resolvedResizable && !resizeState.collapseRequested) {
       applySidebarRailResizeWidth(resizeState, resolvedResizable, resizeState.pendingWidth);
     }
     resizeState.wrapper.style.setProperty("--sidebar-width", `${resizeState.width}px`);
-    if (resolvedResizable?.storageKey && typeof window !== "undefined") {
+    if (
+      resolvedResizable?.storageKey &&
+      !resizeState.collapseRequested &&
+      typeof window !== "undefined"
+    ) {
       setLocalStorageItem(resolvedResizable.storageKey, resizeState.width, Schema.Finite);
     }
-    resolvedResizable?.onResize?.(resizeState.width);
+    if (!resizeState.collapseRequested) {
+      resolvedResizable?.onResize?.(resizeState.width);
+    }
     resizeStateRef.current = null;
     if (resizeState.rail.hasPointerCapture(pointerId)) {
       resizeState.rail.releasePointerCapture(pointerId);
@@ -515,6 +611,9 @@ function useSidebarRailInteractions({
     document.body.style.removeProperty("user-select");
     for (const element of resizeState.transitionTargets) {
       element.style.removeProperty("transition-duration");
+    }
+    if (resizeState.collapseRequested) {
+      void setOpen(false);
     }
     const releaseFrameId = window.requestAnimationFrame(() => {
       const nestedFrameId = window.requestAnimationFrame(() => {
@@ -562,6 +661,7 @@ function useSidebarRailInteractions({
     event.preventDefault();
     event.stopPropagation();
     resizeStateRef.current = {
+      collapseRequested: false,
       moved: false,
       pointerId: event.pointerId,
       pendingWidth: initialWidth,
@@ -596,7 +696,11 @@ function useSidebarRailInteractions({
         ? resizeState.startX - event.clientX
         : event.clientX - resizeState.startX;
     if (Math.abs(delta) > 2) resizeState.moved = true;
-    resizeState.pendingWidth = clampSidebarWidth(resizeState.startWidth + delta, resolvedResizable);
+    const rawNextWidth = resizeState.startWidth + delta;
+    resizeState.collapseRequested =
+      resolvedResizable.collapseBelowMin &&
+      rawNextWidth < resolvedResizable.minWidth - SIDEBAR_RESIZE_COLLAPSE_THRESHOLD;
+    resizeState.pendingWidth = clampSidebarWidth(rawNextWidth, resolvedResizable);
     if (resizeState.rafId !== null) return;
 
     resizeState.rafId = window.requestAnimationFrame(() => {

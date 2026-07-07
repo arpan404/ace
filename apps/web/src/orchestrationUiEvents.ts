@@ -4,10 +4,71 @@ import type { OrchestrationEvent } from "@ace/contracts";
 // (see __root.tsx), so there is no longer a per-event "flush priority" or an
 // immediate-flush fast path — every streamed delta is paint-aligned.
 
+interface FrameScheduler {
+  readonly request: (callback: () => void) => number;
+  readonly cancel: (handle: number) => void;
+}
+
 type ThreadActivityAppendedEvent = Extract<
   OrchestrationEvent,
   { type: "thread.activity-appended" }
 >;
+
+const defaultFrameScheduler: FrameScheduler = {
+  request: (callback) =>
+    typeof globalThis.requestAnimationFrame === "function"
+      ? globalThis.requestAnimationFrame(callback)
+      : (globalThis.setTimeout(callback, 16) as unknown as number),
+  cancel: (handle) => {
+    if (typeof globalThis.cancelAnimationFrame === "function") {
+      globalThis.cancelAnimationFrame(handle);
+    }
+    globalThis.clearTimeout(handle);
+  },
+};
+
+export function createOrchestrationUiEventFrameBatcher(
+  applyEvents: (events: readonly OrchestrationEvent[]) => void,
+  scheduler: FrameScheduler = defaultFrameScheduler,
+) {
+  let disposed = false;
+  let frame: number | null = null;
+  let pendingEvents: OrchestrationEvent[] = [];
+
+  const flush = () => {
+    if (frame !== null) {
+      scheduler.cancel(frame);
+      frame = null;
+    }
+    if (pendingEvents.length === 0) {
+      return;
+    }
+    const events = coalesceOrchestrationUiEvents(pendingEvents);
+    pendingEvents = [];
+    applyEvents(events);
+  };
+
+  return {
+    enqueue(event: OrchestrationEvent): void {
+      if (disposed) {
+        return;
+      }
+      pendingEvents.push(event);
+      if (frame === null) {
+        frame = scheduler.request(flush);
+      }
+    },
+    flush,
+    dispose(): void {
+      disposed = true;
+      if (frame !== null) {
+        scheduler.cancel(frame);
+        frame = null;
+      }
+      pendingEvents = [];
+    },
+  };
+}
 
 export function coalesceOrchestrationUiEvents(
   events: ReadonlyArray<OrchestrationEvent>,

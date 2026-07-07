@@ -16,6 +16,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run src/bin.ts serve",
+    "dev:bundle": "node node_modules/.bin/tsdown --watch",
     "build": "node scripts/cli.ts build",
     "start": "node dist/bin.mjs serve",
     "prepare": "node node_modules/.bin/effect-language-service patch",

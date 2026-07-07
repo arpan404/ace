@@ -161,4 +161,44 @@ layer("ProjectionThreadMessageRepository", (it) => {
       }
     }),
   );
+
+  it.effect("replaces message text when textMode is replace", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionThreadMessageRepository;
+      const threadId = ThreadId.makeUnsafe("thread-replace-text");
+      const messageId = MessageId.makeUnsafe("message-replace-text");
+      const createdAt = "2026-02-28T19:30:00.000Z";
+
+      yield* repository.upsert({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "user",
+        text: "draft",
+        textMode: "replace",
+        isStreaming: false,
+        createdAt,
+        updatedAt: "2026-02-28T19:30:01.000Z",
+      });
+
+      yield* repository.upsert({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "user",
+        text: "",
+        textMode: "replace",
+        isStreaming: false,
+        createdAt,
+        updatedAt: "2026-02-28T19:30:02.000Z",
+      });
+
+      const rowById = yield* repository.getByMessageId({ messageId });
+      assert.equal(rowById._tag, "Some");
+      if (rowById._tag === "Some") {
+        assert.equal(rowById.value.text, "");
+        assert.equal(rowById.value.updatedAt, "2026-02-28T19:30:02.000Z");
+      }
+    }),
+  );
 });

@@ -11,8 +11,7 @@ import {
   type NewThreadRecommendation,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
-  type OrchestrationThreadShell,
-  type OrchestrationShellStreamItem,
+  type OrchestrationProjectionStreamItem,
   type ProviderKind,
   type ServerProvider,
   OrchestrationGetFullThreadDiffError,
@@ -74,7 +73,6 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery";
-import type { ProjectionRepositoryError } from "./persistence/Errors";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
@@ -141,235 +139,6 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
     event.type === "project.meta-updated" ||
     event.type === "project.deleted"
   );
-}
-
-function toShellStreamEvent(
-  projectionSnapshotQuery: ProjectionSnapshotQueryShape,
-  event: OrchestrationEvent,
-  threadShellCache?: Map<ThreadId, OrchestrationThreadShell>,
-): Effect.Effect<Option.Option<OrchestrationShellStreamItem>, ProjectionRepositoryError> {
-  switch (event.type) {
-    case "project.created":
-    case "project.meta-updated":
-      return projectionSnapshotQuery.getProjectShellById(event.payload.projectId).pipe(
-        Effect.map(
-          Option.map(
-            (project): OrchestrationShellStreamItem => ({
-              kind: "project-upserted",
-              sequence: event.sequence,
-              project,
-            }),
-          ),
-        ),
-      );
-
-    case "project.deleted":
-      return Effect.succeed(
-        Option.some({
-          kind: "project-removed",
-          sequence: event.sequence,
-          projectId: event.payload.projectId,
-        }),
-      );
-
-    case "thread.deleted":
-      threadShellCache?.delete(event.payload.threadId);
-      return Effect.succeed(
-        Option.some({
-          kind: "thread-removed",
-          sequence: event.sequence,
-          threadId: event.payload.threadId,
-        }),
-      );
-
-    default:
-      if (event.aggregateKind !== "thread") {
-        return Effect.succeed(Option.none());
-      }
-      if (threadShellCache) {
-        const cached = updateCachedThreadShellFromEvent(threadShellCache, event);
-        if (cached) {
-          return Effect.succeed(
-            Option.some({
-              kind: "thread-upserted",
-              sequence: event.sequence,
-              thread: cached,
-            }),
-          );
-        }
-      }
-      return projectionSnapshotQuery
-        .getThreadShellById(ThreadId.makeUnsafe(event.aggregateId))
-        .pipe(
-          Effect.tap((thread) =>
-            Effect.sync(() => {
-              if (threadShellCache && Option.isSome(thread)) {
-                threadShellCache.set(thread.value.id, thread.value);
-              }
-            }),
-          ),
-          Effect.map(
-            Option.map(
-              (thread): OrchestrationShellStreamItem => ({
-                kind: "thread-upserted",
-                sequence: event.sequence,
-                thread,
-              }),
-            ),
-          ),
-        );
-  }
-}
-
-function newestIso(left: string, right: string): string {
-  return left.localeCompare(right) >= 0 ? left : right;
-}
-
-function shellUpdatedAtFromEvent(event: OrchestrationEvent): string {
-  return "updatedAt" in event.payload ? event.payload.updatedAt : event.occurredAt;
-}
-
-function updateCachedThreadShellFromEvent(
-  cache: Map<ThreadId, OrchestrationThreadShell>,
-  event: OrchestrationEvent,
-): OrchestrationThreadShell | null {
-  const threadId = ThreadId.makeUnsafe(event.aggregateId);
-  const existing = cache.get(threadId);
-  if (!existing) {
-    if (event.type !== "thread.created") {
-      return null;
-    }
-    const created: OrchestrationThreadShell = {
-      id: event.payload.threadId,
-      projectId: event.payload.projectId,
-      title: event.payload.title,
-      modelSelection: event.payload.modelSelection,
-      runtimeMode: event.payload.runtimeMode,
-      interactionMode: event.payload.interactionMode,
-      branch: event.payload.branch,
-      worktreePath: event.payload.worktreePath,
-      ...(event.payload.handoff !== undefined ? { handoff: event.payload.handoff } : {}),
-      ...(event.payload.fork !== undefined ? { fork: event.payload.fork } : {}),
-      latestTurn: null,
-      createdAt: event.payload.createdAt,
-      updatedAt: event.payload.updatedAt,
-      archivedAt: null,
-      deletedAt: null,
-      latestProposedPlanSummary: null,
-      queuedComposerMessages: [],
-      queuedSteerRequest: null,
-      session: null,
-    };
-    cache.set(threadId, created);
-    return created;
-  }
-
-  let next: OrchestrationThreadShell | null = null;
-  switch (event.type) {
-    case "thread.created":
-      next = existing;
-      break;
-    case "thread.archived":
-      next = {
-        ...existing,
-        archivedAt: event.payload.archivedAt,
-        updatedAt: newestIso(existing.updatedAt, event.payload.updatedAt),
-      };
-      break;
-    case "thread.unarchived":
-      next = {
-        ...existing,
-        archivedAt: null,
-        updatedAt: newestIso(existing.updatedAt, event.payload.updatedAt),
-      };
-      break;
-    case "thread.meta-updated":
-      next = {
-        ...existing,
-        ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
-        ...(event.payload.modelSelection !== undefined
-          ? { modelSelection: event.payload.modelSelection }
-          : {}),
-        ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
-        ...(event.payload.worktreePath !== undefined
-          ? { worktreePath: event.payload.worktreePath }
-          : {}),
-        ...(event.payload.queuedComposerMessages !== undefined
-          ? { queuedComposerMessages: event.payload.queuedComposerMessages }
-          : {}),
-        ...(event.payload.queuedSteerRequest !== undefined
-          ? { queuedSteerRequest: event.payload.queuedSteerRequest }
-          : {}),
-        updatedAt: newestIso(existing.updatedAt, event.payload.updatedAt),
-      };
-      break;
-    case "thread.runtime-mode-set":
-      next = {
-        ...existing,
-        runtimeMode: event.payload.runtimeMode,
-        updatedAt: newestIso(existing.updatedAt, event.payload.updatedAt),
-      };
-      break;
-    case "thread.interaction-mode-set":
-      next = {
-        ...existing,
-        interactionMode: event.payload.interactionMode,
-        updatedAt: newestIso(existing.updatedAt, event.payload.updatedAt),
-      };
-      break;
-    case "thread.session-set":
-      next = {
-        ...existing,
-        session: event.payload.session,
-        updatedAt: newestIso(existing.updatedAt, event.payload.session.updatedAt),
-      };
-      break;
-    case "thread.proposed-plan-upserted": {
-      const plan = event.payload.proposedPlan;
-      const existingSummary = existing.latestProposedPlanSummary;
-      next = {
-        ...existing,
-        latestProposedPlanSummary:
-          !existingSummary || existingSummary.updatedAt.localeCompare(plan.updatedAt) <= 0
-            ? {
-                id: plan.id,
-                turnId: plan.turnId,
-                implementedAt: plan.implementedAt,
-                implementationThreadId: plan.implementationThreadId,
-                createdAt: plan.createdAt,
-                updatedAt: plan.updatedAt,
-              }
-            : existingSummary,
-        updatedAt: newestIso(existing.updatedAt, plan.updatedAt),
-      };
-      break;
-    }
-    case "thread.message-sent":
-    case "thread.turn-start-requested":
-    case "thread.subagent-turn-start-requested":
-    case "thread.turn-interrupt-requested":
-    case "thread.approval-response-requested":
-    case "thread.user-input-response-requested":
-    case "thread.checkpoint-revert-requested":
-    case "thread.reverted":
-    case "thread.session-stop-requested":
-    case "thread.workspace-summary-regenerate-requested":
-    case "thread.turn-diff-completed":
-    case "thread.activity-appended":
-      next = {
-        ...existing,
-        updatedAt: newestIso(existing.updatedAt, shellUpdatedAtFromEvent(event)),
-      };
-      break;
-    case "project.created":
-    case "project.meta-updated":
-    case "project.deleted":
-    case "thread.deleted":
-      return null;
-  }
-
-  cache.set(threadId, next);
-  return next;
 }
 
 type WorktreeSizeStats = {
@@ -1177,6 +946,103 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         Stream.filter(() => isCurrentWsClientSession(input.clientSessionId, input.connectionId)),
       );
 
+    type OrchestrationEventSequenceState = {
+      readonly nextSequence: number;
+      readonly pendingBySequence: Map<number, OrchestrationEvent>;
+    };
+    type OrchestrationEventSequenceEmission = {
+      readonly events: Array<OrchestrationEvent>;
+      readonly overflowDroppedEventCount: number | null;
+    };
+
+    // Durable-replay + live PubSub domain events, reordered and de-duplicated by
+    // the global monotonic `sequence`. Subscribing to the live stream
+    // concurrently with the replay (via Stream.merge) closes the gap where an
+    // event persisted between the snapshot/replay read and the PubSub
+    // subscription would otherwise reach the browser only after a later refresh.
+    //
+    // The reorder operates on the GLOBAL, contiguous sequence space. Callers that
+    // only want one aggregate (a single thread, the shell projection) MUST filter
+    // AFTER this stream — never before — otherwise the gaps left by other
+    // aggregates' sequences stall the in-order buffer forever.
+    const orderedLiveDomainEventStream = (fromSequenceExclusive: number, label: string) =>
+      Stream.unwrap(
+        Effect.gen(function* () {
+          const replayStream = orchestrationEngine
+            .readEvents(fromSequenceExclusive)
+            .pipe(Stream.catch(() => Stream.empty));
+          const source = Stream.merge(
+            replayStream,
+            bufferLiveUiStream(orchestrationEngine.streamDomainEvents, { label }),
+          ).pipe(Stream.map(sanitizeOrchestrationEventForClient));
+          const state = yield* Ref.make<OrchestrationEventSequenceState>({
+            nextSequence: fromSequenceExclusive + 1,
+            pendingBySequence: new Map<number, OrchestrationEvent>(),
+          });
+
+          return source.pipe(
+            Stream.mapEffect((event) =>
+              Ref.modify(
+                state,
+                ({
+                  nextSequence,
+                  pendingBySequence,
+                }): [OrchestrationEventSequenceEmission, OrchestrationEventSequenceState] => {
+                  if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
+                    return [
+                      { events: [], overflowDroppedEventCount: null },
+                      { nextSequence, pendingBySequence },
+                    ];
+                  }
+
+                  pendingBySequence.set(event.sequence, event);
+
+                  const emit: Array<OrchestrationEvent> = [];
+                  let expected = nextSequence;
+                  for (;;) {
+                    const expectedEvent = pendingBySequence.get(expected);
+                    if (!expectedEvent) {
+                      break;
+                    }
+                    emit.push(expectedEvent);
+                    pendingBySequence.delete(expected);
+                    expected += 1;
+                  }
+
+                  if (pendingBySequence.size > ORCHESTRATION_EVENT_REORDER_MAX_PENDING) {
+                    const overflowDroppedEventCount = pendingBySequence.size;
+                    pendingBySequence.clear();
+                    return [
+                      { events: emit, overflowDroppedEventCount },
+                      { nextSequence: expected, pendingBySequence },
+                    ];
+                  }
+
+                  return [
+                    { events: emit, overflowDroppedEventCount: null },
+                    { nextSequence: expected, pendingBySequence },
+                  ];
+                },
+              ).pipe(
+                Effect.flatMap((emission) => {
+                  if (emission.overflowDroppedEventCount === null) {
+                    return Effect.succeed(emission.events);
+                  }
+                  recordLiveStreamOverflow(emission.overflowDroppedEventCount);
+                  return Effect.die(
+                    new LiveUiStreamOverflowError({
+                      droppedEventCount: emission.overflowDroppedEventCount,
+                      label: `${label}.reorder`,
+                    }),
+                  );
+                }),
+              ),
+            ),
+            Stream.flatMap((events) => Stream.fromIterable(events)),
+          );
+        }),
+      );
+
     return WsRpcGroup.of({
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (input) =>
         projectionSnapshotQuery.getSnapshot(input).pipe(
@@ -1221,89 +1087,101 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 }),
           ),
         ),
-      [ORCHESTRATION_WS_METHODS.subscribeShell]: () => {
-        const threadShellCache = new Map<ThreadId, OrchestrationThreadShell>();
-        return Stream.merge(
-          Stream.fromEffect(
-            projectionSnapshotQuery.getShellSnapshot().pipe(
-              Effect.tap((snapshot) =>
-                Effect.sync(() => {
-                  threadShellCache.clear();
-                  for (const thread of snapshot.threads) {
-                    threadShellCache.set(thread.id, thread);
-                  }
-                }),
-              ),
-              Effect.map((snapshot) => ({ kind: "snapshot" as const, snapshot })),
-              Effect.mapError(
-                (cause) =>
-                  new OrchestrationGetSnapshotError({
-                    message: "Failed to load orchestration shell snapshot",
-                    cause,
-                  }),
-              ),
-            ),
-          ).pipe(Stream.catch(() => Stream.empty)),
-          bufferLiveUiStream(
-            orchestrationEngine.streamDomainEvents.pipe(Stream.filter(isShellRelevantEvent)),
-            { label: "orchestration.shell" },
-          ).pipe(
-            Stream.mapEffect((event) =>
-              toShellStreamEvent(projectionSnapshotQuery, event, threadShellCache).pipe(
-                Effect.catch(() => Effect.succeed(Option.none<OrchestrationShellStreamItem>())),
-              ),
-            ),
-            Stream.filter(Option.isSome),
-            Stream.map((item) => item.value),
-          ),
-        );
-      },
-      [ORCHESTRATION_WS_METHODS.unsubscribeShell]: () => Effect.void,
-      [ORCHESTRATION_WS_METHODS.subscribeThread]: (input) =>
-        Stream.merge(
-          Stream.fromEffect(
-            projectionSnapshotQuery.getThreadDetailSnapshotById(input.threadId).pipe(
-              Effect.flatMap((snapshot) =>
-                Option.match(snapshot, {
-                  onNone: () =>
-                    Effect.fail(
-                      new OrchestrationGetThreadError({
-                        message: `Thread '${input.threadId}' was not found.`,
+      [ORCHESTRATION_WS_METHODS.stream]: (input) =>
+        Stream.unwrap(
+          Effect.gen(function* () {
+            const scope = input.scope;
+            const snapshotOption =
+              scope.kind === "shell"
+                ? yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+                    Effect.map((shell) =>
+                      Option.some<OrchestrationProjectionStreamItem>({
+                        kind: "snapshot",
+                        snapshot: {
+                          scope: { kind: "shell" },
+                          sequence: shell.snapshotSequence,
+                          shell,
+                        },
                       }),
                     ),
-                  onSome: (value) =>
-                    Effect.succeed({
-                      kind: "snapshot" as const,
-                      snapshot: {
-                        snapshotSequence: value.snapshotSequence,
-                        thread: sanitizeThreadForClient(value.thread),
+                    Effect.catch(() => Effect.succeed(Option.none())),
+                  )
+                : yield* projectionSnapshotQuery.getThreadDetailSnapshotById(scope.threadId).pipe(
+                    Effect.map(
+                      Option.map(
+                        (snapshot): OrchestrationProjectionStreamItem => ({
+                          kind: "snapshot",
+                          snapshot: {
+                            scope: { kind: "thread", threadId: scope.threadId },
+                            sequence: snapshot.snapshotSequence,
+                            thread: sanitizeThreadForClient(snapshot.thread),
+                          },
+                        }),
+                      ),
+                    ),
+                    Effect.catch(() => Effect.succeed(Option.none())),
+                  );
+
+            const fromSequenceExclusive =
+              Option.isSome(snapshotOption) && snapshotOption.value.kind === "snapshot"
+                ? snapshotOption.value.snapshot.sequence
+                : (input.cursor?.sequence ?? 0);
+
+            const liveItems = orderedLiveDomainEventStream(
+              fromSequenceExclusive,
+              "orchestration.projection",
+            ).pipe(
+              Stream.mapEffect((event) => {
+                if (scope.kind === "shell") {
+                  if (!isShellRelevantEvent(event)) {
+                    return Effect.succeed(Option.none<OrchestrationProjectionStreamItem>());
+                  }
+                  return projectionSnapshotQuery.getShellSnapshot().pipe(
+                    Effect.map((shell) =>
+                      Option.some<OrchestrationProjectionStreamItem>({
+                        kind: "patch",
+                        patch: {
+                          scope: { kind: "shell" },
+                          sequence: event.sequence,
+                          shell,
+                        },
+                      }),
+                    ),
+                    Effect.catch(() =>
+                      Effect.succeed(Option.none<OrchestrationProjectionStreamItem>()),
+                    ),
+                  );
+                }
+                if (event.aggregateKind !== "thread" || event.aggregateId !== scope.threadId) {
+                  return Effect.succeed(Option.none<OrchestrationProjectionStreamItem>());
+                }
+                return projectionSnapshotQuery.getThread(scope.threadId).pipe(
+                  Effect.map((thread) =>
+                    Option.some<OrchestrationProjectionStreamItem>({
+                      kind: "patch",
+                      patch: {
+                        scope: { kind: "thread", threadId: scope.threadId },
+                        sequence: event.sequence,
+                        thread: Option.isSome(thread)
+                          ? sanitizeThreadForClient(thread.value)
+                          : null,
                       },
                     }),
-                }),
-              ),
-              Effect.mapError((cause) =>
-                Schema.is(OrchestrationGetThreadError)(cause)
-                  ? cause
-                  : new OrchestrationGetThreadError({
-                      message: "Failed to load orchestration thread snapshot",
-                      cause,
-                    }),
-              ),
-            ),
-          ).pipe(Stream.catch(() => Stream.empty)),
-          bufferLiveUiStream(
-            orchestrationEngine.streamDomainEvents.pipe(
-              Stream.filter(
-                (event) => event.aggregateKind === "thread" && event.aggregateId === input.threadId,
-              ),
-            ),
-            { label: "orchestration.thread-detail" },
-          ).pipe(
-            Stream.map(sanitizeOrchestrationEventForClient),
-            Stream.map((event) => ({ kind: "event" as const, event })),
-          ),
+                  ),
+                  Effect.catch(() =>
+                    Effect.succeed(Option.none<OrchestrationProjectionStreamItem>()),
+                  ),
+                );
+              }),
+              Stream.filter(Option.isSome),
+              Stream.map((item) => item.value),
+            );
+
+            return Option.isSome(snapshotOption)
+              ? Stream.concat(Stream.succeed(snapshotOption.value), liveItems)
+              : liveItems;
+          }),
         ),
-      [ORCHESTRATION_WS_METHODS.unsubscribeThread]: () => Effect.void,
       [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
         Effect.gen(function* () {
           const normalizedCommand = yield* normalizeDispatchCommand(command);
@@ -1374,92 +1252,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                     minimum: 0,
                   })
                 : (yield* orchestrationEngine.getReadModel()).snapshotSequence;
-            const replayStream = orchestrationEngine
-              .readEvents(fromSequenceExclusive)
-              .pipe(Stream.catch(() => Stream.empty));
-            // Subscribe to the hot live stream at the same time as the replay stream.
-            // Collecting replay first leaves a gap where events persisted after the
-            // replay query but before the PubSub subscription are neither replayed
-            // nor delivered live, so the browser only observes them after a later
-            // snapshot refresh.
-            const source = Stream.merge(
-              replayStream,
-              bufferLiveUiStream(orchestrationEngine.streamDomainEvents, {
-                label: "orchestration.domain-events",
-              }),
-            ).pipe(Stream.map(sanitizeOrchestrationEventForClient));
-            type SequenceState = {
-              readonly nextSequence: number;
-              readonly pendingBySequence: Map<number, OrchestrationEvent>;
-            };
-            type SequenceEmission = {
-              readonly events: Array<OrchestrationEvent>;
-              readonly overflowDroppedEventCount: number | null;
-            };
-            const state = yield* Ref.make<SequenceState>({
-              nextSequence: fromSequenceExclusive + 1,
-              pendingBySequence: new Map<number, OrchestrationEvent>(),
-            });
-
-            return source.pipe(
+            return orderedLiveDomainEventStream(
+              fromSequenceExclusive,
+              "orchestration.domain-events",
+            ).pipe(
               Stream.filter(() =>
                 isCurrentWsClientSession(input.clientSessionId, input.connectionId),
               ),
-              Stream.mapEffect((event) =>
-                Ref.modify(
-                  state,
-                  ({ nextSequence, pendingBySequence }): [SequenceEmission, SequenceState] => {
-                    if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
-                      return [
-                        { events: [], overflowDroppedEventCount: null },
-                        { nextSequence, pendingBySequence },
-                      ];
-                    }
-
-                    pendingBySequence.set(event.sequence, event);
-
-                    const emit: Array<OrchestrationEvent> = [];
-                    let expected = nextSequence;
-                    for (;;) {
-                      const expectedEvent = pendingBySequence.get(expected);
-                      if (!expectedEvent) {
-                        break;
-                      }
-                      emit.push(expectedEvent);
-                      pendingBySequence.delete(expected);
-                      expected += 1;
-                    }
-
-                    if (pendingBySequence.size > ORCHESTRATION_EVENT_REORDER_MAX_PENDING) {
-                      const overflowDroppedEventCount = pendingBySequence.size;
-                      pendingBySequence.clear();
-                      return [
-                        { events: emit, overflowDroppedEventCount },
-                        { nextSequence: expected, pendingBySequence },
-                      ];
-                    }
-
-                    return [
-                      { events: emit, overflowDroppedEventCount: null },
-                      { nextSequence: expected, pendingBySequence },
-                    ];
-                  },
-                ).pipe(
-                  Effect.flatMap((emission) => {
-                    if (emission.overflowDroppedEventCount === null) {
-                      return Effect.succeed(emission.events);
-                    }
-                    recordLiveStreamOverflow(emission.overflowDroppedEventCount);
-                    return Effect.die(
-                      new LiveUiStreamOverflowError({
-                        droppedEventCount: emission.overflowDroppedEventCount,
-                        label: "orchestration.domain-events.reorder",
-                      }),
-                    );
-                  }),
-                ),
-              ),
-              Stream.flatMap((events) => Stream.fromIterable(events)),
             );
           }),
         ),

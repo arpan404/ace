@@ -26,10 +26,7 @@ export const ORCHESTRATION_WS_METHODS = {
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
-  subscribeShell: "orchestration.subscribeShell",
-  unsubscribeShell: "orchestration.unsubscribeShell",
-  subscribeThread: "orchestration.subscribeThread",
-  unsubscribeThread: "orchestration.unsubscribeThread",
+  stream: "orchestration.stream",
 } as const;
 
 export const ProviderKind = Schema.Literals([

@@ -229,16 +229,10 @@ export function createWsNativeApi(): NativeApi {
         resolveRpcClientForActiveRoute()
           .orchestration.replayEvents({ fromSequenceExclusive })
           .then((events) => [...events]),
+      onProjectionStream: (input, callback) =>
+        resolveRpcClientForActiveRoute().orchestration.stream(input, callback),
       onDomainEvent: (callback) =>
         resolveRpcClientForActiveRoute().orchestration.onDomainEvent(callback),
-      subscribeShell: async () => undefined,
-      unsubscribeShell: () => resolveRpcClientForActiveRoute().orchestration.unsubscribeShell(),
-      subscribeThread: async (_input) => undefined,
-      unsubscribeThread: (input) =>
-        resolveRpcClientForActiveRoute().orchestration.unsubscribeThread(input),
-      onShellEvent: (callback) =>
-        resolveRpcClientForActiveRoute().orchestration.subscribeShell(callback),
-      onThreadEvent: (_callback) => () => undefined,
     },
   };
 

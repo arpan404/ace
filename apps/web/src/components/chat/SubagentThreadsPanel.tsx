@@ -129,7 +129,6 @@ export function SubagentWorkspacePanel(props: {
           onToggleWorkGroup={onToggleWorkGroup}
           revertTurnCountByUserMessageId={new Map()}
           rows={timelineViewModel.rows}
-          timelineIndexByEntryId={timelineViewModel.timelineIndexByEntryId}
           timelineRowsLoading={timelineViewModel.loading}
           turnDiffSummaryByAssistantMessageId={new Map()}
         />

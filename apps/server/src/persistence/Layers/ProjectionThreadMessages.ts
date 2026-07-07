@@ -15,6 +15,7 @@ import {
 
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
+    textMode: Schema.optional(Schema.Literals(["append", "replace", "complete"])),
     isStreaming: Schema.Number,
     sequence: Schema.NullOr(NonNegativeInt),
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
@@ -46,6 +47,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     execute: (row) => {
       const nextAttachmentsJson =
         row.attachments !== undefined ? JSON.stringify(row.attachments) : null;
+      const textMode = row.textMode ?? (row.isStreaming ? "append" : "complete");
       return sql`
         INSERT INTO projection_thread_messages (
           message_id,
@@ -84,9 +86,9 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           turn_id = excluded.turn_id,
           role = excluded.role,
           text = CASE
-            WHEN excluded.is_streaming = 1
+            WHEN ${textMode} = 'append'
               THEN COALESCE(projection_thread_messages.text, '') || excluded.text
-            WHEN length(excluded.text) = 0
+            WHEN ${textMode} = 'complete' AND length(excluded.text) = 0
               THEN projection_thread_messages.text
             ELSE excluded.text
           END,

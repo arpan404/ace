@@ -469,11 +469,9 @@ export class WsTransport {
                 }),
               ),
             ),
-            Effect.tap(() =>
+            Effect.flatMap(() =>
               active && !this.disposed
-                ? Effect.sync(() => {
-                    this.noteDisconnected(new Error("Subscription ended"));
-                  })
+                ? Effect.promise(() => this.waitForSubscriptionRetryDelay(baseRetryDelayMs))
                 : Effect.void,
             ),
           ),

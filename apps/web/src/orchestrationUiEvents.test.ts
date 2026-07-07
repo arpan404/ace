@@ -8,7 +8,10 @@ import {
 } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
-import { coalesceOrchestrationUiEvents } from "./orchestrationUiEvents";
+import {
+  coalesceOrchestrationUiEvents,
+  createOrchestrationUiEventFrameBatcher,
+} from "./orchestrationUiEvents";
 
 function makeEvent<T extends OrchestrationEvent["type"]>(
   type: T,
@@ -171,6 +174,66 @@ describe("orchestrationUiEvents", () => {
         streamKind: "command_output",
         terminalOutput: "total 8\ndrwxr-xr-x .\n",
       },
+    });
+  });
+
+  it("applies queued events once on the next frame", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const messageId = MessageId.makeUnsafe("message-1");
+    const turnId = TurnId.makeUnsafe("turn-1");
+    let frameCallback: (() => void) | undefined;
+    const appliedBatches: OrchestrationEvent[][] = [];
+    const batcher = createOrchestrationUiEventFrameBatcher(
+      (events) => {
+        appliedBatches.push([...events]);
+      },
+      {
+        request: (callback) => {
+          frameCallback = callback;
+          return 1;
+        },
+        cancel: () => {},
+      },
+    );
+
+    batcher.enqueue(
+      makeEvent("thread.message-sent", {
+        threadId,
+        messageId,
+        role: "assistant",
+        text: "hel",
+        turnId,
+        streaming: true,
+        createdAt: "2026-04-07T00:00:00.000Z",
+        updatedAt: "2026-04-07T00:00:00.000Z",
+      }),
+    );
+    batcher.enqueue(
+      makeEvent("thread.message-sent", {
+        threadId,
+        messageId,
+        role: "assistant",
+        text: "lo",
+        turnId,
+        streaming: true,
+        createdAt: "2026-04-07T00:00:01.000Z",
+        updatedAt: "2026-04-07T00:00:01.000Z",
+      }),
+    );
+
+    expect(appliedBatches).toEqual([]);
+    if (!frameCallback) {
+      throw new Error("Expected a queued animation frame.");
+    }
+    frameCallback();
+
+    expect(appliedBatches).toHaveLength(1);
+    expect(appliedBatches[0]).toHaveLength(1);
+    expect(appliedBatches[0]?.[0]?.payload).toMatchObject({
+      threadId,
+      messageId,
+      text: "hello",
+      streaming: true,
     });
   });
 });

@@ -1627,6 +1627,23 @@ function applyLiveTimelineRowPatchesToState(
     const previousRow = rowsById[rowKey(input.threadId, rowId)];
     const threadRowIds = rowIdsByThreadId[input.threadId] ?? [];
     const threadRowIdSet = new Set(threadRowIds);
+    const isExistingRow = threadRowIdSet.has(rowId);
+
+    // Reject a live patch whose sequence is older than what this row already
+    // reflects. Without this a late/out-of-order event would rewind the row's
+    // content and ordering metadata; the snapshot path avoids it via the
+    // chooseFreshest* merges, so a refresh would otherwise "fix" the regression.
+    const previousSourceSequence = previousRow?.sourceRefs[0]?.sequence;
+    const incomingSourceSequence = entry.sequence;
+    if (
+      isExistingRow &&
+      previousSourceSequence !== undefined &&
+      incomingSourceSequence !== undefined &&
+      incomingSourceSequence < previousSourceSequence
+    ) {
+      continue;
+    }
+
     const sourceIndex =
       previousRow?.startSourceIndex ??
       resolveNextLiveTimelineSourceIndex({
@@ -1678,13 +1695,20 @@ function applyLiveTimelineRowPatchesToState(
       Math.max(nextSourceIndexByThreadId.get(input.threadId) ?? 0, row.endSourceIndexExclusive),
     );
 
-    const isExistingRow = threadRowIdSet.has(rowId);
     const nextThreadRowIds = isExistingRow ? threadRowIds : [...threadRowIds, rowId];
     if (!isExistingRow) {
       if (rowIdsByThreadId === state.rowIdsByThreadId) {
         rowIdsByThreadId = { ...state.rowIdsByThreadId };
       }
       rowIdsByThreadId[input.threadId] = nextThreadRowIds;
+      threadsNeedingSort.add(input.threadId);
+    } else if (
+      previousRow !== undefined &&
+      (previousRow.createdAt !== row.createdAt || previousSourceSequence !== incomingSourceSequence)
+    ) {
+      // An in-place update that moves the row's ordering key must trigger a
+      // re-sort; otherwise the row keeps its stale position and only a refresh
+      // (which re-sorts from the snapshot) shows the correct order.
       threadsNeedingSort.add(input.threadId);
     }
 
@@ -1727,7 +1751,13 @@ function applyLiveTimelineRowPatchesToState(
       if (activitiesById === state.activitiesById) {
         activitiesById = { ...state.activitiesById };
       }
-      activitiesById[String(input.activity.id)] = input.activity;
+      // Guard against a late/out-of-order live patch clobbering a fresher
+      // accumulated activity — mirrors the snapshot merge (chooseFreshestActivity)
+      // so the live path can't regress worklog content that a refresh recovers.
+      activitiesById[String(input.activity.id)] = chooseFreshestActivity(
+        activitiesById[String(input.activity.id)],
+        input.activity,
+      );
     }
     if (input.proposedPlan) {
       if (proposedPlansById === state.proposedPlansById) {

@@ -673,6 +673,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             turnId: event.payload.turnId,
             role: event.payload.role,
             text: event.payload.text,
+            ...(event.payload.textMode !== undefined ? { textMode: event.payload.textMode } : {}),
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             isStreaming: event.payload.streaming,
             sequence: event.payload.sequence ?? event.sequence,
