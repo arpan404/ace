@@ -59,3 +59,20 @@ The thirteen verifier follow-up cases below have public behavior guards. N13 was
 | V11 | Skip daemon launch shutdown                  | daemon shutdown stops an active plugin launch                                                      | not executed (tests run at merge) |
 | V12 | Skip successful private Git cwd release      | successful Git preparation reclaims detached helpers with closed pipes                             | not executed (tests run at merge) |
 | N13 | Activate an incompatible OpenCode cwd server | unsupported transport or cwd are reported instead of misconfigured                                 | not executed (tests run at merge) |
+
+## Static verifier follow-up at 94f99dc
+
+Every case below is **not executed (tests run at merge)**. Runtime confirmation needs run at merge.
+
+| ID         | Deliberate fault                                           | Guarding behavior                                                                                                                                                               | Current validation                |
+| ---------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| M4         | Omit legacy summary-column migration                       | legacy oversized persisted reviews can be discovered, paged completely and cancelled after restart                                                                              | not executed (tests run at merge) |
+| M9         | Overwrite existing OpenCode config during merge            | OpenCode launch preserves existing runtime MCP servers and instruction paths                                                                                                    | not executed (tests run at merge) |
+| R1         | Allow retained provider groups through the plugin launcher | plugin launches reject retained groups before starting a provider or creating resources                                                                                         | not executed (tests run at merge) |
+| R1-child   | Remove daemon stopping of ordinary ignored-pipe children   | authenticated daemon installation is reviewed, survives restart and supplies materialized adapter overrides, including child resource use and socket closure                    | not executed (tests run at merge) |
+| R2         | Restore the 256 KiB wrapped legacy-entry cap               | legacy consent exposes every argument from a native MCP file at the JSON limit                                                                                                  | not executed (tests run at merge) |
+| C1-cwd     | Match only the exact leased cwd                            | a detached Git helper terminates after normal exit while holding stderr in private/nested; successful Git preparation terminates closed-pipe detached helpers in private/nested | not executed (tests run at merge) |
+| C1-stdout  | Wait for stdout EOF before starting the drain              | a detached Git helper terminates after normal exit while holding stdout in private/nested                                                                                       | not executed (tests run at merge) |
+| C1-sibling | Use a raw string prefix for directory ownership            | private lease cleanup stops nested processes and preserves siblings with the same path prefix                                                                                   | not executed (tests run at merge) |
+
+The integration rehearsal comment provides no specific per-PR diagnostic beyond the canonical status precedence. This branch merges main's conductor, automations and process-test changes and leaves core status unchanged. Plugin real-edge tests join main's process project. No combined runtime rehearsal was executed under the owner's rule.
