@@ -21,6 +21,10 @@ export interface HistoryAdapterPort {
     exit: { deliberate: boolean; message?: string | undefined },
   ): void;
   fork?(input: { instanceId: string; nativeSessionId: string }): Promise<string>;
+  /** Drain current persistence, then pause callback ingress until release. The owner
+   * applies bounded transport backpressure, including exit delivery, for all its writers.
+   * Release resumes ingress only after the event-store write lease has ended. */
+  pausePersistence?(signal: AbortSignal): Promise<() => Promise<void>>;
 }
 export class HistoryContinuation {
   private sessions = new Map<ThreadId, { session: ProviderSession; instanceId: string }>();
@@ -64,15 +68,23 @@ export class HistoryContinuation {
       throw new Error("Close the active continuation before forking");
     if (!active) {
       if (this.sessions.size >= 64) throw new Error("History continuation session limit exceeded");
-      const ctx = await this.history.continuation(source.id, request.mode, port.fork?.bind(port));
-      signal.throwIfAborted();
       const persisted = thread.rootAgentId
         ? this.store.getMcpAgent(thread.id, thread.rootAgentId)
         : undefined;
-      const resume =
-        request.mode === "resume" && persisted?.native.nativeId
-          ? { nativeSessionId: persisted.native.nativeId }
-          : ctx.resume;
+      const currentNativeId =
+        persisted?.native.nativeId ?? thread.imported.native.nativeId ?? source.nativeId;
+      // Fork the conversation represented by this thread, including prior continuations.
+      // The history service still validates instance/source support and the returned ID.
+      const nativeFork = port.fork?.bind(port);
+      const ctx = await this.history.continuation(
+        source.id,
+        request.mode,
+        nativeFork
+          ? ({ instanceId }) => nativeFork({ instanceId, nativeSessionId: currentNativeId })
+          : undefined,
+      );
+      signal.throwIfAborted();
+      const resume = request.mode === "resume" ? { nativeSessionId: currentNativeId } : ctx.resume;
       let exited = false;
       const session = await adapter.openSession({
         threadId: thread.id,
@@ -118,6 +130,13 @@ export class HistoryContinuation {
       instanceId: active.instanceId,
       nativeSessionId: active.session.nativeSessionId,
     };
+  }
+  async pausePersistence(signal: AbortSignal): Promise<() => Promise<void>> {
+    signal.throwIfAborted();
+    if (this.port?.pausePersistence) return this.port.pausePersistence(signal);
+    if (this.sessions.size)
+      throw new Error("Active provider persistence must support publication backpressure");
+    return async () => {};
   }
   async close() {
     const sessions = [...this.sessions.values()];

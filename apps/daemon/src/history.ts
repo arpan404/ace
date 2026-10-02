@@ -144,14 +144,23 @@ export class DaemonHistory {
     }
     if (!archived || archived.workspaceId !== request.workspaceId)
       throw new Error("Archived workspace does not match request");
-    await publishHistory(
-      this.store,
-      join(this.dataDir, "events.sqlite"),
-      this.indexPath,
-      archived.id,
-      this.now(),
-      signal,
-    );
+    // Stop live callback ingress and drain engine persistence before the worker owns
+    // SQLite. No Store write lease is held while awaiting this boundary.
+    const resumePersistence = await this.continuation.pausePersistence(signal);
+    try {
+      signal.throwIfAborted();
+      await publishHistory(
+        this.store,
+        join(this.dataDir, "events.sqlite"),
+        this.indexPath,
+        archived.id,
+        this.now(),
+        signal,
+      );
+    } finally {
+      // publishHistory releases its Store lease even on rollback or worker failure.
+      await resumePersistence();
+    }
     await this.service.deleteImported(archived.id);
     return { type: "history.import", status: "imported", threadId: archived.id };
   }
