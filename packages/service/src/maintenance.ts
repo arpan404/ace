@@ -20,6 +20,7 @@ export class MaintenanceGate {
   admitCommand(command: Command): boolean {
     if (this.admit()) return true;
     switch (command.payload.type) {
+      case "diagnostics.health":
       case "interaction.resolve":
       case "thread.interrupt":
       case "background_task.stop":

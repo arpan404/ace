@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { ReleaseDirectory } from "@ace/protocol";
-import { mkdir, open, readlink, rename, rm, symlink } from "node:fs/promises";
+import { mkdir, open, lstat, readlink, rename, rm, symlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 export async function atomicPointer(path: string, target: string): Promise<void> {
   const temp = path + ".next";
@@ -15,11 +15,18 @@ export async function atomicPointer(path: string, target: string): Promise<void>
   }
 }
 export async function pointer(path: string): Promise<string | undefined> {
-  try {
-    return await readlink(path);
-  } catch (e) {
-    if (e instanceof Error && "code" in e && e.code === "ENOENT") return undefined;
-    throw e;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await readlink(path);
+    } catch (error) {
+      if (!(error instanceof Error) || !("code" in error)) throw error;
+      if (error.code === "ENOENT") return undefined;
+      // macOS can return EINVAL while a symlink's vnode is being replaced.
+      // Retry only a confirmed link, and keep malformed pointers fatal.
+      if (error.code !== "EINVAL" || attempt >= 7) throw error;
+      const info = await lstat(path);
+      if (!info.isSymbolicLink()) throw error;
+    }
   }
 }
 export async function withInstallLock<T>(root: string, work: () => Promise<T>): Promise<T> {
@@ -66,7 +73,7 @@ export async function durableRemove(path: string): Promise<void> {
   await syncDirectory(dirname(path));
 }
 export async function syncTree(root: string): Promise<void> {
-  const { readdir, lstat } = await import("node:fs/promises");
+  const { readdir } = await import("node:fs/promises");
   let entries = 0;
   async function visit(path: string) {
     for (const name of await readdir(path)) {

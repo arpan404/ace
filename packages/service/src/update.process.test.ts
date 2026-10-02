@@ -8,6 +8,7 @@ import { create } from "tar";
 import {
   applyUpdate,
   atomicPointer,
+  releasePointer,
   hashFile,
   MaintenanceGate,
   recoverUpdate,
@@ -224,20 +225,20 @@ test(
   { timeout: 60_000 },
   async () => {
     const f = await fixture();
-    await mkdir(join(f.root, "releases/other"));
-    await writeFile(join(f.root, "releases/other/marker"), "other");
+    await mkdir(join(f.root, "releases/1.1.0-linux-x64"));
+    await writeFile(join(f.root, "releases/1.1.0-linux-x64/marker"), "other");
     const results = await Promise.allSettled([
       (async () => {
         for (let i = 0; i < 100; i++)
           await atomicPointer(
             join(f.root, "current"),
-            i % 2 ? "releases/other" : "releases/1.0.0-linux-x64",
+            i % 2 ? "releases/1.1.0-linux-x64" : "releases/1.0.0-linux-x64",
           );
       })(),
       (async () => {
         for (let i = 0; i < 200; i++)
           expect(["old", "other"]).toContain(
-            await readFile(join(f.root, await readlink(join(f.root, "current")), "marker"), "utf8"),
+            await readFile(join(f.root, await releasePointer(f.root), "marker"), "utf8"),
           );
       })(),
     ]);
@@ -376,4 +377,11 @@ test("an approved drain deadline refuses restart and reopens admission while wor
   expect(f.stops).toBe(0);
   expect(f.gate.admit()).toBe(true);
   expect(await readlink(join(f.root, "current"))).toBe("releases/1.0.0-linux-x64");
+});
+
+test("a malformed regular-file release pointer remains fatal", async () => {
+  const f = await fixture();
+  await rm(join(f.root, "current"));
+  await writeFile(join(f.root, "current"), "releases/1.1.0-linux-x64");
+  await expect(releasePointer(f.root)).rejects.toMatchObject({ code: "EINVAL" });
 });
