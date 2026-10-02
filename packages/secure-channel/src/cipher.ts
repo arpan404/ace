@@ -12,7 +12,9 @@ export class CipherState {
   #key: Uint8Array | undefined;
   #nonce = 0n;
   #closed = false;
-  constructor(key?: Uint8Array) {
+  constructor(key?: Uint8Array, initialNonce: bigint = 0n) {
+    if (initialNonce < 0n || initialNonce > MAX_NONCE) throw new Error("Invalid initial nonce");
+    this.#nonce = initialNonce;
     this.#key = key?.slice();
   }
   get hasKey(): boolean {

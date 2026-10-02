@@ -7,11 +7,12 @@ const asHex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 function pair() {
   const host = keyPair();
   const a = new NoiseXX({
+    ephemeralKey: keyPair(),
     initiator: true,
     staticKey: keyPair(),
     pinnedFingerprint: fingerprint(host.publicKey),
   });
-  const b = new NoiseXX({ initiator: false, staticKey: host });
+  const b = new NoiseXX({ ephemeralKey: keyPair(), initiator: false, staticKey: host });
   b.readMessage(a.writeMessage());
   a.readMessage(b.writeMessage());
   b.readMessage(a.writeMessage());
@@ -57,11 +58,12 @@ describe("official Noise XX vectors", () => {
 });
 it("aborts before completing a handshake with the wrong pinned host fingerprint", () => {
   const a = new NoiseXX({
+    ephemeralKey: keyPair(),
     initiator: true,
     staticKey: keyPair(),
     pinnedFingerprint: fingerprint(keyPair().publicKey),
   });
-  const b = new NoiseXX({ initiator: false, staticKey: keyPair() });
+  const b = new NoiseXX({ ephemeralKey: keyPair(), initiator: false, staticKey: keyPair() });
   b.readMessage(a.writeMessage());
   expect(() => a.readMessage(b.writeMessage())).toThrow("fingerprint");
   expect(() => a.writeMessage()).toThrow("closed");
@@ -71,7 +73,7 @@ it("rejects tampered, replayed and reordered ciphertext without advancing the re
   const first = a.send.encrypt(new Uint8Array([1]));
   const second = a.send.encrypt(new Uint8Array([2]));
   const corrupt = first.slice();
-  corrupt[0] = corrupt[0]! ^ 1;
+  corrupt[0] = (corrupt[0] ?? 0) ^ 1;
   expect(() => b.receive.decrypt(corrupt)).toThrow();
   expect(() => b.receive.decrypt(second)).toThrow();
   expect(b.receive.decrypt(first)).toEqual(new Uint8Array([1]));
@@ -102,10 +104,26 @@ it("coordinated directional rekeys keep the nonce and replace the old key", () =
   expect(b.decrypt(message)).toEqual(new Uint8Array([2]));
 });
 it("invalid DH and oversized handshakes fail permanently", () => {
-  const responder = new NoiseXX({ initiator: false, staticKey: keyPair() });
+  const responder = new NoiseXX({
+    ephemeralKey: keyPair(),
+    initiator: false,
+    staticKey: keyPair(),
+  });
   responder.readMessage(new Uint8Array(32));
   expect(() => responder.writeMessage()).toThrow();
   expect(() => responder.writeMessage()).toThrow("closed");
-  const initiator = new NoiseXX({ initiator: true, staticKey: keyPair() });
+  const initiator = new NoiseXX({ ephemeralKey: keyPair(), initiator: true, staticKey: keyPair() });
   expect(() => initiator.writeMessage(new Uint8Array(MAX_MESSAGE))).toThrow("too large");
+});
+it("the last permitted nonce works once and the reserved nonce permanently exhausts both directions", () => {
+  const last = (1n << 64n) - 2n;
+  const key = new Uint8Array(32).fill(7);
+  const sender = new CipherState(key, last),
+    receiver = new CipherState(key, last);
+  const ciphertext = sender.encrypt(new Uint8Array([42]));
+  expect(receiver.decrypt(ciphertext)).toEqual(new Uint8Array([42]));
+  expect(() => sender.encrypt(new Uint8Array([43]))).toThrow("exhausted");
+  expect(() => receiver.decrypt(ciphertext)).toThrow("exhausted");
+  expect(() => sender.rekey()).toThrow("closed");
+  expect(() => receiver.rekey()).toThrow("closed");
 });
