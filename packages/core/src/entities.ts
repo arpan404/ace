@@ -10,6 +10,7 @@ import type { ApplyContext, ThreadState } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
 import { ensureAgent, linkAgent } from "./tree.ts";
 import { upsertItem } from "./items.ts";
+import { refreshInteractionIndex, refreshTaskIndex } from "./indexes.ts";
 
 type Opened = Extract<Fact, { type: "interaction.opened" }>;
 type Closed = Extract<Fact, { type: "interaction.closed" }>;
@@ -21,7 +22,9 @@ export function openInteraction(
   ctx: ApplyContext,
   events: EventPayload[],
 ): void {
-  if (get(state.interactions, fact.interaction)) return;
+  const previous = get(state.interactions, fact.interaction);
+  if (previous?.state === "pending") return;
+  if (previous) put(state.interactionHistory, previous.id, structuredClone(previous));
   const record = ensureAgent(state, fact.agent, ctx, events);
   const item =
     fact.item === undefined
@@ -55,6 +58,7 @@ export function openInteraction(
     ...(item ? { toolCallId: item.id } : {}),
   };
   put(state.interactions, fact.interaction, interaction);
+  refreshInteractionIndex(state, fact.interaction);
   emit(events, { type: "interaction.opened", interaction });
 }
 
@@ -70,6 +74,7 @@ export function closeInteraction(
   interaction.closedAt = ctx.now;
   if (fact.resolution !== undefined) interaction.resolution = structuredClone(fact.resolution);
   if (fact.resolvedBy !== undefined) interaction.resolvedBy = fact.resolvedBy;
+  refreshInteractionIndex(state, fact.interaction);
   emit(events, {
     type: "interaction.closed",
     interactionId: interaction.id,
@@ -86,7 +91,9 @@ export function startBackground(
   ctx: ApplyContext,
   events: EventPayload[],
 ): void {
-  if (get(state.tasks, fact.task)) return;
+  const previous = get(state.tasks, fact.task);
+  if (previous?.status === "running") return;
+  if (previous) put(state.taskHistory, previous.id, structuredClone(previous));
   const record = ensureAgent(state, fact.agent, ctx, events);
   const child =
     fact.childAgent === undefined ? undefined : ensureAgent(state, fact.childAgent, ctx, events);
@@ -134,6 +141,7 @@ export function startBackground(
     ...(fact.outputPath === undefined ? {} : { outputPath: fact.outputPath }),
   };
   put(state.tasks, fact.task, task);
+  refreshTaskIndex(state, fact.task);
   emit(events, { type: "background_task.started", task });
   if (item?.type === "tool_call") {
     item.call.backgroundTaskId = task.id;
@@ -163,6 +171,7 @@ export function endBackground(
   if (!task || task.status !== "running") return;
   task.status = fact.status;
   task.endedAt = ctx.now;
+  refreshTaskIndex(state, fact.task);
   emit(events, {
     type: "background_task.updated",
     taskId: task.id,

@@ -8,6 +8,8 @@ import { appendItem, upsertItem } from "./items.ts";
 import { startTurn, endTurn } from "./runs.ts";
 import { openInteraction, closeInteraction, startBackground, endBackground } from "./entities.ts";
 import { exitProcess } from "./cleanup.ts";
+import { validateFact } from "./validate.ts";
+import { rejectFact } from "./diagnostics.ts";
 
 function signal(state: ThreadState, fact: Fact, ctx: ApplyContext, events: EventPayload[]): void {
   if ("agent" in fact && fact.agent !== undefined) {
@@ -23,16 +25,21 @@ function signal(state: ThreadState, fact: Fact, ctx: ApplyContext, events: Event
           ? get(state.interactions, fact.interaction)?.agentId
           : undefined;
     if (owner !== undefined) {
-      const record = Object.values(state.agents).find((candidate) => candidate.agent.id === owner);
+      const key = get(state.indexes.agentKeysById, owner);
+      const record = key === undefined ? undefined : get(state.agents, key);
       if (record) record.lastSignalAt = ctx.now;
     }
   }
 }
 
 /** Fold one adapter fact. The caller owns the clock, id sequence and envelope. */
-export function apply(state: ThreadState, fact: Fact, ctx: ApplyContext): EventPayload[] {
+export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): EventPayload[] {
   if (!Number.isSafeInteger(ctx.now) || ctx.now < 0)
     throw new Error("now must be a nonnegative integer");
+  if (typeof ctx.ids?.next !== "function") throw new Error("ids.next must be a function");
+  const result = validateFact(state, input, ctx.now);
+  if ("error" in result) return rejectFact(state, input, result.error, ctx);
+  const fact = result.fact;
   const events: EventPayload[] = [];
   ensureInitialRoot(state, ctx, events);
   if (fact.type !== "tick" && fact.type !== "queue.changed" && fact.type !== "process.exited") {
@@ -115,9 +122,10 @@ export function apply(state: ThreadState, fact: Fact, ctx: ApplyContext): EventP
     case "process.exited":
       exitProcess(state, fact, ctx, events);
       break;
+    case "process.started":
+      delete state.processExit;
+      break;
     case "queue.changed": {
-      if (!Number.isSafeInteger(fact.count) || fact.count < 0)
-        throw new Error("queue count must be a nonnegative integer");
       state.queueCount = fact.count;
       break;
     }

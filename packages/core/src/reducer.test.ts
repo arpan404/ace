@@ -11,9 +11,15 @@ describe("reducer reliability", () => {
     h.shell();
     h.background();
     h.end();
+    h.send({
+      type: "item.upsert",
+      agent: "root",
+      item: "shell",
+      draft: { type: "tool_call", complete: true, call: { status: "succeeded" } },
+    });
     h.start("root", "second");
     h.send({ type: "activity", agent: "root", activity: "thinking" });
-    const before = structuredClone(h.state.agents.root?.agent.status);
+    const before = structuredClone(h.agent("root")?.status);
     const events = h.send({
       type: "item.delta",
       agent: "root",
@@ -21,7 +27,7 @@ describe("reducer reliability", () => {
       field: "output",
       append: "late line",
     });
-    expect(h.state.agents.root?.agent.status).toEqual(before);
+    expect(h.agent("root")?.status).toEqual(before);
     expect(events.map((event) => event.type)).toEqual(["item.delta"]);
   });
 
@@ -39,7 +45,7 @@ describe("reducer reliability", () => {
         draft: { type: "tool_call", call: { status } },
       });
       h.end();
-      expect(h.state.items.shell).toMatchObject({
+      expect(h.item("shell")).toMatchObject({
         complete: true,
         call: { status: "cancelled", error: "turn ended without completion" },
       });
@@ -64,11 +70,11 @@ describe("reducer reliability", () => {
             : { type, agent: "unknown", item: "early", field: "text", append: "Early text" };
       const events = h.send(fact);
       expect(events.some((event) => event.type === "agent.created")).toBe(true);
-      expect(h.state.agents.unknown?.agent.parentId).toBe(h.state.agents.root?.agent.id);
-      expect(h.state.agents.unknown?.agent.fidelity).toBe("placeholder");
+      expect(h.agent("unknown")?.parentId).toBe(h.agent("root")?.id);
+      expect(h.agent("unknown")?.fidelity).toBe("placeholder");
       h.see("unknown", "root");
-      expect(h.state.agents.unknown?.agent.fidelity).toBe("full");
-      expect(h.state.status.state).toBe("working");
+      expect(h.agent("unknown")?.fidelity).toBe("full");
+      expect(h.view.status.state).toBe("working");
     },
   );
 
@@ -76,12 +82,10 @@ describe("reducer reliability", () => {
     const h = harness();
     h.see();
     h.see("grandchild", "missing-parent");
-    expect(h.state.agents["missing-parent"]?.agent.parentId).toBe(h.state.agents.root?.agent.id);
-    expect(h.state.agents.grandchild?.agent.parentId).toBe(
-      h.state.agents["missing-parent"]?.agent.id,
-    );
+    expect(h.agent("missing-parent")?.parentId).toBe(h.agent("root")?.id);
+    expect(h.agent("grandchild")?.parentId).toBe(h.agent("missing-parent")?.id);
     h.see("missing-parent", "root");
-    expect(h.state.agents["missing-parent"]?.agent.fidelity).toBe("full");
+    expect(h.agent("missing-parent")?.fidelity).toBe("full");
   });
 
   it("applies nested partial tool refreshes without dropping previous input, output, or identity", () => {
@@ -89,7 +93,7 @@ describe("reducer reliability", () => {
     h.see();
     h.start();
     h.shell();
-    const item = structuredClone(h.state.items.shell);
+    const item = structuredClone(h.item("shell"));
     h.send({
       type: "item.delta",
       agent: "root",
@@ -106,7 +110,7 @@ describe("reducer reliability", () => {
         call: { title: "Actual command", detail: { kind: "shell", exitCode: 0 } },
       },
     });
-    expect(h.state.items.shell).toMatchObject({
+    expect(h.item("shell")).toMatchObject({
       id: item?.id,
       runId: item?.runId,
       call: {
@@ -136,7 +140,7 @@ describe("reducer reliability", () => {
       },
     });
     h.send({ type: "item.delta", agent: "root", item: "message", field: "text", append: " world" });
-    expect(h.state.items.message).toMatchObject({
+    expect(h.item("message")).toMatchObject({
       type: "message",
       parts: [
         { type: "text", text: "Hello" },
@@ -158,8 +162,8 @@ describe("reducer reliability", () => {
       field: "output",
       append: "Output",
     });
-    expect(h.state.items.reasoning).toMatchObject({ type: "reasoning", text: "Why" });
-    expect(h.state.items.output).toMatchObject({
+    expect(h.item("reasoning")).toMatchObject({ type: "reasoning", text: "Why" });
+    expect(h.item("output")).toMatchObject({
       type: "tool_call",
       call: { detail: { output: "Output" } },
     });
@@ -172,7 +176,7 @@ describe("reducer reliability", () => {
     h.shell();
     h.background();
     h.end();
-    const originalRun = h.state.items.shell?.runId;
+    const originalRun = h.item("shell")?.runId;
     const started = h.start("root", "second").find((event) => event.type === "run.started");
     expect(started?.run.nativeId).toBe("second");
     const events = h.send({
@@ -181,9 +185,9 @@ describe("reducer reliability", () => {
       item: "shell",
       draft: { type: "tool_call", complete: true, call: { status: "succeeded" } },
     });
-    expect(h.state.items.shell?.runId).toBe(originalRun);
+    expect(h.item("shell")?.runId).toBe(originalRun);
     expect(events.filter((event) => event.type === "run.ended")).toHaveLength(0);
-    expect(started && h.state.runs[started.run.id]).toMatchObject({ state: "active" });
+    expect(started && h.view.runs[started.run.id]).toMatchObject({ state: "active" });
   });
 
   it("ignores a duplicate native turn start and end, including late stale ends", () => {
@@ -208,12 +212,12 @@ describe("reducer reliability", () => {
       outcome: "interrupted",
     });
     expect(events.filter((event) => event.type === "run.ended")).toHaveLength(0);
-    expect(started && h.state.runs[started.run.id]).toMatchObject({
+    expect(started && h.view.runs[started.run.id]).toMatchObject({
       nativeId: "second",
       state: "active",
     });
-    expect(h.state.items.shell).toMatchObject({ call: { status: "running" } });
-    expect(h.state.status.state).toBe("working");
+    expect(h.item("shell")).toMatchObject({ call: { status: "running" } });
+    expect(h.view.status.state).toBe("working");
   });
 
   it("OpenCode accepts an actual cancelled tool completion after idle and collapses its second idle", () => {
@@ -237,10 +241,10 @@ describe("reducer reliability", () => {
     });
     const events = h.end("root", "interrupted");
     expect(events.filter((event) => event.type === "run.ended")).toHaveLength(0);
-    expect(h.state.items.shell).toMatchObject({
+    expect(h.item("shell")).toMatchObject({
       call: { status: "cancelled", detail: { output: "User aborted the command" } },
     });
-    expect(h.state.status).toEqual({ state: "done" });
+    expect(h.view.status).toEqual({ state: "done" });
   });
 
   it("turn ending cancels only its own blocking questions and dangling tools", () => {
@@ -256,11 +260,11 @@ describe("reducer reliability", () => {
     h.start("child");
     h.question("child-question", "child");
     h.end();
-    expect(h.state.items.dangling).toMatchObject({ call: { status: "cancelled" } });
-    expect(h.state.items.surviving).toMatchObject({ call: { status: "running" } });
-    expect(h.state.interactions.blocking?.state).toBe("cancelled");
-    expect(h.state.interactions.async?.state).toBe("pending");
-    expect(h.state.interactions["child-question"]?.state).toBe("pending");
+    expect(h.item("dangling")).toMatchObject({ call: { status: "cancelled" } });
+    expect(h.item("surviving")).toMatchObject({ call: { status: "running" } });
+    expect(h.interaction("blocking")?.state).toBe("cancelled");
+    expect(h.interaction("async")?.state).toBe("pending");
+    expect(h.interaction("child-question")?.state).toBe("pending");
   });
 
   it("parallel Cursor tools finish out of order without cancelling their siblings", () => {
@@ -275,10 +279,10 @@ describe("reducer reliability", () => {
       item: "second",
       draft: { type: "tool_call", complete: true, call: { status: "succeeded" } },
     });
-    expect(h.state.agents.root?.agent.status).toMatchObject({
+    expect(h.agent("root")?.status).toMatchObject({
       state: "working",
       activity: "tool",
-      itemId: h.state.items.first?.id,
+      itemId: h.item("first")?.id,
     });
     h.send({
       type: "item.upsert",
@@ -287,7 +291,7 @@ describe("reducer reliability", () => {
       draft: { type: "tool_call", complete: true, call: { status: "succeeded" } },
     });
     h.end();
-    expect(h.state.status).toEqual({ state: "done" });
+    expect(h.view.status).toEqual({ state: "done" });
   });
 
   it("parallel approvals resolve independently and the first device answer wins", () => {
@@ -304,19 +308,19 @@ describe("reducer reliability", () => {
       resolution: { kind: "question", answers: { q: ["yes"] } },
     };
     h.send(answer);
-    expect(h.state.status).toEqual({ state: "needs_you", interactions: 1 });
+    expect(h.view.status).toEqual({ state: "needs_you", interactions: 1 });
     const later = h.send({
       ...answer,
       resolvedBy: DeviceId.parse("desktop"),
       resolution: { kind: "question", answers: { q: ["no"] } },
     });
     expect(later.filter((event) => event.type === "interaction.closed")).toHaveLength(0);
-    expect(h.state.interactions.one).toMatchObject({
+    expect(h.interaction("one")).toMatchObject({
       resolvedBy: "phone",
       resolution: { answers: { q: ["yes"] } },
     });
     h.send({ type: "interaction.closed", interaction: "two", state: "cancelled" });
-    expect(h.state.status.state).toBe("working");
+    expect(h.view.status.state).toBe("working");
   });
 
   it("question dismissal and plan rejection are resolved answers and do not imply failed runs", () => {
@@ -344,7 +348,7 @@ describe("reducer reliability", () => {
       resolution: { kind: "plan_review", decision: "reject" },
     });
     h.end();
-    expect(h.state.status).toEqual({ state: "done" });
-    expect(Object.values(h.state.runs)[0]?.state).toBe("completed");
+    expect(h.view.status).toEqual({ state: "done" });
+    expect(Object.values(h.view.runs)[0]?.state).toBe("completed");
   });
 });

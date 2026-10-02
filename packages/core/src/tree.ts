@@ -2,6 +2,7 @@ import { AgentId, type Agent, type EventPayload } from "@ace/protocol";
 import type { AgentLinkedFact, AgentSeenFact, Key } from "./facts.ts";
 import type { AgentRecord, ApplyContext, ThreadState } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
+import { refreshAgentIndex, registerSpawnLink, registerItemLink } from "./indexes.ts";
 
 type AgentUpdate = Extract<EventPayload, { type: "agent.updated" }>;
 
@@ -21,7 +22,7 @@ export function ensureAgent(
     threadId: state.threadId,
     parentId: root?.agent.id ?? null,
     origin: root ? "provider_subagent" : "root",
-    native: { provider: root?.agent.native.provider ?? "acp", nativeId: key },
+    native: { provider: root?.agent.native.provider ?? state.config.provider, nativeId: key },
     fidelity: "placeholder",
     cwd: root?.agent.cwd ?? "",
     status: { state: "starting" },
@@ -35,6 +36,7 @@ export function ensureAgent(
     ...(parentKey === undefined ? {} : { parentKey }),
   };
   put(state.agents, key, record);
+  refreshAgentIndex(state, key);
   if (state.rootKey === undefined) state.rootKey = key;
   emit(events, { type: "agent.created", agent });
   return record;
@@ -76,10 +78,14 @@ function setParent(
     }
     const parent = ensureAgent(state, parentKey, ctx, events);
     record.parentKey = parentKey;
+    const previousParentId = record.agent.parentId;
     changeAgent(record, { parentId: parent.agent.id }, events);
+    refreshAgentIndex(state, key, previousParentId);
   } else {
     delete record.parentKey;
+    const previousParentId = record.agent.parentId;
     changeAgent(record, { parentId: null }, events);
+    refreshAgentIndex(state, key, previousParentId);
   }
 }
 
@@ -132,7 +138,10 @@ export function seeAgent(
   const record = ensureAgent(state, fact.agent, ctx, events);
   if (fact.origin === "root") adoptRoot(state, fact.agent, ctx, events);
   else if (fact.parent !== undefined) setParent(state, fact.agent, fact.parent, ctx, events);
-  if (fact.spawnedBy !== undefined) record.spawnedByKey = fact.spawnedBy;
+  if (fact.spawnedBy !== undefined) {
+    record.spawnedByKey = fact.spawnedBy;
+    registerSpawnLink(state, fact.agent, fact.spawnedBy);
+  }
   changeAgent(
     record,
     {
@@ -160,7 +169,10 @@ export function linkAgent(
   if (fact.parent !== undefined) ensureParent(state, fact.agent, fact.parent, ctx, events);
   const record = ensureAgent(state, fact.agent, ctx, events);
   if (fact.parent !== undefined) setParent(state, fact.agent, fact.parent, ctx, events);
-  if (fact.spawnedBy !== undefined) record.spawnedByKey = fact.spawnedBy;
+  if (fact.spawnedBy !== undefined) {
+    record.spawnedByKey = fact.spawnedBy;
+    registerSpawnLink(state, fact.agent, fact.spawnedBy);
+  }
   changeAgent(
     record,
     {
@@ -180,22 +192,33 @@ export function reconcileLinks(
   ctx: ApplyContext,
   events: EventPayload[],
 ): void {
-  for (const [key, record] of Object.entries(state.agents)) {
-    if (record.spawnedByKey === undefined) continue;
-    const item = get(state.items, record.spawnedByKey);
+  for (const [itemKey, agents] of Object.entries(state.indexes.pendingSpawnLinks)) {
+    const item = get(state.items, itemKey);
     if (!item) continue;
-    changeAgent(record, { spawnedBy: item.id }, events);
-    if (item.type === "tool_call" && item.call.detail.kind === "agent.spawn") {
-      const links = get(state.itemLinks, record.spawnedByKey) ?? {};
+    for (const key of Object.keys(agents)) {
+      const record = get(state.agents, key);
+      if (!record || record.spawnedByKey !== itemKey) continue;
+      changeAgent(record, { spawnedBy: item.id }, events);
+      const links = get(state.itemLinks, itemKey) ?? {};
       if (links.childAgent === undefined) {
         links.childAgent = key;
-        put(state.itemLinks, record.spawnedByKey, links);
+        put(state.itemLinks, itemKey, links);
+        registerItemLink(state, itemKey);
       }
     }
+    delete state.indexes.pendingSpawnLinks[itemKey];
   }
-  for (const [key, links] of Object.entries(state.itemLinks)) {
+  for (const key of Object.keys(state.indexes.pendingItemLinks)) {
+    const links = get(state.itemLinks, key);
+    if (!links) {
+      delete state.indexes.pendingItemLinks[key];
+      continue;
+    }
     const item = get(state.items, key);
-    if (item?.type !== "tool_call") continue;
+    if (item?.type !== "tool_call") {
+      delete state.indexes.pendingItemLinks[key];
+      continue;
+    }
     const detail = item.call.detail;
     const linkedKey =
       detail.kind === "agent.spawn"
@@ -203,23 +226,21 @@ export function reconcileLinks(
         : detail.kind === "agent.message"
           ? links.targetAgent
           : undefined;
-    if (linkedKey === undefined) continue;
+    if (linkedKey === undefined) {
+      delete state.indexes.pendingItemLinks[key];
+      continue;
+    }
     const linked = ensureAgent(state, linkedKey, ctx, events);
     if (detail.kind === "agent.spawn" && detail.childAgentId !== linked.agent.id) {
       detail.childAgentId = linked.agent.id;
       linked.spawnedByKey = key;
-      setParent(
-        state,
-        linkedKey,
-        Object.entries(state.agents).find(([, record]) => record.agent.id === item.agentId)?.[0],
-        ctx,
-        events,
-      );
+      setParent(state, linkedKey, get(state.indexes.agentKeysById, item.agentId), ctx, events);
       changeAgent(linked, { spawnedBy: item.id }, events);
       emit(events, { type: "item.updated", item });
     } else if (detail.kind === "agent.message" && detail.targetAgentId !== linked.agent.id) {
       detail.targetAgentId = linked.agent.id;
       emit(events, { type: "item.updated", item });
     }
+    delete state.indexes.pendingItemLinks[key];
   }
 }

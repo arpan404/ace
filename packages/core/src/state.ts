@@ -1,18 +1,23 @@
 import type {
   Agent,
   AgentActivity,
+  AgentStatus,
   BackgroundTask,
   Interaction,
   Item,
   Run,
   RunId,
+  ProviderKind,
   ThreadId,
   ThreadStatus,
 } from "@ace/protocol";
+import { ProviderKind as ProviderKindSchema } from "@ace/protocol";
 import type { AgentError, Fact, Key, RootAgentInit } from "./facts.ts";
 export { get as lookup, put } from "./emit.ts";
 
 export interface CoreConfig {
+  /** Provider used for placeholders before an explicit root arrives. */
+  provider: ProviderKind;
   /** Silence threshold, evaluated according to the configured liveness source. */
   silenceMs: number;
   /** Defaults to agent silence. Transport mode also watches tools and retries. */
@@ -32,7 +37,12 @@ export interface AgentRecord {
   agent: Agent;
   activeRun?: RunId;
   lastRun?: RunId;
+  /** Process-namespaced native turn ids index the canonical run history. */
+  nativeRuns?: Record<string, RunId>;
+  lastOutcomeOrder?: number;
+  lastSuccessfulOutcomeOrder?: number;
   lastError?: AgentError;
+  processSettledStatus?: Extract<AgentStatus, { state: "failed" | "interrupted" }>;
   activity: AgentActivity;
   detail?: string;
   lastSignalAt: number;
@@ -40,6 +50,16 @@ export interface AgentRecord {
   wakeUntil?: number;
   parentKey?: Key;
   spawnedByKey?: Key;
+}
+
+export interface LiveIndexes {
+  liveTools: Record<Key, true>;
+  pendingInteractions: Record<Key, true>;
+  runningTasks: Record<Key, true>;
+  agentKeysById: Record<string, Key>;
+  childrenByParent: Record<string, Record<Key, true>>;
+  pendingSpawnLinks: Record<Key, Record<Key, true>>;
+  pendingItemLinks: Record<Key, true>;
 }
 
 export interface ThreadState {
@@ -55,6 +75,10 @@ export interface ThreadState {
   items: Record<Key, Item>;
   interactions: Record<Key, Interaction>;
   tasks: Record<Key, BackgroundTask>;
+  interactionHistory: Record<string, Interaction>;
+  taskHistory: Record<string, BackgroundTask>;
+  indexes: LiveIndexes;
+  outcomeOrder: number;
   itemLinks: Record<Key, { childAgent?: Key; targetAgent?: Key }>;
   queueCount: number;
   hasRun: boolean;
@@ -73,6 +97,13 @@ export function createThreadState(init: {
   if (!Number.isFinite(init.config.silenceMs) || init.config.silenceMs < 0) {
     throw new Error("silenceMs must be finite and nonnegative");
   }
+  ProviderKindSchema.parse(init.config.provider);
+  if (
+    init.config.liveness !== undefined &&
+    !["agent", "transport"].includes(init.config.liveness)
+  ) {
+    throw new Error("liveness must be agent or transport");
+  }
   return {
     threadId: init.threadId,
     config: { ...init.config },
@@ -82,6 +113,18 @@ export function createThreadState(init: {
     items: dictionary(),
     interactions: dictionary(),
     tasks: dictionary(),
+    interactionHistory: dictionary(),
+    taskHistory: dictionary(),
+    indexes: {
+      liveTools: dictionary(),
+      pendingInteractions: dictionary(),
+      runningTasks: dictionary(),
+      agentKeysById: dictionary(),
+      childrenByParent: dictionary(),
+      pendingSpawnLinks: dictionary(),
+      pendingItemLinks: dictionary(),
+    },
+    outcomeOrder: 0,
     itemLinks: dictionary(),
     queueCount: 0,
     hasRun: false,

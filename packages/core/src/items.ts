@@ -3,6 +3,8 @@ import type { Fact, ItemDraft, Key, ToolDetailDraft } from "./facts.ts";
 import type { ApplyContext, ThreadState } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
 import { ensureAgent, linkAgent } from "./tree.ts";
+import { itemInput } from "./item-input.ts";
+import { refreshItemIndex } from "./indexes.ts";
 
 function canonicalDetail(
   state: ThreadState,
@@ -51,51 +53,17 @@ export function upsertItem(
       : { runId: previous.runId }),
   };
   const patch = structuredClone(draft);
-  let input: unknown;
-  if (patch.type === "tool_call") {
-    const priorCall = previous?.type === "tool_call" ? previous.call : undefined;
-    const detail = patch.call?.detail;
-    const kind = patch.call?.kind ?? detail?.kind ?? priorCall?.kind ?? "custom";
-    const mergedDetail = {
-      ...(priorCall?.detail.kind === (detail?.kind ?? kind) ? priorCall.detail : { kind }),
-      ...(detail ? canonicalDetail(state, key, detail, ctx, events) : {}),
-    };
-    input = {
-      ...(previous?.type === patch.type ? previous : { complete: false }),
-      ...patch,
-      ...base,
-      call: {
-        title: kind,
-        status: "pending",
-        startedAt: ctx.now,
-        raw: [],
-        ...priorCall,
-        ...patch.call,
-        id: base.id,
-        agentId: base.agentId,
-        kind,
-        detail: mergedDetail,
-      },
-    };
-  } else {
-    const defaults =
-      patch.type === "message"
-        ? { role: "assistant", parts: [] }
-        : patch.type === "reasoning"
-          ? { text: "" }
-          : patch.type === "notice"
-            ? { level: "info", text: "" }
-            : {};
-    input = {
-      complete: false,
-      ...defaults,
-      ...(previous?.type === patch.type ? previous : {}),
-      ...patch,
-      ...base,
-    };
-  }
+  const detail = patch.type === "tool_call" ? patch.call?.detail : undefined;
+  const input = itemInput(
+    previous,
+    base,
+    patch,
+    ctx.now,
+    detail ? canonicalDetail(state, key, detail, ctx, events) : undefined,
+  );
   const item = Item.parse(input);
   put(state.items, key, item);
+  refreshItemIndex(state, key);
   emit(events, { type: previous ? "item.updated" : "item.created", item });
   if (item.type === "tool_call" && item.call.detail.kind === "agent.spawn") {
     const child = get(state.itemLinks, key)?.childAgent;

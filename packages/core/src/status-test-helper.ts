@@ -1,15 +1,17 @@
 import type { EventPayload } from "@ace/protocol";
-import { deriveAgentStatus, type CoreConfig } from "./index.ts";
+import { deriveAgentStatus } from "./index.ts";
 import { harness } from "./test-helper.ts";
 
-export function activeRoot(config: CoreConfig = { silenceMs: 100 }) {
+export function activeRoot(
+  config: NonNullable<Parameters<typeof harness>[1]> = { silenceMs: 100 },
+) {
   const h = harness("codex", config);
   h.see();
   h.start();
   return h;
 }
 
-export function endedRoot(config: CoreConfig = { silenceMs: 100 }) {
+export function endedRoot(config: NonNullable<Parameters<typeof harness>[1]> = { silenceMs: 100 }) {
   const h = activeRoot(config);
   h.end();
   return h;

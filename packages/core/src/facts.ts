@@ -15,7 +15,7 @@ import type {
   ToolDetail,
 } from "@ace/protocol";
 
-/** Adapter-owned identity, unique within an entity kind in one thread. */
+/** Adapter-owned identity, unique within an entity kind and provider process. */
 export type Key = string;
 
 type PartialDetail<T> = T extends { kind: "agent.spawn" }
@@ -50,6 +50,9 @@ export type AgentError = Extract<AgentStatus, { state: "failed" }>["error"];
  * for providers without child turns, such as Claude and Cursor. Native keys
  * identify entities; only core allocates ace ids. Providers must report a
  * surviving tool as background.started before ending its owning turn.
+ * Adapters should namespace native keys and native turn ids by provider process
+ * because providers can restart counters on resume. Pending interaction/task
+ * opens are replay-safe; opening a terminal key creates a new ace entity.
  *
  * Partial upserts merge an existing item. A first upsert must supply enough
  * fields to validate the resulting protocol Item. A delta before an upsert
@@ -151,6 +154,7 @@ export type Fact =
       costUsd?: number;
     }
   | { type: "signal"; agent?: Key }
+  | { type: "process.started" }
   | { type: "process.exited"; deliberate: boolean; message?: string }
   | { type: "queue.changed"; count: number }
   | { type: "tick" };

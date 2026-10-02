@@ -7,7 +7,7 @@ describe("requests and tasks before items", () => {
     h.see();
     h.start();
     h.background("job", "late-shell");
-    const synthesizedId = h.state.items["late-shell"]?.id;
+    const synthesizedId = h.item("late-shell")?.id;
     h.send({
       type: "item.upsert",
       agent: "root",
@@ -23,14 +23,14 @@ describe("requests and tasks before items", () => {
         },
       },
     });
-    expect(h.state.items["late-shell"]).toMatchObject({
+    expect(h.item("late-shell")).toMatchObject({
       id: synthesizedId,
-      call: { backgroundTaskId: h.state.tasks.job?.id, detail: { command: "real command" } },
+      call: { backgroundTaskId: h.task("job")?.id, detail: { command: "real command" } },
     });
-    expect(h.state.tasks.job?.toolCallId).toBe(synthesizedId);
+    expect(h.task("job")?.toolCallId).toBe(synthesizedId);
     h.end();
-    expect(h.state.items["late-shell"]).toMatchObject({ call: { status: "running" } });
-    expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
+    expect(h.item("late-shell")).toMatchObject({ call: { status: "running" } });
+    expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
   });
 
   it("a request referencing an absent Codex item creates and retains its tool identity", () => {
@@ -45,13 +45,13 @@ describe("requests and tasks before items", () => {
       blocking: true,
       request: { kind: "plan_review", markdown: "" },
     });
-    const placeholderId = h.state.items.missing?.id;
-    expect(h.state.interactions.input?.toolCallId).toBe(placeholderId);
-    expect(h.state.items.missing).toMatchObject({
+    const placeholderId = h.item("missing")?.id;
+    expect(h.interaction("input")?.toolCallId).toBe(placeholderId);
+    expect(h.item("missing")).toMatchObject({
       type: "tool_call",
       call: { status: "awaiting_approval" },
     });
-    expect(h.state.status).toEqual({ state: "needs_you", interactions: 1 });
+    expect(h.view.status).toEqual({ state: "needs_you", interactions: 1 });
     h.send({
       type: "item.upsert",
       agent: "root",
@@ -61,7 +61,7 @@ describe("requests and tasks before items", () => {
         call: { kind: "plan", title: "Plan", detail: { kind: "plan", markdown: "Plan text" } },
       },
     });
-    expect(h.state.items.missing).toMatchObject({
+    expect(h.item("missing")).toMatchObject({
       id: placeholderId,
       call: { status: "awaiting_approval", kind: "plan" },
     });
@@ -72,6 +72,6 @@ describe("requests and tasks before items", () => {
       resolution: { kind: "plan_review", decision: "reject" },
     });
     h.end();
-    expect(h.state.status).toEqual({ state: "done" });
+    expect(h.view.status).toEqual({ state: "done" });
   });
 });

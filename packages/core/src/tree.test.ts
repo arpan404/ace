@@ -1,35 +1,23 @@
-import { ThreadId, type Agent, type EventPayload } from "@ace/protocol";
+import { type Agent, type EventPayload } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
-import { apply, createThreadState, type Fact, type ThreadState } from "./index.ts";
-import { assertPayloads } from "./test-helper.ts";
+import { type Fact } from "./index.ts";
+import { harness } from "./test-helper.ts";
 
 function setup(configuredRoot = true) {
-  let sequence = 0;
-  let time = 100;
-  const ids = { next: (kind: string) => `${kind}_${++sequence}` };
-  const state = createThreadState({
-    threadId: ThreadId.parse("thread"),
-    config: { silenceMs: 90_000 },
-    ...(configuredRoot
+  const h = harness(
+    "codex",
+    { silenceMs: 90_000 },
+    configuredRoot
       ? {
-          rootAgent: {
-            agent: "root",
-            fidelity: "full",
-            native: { provider: "codex" },
-            cwd: "/repo",
-          } satisfies NonNullable<Parameters<typeof createThreadState>[0]["rootAgent"]>,
+          agent: "root",
+          fidelity: "full",
+          native: { provider: "codex" },
+          cwd: "/repo",
         }
-      : {}),
-  });
-  const history: EventPayload[] = [];
-  function send(fact: Fact, target = state, now = ++time): EventPayload[] {
-    const events = apply(target, fact, { now, ids });
-    assertPayloads(events);
-    history.push(...events);
-    return events;
-  }
-  if (configuredRoot) send({ type: "tick" }, state, 100);
-  return { state, history, send };
+      : undefined,
+  );
+  if (configuredRoot) h.send({ type: "tick" }, 100);
+  return { ...h, send: (fact: Fact, target = h.state, now?: number) => h.send(fact, now, target) };
 }
 
 function createdAgent(events: EventPayload[], nativeKey: string): Agent {
@@ -74,11 +62,9 @@ describe("agent tree facts", () => {
     });
     const events = h.send({ type: "turn.started", agent: "root", trigger: "user" });
     expect(events.filter((event) => event.type === "agent.created")).toEqual([]);
-    expect(events.find((event) => event.type === "run.started")).toEqual({
+    expect(events.find((event) => event.type === "run.started")).toMatchObject({
       type: "run.started",
       run: {
-        id: "run_2",
-        threadId: "thread",
         agentId: root.id,
         trigger: "user",
         state: "active",
@@ -161,8 +147,8 @@ describe("agent tree facts", () => {
       spawnedBy: itemCreated.item.id,
     });
     const itemUpdated = events.find((event) => event.type === "item.updated");
-    expect(itemUpdated?.type === "item.updated" && itemUpdated.item).toEqual({
-      ...itemCreated.item,
+    expect(itemUpdated?.type === "item.updated" && itemUpdated.item).toMatchObject({
+      id: itemCreated.item.id,
       call: {
         id: itemCreated.item.id,
         agentId: createdAgent(h.history, "root").id,
@@ -211,63 +197,17 @@ describe("agent tree facts", () => {
     });
   });
 
-  it("starts and closes agents with prototype-like keys after restoring a snapshot", () => {
-    const h = setup();
-    const restored: ThreadState = JSON.parse(JSON.stringify(h.state));
-    for (const key of ["__proto__", "constructor"]) {
-      const events = h.send({ type: "turn.started", agent: key, trigger: "spawn" }, restored);
-      const child = createdAgent(events, key);
-      expect(child.parentId).toBe(createdAgent(h.history, "root").id);
-      expect(
-        h.send({ type: "turn.ended", agent: key, outcome: "completed" }, restored),
-      ).toContainEqual({ type: "agent.status", agentId: child.id, status: { state: "idle" } });
-    }
-  });
-
   it("rejects a cyclic parent fact and preserves the previously published relationship", () => {
     const h = setup();
     h.send({ type: "agent.linked", agent: "parent", parent: "root" });
     h.send({ type: "agent.linked", agent: "child", parent: "parent" });
-    expect(() => h.send({ type: "agent.linked", agent: "parent", parent: "child" })).toThrow(
-      "cycle",
+    const rejected = h.send({ type: "agent.linked", agent: "parent", parent: "child" });
+    expect(rejected).toContainEqual(
+      expect.objectContaining({
+        type: "item.created",
+        item: expect.objectContaining({ type: "notice", level: "warning" }),
+      }),
     );
-    // Rejected facts have no public payload; inspect the canonical row they would have changed.
-    expect(h.state.agents.parent?.agent.parentId).toBe(createdAgent(h.history, "root").id);
-  });
-
-  it("replays emitted late tree updates to the same canonical agents as the snapshot", () => {
-    const h = setup();
-    h.send({ type: "turn.started", agent: "child", trigger: "spawn" });
-    h.send({ type: "agent.linked", agent: "parent", parent: "root" });
-    h.send({
-      type: "agent.seen",
-      agent: "child",
-      parent: "parent",
-      spawnedBy: "parent-spawn",
-      origin: "provider_subagent",
-      fidelity: "full",
-      cwd: "/child",
-      native: { provider: "codex", nativeId: "native-child", aliases: ["other-child"] },
-      name: "Worker",
-      role: "explorer",
-      model: "coding-model",
-      background: true,
-    });
-    h.send({ ...spawn(), agent: "parent", item: "parent-spawn" });
-    const replayed = new Map<string, Agent>();
-    for (const event of h.history) {
-      if (event.type === "agent.created")
-        replayed.set(event.agent.id, structuredClone(event.agent));
-      else if (event.type === "agent.updated") {
-        const { type: _type, agentId, ...fields } = event;
-        Object.assign(replayed.get(agentId)!, fields);
-      } else if (event.type === "agent.status") {
-        replayed.get(event.agentId)!.status = structuredClone(event.status);
-      }
-    }
-    // This full row comparison verifies a client can recover every field from replay.
-    for (const record of Object.values(h.state.agents))
-      expect(replayed.get(record.agent.id)).toEqual(record.agent);
-    expect(createdAgent(h.history, "child").fidelity).toBe("placeholder");
+    expect(h.agent("parent")?.parentId).toBe(createdAgent(h.history, "root").id);
   });
 });

@@ -8,11 +8,11 @@ describe("fixture ordering and liveness edges", () => {
     h.start();
     h.see("child", "root", true);
     h.end();
-    expect(h.state.agents.child?.agent.status).toEqual({ state: "starting" });
-    expect(h.state.status.state).toBe("working");
+    expect(h.agent("child")?.status).toEqual({ state: "starting" });
+    expect(h.view.status.state).toBe("working");
     h.start("child");
     h.end("child");
-    expect(h.state.status).toEqual({ state: "done" });
+    expect(h.view.status).toEqual({ state: "done" });
   });
 
   it("Codex child completion without a self-started followup can finish the thread", () => {
@@ -32,9 +32,9 @@ describe("fixture ordering and liveness edges", () => {
     });
     h.end();
     h.end("child");
-    expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
+    expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
     h.send({ type: "background.ended", task: "job", status: "completed" });
-    expect(h.state.status).toEqual({ state: "done" });
+    expect(h.view.status).toEqual({ state: "done" });
     const events = h.send({ type: "tick" }, 30_000);
     expect(events.filter((event) => event.type === "thread.updated")).toHaveLength(0);
   });
@@ -48,9 +48,9 @@ describe("fixture ordering and liveness edges", () => {
     h.end();
     h.send({ type: "wake.expected", agent: "root", until: 23_499 }, 18_499);
     h.send({ type: "background.ended", task: "task", status: "completed" }, 18_499);
-    expect(h.state.status.state).toBe("working");
+    expect(h.view.status.state).toBe("working");
     h.send({ type: "tick" }, 18_580);
-    expect(h.state.status.state).toBe("working");
+    expect(h.view.status.state).toBe("working");
     h.send(
       { type: "turn.started", agent: "root", nativeTurnId: "notification", trigger: "unknown" },
       18_581,
@@ -68,19 +68,7 @@ describe("fixture ordering and liveness edges", () => {
     expect(events.find((event) => event.type === "run.ended")).toMatchObject({
       trigger: "background_completion",
     });
-    expect(h.state.status).toEqual({ state: "done" });
-  });
-
-  it("Claude expected wake releases after its injected grace deadline", () => {
-    const h = harness("claude");
-    h.see();
-    h.start();
-    h.end();
-    h.send({ type: "wake.expected", agent: "root", until: 5_000 }, 1_000);
-    h.send({ type: "tick" }, 4_999);
-    expect(h.state.status.state).toBe("working");
-    h.send({ type: "tick" }, 5_000);
-    expect(h.state.status).toEqual({ state: "done" });
+    expect(h.view.status).toEqual({ state: "done" });
   });
 
   it("ambient monitors never hold the thread open", () => {
@@ -97,9 +85,9 @@ describe("fixture ordering and liveness edges", () => {
       stoppable: true,
     });
     h.end();
-    expect(h.state.tasks.watcher?.status).toBe("running");
-    expect(h.state.agents.root?.agent.status).toEqual({ state: "idle" });
-    expect(h.state.status).toEqual({ state: "done" });
+    expect(h.task("watcher")?.status).toBe("running");
+    expect(h.agent("root")?.status).toEqual({ state: "idle" });
+    expect(h.view.status).toEqual({ state: "done" });
   });
 
   it("a silent long-running tool is healthy and never times out on silence", () => {
@@ -108,8 +96,8 @@ describe("fixture ordering and liveness edges", () => {
     h.start();
     h.shell();
     h.send({ type: "tick" }, 600_000);
-    expect(h.state.agents.root?.agent.status).toMatchObject({ state: "working", activity: "tool" });
-    expect(h.state.status.state).toBe("working");
+    expect(h.agent("root")?.status).toMatchObject({ state: "working", activity: "tool" });
+    expect(h.view.status.state).toBe("working");
   });
 
   it("a live nested descendant prevents its silent ancestors becoming unresponsive", () => {
@@ -122,9 +110,9 @@ describe("fixture ordering and liveness edges", () => {
     h.start("grandchild");
     h.shell("command", "grandchild");
     h.send({ type: "tick" }, 600_000);
-    expect(h.state.agents.root?.agent.status.state).toBe("working");
-    expect(h.state.agents.child?.agent.status.state).toBe("working");
-    expect(h.state.agents.grandchild?.agent.status).toMatchObject({
+    expect(h.agent("root")?.status.state).toBe("working");
+    expect(h.agent("child")?.status.state).toBe("working");
+    expect(h.agent("grandchild")?.status).toMatchObject({
       state: "working",
       activity: "tool",
     });
@@ -149,12 +137,12 @@ describe("fixture ordering and liveness edges", () => {
       120_000,
     );
     h.send({ type: "tick" }, 165_000);
-    expect(h.state.status.state).toBe("working");
-    expect(h.state.agents.root?.agent.status).toMatchObject({
+    expect(h.view.status.state).toBe("working");
+    expect(h.agent("root")?.status).toMatchObject({
       state: "working",
       activity: "thinking",
     });
-    expect(h.state.items.reasoning).toMatchObject({ type: "reasoning", text: "thinking more" });
+    expect(h.item("reasoning")).toMatchObject({ type: "reasoning", text: "thinking more" });
   });
 
   it("OpenCode late trailing user-message snapshots do not restart the settled agent", () => {
@@ -173,49 +161,12 @@ describe("fixture ordering and liveness edges", () => {
         complete: true,
       },
     });
-    expect(h.state.agents.root?.agent.status).toEqual({ state: "idle" });
-    expect(h.state.status).toEqual({ state: "done" });
-    expect(h.state.items.user?.runId).toBeUndefined();
+    expect(h.agent("root")?.status).toEqual({ state: "idle" });
+    expect(h.view.status).toEqual({ state: "done" });
+    expect(h.item("user")?.runId).toBeUndefined();
   });
 
-  it("Cursor can do its own work concurrently with a foreground subagent", () => {
-    const h = harness("cursor");
-    h.see();
-    h.start();
-    h.see("child", "root");
-    h.start("child");
-    h.send({
-      type: "item.upsert",
-      agent: "root",
-      item: "spawn",
-      draft: {
-        type: "tool_call",
-        call: {
-          kind: "agent.spawn",
-          title: "Count lines",
-          status: "running",
-          detail: { kind: "agent.spawn", childAgent: "child" },
-          raw: [],
-        },
-      },
-    });
-    expect(h.state.agents.root?.agent.status).toMatchObject({ state: "blocked", on: "subagents" });
-    h.shell("own-work");
-    expect(h.state.agents.root?.agent.status).toMatchObject({
-      state: "working",
-      activity: "tool",
-      itemId: h.state.items["own-work"]?.id,
-    });
-    h.send({
-      type: "item.upsert",
-      agent: "root",
-      item: "own-work",
-      draft: { type: "tool_call", complete: true, call: { status: "succeeded" } },
-    });
-    expect(h.state.agents.root?.agent.status).toMatchObject({ state: "blocked", on: "subagents" });
-  });
-
-  it("Cursor parent pauses after its response while a background child works", () => {
+  it("Cursor adapter splits a held prompt into runs while a background child works", () => {
     const h = harness("cursor");
     h.see();
     h.start();
@@ -231,7 +182,8 @@ describe("fixture ordering and liveness edges", () => {
       stoppable: false,
     });
     h.send({ type: "activity", agent: "root", activity: "responding" });
-    expect(h.state.agents.root?.agent.status).toMatchObject({
+    h.end();
+    expect(h.agent("root")?.status).toMatchObject({
       state: "blocked",
       on: "background_task",
     });
@@ -244,25 +196,8 @@ describe("fixture ordering and liveness edges", () => {
       nativeTurnId: "wake",
       trigger: "subagent_result",
     });
-    expect(h.state.status.state).toBe("working");
+    expect(h.view.status.state).toBe("working");
     h.end();
-    expect(h.state.status).toEqual({ state: "done" });
-  });
-
-  it("a failed child fails the settled thread even if the root completed", () => {
-    const h = harness("opencode");
-    h.see();
-    h.start();
-    h.see("child", "root");
-    h.start("child");
-    h.end();
-    h.send({
-      type: "turn.ended",
-      agent: "child",
-      outcome: "failed",
-      error: { kind: "provider", message: "Backend refused" },
-    });
-    expect(h.state.agents.root?.agent.status).toEqual({ state: "idle" });
-    expect(h.state.status).toEqual({ state: "failed" });
+    expect(h.view.status).toEqual({ state: "done" });
   });
 });

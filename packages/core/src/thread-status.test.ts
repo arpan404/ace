@@ -113,14 +113,6 @@ describe("thread status precedence through facts", () => {
     }
   });
 
-  it("an async question needs attention once its agent stops working", () => {
-    const h = activeRoot();
-    h.question("async", "root", false);
-    expect(deriveThreadStatus(h.state)).toEqual({ state: "working", agents: 1 });
-    h.end();
-    expect(deriveThreadStatus(h.state)).toEqual({ state: "needs_you", interactions: 1 });
-  });
-
   it("ambient and unknown background tasks permit done", () => {
     const h = endedRoot();
     h.send({

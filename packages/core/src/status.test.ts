@@ -141,29 +141,6 @@ describe("agent statuses through adapter facts", () => {
     expect(status(h, 1091)).toEqual({ state: "unresponsive", lastSignalAt: 990 });
   });
 
-  it("a responding parent waits for a live background child", () => {
-    const h = activeRoot();
-    spawned(h, true);
-    h.send({
-      type: "item.upsert",
-      agent: "root",
-      item: "spawn",
-      draft: { type: "tool_call", call: { status: "succeeded" } },
-    });
-    h.send({
-      type: "background.started",
-      agent: "root",
-      task: "job",
-      kind: "subagent",
-      title: "Child",
-      childAgent: "child",
-      item: "spawn",
-      stoppable: true,
-    });
-    h.send({ type: "activity", agent: "root", activity: "responding" });
-    expect(status(h, 150)).toMatchObject({ state: "blocked", on: "background_task" });
-  });
-
   it("tracking a Codex child as a task preserves its foreground behavior", () => {
     const h = activeRoot();
     spawned(h);

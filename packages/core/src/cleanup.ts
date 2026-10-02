@@ -3,6 +3,14 @@ import type { ApplyContext, ThreadState } from "./state.ts";
 import type { Fact } from "./facts.ts";
 import { emit } from "./emit.ts";
 import { isSettled } from "./status.ts";
+import {
+  liveToolKeys,
+  pendingInteractionKeys,
+  runningTaskKeys,
+  refreshItemIndex,
+  refreshInteractionIndex,
+  refreshTaskIndex,
+} from "./indexes.ts";
 
 export function cancelOpenWork(
   state: ThreadState,
@@ -10,24 +18,31 @@ export function cancelOpenWork(
   now: number,
   events: EventPayload[],
 ): void {
-  for (const item of Object.values(state.items)) {
+  const backgroundItems = new Set(
+    runningTaskKeys(state).flatMap((key) => {
+      const task = state.tasks[key]!;
+      return task.toolCallId === undefined ? [] : [task.toolCallId];
+    }),
+  );
+  for (const key of liveToolKeys(state, agentId)) {
+    const item = state.items[key]!;
     if (item.agentId !== agentId || item.type !== "tool_call") continue;
     if (!["pending", "running", "awaiting_approval"].includes(item.call.status)) continue;
-    const background = Object.values(state.tasks).some(
-      (task) => task.toolCallId === item.id && task.status === "running",
-    );
-    if (background) continue;
+    if (backgroundItems.has(item.id)) continue;
     item.call.status = "cancelled";
     item.call.error = "turn ended without completion";
     item.call.endedAt = now;
     item.complete = true;
+    refreshItemIndex(state, key);
     emit(events, { type: "item.updated", item });
   }
-  for (const interaction of Object.values(state.interactions)) {
+  for (const key of pendingInteractionKeys(state, agentId)) {
+    const interaction = state.interactions[key]!;
     if (interaction.agentId !== agentId || !interaction.blocking || interaction.state !== "pending")
       continue;
     interaction.state = "cancelled";
     interaction.closedAt = now;
+    refreshInteractionIndex(state, key);
     emit(events, {
       type: "interaction.closed",
       interactionId: interaction.id,
@@ -51,10 +66,12 @@ export function exitProcess(
       .filter(([, record]) => !isSettled(record.agent.status))
       .map(([key]) => key),
   };
-  for (const interaction of Object.values(state.interactions)) {
+  for (const key of pendingInteractionKeys(state)) {
+    const interaction = state.interactions[key]!;
     if (interaction.state !== "pending") continue;
     interaction.state = "expired";
     interaction.closedAt = ctx.now;
+    refreshInteractionIndex(state, key);
     emit(events, {
       type: "interaction.closed",
       interactionId: interaction.id,
@@ -62,10 +79,12 @@ export function exitProcess(
       closedAt: ctx.now,
     });
   }
-  for (const task of Object.values(state.tasks)) {
+  for (const key of runningTaskKeys(state)) {
+    const task = state.tasks[key]!;
     if (task.status !== "running") continue;
     task.status = "unknown";
     task.endedAt = ctx.now;
+    refreshTaskIndex(state, key);
     emit(events, {
       type: "background_task.updated",
       taskId: task.id,
@@ -74,12 +93,26 @@ export function exitProcess(
     });
   }
   for (const record of Object.values(state.agents)) {
-    if (!record.activeRun) continue;
+    delete record.retry;
+    delete record.wakeUntil;
+    if (!record.activeRun) {
+      if (!isSettled(record.agent.status)) {
+        record.processSettledStatus = fact.deliberate
+          ? { state: "interrupted" }
+          : {
+              state: "failed",
+              error: { kind: "process_exit", message: fact.message ?? "Provider process exited" },
+            };
+        record.lastOutcomeOrder = ++state.outcomeOrder;
+      }
+      continue;
+    }
     const run = state.runs[record.activeRun];
     if (run) {
       run.state = fact.deliberate ? "interrupted" : "failed";
       run.endedAt = ctx.now;
       record.lastRun = run.id;
+      record.lastOutcomeOrder = ++state.outcomeOrder;
       if (!fact.deliberate)
         record.lastError = {
           kind: "process_exit",
@@ -88,8 +121,6 @@ export function exitProcess(
       emit(events, { type: "run.ended", runId: run.id, state: run.state, endedAt: ctx.now });
     }
     delete record.activeRun;
-    delete record.retry;
-    delete record.wakeUntil;
     cancelOpenWork(state, record.agent.id, ctx.now, events);
   }
 }

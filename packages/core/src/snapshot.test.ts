@@ -1,7 +1,8 @@
 import type { EventPayload } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
-import { apply, type Fact, type ThreadState } from "./index.ts";
-import { assertPayloads, harness } from "./test-helper.ts";
+import { type Fact, type ThreadState } from "./index.ts";
+import { applyToClient, harness } from "./test-helper.ts";
+import { createClientView, foldPayload } from "./client-view.ts";
 
 function restored(state: ThreadState): ThreadState {
   return JSON.parse(JSON.stringify(state)) as ThreadState;
@@ -22,7 +23,7 @@ describe("snapshot and payload integrity", () => {
     });
     parts[0]!.text = "changed";
     raw[0]!.data.nested = "changed";
-    expect(h.state.items.message).toMatchObject({
+    expect(h.item("message")).toMatchObject({
       parts: [{ text: "original" }],
       raw: [{ data: { nested: "original" } }],
     });
@@ -30,7 +31,7 @@ describe("snapshot and payload integrity", () => {
     h.send({ type: "turn.ended", agent: "root", outcome: "failed", error });
     error.message = "changed failure";
     h.send({ type: "tick" });
-    expect(h.state.agents.root?.agent.status).toMatchObject({
+    expect(h.agent("root")?.status).toMatchObject({
       state: "failed",
       error: { message: "original failure" },
     });
@@ -71,9 +72,9 @@ describe("snapshot and payload integrity", () => {
     configured.see();
     configured.start();
     configured.send({ type: "tick" }, 105);
-    expect(configured.state.status.state).toBe("working");
+    expect(configured.view.status.state).toBe("working");
     configured.send({ type: "tick" }, 108);
-    expect(configured.state.status).toEqual({ state: "unresponsive" });
+    expect(configured.view.status).toEqual({ state: "unresponsive" });
   });
 
   it("produces identical payloads and state before and after a JSON snapshot", () => {
@@ -95,19 +96,54 @@ describe("snapshot and payload integrity", () => {
     function replay(state: ThreadState) {
       let sequence = 1_000;
       const events: EventPayload[] = [];
-      for (const [index, fact] of facts.entries())
-        events.push(
-          ...apply(state, fact, {
+      const view = createClientView();
+      for (const payload of h.history) foldPayload(view, payload);
+      for (const [index, fact] of facts.entries()) {
+        const emitted = applyToClient(
+          state,
+          fact,
+          {
             now: 5_000 + index,
             ids: { next: (kind) => `${kind}_${++sequence}` },
-          }),
+          },
+          view,
         );
-      assertPayloads(events);
-      return events;
+        events.push(...emitted);
+      }
+      return { events, view };
     }
-    expect(replay(original)).toEqual(replay(snapshot));
-    expect(snapshot).toEqual(original);
-    expect(snapshot.status).toEqual({ state: "done" });
+    const beforeRestore = replay(original);
+    const afterRestore = replay(snapshot);
+    expect(afterRestore.events).toEqual(beforeRestore.events);
+    expect(afterRestore.view).toEqual(beforeRestore.view);
+    expect(afterRestore.view.status).toEqual({ state: "done" });
+  });
+
+  it("opaque ace ids resembling prototype names preserve every entity through client replay", () => {
+    const h = harness();
+    const names: Record<string, string> = {
+      agent: "__proto__",
+      run: "constructor",
+      item: "toString",
+      interaction: "__defineGetter__",
+      task: "valueOf",
+    };
+    h.ids.next = (kind) => names[kind]!;
+    h.see();
+    const started = h.start().find((event) => event.type === "run.started");
+    h.shell();
+    h.background();
+    h.question();
+    h.send({ type: "item.delta", agent: "root", item: "shell", field: "output", append: "Output" });
+    expect(h.item("shell")).toMatchObject({ call: { detail: { output: "Output" } } });
+    h.end();
+    expect(h.interaction("question")?.state).toBe("cancelled");
+    expect(h.agent("root")?.status).toMatchObject({ state: "blocked", on: "background_task" });
+    expect(started && h.view.runs[started.run.id]).toMatchObject({ state: "completed" });
+    h.send({ type: "background.ended", task: "task", status: "completed" });
+    expect(h.task("task")?.status).toBe("completed");
+    expect(h.agent("root")?.status).toEqual({ state: "idle" });
+    expect(h.view.status).toEqual({ state: "done" });
   });
 
   it.each(["__proto__", "constructor", "toString"])(
@@ -132,10 +168,10 @@ describe("snapshot and payload integrity", () => {
         202,
         state,
       );
-      expect(state.items[key]).toMatchObject({ type: "reasoning", text: "safe" });
+      expect(h.item(key)).toMatchObject({ type: "reasoning", text: "safe" });
       const again = restored(state);
       h.send({ type: "turn.ended", agent: key, outcome: "completed" }, 203, again);
-      expect(again.agents[key]?.agent.status).toEqual({ state: "idle" });
+      expect(h.agent(key)?.status).toEqual({ state: "idle" });
     },
   );
 });

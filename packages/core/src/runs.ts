@@ -1,6 +1,7 @@
 import { RunId, type EventPayload, type Run } from "@ace/protocol";
 import type { Fact } from "./facts.ts";
 import type { AgentRecord, ApplyContext, ThreadState } from "./state.ts";
+import { dictionary } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
 import { ensureAgent } from "./tree.ts";
 import { cancelOpenWork } from "./cleanup.ts";
@@ -9,9 +10,15 @@ type Started = Extract<Fact, { type: "turn.started" }>;
 type Ended = Extract<Fact, { type: "turn.ended" }>;
 
 function matchingRun(state: ThreadState, record: AgentRecord, nativeId: string): Run | undefined {
-  return Object.values(state.runs).find(
-    (run) => run.agentId === record.agent.id && run.nativeId === nativeId,
-  );
+  const id = record.nativeRuns && get(record.nativeRuns, nativeId);
+  return id === undefined ? undefined : get(state.runs, id);
+}
+
+function storeRun(state: ThreadState, record: AgentRecord, run: Run): void {
+  put(state.runs, run.id, run);
+  if (run.nativeId === undefined) return;
+  record.nativeRuns ??= dictionary();
+  put(record.nativeRuns, run.nativeId, run.id);
 }
 
 export function startTurn(
@@ -47,8 +54,9 @@ export function startTurn(
     startedAt: ctx.now,
     ...(fact.nativeTurnId === undefined ? {} : { nativeId: fact.nativeTurnId }),
   };
-  put(state.runs, run.id, run);
+  storeRun(state, record, run);
   record.activeRun = run.id;
+  delete record.processSettledStatus;
   record.activity = "starting_turn";
   delete record.detail;
   delete record.wakeUntil;
@@ -92,7 +100,7 @@ export function endTurn(
       startedAt: ctx.now,
       ...(fact.nativeTurnId === undefined ? {} : { nativeId: fact.nativeTurnId }),
     };
-    put(state.runs, run.id, run);
+    storeRun(state, record, run);
     state.hasRun = true;
     emit(events, { type: "run.started", run });
   }
@@ -108,9 +116,12 @@ export function endTurn(
   });
   // A delayed end for an older native turn cannot terminate the current turn.
   if (active && active.id !== run.id) return;
+  delete record.processSettledStatus;
   delete record.activeRun;
   delete record.retry;
   record.lastRun = run.id;
+  record.lastOutcomeOrder = ++state.outcomeOrder;
+  if (fact.outcome === "completed") record.lastSuccessfulOutcomeOrder = record.lastOutcomeOrder;
   if (fact.outcome === "failed") {
     record.lastError = structuredClone(fact.error ?? { kind: "provider", message: "turn failed" });
   } else {

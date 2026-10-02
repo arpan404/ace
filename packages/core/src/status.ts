@@ -2,6 +2,8 @@ import type { AgentStatus, EventPayload, Item, ThreadStatus } from "@ace/protoco
 import type { Key } from "./facts.ts";
 import { lookup, type AgentRecord, type ThreadState } from "./state.ts";
 import { emit } from "./emit.ts";
+import { liveToolKeys, pendingInteractionKeys, runningTaskKeys } from "./indexes.ts";
+import { subtreeSignalReader, transportSignalAt } from "./liveness.ts";
 
 export function isSettled(status: AgentStatus): boolean {
   return status.state === "idle" || status.state === "interrupted" || status.state === "failed";
@@ -52,46 +54,25 @@ export function isLiveTool(item: Item): item is ToolItem {
 }
 
 function statusResolver(state: ThreadState, now: number) {
-  const agents = Object.entries(state.agents);
-  const lastTransportSignalAt =
-    state.lastTransportSignalAt ??
-    agents.reduce((latest, [, record]) => Math.max(latest, record.lastSignalAt), 0);
-  const byId = new Map(agents.map(([key, record]) => [record.agent.id, key]));
+  const lastTransportSignalAt = transportSignalAt(state);
+  const byId = state.indexes.agentKeysById;
   const interactionsByAgent = byAgent(
-    Object.values(state.interactions).filter((interaction) => interaction.state === "pending"),
+    pendingInteractionKeys(state).map((key) => lookup(state.interactions, key)!),
   );
   const tasksByAgent = byAgent(
-    Object.values(state.tasks).filter((task) => task.status === "running" && !task.ambient),
+    runningTaskKeys(state)
+      .map((key) => lookup(state.tasks, key)!)
+      .filter((task) => !task.ambient),
   );
-  const toolsByAgent = byAgent(Object.values(state.items).filter(isLiveTool));
-  const children = new Map<string, Key[]>();
-  for (const [key, record] of agents) {
-    const parent = record.agent.parentId;
-    if (parent !== null) {
-      const siblings = children.get(parent) ?? [];
-      siblings.push(key);
-      children.set(parent, siblings);
-    }
-  }
+  const toolsByAgent = byAgent(
+    liveToolKeys(state)
+      .map((key) => lookup(state.items, key)!)
+      .filter(isLiveTool),
+  );
+  const children = state.indexes.childrenByParent;
   const resolved = new Map<Key, AgentStatus>();
   const visiting = new Set<Key>();
-  const signals = new Map<Key, number>();
-  const signalVisits = new Set<Key>();
-
-  function lastSubtreeSignal(key: Key): number {
-    const cached = signals.get(key);
-    if (cached !== undefined) return cached;
-    const record = lookup(state.agents, key)!;
-    let latest = record.lastSignalAt;
-    if (signalVisits.has(key)) return latest;
-    signalVisits.add(key);
-    for (const child of children.get(record.agent.id) ?? []) {
-      latest = Math.max(latest, lastSubtreeSignal(child));
-    }
-    signalVisits.delete(key);
-    signals.set(key, latest);
-    return latest;
-  }
+  const lastSubtreeSignal = subtreeSignalReader(state);
 
   function resolve(key: Key): AgentStatus {
     const cached = resolved.get(key);
@@ -143,7 +124,7 @@ function statusResolver(state: ThreadState, now: number) {
     }
     if (record.retry) return { state: "blocked", refs: [], ...record.retry };
 
-    const liveChildren = (children.get(agent.id) ?? []).filter(
+    const liveChildren = Object.keys(lookup(children, agent.id) ?? {}).filter(
       (child) => !isSettled(resolve(child)),
     );
     const tasks = tasksByAgent.get(agent.id) ?? [];
@@ -161,12 +142,12 @@ function statusResolver(state: ThreadState, now: number) {
       const tools = toolsByAgent.get(agent.id) ?? [];
       const foreground = tools.flatMap((item) => {
         if (item.call.detail.kind !== "agent.spawn" || !item.call.detail.childAgentId) return [];
-        const child = byId.get(item.call.detail.childAgentId);
+        const child = lookup(byId, item.call.detail.childAgentId);
         if (!child || lookup(state.agents, child)?.agent.background || isSettled(resolve(child)))
           return [];
         return [lookup(state.agents, child)!.agent.id];
       });
-      // Cursor can do its own tool work concurrently with a foreground child.
+      // An agent's own tool work can continue while a foreground child runs.
       const ownTools = tools.filter((item) => {
         return (
           item.call.detail.kind !== "agent.spawn" ||
@@ -185,13 +166,8 @@ function statusResolver(state: ThreadState, now: number) {
         }
       }
       if (newest) return { state: "working", activity: "tool", itemId: newest.id };
-      if (foreground.length > 0) return { state: "blocked", on: "subagents", refs: foreground };
-      const backgroundChildren = liveChildren.filter(
-        (child) => lookup(state.agents, child)?.agent.background,
-      );
-      if (record.activity === "responding" && backgroundChildren.length > 0) {
-        return { state: "blocked", on: "background_task", refs: backgroundRefs };
-      }
+      if (foreground.length > 0)
+        return { state: "blocked", on: "subagents", refs: [...new Set(foreground)] };
       if (
         state.config.liveness !== "transport" &&
         tools.length === 0 &&
@@ -212,7 +188,20 @@ function statusResolver(state: ThreadState, now: number) {
     if (record.wakeUntil !== undefined && now < record.wakeUntil) {
       return { state: "working", activity: "starting_turn" };
     }
-    if (!record.lastRun) return { state: "starting" };
+    if (record.processSettledStatus) return record.processSettledStatus;
+    if (!record.lastRun) {
+      if (key === state.rootKey && !state.hasRun && agent.fidelity !== "placeholder")
+        return { state: "starting" };
+      const spawn =
+        record.spawnedByKey === undefined ? undefined : lookup(state.items, record.spawnedByKey);
+      if (
+        (spawn?.type === "tool_call" && !isLiveTool(spawn)) ||
+        now - lastSubtreeSignal(key) > state.config.silenceMs
+      ) {
+        return { state: "unresponsive", lastSignalAt: lastSubtreeSignal(key) };
+      }
+      return { state: "starting" };
+    }
     if (backgroundRefs.length > 0) {
       return { state: "blocked", on: "background_task", refs: backgroundRefs };
     }
@@ -240,18 +229,24 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
   const records = Object.values(state.agents);
   const statuses = records.map((record) => record.agent.status);
   const byId = new Map(records.map((record) => [record.agent.id, record.agent.status]));
-  const pending = Object.values(state.interactions).filter((interaction) => {
-    if (interaction.state !== "pending") return false;
-    if (interaction.blocking) return true;
-    return byId.get(interaction.agentId)?.state !== "working";
-  });
+  const pending = pendingInteractionKeys(state)
+    .map((key) => lookup(state.interactions, key)!)
+    .filter((interaction) => {
+      if (interaction.state !== "pending") return false;
+      if (interaction.blocking) return true;
+      return byId.get(interaction.agentId)?.state !== "working";
+    });
   if (pending.length > 0) return { state: "needs_you", interactions: pending.length };
-  const working = statuses.filter(
-    (status) =>
-      status.state === "starting" ||
+  const working = records.filter((record) => {
+    const status = record.agent.status;
+    return (
+      (status.state === "starting" &&
+        (state.hasRun ||
+          record.agent.id !== lookup(state.agents, state.rootKey ?? "")?.agent.id)) ||
       status.state === "working" ||
-      (status.state === "blocked" && status.on === "subagents"),
-  );
+      (status.state === "blocked" && status.on === "subagents")
+    );
+  });
   if (working.length > 0) return { state: "working", agents: working.length };
   for (const reason of ["rate_limit", "network", "upstream"] as const) {
     if (statuses.some((status) => status.state === "blocked" && status.on === reason)) {
@@ -260,14 +255,22 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
   }
   if (
     statuses.some((status) => status.state === "blocked" && status.on === "background_task") ||
-    Object.values(state.tasks).some((task) => task.status === "running" && !task.ambient)
+    runningTaskKeys(state).some((key) => !lookup(state.tasks, key)!.ambient)
   ) {
     return { state: "waiting", on: "background_task" };
   }
   if (state.queueCount > 0) return { state: "waiting", on: "queue" };
   if (statuses.some((status) => status.state === "unresponsive")) return { state: "unresponsive" };
-  // OpenCode and Cursor report a failed child as a failed thread once work settles.
-  if (statuses.some((status) => status.state === "failed")) return { state: "failed" };
+  const root = state.rootKey === undefined ? undefined : lookup(state.agents, state.rootKey);
+  const successOrder = root?.lastSuccessfulOutcomeOrder ?? 0;
+  if (
+    root?.agent.status.state === "failed" ||
+    records.some(
+      (record) =>
+        record.agent.status.state === "failed" && (record.lastOutcomeOrder ?? 0) > successOrder,
+    )
+  )
+    return { state: "failed" };
   if (!state.hasRun) return { state: "new" };
   return { state: "done" };
 }
