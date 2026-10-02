@@ -86,7 +86,12 @@ export function createSystemProbes(options: {
           const fs = await statfs(directory);
           let writable = true;
           try {
-            await access(directory, constants.R_OK | constants.W_OK | constants.X_OK);
+            await access(
+              directory,
+              constants.W_OK |
+                constants.X_OK |
+                (directory === options.dataDir ? constants.R_OK : 0),
+            );
           } catch {
             writable = false;
           }

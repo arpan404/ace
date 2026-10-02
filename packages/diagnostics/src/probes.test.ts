@@ -57,3 +57,20 @@ it("Antigravity discovery reports an installed version and unknown login without
   expect(check?.message).toContain("interactive verification");
   expect(check?.fix).toContain("agy interactively");
 });
+it("first-run creation needs write/search permission on the ancestor without requiring directory listing", async () => {
+  const root = await temporary();
+  await chmod(root, 0o300);
+  try {
+    const probes = createSystemProbes({ dataDir: join(root, "new"), port: 0, env: {} });
+    const check = (
+      await runDoctor(
+        createDoctorChecks(probes).filter((item) => item.id === "disk"),
+        { now: () => 0 },
+      )
+    ).checks[0];
+    expect(check?.status).toBe("ok");
+    expect(check?.message).toContain("MiB free");
+  } finally {
+    await chmod(root, 0o700);
+  }
+});
