@@ -147,8 +147,9 @@ it("caps raw data in live events, replay and snapshots while preserving complete
   expect(item.raw[0]).toEqual({ type: "future", name: "read", data: native });
   const db = new DatabaseSync(join(f.home, "events.sqlite"));
   cleanups.push(() => db.close());
-  const blob = db.prepare("SELECT sha256, bytes FROM blobs WHERE id = ?").get(raw.blobRef)!;
-  expect(Buffer.from(blob.bytes as Uint8Array).toString()).toBe(JSON.stringify(native));
+  const blob = db.prepare("SELECT sha256, bytes FROM blobs WHERE id = ?").get(raw.blobRef);
+  if (!blob || !(blob.bytes instanceof Uint8Array)) throw new Error("Expected blob bytes");
+  expect(Buffer.from(blob.bytes).toString()).toBe(JSON.stringify(native));
   expect(blob.sha256).toBe(createHash("sha256").update(JSON.stringify(native)).digest("hex"));
   const reopened = new Store(join(f.home, "events.sqlite"));
   cleanups.push(() => reopened.close());
@@ -255,7 +256,9 @@ it.each(["tool", "reasoning", "notice", "interaction", "task", "update"] as cons
     f.store.appendEvents(f.thread.id, [payload]);
     const live = await c.next();
     if (live.type !== "events") throw new Error("Expected events");
-    const result = live.events[0]!.payload;
+    const event = live.events[0];
+    if (!event) throw new Error("Expected event");
+    const result = event.payload;
     const capped =
       result.type === "interaction.opened"
         ? result.interaction.raw
@@ -271,7 +274,7 @@ it.each(["tool", "reasoning", "notice", "interaction", "task", "update"] as cons
     expect(capped[0]).toMatchObject({
       type: "future",
       blobRef: expect.any(String),
-      size: Buffer.byteLength(JSON.stringify(raw[0]!.data)),
+      size: Buffer.byteLength(JSON.stringify({ unknown: "v".repeat(100000) })),
     });
     expect(Buffer.byteLength(JSON.stringify(live))).toBeLessThan(4096);
     expect(f.store.readEvents({ afterSeq: 1, limit: 1 })[0]?.payload).toEqual(result);

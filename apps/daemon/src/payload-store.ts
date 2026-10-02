@@ -1,17 +1,17 @@
 import { z } from "zod";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   Event,
   Item,
   EventPayload,
-  type ItemsPage,
   type RawPayload,
   ThreadId,
   AgentId,
   ItemId,
   ToolCall,
 } from "@ace/protocol";
+import { ItemStore } from "./item-store.ts";
 import { applyDelta, outputStreamId, summarizeOutput, utf8Slice } from "@ace/projection";
 
 // Only the retired shell fields differ from the current protocol. All other
@@ -39,8 +39,12 @@ const LegacyShellPayload = z.object({
 /** Event writes run inside Store's transaction. Startup conversion owns its transaction. */
 export class PayloadStore {
   private readonly db: DatabaseSync;
-  constructor(db: DatabaseSync) {
+  private readonly items: ItemStore;
+  private readonly nextBlobId: () => string;
+  constructor(db: DatabaseSync, nextBlobId: () => string) {
     this.db = db;
+    this.items = new ItemStore(db);
+    this.nextBlobId = nextBlobId;
   }
   /** Upgrade existing event logs once, preserving event ids and host sequences. */
   initialize(): void {
@@ -114,7 +118,7 @@ export class PayloadStore {
         const existing = this.db
           .prepare("SELECT id FROM blobs WHERE thread_id = ? AND sha256 = ?")
           .get(threadId, sha256);
-        const id = String(existing?.id ?? randomUUID());
+        const id = String(existing?.id ?? this.nextBlobId());
         if (!existing)
           this.db.prepare("INSERT INTO blobs VALUES (?, ?, ?, ?)").run(id, sha256, bytes, threadId);
         return {
@@ -136,14 +140,12 @@ export class PayloadStore {
   persist(event: Event): void {
     const p = event.payload;
     if (p.type === "item.created" || p.type === "item.updated") {
-      const existing = this.db.prepare("SELECT thread_id FROM items WHERE id = ?").get(p.item.id);
-      if (existing && existing.thread_id !== event.threadId) throw new Error("Item outside thread");
-      this.db
-        .prepare(
-          "INSERT INTO items VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET item = excluded.item",
-        )
-        .run(p.item.id, event.threadId, event.seq, JSON.stringify(p.item));
+      this.items.upsert(event, p.item);
     } else if (p.type === "item.delta") {
+      if (p.field !== "output") {
+        this.items.append(event, p);
+        return;
+      }
       const row = this.db
         .prepare("SELECT item FROM items WHERE id = ? AND thread_id = ?")
         .get(p.itemId, event.threadId);
@@ -172,7 +174,11 @@ export class PayloadStore {
           .run(bytes.length, streamId);
       }
       applyDelta(item, p.field, p.append);
-      this.db.prepare("UPDATE items SET item = ? WHERE id = ?").run(JSON.stringify(item), item.id);
+      const body = JSON.stringify(item);
+      this.db.prepare("UPDATE items SET item = ? WHERE id = ?").run(body, item.id);
+      this.db
+        .prepare("UPDATE item_heads SET size = ? WHERE id = ?")
+        .run(Buffer.byteLength(body), item.id);
     }
   }
   streamThread(streamId: string): ThreadId | undefined {
@@ -192,11 +198,18 @@ export class PayloadStore {
     if (!stream) throw new Error("Unknown output stream");
     const size = Number(stream.size);
     const end = Math.min(size, offset + limit);
+    // Seek the predecessor using the primary key, then read only the intersecting range.
+    const predecessor = this.db
+      .prepare(
+        "SELECT offset FROM output_chunks WHERE stream_id = ? AND offset <= ? ORDER BY offset DESC LIMIT 1",
+      )
+      .get(streamId, offset);
+    const start = predecessor ? Number(predecessor.offset) : offset;
     const chunks = this.db
       .prepare(
-        "SELECT offset, bytes FROM output_chunks WHERE stream_id = ? AND offset < ? AND offset + length(bytes) > ? ORDER BY offset",
+        "SELECT offset, bytes FROM output_chunks WHERE stream_id = ? AND offset >= ? AND offset < ? ORDER BY offset",
       )
-      .all(streamId, end, offset);
+      .all(streamId, start, end);
     const bytes = Buffer.concat(
       chunks.map((row) => {
         if (!(row.bytes instanceof Uint8Array)) throw new Error("Invalid output chunk");
@@ -212,41 +225,7 @@ export class PayloadStore {
       eof: offset + bytes.length >= size,
     };
   }
-  page(threadId: ThreadId, before: number, limit: number, byteLimit?: number): ItemsPage {
-    if (
-      !Number.isSafeInteger(before) ||
-      before < 1 ||
-      !Number.isInteger(limit) ||
-      limit < 1 ||
-      limit > 200
-    )
-      throw new Error("Invalid item page");
-    // Inspect byte lengths first so a snapshot never loads oversized item bodies.
-    const rows = this.db
-      .prepare(
-        "SELECT created_seq, length(CAST(item AS BLOB)) AS size FROM items WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
-      )
-      .all(threadId, before, limit + 1);
-    let count = 0;
-    let bytes = 0;
-    while (count < Math.min(rows.length, limit)) {
-      const row = rows[count];
-      if (!row) break;
-      const size = Number(row.size);
-      if (bytes + size > (byteLimit ?? Infinity)) break;
-      bytes += size;
-      count++;
-    }
-    const oldestRow = rows[count - 1];
-    const oldest = count && oldestRow ? Number(oldestRow.created_seq) : before;
-    const items = count
-      ? this.db
-          .prepare(
-            "SELECT item FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
-          )
-          .all(threadId, oldest, before)
-          .map((row) => Item.parse(JSON.parse(String(row.item))))
-      : [];
-    return { threadId, items, itemsBefore: rows.length > count ? oldest : null };
+  page(threadId: ThreadId, before: number, limit: number, byteLimit?: number) {
+    return this.items.page(threadId, before, limit, byteLimit);
   }
 }

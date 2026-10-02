@@ -1,4 +1,4 @@
-import { Agent, BackgroundTask, Interaction, ThreadId, Run } from "@ace/protocol";
+import { Agent, BackgroundTask, Interaction, ThreadId, Run, Item } from "@ace/protocol";
 import { applyDelivery, applyItemsPage, trackItem } from "@ace/projection";
 import { afterEach, expect, it } from "vitest";
 import { fixture } from "./socket-test-support.ts";
@@ -217,4 +217,91 @@ it("ignores unloaded updates and deltas, follows tracked details and preserves n
   expect(() => applyItemsPage(view, { ...oldPage, threadId: ThreadId.parse("wrong") })).toThrow(
     "scope",
   );
+});
+
+it("retains no historical transcript in a subscribed status cache, including after live creations", async () => {
+  const f = await setup();
+  f.store.appendEvents(
+    f.thread.id,
+    Array.from({ length: 2000 }, (_, i) => ({
+      type: "item.created" as const,
+      item: message(`history-${i}`, "x".repeat(4096)),
+    })),
+  );
+  const c = await f.connect();
+  await c.next();
+  c.send({
+    type: "subscribe",
+    subscriptionId: "s",
+    scope: { kind: "thread", threadId: f.thread.id },
+  });
+  const snapshot = await c.next();
+  if (snapshot.type !== "snapshot" || snapshot.view.kind !== "thread")
+    throw new Error("Expected snapshot");
+  expect(snapshot.view.itemOrder).toHaveLength(200);
+  const retained = f.store.acquireThread(f.thread.id);
+  try {
+    expect(retained.itemOrder).toHaveLength(0);
+    expect(Buffer.byteLength(JSON.stringify(retained))).toBeLessThan(1024 * 1024);
+    f.store.appendEvents(f.thread.id, [{ type: "item.created", item: message("live") }]);
+    expect(await c.next()).toMatchObject({ type: "events" });
+    expect(retained.itemOrder).toHaveLength(0);
+  } finally {
+    f.store.releaseThread(f.thread.id);
+  }
+});
+it("accounts for item record keys and ordering ids within the snapshot byte budget", async () => {
+  const f = await setup();
+  const id = "i".repeat(8000);
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.created", item: message(id, "x".repeat(1024 * 1024 - 9000)) },
+  ]);
+  const view = f.store.snapshotThread(f.thread.id);
+  expect(
+    Buffer.byteLength(JSON.stringify(view.items)) +
+      Buffer.byteLength(JSON.stringify(view.itemOrder)),
+  ).toBeLessThanOrEqual(1024 * 1024);
+  expect(f.store.readItems(f.thread.id, f.store.headSeq() + 1, 1).items[0]?.id).toBe(id);
+});
+
+it("budgets appended message text including a newly created text part and JSON escaping", async () => {
+  const f = await setup();
+  const item = Item.parse({ ...message("m"), parts: [{ type: "file", path: "/repo/file" }] });
+  const initialBytes =
+    Buffer.byteLength(JSON.stringify({ m: item })) + Buffer.byteLength(JSON.stringify(["m"]));
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.created", item },
+    {
+      type: "item.delta",
+      itemId: item.id,
+      agentId: item.agentId,
+      field: "text",
+      append: "x".repeat(1024 * 1024 - initialBytes - 1),
+    },
+  ]);
+  expect(f.store.snapshotThread(f.thread.id).itemOrder).toEqual([]);
+  const text = "\0".repeat((1024 * 1024) / 8);
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.updated", item: message("m", "") },
+    {
+      type: "item.delta",
+      itemId: item.id,
+      agentId: item.agentId,
+      field: "text",
+      append: text,
+    },
+  ]);
+  const view = f.store.snapshotThread(f.thread.id);
+  expect(view.items.m).toMatchObject({ parts: [{ text }] });
+  expect(
+    Buffer.byteLength(JSON.stringify(view.items)) +
+      Buffer.byteLength(JSON.stringify(view.itemOrder)),
+  ).toBeLessThanOrEqual(1024 * 1024);
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.delta", itemId: item.id, agentId: item.agentId, field: "text", append: text },
+  ]);
+  expect(f.store.snapshotThread(f.thread.id).itemOrder).toEqual([]);
+  expect(f.store.readItems(f.thread.id, f.store.headSeq() + 1, 1).items[0]).toMatchObject({
+    parts: [{ text: text + text }],
+  });
 });
