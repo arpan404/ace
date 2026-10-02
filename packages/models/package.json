@@ -1,0 +1,18 @@
+{
+  "name": "@ace/models",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "bench": "node bench/catalog.ts"
+  },
+  "dependencies": {
+    "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}
