@@ -22,8 +22,21 @@ export class GitService {
       new GitCli(options),
       options.now ?? (() => new Date()),
       options.tempDirectory ?? tmpdir(),
+      options.checkpointCounterCacheSize,
     );
     this.maxPatchBytes = options.maxPatchBytes ?? 1024 * 1024;
+  }
+
+  /** Cancel owned Git process groups and await their pipe/termination cleanup. */
+  close(): Promise<void> {
+    return this.repository.cli.close();
+  }
+
+  resourceUsage(): { checkpointCounters: number; activeCalls: number } {
+    return {
+      checkpointCounters: this.repository.numbers.size,
+      activeCalls: this.repository.cli.activeCalls,
+    };
   }
 
   async repositoryInfo(repo: string) {

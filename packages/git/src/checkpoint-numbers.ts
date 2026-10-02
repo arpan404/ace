@@ -48,14 +48,28 @@ export async function checkpointRefs(
 export class CheckpointNumbers {
   private readonly cache = new Map<string, Counter>();
   private readonly cli: GitCli;
-  constructor(cli: GitCli) {
+  private readonly capacity: number;
+  constructor(cli: GitCli, capacity = 128) {
     this.cli = cli;
+    this.capacity = z.number().int().min(1).max(4096).parse(capacity);
+  }
+  get size(): number {
+    return this.cache.size;
   }
   async get(root: string, threadId: string): Promise<Counter> {
-    return this.cache.get(`${root}\0${threadId}`) ?? this.refresh(root, threadId);
+    const value = this.cache.get(`${root}\0${threadId}`);
+    if (!value) return this.refresh(root, threadId);
+    this.remember(root, threadId, value);
+    return value;
   }
   remember(root: string, threadId: string, value: Counter): void {
-    this.cache.set(`${root}\0${threadId}`, value);
+    const key = `${root}\0${threadId}`;
+    this.cache.delete(key);
+    this.cache.set(key, value);
+    if (this.cache.size > this.capacity) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) this.cache.delete(oldest);
+    }
   }
   forget(root: string, threadId: string): void {
     this.cache.delete(`${root}\0${threadId}`);
