@@ -1,4 +1,9 @@
-import { z } from "zod";
+import {
+  MergeResponse,
+  PreparedWorkspace,
+  PullRequestResponse,
+  VerificationResponse,
+} from "./responses.ts";
 import { Effect, Fact } from "./schema.ts";
 import type { Executor, Ports } from "./ports.ts";
 
@@ -8,17 +13,15 @@ export function executor(ports: Ports): Executor {
     let results: unknown[] = [];
     switch (effect.type) {
       case "launch": {
-        const prepared = z
-          .object({ cwd: z.string().min(1).max(4096) })
-          .parse(
-            await ports.git.prepare(
-              `${effect.id}.git`,
-              effect.workspaceId,
-              effect.lane,
-              effect.completion,
-              effect.dependencies,
-            ),
-          );
+        const prepared = PreparedWorkspace.parse(
+          await ports.git.prepare(
+            `${effect.id}.git`,
+            effect.workspaceId,
+            effect.lane,
+            effect.completion,
+            effect.dependencies,
+          ),
+        );
         // Root attachment precedes execution so there are no invisible lanes.
         await ports.orchestrator.attach(`${effect.id}.attach`, effect.rootAgentId, effect.lane);
         if (effect.lane.source)
@@ -51,33 +54,36 @@ export function executor(ports: Ports): Executor {
         const merged =
           effect.mode === "pr"
             ? {
-                ...(await ports.forge.openPR(effect.id, effect.completion)),
+                ...PullRequestResponse.parse(
+                  await ports.forge.openPR(effect.id, effect.completion),
+                ),
                 conflict: null,
                 trivial: false,
               }
-            : await ports.git.merge(effect.id, effect.completion);
+            : MergeResponse.parse(await ports.git.merge(effect.id, effect.completion));
         results = [
           {
+            ...merged,
             type: "merge_result",
             operationId: effect.id,
             workstream: effect.workstream,
-            ...merged,
           },
         ];
         break;
       }
       case "verify": {
-        const result =
+        const result = VerificationResponse.parse(
           effect.mode === "pr"
             ? await ports.forge.verifyCI(effect.id, effect.revision)
-            : await ports.verification.check(effect.id, effect.revision);
+            : await ports.verification.check(effect.id, effect.revision),
+        );
         results = [
           {
+            ...result,
             type: "verified",
             operationId: effect.id,
             workstream: effect.workstream,
             revision: effect.revision,
-            ...result,
           },
         ];
         break;
