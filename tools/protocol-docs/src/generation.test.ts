@@ -40,7 +40,16 @@ describe("exported protocol", () => {
 });
 it("documents every union alternative with examples accepted by both validators", () => {
   const files = renderReference(catalog.entries, catalog.tools, snapshot);
-  for (const page of ["commands", "requests", "push", "events", "mcp", "types", "orchestration"]) {
+  for (const page of [
+    "commands",
+    "requests",
+    "push",
+    "events",
+    "mcp",
+    "types",
+    "orchestration",
+    "models",
+  ]) {
     const markdown = files.get(`${page}.md`);
     expect(markdown).toBeDefined();
     let name = "";

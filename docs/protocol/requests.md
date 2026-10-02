@@ -10,6 +10,67 @@ Authenticate with `hello` and the negotiated protocolVersion before subscribing 
 
 [JSON Schema](schema/ClientMessage.json), input validation.
 
+### models.list
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"models.list"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| options | no | [ModelListOptions.json](schema/ModelListOptions.json) | {"default":{"offset":0,"limit":100}} |
+
+Example:
+
+```json
+{
+  "options": {
+    "instance": "example",
+    "limit": 7,
+    "provider": "cursor"
+  },
+  "requestId": "example",
+  "type": "models.list"
+}
+```
+
+### models.refresh
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"models.refresh"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| filter | no | [ModelFilter.json](schema/ModelFilter.json) | {"default":{}} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "models.refresh"
+}
+```
+
+### models.resolve
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"models.resolve"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| roleSpec | yes | [ModelRoleSpec.json](schema/ModelRoleSpec.json) |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "roleSpec": {
+    "effort": "example",
+    "instance": "example",
+    "role": "example"
+  },
+  "type": "models.resolve"
+}
+```
+
 ### presence.update
 
 | Field | Required | Type | Constraints |
@@ -22,7 +83,7 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 3,
+  "inputAgeMs": 9,
   "threadId": "example",
   "type": "presence.update"
 }
@@ -40,9 +101,8 @@ Example:
 ```json
 {
   "device": {
-    "channel": "apns",
-    "platform": "phone",
-    "token": "Ca2CEf1301fCD8f8808afFF8935A03bBE49a0A22Ef3Fa6474F9915bF1f4a8DB0"
+    "channel": "websocket",
+    "platform": "phone"
   },
   "type": "notification.register"
 }
@@ -59,9 +119,7 @@ Example:
 
 ```json
 {
-  "preferences": {
-    "includePreview": true
-  },
+  "preferences": {},
   "type": "notification.preferences"
 }
 ```
@@ -80,7 +138,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 5
+  "until": 9
 }
 ```
 
@@ -120,8 +178,10 @@ Example:
 
 ```json
 {
+  "afterSeq": 3,
   "scope": {
-    "kind": "threads"
+    "kind": "thread",
+    "threadId": "example"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -159,8 +219,15 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
+      "delivery": "steer",
+      "input": [
+        {
+          "path": "example",
+          "type": "file"
+        }
+      ],
       "threadId": "example",
-      "type": "thread.archive"
+      "type": "thread.send"
     }
   },
   "type": "command"
@@ -203,8 +270,8 @@ Example:
 
 ```json
 {
-  "before": 8,
-  "limit": 3,
+  "before": 7,
+  "limit": 7,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"

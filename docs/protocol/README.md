@@ -12,6 +12,7 @@ Protocol version: **1**. Exchange UTF-8 JSON objects over the daemon WebSocket. 
 - [Canonical events](events.md)
 - [MCP tools](mcp.md)
 - [Orchestration](orchestration.md)
+- [Model catalog](models.md)
 - [Supporting types](types.md)
 
 ## Version and compatibility

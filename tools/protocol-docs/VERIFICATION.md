@@ -1,6 +1,6 @@
 # Verification
 
-The generator covers 120 schemas and writes 128 artifacts after merging origin/main at `709f66d`. This includes payload paging, orchestration and the existing remote access and encrypted relay work.
+The generator covers 132 schemas and writes 141 artifacts after merging origin/main at `19a7e14`. This includes payload paging, orchestration, model catalogs and the existing remote access and encrypted relay work.
 
 Focused tests cover random Zod-accepted JSON values for every export, all documented union examples, stable references and ids, input/output defaults, declared semantic constraints, unsupported constructs, protocol version negotiation, stale/missing/unexpected files, and additive/breaking/rename compatibility. Reference changes, array constraints, union siblings, description-only edits and malformed snapshots have regression cases. The temporary-directory drift test uses representative generated schema content rather than repeatedly writing the entire catalog.
 
@@ -21,9 +21,11 @@ Each mutation below changed production logic, produced an assertion failure in t
 
 ## Performance
 
-Non-gating `bun run --filter @ace/protocol-docs bench`, ten generation-and-check iterations on the shared machine: 0.84 checks/s, 1194.01 ms/check, 65.37 ms conversion, 876.16 ms rendering, 252.49 ms file comparison, 231.48 MiB peak RSS. Native conversion runs once per mode. Ajv reuses compiled references and owning-schema validators. File checks use at most eight concurrent operations and bounded reads.
+Non-gating `bun run --filter @ace/protocol-docs bench`, ten generation-and-check iterations on the shared machine: 0.52 checks/s, 1940.60 ms/check, 78.42 ms conversion, 1499.81 ms rendering, 362.36 ms file comparison, 245.36 MiB peak RSS. Native conversion runs once per mode. Ajv reuses compiled references and owning-schema validators. File checks use at most eight concurrent operations and bounded reads.
 
 Tests originally exposed expensive construction of fast-check's general URL arbitrary. The independent Zod walker now produces varied synthetic HTTPS URLs directly and caches shared schemas within each traversal. Full catalog writes in the drift regression also exceeded the default timeout under shared-machine load; the regression now exercises the same real file API with two representative files. These changes reduce work without weakening the behaviors checked. No elapsed-time assertion gates tests.
+
+The benchmark ran while other workers were active. An individual cold check took 3.91 seconds wall time with 0.52 seconds user CPU and 0.07 seconds system CPU; scheduling and I/O on this machine vary considerably. The mean complete check stays below two seconds; this is not a timing gate.
 
 ## Limits and decisions
 

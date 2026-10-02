@@ -25,16 +25,15 @@ Example:
 
 ```json
 {
-  "at": 8,
+  "at": 2,
   "id": "example",
   "payload": {
-    "agentId": "example",
-    "append": "example",
-    "field": "reasoning",
-    "itemId": "example",
-    "type": "item.delta"
+    "closedAt": 3,
+    "interactionId": "example",
+    "state": "resolved",
+    "type": "interaction.closed"
   },
-  "seq": 9,
+  "seq": 6,
   "threadId": "example"
 }
 ```
@@ -42,6 +41,49 @@ Example:
 ## ServerMessage
 
 [JSON Schema](schema/ServerMessage.json), input validation.
+
+### models.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"models.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| result | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ModelListResult.json"},{"$ref":"https://ace.local/protocol/v1/ModelResolution.json"}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "model": {
+      "contextWindow": 2,
+      "defaultEffort": "example",
+      "defaultTier": "example",
+      "deprecated": false,
+      "displayName": "example",
+      "hidden": true,
+      "id": "example",
+      "inputModalities": [],
+      "instance": "example",
+      "isDefault": false,
+      "nativeModelId": "example",
+      "provider": "opencode",
+      "raw": {
+        "json": "example",
+        "truncated": false
+      },
+      "reasoningEfforts": [],
+      "resolvedModelId": "example",
+      "serviceTiers": []
+    },
+    "ok": true,
+    "reason": "example",
+    "stale": false
+  },
+  "type": "models.result"
+}
+```
 
 ### notification
 
@@ -56,11 +98,9 @@ Example:
 {
   "notification": {
     "actions": [],
-    "backgroundCount": 1,
+    "backgroundCount": 8,
     "id": "example",
-    "interactionId": "example",
-    "preview": "example",
-    "status": "failed",
+    "status": "done",
     "threadId": "example",
     "title": "example"
   },
@@ -81,7 +121,7 @@ Example:
 
 ```json
 {
-  "headSeq": 1,
+  "headSeq": 6,
   "hostId": "example",
   "protocolVersion": 1,
   "type": "welcome"
@@ -103,7 +143,7 @@ Example:
 
 ```json
 {
-  "seq": 6,
+  "seq": 1,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
@@ -115,18 +155,17 @@ Example:
     "items": {},
     "kind": "thread",
     "runs": {},
-    "seq": 6,
+    "seq": 1,
     "thread": {
-      "createdAt": 1,
+      "archivedAt": 6,
+      "createdAt": 6,
       "id": "example",
-      "provider": "claude",
-      "rootAgentId": "example",
+      "provider": "opencode",
       "status": {
-        "interactions": 8,
-        "state": "needs_you"
+        "state": "done"
       },
       "title": "example",
-      "updatedAt": 7,
+      "updatedAt": 8,
       "workspaceId": "example"
     },
     "usage": {}
@@ -150,10 +189,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 0,
+  "afterSeq": 3,
   "events": [],
   "subscriptionId": "example",
-  "throughSeq": 5,
+  "throughSeq": 7,
   "type": "events"
 }
 ```
@@ -173,9 +212,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 7,
+  "afterSeq": 5,
   "subscriptionId": "example",
-  "throughSeq": 8,
+  "throughSeq": 7,
   "type": "progress"
 }
 ```
@@ -194,7 +233,8 @@ Example:
 ```json
 {
   "commandId": "example",
-  "ok": true,
+  "error": "example",
+  "ok": false,
   "type": "commandResult"
 }
 ```
@@ -235,8 +275,8 @@ Example:
 {
   "bytes": "example",
   "eof": false,
-  "nextOffset": 2,
-  "offset": 9,
+  "nextOffset": 9,
+  "offset": 8,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -258,7 +298,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 10,
+  "itemsBefore": null,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"

@@ -3,6 +3,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/ModelsResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/NotificationMessage.json"
     },
     {
