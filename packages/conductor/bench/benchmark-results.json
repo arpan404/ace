@@ -5,72 +5,73 @@
     {
       "label": "whole-thread status, 6 workstreams",
       "iterations": 10000,
-      "opsPerSecond": 1027133,
-      "usPerOperation": 0.97,
-      "peakRssMiB": 109.5
+      "opsPerSecond": 253948,
+      "usPerOperation": 3.94,
+      "peakRssMiB": 112.3
     },
     {
       "label": "account assignment, 6 workstreams",
       "iterations": 10000,
-      "opsPerSecond": 1971495,
-      "usPerOperation": 0.51,
-      "peakRssMiB": 109.9
+      "opsPerSecond": 1302521,
+      "usPerOperation": 0.77,
+      "peakRssMiB": 112.5
     },
     {
       "label": "DAG readiness, 6 workstreams",
       "iterations": 10000,
-      "opsPerSecond": 8319758,
-      "usPerOperation": 0.12,
-      "peakRssMiB": 109.9
+      "opsPerSecond": 4668443,
+      "usPerOperation": 0.21,
+      "peakRssMiB": 112.5
     },
     {
       "label": "whole-thread status, 64 workstreams",
       "iterations": 10000,
-      "opsPerSecond": 572343,
-      "usPerOperation": 1.75,
-      "peakRssMiB": 110.1
+      "opsPerSecond": 515156,
+      "usPerOperation": 1.94,
+      "peakRssMiB": 112.8
     },
     {
       "label": "account assignment, 64 workstreams",
       "iterations": 10000,
-      "opsPerSecond": 1836688,
-      "usPerOperation": 0.54,
-      "peakRssMiB": 110.1
+      "opsPerSecond": 349843,
+      "usPerOperation": 2.86,
+      "peakRssMiB": 112.9
     },
     {
       "label": "DAG readiness, 64 workstreams",
       "iterations": 10000,
-      "opsPerSecond": 836112,
-      "usPerOperation": 1.2,
-      "peakRssMiB": 110.1
+      "opsPerSecond": 53256,
+      "usPerOperation": 18.78,
+      "peakRssMiB": 112.9
     },
     {
       "label": "whole-thread status, 256 workstreams",
       "iterations": 10000,
-      "opsPerSecond": 579495,
-      "usPerOperation": 1.73,
-      "peakRssMiB": 110.7
+      "opsPerSecond": 471340,
+      "usPerOperation": 2.12,
+      "peakRssMiB": 113.5
     },
     {
       "label": "account assignment, 256 workstreams",
       "iterations": 10000,
-      "opsPerSecond": 1070721,
-      "usPerOperation": 0.93,
-      "peakRssMiB": 110.7
+      "opsPerSecond": 333763,
+      "usPerOperation": 3,
+      "peakRssMiB": 113.6
     },
     {
       "label": "DAG readiness, 256 workstreams",
       "iterations": 10000,
-      "opsPerSecond": 38947,
-      "usPerOperation": 25.68,
-      "peakRssMiB": 110.7
+      "opsPerSecond": 60266,
+      "usPerOperation": 16.59,
+      "peakRssMiB": 113.6
     },
     {
       "label": "SQLite snapshot + receipt, planner heartbeat",
       "iterations": 1000,
-      "opsPerSecond": 4652,
-      "usPerOperation": 214.96,
-      "peakRssMiB": 132.3
+      "opsPerSecond": 5639,
+      "usPerOperation": 177.33,
+      "peakRssMiB": 115.5
     }
-  ]
+  ],
+  "node": "v26.8.1"
 }
