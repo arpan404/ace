@@ -1,5 +1,5 @@
 {
-  "name": "@ace/daemon",
+  "name": "@ace/files",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -8,13 +8,13 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "dev": "node src/cli.ts"
+    "bench": "node bench/download.ts"
   },
   "dependencies": {
-    "@ace/files": "workspace:*",
-    "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
-    "ws": "^8.18.3"
+    "@ace/workspace": "workspace:*",
+    "ws": "^8.18.3",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1"

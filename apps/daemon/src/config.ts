@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 export type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 export interface Config {
   dataDir: string;
+  workspaceRoot?: string;
   host: "127.0.0.1";
   port: number;
   logLevel: LogLevel;
@@ -17,6 +18,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error("Invalid ACE_LOG_LEVEL");
   return {
     dataDir: resolve(env.ACE_HOME ?? resolve(homedir(), ".ace")),
+    ...(env.ACE_WORKSPACE_ROOT ? { workspaceRoot: resolve(env.ACE_WORKSPACE_ROOT) } : {}),
     host: "127.0.0.1",
     port,
     logLevel: level as LogLevel,

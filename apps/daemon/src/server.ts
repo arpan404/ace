@@ -1,3 +1,4 @@
+import { attachFilesSocket, type FilesService } from "@ace/files";
 import { WebSocket, WebSocketServer } from "ws";
 import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
@@ -12,6 +13,7 @@ export interface ServerOptions {
   hostId: string;
   store: Store;
   handler: CommandHandler;
+  files?: FilesService;
   replayLimit?: number;
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
@@ -32,6 +34,7 @@ export async function startServer(
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket) => {
     let device: DeviceId | undefined;
+    let files: ReturnType<typeof attachFilesSocket> | undefined;
     let lastActivity = Date.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
@@ -41,6 +44,7 @@ export async function startServer(
       if (close) socket.close(4001, code);
     };
     const cleanup = () => {
+      files?.close();
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -66,8 +70,30 @@ export async function startServer(
       lastActivity = Date.now();
       let message: ClientMessage;
       try {
-        if (binary) throw new Error("Text required");
-        message = ClientMessage.parse(JSON.parse(data.toString()));
+        if (binary) {
+          if (!files) throw new Error("No file channel");
+          files.binary(
+            Buffer.isBuffer(data)
+              ? data
+              : Array.isArray(data)
+                ? Buffer.concat(data)
+                : Buffer.from(data),
+          );
+          return;
+        }
+        const input: unknown = JSON.parse(data.toString());
+        if (
+          files &&
+          typeof input === "object" &&
+          input !== null &&
+          "type" in input &&
+          typeof input.type === "string" &&
+          input.type.startsWith("files.")
+        ) {
+          files.accept(input);
+          return;
+        }
+        message = ClientMessage.parse(input);
       } catch {
         fail(
           device ? "invalid_message" : "unauthorized",
@@ -82,6 +108,7 @@ export async function startServer(
           return;
         }
         device = message.deviceId;
+        if (options.files) files = attachFilesSocket(options.files, socket, device);
         send({
           type: "welcome",
           hostId,

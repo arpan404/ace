@@ -1,3 +1,6 @@
+import { FilesService } from "@ace/files";
+import { randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
@@ -19,6 +22,8 @@ export async function startDaemon(
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
   let store: Store | undefined;
+  let files: FilesService | undefined;
+  let maintenance: ReturnType<typeof setInterval> | undefined;
   try {
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
@@ -26,12 +31,35 @@ export async function startDaemon(
       log("error", "Event subscriber failed", error),
     );
     const ownedStore = store;
+    if (config.workspaceRoot) {
+      const artifacts = join(config.dataDir, "artifacts");
+      await mkdir(artifacts, { recursive: true, mode: 0o700 });
+      files = await FilesService.create({
+        workspace: config.workspaceRoot,
+        dataDir: join(config.dataDir, "files"),
+        artifactRoots: [artifacts],
+        now: Date.now,
+        id: randomUUID,
+        // The current authenticated local token grants full access. Scoped remote tokens
+        // replace this injected boundary when remote-access lands.
+        authorize: () => true,
+      });
+      await files.sweep();
+      const ownedFiles = files;
+      maintenance = setInterval(() => {
+        void ownedFiles
+          .sweep()
+          .catch((error: unknown) => log("error", "File retention failed", error));
+      }, 60_000);
+      maintenance.unref();
+    }
     const server = await startServer({
       port: config.port,
       token,
       hostId,
       store,
       handler,
+      ...(files ? { files } : {}),
       log: (error) => log("error", "WebSocket failure", error),
     });
     let closing: Promise<void> | undefined;
@@ -45,6 +73,8 @@ export async function startDaemon(
             await server.close();
           } finally {
             try {
+              if (maintenance) clearInterval(maintenance);
+              await files?.close();
               ownedStore.close();
             } finally {
               unlock();
@@ -56,6 +86,8 @@ export async function startDaemon(
     };
   } catch (error) {
     try {
+      if (maintenance) clearInterval(maintenance);
+      await files?.close();
       store?.close();
     } finally {
       unlock();

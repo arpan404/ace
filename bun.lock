@@ -15,6 +15,7 @@
     "apps/daemon": {
       "name": "@ace/daemon",
       "dependencies": {
+        "@ace/files": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "ws": "^8.18.3",
@@ -45,6 +46,18 @@
         "@ace/core": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+      },
+    },
+    "packages/files": {
+      "name": "@ace/files",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/workspace": "workspace:*",
+        "ws": "^8.18.3",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@types/ws": "^8.18.1",
       },
     },
     "packages/projection": {
@@ -85,6 +98,8 @@
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
 
     "@ace/engine-api": ["@ace/engine-api@workspace:packages/engine-api"],
+
+    "@ace/files": ["@ace/files@workspace:packages/files"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
