@@ -3,6 +3,7 @@ import { JsonRpcPeer } from "./jsonrpc.ts";
 import { spawnSupervised, type SupervisedProcess } from "./process.ts";
 
 const processes: SupervisedProcess[] = [];
+const noop = () => {};
 afterEach(async () => {
   await Promise.all(processes.splice(0).map((proc) => proc.stop({ graceMs: 0 })));
 });
@@ -24,7 +25,15 @@ it.each(["cancel", "timeout"])(
     const proc = child(
       `let old;require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.method==='old'){old=m.id;console.log(JSON.stringify({method:'seen'}));}else if(m.method==='fresh'){console.log(JSON.stringify({id:old,result:'STALE'}));console.log(JSON.stringify({id:m.id,result:'FRESH'}));}});`,
     );
-    const rpc = new JsonRpcPeer(proc);
+    let expire: () => void = noop;
+    const rpc = new JsonRpcPeer(proc, {
+      schedule: (_delayMs, callback) => {
+        expire = callback;
+        return () => {
+          expire = () => {};
+        };
+      },
+    });
     const seen = new Promise<void>((resolve) => {
       rpc.onNotification = () => resolve();
     });
@@ -39,6 +48,7 @@ it.each(["cancel", "timeout"])(
     try {
       await seen;
       if (mode === "cancel") controller.abort(new Error("cancelled"));
+      else expire();
       expect(await pending).toContain(mode === "cancel" ? "cancelled" : "timed out");
       await expect(rpc.request("fresh", undefined, { id: "reused" })).rejects.toThrow(
         "Request id already used",

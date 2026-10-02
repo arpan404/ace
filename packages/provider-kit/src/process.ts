@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { byteLimit, outputGate, OutputLimitError } from "./output-budget.ts";
+import { byteLimit } from "./byte-limit.ts";
+import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 export { installShutdownHandlers } from "./process-owner.ts";
 
@@ -70,8 +71,16 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     controller.abort(error);
     if (pid !== undefined) killGroup(pid, "SIGKILL");
   };
-  const stdout = child.stdout.pipe(outputGate(maxLineBytes, admit, failOutput));
-  const stderr = child.stderr.pipe(outputGate(maxLineBytes, admit, failOutput));
+  const gateOutput = (input: Readable): Readable => {
+    if (maxLineBytes === undefined && maxOutputBytes === undefined) return input;
+    const gate = outputGate(maxLineBytes, admit, failOutput);
+    // Spawn failure can close a pipe without emitting end. Finish framing there too.
+    input.once("close", () => gate.end());
+    gate.once("close", () => input.destroy());
+    return input.pipe(gate);
+  };
+  const stdout = gateOutput(child.stdout);
+  const stderr = gateOutput(child.stderr);
 
   let stopped = false;
   let failed = false;

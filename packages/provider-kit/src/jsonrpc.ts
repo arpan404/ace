@@ -1,6 +1,8 @@
 import { rpcOwner } from "./rpc-owner.ts";
 import { isRpcId as isId, type RpcId } from "./rpc-ids.ts";
-import { byteLimit } from "./output-budget.ts";
+import { byteLimit } from "./byte-limit.ts";
+import { scheduleDeadline, type DeadlineScheduler } from "./rpc-timers.ts";
+import { z } from "zod";
 import type { SupervisedProcess } from "./process.ts";
 
 export class MethodNotFound extends Error {
@@ -11,13 +13,16 @@ export class MethodNotFound extends Error {
 }
 
 export type { RpcId } from "./rpc-ids.ts";
+export type { DeadlineScheduler } from "./rpc-timers.ts";
 export type ServerRequest = { id: RpcId; method: string; params: unknown };
 export type Notification = { method: string; params: unknown };
 export type RpcOptions = {
   /** null disables the default deadline for interactive requests. */
   timeoutMs?: number | null;
+  schedule?: DeadlineScheduler;
   maxPendingRequests?: number;
   maxMessageBytes?: number;
+  /** First peer configures the shared queued/in-flight byte cap for this pipe. */
   maxQueuedBytes?: number;
   /** First peer configures the pipe's lifetime reservation cap. Defaults to 4096. */
   maxExplicitIds?: number;
@@ -34,6 +39,8 @@ type Pending = {
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
+const RpcEnvelope = z.record(z.string(), z.unknown());
+const noop = () => {};
 
 /** Lenient stdio framing: extension methods and absent jsonrpc tags are accepted. */
 export class JsonRpcPeer {
@@ -44,6 +51,7 @@ export class JsonRpcPeer {
   readonly #outgoing = new AbortController();
   readonly #maxMessageBytes: number;
   readonly #maxPendingRequests: number;
+  readonly #schedule: DeadlineScheduler;
   #closed: Error | undefined;
   onNotification: (message: Notification) => void = () => {};
   onRequest: (message: ServerRequest) => unknown | Promise<unknown> = () => {
@@ -59,6 +67,7 @@ export class JsonRpcPeer {
     byteLimit(options.maxExplicitIds ?? 4096, "maxExplicitIds");
     byteLimit(options.maxQueuedBytes ?? 32 * 1024 * 1024, "maxQueuedBytes");
     this.#owner = rpcOwner(proc.stdin, options);
+    this.#schedule = options.schedule ?? scheduleDeadline;
     this.#process = proc;
     this.#options = options;
     proc.stdout.on("line", this.#receive);
@@ -89,21 +98,30 @@ export class JsonRpcPeer {
       return Promise.reject(asError(error));
     }
     return new Promise((resolve, reject) => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
+      let cancelDeadline: () => void = noop;
       const writeAbort = new AbortController();
       const abort = () => this.#settle(requestId, asError(options.signal?.reason));
       const cleanup = () => {
         writeAbort.abort();
-        if (timer !== undefined) clearTimeout(timer);
+        cancelDeadline();
         options.signal?.removeEventListener("abort", abort);
       };
       this.#pending.set(requestId, { resolve, reject, cleanup });
       options.signal?.addEventListener("abort", abort, { once: true });
       if (deadline !== null) {
-        timer = setTimeout(
-          () => this.#settle(requestId, new Error(`JSON-RPC request timed out: ${method}`)),
-          deadline,
-        );
+        try {
+          const cancel = this.#schedule(deadline, () =>
+            this.#settle(requestId, new Error(`JSON-RPC request timed out: ${method}`)),
+          );
+          if (this.#pending.has(requestId)) cancelDeadline = cancel;
+          else {
+            cancel();
+            return;
+          }
+        } catch (error) {
+          this.#settle(requestId, asError(error));
+          return;
+        }
       }
       void this.#send(
         {
@@ -167,11 +185,12 @@ export class JsonRpcPeer {
     if (this.#closed || this.#process.signal.aborted)
       throw this.#closed ?? new Error("process exited");
     const line = `${JSON.stringify(message)}\n`;
-    if (Buffer.byteLength(line) > this.#maxMessageBytes)
-      throw new Error("JSON-RPC message exceeded limit");
+    const bytes = Buffer.byteLength(line);
+    if (bytes > this.#maxMessageBytes) throw new Error("JSON-RPC message exceeded limit");
     this.#options.onFrame?.("send", message);
     await this.#owner.writer.send(
       line,
+      bytes,
       signal ? AbortSignal.any([signal, this.#outgoing.signal]) : this.#outgoing.signal,
     );
   }
@@ -184,11 +203,12 @@ export class JsonRpcPeer {
       return;
     }
     this.#options.onFrame?.("recv", raw);
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    const parsed = RpcEnvelope.safeParse(raw);
+    if (!parsed.success) {
       this.#options.onMalformed?.(line);
       return;
     }
-    const message = raw as Record<string, unknown>;
+    const message = parsed.data;
     const id = message["id"];
     const method = message["method"];
     if (typeof method === "string" && isId(id)) {

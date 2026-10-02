@@ -1,4 +1,4 @@
-import { byteLimit } from "./output-budget.ts";
+import { byteLimit } from "./byte-limit.ts";
 
 export type RpcId = string | number;
 export function isRpcId(value: unknown): value is RpcId {

@@ -1,4 +1,4 @@
-import { byteLimit } from "./output-budget.ts";
+import { byteLimit } from "./byte-limit.ts";
 
 export class SseLimitError extends Error {}
 export type SseLimits = { maxLineBytes?: number; maxEventBytes?: number };

@@ -2,11 +2,6 @@ import { Transform } from "node:stream";
 
 export class OutputLimitError extends Error {}
 
-export function byteLimit(value: number, name: string): number {
-  if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`Invalid ${name}`);
-  return value;
-}
-
 /** Check raw bytes before readline or UTF-8 decoding can retain them. */
 export function outputGate(
   maxLineBytes: number | undefined,

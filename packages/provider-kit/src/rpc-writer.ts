@@ -1,5 +1,5 @@
 import type { Writable } from "node:stream";
-import { byteLimit } from "./output-budget.ts";
+import { byteLimit } from "./byte-limit.ts";
 
 type Write = {
   line: string;
@@ -28,10 +28,9 @@ export class RpcWriter {
     stream.once("error", this.#failed);
   }
 
-  send(line: string, signal?: AbortSignal): Promise<void> {
+  send(line: string, bytes: number, signal?: AbortSignal): Promise<void> {
     if (this.#closed) return Promise.reject(this.#closed);
     if (signal?.aborted) return Promise.reject(new Error("JSON-RPC write cancelled"));
-    const bytes = Buffer.byteLength(line);
     if (this.#bytes + bytes > this.#maxQueuedBytes)
       return Promise.reject(new Error("JSON-RPC write queue exceeded limit"));
     return new Promise<void>((resolve, reject) => {
