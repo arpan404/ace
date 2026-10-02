@@ -57,15 +57,17 @@ describe("supervised processes", () => {
       reason: "stopped",
     });
   });
-  it("escalates SIGTERM to SIGKILL for an uncooperative child", async () => {
+  it("waits for the grace period then kills a child that ignores SIGTERM", async () => {
     const proc = child(
       `process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)`,
     );
     await once(proc.stdout, "line");
-    const stopped = proc.stop({ graceMs: 20 });
-    const alsoStopped = proc.stop({ graceMs: 20 });
+    const started = performance.now();
+    const stopped = proc.stop({ graceMs: 50 });
+    const alsoStopped = proc.stop({ graceMs: 50 });
     expect(await stopped).toEqual({ code: null, signal: "SIGKILL", reason: "stopped" });
     expect(await alsoStopped).toEqual({ code: null, signal: "SIGKILL", reason: "stopped" });
+    expect(performance.now() - started).toBeGreaterThanOrEqual(45);
   });
   it("kills an uncooperative grandchild that keeps the output pipe open", async () => {
     const descendant = `process.on('SIGTERM', () => {}); console.log('grandchild-ready'); setInterval(() => {}, 1000)`;
@@ -130,12 +132,12 @@ describe("supervised processes", () => {
     expect(JSON.parse(String(line))).toEqual(["override", process.env["PATH"]]);
     await proc.exited;
   });
-  it("times out a hanging probe and kills the owned process", async () => {
+  it("bounds hanging probes by a timeout", async () => {
     await expect(
       probeOutput(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { timeoutMs: 50 }),
     ).rejects.toThrow("Probe timed out");
   });
-  it("rejects excessive probe output while continuing to drain its pipes", async () => {
+  it("rejects probe output beyond the capture byte budget", async () => {
     await expect(
       probeOutput(
         process.execPath,

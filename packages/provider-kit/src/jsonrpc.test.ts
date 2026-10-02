@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { JsonRpcPeer } from "./jsonrpc.ts";
 import { spawnSupervised, type SupervisedProcess } from "./process.ts";
 
@@ -73,14 +73,32 @@ describe("JSON-RPC stdio", () => {
     await expect(rpc.request("silent", undefined, { timeoutMs: 50 })).rejects.toThrow("timed out");
     expect(await rpc.request("echo")).toBe("still works");
   });
-  it("cancels pending requests and allows the cancelled id to be reused", async () => {
-    const { rpc } = peer(`if(m.method==='echo') send({id:m.id,result:'reused'});`);
+  it("allows interactive requests to remain pending when deadlines are disabled", async () => {
+    const { rpc } = peer(
+      `if(m.method === 'wait') globalThis.waiting = m.id; else if(m.method === 'release') send({id:globalThis.waiting,result:'approved'});`,
+      { timeoutMs: null },
+    );
+    vi.useFakeTimers();
+    try {
+      const pending = rpc.request("wait").then(
+        (value) => ({ result: value }),
+        (error: unknown) => ({ error: String(error) }),
+      );
+      await vi.advanceTimersByTimeAsync(60_000);
+      rpc.notify("release");
+      expect(await pending).toEqual({ result: "approved" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("cancels pending requests without disrupting subsequent requests", async () => {
+    const { rpc } = peer(`if(m.method==='echo') send({id:m.id,result:'next'});`);
     const controller = new AbortController();
     const pending = rpc.request("silent", undefined, { signal: controller.signal, id: "cancel" });
     const rejected = expect(pending).rejects.toThrow("cancelled");
     controller.abort(new Error("cancelled"));
     await rejected;
-    expect(await rpc.request("echo", undefined, { id: "cancel" })).toBe("reused");
+    expect(await rpc.request("echo", undefined, { id: "next" })).toBe("next");
     await expect(rpc.request("silent", undefined, { signal: controller.signal })).rejects.toThrow(
       "cancelled",
     );
@@ -93,6 +111,21 @@ describe("JSON-RPC stdio", () => {
     ]);
     await proc.exited;
     await expect(rpc.request("too-late")).rejects.toThrow("process exited");
+  });
+  it("rejects pending work at the end of the process lifetime before waiting for pipe closure", async () => {
+    const { rpc, proc } = peer(`process.exit(0);`);
+    const order: string[] = [];
+    const pending = rpc.request("exit").catch(() => {
+      order.push("rejected");
+    });
+    proc.signal.addEventListener(
+      "abort",
+      () => queueMicrotask(() => order.push("lifetime-ended")),
+      { once: true },
+    );
+    await proc.exited;
+    await pending;
+    expect(order).toEqual(["rejected", "lifetime-ended"]);
   });
   it("reports malformed lines and continues handling valid frames", async () => {
     const malformed: string[] = [];

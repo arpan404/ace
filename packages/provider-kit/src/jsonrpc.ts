@@ -40,6 +40,7 @@ export class JsonRpcPeer {
     this.#options = options;
     proc.stdout.on("line", this.#receive);
     proc.stdin.on("error", this.#fail);
+    proc.signal.addEventListener("abort", this.#end, { once: true });
     void proc.exited.then(() => this.close(new Error("process exited")));
     if (proc.signal.aborted) this.close(new Error("process exited"));
   }
@@ -53,11 +54,13 @@ export class JsonRpcPeer {
       id = this.#nextId++;
     }
     if (this.#pending.has(id)) return Promise.reject(new Error("Duplicate pending request id"));
-    const timeoutMs =
-      options.timeoutMs === undefined ? (this.#options.timeoutMs ?? 30_000) : options.timeoutMs;
-    // A constructor null means no default timeout, too.
+    if (!isId(id)) return Promise.reject(new Error("Invalid request id"));
     const deadline =
-      options.timeoutMs === undefined && this.#options.timeoutMs === null ? null : timeoutMs;
+      options.timeoutMs !== undefined
+        ? options.timeoutMs
+        : this.#options.timeoutMs !== undefined
+          ? this.#options.timeoutMs
+          : 30_000;
     if (deadline !== null && (!Number.isFinite(deadline) || deadline < 0)) {
       return Promise.reject(new RangeError("Invalid timeoutMs"));
     }
@@ -94,13 +97,19 @@ export class JsonRpcPeer {
 
   /** Dispose the peer without stopping its owning process. */
   close(error = new Error("JSON-RPC peer closed")): void {
-    if (this.#closed) return;
-    this.#closed = error;
+    this.#closed ??= error;
+    this.#process.signal.removeEventListener("abort", this.#end);
     this.#process.stdout.removeListener("line", this.#receive);
     this.#process.stdin.removeListener("error", this.#fail);
     for (const id of this.#pending.keys()) this.#settle(id, error);
   }
 
+  #end = (): void => {
+    const error = new Error("process exited");
+    this.#closed ??= error;
+    // Keep observing final stdout frames until close, but reject work at exit.
+    for (const id of this.#pending.keys()) this.#settle(id, error);
+  };
   #report(error: Error): void {
     this.#options.onError?.(error);
   }

@@ -89,14 +89,16 @@ describe("fetch SSE", () => {
     await disconnected;
     expect(events).toEqual(["ready"]);
   });
-  it("reconnects after EOF, reports backoff and resumes using the last event id", async () => {
+  it("reconnects after EOF, reports backoff and resumes using the last complete event id", async () => {
     const abort = controller();
     const observedHeaders: Array<string | string[] | undefined> = [];
     const url = await server((req, res) => {
       observedHeaders.push(req.headers["last-event-id"]);
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.end(
-        observedHeaders.length === 1 ? "id: resume\nretry: 2\ndata: first\n\n" : "data: second\n\n",
+        observedHeaders.length === 1
+          ? "id: resume\nretry: 2\ndata: first\n\nid: unfinished\ndata: dropped"
+          : "data: second\n\n",
       );
     });
     const events: string[] = [];
@@ -174,6 +176,48 @@ describe("fetch SSE", () => {
     });
     expect(gaps).toHaveLength(1);
     expect(gaps[0]).toBeGreaterThanOrEqual(45);
+  });
+  it("rejects event and heartbeat handler failures instead of reconnecting or throwing outside the reader", async () => {
+    const url = await server((_, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write("data: ready\n\n");
+    });
+    await expect(
+      readSse(url, {
+        signal: controller().signal,
+        onEvent: () => {
+          throw new Error("event handler failed");
+        },
+      }),
+    ).rejects.toThrow("event handler failed");
+    await expect(
+      readSse(url, {
+        signal: controller().signal,
+        onEvent: () => {},
+        heartbeat: {
+          gapMs: 20,
+          onGap: () => {
+            throw new Error("gap handler failed");
+          },
+        },
+      }),
+    ).rejects.toThrow("gap handler failed");
+  });
+  it("stops dispatching buffered events as soon as the caller aborts", async () => {
+    const abort = controller();
+    const url = await server((_, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end("data: first\n\ndata: after-abort\n\n");
+    });
+    const events: string[] = [];
+    await readSse(url, {
+      signal: abort.signal,
+      onEvent: ({ data }) => {
+        events.push(data);
+        abort.abort();
+      },
+    });
+    expect(events).toEqual(["first"]);
   });
   it("surfaces HTTP errors to one-shot readers", async () => {
     const url = await server((_, res) => {

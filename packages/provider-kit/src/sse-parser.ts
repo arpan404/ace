@@ -8,10 +8,12 @@ export class SseParser {
   #skipLf = false;
   #data: string[] = [];
   #event = "";
+  #id: string;
   readonly #emit: (event: SseEvent) => void;
   constructor(emit: (event: SseEvent) => void, lastEventId = "") {
     this.#emit = emit;
     this.lastEventId = lastEventId;
+    this.#id = lastEventId;
   }
   feed(text: string): void {
     let start = 0;
@@ -35,6 +37,7 @@ export class SseParser {
   }
   #accept(line: string): void {
     if (line === "") {
+      this.lastEventId = this.#id;
       if (this.#data.length)
         this.#emit({
           data: this.#data.join("\n"),
@@ -58,7 +61,7 @@ export class SseParser {
         this.#event = value;
         break;
       case "id":
-        if (!value.includes("\0")) this.lastEventId = value;
+        if (!value.includes("\0")) this.#id = value;
         break;
       case "retry":
         if (/^\d+$/.test(value) && Number.isSafeInteger(Number(value)))

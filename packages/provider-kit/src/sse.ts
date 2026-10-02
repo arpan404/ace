@@ -25,7 +25,10 @@ function positive(value: number, name: string, allowZero = false): number {
 
 /** Fetch SSE until cancelled. Resumes reconnects with Last-Event-ID when supplied. */
 export async function readSse(url: string | URL, options: SseOptions): Promise<void> {
-  const { signal, heartbeat } = options;
+  const { heartbeat } = options;
+  const hookAbort = new AbortController();
+  const signal = AbortSignal.any([options.signal, hookAbort.signal]);
+  let hookFailure: Error | undefined;
   const reconnect = options.reconnect === false ? false : (options.reconnect ?? {});
   const initial = positive(
     reconnect === false ? 500 : (reconnect.initialDelayMs ?? 500),
@@ -47,21 +50,33 @@ export async function readSse(url: string | URL, options: SseOptions): Promise<v
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     let lastHeartbeat = performance.now();
     const armHeartbeat = () => {
-      if (!heartbeat) return;
+      if (!heartbeat || signal.aborted) return;
       if (watchdog !== undefined) clearTimeout(watchdog);
       watchdog = setTimeout(() => {
         if (signal.aborted) return;
-        heartbeat.onGap(performance.now() - lastHeartbeat);
+        try {
+          heartbeat.onGap(performance.now() - lastHeartbeat);
+        } catch (error) {
+          hookFailure = error instanceof Error ? error : new Error(String(error));
+          hookAbort.abort(hookFailure);
+          return;
+        }
         armHeartbeat();
       }, heartbeat.gapMs);
     };
     const parser = new SseParser((event) => {
-      failures = 0;
-      if (heartbeat && (!heartbeat.isHeartbeat || heartbeat.isHeartbeat(event))) {
-        lastHeartbeat = performance.now();
-        armHeartbeat();
+      if (signal.aborted) return;
+      try {
+        failures = 0;
+        if (heartbeat && (!heartbeat.isHeartbeat || heartbeat.isHeartbeat(event))) {
+          lastHeartbeat = performance.now();
+          armHeartbeat();
+        }
+        options.onEvent(event);
+      } catch (error) {
+        hookFailure = error instanceof Error ? error : new Error(String(error));
+        throw hookFailure;
       }
-      options.onEvent(event);
     }, lastEventId);
     let body: ReadableStream<Uint8Array> | null = null;
     try {
@@ -85,6 +100,7 @@ export async function readSse(url: string | URL, options: SseOptions): Promise<v
       // Incomplete final events are deliberately discarded, as in EventSource.
       if (reconnect === false) return;
     } catch (error) {
+      if (hookFailure) throw hookFailure;
       if (signal.aborted) return;
       failure = error instanceof Error ? error : new Error(String(error));
       if (reconnect === false) throw failure;
