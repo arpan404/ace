@@ -23,7 +23,7 @@ function message(id: string) {
   });
 }
 function page(ids: string[], itemsBefore: number | null): ItemsPage {
-  return { threadId: thread.id, items: ids.map(message), itemsBefore };
+  return { seq: 100, threadId: thread.id, items: ids.map(message), itemsBefore };
 }
 
 it("keeps older history cursors moving backward when partial replies repeat", () => {

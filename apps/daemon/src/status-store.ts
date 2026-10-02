@@ -1,5 +1,12 @@
-import type { DatabaseSync } from "node:sqlite";
-import { Event, ThreadView, type EventPayload, type Thread, type ThreadId } from "@ace/protocol";
+import type { DatabaseSync, StatementSync } from "node:sqlite";
+import {
+  Interaction,
+  Event,
+  ThreadView,
+  type EventPayload,
+  type Thread,
+  type ThreadId,
+} from "@ace/protocol";
 import { applyEvent, createThreadView, rebuildAgentChildren } from "@ace/projection";
 type Collection = "agents" | "runs" | "interactions" | "backgroundTasks" | "usage";
 function target(p: EventPayload): { collection: Collection; id: string } | undefined {
@@ -30,10 +37,12 @@ function target(p: EventPayload): { collection: Collection; id: string } | undef
 /** Materialized work entities, independent of transcript history. Canonical folding owns updates. */
 export class StatusStore {
   private readonly db: DatabaseSync;
+  private interactionRead: StatementSync | undefined;
   constructor(db: DatabaseSync) {
     this.db = db;
   }
   initialize(getThread: (id: ThreadId) => Thread | undefined): void {
+    this.db.exec("CREATE INDEX IF NOT EXISTS view_entity_ids ON view_entities(collection, id)");
     if (this.db.prepare("SELECT id FROM status_migration WHERE id = 1").get()) return;
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -81,6 +90,13 @@ export class StatusStore {
           "INSERT INTO view_entities VALUES (?, ?, ?, ?) ON CONFLICT(thread_id, collection, id) DO UPDATE SET value = excluded.value",
         )
         .run(thread.id, collection, id, JSON.stringify(value));
+  }
+  interaction(id: string): Interaction | undefined {
+    this.interactionRead ??= this.db.prepare(
+      "SELECT value FROM view_entities WHERE collection = 'interactions' AND id = ? LIMIT 1",
+    );
+    const row = this.interactionRead.get(id);
+    return row ? Interaction.parse(JSON.parse(String(row.value))) : undefined;
   }
   snapshot(thread: Thread, seq: number): ThreadView {
     const input: Record<Collection, Record<string, unknown>> = {

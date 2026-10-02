@@ -135,6 +135,17 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/client": {
+      "name": "@ace/client",
+      "dependencies": {
+        "@ace/projection": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@ace/daemon": "workspace:*",
+      },
+    },
     "packages/conductor": {
       "name": "@ace/conductor",
       "dependencies": {
@@ -313,6 +324,8 @@
     "@ace/automations": ["@ace/automations@workspace:packages/automations"],
 
     "@ace/browser": ["@ace/browser@workspace:packages/browser"],
+
+    "@ace/client": ["@ace/client@workspace:packages/client"],
 
     "@ace/conductor": ["@ace/conductor@workspace:packages/conductor"],
 

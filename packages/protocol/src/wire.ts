@@ -47,6 +47,8 @@ export const ThreadView = z.object({
   runs: records(Run),
   items: records(Item),
   itemOrder: z.array(z.string()),
+  /** Creation cursors for the bounded item window, independent of live update sequence. */
+  itemSeqs: records(seq.positive()).optional(),
   /** Exclusive item creation-sequence cursor for older history. */
   itemsBefore: seq.positive().nullable().default(null),
   interactions: records(Interaction),
@@ -77,8 +79,10 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
 );
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ItemsPage = z.object({
+  seq,
   threadId: ThreadId,
-  items: z.array(Item),
+  items: z.array(Item).max(200),
+  itemSeqs: records(seq.positive()).optional(),
   itemsBefore: seq.positive().nullable(),
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
@@ -181,7 +185,13 @@ export const ServerMessage = z.discriminatedUnion("type", [
       message: "Progress must not move backwards",
     }),
   CommandResult.extend({ type: z.literal("commandResult") }),
-  z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
+  z.object({
+    type: z.literal("error"),
+    code: z.string(),
+    message: z.string(),
+    requestId: z.string().optional(),
+    subscriptionId: z.string().optional(),
+  }),
   z.object({
     type: z.literal("output.data"),
     requestId: z.string(),

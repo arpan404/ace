@@ -1,4 +1,4 @@
-import type { Item, OutputSummary } from "@ace/protocol";
+import type { Item, OutputSummary, TextSource } from "@ace/protocol";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -77,6 +77,14 @@ export function summarizeOutput(
     truncated: bytes > encoder.encode(tail).length,
   };
 }
+function appendText(
+  target: { text: string; source?: TextSource | undefined },
+  append: string,
+): void {
+  const source = target.source;
+  if (!source || source.bytes === target.text.length * 2) target.text += append;
+  if (source) target.source = { ...source, bytes: source.bytes + append.length * 2 };
+}
 /** Text and reasoning both append to reasoning/notice; messages accept only text.
  * Shell output retains a byte count and the last 4 KiB, never the full stream.
  * Returns false for a field that does not belong to the item, without mutation. */
@@ -88,10 +96,10 @@ export function applyDelta(
   if (field === "output" && item.type === "tool_call" && item.call.detail.kind === "shell") {
     item.call.detail.output = summarizeOutput(item.id, append, item.call.detail.output);
   } else if (field !== "output" && (item.type === "reasoning" || item.type === "notice")) {
-    item.text += append;
+    appendText(item, append);
   } else if (field === "text" && item.type === "message") {
     const last = item.parts.at(-1);
-    if (last?.type === "text") last.text += append;
+    if (last?.type === "text") appendText(last, append);
     else item.parts.push({ type: "text", text: append });
   } else return false;
   return true;

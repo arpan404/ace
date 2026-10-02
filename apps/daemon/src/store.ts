@@ -356,17 +356,25 @@ export class Store {
       view.items = Object.fromEntries(page.items.map((item) => [item.id, item]));
       view.itemOrder = page.items.map((item) => item.id);
       view.itemsBefore = page.itemsBefore;
+      if (page.itemSeqs) view.itemSeqs = page.itemSeqs;
       return view;
     } finally {
       this.releaseThread(id);
     }
   }
+  getInteraction(id: string) {
+    return this.status.interaction(id);
+  }
   readItems(threadId: ThreadId, before: number, limit: number) {
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return this.payloads.page(threadId, before, limit);
+    return { ...this.payloads.page(threadId, before, limit), seq: this.headSeq() };
   }
   outputThread(streamId: string) {
     return this.payloads.streamThread(streamId);
+  }
+  readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
+    if (!this.getThread(threadId)) throw new Error("Unknown thread");
+    return { ...this.payloads.wirePage(threadId, before, limit, byteLimit), seq: this.headSeq() };
   }
   readOutput(streamId: string, offset: number, limit: number) {
     return this.payloads.readOutput(streamId, offset, limit);

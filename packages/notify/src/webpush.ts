@@ -80,7 +80,7 @@ export function createWebPushTransport(
           TTL: "86400",
           Authorization: token.value,
         },
-        body,
+        body: new Uint8Array(body),
       });
       // Response payload is not needed; do not buffer arbitrary vendor bodies.
       await response.body?.cancel();
