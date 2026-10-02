@@ -175,7 +175,7 @@ it("reviewer migration preserves independence from the worker when another indep
   h.worker();
   const reviewer = h.lane("reviewer");
   const lanes = Object.values(h.state.lanes).map((l) =>
-    l.id === reviewer.id ? { ...l, status: "limited" as const } : l,
+    l.id === reviewer.id ? Object.assign({}, l, { status: "limited" as const }) : l,
   );
   const available = [
     ...accounts,

@@ -1,0 +1,13 @@
+{
+  "checkpoints": [
+    { "t": 20, "thread": "needs_you", "agentStates": { "root": "blocked", "child": "idle" } },
+    { "t": 55, "thread": "working", "note": "translator notice fires before the next frame" },
+    { "t": 60, "thread": "done", "agentStates": { "root": "idle" } }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 2,
+    "items": { "message": 1, "notice": 1 },
+    "interactions": { "resolved": 1, "expired": 1, "pending": 0 }
+  }
+}

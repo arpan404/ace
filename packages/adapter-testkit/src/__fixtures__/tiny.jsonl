@@ -1,0 +1,10 @@
+{"format":"ace-recording/v1","provider":"codex","cliVersion":"test","scenario":"tiny","startedAt":"2026-10-02T00:00:00Z","platform":"synthetic","workspace":"/fixture","extra":{"kept":true}}
+{"seq":0,"t":0,"dir":"send","channel":"fake","data":"start"}
+{"seq":1,"t":10,"dir":"recv","channel":"fake","data":"message"}
+{"seq":2,"t":10,"dir":"stderr","channel":"fake","data":"delta"}
+{"seq":3,"t":15,"dir":"recv","channel":"fake","data":"child"}
+{"seq":4,"t":20,"dir":"recv","channel":"fake","data":"approval"}
+{"seq":5,"t":30,"dir":"send","channel":"fake","data":"resolve"}
+{"seq":6,"t":40,"dir":"recv","channel":"fake","data":"finish"}
+{"seq":7,"t":100,"dir":"recv","channel":"fake","data":"question"}
+{"seq":8,"t":110,"dir":"note","channel":"fake","data":"exit"}
