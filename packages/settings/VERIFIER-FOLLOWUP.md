@@ -1,6 +1,6 @@
 # Verifier follow-up
 
-This follows the independent report on `94c9534`. `origin/main` at `19a7e14` was merged without rebasing in `65aaffc` before these changes. Settings and model-catalog lifecycle/wire additions are both retained.
+This follows the independent report on `94c9534`. `origin/main` at `19a7e14` was merged without rebasing in `65aaffc` before these changes. Settings and model-catalog lifecycle/wire additions are both retained. Before delivery, main advanced to `5494e21`; it was merged again in `04a8b39`, retaining automations exports and the upstream process-test reliability work.
 
 The owner changed validation policy during this run. Tests, probes, mutation runs, benchmarks, the aggregate check and GitHub CI are not executed under that policy. Final runtime claims below **need run at merge**. Historical observations from before the policy change do not validate the final revision.
 
@@ -65,7 +65,7 @@ Earlier mutation history remains in [review verification](REVIEW-VERIFICATION.md
 
 ## Static checks
 
-Only the permitted checks were run after the owner policy change. Formatting, lint, workspace typechecking and the 1,500-line size check passed. The size check covers 367 source files. Tests, benchmarks and the aggregate `bun run check` were not run after the rule. GitHub CI is disabled and was not requested or watched.
+Only the permitted checks were run after the owner policy change. Formatting, lint, workspace typechecking and the 1,500-line size check passed. The size check covers 408 source files. Tests, benchmarks and the aggregate `bun run check` were not run after the rule. GitHub CI is disabled and was not requested or watched.
 
 ## Historical gate failures
 
@@ -75,7 +75,7 @@ Before the policy change, the full suite on the merged branch encountered multip
 - lifecycle crash recovery;
 - stopped-Tailscale guidance.
 
-This establishes that those three failures also occurred on unmodified main in that comparison. It does not establish a root cause or waive other failures. In particular, the verifier's discovered-address Tailscale case passed on both revisions in that comparison and timed out in another branch run. Other full-suite timeout failures are not claimed as proven baseline failures. No unrelated tests or timeout budgets were changed. Current runtime and repository-gate status needs run at merge.
+This establishes that those three failures also occurred on unmodified main in that comparison. It does not establish a root cause or waive other failures. In particular, the verifier's discovered-address Tailscale case passed on both revisions in that comparison and timed out in another branch run. Other full-suite timeout failures are not claimed as proven baseline failures. No unrelated tests or timeout budgets were changed by the settings fixes. The later merge includes upstream process-test reliability changes from PR #45; their runtime effect also needs run at merge. Current runtime and repository-gate status needs run at merge.
 
 ## Performance
 
