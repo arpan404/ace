@@ -53,6 +53,48 @@ export function isLiveTool(item: Item): item is ToolItem {
   );
 }
 
+/** Unstarted silent children are visible diagnostics, not evidence of live work.
+ * Explicit work or a live descendant keeps such an agent relevant to completion.
+ */
+function completionRelevance(state: ThreadState, statusOf: (key: Key) => AgentStatus) {
+  const waitingOwners = new Set([
+    ...liveToolKeys(state).map((key) => lookup(state.items, key)!.agentId),
+    ...pendingInteractionKeys(state).map((key) => lookup(state.interactions, key)!.agentId),
+    ...runningTaskKeys(state)
+      .map((key) => lookup(state.tasks, key)!)
+      .filter((task) => !task.ambient)
+      .map((task) => task.agentId),
+  ]);
+  const cached = new Map<Key, boolean>();
+  const visiting = new Set<Key>();
+  function relevant(key: Key): boolean {
+    const prior = cached.get(key);
+    if (prior !== undefined) return prior;
+    const record = lookup(state.agents, key);
+    if (!record) return false;
+    const status = statusOf(key);
+    if (isSettled(status)) return false;
+    if (
+      key === state.rootKey ||
+      status.state !== "unresponsive" ||
+      record.activeRun ||
+      record.lastRun ||
+      record.retry ||
+      waitingOwners.has(record.agent.id)
+    )
+      return true;
+    if (visiting.has(key)) return true;
+    visiting.add(key);
+    const liveDescendant = Object.keys(
+      lookup(state.indexes.childrenByParent, record.agent.id) ?? {},
+    ).some(relevant);
+    visiting.delete(key);
+    cached.set(key, liveDescendant);
+    return liveDescendant;
+  }
+  return relevant;
+}
+
 function statusResolver(state: ThreadState, now: number) {
   const lastTransportSignalAt = transportSignalAt(state);
   const byId = state.indexes.agentKeysById;
@@ -73,6 +115,7 @@ function statusResolver(state: ThreadState, now: number) {
   const resolved = new Map<Key, AgentStatus>();
   const visiting = new Set<Key>();
   const lastSubtreeSignal = subtreeSignalReader(state);
+  const holdsCompletion = completionRelevance(state, resolve);
 
   function resolve(key: Key): AgentStatus {
     const cached = resolved.get(key);
@@ -124,9 +167,7 @@ function statusResolver(state: ThreadState, now: number) {
     }
     if (record.retry) return { state: "blocked", refs: [], ...record.retry };
 
-    const liveChildren = Object.keys(lookup(children, agent.id) ?? {}).filter(
-      (child) => !isSettled(resolve(child)),
-    );
+    const liveChildren = Object.keys(lookup(children, agent.id) ?? {}).filter(holdsCompletion);
     const tasks = tasksByAgent.get(agent.id) ?? [];
     const backgroundRefs = [
       ...tasks.map((task) => task.id),
@@ -143,7 +184,7 @@ function statusResolver(state: ThreadState, now: number) {
       const foreground = tools.flatMap((item) => {
         if (item.call.detail.kind !== "agent.spawn" || !item.call.detail.childAgentId) return [];
         const child = lookup(byId, item.call.detail.childAgentId);
-        if (!child || lookup(state.agents, child)?.agent.background || isSettled(resolve(child)))
+        if (!child || lookup(state.agents, child)?.agent.background || !holdsCompletion(child))
           return [];
         return [lookup(state.agents, child)!.agent.id];
       });
@@ -260,7 +301,17 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
     return { state: "waiting", on: "background_task" };
   }
   if (state.queueCount > 0) return { state: "waiting", on: "queue" };
-  if (statuses.some((status) => status.state === "unresponsive")) return { state: "unresponsive" };
+  const holdsCompletion = completionRelevance(
+    state,
+    (key) => lookup(state.agents, key)!.agent.status,
+  );
+  if (
+    Object.keys(state.agents).some(
+      (key) =>
+        lookup(state.agents, key)!.agent.status.state === "unresponsive" && holdsCompletion(key),
+    )
+  )
+    return { state: "unresponsive" };
   const root = state.rootKey === undefined ? undefined : lookup(state.agents, state.rootKey);
   const successOrder = root?.lastSuccessfulOutcomeOrder ?? 0;
   if (

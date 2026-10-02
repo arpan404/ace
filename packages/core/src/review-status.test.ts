@@ -40,7 +40,136 @@ it("a never-started silent placeholder becomes unresponsive instead of keeping t
   expect(h.view.status.state).toBe("working");
   h.send({ type: "tick" }, 301);
   expect(h.agent("stray")!.status).toEqual({ state: "unresponsive", lastSignalAt: 200 });
-  expect(h.view.status.state).toBe("waiting");
+  expect(h.agent("root")!.status).toEqual({ state: "idle" });
+  expect(h.view.status).toEqual({ state: "done" });
+  h.start("root", "recovery");
+  h.end();
+  expect(h.view.status).toEqual({ state: "done" });
+  expect(h.agent("stray")!.status).toEqual({ state: "unresponsive", lastSignalAt: 200 });
+});
+
+it("a silent child with an active run still holds completion after the root ends", () => {
+  const h = harness("codex", { silenceMs: 100 });
+  h.see();
+  h.start();
+  h.see("child", "root", true);
+  h.start("child");
+  h.end();
+  h.send({ type: "tick" }, 300);
+  expect(h.agent("child")!.status.state).toBe("unresponsive");
+  expect(h.agent("root")!.status).toEqual({
+    state: "blocked",
+    on: "background_task",
+    refs: [h.agent("child")!.id],
+  });
+  expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+  h.end("child");
+  expect(h.view.status).toEqual({ state: "done" });
+});
+
+it("a silent never-started child with a live shell still holds completion", () => {
+  const h = harness("codex", { silenceMs: 100 });
+  h.see();
+  h.start();
+  h.see("child", "root", true);
+  h.shell("shell", "child");
+  h.background("task", "shell", "child");
+  h.end();
+  h.send({ type: "tick" }, 300);
+  expect(h.agent("child")!.status.state).toBe("unresponsive");
+  expect(h.agent("root")!.status).toEqual({
+    state: "blocked",
+    on: "background_task",
+    refs: [h.agent("child")!.id],
+  });
+  expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+  h.send({ type: "background.ended", task: "task", status: "completed" });
+  h.send({
+    type: "item.upsert",
+    agent: "child",
+    item: "shell",
+    draft: {
+      type: "tool_call",
+      call: { status: "succeeded" },
+    },
+  });
+  h.send({ type: "tick" }, 403);
+  expect(h.view.status).toEqual({ state: "done" });
+});
+
+it("a never-started unresponsive child with a live tool still holds completion", () => {
+  const h = harness("codex", { silenceMs: 100 });
+  h.see();
+  h.start();
+  h.shell("tool", "stray");
+  h.end();
+  h.send({ type: "tick" }, 300);
+  expect(h.agent("stray")!.status.state).toBe("unresponsive");
+  expect(h.agent("root")!.status).toMatchObject({ state: "blocked", on: "background_task" });
+  expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+  h.send({
+    type: "item.upsert",
+    agent: "stray",
+    item: "tool",
+    draft: {
+      type: "tool_call",
+      call: { status: "succeeded" },
+    },
+  });
+  h.send({ type: "tick" }, 402);
+  expect(h.view.status).toEqual({ state: "done" });
+});
+
+it("a never-started silent parent still holds completion while its descendant has a run", () => {
+  const h = harness("codex", { silenceMs: 100 });
+  h.see();
+  h.start();
+  h.see("stray", "root", true);
+  h.see("grandchild", "stray", true);
+  h.start("grandchild");
+  h.end();
+  h.send({ type: "tick" }, 300);
+  expect(h.agent("stray")!.status.state).toBe("unresponsive");
+  expect(h.agent("grandchild")!.status.state).toBe("unresponsive");
+  expect(h.agent("root")!.status).toEqual({
+    state: "blocked",
+    on: "background_task",
+    refs: [h.agent("stray")!.id],
+  });
+  expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+  h.end("grandchild");
+  h.send({ type: "tick" }, 402);
+  expect(h.view.status).toEqual({ state: "done" });
+});
+
+it("a never-started child with a pending question still requires the human after silence", () => {
+  const h = harness("codex", { silenceMs: 100 });
+  h.see();
+  h.start();
+  h.question("question", "stray");
+  h.end();
+  h.send({ type: "tick" }, 300);
+  expect(h.agent("root")!.status).toEqual({
+    state: "blocked",
+    on: "background_task",
+    refs: [h.agent("stray")!.id],
+  });
+  expect(h.view.status).toEqual({ state: "needs_you", interactions: 1 });
+});
+
+it("a never-started child in retry still waits on the provider after silence", () => {
+  const h = harness("codex", { silenceMs: 100 });
+  h.see();
+  h.start();
+  h.send({ type: "retry", agent: "stray", on: "upstream" });
+  h.end();
+  h.send({ type: "tick" }, 300);
+  expect(h.agent("root")!.status).toEqual({
+    state: "blocked",
+    on: "background_task",
+    refs: [h.agent("stray")!.id],
+  });
+  expect(h.view.status).toEqual({ state: "waiting", on: "upstream" });
 });
 
 it("a never-started child becomes unresponsive when its spawning tool finishes", () => {
@@ -67,6 +196,9 @@ it("a never-started child becomes unresponsive when its spawning tool finishes",
     draft: { type: "tool_call", call: { status: "succeeded" } },
   });
   expect(h.agent("child")!.status.state).toBe("unresponsive");
+  h.end();
+  expect(h.agent("root")!.status).toEqual({ state: "idle" });
+  expect(h.view.status).toEqual({ state: "done" });
 });
 
 it("a configured root stays new before its first turn", () => {
