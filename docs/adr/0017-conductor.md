@@ -1,0 +1,41 @@
+# 0017: Conductor project orchestration
+
+Date: 2026-10-02. Status: proposed, implemented behind executor ports.
+
+## Context
+
+The backend build required a human to divide a goal into workstreams, assign isolated branches, move sessions between subscriptions, challenge worker output, request fixes and merge in dependency order. Conductor should own that loop. The human owns policy decisions and exceptions.
+
+The supplied feature inventories at `/tmp/ace-orch/research-t3code.md` and `/tmp/ace-orch/research-competitors.md` describe parallel worktrees and reviews in t3code, Codex, Claude Code and Cursor, and project coordinators in Cursor and Antigravity. They do not establish an end-to-end durable loop with account migration, adversarial review evidence and dependency-ordered verification. This is a gap in the inventories, not a claim that those products cannot do it. No competitor source code was used.
+
+## Decision
+
+Add `@ace/conductor`, with a pure reducer, bounded Zod artifacts, a scheduler, prompt builders, executor ports and a SQLite journal/outbox shell. Facts carry a lane generation; late results from an earlier session cannot finish its replacement. Completion requires both the canonical whole-thread `done` status and the role's artifact, in either order. Provider deltas never enter this reducer. The engine continues to own tree status.
+
+The plan contains at most 256 workstreams, explicit briefs, acceptance criteria, priorities, dependency ids, file/package ownership and risks. Validation rejects cycles, missing dependencies, unsafe paths and overlapping ownership unless the owners are dependency-ordered. Plan edits replace the artifact before approval. Approval policies are explicit. Account/model/provider allowlists apply to every role, including migration. Reviewers prefer a different provider or model and always use normal speed. Reports require requirement verification, probes, at least 15 distinct mutations with observed failures, flakiness, design and performance evidence before a passing verdict can integrate.
+
+Ready work is scheduled by descending priority, then plan order. Dependencies become satisfied only after integration checks pass. Account reservations count planning, coding, review, migration and integration lanes. Quota snapshots exclude Conductor's own reservations; capacity reports external sessions separately. A usage-limited lane migrates with its complete history, or waits for a later accounts snapshot. Fixes fork the worker session with the review. Review exhaustion, stalled/failed lanes, budget reservations above the budget, deadline expiry, requested merges and destructive operations create user gates and notification intents. Rejection never silently bypasses a gate.
+
+Local merges are serial. Merge completion and verification are separate durable steps. Conflicts fork the owning worker or an integrator for a declared trivial conflict, then require another review. PR-only creates a PR and requires CI verification before its dependencies become ready. It does not merge the PR; the report names that distinction. Pause stops scheduling and requests lane suspension. Cancel requests cascade stops and only reports cancelled after live lanes settle. Gates and live descendants prevent a done result.
+
+## Ports and durability
+
+ADR 0013/orchestrator and ADR 0018/accounts have not landed on main. Neither have the git, forge and engine implementations. Define only the operations Conductor needs, through its public package export. The engine port starts/forks/controls a lane and emits canonical tree-status facts; the orchestrator port attaches every lane to the run's root agent; git prepares a worktree and performs a local merge; forge creates a PR; accounts migrates a session with history; verification runs checks against the resulting immutable revision. Startup integration will adapt these ports to the public APIs when those branches land. No provider CLI is invoked in this PR.
+
+Every effect has a stable idempotency key. Executors must persist their own receipts and reconcile git/forge/session effects by that key after a crash. SQLite atomically commits the validated snapshot, input receipt and effects. A completed effect and its resulting facts commit together. Failed execution leaves the effect pending. Restart drains those same ids. Exactly-once external side effects cannot be promised by a database transaction alone; idempotent ports are mandatory. One driver per run serializes facts and effect execution. Rejected facts do not poison the journal. Pending inputs can still settle lanes while paused.
+
+State does not retain stream output or an event history. Limits cap workstreams, accounts, lanes, gates, artifact text and pending effects. SQLite holds one current snapshot and bounded pending effects; receipt retention is scoped to a run and capped with backpressure, then deleting the run removes it. The caller caps the number of retained runs. Snapshot parsing occurs on restore, not for each provider frame. A transition copies bounded current indexes and scheduling scans only the bounded current DAG/accounts, never transcript history. This deliberate O(workstreams + accounts) control-plane tradeoff simplifies replay; benchmarks measure it. Client progress is derived on request.
+
+## Protocol and wire additions
+
+Add schema-only `packages/protocol/src/conductor.ts` and an export. `CommandPayload` accepts `conductor.start`, `conductor.approve`, `conductor.pause`, `conductor.resume`, and `conductor.cancel`. Start carries the root agent, workspace, goal, repository rules, constraints and policies. Approval targets a durable gate id and can carry a replacement plan, an increased budget or an explicit retry decision. Existing command receipts supply transport idempotency. The daemon's existing injected handler remains the integration seam; its development stub returns `not_implemented` until an engine is wired. No new websocket transport or competing approval store is introduced.
+
+Conductor's progress API exposes DAG nodes, active lanes and generations, quota reservations, review verdicts, merge revisions and open gates. An executor maps gates onto ace interactions and notification intents. Root/child attachment is compulsory before starting a session. Failed attachment must not launch an invisible lane.
+
+## Security
+
+Use only installed, logged-in local CLIs through the engine. Account ids are opaque references, never credentials. Treat briefs, repository rules and review text as untrusted prompt content, delimited in templates. Artifacts cannot grant permissions. Merge approval is scoped to the branch revision reviewed; a changed revision requires a new review. Executor implementations enforce repository boundaries, validate git refs, use argument arrays and never interpolate artifacts into shell commands. Destructive operations require an explicit gate. Remote clients use the existing authenticated command channel and first-answer-wins interaction mapping.
+
+## Testing and delivery
+
+Test public transitions, scheduler outputs, prompts and progress. Exercise invalid plans, capacity/quota/priority, out-of-order completion, stale generations, gates, fixes, migration/reset, cancellation, merge verification and replay. A deterministic six-workstream simulation includes account migration, two failed reviews before passing, a conflict and an escalation answered by the user. Real temporary SQLite files test atomic commits, reopen, input retries and outbox recovery. Fake ports represent unavailable executors, not internal decision logic. Apply at least eight production mutations and record the failing behavioural test for each. Run the repository check and a non-gating scheduling/status benchmark with throughput and RSS before opening the PR.
