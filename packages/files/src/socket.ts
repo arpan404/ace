@@ -22,7 +22,18 @@ interface Incoming {
 const Upload = z.object({ uploadId: z.string(), offset: z.number(), size: z.number() });
 
 /** Socket lifetime owns all active channels; durable upload state belongs to the service. */
-export function attachFilesSocket(service: FilesService, socket: WebSocket, device: string) {
+export function attachFilesSocket(
+  service: FilesService,
+  socket: WebSocket,
+  device: string,
+  scopedAuthorization: (capability: "files.read" | "files.write") => boolean = () => true,
+) {
+  const authorize = (capability: "files.read" | "files.write") => {
+    if (closed) throw new FileError("CLOSED", "Socket closed");
+    service.authorize(device, capability);
+    if (!scopedAuthorization(capability))
+      throw new FileError("FORBIDDEN", "Device scope denies this operation");
+  };
   const outgoing = new Map<number, Outgoing>();
   const incoming = new Map<number, Incoming>();
   let channel = 0;
@@ -62,7 +73,7 @@ export function attachFilesSocket(service: FilesService, socket: WebSocket, devi
     try {
       while (state.credits > 0 && !state.cancelled) {
         if (closed) break;
-        service.authorize(device, "files.read");
+        authorize("files.read");
         const next = await state.download.chunks.next();
         if (state.cancelled || closed) break;
         if (next.done) {
@@ -110,7 +121,7 @@ export function attachFilesSocket(service: FilesService, socket: WebSocket, devi
       return;
     }
     if (message.type === "files.credit") {
-      service.authorize(device, "files.read");
+      authorize("files.read");
       const state = outgoing.get(message.channel);
       if (!state) throw new FileError("NOT_FOUND", "Unknown download channel");
       if (state.credits + message.credits > MAX_CREDITS)
@@ -120,6 +131,18 @@ export function attachFilesSocket(service: FilesService, socket: WebSocket, devi
       return;
     }
     const operation = message.operation;
+    authorize(
+      [
+        "stat",
+        "download",
+        "artifact.download",
+        "archive.preview",
+        "archive.download",
+        "artifacts.list",
+      ].includes(operation.op)
+        ? "files.read"
+        : "files.write",
+    );
     if (["download", "artifact.download", "archive.download"].includes(operation.op)) {
       const id = allocate();
       const download = await service.download(device, operation);
@@ -149,7 +172,15 @@ export function attachFilesSocket(service: FilesService, socket: WebSocket, devi
       const id = allocate();
       const release = service.reserve();
       try {
-        const upload = Upload.parse(await service.request(device, operation));
+        const upload = Upload.parse(
+          await service.request(device, operation, () =>
+            authorize(
+              ["stat", "archive.preview", "artifacts.list"].includes(operation.op)
+                ? "files.read"
+                : "files.write",
+            ),
+          ),
+        );
         if (closed) {
           release();
           return;
@@ -168,7 +199,13 @@ export function attachFilesSocket(service: FilesService, socket: WebSocket, devi
       }
       return;
     }
-    const value = await service.request(device, operation);
+    const value = await service.request(device, operation, () =>
+      authorize(
+        ["stat", "archive.preview", "artifacts.list"].includes(operation.op)
+          ? "files.read"
+          : "files.write",
+      ),
+    );
     if (operation.op === "upload.commit" || operation.op === "upload.cancel")
       for (const [id, state] of incoming)
         if (state.id === operation.uploadId) {
@@ -179,7 +216,7 @@ export function attachFilesSocket(service: FilesService, socket: WebSocket, devi
   };
   const unsubscribe = service.subscribe((change) => {
     try {
-      service.authorize(device, "files.read");
+      authorize("files.read");
       send({ type: "files.changed", change });
     } catch {
       /* revoked clients cannot receive mutation data */
@@ -224,13 +261,13 @@ export function attachFilesSocket(service: FilesService, socket: WebSocket, devi
       try {
         const decoded = decodeFileFrame(frame);
         id = decoded.channel;
-        service.authorize(device, "files.write");
+        authorize("files.write");
         const state = incoming.get(id);
         if (!state) throw new FileError("NOT_FOUND", "Unknown upload channel");
         if (state.busy) throw new FileError("QUOTA", "Wait for an upload acknowledgement");
         state.busy = true;
         void service
-          .append(device, state.id, decoded.offset, decoded.bytes)
+          .append(device, state.id, decoded.offset, decoded.bytes, () => authorize("files.write"))
           .then((upload) => send({ type: "files.upload", channel: decoded.channel, ...upload }))
           .catch((error: unknown) => failure(error, { channel: decoded.channel }))
           .finally(() => {

@@ -6,7 +6,14 @@ import { WebSocket } from "ws";
 import { z } from "zod";
 import { afterEach, expect, it } from "vitest";
 import { FilesServerMessage, ServerMessage } from "@ace/protocol";
-import { decodeFileFrame } from "@ace/files";
+import { FilesService, decodeFileFrame } from "@ace/files";
+import { randomUUID } from "node:crypto";
+import { ticketSocket } from "./client-access.ts";
+import {
+  setup as remoteSetup,
+  identity,
+  cleanups as remoteCleanups,
+} from "./remote-test-support.ts";
 import { startDaemon } from "./index.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -21,8 +28,8 @@ class Inbox {
   readonly socket: WebSocket;
   private queue: unknown[] = [];
   private waiters: ((message: unknown) => void)[] = [];
-  constructor(url: string) {
-    this.socket = new WebSocket(url);
+  constructor(socket: WebSocket) {
+    this.socket = socket;
     this.socket.on("message", (data, binary) => {
       const message = binary
         ? z.instanceof(Buffer).parse(data)
@@ -59,10 +66,12 @@ it("serves binary files on the authenticated daemon socket alongside normal comm
     workspaceRoot: root,
     host: "127.0.0.1",
     port: 0,
+    listen: "local",
+    remotePort: 0,
     logLevel: "silent",
   });
   cleanup.push(() => daemon.close());
-  const client = new Inbox(daemon.url);
+  const client = new Inbox(new WebSocket(daemon.url));
   cleanup.push(() => client.close());
   await once(client.socket, "open");
   client.send({
@@ -96,10 +105,12 @@ it("rejects file requests before authentication", async () => {
     workspaceRoot: home,
     host: "127.0.0.1",
     port: 0,
+    listen: "local",
+    remotePort: 0,
     logLevel: "silent",
   });
   cleanup.push(() => daemon.close());
-  const client = new Inbox(daemon.url);
+  const client = new Inbox(new WebSocket(daemon.url));
   cleanup.push(() => client.close());
   await once(client.socket, "open");
   client.send({
@@ -108,4 +119,53 @@ it("rejects file requests before authentication", async () => {
     operation: { op: "download", path: "token" },
   });
   expect(await client.next()).toMatchObject({ type: "error", code: "unauthorized" });
+});
+it("maps paired read-only scopes to downloads and refuses mutations on pinned remote WSS", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-files-remote-"));
+  remoteCleanups.push(() => rm(home, { recursive: true, force: true }));
+  const root = join(home, "workspace");
+  await mkdir(root);
+  await writeFile(join(root, "a"), "phone bytes");
+  const files = await FilesService.create({
+    workspace: root,
+    dataDir: join(home, "files"),
+    now: Date.now,
+    id: randomUUID,
+    authorize: () => true,
+  });
+  remoteCleanups.push(() => files.close());
+  const f = await remoteSetup({ files });
+  const credential = await f.pair(["read"]);
+  const ticket = await f.ticket(credential.token);
+  const client = new Inbox(ticketSocket(f.server.remoteUrl, identity.fingerprint));
+  remoteCleanups.push(() => client.close());
+  await once(client.socket, "open");
+  client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: credential.device.id,
+    ticket: ticket.ticket,
+  });
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  client.send({ type: "files.request", requestId: "r", operation: { op: "stat", path: "a" } });
+  const version = z.object({ value: z.object({ version: z.string() }) }).parse(await client.next())
+    .value.version;
+  client.send({
+    type: "files.request",
+    requestId: "r",
+    operation: { op: "write", path: "a", expected: version, text: "bad" },
+  });
+  expect(await client.next()).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
+  client.send({
+    type: "files.request",
+    requestId: "r",
+    operation: { op: "download", path: "a", offset: 0 },
+  });
+  const ready = z.object({ channel: z.number() }).parse(await client.next());
+  client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
+  expect(decodeFileFrame(z.instanceof(Buffer).parse(await client.next())).bytes.toString()).toBe(
+    "phone bytes",
+  );
+  expect(await client.next()).toMatchObject({ type: "files.end" });
+  expect(await readFile(join(root, "a"), "utf8")).toBe("phone bytes");
 });

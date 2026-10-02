@@ -10,3 +10,4 @@ export * from "./thread.ts";
 export * from "./tools.ts";
 export * from "./wire.ts";
 export * from "./files.ts";
+export * from "./remote.ts";

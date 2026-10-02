@@ -89,7 +89,8 @@ export class FilesService {
       /* sink owns recovery */
     }
   }
-  async request(device: string, input: unknown): Promise<unknown> {
+  async request(device: string, input: unknown, guard: () => void = () => {}): Promise<unknown> {
+    guard();
     const operation = FileOperation.parse(input);
     const reading = ["stat", "archive.preview", "artifacts.list"].includes(operation.op);
     this.authorize(device, reading ? "files.read" : "files.write");
@@ -110,6 +111,7 @@ export class FilesService {
         };
       });
     return this.serial(async () => {
+      guard();
       this.authorize(device, reading ? "files.read" : "files.write");
       switch (operation.op) {
         case "archive.preview": {
@@ -171,9 +173,11 @@ export class FilesService {
     id: string,
     offset: number,
     bytes: Buffer,
+    guard: () => void = () => {},
   ): Promise<{ uploadId: string; offset: number; size: number }> {
     this.authorize(device, "files.write");
     return this.serial(() => {
+      guard();
       this.authorize(device, "files.write");
       return this.uploads.append(device, id, offset, bytes);
     });
