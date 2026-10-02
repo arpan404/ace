@@ -1,4 +1,5 @@
 pub mod accessibility;
+pub mod endpoint;
 mod accessibility_actions;
 #[cfg(target_os = "linux")]
 pub mod pipewire;

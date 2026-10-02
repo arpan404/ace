@@ -20,6 +20,7 @@ const capabilities = ScreenCapabilities.parse({
   pid: process.pid,
 });
 let value = "";
+let permissionReads = 0;
 const node = () => ({
   ref: "stable-entry",
   role: "entry",
@@ -40,7 +41,10 @@ input.on("line", (line) => {
       data = capabilities;
       break;
     case "permissions":
-      data = { screenRecording: true, accessibility: true };
+      data = {
+        screenRecording: process.env.REVOKE_SCREEN !== "1" || ++permissionReads === 1,
+        accessibility: true,
+      };
       break;
     case "targets":
       data = { displays: [], windows: [{ windowId: 1, bundleId: "dev.ace.test", title: "Test" }] };
@@ -49,6 +53,9 @@ input.on("line", (line) => {
       sessionId = r.sessionId;
       seq = 0;
       data = { capabilities };
+      break;
+    case "stop":
+      if (process.env.FAIL_STOP === "1") error = { code: "internal", message: "Stop failed" };
       break;
     case "ui.tree":
       data = { tree: node(), truncated: r.maxDepth === 0 };

@@ -8,7 +8,7 @@ COPY Cargo.toml Cargo.lock build.rs ./
 COPY src ./src
 COPY tests ./tests
 COPY bench ./bench
-RUN cargo check --locked --target x86_64-unknown-linux-gnu && cargo test --locked \
+RUN cargo check --locked && cargo test --locked \
     && cargo build --locked --release --examples --bins
 COPY docker ./docker
 RUN mkdir -p /tmp/ace-runtime && chmod 700 /tmp/ace-runtime

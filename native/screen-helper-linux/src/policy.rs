@@ -84,3 +84,16 @@ pub fn portal_policy(sources: u32, devices: u32, version: u32) -> PortalPolicy {
         persistent: version >= 2,
     }
 }
+
+/// A tree request cannot silently switch the approved capture scope.
+pub fn scoped_target(requested: Option<&crate::protocol::Target>, active: Option<&crate::protocol::Target>) -> Result<()> {
+    if requested.is_some() && requested != active {
+        return Err(Fault::new("target_gone", "Tree target differs from active approved target"));
+    }
+    Ok(())
+}
+pub fn element_center(element: &crate::accessibility::Bounds, window: &crate::accessibility::Bounds) -> Result<(f64, f64)> {
+    let x = f64::from(element.x) - f64::from(window.x) + f64::from(element.w) / 2.;
+    let y = f64::from(element.y) - f64::from(window.y) + f64::from(element.h) / 2.;
+    point(x, y, window.w.max(0) as u32, window.h.max(0) as u32)
+}

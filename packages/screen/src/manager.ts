@@ -405,22 +405,38 @@ export class ScreenManager {
       controller: "none",
     };
     this.emit(session);
+    let failure: unknown;
     try {
       if (session.recording) await this.stopRecording(id);
-    } finally {
+    } catch (error) {
+      failure = error;
+    }
+    try {
       if (this.options.protocolVersion === 2) {
         this.sharedFrame = undefined;
         this.sharedFailure = undefined;
         if (!wasFailed) await session.helper.request({ op: "stop" });
       } else await session.helper.close();
+    } catch (error) {
+      failure ??= error;
+      this.shared = undefined;
+      await session.helper.close();
+    } finally {
       this.sessions.delete(id);
     }
+    if (failure !== undefined) throw failure;
   }
   async close(): Promise<void> {
-    await this.enable(false);
-    await (await this.shared)?.close();
-    this.shared = undefined;
-    this.listeners.clear();
+    try {
+      await this.enable(false);
+    } finally {
+      try {
+        await (await this.shared)?.close();
+      } finally {
+        this.shared = undefined;
+        this.listeners.clear();
+      }
+    }
   }
   private get(id: string): Session {
     const session = this.sessions.get(id);
@@ -454,6 +470,11 @@ export class ScreenManager {
       error: error.message.slice(0, 1024),
     };
     this.emit(session);
+    if (this.options.protocolVersion === 2) {
+      this.shared = undefined;
+      this.sharedFrame = undefined;
+      this.sharedFailure = undefined;
+    }
     void session.recording?.stop().catch(() => {});
     session.recording = undefined;
     void session.helper.close();

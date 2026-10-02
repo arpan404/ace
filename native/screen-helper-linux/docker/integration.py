@@ -123,6 +123,8 @@ try:
         nodes = flatten(tree["tree"])
         entry = next(n for n in nodes if n["name"] == "Message")
         button = next(n for n in nodes if n["name"] == "Change")
+        wrong_scope = dict(target, windowId=target["windowId"]+1)
+        assert request("ui.tree", target=wrong_scope, maxDepth=8, maxNodes=128)["error"]["code"] == "target_gone"
         capped = ok("ui.tree", maxDepth=0, maxNodes=1)
         assert capped["truncated"] and len(flatten(capped["tree"])) == 1
         assert ok("ui.find", query=dict(name="Message"), limit=1)["nodes"][0]["ref"] == entry["ref"]
@@ -135,6 +137,11 @@ try:
         ok("key.press", key="End", modifiers=[])
         ok("text.type", text=" 世界")
         assert line_until(app.stdout, "TEXT:") == "TEXT:héllo λ 世界"
+        # The named key must release modifiers before the following ordinary key.
+        ok("key.press", key="a", modifiers=["control"])
+        ok("key.press", key="End", modifiers=[])
+        ok("key.press", key="b", modifiers=[])
+        assert line_until(app.stdout, "TEXT:") == "TEXT:héllo λ 世界b"
         ok("key.press", key="Enter", modifiers=[])
         line_until(app.stdout, "KEY:65293")
         b = button["bounds"]

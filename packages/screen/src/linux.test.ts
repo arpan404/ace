@@ -130,3 +130,55 @@ it("negotiated UI support and capture scope reject unsupported operations", asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("a failed capture stop removes the session and replaces the unusable helper", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "screen-v2-stop-"));
+  const manager = new ScreenManager({
+    ...command,
+    env: { FAIL_STOP: "1" },
+    nextId: ids(),
+    recordingDirectory: directory,
+    publishArtifact: async () => {},
+  });
+  try {
+    await manager.enable(true);
+    await manager.approve(target.bundleId, true);
+    const before = await manager.capabilities();
+    const state = await manager.start(target);
+    await expect(manager.stop(state.sessionId)).rejects.toThrow("Stop failed");
+    expect(manager.states()).toEqual([]);
+    expect((await manager.capabilities())?.pid).not.toEqual(before?.pid);
+  } finally {
+    await manager.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("revoked capture permission discards the shared helper before a replacement session", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "screen-v2-revoke-"));
+  const manager = new ScreenManager({
+    ...command,
+    env: { REVOKE_SCREEN: "1" },
+    nextId: ids(),
+    recordingDirectory: directory,
+    publishArtifact: async () => {},
+  });
+  try {
+    await manager.enable(true);
+    await manager.approve(target.bundleId, true);
+    const before = await manager.capabilities();
+    const state = await manager.start(target);
+    manager.controller(state.sessionId, "agent", "agent");
+    await expect(
+      manager.namedKey(state.sessionId, { key: "Enter", modifiers: [] }, "agent"),
+    ).rejects.toThrow("permission denied");
+    expect(manager.state(state.sessionId).lifecycle).toBe("failed");
+    await manager.stop(state.sessionId);
+    const replacement = await manager.start(target);
+    expect((await manager.capabilities())?.pid).not.toEqual(before?.pid);
+    await manager.stop(replacement.sessionId);
+  } finally {
+    await manager.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

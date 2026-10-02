@@ -15,6 +15,7 @@ unsafe extern "C" {
     fn ace_pw_open(
         fd: i32,
         node: u32,
+        stop_fd: i32,
         callback: unsafe extern "C" fn(*mut c_void, *const u8, u32, u32, i32, u32),
         user: *mut c_void,
     ) -> *mut c_void;
@@ -104,6 +105,7 @@ pub fn capture(
     node: u32,
     fps: u32,
     logical_width: u32,
+    stop_fd: i32,
     stop: Arc<AtomicBool>,
     publisher: Publisher,
 ) -> Result<()> {
@@ -120,6 +122,7 @@ pub fn capture(
         ace_pw_open(
             fd.into_raw_fd(),
             node,
+            stop_fd,
             on_frame,
             (&mut frames as *mut Frames).cast(),
         )
@@ -131,7 +134,7 @@ pub fn capture(
     }
     let result = (|| {
         while !stop.load(Ordering::Acquire) {
-            if unsafe { ace_pw_step(c, 100) } < 0 || frames.failed {
+            if unsafe { ace_pw_step(c, -1) } < 0 || frames.failed {
                 return Err(internal("PipeWire capture failed"));
             }
         }

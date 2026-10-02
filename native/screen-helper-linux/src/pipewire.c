@@ -13,6 +13,7 @@ struct capture {
     struct pw_core *core;
     struct pw_stream *stream;
     struct spa_hook listener;
+    struct spa_source *wakeup;
     struct spa_video_info_raw video;
     void (*frame)(void *, const unsigned char *, unsigned, unsigned, int, unsigned);
     void *user;
@@ -26,6 +27,11 @@ struct capture {
     void (*context_destroy)(struct pw_context *);
     void (*loop_destroy)(struct pw_main_loop *);
 };
+static void stop_ready(void *user, int fd, uint32_t mask) {
+    (void)user; (void)mask;
+    char byte;
+    (void)read(fd, &byte, 1);
+}
 static void format_changed(void *user, unsigned id, const struct spa_pod *pod) {
     struct capture *c = user;
     if (id != SPA_PARAM_Format || !pod) return;
@@ -62,11 +68,12 @@ void ace_pw_destroy(struct capture *c) {
     if (c->stream && c->stream_destroy) c->stream_destroy(c->stream);
     if (c->core && c->disconnect) c->disconnect(c->core);
     if (c->context && c->context_destroy) c->context_destroy(c->context);
+    if (c->wakeup && c->loop) pw_loop_destroy_source(c->get_loop(c->loop),c->wakeup);
     if (c->loop && c->loop_destroy) c->loop_destroy(c->loop);
     if (c->library) dlclose(c->library);
     free(c);
 }
-struct capture *ace_pw_open(int fd, unsigned node, void (*frame)(void *, const unsigned char *, unsigned, unsigned, int, unsigned), void *user) {
+struct capture *ace_pw_open(int fd, unsigned node, int stop_fd, void (*frame)(void *, const unsigned char *, unsigned, unsigned, int, unsigned), void *user) {
     struct capture *c = calloc(1,sizeof(*c));
     int remote = fd;
     if (!c) { close(fd); return NULL; }
@@ -88,6 +95,8 @@ struct capture *ace_pw_open(int fd, unsigned node, void (*frame)(void *, const u
     LOAD(c->context_destroy,"pw_context_destroy"); LOAD(c->loop_destroy,"pw_main_loop_destroy");
     init(NULL,NULL);
     c->loop=loop_new(NULL); if (!c->loop) goto fail;
+    c->wakeup=pw_loop_add_io(c->get_loop(c->loop),stop_fd,SPA_IO_IN,false,stop_ready,c);
+    if (!c->wakeup) goto fail;
     c->context=context_new(c->get_loop(c->loop),NULL,0); if (!c->context) goto fail;
     c->core=connect_fd(c->context,remote,NULL,0); remote=-1; if (!c->core) goto fail;
     c->stream=stream_new(c->core,"ace-screen",NULL); if (!c->stream) goto fail;

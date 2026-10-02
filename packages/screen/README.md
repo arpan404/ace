@@ -1,6 +1,6 @@
 # Screen streaming and computer use
 
-`@ace/screen` owns macOS screen sessions without an Electron client. It exposes JPEG streams, human takeover, scoped MCP handlers, simulator discovery and bounded recording artifacts. Capture is off by default and approvals last for this daemon lifetime.
+`@ace/screen` owns macOS and Linux screen sessions without an Electron client. It exposes JPEG streams, human takeover, scoped MCP handlers, simulator discovery and bounded recording artifacts. Capture is off by default and approvals last for this daemon lifetime.
 
 ## Build and enable
 
@@ -11,7 +11,7 @@ native/screen-helper/build.sh
 ACE_SCREEN_HELPER="$PWD/native/screen-helper/build/ace-screen-helper" bun run --filter @ace/daemon dev
 ```
 
-The build skips successfully on other platforms. Set `ACE_SCREEN_HELPER` only on macOS. The binary is ad-hoc signed with identity `dev.ace.screen-helper`; packaged releases should use a stable signing identity.
+The build skips successfully on other platforms. For Linux, see [`native/screen-helper-linux`](../../native/screen-helper-linux/README.md). Set `ACE_SCREEN_HELPER` to the installed binary. The binary is ad-hoc signed with identity `dev.ace.screen-helper`; packaged releases should use a stable signing identity.
 
 In System Settings > Privacy & Security, grant **Screen Recording** for capture and **Accessibility** for input to the helper or the launching host macOS identifies. macOS may call Screen Recording "Screen & System Audio Recording". Permissions can require quitting and restarting the daemon after a grant. ace checks permission state without automatically prompting. `screen.request` with operation `permissions` reports both permissions. Denial produces a command error, never an automatic retry or an empty successful screenshot.
 
@@ -43,15 +43,25 @@ Human input requires ownership of the session's human controller on that connect
 
 ## Package and MCP API
 
-Instantiate `ScreenManager` with helper command, injected id generator, artifact directory and artifact publisher, or use `localScreenManager` at the daemon boundary. Pass a manager as the optional third argument to `startDaemon`, or through `ServerOptions.screen`. `screenConnection` also accepts an authenticated transport's JSON sender and asynchronous binary sender, allowing the remote-access and encrypted-relay workstreams to reuse it.
+Instantiate `ScreenManager` with helper command, injected id generator, artifact directory and artifact publisher, or use `localScreenManager` at the daemon boundary. Pass a manager as the optional sixth argument to `startDaemon` (after model instances), or through `ServerOptions.screen`. `screenConnection` also accepts an authenticated transport's JSON sender and asynchronous binary sender, allowing the remote-access and encrypted-relay workstreams to reuse it.
 
-`computerUseTools` contains JSON schemas for `screen_screenshot`, `screen_click`, `screen_type`, `screen_key` and `screen_scroll`. `computerUseHandler(manager, sessionId, owner)` is an MCP-compatible handler scoped to a host-selected session and agent owner. A human can delegate through `controller` with `controller: "agent"` and `agentId` matching the scoped agent owner. The MCP host can also grant agent control with that same owner after human approval. Tool arguments cannot change the session, approve applications or enable access. Screenshots return a bounded MCP image; live video uses binary transport. These definitions are ready for registration by the separate MCP server workstream.
+`computerUseTools` contains JSON schemas for `screen_ui_tree`, `screen_ui_find`, `screen_ui_act`, `screen_screenshot`, `screen_click`, `screen_type`, `screen_key` and `screen_scroll`. `computerUseHandler(manager, sessionId, owner)` is an MCP-compatible handler scoped to a host-selected session and agent owner. A human can delegate through `controller` with `controller: "agent"` and `agentId` matching the scoped agent owner. The MCP host can also grant agent control with that same owner after human approval. Tool arguments cannot change the session, approve applications or enable access. Screenshots return a bounded MCP image; live video uses binary transport. The MCP host must bind the handler to an approved session and authenticated agent owner; registering a global unscoped computer-use handler is unsafe.
 
 `record.start` saves JPEG packets to a private `.ace-screen` file. The format is the same binary packet stream, playable with `FrameDecoder` and any JPEG viewer. It preserves timestamps and sequence gaps when disk backpressure drops frames. Stop drains the in-flight and latest queued packet and publishes an artifact capped at 50 MiB. The local publisher saves an adjacent JSON manifest under the daemon's `screen-artifacts` directory; another artifact service can replace the publisher. Recordings contain screenshots, not a typed-text action log. They are not MP4 files. On crashes, complete received packets are finalized as an artifact. Quota and retention across multiple recordings belong to the artifact service.
 
 A helper failure clears the last screenshot, subscriptions and controller ownership, and reports failed state. Stop the failed session and explicitly start a replacement. Restarts never silently restore agent control. All process groups and Unix sockets are released on close.
 
+## Linux protocol v2
+
+Linux uses a private Unix endpoint and negotiates `hello` capabilities before capture. The daemon keeps one helper alive through inspections and sequential capture sessions. `linuxBackend()` prefers Wayland over XWayland and detects headless sessions; `installedLinuxHelper(dataDir, arch)` resolves a stable installed binary. `ACE_SCREEN_BACKEND=x11|wayland` explicitly selects an available session.
+
+Use the UI tree first, search for controls with `screen_ui_find`, then invoke semantic actions by stable ref. V2 named keys use `{ key: "Enter", modifiers: ["control"] }`; legacy virtual key codes remain macOS-only. Pixel clicks use the latest frame's scale to map back to target points. The v1 macOS helper remains supported.
+
+Remote device scopes apply to every screen request: `admin` is required for enable/approval, `read` for viewing, and `operate` for capture/control. Input still requires session controller ownership and prior application approval. See the native README for chooser identity limits and manual GNOME/KDE verification.
+
 ## Verification
+
+Owner instruction for this revision: tests, mutations, benchmarks and native integration are **not executed (tests run at merge)**. The commands below are for merge-time verification. Static checks use typecheck, lint, formatting, file-size checks and cargo check.
 
 ```sh
 bun run test packages/screen apps/daemon/src/screen.server.test.ts

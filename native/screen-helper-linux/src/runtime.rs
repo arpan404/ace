@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use std::{
     io::Write,
     os::fd::{AsRawFd, OwnedFd},
-    os::unix::{fs::MetadataExt, net::UnixStream},
+    os::unix::net::UnixStream,
     path::PathBuf,
     sync::{
         Arc,
@@ -41,6 +41,7 @@ pub(crate) struct Runtime {
     pub(crate) window: Option<Window>,
     pub(crate) ui_active: bool,
     pub(crate) view_only: bool,
+    target: Option<crate::protocol::Target>,
     pub(crate) capture: Option<Capture>,
     pub(crate) writer: Writer,
 }
@@ -55,6 +56,7 @@ impl Runtime {
     async fn stop(&mut self) -> Result<Value> {
         self.capture.take();
         self.window = None;
+        self.target = None;
         self.ui_active = false;
         self.view_only = false;
         if let Some(ui) = &mut self.ui {
@@ -144,13 +146,14 @@ impl Runtime {
             std::thread::spawn(move || {
                 let _read = read;
                 if let Err(e) =
-                    crate::pipewire::capture(fd, node, fps, logical_width, cancelled, publisher)
+                    crate::pipewire::capture(fd, node, fps, logical_width, _read.as_raw_fd(), cancelled, publisher)
                 {
                     eprintln!("capture: {e}");
                     let _ = socket.shutdown(std::net::Shutdown::Both);
                 }
             })
         };
+        self.target = Some(target.clone());
         self.capture = Some(Capture {
             stop,
             wake,
@@ -174,6 +177,7 @@ impl Runtime {
             "start" => self.start(r).await,
             "stop" => self.stop().await,
             "ui.tree" => {
+                crate::policy::scoped_target(r.target.as_ref(), self.target.as_ref())?;
                 self.check_ui()?;
                 self.ui
                     .as_mut()
@@ -219,8 +223,8 @@ impl Runtime {
                         .window
                         .as_ref()
                         .ok_or_else(|| Fault::new("not_supported", "No safe fallback target"))?;
-                    let x = f64::from(b.x - w.bounds.x) + f64::from(b.w) / 2.;
-                    let y = f64::from(b.y - w.bounds.y) + f64::from(b.h) / 2.;
+                    let live = self.x.as_ref().ok_or_else(|| internal("No X11 target"))?.check(w)?;
+                    let (x, y) = crate::policy::element_center(&b, &live.bounds)?;
                     self.click(x, y, "left").await?;
                     Ok(json!({"fallback":true,"method":"pointer.click"}))
                 } else {
@@ -293,14 +297,7 @@ pub async fn run() -> Result<()> {
         .as_deref()
         .and_then(|v| v.strip_prefix("unix:"))
         .ok_or_else(|| Fault::new("bounds", "Expected --endpoint unix:/path"))?;
-    let metadata = std::fs::symlink_metadata(path).map_err(internal)?;
-    if metadata.mode() & 0o077 != 0 || metadata.uid() != unsafe { libc::geteuid() } {
-        return Err(Fault::new(
-            "permission_denied",
-            "Frame endpoint must have owner-only permissions",
-        ));
-    }
-    let writer = Writer::open(UnixStream::connect(path).map_err(internal)?)?;
+    let writer = Writer::open(crate::endpoint::connect(std::path::Path::new(path))?)?;
     let ui = match Accessibility::connect().await {
         Ok(u) => Some(u),
         Err(e) => {
@@ -327,6 +324,7 @@ pub async fn run() -> Result<()> {
         window: None,
         ui_active: false,
         view_only: false,
+        target: None,
         capture: None,
         writer,
     };
@@ -363,8 +361,16 @@ pub async fn run() -> Result<()> {
             std::time::Duration::from_secs(if r.op == "start" { 130 } else { 10 }),
             runtime.command(&r),
         )
-        .await
-        .unwrap_or_else(|_| Err(Fault::new("timeout", "Command timed out")));
+        .await;
+        let result = match result {
+            Ok(result) => result,
+            Err(_) => {
+                if r.op == "start" {
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), runtime.stop()).await;
+                }
+                Err(Fault::new("timeout", "Command timed out"))
+            }
+        };
         let mut response = reply(&r, result);
         let mut bytes = serde_json::to_vec(&response).map_err(internal)?;
         if bytes.len() > 64 * 1024 {

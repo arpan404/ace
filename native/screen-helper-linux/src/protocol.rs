@@ -25,7 +25,7 @@ pub fn internal(e: impl std::fmt::Display) -> Fault {
     Fault::new("internal", e.to_string())
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Target {
     pub kind: String,

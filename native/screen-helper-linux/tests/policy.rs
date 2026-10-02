@@ -131,3 +131,46 @@ fn tree_limits_prune_children_and_byte_heavy_nodes_instead_of_collecting_history
     assert!(Budget::new(1, 0).is_err());
     assert!(Budget::new(1, 513).is_err());
 }
+
+#[test]
+fn semantic_fallback_uses_current_window_origin_and_refuses_an_outside_element() {
+    use ace_screen_helper_linux::{accessibility::Bounds, policy::element_center};
+    let window = Bounds { x: 200, y: 100, w: 400, h: 300 };
+    let element = Bounds { x: 240, y: 120, w: 80, h: 40 };
+    assert_eq!(element_center(&element, &window).unwrap(), (80., 40.));
+    let moved = Bounds { x: 300, y: 100, w: 400, h: 300 };
+    assert_eq!(element_center(&element, &moved).unwrap_err().code, "bounds");
+}
+#[test]
+fn accessibility_queries_cannot_silently_use_a_different_target() {
+    use ace_screen_helper_linux::{protocol::Target, policy::scoped_target};
+    let target = Target { kind: "window".into(), window_id: Some(1), display_id: None,
+        bundle_id: Some("approved".into()), bundle_ids: vec![] };
+    let different = Target { window_id: Some(2), ..target.clone() };
+    assert!(scoped_target(Some(&target), Some(&target)).is_ok());
+    assert!(scoped_target(None, Some(&target)).is_ok());
+    assert_eq!(scoped_target(Some(&different), Some(&target)).unwrap_err().code, "target_gone");
+    assert!(scoped_target(Some(&target), None).is_err());
+}
+#[test]
+fn frame_connection_rejects_public_directories_and_symlink_endpoints() {
+    use ace_screen_helper_linux::endpoint;
+    let directory = std::env::temp_dir().join(format!("ace-endpoint-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let path = directory.join("frame.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let stream = endpoint::connect(&path).unwrap();
+    let (peer, _) = listener.accept().unwrap();
+    drop(stream); drop(peer);
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(endpoint::connect(&path).unwrap_err().code, "permission_denied");
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let link = directory.join("link");
+    std::os::unix::fs::symlink(&path, &link).unwrap();
+    assert_eq!(endpoint::connect(&link).unwrap_err().code, "permission_denied");
+    drop(listener);
+    std::fs::remove_dir_all(directory).unwrap();
+}

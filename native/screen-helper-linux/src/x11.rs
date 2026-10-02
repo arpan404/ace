@@ -287,14 +287,22 @@ impl X11 {
                 _ => return Err(Fault::new("bounds", "Unknown modifier")),
             })?);
         }
+        let mut sent = Ok(());
         for c in &codes {
-            self.fake(KEY_PRESS_EVENT, *c, 0, 0)?;
+            if let Err(error) = self.fake(KEY_PRESS_EVENT, *c, 0, 0) {
+                sent = Err(error);
+                break;
+            }
         }
-        let sent = self
-            .fake(KEY_PRESS_EVENT, code, 0, 0)
-            .and_then(|()| self.fake(KEY_RELEASE_EVENT, code, 0, 0));
+        if sent.is_ok() {
+            sent = self.fake(KEY_PRESS_EVENT, code, 0, 0);
+            let released = self.fake(KEY_RELEASE_EVENT, code, 0, 0);
+            sent = sent.and(released);
+        }
+        // Attempt every release even if an earlier release or key press failed.
         for c in codes.iter().rev() {
-            self.fake(KEY_RELEASE_EVENT, *c, 0, 0)?;
+            let released = self.fake(KEY_RELEASE_EVENT, *c, 0, 0);
+            sent = sent.and(released);
         }
         sent
     }

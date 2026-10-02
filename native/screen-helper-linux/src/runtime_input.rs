@@ -34,15 +34,23 @@ impl Runtime {
                 _ => return Err(Fault::new("bounds", "Unknown modifier")),
             });
         }
+        let mut sent = Ok(());
         for s in &held {
-            p.key_symbol(*s, true).await?;
+            if let Err(error) = p.key_symbol(*s, true).await {
+                sent = Err(error);
+                break;
+            }
         }
-        let sent = p.key_symbol(symbol, true).await;
-        let released = p.key_symbol(symbol, false).await;
+        if sent.is_ok() {
+            sent = p.key_symbol(symbol, true).await;
+            let released = p.key_symbol(symbol, false).await;
+            sent = sent.and(released);
+        }
         for s in held.into_iter().rev() {
-            p.key_symbol(s, false).await?;
+            let released = p.key_symbol(s, false).await;
+            sent = sent.and(released);
         }
-        sent.and(released)
+        sent
     }
     pub(crate) async fn input(&mut self, r: &Request) -> Result<Value> {
         self.check_input()?;
