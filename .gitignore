@@ -9,3 +9,6 @@ coverage/
 
 # Raw recorder output before review/redaction. Reviewed fixtures live in fixtures/.
 .recordings/
+
+# Locally compiled POSIX terminal guardian.
+packages/terminal/native/group-keeper

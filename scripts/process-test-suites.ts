@@ -7,6 +7,7 @@ export const processTestSuites = [
   "packages/mcp-server/src/{admission,discovery-apis,discovery-fifo,http,http-boundaries,lifetime}.test.ts",
   "packages/notify/src/{apns,ipc,webpush,worker,review}.test.ts",
   "packages/git/src/**/*.test.ts",
+  "packages/terminal/src/{terminal,shell,review,lease,shutdown-lease,daemon-death,memory,group-safety}.test.ts",
   "packages/orchestrator/src/git{,-boundary}.test.ts",
   "tools/recorder/src/stdio.test.ts",
   "packages/adapter-testkit/src/cli.test.ts",

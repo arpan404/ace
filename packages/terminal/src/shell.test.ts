@@ -1,11 +1,8 @@
-import { configureRealPtyTests } from "./real-pty-test-config.ts";
 import { afterEach, expect, test } from "vitest";
 import { accessSync, constants } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fixture, collect } from "./test-support.ts";
-
-configureRealPtyTests();
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {

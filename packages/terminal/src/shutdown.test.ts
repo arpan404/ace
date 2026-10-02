@@ -10,14 +10,33 @@ function environment() {
   let emitExit: (value: unknown) => void = noop;
   let emitData: (value: unknown) => void = noop;
   let now = 0;
+  let reads = 0;
   let leaseOpen = true;
   const rows = [
     { pid: 42, group: 42, owner, state: "R" },
     { pid: 41, group: 42, owner, state: "R" },
     { pid: 43, group: 43, owner, state: "R" },
   ];
-  const faults = { inventory: false, afterStop: false, slowRead: false, recycleOnTerm: false };
+  const faults = {
+    inventory: false,
+    afterStop: false,
+    slowRead: false,
+    recycleOnTerm: false,
+    recycleAfterRead: false,
+    persistentAfterStop: false,
+    stopReplyFailure: false,
+  };
   const processes: ProcessControl = {
+    async signalOwned(group, signal) {
+      if (!rows.some((row) => row.group === group && row.owner === owner && row.state !== "Z"))
+        return false;
+      processes.signal(group, signal);
+      if (signal === "SIGSTOP" && faults.stopReplyFailure) {
+        faults.inventory = true;
+        throw new Error("STOP acknowledgment unavailable");
+      }
+      return true;
+    },
     stopShell() {
       const shell = rows.find((row) => row.pid === 42);
       if (shell) shell.state = "T";
@@ -26,10 +45,16 @@ function environment() {
       if (faults.inventory) throw new Error("Inventory unavailable");
       if (faults.afterStop && rows.some((row) => row.group !== 42 && row.state === "T")) {
         faults.afterStop = false;
+        if (faults.persistentAfterStop) faults.inventory = true;
         throw new Error("Transient inventory failure after stopping");
       }
       if (faults.slowRead) now += 1500;
-      return rows.map((row) => ({ ...row }));
+      const snapshot = rows.map((row) => ({ ...row }));
+      if (faults.recycleAfterRead && ++reads === 3) {
+        const job = rows.find((row) => row.group === 43);
+        if (job) job.owner = foreign;
+      }
+      return snapshot;
     },
     signal(group, signal) {
       for (const row of rows.filter((candidate) => candidate.group === group)) {
@@ -143,4 +168,43 @@ test("malformed exit data rejects exited but does not prevent releasing stopped 
   expect(() => context.terminal.attach()).toThrow("released");
   expect(() => context.terminal.snapshot()).toThrow("released");
   await context.manager.closeAll();
+});
+
+test("a job recycled after its final inventory snapshot is never signaled", async () => {
+  const context = environment();
+  context.faults.recycleAfterRead = true;
+  await context.manager.closeAll();
+  expect(context.rows.find((row) => row.owner === foreign)?.state).toBe("R");
+});
+
+test("persistent discovery failure after STOP resumes every surviving owned group", async () => {
+  const context = environment();
+  context.faults.afterStop = true;
+  context.faults.persistentAfterStop = true;
+  await expect(context.manager.closeAll()).rejects.toThrow();
+  expect(context.rows.every((row) => row.state === "R")).toBe(true);
+  context.faults.inventory = false;
+  await context.manager.closeAll();
+  expect(context.rows.every((row) => row.state === "Z")).toBe(true);
+});
+
+test("a lost STOP acknowledgment does not strand a paused owned job", async () => {
+  const context = environment();
+  context.faults.stopReplyFailure = true;
+  await expect(context.manager.closeAll()).rejects.toThrow();
+  expect(context.rows.every((row) => row.state === "R")).toBe(true);
+  context.faults.stopReplyFailure = false;
+  context.faults.inventory = false;
+  await context.manager.closeAll();
+  expect(context.rows.every((row) => row.state === "Z")).toBe(true);
+});
+
+test("explicit STOP pauses shell and jobs while leaving the lifetime keeper runnable", async () => {
+  const context = environment();
+  await context.terminal.kill("SIGSTOP");
+  expect(context.rows.find((row) => row.pid === 42)?.state).toBe("T");
+  expect(context.rows.find((row) => row.pid === 43)?.state).toBe("T");
+  expect(context.rows.find((row) => row.pid === 41)?.state).toBe("R");
+  await context.manager.closeAll();
+  expect(context.rows.every((row) => row.state === "Z")).toBe(true);
 });

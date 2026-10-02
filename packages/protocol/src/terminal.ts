@@ -22,3 +22,9 @@ export const TerminalOpenSchema = z.object({
   rows: z.number().int().min(1).max(65535),
   name: z.string(),
 });
+
+export const TerminalGroupReplySchema = z.object({
+  id: z.number().int().positive(),
+  result: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
+  error: z.number().int().nonnegative(),
+});

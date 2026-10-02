@@ -50,6 +50,12 @@ function boundary(graceMs = 37, unkillable = false) {
     },
   };
   const processes: ProcessControl = {
+    async signalOwned(group, signal) {
+      if (!rows.some((row) => row.group === group && row.owner === owner && row.state !== "Z"))
+        return false;
+      processes.signal(group, signal);
+      return true;
+    },
     read: async () => rows.map((row) => ({ ...row })),
     signal(group, signal) {
       if (signal === "SIGTERM") termSeen();

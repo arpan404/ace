@@ -7,6 +7,8 @@ export interface ShutdownScheduler {
 export interface ProcessControl {
   read(): Promise<ProcessIdentity[]>;
   signal(group: number, signal: NodeJS.Signals): void;
+  /** Atomically pin a group in this PTY session, then signal it. False means foreign/gone. */
+  signalOwned?(group: number, signal: NodeJS.Signals): Promise<boolean>;
   /** Freeze the original shell PID while leaving the FIFO keeper runnable. */
   stopShell?(): void;
   /** Safe even when inventory fails: the I/O boundary verifies its private lease. */
@@ -42,8 +44,16 @@ export function sessionOwnership(
       try {
         // A preceding signal may have made another group exit and be recycled.
         if (!(await groups()).has(group)) continue;
-        control.signal(group, requested);
+        // The guardian may apply STOP before an acknowledgment fails to arrive.
         if (requested === "SIGSTOP") paused.add(group);
+        if (group !== leaseGroup) {
+          if (!control.signalOwned)
+            throw new Error("Missing atomic session-group signaling boundary");
+          if (!(await control.signalOwned(group, requested))) continue;
+        } else if (requested === "SIGSTOP") {
+          if (!control.stopShell) throw new Error("Missing shell pause boundary");
+          control.stopShell();
+        } else control.signal(group, requested);
       } catch (error) {
         if (error instanceof Error && "code" in error && error.code === "ESRCH") continue;
         if (
@@ -58,6 +68,21 @@ export function sessionOwnership(
     }
     if (failures.length) throw new AggregateError(failures, "Failed to signal terminal processes");
   }
+  async function resumePaused() {
+    // Pinned identities survive inventory failures. Never await discovery here.
+    const failures: unknown[] = [];
+    for (const group of paused) {
+      if (group === leaseGroup) continue;
+      try {
+        if (!control.signalOwned) throw new Error("Missing atomic session-group recovery boundary");
+        await control.signalOwned(group, "SIGCONT");
+        paused.delete(group);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length) throw new AggregateError(failures, "Failed to resume terminal groups");
+  }
   async function escalate(failures: unknown[] = []) {
     const deadline = scheduler.now() + 1000;
     try {
@@ -65,8 +90,8 @@ export function sessionOwnership(
         if (!leaseEnded) {
           const discovered = await groups();
           if (discovered.has(leaseGroup)) {
-            control.stopShell?.();
             paused.add(leaseGroup);
+            control.stopShell?.();
           }
           await signalSelected(
             new Set([...discovered].filter((group) => group !== leaseGroup)),
@@ -97,7 +122,7 @@ export function sessionOwnership(
     } finally {
       if (!stopped && !leaseEnded) {
         try {
-          await signalSelected(paused, "SIGCONT");
+          await resumePaused();
         } catch (error) {
           failures.push(error);
         }
@@ -109,7 +134,7 @@ export function sessionOwnership(
           failures.push(error);
         }
       }
-      paused.clear();
+      if (stopped || leaseEnded) paused.clear();
     }
     if (failures.length) throw new AggregateError(failures, "Terminal shutdown failed");
   }

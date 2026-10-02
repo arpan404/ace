@@ -1,9 +1,6 @@
-import { configureRealPtyTests } from "./real-pty-test-config.ts";
 import { afterEach, test, expect } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-
-configureRealPtyTests();
 
 const controllers = new Set<AbortController>();
 afterEach(() => {

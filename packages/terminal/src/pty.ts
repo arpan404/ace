@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { accessSync, constants } from "node:fs";
 import { setTimeout } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
@@ -40,7 +41,7 @@ export interface NativePty {
 export interface PosixPorts {
   spawn: (shell: string, args: string[], options: Parameters<typeof spawn>[2]) => NativePty;
   processes: ProcessControl;
-  createLease: () => GroupLease;
+  createLease?: () => GroupLease;
 }
 
 export const shutdownScheduler: ShutdownScheduler = {
@@ -72,7 +73,18 @@ export function createPosixBackendFactory(
   const read = createProcessTable();
   return (options, shell, context) => {
     if (process.platform === "win32") throw new Error("Terminal service currently requires POSIX");
-    const lease = ports ? ports.createLease() : createGroupLease(leaseRoot);
+    const lease = ports?.createLease?.() ?? createGroupLease(leaseRoot, context.scheduler);
+    const keeper = fileURLToPath(new URL("../native/group-keeper", import.meta.url));
+    if (!ports?.createLease) {
+      try {
+        accessSync(keeper, constants.X_OK);
+      } catch (error) {
+        lease.dispose();
+        throw new Error("Terminal guardian is not built; run bun install at packaging/merge", {
+          cause: error,
+        });
+      }
+    }
     const ignored = [...new Set(Object.values(osConstants.signals))]
       .filter(
         (signal) =>
@@ -80,14 +92,14 @@ export function createPosixBackendFactory(
       )
       .join(" ");
     // The helper retains the ORIGINAL group ID, which cannot be reused while a
-    // member remains. It inherits ignored catchable signals and exits on FIFO EOF.
-    const launcher = `trap '' ${ignored}; /bin/sh -c 'printf ready >"$1"; while IFS= read -r line; do :; done' ace-lease "$2" <"$1" >/dev/null 2>&1 & keeper=$!; while [ ! -f "$2" ]; do kill -0 "$keeper" 2>/dev/null || exit 1; /bin/sleep 0.01; done; trap - ${ignored}; shift 2; exec "$@"`;
+    // member remains. It ignores catchable signals and cleans the session on FIFO EOF.
+    const launcher = `trap '' ${ignored}; "$3" "$1" "$2" >/dev/null 2>&1 & keeper=$!; while [ ! -f "$2" ]; do kill -0 "$keeper" 2>/dev/null || exit 1; /bin/sleep 0.01; done; trap - ${ignored}; shift 3; exec "$@"`;
     const loginArgs = ["-l", "-i"];
     let pty: NativePty;
     try {
       pty = (ports?.spawn ?? spawn)(
         "/bin/sh",
-        ["-c", launcher, "ace-terminal", lease.path, lease.readyPath, shell, ...loginArgs],
+        ["-c", launcher, "ace-terminal", lease.path, lease.readyPath, keeper, shell, ...loginArgs],
         {
           cwd: options.cwd,
           cols: options.cols,
@@ -133,6 +145,11 @@ export function createPosixBackendFactory(
     };
     const control: ProcessControl = {
       read: () => base.read(),
+      signalOwned: (group, signal) => {
+        const sent =
+          ports?.processes.signalOwned?.(group, signal) ?? lease.signalOwned?.(group, signal);
+        return sent ?? Promise.reject(new Error("Missing atomic session-group signaling boundary"));
+      },
       stopShell() {
         if (exited || leaseReleaseRequested || !lease.alive()) return;
         if (ports) {

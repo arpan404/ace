@@ -1,4 +1,3 @@
-import { configureRealPtyTests } from "./real-pty-test-config.ts";
 import { afterEach, expect, test } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -6,8 +5,6 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
-
-configureRealPtyTests();
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
