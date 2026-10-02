@@ -2,7 +2,6 @@ import { isIP } from "node:net";
 import { LimitsSchema } from "./config.ts";
 import type { Limits } from "./config.ts";
 export type { Limits } from "./config.ts";
-export const defaultLimits: Limits = LimitsSchema.parse({});
 /** IPv4-mapped IPv6 shares IPv4's quota. IPv6 hosts share their /64 budget. */
 export function ipKey(ip: string): string {
   const version = isIP(ip);
@@ -46,6 +45,12 @@ export function ipKey(ip: string): string {
       .join(":")
   );
 }
+export type PeerBudget = {
+  readonly key: string;
+  acquire(now: number): boolean;
+  release(now: number): void;
+  take(now: number): number;
+};
 type Entry = { connections: number; tokens: number; updated: number; seen: number };
 /** Pure admission and token decisions. Inactive entries form an O(1) LRU. */
 export class IpBudget {
@@ -55,8 +60,26 @@ export class IpBudget {
   constructor(limits: Partial<Limits> = {}) {
     this.#limits = LimitsSchema.parse(limits);
   }
-  acquire(ip: string, now: number): boolean {
+  /** Normalize once at connection admission, keeping address parsing off the frame hot path. */
+  forPeer(ip: string): PeerBudget {
     const key = ipKey(ip);
+    return {
+      key,
+      acquire: (now) => this.#acquire(key, now),
+      release: (now) => this.#release(key, now),
+      take: (now) => this.#take(key, now),
+    };
+  }
+  acquire(ip: string, now: number): boolean {
+    return this.#acquire(ipKey(ip), now);
+  }
+  release(ip: string, now: number): void {
+    this.#release(ipKey(ip), now);
+  }
+  take(ip: string, now: number): number {
+    return this.#take(ipKey(ip), now);
+  }
+  #acquire(key: string, now: number): boolean {
     let entry = this.#entries.get(key);
     if (!entry) {
       if (this.#entries.size >= this.#limits.maxIpEntries) {
@@ -74,8 +97,7 @@ export class IpBudget {
     entry.seen = now;
     return true;
   }
-  release(ip: string, now: number): void {
-    const key = ipKey(ip);
+  #release(key: string, now: number): void {
     const e = this.#entries.get(key);
     if (!e) return;
     e.connections = Math.max(0, e.connections - 1);
@@ -86,8 +108,7 @@ export class IpBudget {
     }
   }
   /** Returns zero after consuming a token, otherwise the delay until one is available. */
-  take(ip: string, now: number): number {
-    const key = ipKey(ip);
+  #take(key: string, now: number): number {
     const e = this.#entries.get(key);
     if (!e) throw new Error("IP not admitted");
     e.tokens = Math.min(

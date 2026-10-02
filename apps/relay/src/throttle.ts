@@ -1,26 +1,24 @@
 import type { Clock } from "./clock.ts";
-import { IpBudget, ipKey } from "./limits.ts";
+import type { PeerBudget } from "./limits.ts";
 type Waiter = { signal: AbortSignal; resolve(): void; reject(error: Error): void; abort(): void };
 type Queue = { waiters: Waiter[]; cancel: (() => void) | undefined };
 /** One timer per IP bucket; FIFO waiters avoid a per-socket refill stampede. */
 export class Throttle {
-  #budget: IpBudget;
   #clock: Clock;
   #queues = new Map<string, Queue>();
   #onThrottle: (ip: string) => void;
-  constructor(budget: IpBudget, clock: Clock, onThrottle: (ip: string) => void) {
-    this.#budget = budget;
+  constructor(clock: Clock, onThrottle: (ip: string) => void) {
     this.#clock = clock;
     this.#onThrottle = onThrottle;
   }
-  wait(ip: string, signal: AbortSignal): Promise<void> | undefined {
+  wait(peer: PeerBudget, signal: AbortSignal): Promise<void> | undefined {
     if (signal.aborted) return Promise.reject(new Error("Socket closed"));
-    const key = ipKey(ip);
+    const key = peer.key;
     const existing = this.#queues.get(key);
-    if (!existing && this.#budget.take(ip, this.#clock.now()) === 0) return undefined;
+    if (!existing && peer.take(this.#clock.now()) === 0) return undefined;
     const queue = existing ?? { waiters: [], cancel: undefined };
     this.#queues.set(key, queue);
-    this.#onThrottle(ip);
+    this.#onThrottle(key);
     return new Promise((resolve, reject) => {
       const waiter: Waiter = {
         signal,
@@ -38,15 +36,16 @@ export class Throttle {
       };
       queue.waiters.push(waiter);
       signal.addEventListener("abort", waiter.abort, { once: true });
-      if (!queue.cancel) this.#drain(ip, key, queue);
+      if (!queue.cancel) this.#drain(peer, queue);
     });
   }
-  #drain(ip: string, key: string, queue: Queue): void {
+  #drain(peer: PeerBudget, queue: Queue): void {
+    const key = peer.key;
     queue.cancel = undefined;
     while (queue.waiters.length) {
-      const wait = this.#budget.take(ip, this.#clock.now());
+      const wait = peer.take(this.#clock.now());
       if (wait > 0) {
-        queue.cancel = this.#clock.schedule(wait, () => this.#drain(ip, key, queue));
+        queue.cancel = this.#clock.schedule(wait, () => this.#drain(peer, queue));
         return;
       }
       const waiter = queue.waiters.shift();

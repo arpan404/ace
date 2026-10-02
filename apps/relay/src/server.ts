@@ -52,7 +52,7 @@ export async function startRelay(options: RelayOptions = {}) {
     throttledFrames: 0,
     peakReaderBytes: 0,
   };
-  const throttle = new Throttle(budget, clock, () => {
+  const throttle = new Throttle(clock, () => {
     stats.throttledFrames++;
     options.onThrottle?.();
   });
@@ -143,20 +143,21 @@ export async function startRelay(options: RelayOptions = {}) {
       socket.destroy();
       return;
     }
-    if (wss.clients.size >= limits.maxConnections || !budget.acquire(ip, clock.now())) {
+    const peerBudget = budget.forPeer(ip);
+    if (wss.clients.size >= limits.maxConnections || !peerBudget.acquire(clock.now())) {
       socket.end("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n");
       return;
     }
     let upgraded = false;
     socket.once("close", () => {
-      if (!upgraded) budget.release(ip, clock.now());
+      if (!upgraded) peerBudget.release(clock.now());
     });
     wss.handleUpgrade(request, socket, head, (ws) => {
       upgraded = true;
       const id = z.string().min(1).parse(createId());
       if (connections.has(id)) {
         ws.terminate();
-        budget.release(ip, clock.now());
+        peerBudget.release(clock.now());
         return;
       }
       const abort = new AbortController();
@@ -165,7 +166,7 @@ export async function startRelay(options: RelayOptions = {}) {
         abort,
         lastActivity: clock.now(),
         reader: new FrameReader(ws, {
-          permit: () => throttle.wait(ip, abort.signal),
+          permit: () => throttle.wait(peerBudget, abort.signal),
           onFrame: () => {
             connection.lastActivity = clock.now();
             void apply(routing.premature(id)).catch(() => ws.terminate());
@@ -185,7 +186,7 @@ export async function startRelay(options: RelayOptions = {}) {
           .then(async () => {
             const release = connection.reader.hold();
             try {
-              await throttle.wait(ip, abort.signal);
+              await throttle.wait(peerBudget, abort.signal);
               connection.lastActivity = clock.now();
               if (ws.bufferedAmount + data.length + 2 > limits.maxBufferedBytes) ws.terminate();
               else reply();
@@ -202,7 +203,7 @@ export async function startRelay(options: RelayOptions = {}) {
         abort.abort();
         connection.control?.destroy();
         connections.delete(id);
-        budget.release(ip, clock.now());
+        peerBudget.release(clock.now());
         void apply(routing.close(id)).catch(() => {});
       });
       void route(id, new URL(request.url ?? "/", "http://relay"), connection).catch(() =>

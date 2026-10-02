@@ -60,3 +60,15 @@ it("only the offering host may reject an outstanding client ticket", () => {
     { type: "pair", client: "client", host: "join" },
   ]);
 });
+it("normalized peer handles retain the same shared quota across connection churn", () => {
+  const budget = new IpBudget({ maxConnectionsPerIp: 1, messageBurst: 1, messagesPerSecond: 1 });
+  const a = budget.forPeer("2001:db8::1"),
+    b = budget.forPeer("2001:db8::2");
+  expect(a.acquire(0)).toBe(true);
+  expect(b.acquire(0)).toBe(false);
+  expect(a.take(0)).toBe(0);
+  expect(b.take(0)).toBe(1000);
+  a.release(0);
+  expect(b.acquire(1000)).toBe(true);
+  expect(b.take(1000)).toBe(0);
+});

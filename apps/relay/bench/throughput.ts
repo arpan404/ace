@@ -6,6 +6,8 @@ import { startRelay, connectHostToRelay, connectClientViaRelay } from "../src/in
 import type { HostChannel } from "../src/index.ts";
 const input = z
   .object({
+    MESSAGES_PER_SECOND: z.coerce.number().int().positive().default(1000),
+    MESSAGE_BURST: z.coerce.number().int().positive().default(2000),
     TOTAL_MIB: z.coerce.number().int().min(1).default(300),
     MESSAGE_MIB: z.coerce.number().int().min(1).max(15).default(1),
   })
@@ -66,6 +68,8 @@ try {
       node: process.version,
       platform: process.platform,
       mode: process.env["UNLIMITED"] === "1" ? "unlimited" : "default",
+      messagesPerSecond: process.env["UNLIMITED"] === "1" ? 100000 : input.MESSAGES_PER_SECOND,
+      messageBurst: process.env["UNLIMITED"] === "1" ? 100000 : input.MESSAGE_BURST,
       MiB: input.TOTAL_MIB,
       messageMiB: input.MESSAGE_MIB,
       milliseconds: +elapsed.toFixed(2),
