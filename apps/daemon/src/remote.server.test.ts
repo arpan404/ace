@@ -1,72 +1,18 @@
 import { once } from "node:events";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, networkInterfaces } from "node:os";
+import { connect as connectTcp } from "node:net";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { DeviceId, CommandId } from "@ace/protocol";
+import { describe, expect, it } from "vitest";
+import { DeviceId, CommandId, PairingResponse, SocketTicket } from "@ace/protocol";
 import { accessRequest, pinnedAgent, redeemPairing, ticketSocket } from "./client-access.ts";
 import { readConfig } from "./config.ts";
 import { startDaemon } from "./index.ts";
-import { loadIdentity } from "./tls-identity.ts";
 import { Client, fixture, token } from "./socket-test-support.ts";
 
-const certificateHome = mkdtempSync(join(tmpdir(), "ace-tls-"));
-const identity = loadIdentity(certificateHome);
-afterAll(() => rmSync(certificateHome, { recursive: true, force: true }));
-const cleanups: (() => Promise<void> | void)[] = [];
-afterEach(async () => {
-  for (const close of cleanups.splice(0).toReversed()) await close();
-});
-async function setup() {
-  let time = 1000;
-  const f = await fixture({
-    now: () => time,
-    remote: { host: "127.0.0.1", advertisedHost: "127.0.0.1", port: 0, identity },
-  });
-  cleanups.push(() => f.close());
-  const remote = f.server.remoteUrl!.replace("wss:", "https:");
-  const local = f.server.httpUrl;
-  const request = (path: string, options: Parameters<typeof accessRequest>[2] = {}) =>
-    accessRequest(local, path, options);
-  const remoteRequest = (path: string, options: Parameters<typeof accessRequest>[2] = {}) =>
-    accessRequest(remote, path, { ...options, fingerprint: identity.fingerprint });
-  const pairing = async (scopes = ["read", "operate"]) => {
-    const result = (await request("/v1/pairings", { method: "POST", token, body: { scopes } })) as {
-      url: string;
-      expiresAt: number;
-    };
-    return result;
-  };
-  const pair = async (scopes = ["read", "operate"]) =>
-    redeemPairing((await pairing(scopes)).url, "Phone") as Promise<{
-      device: { id: string; scopes: string[] };
-      token: string;
-    }>;
-  const ticket = async (credential: string) =>
-    remoteRequest("/v1/tickets", { method: "POST", token: credential }) as Promise<{
-      ticket: string;
-      expiresAt: number;
-    }>;
-  const connect = async (deviceId: string, ticket: string) => {
-    const client = await f.open();
-    client.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse(deviceId), ticket });
-    return client;
-  };
-  return {
-    ...f,
-    request,
-    remoteRequest,
-    pairing,
-    pair,
-    ticket,
-    connectTicket: connect,
-    advance: (ms: number) => {
-      time += ms;
-    },
-  };
-}
+import { cleanups, identity, setup } from "./remote-test-support.ts";
 describe("remote access", () => {
   it("carries the pin and one-time code only in the URL fragment and consumes the code once", async () => {
     const f = await setup();
@@ -77,10 +23,7 @@ describe("remote access", () => {
     const fragment = new URLSearchParams(url.hash.slice(1));
     expect(fragment.get("fingerprint")).toBe(identity.fingerprint);
     expect(fragment.get("code")).toMatch(/^[0-9a-f]{64}$/);
-    const result = (await redeemPairing(pairing.url, "Phone")) as {
-      device: { name: string; scopes: string[] };
-      token: string;
-    };
+    const result = await redeemPairing(pairing.url, "Phone");
     expect(result.device).toMatchObject({ name: "Phone", scopes: ["read", "operate"] });
     await expect(redeemPairing(pairing.url, "Second phone")).rejects.toThrow("HTTP 401");
     expect(pairing.expiresAt).toBe(301000);
@@ -109,7 +52,8 @@ describe("remote access", () => {
     expect(Buffer.from(paired.token, "hex").length).toBeGreaterThanOrEqual(32);
     const db = new DatabaseSync(join(f.home, "events.sqlite"));
     try {
-      const row = db.prepare("SELECT * FROM devices WHERE id = ?").get(paired.device.id)!;
+      const row = db.prepare("SELECT * FROM devices WHERE id = ?").get(paired.device.id);
+      if (!row) throw new Error("Device not stored");
       expect(row.token_hash).toBe(createHash("sha256").update(paired.token).digest("hex"));
       expect(JSON.stringify(row)).not.toContain(paired.token);
     } finally {
@@ -125,7 +69,7 @@ describe("remote access", () => {
     const paired = await f.pair();
     const issued = await f.ticket(paired.token);
     expect(issued.expiresAt).toBe(61000);
-    const socket = ticketSocket(f.server.remoteUrl!, identity.fingerprint);
+    const socket = ticketSocket(f.server.remoteUrl, identity.fingerprint);
     const close = once(socket, "close");
     cleanups.push(async () => {
       if (socket.readyState !== socket.CLOSED) socket.close();
@@ -212,6 +156,10 @@ describe("remote access", () => {
     expect(await f.request(`/v1/devices/${paired.device.id}`, { method: "DELETE", token })).toEqual(
       { revoked: true },
     );
+    for (const live of [first, second]) {
+      if (live.socket.readyState === live.socket.OPEN) live.send({ type: "ping" });
+      await expect(live.next()).rejects.toThrow("Socket closed");
+    }
     await Promise.all(closed);
     await expect(f.ticket(paired.token)).rejects.toThrow("HTTP 401");
     const client = await f.connectTicket(paired.device.id, pending.ticket);
@@ -226,7 +174,7 @@ describe("remote access", () => {
     const agent = pinnedAgent(identity.fingerprint);
     cleanups.push(() => agent.destroy());
     for (const credential of [token, paired.token]) {
-      const client = new Client(f.server.remoteUrl!, { agent });
+      const client = new Client(f.server.remoteUrl, { agent });
       cleanups.push(() => client.close());
       await once(client.socket, "open");
       client.send({
@@ -254,7 +202,7 @@ describe("remote access", () => {
     wrong.hash = fragment.toString();
     await expect(redeemPairing(wrong.toString(), "Phone")).rejects.toThrow("fingerprint mismatch");
     expect(await redeemPairing(url, "Phone")).toMatchObject({ device: { name: "Phone" } });
-    const socket = ticketSocket(f.server.remoteUrl!, "0".repeat(64));
+    const socket = ticketSocket(f.server.remoteUrl, "0".repeat(64));
     const closed = once(socket, "close");
     expect((await once(socket, "error"))[0].message).toContain("fingerprint mismatch");
     await closed.catch(() => {});
@@ -264,16 +212,32 @@ describe("remote access", () => {
     await expect(
       accessRequest(f.server.httpUrl, "/v1/status?token=secret", { token }),
     ).rejects.toThrow("request URLs");
-    expect(() =>
-      ticketSocket(f.server.remoteUrl! + "?ticket=secret", identity.fingerprint),
-    ).toThrow("without credentials");
+    expect(() => ticketSocket(f.server.remoteUrl + "?ticket=secret", identity.fingerprint)).toThrow(
+      "without credentials",
+    );
     await expect(
-      accessRequest(f.server.remoteUrl!.replace("wss:", "https:"), "/v1/status"),
+      accessRequest(f.server.remoteUrl.replace("wss:", "https:"), "/v1/status"),
     ).rejects.toThrow("fingerprint");
   });
   it("defaults to loopback only and requires explicit network exposure before pairing", async () => {
     const f = await fixture();
     cleanups.push(() => f.close());
+    const lanAddress = Object.values(networkInterfaces())
+      .flat()
+      .find((entry) => entry && !entry.internal && entry.family === "IPv4")?.address;
+    if (lanAddress) {
+      const attempted = connectTcp({ host: lanAddress, port: Number(new URL(f.server.url).port) });
+      await new Promise<void>((resolve, reject) => {
+        attempted.once("connect", () => {
+          attempted.destroy();
+          reject(new Error("Default listener exposed the LAN"));
+        });
+        attempted.once("error", (error) => {
+          if ("code" in error && error.code === "ECONNREFUSED") resolve();
+          else reject(error);
+        });
+      });
+    }
     expect(f.server.remoteUrl).toBeUndefined();
     expect(await accessRequest(f.server.httpUrl, "/v1/status", { token })).toEqual({
       running: true,
@@ -298,26 +262,28 @@ describe("remote access", () => {
     cleanups.push(() => first.close());
     const credential = readFileSync(first.tokenPath, "utf8");
     const origin = readFileSync(join(home, "daemon-endpoint"), "utf8");
-    const result = (await accessRequest(origin, "/v1/pairings", {
-      token: credential,
-      method: "POST",
-      body: {},
-    })) as { url: string };
-    const paired = (await redeemPairing(result.url, "Phone")) as { token: string };
-    const pending = (await accessRequest(
-      first.remoteUrl!.replace("wss:", "https:"),
-      "/v1/tickets",
-      { token: paired.token, fingerprint: first.fingerprint!, method: "POST" },
-    )) as { ticket: string };
+    if (!first.remoteUrl || !first.fingerprint) throw new Error("Remote listener missing");
+    const result = PairingResponse.parse(
+      await accessRequest(origin, "/v1/pairings", { token: credential, method: "POST", body: {} }),
+    );
+    const paired = await redeemPairing(result.url, "Phone");
+    const pending = SocketTicket.parse(
+      await accessRequest(first.remoteUrl.replace("wss:", "https:"), "/v1/tickets", {
+        token: paired.token,
+        fingerprint: first.fingerprint,
+        method: "POST",
+      }),
+    );
     await first.close();
     const second = await startDaemon(config);
     cleanups.push(() => second.close());
+    if (!second.remoteUrl || !second.fingerprint) throw new Error("Remote listener missing");
     expect(second.fingerprint).toBe(first.fingerprint);
     expect(statSync(join(home, "tls/key.pem")).mode & 0o777).toBe(0o600);
     expect(
-      await accessRequest(second.remoteUrl!.replace("wss:", "https:"), "/v1/tickets", {
+      await accessRequest(second.remoteUrl.replace("wss:", "https:"), "/v1/tickets", {
         token: paired.token,
-        fingerprint: second.fingerprint!,
+        fingerprint: second.fingerprint,
         method: "POST",
       }),
     ).toMatchObject({ ticket: expect.any(String) });
