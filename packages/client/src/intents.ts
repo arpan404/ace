@@ -127,12 +127,12 @@ export class Intents {
         state: result.ok ? "acked" : "failed",
         ...(result.error === undefined ? {} : { error: result.error }),
       };
+      const serialized = JSON.stringify(
+        [...this.records.values()].map((intent) => (intent === previous ? next : intent)),
+      );
+      if (!fitsUtf8(serialized, this.bytes)) throw new ClientError("storage");
       try {
-        await this.storage.save(
-          JSON.stringify(
-            [...this.records.values()].map((intent) => (intent === previous ? next : intent)),
-          ),
-        );
+        await this.storage.save(serialized);
       } catch {
         throw new ClientError("storage");
       }

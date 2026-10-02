@@ -195,3 +195,19 @@ test("retrying an acknowledged command returns its receipt without repeating its
       .filter((event) => event.payload.type === "thread.updated"),
   ).toHaveLength(1);
 });
+
+test("an oversized daemon rejection cannot grow the persisted outbox beyond its byte cap", async () => {
+  const h = await setup({
+    handle(command) {
+      return { commandId: command.id, ok: false, error: "x".repeat(1000) };
+    },
+  });
+  cleanup = h.cleanup;
+  const storage = memoryStorage();
+  const { client } = h.make({ storage, limits: { outboxBytes: 512 } });
+  await ready(client);
+  const id = await client.enqueue({ type: "thread.archive", threadId: h.thread.id });
+  await when(client.connectionState(), (state) => state === "fatal");
+  expect(client.intent(id).getSnapshot()?.state).toBe("pending");
+  expect((await storage.load())?.length).toBeLessThanOrEqual(512);
+});

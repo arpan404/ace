@@ -3,6 +3,13 @@ import { spawnSync } from "node:child_process";
 
 const mutations = [
   {
+    name: "retry cap removed",
+    file: "lifecycle.ts",
+    before: "Math.min(cap, base * 2 ** Math.min(attempt, 30)) * random",
+    after: "base * 2 ** Math.min(attempt, 30) * random",
+    test: "retry ceilings double",
+  },
+  {
     name: "resume cursor omitted",
     file: "subscriptions.ts",
     before: "...(entry.store.cursor === undefined ? {} : { afterSeq: entry.store.cursor }),",

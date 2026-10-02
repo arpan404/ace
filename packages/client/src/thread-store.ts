@@ -128,7 +128,7 @@ export class ThreadStore implements ThreadReader {
           keys.add("thread");
           break;
         case "agent.created":
-          this.capacity("agents", !!this.agent(p.agent.id));
+          if (!keys.has(`agent:${p.agent.id}`)) this.capacity("agents", !!this.agent(p.agent.id));
           if (p.agent.origin === "root") {
             view.thread = { ...view.thread };
             keys.add("thread");
@@ -141,7 +141,7 @@ export class ThreadStore implements ThreadReader {
           keys.add(`agent:${p.agentId}`);
           break;
         case "run.started":
-          this.capacity("runs", !!this.run(p.run.id));
+          if (!keys.has(`run:${p.run.id}`)) this.capacity("runs", !!this.run(p.run.id));
           keys.add(`run:${p.run.id}`);
           break;
         case "run.ended":
@@ -174,7 +174,8 @@ export class ThreadStore implements ThreadReader {
           keys.add(`item:${p.itemId}`);
           break;
         case "interaction.opened":
-          this.capacity("interactions", !!this.interaction(p.interaction.id));
+          if (!keys.has(`interaction:${p.interaction.id}`))
+            this.capacity("interactions", !!this.interaction(p.interaction.id));
           keys.add(`interaction:${p.interaction.id}`);
           break;
         case "interaction.closed":
@@ -182,7 +183,7 @@ export class ThreadStore implements ThreadReader {
           keys.add(`interaction:${p.interactionId}`);
           break;
         case "background_task.started":
-          this.capacity("tasks", !!this.task(p.task.id));
+          if (!keys.has(`task:${p.task.id}`)) this.capacity("tasks", !!this.task(p.task.id));
           keys.add(`task:${p.task.id}`);
           break;
         case "background_task.updated":
@@ -190,7 +191,7 @@ export class ThreadStore implements ThreadReader {
           keys.add(`task:${p.taskId}`);
           break;
         case "usage.updated":
-          this.capacity("usage", !!this.usage(p.agentId));
+          if (!keys.has(`usage:${p.agentId}`)) this.capacity("usage", !!this.usage(p.agentId));
           keys.add(`usage:${p.agentId}`);
           break;
       }
@@ -225,7 +226,12 @@ export class ThreadStore implements ThreadReader {
     const added: string[] = [];
     for (const item of items)
       if (!this.item(item.id)) {
-        view.items[item.id] = item;
+        Object.defineProperty(view.items, item.id, {
+          value: item,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
         added.push(item.id);
         keys.add(`item:${item.id}`);
         this.clip(item.id);

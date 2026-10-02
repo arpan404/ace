@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { createDevThread } from "@ace/daemon";
-import { ItemId } from "@ace/protocol";
+import { ItemId, RunId } from "@ace/protocol";
 import { setup, ready, when, barrier, message, itemId, delta, itemText } from "./test-support.ts";
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -322,4 +322,61 @@ test("a view mounted by the ready notification creates only one daemon subscript
   ).toHaveLength(1);
   release?.();
   stop();
+});
+
+test("repeated entity upserts in one batch consume only one cache slot", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client } = h.make({ limits: { entities: 1 } });
+  await ready(client);
+  const { store } = client.thread(h.thread.id);
+  await when(
+    store.select(["thread"], (s) => s.thread),
+    Boolean,
+  );
+  const run = {
+    id: RunId.parse("one-run"),
+    threadId: h.thread.id,
+    agentId:
+      message.type === "item.created"
+        ? message.item.agentId
+        : (() => {
+            throw new Error("fixture");
+          })(),
+    trigger: "user" as const,
+    state: "active" as const,
+    startedAt: 1,
+  };
+  h.daemon.store.appendEvents(h.thread.id, [
+    { type: "run.started", run },
+    { type: "run.started", run },
+  ]);
+  await barrier(client, h.thread.id);
+  expect(store.run(run.id)?.state).toBe("active");
+  expect(client.state).toBe("ready");
+});
+
+test("paged opaque item identifiers cannot change the item record prototype", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  if (message.type !== "item.created") throw new Error("fixture");
+  h.daemon.store.appendEvents(h.thread.id, [
+    { ...message, item: { ...message.item, id: ItemId.parse("__proto__") } },
+    { ...message, item: { ...message.item, id: ItemId.parse("new") } },
+  ]);
+  const { client } = h.make({ limits: { items: 1 } });
+  await ready(client);
+  const { store } = client.thread(h.thread.id);
+  await when(
+    store.select(["thread"], (s) => s.thread),
+    Boolean,
+  );
+  const page = await client.itemsPage({
+    threadId: h.thread.id,
+    before: ItemId.parse("new"),
+    limit: 1,
+  });
+  store.page(page.items, page.itemsBefore);
+  expect(store.item("__proto__")?.id).toBe("__proto__");
+  expect(store.order).toEqual(["__proto__"]);
 });
