@@ -3,7 +3,7 @@ import { createServer, request } from "node:http";
 import { z } from "zod";
 import { expect, test } from "vitest";
 import { cleanups, setup } from "./remote-test-support.ts";
-import { token } from "./socket-test-support.ts";
+import { fixture, token } from "./socket-test-support.ts";
 
 const previewOptions = { host: "127.0.0.1", wildcardHost: "preview.test" };
 const Link = z.object({ url: z.url() });
@@ -92,4 +92,23 @@ test("daemon shutdown closes its preview streams and listener", async () => {
   await f.server.close();
   await closed;
   await expect(call(origin, cookie)).rejects.toThrow();
+});
+
+test("preview link expiry follows the daemon's injected delivery clock", async () => {
+  let now = 1000;
+  const f = await fixture({ preview: previewOptions, runtime: { now: () => now } });
+  cleanups.push(f.close);
+  const gateway = f.server.preview;
+  if (!gateway) throw new Error("Missing preview gateway");
+  const port = await upstream();
+  gateway.register({ port });
+  const paired = f.store.devices.create("Operator", ["operate"], now);
+  const expiring = await gateway.mintLink({ port, deviceToken: paired.token });
+  now += 60_001;
+  const expired = await call(expiring);
+  expired.resume();
+  expect(expired.statusCode).toBe(401);
+  const fresh = await call(await gateway.mintLink({ port, deviceToken: paired.token }));
+  fresh.resume();
+  expect(fresh.statusCode).toBe(303);
 });

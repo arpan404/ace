@@ -1,0 +1,44 @@
+{
+  "checkpoints": [
+    {
+      "t": 4211,
+      "thread": "waiting",
+      "agentStates": {
+        "root": "blocked"
+      }
+    },
+    {
+      "t": 18499,
+      "thread": "working"
+    },
+    {
+      "t": 18500,
+      "thread": "working",
+      "agentStates": {
+        "root": "working"
+      },
+      "note": "Completion must hold the wake gap before the next init."
+    },
+    {
+      "t": 22426,
+      "thread": "done"
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 1,
+    "interactions": {
+      "resolved": 0,
+      "pending": 0,
+      "cancelled": 0,
+      "expired": 0
+    },
+    "items": {
+      "tool_call": 2,
+      "message": 2
+    },
+    "agentStates": {
+      "root": "idle"
+    }
+  }
+}

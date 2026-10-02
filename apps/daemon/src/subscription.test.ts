@@ -1,3 +1,6 @@
+import { DatabaseSync } from "node:sqlite";
+import { Store, createDevThread } from "./index.ts";
+import { message as transcriptMessage } from "./payload-test-support.ts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Agent, AgentId, ThreadId, type ServerMessage } from "@ace/protocol";
 import { applyDelivery, createThreadView } from "@ace/projection";
@@ -15,6 +18,7 @@ async function setup() {
 }
 function port(store: SubscriptionStore): SubscriptionStore {
   return {
+    getThread: store.getThread.bind(store),
     snapshotThread: store.snapshotThread.bind(store),
     subscribe: store.subscribe.bind(store),
     headSeq: store.headSeq.bind(store),
@@ -254,4 +258,60 @@ describe("subscription bootstrap", () => {
     vi.advanceTimersByTime(250);
     expect(messages).toHaveLength(2);
   });
+});
+
+it.each([0, 1])("reconnects with a gap of %s without reading transcript bodies", (gap) => {
+  const db = new DatabaseSync(":memory:");
+  const store = new Store(":memory:", undefined, { database: db });
+  cleanups.push(() => store.close());
+  const thread = createDevThread(store, store.createWorkspace("/repo", "repo"));
+  store.appendEvents(
+    thread.id,
+    Array.from({ length: 2500 }, (_, i) => ({
+      type: "item.created" as const,
+      item: transcriptMessage(`i${i}`, "x".repeat(1024)),
+    })),
+  );
+  store.appendEvents(thread.id, [{ type: "thread.updated", title: "Head" }]);
+  // Meter actual SQLite body reads, independent of machine speed.
+  db.function("read_body", (_value) => {
+    throw new Error("Reconnect read a historical item body");
+  });
+  db.exec(
+    "ALTER TABLE items RENAME TO metered_items; CREATE VIEW items AS SELECT thread_id, id, created_seq, read_body(item) AS item FROM metered_items",
+  );
+  const messages: ServerMessage[] = [];
+  cleanups.push(
+    subscribe(
+      store,
+      "s",
+      { kind: "thread", threadId: thread.id },
+      store.headSeq() - gap,
+      5000,
+      (m) => messages.push(m),
+    ),
+  );
+  expect(messages).toHaveLength(gap);
+  if (gap)
+    expect(messages[0]).toMatchObject({
+      type: "events",
+      events: [{ payload: { type: "thread.updated", title: "Head" } }],
+    });
+});
+
+it("rejects an unknown thread even when replay starts at the current head", async () => {
+  const f = await setup();
+  const messages: ServerMessage[] = [];
+  expect(() =>
+    subscribe(
+      f.store,
+      "missing",
+      { kind: "thread", threadId: ThreadId.parse("missing") },
+      f.store.headSeq(),
+      5000,
+      (message) => messages.push(message),
+    ),
+  ).toThrow("Unknown thread");
+  f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Later" }]);
+  expect(messages).toEqual([]);
 });

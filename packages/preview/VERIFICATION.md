@@ -74,3 +74,24 @@ Dependency links and the lockfile were refreshed with lifecycle scripts disabled
 No claim of a full `bun run check`, concurrent stability, mutation results,
 final-tree throughput or CI success is made. Historical benchmark numbers remain
 in the PR description as pre-policy measurements; current numbers need run at merge.
+
+## Latest main integration
+
+Merged main `fe670b0` after independent approval. Protocol subpaths retain both
+`./preview` and `./forge`. Process-test globs retain main's delivery, shutdown,
+pressure, Docker and workspace entries alongside all preview and cancellation
+entries. Daemon integration retains model catalog requests, notification
+services, remote pairing, scoped reads/commands, input limits, injected delivery
+runtime and awaited presence cleanup alongside preview HTTP, revocation and
+shutdown. Startup failure uses main's timer-stop handle and preview cleanup.
+
+Preview already uses main's device authentication, `allows` scope predicate and
+revocation API. The preview authority receives the daemon's injected delivery
+clock through RemoteAuth. An added public HTTP regression advances that clock,
+requires an old link to return 401 and a fresh link to return 303. Mutation:
+discard the injected delivery clock for preview authorization,
+**not executed (tests run at merge)**. Runtime confirmation needs run at merge.
+
+All permitted static checks pass on the merged tree; the size gate covers 596
+source files. Dependency installation used `--ignore-scripts`. No tests, probes,
+benchmarks, mutations, full `bun run check` or CI were run for this merge.
