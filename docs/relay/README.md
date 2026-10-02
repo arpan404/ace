@@ -48,7 +48,7 @@ bun install
 ACE_RELAY_PORT=8787 bun run --filter @ace/relay start
 ```
 
-Numeric environment values must be decimal positive safe integers. Port is at most 65535, frame size cannot exceed the Noise ceiling, and the high-water mark cannot exceed the buffer cap.
+Numeric environment values must be decimal positive safe integers. Deadlines and host retry delays are at most 2,147,483,647 ms, the Node timer ceiling. Port is at most 65535, frame size cannot exceed the Noise ceiling, and the high-water mark cannot exceed the buffer cap.
 
 | Environment variable               |                      Default |
 | ---------------------------------- | ---------------------------: |

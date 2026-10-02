@@ -1,5 +1,6 @@
 import { z } from "zod";
 const positive = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+const duration = positive.max(2147483647);
 export const HostId = z.string().regex(/^[A-Z2-7]{52}$/);
 export const Ticket = z.string().regex(/^[a-f0-9]{64}$/);
 export const LimitsSchema = z
@@ -9,12 +10,12 @@ export const LimitsSchema = z
     messagesPerSecond: positive.default(1000),
     messageBurst: positive.default(2000),
     maxFrameSize: positive.max(65535).default(65535),
-    idleTimeoutMs: positive.default(60000),
+    idleTimeoutMs: duration.default(60000),
     highWaterBytes: positive.default(262144),
     maxBufferedBytes: positive.default(1048576),
     maxIpEntries: positive.default(4096),
-    handshakeTimeoutMs: positive.default(10000),
-    ticketTimeoutMs: positive.default(10000),
+    handshakeTimeoutMs: duration.default(10000),
+    ticketTimeoutMs: duration.default(10000),
   })
   .refine((value) => value.highWaterBytes <= value.maxBufferedBytes, {
     message: "High water exceeds buffer cap",
@@ -23,10 +24,10 @@ export type Limits = z.infer<typeof LimitsSchema>;
 export const HostOptionsSchema = z
   .object({
     maxClientChannels: positive.max(1024).default(64),
-    helloTimeoutMs: positive.default(10000),
-    handshakeTimeoutMs: positive.default(10000),
-    retryInitialMs: positive.default(250),
-    retryMaxMs: positive.default(5000),
+    helloTimeoutMs: duration.default(10000),
+    handshakeTimeoutMs: duration.default(10000),
+    retryInitialMs: duration.default(250),
+    retryMaxMs: duration.default(5000),
   })
   .refine((v) => v.retryInitialMs <= v.retryMaxMs, { message: "Retry initial exceeds maximum" });
 const envNumber = z
