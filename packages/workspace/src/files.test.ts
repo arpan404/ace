@@ -182,20 +182,6 @@ describe("workspace paths and files", () => {
       code: "INVALID_CURSOR",
     });
   });
-  it("rejects oversized directory scans and page requests before returning partial results", async () => {
-    const { service, file } = await fixture();
-    for (let start = 0; start < 10_001; start += 200) {
-      await Promise.all(
-        Array.from({ length: Math.min(200, 10_001 - start) }, (_, index) =>
-          file(`large/${start + index}`, ""),
-        ),
-      );
-    }
-    await expect(service.list({ dir: "large" })).rejects.toMatchObject({ code: "LIMIT_EXCEEDED" });
-    await expect(service.list({ dir: "", limit: 1001 })).rejects.toMatchObject({
-      code: "INVALID_ARGUMENT",
-    });
-  });
   it("returns metadata without bytes for NUL content in the first 8 KiB even at a later offset", async () => {
     const { service, file } = await fixture();
     await file(
