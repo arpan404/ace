@@ -31,8 +31,13 @@ test("typed input echoes through a real PTY in the requested workspace", async (
 
 test("stty size reports the resized PTY dimensions", async () => {
   const { terminal, attachment } = await open();
+  terminal.write(
+    `sh -c ${quote("printf 'SIZE_READY\\n'; read -r reply; stty size; printf 'SIZE_DONE\\n'")}\r`,
+  );
+  await until(attachment, "SIZE_READY\r\n");
+  // Resize a foreground reader, after Bash has finished initializing Readline.
   terminal.resize(113, 37);
-  terminal.write("stty size; printf 'SIZE_DONE\\n'\r");
+  terminal.write("release\r");
   expect(await until(attachment, "SIZE_DONE\r\n")).toContain("37 113\r\n");
   expect(terminal.snapshot()).toMatchObject({ cols: 113, rows: 37 });
 });
