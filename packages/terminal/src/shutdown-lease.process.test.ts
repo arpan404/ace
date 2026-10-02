@@ -18,7 +18,7 @@ test("daemon death during shell freeze stops the shell, keeper and background jo
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   await writeFile(
     join(home, ".bash_profile"),
-    "PS1=''; stty -echo; trap '' TERM HUP; printf '__READY__\\n'\n",
+    "PS1=''; set +H; stty -echo; trap '' TERM HUP; printf '__READY__\\n'\n",
   );
   const source = `
     import { TerminalManager, createPosixBackendFactory } from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
@@ -81,7 +81,7 @@ test("daemon death during shell freeze stops the shell, keeper and background jo
       if (event.type === 'data') output += event.data;
       if (output.includes('__READY__')) break;
     }
-    terminal.write('sleep 1000 >/dev/null 2>&1 & printf "__JOB__%s__\\n" "$!"\\r');
+    terminal.write('sleep 1000 >/dev/null 2>&1 & printf "__JOB__%s__\\\\n" "$!"\\r');
     output = '';
     for await (const event of terminal.attach()) {
       if (event.type === 'data') output += event.data;

@@ -18,7 +18,7 @@ test("daemon death after public STOP kills the default backend's shell and pinne
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   await writeFile(
     join(home, ".bash_profile"),
-    "PS1=''; stty -echo; trap '' TERM HUP; printf '__READY__\\n'\n",
+    "PS1=''; set +H; stty -echo; trap '' TERM HUP; printf '__READY__\\n'\n",
   );
   const source = `
     import { TerminalManager, createPosixBackendFactory } from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
@@ -35,7 +35,7 @@ test("daemon death after public STOP kills the default backend's shell and pinne
       }
     }
     await readUntil('__READY__');
-    terminal.write('sleep 1000 >/dev/null 2>&1 & printf "__JOB__%s__\\n" "$!"\\r');
+    terminal.write('sleep 1000 >/dev/null 2>&1 & printf "__JOB__%s__\\\\n" "$!"\\r');
     await readUntil('__JOB__');
     while (!/__JOB__(\\d+)__/.test(output)) {
       const event = await watcher.next();
