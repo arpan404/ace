@@ -5,6 +5,7 @@ const named = new Map<string, number>([
   ["Backspace", 8],
   ["Tab", 9],
   ["Enter", 13],
+  ["Clear", 12],
   ["Shift", 16],
   ["Control", 17],
   ["Alt", 18],
@@ -26,6 +27,29 @@ const named = new Map<string, number>([
   ["ContextMenu", 93],
   ["NumLock", 144],
   ["ScrollLock", 145],
+]);
+const numpadNavigation = new Map<string, string>([
+  ["Insert", "Numpad0"],
+  ["End", "Numpad1"],
+  ["ArrowDown", "Numpad2"],
+  ["PageDown", "Numpad3"],
+  ["ArrowLeft", "Numpad4"],
+  ["Clear", "Numpad5"],
+  ["ArrowRight", "Numpad6"],
+  ["Home", "Numpad7"],
+  ["ArrowUp", "Numpad8"],
+  ["PageUp", "Numpad9"],
+  ["Delete", "NumpadDecimal"],
+  ["Enter", "NumpadEnter"],
+]);
+const numpadOperators = new Map<string, { keys: string[]; vk: number }>([
+  ["NumpadMultiply", { keys: ["*"], vk: 106 }],
+  ["NumpadAdd", { keys: ["+"], vk: 107 }],
+  ["NumpadSubtract", { keys: ["-"], vk: 109 }],
+  ["NumpadDecimal", { keys: [".", ","], vk: 110 }],
+  ["NumpadComma", { keys: [","], vk: 110 }],
+  ["NumpadDivide", { keys: ["/"], vk: 111 }],
+  ["NumpadEqual", { keys: ["="], vk: 187 }],
 ]);
 const punctuation = new Map<string, number>([
   ["Semicolon", 186],
@@ -52,7 +76,7 @@ export function keyEvent(input: KeyInput) {
       code === undefined ||
       code === input.key ||
       (input.key === " " && code === "Space") ||
-      (input.key === "Enter" && code === "NumpadEnter") ||
+      numpadNavigation.get(input.key) === code ||
       (["Shift", "Control", "Alt", "Meta"].includes(input.key) &&
         (code === `${input.key}Left` || code === `${input.key}Right`));
     if (!matching) throw new Error("Browser key/code mismatch");
@@ -66,7 +90,9 @@ export function keyEvent(input: KeyInput) {
     else if (input.code?.match(/^Numpad\d$/))
       windowsVirtualKeyCode = 96 + Number(input.code.at(-1));
     else if (input.code) {
-      windowsVirtualKeyCode = punctuation.get(input.code);
+      const numpad = numpadOperators.get(input.code);
+      if (numpad && !numpad.keys.includes(input.key)) throw new Error("Browser key/code mismatch");
+      windowsVirtualKeyCode = numpad?.vk ?? punctuation.get(input.code);
       if (windowsVirtualKeyCode === undefined) throw new Error("Unsupported browser key code");
     } else if (/^[a-z0-9]$/i.test(input.key))
       windowsVirtualKeyCode = input.key.toUpperCase().charCodeAt(0);
@@ -93,6 +119,7 @@ export function keyEvent(input: KeyInput) {
         }),
     ...(windowsVirtualKeyCode === undefined ? {} : { windowsVirtualKeyCode }),
     location,
+    ...(location === 3 ? { isKeypad: true } : {}),
     modifiers: input.modifiers,
   };
 }

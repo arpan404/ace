@@ -11,7 +11,7 @@ import { LiveCapture } from "./live.ts";
 import { SessionLogs } from "./logs.ts";
 import { SnapshotRefs } from "./refs.ts";
 import { Recording } from "./recording.ts";
-import { CallResult } from "./cdp.ts";
+import { evaluatePage } from "./evaluation.ts";
 import { keyEvent } from "./keyboard.ts";
 import type { ProcessSpawner } from "./io.ts";
 
@@ -213,19 +213,7 @@ export class BrowserSession {
         if (!(await evaluatePolicy?.(threadId, page.url())))
           throw new Error("Browser evaluate requires approval");
         this.check(actor);
-        const response = CallResult.parse(
-          await cdp.send("Runtime.evaluate", {
-            timeout: 10_000,
-            awaitPromise: true,
-            returnByValue: true,
-            expression: `(async () => { let timer; try { const value = await Promise.race([(0,eval)(${JSON.stringify(command.expression)}),
-            new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('evaluate timeout')),10000)})]);
-          const text = JSON.stringify(value ?? null); if (new TextEncoder().encode(text).byteLength > 262144) throw new Error('evaluate result exceeds limit');
-          return JSON.parse(text); } finally { clearTimeout(timer); } })()`,
-          }),
-        );
-        if (response.exceptionDetails) throw new Error("Browser evaluate failed or timed out");
-        return response.result.value;
+        return evaluatePage(cdp, command.expression);
       }
     }
   }
