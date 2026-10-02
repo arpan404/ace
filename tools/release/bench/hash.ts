@@ -44,3 +44,27 @@ try {
 } finally {
   await rm(logRoot, { recursive: true, force: true });
 }
+const { MaintenanceGate } = await import("@ace/service");
+const { Command } = await import("@ace/protocol");
+const gate = new MaintenanceGate(() => 0);
+const command = Command.parse({
+  id: "bench",
+  deviceId: "bench",
+  payload: {
+    type: "thread.send",
+    threadId: "bench",
+    delivery: "queue",
+    input: [{ type: "text", text: "benchmark" }],
+  },
+});
+gate.enter();
+let allowed = 0;
+const start = performance.now();
+for (let i = 0; i < 1_000_000; i++) if (gate.admitCommand(command)) allowed++;
+if (allowed) throw new Error("Drain admitted new work");
+process.stdout.write(
+  JSON.stringify({
+    admissionsPerSecond: 1_000_000 / ((performance.now() - start) / 1000),
+    peakRssMiB: process.resourceUsage().maxRSS / 1024,
+  }) + "\n",
+);

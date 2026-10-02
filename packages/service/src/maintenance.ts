@@ -18,15 +18,16 @@ export class MaintenanceGate {
     return { draining: this.draining, blockers: this.blockers() };
   }
   admitCommand(command: Command): boolean {
-    return (
-      this.admit() ||
-      [
-        "interaction.resolve",
-        "thread.interrupt",
-        "background_task.stop",
-        "orchestration.cancel",
-      ].includes(command.payload.type)
-    );
+    if (this.admit()) return true;
+    switch (command.payload.type) {
+      case "interaction.resolve":
+      case "thread.interrupt":
+      case "background_task.stop":
+      case "orchestration.cancel":
+        return true;
+      default:
+        return false;
+    }
   }
   admit(): boolean {
     return !this.draining;
