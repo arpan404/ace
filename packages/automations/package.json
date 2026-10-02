@@ -1,0 +1,18 @@
+{
+  "name": "@ace/automations",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "bench": "node bench/automations.ts && node bench/poll-admission.ts && node bench/gh-io.ts && node bench/lifecycle.ts"
+  },
+  "dependencies": {
+    "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

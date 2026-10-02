@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { afterEach, expect, test } from "vitest";
-import { spawnSupervisedStream } from "@ace/provider-kit/process";
+import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { ContextService, deliverContext, type ProjectionCapabilities } from "./index.ts";
 import { repository, hash, png, thread } from "./test-support.ts";
 
@@ -69,7 +69,7 @@ test("thread send delivers native context to an owned CLI and releases only afte
     entered.resolve();
     await resume.promise;
     // This is our own tiny protocol sink, never a real provider CLI.
-    const child = spawnSupervisedStream({
+    const child = spawnRawSupervised({
       command: process.execPath,
       args: [
         "-e",

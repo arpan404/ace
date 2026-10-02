@@ -3,7 +3,7 @@ import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { GitWorkspace, WorkspaceCache, type WorkspaceFiles } from "./index.ts";
-import { spawnSupervisedStream } from "@ace/provider-kit/process";
+import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { repository, run } from "./test-support.ts";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -34,7 +34,7 @@ test("Git overflow rejection reaps a process that ignores SIGTERM", async () => 
   );
   const workspace = new GitWorkspace(repo.root, 100000, {
     spawn: (options) =>
-      spawnSupervisedStream({
+      spawnRawSupervised({
         ...options,
         command: process.execPath,
         args: [join(repo.root, "probe.cjs")],
@@ -100,7 +100,7 @@ test("cancellation rejects and reaps a Git process holding its output open", asy
   const workspace = new GitWorkspace(repo.root, 100000, {
     signal: controller.signal,
     spawn: (options) => {
-      const child = spawnSupervisedStream({
+      const child = spawnRawSupervised({
         ...options,
         command: process.execPath,
         args: [join(repo.root, "probe.cjs")],
@@ -247,7 +247,7 @@ test("cancelling an incomplete Git listing reports cancellation after reaping", 
   const workspace = new GitWorkspace(repo.root, 100000, {
     signal: controller.signal,
     spawn: (options) => {
-      const child = spawnSupervisedStream({
+      const child = spawnRawSupervised({
         ...options,
         command: process.execPath,
         args: [join(repo.root, "probe.cjs")],

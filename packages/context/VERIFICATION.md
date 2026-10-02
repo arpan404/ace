@@ -2,9 +2,9 @@
 
 The repo owner's latest instruction supersedes earlier test and gate requirements. This final revision receives static checks only. Behavior tests, mutations, benchmarks and probes are **not executed (tests run at merge)** for the final revision. Runtime correctness and performance claims need run at merge. No CI, provider prompts or recorder sessions are requested or run.
 
-`bun run fmt`, `bun run lint`, `bun run check:size` and `bun run typecheck` pass. The size check covers 378 source files, all below 1,500 lines.
+`bun run fmt`, `bun run lint`, `bun run check:size` and `bun run typecheck` pass. The size check covers 421 source files, all below 1,500 lines.
 
-Main at `19a7e14` was merged without rebasing in `1430295`. Conflict resolution preserves context, model-catalog and orchestration requests, both daemon-owned service lifetimes, and provider-kit's raw-stream extension with main's output limit. All work stays in the context worktree. The temporary baseline archive was removed.
+Main at `19a7e14` was merged without rebasing in `1430295`; the branch then merged `5494e21`, including automations and process-test reliability. Conflict resolution preserves context, model-catalog and orchestration requests, both daemon-owned service lifetimes, and main's canonical `spawnRawSupervised` owner with its output limit. Context reuses that owner rather than retaining a duplicate raw-stream implementation. Its four real-process package suites and two socket suites join main's process-test manifest, without changing assertions or per-test deadlines. All work stays in the context worktree. The temporary baseline archive was removed.
 
 ## Review changes and behavior coverage
 
@@ -79,4 +79,4 @@ The attempted full PR gate failed with timeout-only assertions outside context a
 
 `deliverContext(service, command, capabilities, consume)` is the context-owned intent-worker interface. It validates the command, resolves thread-owned references, supplies original input/delivery plus native projection, returns typed diagnostics and releases in `finally`. The consumer promise settles after bytes are consumed or consumption has stopped on cancellation/failure. Initial thread creation can use `compose` after engine-assigned thread creation with the same lifetime contract.
 
-PR #15 is still open and the engine/adapters are absent from main at `19a7e14`. Its session-launcher must call this interface around native provider submission and call `releaseThread` on durable thread deletion. Accounts, MCP leases, plugins, model resolution and default adapter registration belong to their respective owners. Full I7 end-to-end session launch remains pending that integration and **needs run at merge**. Core state precedence is unchanged.
+PR #15 is still open and the engine/adapters are absent from main at `5494e21`. Its session-launcher must call this interface around native provider submission and call `releaseThread` on durable thread deletion. Accounts, MCP leases, plugins, model resolution and default adapter registration belong to their respective owners. Full I7 end-to-end session launch remains pending that integration and **needs run at merge**. Core state precedence is unchanged.

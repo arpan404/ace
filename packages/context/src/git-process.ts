@@ -1,8 +1,8 @@
-import { spawnSupervisedStream, type SupervisedStream } from "@ace/provider-kit/process";
+import { spawnRawSupervised, type RawSupervisedProcess } from "@ace/provider-kit/process";
 import { z } from "zod";
 import { ContextError } from "./errors.ts";
 export interface GitProcessOptions {
-  spawn?: typeof spawnSupervisedStream;
+  spawn?: typeof spawnRawSupervised;
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -11,7 +11,7 @@ export async function withGit<T>(
   root: string,
   args: readonly string[],
   options: GitProcessOptions,
-  consume: (process: SupervisedStream) => Promise<T>,
+  consume: (process: RawSupervisedProcess) => Promise<T>,
 ): Promise<{ code: number; value: T }> {
   const timeout = z
     .number()
@@ -20,7 +20,7 @@ export async function withGit<T>(
     .max(300000)
     .parse(options.timeoutMs ?? 30000);
   if (options.signal?.aborted) throw new ContextError("busy", "Git operation cancelled");
-  const child = (options.spawn ?? spawnSupervisedStream)({
+  const child = (options.spawn ?? spawnRawSupervised)({
     command: "git",
     args: ["-C", root, ...args],
     env: {},

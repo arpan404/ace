@@ -9,6 +9,14 @@ export type ProcessExit = {
   signal: NodeJS.Signals | null;
   reason: "exit" | "signal" | "stopped" | "spawn-error" | "output-limit";
 };
+export type RawSupervisedProcess = {
+  stdin: Writable;
+  stdout: Readable;
+  stderr: Readable;
+  exited: Promise<ProcessExit>;
+  signal: AbortSignal;
+  stop(options?: { graceMs?: number }): Promise<ProcessExit>;
+};
 export type SupervisedProcess = {
   stdin: Writable;
   /** Hot line streams: attach listeners immediately. Pipes drain without listeners. */
@@ -30,12 +38,8 @@ export type SpawnOptions = {
   maxOutputBytes?: number;
 };
 
-export type SupervisedStream = Omit<SupervisedProcess, "stdout" | "stderr"> & {
-  stdout: Readable;
-  stderr: Readable;
-};
-/** Own raw byte streams with the same process-group lifecycle as line streams. */
-export function spawnSupervisedStream(options: SpawnOptions): SupervisedStream {
+/** Own a POSIX process group, including grandchildren that keep its pipes open. */
+export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess {
   if (
     options.maxOutputBytes !== undefined &&
     (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 1)
@@ -71,9 +75,6 @@ export function spawnSupervisedStream(options: SpawnOptions): SupervisedStream {
     child.stdout.on("data", capOutput);
     child.stderr.on("data", capOutput);
   }
-  const stdout = child.stdout;
-  const stderr = child.stderr;
-
   const pid = child.pid;
 
   let stopped = false;
@@ -120,10 +121,10 @@ export function spawnSupervisedStream(options: SpawnOptions): SupervisedStream {
       });
     });
   });
-  const handle: SupervisedStream = {
+  const handle: RawSupervisedProcess = {
     stdin: child.stdin,
-    stdout,
-    stderr,
+    stdout: child.stdout,
+    stderr: child.stderr,
     exited,
     signal: controller.signal,
     stop({ graceMs = 5_000 } = {}) {
@@ -147,13 +148,13 @@ export function spawnSupervisedStream(options: SpawnOptions): SupervisedStream {
   return handle;
 }
 
-/** Own a POSIX process group, including grandchildren that keep its pipes open. */
+/** Line-oriented facade over the same process-group owner. */
 export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
-  const process = spawnSupervisedStream(options);
+  const raw = spawnRawSupervised(options);
   return {
-    ...process,
-    stdout: createInterface({ input: process.stdout, crlfDelay: Infinity }),
-    stderr: createInterface({ input: process.stderr, crlfDelay: Infinity }),
+    ...raw,
+    stdout: createInterface({ input: raw.stdout, crlfDelay: Infinity }),
+    stderr: createInterface({ input: raw.stderr, crlfDelay: Infinity }),
   };
 }
 
