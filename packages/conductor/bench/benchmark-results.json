@@ -73,5 +73,6 @@
       "peakRssMiB": 115.5
     }
   ],
-  "node": "v26.8.1"
+  "node": "v26.8.1",
+  "validationPolicy": "Historical measurements captured before the owner policy changed. Not rerun for this delivery; needs run at merge."
 }

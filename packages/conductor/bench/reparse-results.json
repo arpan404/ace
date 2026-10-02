@@ -61,5 +61,7 @@
   ],
   "environment": "macOS-26.2-arm64-arm-64bit-Mach-O",
   "node": "v26.8.1",
-  "command": "python3 packages/conductor/bench/reparse-probe.py"
+  "command": "python3 packages/conductor/bench/reparse-probe.py",
+  "validationPolicy": "Historical measurements captured before the owner policy changed. Not rerun for this delivery; needs run at merge.",
+  "mergeValidation": "not executed (tests run at merge)"
 }

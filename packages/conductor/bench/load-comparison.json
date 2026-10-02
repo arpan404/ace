@@ -41,5 +41,6 @@
       "error": "Error: Test timed out in 30000ms.",
       "branchMs": 30263
     }
-  ]
+  ],
+  "validationPolicy": "Historical measurements captured before the owner policy changed. Not rerun for this delivery; needs run at merge."
 }
