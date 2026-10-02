@@ -9,8 +9,6 @@ const directories: string[] = [];
 export async function directory(base = tmpdir()) {
   const path = await mkdtemp(join(base, "provider-kit-discovery-"));
   directories.push(path);
-  // Extensionless Node stand-ins must not inherit the checkout's ESM package scope.
-  await writeFile(join(path, "package.json"), JSON.stringify({ type: "commonjs" }));
   return path;
 }
 export async function cleanupDirectories() {
@@ -32,6 +30,13 @@ export async function binary(root: string, name: string, capture: Partial<Captur
     `#!/bin/sh\nif [ "$1" = '--version' ]; then\n${print(capture.version ?? empty)}\nelse\n${print(capture.auth ?? empty)}\nfi\n`,
     { mode: 0o755 },
   );
+  return path;
+}
+/** Keep extensionless Node stand-ins in CommonJS even beneath an ESM package. */
+export async function nodeBinary(root: string, name: string, source: string) {
+  await writeFile(join(root, "package.json"), '{"type":"commonjs"}\n');
+  const path = join(root, name);
+  await writeFile(path, `#!${process.execPath}\n${source}\n`, { mode: 0o755 });
   return path;
 }
 export async function fixture(provider: string): Promise<Capture> {
