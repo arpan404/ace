@@ -7,7 +7,17 @@ import { expect, it } from "vitest";
 import { Store } from "./store.ts";
 import { shell } from "./payload-test-support.ts";
 
-it("upgrades an existing log into paged items, streamed output and capped raw data without changing cursors", () => {
+it.each([
+  { name: "small", initial: "initial", suffix: "", tail: "initial delta", truncated: false },
+  {
+    name: "large",
+    initial: "x".repeat(128 * 1024) + "😀",
+    suffix: "z".repeat(70 * 1024),
+    tail: "z".repeat(4096),
+    truncated: true,
+  },
+])("upgrades a $name legacy log with bounded chunks", (data) => {
+  const { initial, suffix, tail, truncated } = data;
   const home = mkdtempSync(join(tmpdir(), "ace-upgrade-"));
   const path = join(home, "events.sqlite");
   const db = new DatabaseSync(path);
@@ -44,7 +54,7 @@ it("upgrades an existing log into paged items, streamed output and capped raw da
     ...item,
     call: {
       ...item.call,
-      detail: { kind: "shell", command: "echo", output: "initial", outputTruncated: false },
+      detail: { kind: "shell", command: "echo", output: initial, outputTruncated: false },
     },
   };
   const updated = {
@@ -54,7 +64,7 @@ it("upgrades an existing log into paged items, streamed output and capped raw da
       ...created.call,
       status: "succeeded",
       raw: [{ type: "native", data: "r".repeat(100000) }],
-      detail: { ...created.call.detail, output: "initial delta" },
+      detail: { ...created.call.detail, output: initial + " delta" + suffix },
     },
   };
   const payloads: unknown[] = [
@@ -83,6 +93,7 @@ it("upgrades an existing log into paged items, streamed output and capped raw da
   );
   db.close();
   let store: Store | undefined;
+  const output = initial + " delta" + suffix;
   try {
     store = new Store(path);
     expect(store.headSeq()).toBe(4);
@@ -99,19 +110,29 @@ it("upgrades an existing log into paged items, streamed output and capped raw da
     expect(view.items.shell).toMatchObject({
       complete: true,
       call: {
-        detail: { output: { bytes: 13, tail: "initial delta", truncated: false } },
+        detail: { output: { bytes: Buffer.byteLength(output), tail, truncated } },
         raw: [{ blobRef: expect.any(String), size: 100002 }],
       },
     });
-    expect(Buffer.from(store.readOutput("output:shell", 0, 100).bytes, "base64").toString()).toBe(
-      "initial delta",
-    );
+    expect(
+      Buffer.from(store.readOutput("output:shell", 0, 256 * 1024).bytes, "base64").toString(),
+    ).toBe(output);
+    const inspected = new DatabaseSync(path);
+    try {
+      expect(
+        Number(
+          inspected.prepare("SELECT max(length(bytes)) AS size FROM output_chunks").get()?.size,
+        ),
+      ).toBeLessThanOrEqual(64 * 1024);
+    } finally {
+      inspected.close();
+    }
     store.close();
     store = new Store(path);
     expect(store.snapshotThread(thread.id)).toEqual(view);
-    expect(Buffer.from(store.readOutput("output:shell", 0, 100).bytes, "base64").toString()).toBe(
-      "initial delta",
-    );
+    expect(
+      Buffer.from(store.readOutput("output:shell", 0, 256 * 1024).bytes, "base64").toString(),
+    ).toBe(output);
     expect(
       store.appendEvents(thread.id, [{ type: "thread.updated", title: "After upgrade" }])[0]?.seq,
     ).toBe(5);

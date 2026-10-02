@@ -54,11 +54,11 @@ export const ClaudeModels = z
   })
   .passthrough();
 const SelectOption = z.object({ value: id, name: id }).passthrough();
-export const ConfigOption = z
+export const SelectConfigOption = z
   .object({
     id,
     category: id.optional(),
-    type: z.string(),
+    type: z.literal("select"),
     currentValue: z.string().optional(),
     options: z
       .array(
@@ -71,6 +71,22 @@ export const ConfigOption = z
       .optional(),
   })
   .passthrough();
+export const ConfigOption = z.union([
+  SelectConfigOption,
+  z
+    .object({ id, category: id.optional(), type: z.string().refine((type) => type !== "select") })
+    .passthrough(),
+]);
+export function isSelectConfig(
+  config: z.infer<typeof ConfigOption>,
+): config is z.infer<typeof SelectConfigOption> {
+  return config.type === "select";
+}
+export function isModelConfig(
+  config: z.infer<typeof ConfigOption>,
+): config is z.infer<typeof SelectConfigOption> {
+  return isSelectConfig(config) && (config.category === "model" || config.id === "model");
+}
 export const AcpSession = z
   .object({
     configOptions: z.array(ConfigOption).max(64).optional(),
@@ -84,9 +100,7 @@ export const AcpSession = z
   })
   .passthrough()
   .refine(
-    (data) =>
-      data.models !== undefined ||
-      data.configOptions?.some((option) => option.category === "model" || option.id === "model"),
+    (data) => data.models !== undefined || data.configOptions?.some(isModelConfig),
     "Missing model options",
   );
 export const OpenCodeModel = z

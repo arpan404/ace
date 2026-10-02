@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, it } from "vitest";
+import { DoctorReport } from "@ace/diagnostics";
 import { DeviceCredential, PairingResponse } from "@ace/protocol";
 import { nodeBinary } from "@ace/provider-kit/testing";
 import { accessRequest, redeemPairing } from "./client-access.ts";
@@ -76,14 +77,27 @@ it("doctor reuses provider-kit discovery with controlled CLI binaries and never 
     "codex",
     `const { appendFileSync } = require('node:fs');\nconst args = process.argv.slice(2).join(' ');\nappendFileSync(${JSON.stringify(calls)}, args + '\\n');\nif (args === '--version') console.log('codex-cli 1.2.3');\nelse if (args === 'login status') console.log('Logged in using ChatGPT');\nelse process.exit(9);`,
   );
-  const { stdout } = await cli(directory, ["doctor"], { ...envFor(directory), PATH: directory });
-  const result = JSON.parse(stdout);
-  expect(result.providers.codex).toMatchObject({
-    installed: true,
-    version: "1.2.3",
-    auth: "logged_in",
+  let stdout = "";
+  try {
+    stdout = (await cli(directory, ["doctor", "--json"], { ...envFor(directory), PATH: directory }))
+      .stdout;
+  } catch (error) {
+    if (error && typeof error === "object" && "stdout" in error && typeof error.stdout === "string")
+      stdout = error.stdout;
+    else throw error;
+  }
+  const result = DoctorReport.parse(JSON.parse(stdout));
+  expect(result.checks.find((check) => check.id === "provider.codex")).toMatchObject({
+    status: "ok",
+    message: expect.stringContaining("1.2.3, logged_in"),
   });
-  expect(result.providers.claude).toMatchObject({ installed: false });
+  expect(result.checks.find((check) => check.id === "provider.claude")).toMatchObject({
+    status: "warn",
+    message: expect.stringContaining("not installed"),
+  });
+  expect(result.checks.find((check) => check.id === "remote.openssl")).toMatchObject({
+    status: "fail",
+  });
   expect(readFileSync(calls, "utf8").trim().split("\n").toSorted()).toEqual([
     "--version",
     "login status",

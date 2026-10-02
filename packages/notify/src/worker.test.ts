@@ -147,3 +147,49 @@ it("revocation aborts an in-flight worker delivery and prevents future sends", a
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+it("closes gracefully with all 64 RPC slots occupied and settles admitted calls", async () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-notify-close-"));
+  const worker = new NotificationWorker({
+    path: join(home, "notify.sqlite"),
+    transport: {
+      async send() {
+        return "accepted";
+      },
+    },
+  });
+  try {
+    const pending = Array.from({ length: 64 }, () => worker.cursor());
+    const results = Promise.allSettled(pending);
+    await expect(worker.close()).resolves.toBeUndefined();
+    expect(await results).toEqual(
+      Array.from({ length: 64 }, () => ({ status: "fulfilled", value: 0 })),
+    );
+    await expect(worker.cursor()).rejects.toThrow();
+  } finally {
+    await worker.close().catch(() => {});
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+it("bounds cleanup admission independently of ordinary calls and recovers after acknowledgement", async () => {
+  const worker = new NotificationWorker({
+    path: ":memory:",
+    transport: {
+      async send() {
+        return "accepted";
+      },
+    },
+  });
+  try {
+    const ordinary = Array.from({ length: 64 }, () => worker.cursor());
+    const removals = Array.from({ length: 256 }, (_, i) => worker.disconnect(`session-${i}`));
+    const settled = Promise.allSettled([...ordinary, ...removals]);
+    await expect(worker.disconnect("overflow")).rejects.toThrow("cleanup backpressure");
+    expect((await settled).every((result) => result.status === "fulfilled")).toBe(true);
+    await expect(worker.disconnect("after-drain")).resolves.toBeUndefined();
+    await expect(worker.close()).resolves.toBeUndefined();
+  } finally {
+    await worker.close();
+  }
+});

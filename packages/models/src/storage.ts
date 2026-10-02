@@ -67,8 +67,13 @@ export function openModelStorage(path: string): CatalogStorage {
     }),
   );
   const send = (operation: "replace" | "remove" | "close", data: unknown): Promise<void> => {
+    if (closing && operation !== "close")
+      return Promise.reject(new Error("Model persistence closed"));
     if (failure) return Promise.reject(failure);
-    if (pending.size >= 128) return Promise.reject(new Error("Model persistence queue full"));
+    // The worker processes messages in order. Close is a barrier after all admitted writes,
+    // with one reserved request outside the mutation admission limit.
+    if (operation !== "close" && pending.size >= 128)
+      return Promise.reject(new Error("Model persistence queue full"));
     const id = nextId++;
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject });
