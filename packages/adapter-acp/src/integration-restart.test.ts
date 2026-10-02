@@ -65,7 +65,7 @@ it("a restored background tree stays working while its child has an active run",
   ).toBe("working");
 });
 
-it("restored shell uncertainty holds waiting after restart and after provider queue clearing", () => {
+it("restored shell uncertainty holds waiting after restart and after adapter queue clearing", () => {
   const h = harness();
   h.ready();
   h.update({
@@ -116,4 +116,27 @@ it("restored child connection loss stays unresponsive until native child traffic
     Object.values(r.state.agents).find((a) => a.agent.native.nativeId === "child")?.agent.status
       .state,
   ).toBe("working");
+});
+
+it("restored engine input survives provider restart while stale native queue is dropped", () => {
+  const h = harness();
+  h.ready();
+  end(h);
+  h.frame("note", { event: "queue-changed", count: 2 });
+  apply(
+    h.state,
+    { type: "queue.changed", count: 3, source: "provider" },
+    {
+      now: 500,
+      ids: { next: () => "queue-metadata" },
+    },
+  );
+  expect(h.state.queueCount).toBe(5);
+  const r = restored(h);
+  r.frame("note", { event: "process-start" });
+  expect(r.state.queueCount).toBe(2);
+  expect(r.state.status).toMatchObject({ state: "waiting", on: "queue" });
+  r.frame("note", { event: "queue-changed", count: 0 });
+  expect(r.state.queueCount).toBe(0);
+  expect(r.state.status.state).toBe("done");
 });
