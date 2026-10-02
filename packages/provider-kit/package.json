@@ -6,10 +6,12 @@
   "exports": {
     "./process": "./src/process.ts",
     "./jsonrpc": "./src/jsonrpc.ts",
-    "./sse": "./src/sse.ts"
+    "./sse": "./src/sse.ts",
+    "./discovery": "./src/discovery/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "doctor": "node src/doctor.ts"
   },
   "engines": {
     "node": ">=24"

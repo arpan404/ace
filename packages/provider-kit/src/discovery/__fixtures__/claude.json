@@ -1,0 +1,13 @@
+{
+  "capturedAt": "2026-10-02",
+  "version": {
+    "stdout": "2.1.286 (Claude Code)",
+    "stderr": "",
+    "code": 0
+  },
+  "auth": {
+    "stdout": "{\n  \"loggedIn\": true,\n  \"authMethod\": \"claude.ai\",\n  \"apiProvider\": \"firstParty\",\n  \"analyticsDisabled\": false,\n  \"projectsDirectory\": \"<HOME><PATH>\",\n  \"configDirectory\": \"<HOME><PATH>\",\n  \"email\": \"<EMAIL>\",\n  \"orgId\": \"<ORG_ID>\",\n  \"orgName\": \"<EMAIL>'s Organization\",\n  \"subscriptionType\": \"max\"\n}",
+    "stderr": "",
+    "code": 0
+  }
+}

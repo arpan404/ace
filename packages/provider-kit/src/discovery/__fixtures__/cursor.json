@@ -1,0 +1,13 @@
+{
+  "capturedAt": "2026-10-02",
+  "version": {
+    "stdout": "2026.09.26-dd393fe",
+    "stderr": "",
+    "code": 0
+  },
+  "auth": {
+    "stdout": "✓ Logged in as <EMAIL>",
+    "stderr": "",
+    "code": 0
+  }
+}

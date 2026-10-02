@@ -1,0 +1,13 @@
+{
+  "capturedAt": "2026-10-02",
+  "version": {
+    "stdout": "1.18.4",
+    "stderr": "",
+    "code": 0
+  },
+  "auth": {
+    "stdout": "┌  Credentials \u001b[90m~<PATH>\n│\n●  LMStudio \u001b[90mapi\n│\n●  GitHub Copilot \u001b[90moauth\n│\n●  OpenCode Go \u001b[90mapi\n│\n└  3 credentials",
+    "stderr": "\u001b[0m",
+    "code": 0
+  }
+}
