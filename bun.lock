@@ -5,6 +5,7 @@
     "": {
       "name": "@ace/monorepo",
       "devDependencies": {
+        "@ace/provider-kit": "workspace:*",
         "@types/node": "^26.6.4",
         "oxfmt": "^0.71.0",
         "oxlint": "^1.86.0",
@@ -19,6 +20,7 @@
       },
       "dependencies": {
         "@ace/mcp-server": "workspace:*",
+        "@ace/models": "workspace:*",
         "@ace/notify": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
@@ -54,6 +56,14 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/automations": {
+      "name": "@ace/automations",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/client": {
       "name": "@ace/client",
       "dependencies": {
@@ -85,6 +95,9 @@
       "dependencies": {
         "zod": "^4.6.5",
       },
+      "devDependencies": {
+        "@ace/provider-kit": "workspace:*",
+      },
     },
     "packages/mcp-server": {
       "name": "@ace/mcp-server",
@@ -101,6 +114,14 @@
         "@modelcontextprotocol/sdk": "1.31.0",
       },
     },
+    "packages/models": {
+      "name": "@ace/models",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/notify": {
       "name": "@ace/notify",
       "dependencies": {
@@ -115,6 +136,9 @@
         "@ace/git": "workspace:*",
         "@ace/protocol": "workspace:*",
         "zod": "^4.1.12",
+      },
+      "devDependencies": {
+        "@ace/provider-kit": "workspace:*",
       },
     },
     "packages/projection": {
@@ -152,6 +176,8 @@
   "packages": {
     "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],
 
+    "@ace/automations": ["@ace/automations@workspace:packages/automations"],
+
     "@ace/client": ["@ace/client@workspace:packages/client"],
 
     "@ace/core": ["@ace/core@workspace:packages/core"],
@@ -163,6 +189,8 @@
     "@ace/git": ["@ace/git@workspace:packages/git"],
 
     "@ace/mcp-server": ["@ace/mcp-server@workspace:packages/mcp-server"],
+
+    "@ace/models": ["@ace/models@workspace:packages/models"],
 
     "@ace/notify": ["@ace/notify@workspace:packages/notify"],
 
