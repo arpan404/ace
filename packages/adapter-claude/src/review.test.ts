@@ -234,6 +234,5 @@ test("subsequent raw additions survive once without replaying earlier payloads",
         payloads.push(...(fact.draft.raw ?? []).flatMap((r) => ("data" in r ? [r.data] : [])));
   }
   expect(payloads).toHaveLength(100);
-  expect(payloads[0]).toMatchObject({ extra: 0 });
-  expect(payloads[99]).toMatchObject({ extra: 99 });
+  for (let seq = 0; seq < 100; seq++) expect(payloads[seq]).toMatchObject({ extra: seq });
 });
