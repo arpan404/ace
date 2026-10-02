@@ -11,6 +11,7 @@ import { applyEvent, createThreadView } from "@ace/projection";
 
 /** SQLite projection and bounded durable outbox, participating in Store's transactions. */
 export class McpData {
+  private readonly db: DatabaseSync;
   private agent: StatementSync;
   private page: StatementSync;
   private upsert: StatementSync;
@@ -21,6 +22,7 @@ export class McpData {
   private increment: StatementSync;
   private decrement: StatementSync;
   constructor(db: DatabaseSync, thread: (id: ThreadId) => Thread | undefined) {
+    this.db = db;
     db.exec(`BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS mcp_agents (thread_id TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(thread_id, id));
       CREATE TABLE IF NOT EXISTS mcp_intents (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), payload TEXT NOT NULL);
@@ -89,6 +91,13 @@ export class McpData {
       if (agent.threadId !== event.threadId) throw new Error("Agent thread mismatch");
       this.upsert.run(event.threadId, id, JSON.stringify(agent));
     }
+  }
+  deleteThread(threadId: ThreadId): void {
+    const removed = this.db
+      .prepare("DELETE FROM mcp_intents WHERE thread_id = ?")
+      .run(threadId).changes;
+    this.db.prepare("DELETE FROM mcp_agents WHERE thread_id = ?").run(threadId);
+    this.db.prepare("UPDATE mcp_meta SET pending = pending - ? WHERE id = 1").run(removed);
   }
   getAgent(threadId: ThreadId, id: string): Agent | undefined {
     const row = this.agent.get(threadId, id);

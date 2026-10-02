@@ -13,15 +13,27 @@ import {
   type ThreadView,
   WorkspaceId,
 } from "@ace/protocol";
-import { applyEvent, createThreadView, updateThread } from "@ace/projection";
+import { applyDelivery, updateThread } from "@ace/projection";
 import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
 import { migrate } from "./migrations.ts";
+import { StatusStore } from "./status-store.ts";
+import { PayloadStore } from "./payload-store.ts";
 
+export interface StoreOptions extends Partial<CredentialRuntime> {
+  /** Store owns and closes this SQLite connection when supplied. */
+  database?: DatabaseSync;
+  nextId?: () => string;
+  now?: () => number;
+}
 type Listener = (events: Event[]) => void;
 export class Store {
   readonly devices: Devices;
   private readonly db: DatabaseSync;
+  private readonly payloads: PayloadStore;
+  private readonly status: StatusStore;
+  private readonly nextId: () => string;
+  private readonly now: () => number;
   private readonly mcp: McpData;
   private statements = new Map<string, StatementSync>();
   private closed = false;
@@ -34,17 +46,26 @@ export class Store {
   constructor(
     path: string,
     onError: (error: unknown) => void = console.error,
-    credentials: CredentialRuntime = systemCredentials,
+    options: StoreOptions = {},
   ) {
     this.onError = onError;
-    this.db = new DatabaseSync(path);
+    this.db = options.database ?? new DatabaseSync(path);
+    this.nextId = options.nextId ?? randomUUID;
+    this.now = options.now ?? Date.now;
+    this.payloads = new PayloadStore(this.db, this.nextId);
+    this.status = new StatusStore(this.db);
     try {
       this.db.exec(
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
+      this.payloads.initialize();
+      this.status.initialize((id) => this.getThread(id));
+      this.devices = new Devices(this.db, {
+        id: options.id ?? this.nextId,
+        randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
+      });
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
-      this.devices = new Devices(this.db, credentials);
     } catch (error) {
       this.db.close();
       throw error;
@@ -74,7 +95,7 @@ export class Store {
     };
   }
   headSeq(): number {
-    return Number(this.statement("SELECT COALESCE(MAX(seq), 0) AS seq FROM events").get()?.seq);
+    return Number(this.statement("SELECT seq FROM host_sequence WHERE id = 1").get()?.seq);
   }
   private transaction<T>(run: () => T): T {
     if (this.transactionEvents) {
@@ -120,7 +141,16 @@ export class Store {
       let batch: Event[] | undefined;
       while ((batch = this.publications.shift())) {
         for (const { view } of this.caches.values())
-          for (const event of batch) applyEvent(view, event);
+          applyDelivery(view, {
+            type: "events",
+            subscriptionId: "cache",
+            afterSeq: view.seq,
+            throughSeq: batch.at(-1)?.seq ?? view.seq,
+            events: batch.filter(
+              (event) =>
+                event.threadId === view.thread.id && !event.payload.type.startsWith("item."),
+            ),
+          });
         const listeners = [...this.listeners];
         for (const listener of listeners) {
           try {
@@ -138,10 +168,10 @@ export class Store {
       this.publishing = false;
     }
   }
-  createWorkspace(path: string, name: string, at = Date.now()): WorkspaceId {
+  createWorkspace(path: string, name: string, at = this.now()): WorkspaceId {
     const existing = this.statement("SELECT id FROM workspaces WHERE path = ?").get(path);
     if (existing) return WorkspaceId.parse(existing.id);
-    const id = WorkspaceId.parse(randomUUID());
+    const id = WorkspaceId.parse(this.nextId());
     this.statement("INSERT INTO workspaces VALUES (?, ?, ?, ?)").run(id, path, name, at);
     return id;
   }
@@ -168,12 +198,12 @@ export class Store {
       .all()
       .map((row) => this.decodeThread(row));
   }
-  appendEvents(threadId: ThreadId, payloads: EventPayload[], at = Date.now()): Event[] {
+  appendEvents(threadId: ThreadId, payloads: EventPayload[], at = this.now()): Event[] {
     return this.transaction(() => {
       let seq = this.headSeq();
       const events: Event[] = [];
       for (const payload of payloads) {
-        const event = Event.parse({ seq: ++seq, id: randomUUID(), threadId, at, payload });
+        const event = Event.parse({ seq: ++seq, id: this.nextId(), threadId, at, payload });
         if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
         let thread: Thread;
         if (event.payload.type === "thread.created") {
@@ -207,6 +237,9 @@ export class Store {
           thread.rootAgentId ?? null,
           thread.id,
         );
+        event.payload = this.payloads.cap(event.payload, threadId);
+        this.payloads.persist(event);
+        this.status.persist(event, thread);
         this.statement("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)").run(
           seq,
           event.id,
@@ -215,6 +248,7 @@ export class Store {
           event.payload.type,
           JSON.stringify(event.payload),
         );
+        this.statement("UPDATE host_sequence SET seq = ? WHERE id = 1").run(seq);
         this.mcp.apply(event, thread);
         events.push(event);
       }
@@ -274,7 +308,7 @@ export class Store {
       this.statement("INSERT INTO command_receipts VALUES (?, ?, ?, ?)").run(
         commandId,
         deviceId,
-        Date.now(),
+        this.now(),
         JSON.stringify(result),
       );
       return result;
@@ -283,26 +317,54 @@ export class Store {
   acquireThread(id: ThreadId): ThreadView {
     const cached = this.caches.get(id);
     if (cached) {
+      this.catchUp(cached.view, id);
       cached.refs++;
       return cached.view;
     }
     const thread = this.getThread(id);
     if (!thread) throw new Error("Unknown thread");
-    const view = createThreadView(thread);
-    let afterSeq = 0;
-    for (;;) {
-      const events = this.readEvents({ afterSeq, threadId: id, limit: 1000 });
-      if (!events.length) break;
-      for (const event of events) {
-        // Scoped database replay has intentional holes in the host-wide sequence.
-        view.seq = event.seq - 1;
-        applyEvent(view, event);
-        afterSeq = event.seq;
-      }
-    }
-    view.seq = this.headSeq();
+    const view = this.status.snapshot(thread, this.headSeq());
     this.caches.set(id, { view, refs: 1 });
     return view;
+  }
+  private catchUp(view: ThreadView, id: ThreadId): void {
+    const head = this.headSeq();
+    if (view.seq < head) {
+      const thread = this.getThread(id);
+      if (!thread) throw new Error("Unknown thread");
+      Object.assign(view, this.status.snapshot(thread, head));
+    }
+  }
+  snapshotThread(id: ThreadId): ThreadView {
+    const status = this.acquireThread(id);
+    try {
+      const view: ThreadView = structuredClone({ ...status, items: {}, itemOrder: [] });
+      const page = this.payloads.page(id, this.headSeq() + 1, 200, 1024 * 1024);
+      view.items = Object.fromEntries(page.items.map((item) => [item.id, item]));
+      view.itemOrder = page.items.map((item) => item.id);
+      view.itemsBefore = page.itemsBefore;
+      return view;
+    } finally {
+      this.releaseThread(id);
+    }
+  }
+  readItems(threadId: ThreadId, before: number, limit: number) {
+    if (!this.getThread(threadId)) throw new Error("Unknown thread");
+    return this.payloads.page(threadId, before, limit);
+  }
+  outputThread(streamId: string) {
+    return this.payloads.streamThread(streamId);
+  }
+  readOutput(streamId: string, offset: number, limit: number) {
+    return this.payloads.readOutput(streamId, offset, limit);
+  }
+  deleteThread(id: ThreadId): void {
+    this.transaction(() => {
+      this.mcp.deleteThread(id);
+      this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
+      this.statement("DELETE FROM threads WHERE id = ?").run(id);
+    });
+    this.caches.delete(id);
   }
   releaseThread(id: ThreadId): void {
     const cached = this.caches.get(id);

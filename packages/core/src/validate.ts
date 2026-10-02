@@ -17,7 +17,7 @@ import {
 } from "@ace/protocol";
 import type { Fact, ItemDraft, ToolDetailDraft } from "./facts.ts";
 import { get } from "./emit.ts";
-import { itemInput } from "./item-input.ts";
+import { itemDetailKind, itemInput } from "./item-input.ts";
 import type { ThreadState } from "./state.ts";
 import { isFactData, preservesFields, validData } from "./fact-data.ts";
 
@@ -137,6 +137,8 @@ function itemError(state: ThreadState, fact: Fields, now: number): string | unde
   if (detail !== undefined && !object(detail)) return "tool detail must be an object";
   if (detail && ["childAgentId", "targetAgentId"].some((field) => Object.hasOwn(detail, field)))
     return "tool agent references must use native keys";
+  if (detail && "output" in detail && !optionalString(detail.output))
+    return "output summaries belong to core; adapters append output deltas";
   if (detail?.kind === "agent.spawn" && detail.childAgent !== undefined) {
     if (typeof detail.childAgent !== "string") return "child agent key must be a string";
     const error = relationError(state, detail.childAgent, fact.agent as string);
@@ -144,6 +146,25 @@ function itemError(state: ThreadState, fact: Fields, now: number): string | unde
   }
   if (detail?.kind === "agent.message" && !optionalString(detail.targetAgent))
     return "target agent key must be a string";
+  if (
+    itemDetailKind(previous, draft) === "shell" &&
+    detail &&
+    "output" in detail &&
+    typeof detail.output === "string" &&
+    previous?.type === "tool_call" &&
+    previous.call.detail.kind === "shell"
+  ) {
+    const bytes = new TextEncoder().encode(detail.output);
+    const prior = previous.call.detail.output;
+    const size = prior?.bytes ?? 0;
+    const tail = prior?.tail ?? "";
+    const tailSize = new TextEncoder().encode(tail).length;
+    if (
+      bytes.length < size ||
+      new TextDecoder().decode(bytes.subarray(size - tailSize, size)) !== tail
+    )
+      return "legacy output must extend the existing stream";
+  }
   const input = itemInput(
     previous,
     {

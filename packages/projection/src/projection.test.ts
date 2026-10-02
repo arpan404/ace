@@ -11,6 +11,7 @@ import {
 } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
 import {
+  applyDelivery,
   applyEvent,
   applyThreadListEvent,
   createThreadListView,
@@ -197,7 +198,9 @@ describe("projection", () => {
     ]);
     expect(view.items.message).toMatchObject({ parts: [{ type: "text", text: "hello!" }] });
     expect(view.items.reasoning).toMatchObject({ text: "Think more" });
-    expect(view.items.shell).toMatchObject({ call: { detail: { output: "/repo" } } });
+    expect(view.items.shell).toMatchObject({
+      call: { detail: { output: { bytes: 5, tail: "/repo", truncated: false } } },
+    });
     applyEvent(view, event(7, { type: "item.updated", item: shell }));
     expect(view.items.shell).toEqual(shell);
     expect(view.itemOrder).toHaveLength(3);
@@ -215,13 +218,15 @@ describe("projection", () => {
     expect(applyThreadListEvent(list, { ...e, seq: 2 }).kind).toBe("gap");
     expect(list.seq).toBe(0);
   });
-  it("advances over other threads, handles unarchive and covered delta ranges", () => {
+  it("rejects other threads, advances through progress, handles unarchive and covered delta ranges", () => {
     const view = createThreadView(thread);
     const other = {
       ...event(1, { type: "thread.updated", title: "Other" }),
       threadId: Thread.parse({ ...thread, id: "other" }).id,
     };
-    applyEvent(view, other);
+    expect(applyEvent(view, other).kind).toBe("gap");
+    expect(view.seq).toBe(0);
+    applyDelivery(view, { type: "progress", subscriptionId: "s", afterSeq: 0, throughSeq: 1 });
     expect(view.thread.title).toBe("Title");
     applyEvent(view, event(2, { type: "thread.updated", archivedAt: 2 }));
     applyEvent(view, event(3, { type: "thread.updated", archivedAt: null }));

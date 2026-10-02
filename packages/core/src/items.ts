@@ -1,9 +1,10 @@
+import { applyDelta, outputDeltas } from "@ace/projection";
 import { Item, ItemId, type EventPayload, type ToolDetail } from "@ace/protocol";
 import type { Fact, ItemDraft, Key, ToolDetailDraft } from "./facts.ts";
 import type { ApplyContext, ThreadState } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
 import { ensureAgent, linkAgent } from "./tree.ts";
-import { itemInput } from "./item-input.ts";
+import { itemDetailKind, itemInput } from "./item-input.ts";
 import { refreshItemIndex } from "./indexes.ts";
 
 function canonicalDetail(
@@ -12,7 +13,7 @@ function canonicalDetail(
   draft: ToolDetailDraft,
   ctx: ApplyContext,
   events: EventPayload[],
-): Partial<ToolDetail> {
+): Partial<ToolDetail> | ToolDetailDraft {
   if (draft.kind === "agent.spawn") {
     const { childAgent, ...detail } = draft;
     if (childAgent === undefined) return detail;
@@ -62,9 +63,30 @@ export function upsertItem(
     detail ? canonicalDetail(state, key, detail, ctx, events) : undefined,
   );
   const item = Item.parse(input);
+  const legacy =
+    itemDetailKind(previous, patch) === "shell" &&
+    detail &&
+    "output" in detail &&
+    typeof detail.output === "string"
+      ? detail.output
+      : undefined;
+  const previousOutput =
+    previous?.type === "tool_call" && previous.call.detail.kind === "shell"
+      ? previous.call.detail.output
+      : undefined;
+  if (legacy !== undefined && item.type === "tool_call" && item.call.detail.kind === "shell") {
+    if (previousOutput) item.call.detail.output = structuredClone(previousOutput);
+    else delete item.call.detail.output;
+  }
   put(state.items, key, item);
   refreshItemIndex(state, key);
   emit(events, { type: previous ? "item.updated" : "item.created", item });
+  if (legacy !== undefined) {
+    const suffix = new TextDecoder().decode(
+      new TextEncoder().encode(legacy).subarray(previousOutput?.bytes ?? 0),
+    );
+    appendDelta(item, "output", suffix, events);
+  }
   if (item.type === "tool_call" && item.call.detail.kind === "agent.spawn") {
     const child = get(state.itemLinks, key)?.childAgent;
     const childRecord = child === undefined ? undefined : get(state.agents, child);
@@ -107,34 +129,14 @@ export function appendItem(
                 kind: "shell",
                 title: "Output",
                 status: "running",
-                detail: { kind: "shell", command: "", output: "" },
+                detail: { kind: "shell", command: "" },
               },
             }
           : { type: "message", role: "assistant", parts: [] };
     item = upsertItem(state, fact.agent, fact.item, draft, ctx, events);
   }
   if (item.agentId !== record.agent.id) throw new Error("item key has a different owner");
-  if (fact.field === "output" && item.type === "tool_call" && item.call.detail.kind === "shell") {
-    item.call.detail.output = (item.call.detail.output ?? "") + fact.append;
-  } else if (
-    (fact.field === "reasoning" || fact.field === "text") &&
-    (item.type === "reasoning" || item.type === "notice")
-  ) {
-    item.text += fact.append;
-  } else if (fact.field === "text" && item.type === "message") {
-    const last = item.parts.at(-1);
-    if (last?.type === "text") last.text += fact.append;
-    else item.parts.push({ type: "text", text: fact.append });
-  } else {
-    throw new Error(`delta ${fact.field} does not apply to ${item.type}`);
-  }
-  events.push({
-    type: "item.delta",
-    itemId: item.id,
-    agentId: item.agentId,
-    field: fact.field,
-    append: fact.append,
-  });
+  appendDelta(item, fact.field, fact.append, events);
   const activity =
     item.type === "reasoning"
       ? "thinking"
@@ -153,4 +155,16 @@ export function appendItem(
     delete record.detail;
   }
   return created || changed || record.agent.status.state === "unresponsive";
+}
+
+function appendDelta(
+  item: Item,
+  field: "text" | "reasoning" | "output",
+  text: string,
+  events: EventPayload[],
+): void {
+  if (!applyDelta(item, field, text))
+    throw new Error(`delta ${field} does not apply to ${item.type}`);
+  for (const append of field === "output" ? outputDeltas(text) : [text])
+    events.push({ type: "item.delta", itemId: item.id, agentId: item.agentId, field, append });
 }
