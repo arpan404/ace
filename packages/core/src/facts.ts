@@ -97,8 +97,12 @@ export type Fact =
       trigger?: RunTrigger;
       error?: AgentError;
     }
+  /** A live native wait tool blocks on targets, or all live children when targets is empty. */
+  | { type: "subagents.waiting"; agent: Key; item: Key; targets: Key[] }
   | { type: "activity"; agent: Key; activity: AgentActivity; detail?: string }
   | { type: "item.upsert"; agent: Key; item: Key; draft: ItemDraft }
+  /** Idempotent snapshot reconciliation: preserve completion, first raw input and output prefixes. */
+  | { type: "item.reconciled"; agent: Key; item: Key; draft: ItemDraft }
   | {
       type: "item.delta";
       agent: Key;

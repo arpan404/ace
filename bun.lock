@@ -21,8 +21,8 @@
       "dependencies": {
         "@ace/adapter-claude": "workspace:*",
         "@ace/core": "workspace:*",
-        "@ace/engine-api": "workspace:*",
         "@ace/diagnostics": "workspace:*",
+        "@ace/engine-api": "workspace:*",
         "@ace/mcp-server": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/notify": "workspace:*",
@@ -66,6 +66,19 @@
         "@ace/adapter-testkit": "workspace:*",
       },
     },
+    "packages/adapter-codex": {
+      "name": "@ace/adapter-codex",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/engine-api": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@ace/adapter-testkit": "workspace:*",
+      },
+    },
     "packages/adapter-testkit": {
       "name": "@ace/adapter-testkit",
       "dependencies": {
@@ -96,6 +109,7 @@
       "dependencies": {
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
       },
     },
     "packages/diagnostics": {
@@ -222,6 +236,8 @@
   },
   "packages": {
     "@ace/adapter-claude": ["@ace/adapter-claude@workspace:packages/adapter-claude"],
+
+    "@ace/adapter-codex": ["@ace/adapter-codex@workspace:packages/adapter-codex"],
 
     "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],
 

@@ -21,7 +21,7 @@ describe("thread status precedence through facts", () => {
       h.see("child", "root");
       h.start("child");
       h.send({ type: "retry", agent: "child", on: "upstream" });
-      if (kind === "starting") h.see("new-child", "root", true);
+      if (kind === "starting") h.see("new-child", "root");
       if (kind === "subagents") {
         h.send({
           type: "item.upsert",

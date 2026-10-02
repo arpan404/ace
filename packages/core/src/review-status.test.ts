@@ -172,7 +172,7 @@ it("a never-started child in retry still waits on the provider after silence", (
   expect(h.view.status).toEqual({ state: "waiting", on: "upstream" });
 });
 
-it("a never-started child becomes unresponsive when its spawning tool finishes", () => {
+it("a successfully spawned child gets a silence grace period before becoming unresponsive", () => {
   const h = harness();
   h.see();
   h.start();
@@ -195,8 +195,11 @@ it("a never-started child becomes unresponsive when its spawning tool finishes",
     item: "spawn",
     draft: { type: "tool_call", call: { status: "succeeded" } },
   });
-  expect(h.agent("child")!.status.state).toBe("unresponsive");
+  expect(h.agent("child")?.status.state).toBe("starting");
   h.end();
+  expect(h.view.status.state).toBe("working");
+  h.send({ type: "tick" }, 90_200);
+  expect(h.agent("child")?.status.state).toBe("unresponsive");
   expect(h.agent("root")!.status).toEqual({ state: "idle" });
   expect(h.view.status).toEqual({ state: "done" });
 });

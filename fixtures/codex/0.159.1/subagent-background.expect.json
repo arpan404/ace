@@ -1,0 +1,52 @@
+{
+  "checkpoints": [
+    {
+      "t": 7008,
+      "thread": "working"
+    },
+    {
+      "t": 9062,
+      "thread": "working",
+      "agentStates": {
+        "root": "blocked",
+        "01a0fb29-8c7d-7d72-be0f-aa8f1d783f2f": "working"
+      },
+      "note": "Owner integration rule: an active background child keeps the thread working; root remains blocked on background_task."
+    },
+    {
+      "t": 11294,
+      "thread": "working",
+      "agentStates": {
+        "root": "blocked",
+        "01a0fb29-8c7d-7d72-be0f-aa8f1d783f2f": "working"
+      },
+      "note": "Owner integration rule: an active background child keeps the thread working; root remains blocked on background_task."
+    },
+    {
+      "t": 11357,
+      "thread": "working",
+      "agentStates": {
+        "root": "blocked",
+        "01a0fb29-8c7d-7d72-be0f-aa8f1d783f2f": "working"
+      },
+      "note": "Owner integration rule: an active background child keeps the thread working; root remains blocked on background_task."
+    },
+    {
+      "t": 14153,
+      "thread": "done"
+    },
+    {
+      "t": 14155,
+      "thread": "done"
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 2,
+    "interactions": {
+      "pending": 0,
+      "expired": 0,
+      "resolved": 1
+    }
+  }
+}

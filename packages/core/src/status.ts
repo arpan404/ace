@@ -124,6 +124,7 @@ function statusResolver(state: ThreadState, now: number) {
     children,
     lastSubtreeSignal,
     waitingOwners,
+    waitsByAgent,
   } = statusInputs(state);
   const resolved = new Map<Key, AgentStatus>();
   const visiting = new Set<Key>();
@@ -192,6 +193,20 @@ function statusResolver(state: ThreadState, now: number) {
     ];
 
     if (record.activeRun) {
+      const waits = waitsByAgent.get(agent.id) ?? [];
+      if (waits.length > 0)
+        return {
+          state: "blocked",
+          on: "subagents",
+          refs: liveChildren
+            .filter((child) =>
+              waits.some((wait) => wait.targets.length === 0 || wait.targets.includes(child)),
+            )
+            .flatMap((child) => {
+              const childAgent = lookup(state.agents, child)?.agent;
+              return childAgent ? [childAgent.id] : [];
+            }),
+        };
       const tools = toolsByAgent.get(agent.id) ?? [];
       const foreground = tools.flatMap((item) => {
         if (item.call.detail.kind !== "agent.spawn" || !item.call.detail.childAgentId) return [];
@@ -242,14 +257,8 @@ function statusResolver(state: ThreadState, now: number) {
     if (!record.lastRun) {
       if (key === state.rootKey && !state.hasRun && agent.fidelity !== "placeholder")
         return { state: "starting" };
-      const spawn =
-        record.spawnedByKey === undefined ? undefined : lookup(state.items, record.spawnedByKey);
-      if (
-        (spawn?.type === "tool_call" && !isLiveTool(spawn)) ||
-        now - lastSubtreeSignal(key) > state.config.silenceMs
-      ) {
+      if (now - lastSubtreeSignal(key) > state.config.silenceMs)
         return { state: "unresponsive", lastSignalAt: lastSubtreeSignal(key) };
-      }
       return { state: "starting" };
     }
     if (backgroundRefs.length > 0) {

@@ -82,7 +82,7 @@ export interface ThreadState {
   outcomeOrder: number;
   /** Rejected facts wait for a real fact to establish their root owner. */
   pendingNotices: { createdAt: number; text: string; raw: RawPayload[] }[];
-  itemLinks: Record<Key, { childAgent?: Key; targetAgent?: Key }>;
+  itemLinks: Record<Key, { childAgent?: Key; targetAgent?: Key; waitingFor?: Key[] }>;
   queueCount: number;
   queueSources: { engine: number; provider: number };
   hasRun: boolean;

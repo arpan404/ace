@@ -1,0 +1,23 @@
+{
+  "name": "@ace/adapter-codex",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "generate": "node scripts/generate.ts"
+  },
+  "dependencies": {
+    "@ace/core": "workspace:*",
+    "@ace/engine-api": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@ace/adapter-testkit": "workspace:*"
+  }
+}
