@@ -10,6 +10,7 @@ import { openInteraction, closeInteraction, startBackground, endBackground } fro
 import { exitProcess } from "./cleanup.ts";
 import { validateFact } from "./validate.ts";
 import { flushNotices, rejectFact } from "./diagnostics.ts";
+import { hasUnresponsiveAncestor, transportSignalAt } from "./liveness.ts";
 
 function signal(state: ThreadState, fact: Fact, ctx: ApplyContext, events: EventPayload[]): void {
   if ("agent" in fact && fact.agent !== undefined) {
@@ -42,12 +43,16 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
   const fact = result.fact;
   const events: EventPayload[] = [];
   ensureInitialRoot(state, ctx, events);
+  const transportRecovered =
+    state.config.liveness === "transport" &&
+    ctx.now - transportSignalAt(state) > state.config.silenceMs;
   if (fact.type !== "tick" && fact.type !== "queue.changed" && fact.type !== "process.exited") {
     state.lastTransportSignalAt = ctx.now;
   }
   signal(state, fact, ctx, events);
   if (fact.type === "item.delta") {
-    if (appendItem(state, fact, ctx, events)) {
+    const changed = appendItem(state, fact, ctx, events);
+    if (changed || transportRecovered || hasUnresponsiveAncestor(state, fact.agent)) {
       reconcileLinks(state, ctx, events);
       recomputeStatuses(state, ctx.now, events);
     }

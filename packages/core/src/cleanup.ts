@@ -12,6 +12,17 @@ import {
   refreshTaskIndex,
 } from "./indexes.ts";
 
+function cancelTool(state: ThreadState, key: string, now: number, events: EventPayload[]): void {
+  const item = state.items[key];
+  if (item?.type !== "tool_call") return;
+  item.call.status = "cancelled";
+  item.call.error = "turn ended without completion";
+  item.call.endedAt = now;
+  item.complete = true;
+  refreshItemIndex(state, key);
+  emit(events, { type: "item.updated", item });
+}
+
 export function cancelOpenWork(
   state: ThreadState,
   agentId: AgentId,
@@ -29,12 +40,7 @@ export function cancelOpenWork(
     if (item.agentId !== agentId || item.type !== "tool_call") continue;
     if (!["pending", "running", "awaiting_approval"].includes(item.call.status)) continue;
     if (backgroundItems.has(item.id)) continue;
-    item.call.status = "cancelled";
-    item.call.error = "turn ended without completion";
-    item.call.endedAt = now;
-    item.complete = true;
-    refreshItemIndex(state, key);
-    emit(events, { type: "item.updated", item });
+    cancelTool(state, key, now, events);
   }
   for (const key of pendingInteractionKeys(state, agentId)) {
     const interaction = state.interactions[key]!;
@@ -92,6 +98,8 @@ export function exitProcess(
       endedAt: ctx.now,
     });
   }
+  // All live tools belong to this process, even after their owner ended its turn.
+  for (const key of liveToolKeys(state)) cancelTool(state, key, ctx.now, events);
   for (const record of Object.values(state.agents)) {
     delete record.disconnectedAt;
     delete record.retry;
@@ -122,6 +130,5 @@ export function exitProcess(
       emit(events, { type: "run.ended", runId: run.id, state: run.state, endedAt: ctx.now });
     }
     delete record.activeRun;
-    cancelOpenWork(state, record.agent.id, ctx.now, events);
   }
 }
