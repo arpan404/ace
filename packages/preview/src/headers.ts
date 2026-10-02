@@ -55,9 +55,8 @@ export function requestHeaders(input: IncomingHttpHeaders, port: number): Outgoi
 }
 export function rewriteLocation(value: string, port: number, origin: string): string {
   try {
-    const url = value.startsWith("//")
-      ? new URL(value, `http://localhost:${port}`)
-      : new URL(value);
+    // Use the browser's URL parser for mixed slash/backslash authorities too.
+    const url = new URL(value, origin);
     if (
       ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) &&
       Number(url.port || (url.protocol === "https:" ? 443 : 80)) === port
@@ -65,7 +64,7 @@ export function rewriteLocation(value: string, port: number, origin: string): st
       return `${origin}${url.pathname}${url.search}${url.hash}`;
     }
   } catch {
-    /* Relative redirects already resolve against the preview origin. */
+    /* Invalid redirect references retain their original value. */
   }
   return value;
 }

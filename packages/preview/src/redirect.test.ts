@@ -8,11 +8,16 @@ afterEach(async () => {
 });
 
 test.each(["gateway", "relay"])(
-  "%s keeps scheme-relative loopback redirects on the preview origin",
+  "%s keeps browser-normalized loopback authority redirects on the preview origin",
   async (kind) => {
     const upstream = await serve((req, res) => {
       const authority = req.url?.slice(1) ?? "localhost";
-      res.writeHead(302, { location: `//${authority}:${upstream.port}/next?q=1#fragment` });
+      const separator = req.headers["x-redirect-separator"] ?? "//";
+      const location =
+        authority === "relative"
+          ? "/next?q=1#fragment"
+          : `${separator}${authority}:${upstream.port}/next?q=1#fragment`;
+      res.writeHead(302, { location });
       res.end();
     });
     cleanup.push(upstream.close);
@@ -34,11 +39,19 @@ test.each(["gateway", "relay"])(
       cleanup.push(proxy.close);
       origin = proxy.url;
     }
-    for (const authority of ["localhost", "127.0.0.1", "[::1]"]) {
-      const response = await http(`${origin}/${authority}`, { cookie });
-      expect(response.status).toBe(302);
-      expect(response.headers.location).toBe(`${origin}/next?q=1#fragment`);
+    for (const separator of ["//", "\\\\", "/\\", "\\/"]) {
+      for (const authority of ["localhost", "127.0.0.1", "[::1]"]) {
+        const response = await http(`${origin}/${authority}`, {
+          cookie,
+          "x-redirect-separator": separator,
+        });
+        expect(response.status).toBe(302);
+        expect(response.headers.location).toBe(`${origin}/next?q=1#fragment`);
+      }
     }
+    expect((await http(`${origin}/relative`, { cookie })).headers.location).toBe(
+      "/next?q=1#fragment",
+    );
     expect((await http(`${origin}/example.com`, { cookie })).headers.location).toBe(
       `//example.com:${upstream.port}/next?q=1#fragment`,
     );
