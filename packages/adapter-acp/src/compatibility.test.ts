@@ -91,7 +91,7 @@ it("keeps Antigravity shells live after turn end and closes them from a later up
   expect(required(h.tools()[0]).call.detail).toMatchObject({
     command: "sleep 10",
     cwd: "/work",
-    output: "done",
+    output: { tail: "done", bytes: 4, truncated: false },
   });
 });
 it("exposes the child cancellation grace to the engine deadline scheduler", () => {

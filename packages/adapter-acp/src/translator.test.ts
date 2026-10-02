@@ -126,8 +126,8 @@ it("reclassifies tool placeholders on refresh while retaining their running stat
     status: "running",
     detail: { path: "/a" },
   });
-  expect(required(required(h.tools()[0]).call.raw.at(-1)).data).toMatchObject({
-    params: { update: { rawInput: { future: 1 } } },
+  expect(required(required(h.tools()[0]).call.raw.at(-1))).toMatchObject({
+    data: { params: { update: { rawInput: { future: 1 } } } },
   });
 });
 it.each([{ exitCode: 2 }, { error: "oops" }, { permissionDenied: true }])(
@@ -253,7 +253,7 @@ it("keeps unknown and malformed frames as raw without rejecting later traffic", 
   end(h);
   expect(h.state.status.state).toBe("done");
   const retained = Object.values(h.state.items).flatMap((i) =>
-    i.type === "notice" ? i.raw.map((r) => r.data) : [],
+    i.type === "notice" ? i.raw.map((r) => ("data" in r ? r.data : undefined)) : [],
   );
   for (const value of [
     null,
@@ -265,7 +265,7 @@ it("keeps unknown and malformed frames as raw without rejecting later traffic", 
   h.replay({ seq: 999, t: 1000, dir: "recv", channel: "stdio-text", data: "{broken JSON" });
   expect(
     Object.values(h.state.items).flatMap((i) =>
-      i.type === "notice" ? i.raw.map((r) => r.data) : [],
+      i.type === "notice" ? i.raw.map((r) => ("data" in r ? r.data : undefined)) : [],
     ),
   ).toContain("{broken JSON");
 });
