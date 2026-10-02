@@ -244,7 +244,8 @@ export class ModelCatalog implements ModelCatalogApi {
             models,
           });
           try {
-            if (this.#deletions.has(state.config.id)) await this.#deletions.remove(state.config.id);
+            // Evictions and explicit removals still own their durable slots until deletion succeeds.
+            await this.#deletions.flush();
             if (this.#states.get(state.config.id) !== state || this.#closed) return;
             await this.#options.storage.replace(entry);
           } catch {
