@@ -65,7 +65,7 @@ export class CommandFiles {
   private readonly pending = new Set<string>();
   private readonly listeners = new Set<() => void>();
   private timer: NodeJS.Timeout | undefined;
-  private work: Promise<void> = Promise.resolve();
+  private batch: Promise<void> | undefined;
   private closed = false;
   private links = 0;
   private readonly recovery = new FileRecovery();
@@ -175,14 +175,15 @@ export class CommandFiles {
       clearTimeout(this.timer);
       this.timer = undefined;
     }
-    this.work = this.work.then(async () => {
-      const paths = [...this.pending];
-      this.pending.clear();
-      for (const path of paths)
-        for (const root of this.roots)
-          if (inside(root.path, path))
-            await this.sync(root, path, relative(root.path, path).split(sep).length - 1);
-      if (paths.length)
+    if (this.batch) return this.batch;
+    const run = (async () => {
+      while (!this.closed && this.pending.size) {
+        const paths = [...this.pending];
+        this.pending.clear();
+        for (const path of paths)
+          for (const root of this.roots)
+            if (inside(root.path, path))
+              await this.sync(root, path, relative(root.path, path).split(sep).length - 1);
         for (const listener of this.listeners) {
           try {
             listener();
@@ -190,8 +191,12 @@ export class CommandFiles {
             /* A subscriber cannot stop discovery. */
           }
         }
+      }
+    })();
+    this.batch = run.finally(() => {
+      this.batch = undefined;
     });
-    await this.work;
+    await this.batch;
   }
   private report(root: DiscoveryRoot, path: string, message: string): void {
     const id = sourceId(root, path);
@@ -367,6 +372,6 @@ export class CommandFiles {
     this.pending.clear();
     this.listeners.clear();
     await this.healing;
-    await this.work;
+    await this.batch;
   }
 }

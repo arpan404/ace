@@ -123,3 +123,25 @@ it("removes cached OpenCode commands when their config file becomes a directory"
   await files.reconcile();
   expect(f.catalog.resolve(opencode, command.id)).toEqual({ ok: false, error: "not_found" });
 });
+
+it("drains invalidations queued during a flush before the batch completes", async () => {
+  const f = await fixture();
+  for (const name of ["one", "two"]) await writeFile(join(f.root, `${name}.md`), "Original");
+  await f.files.start();
+  const two = f.catalog.list(target, "two").commands.find((c) => c.name === "two");
+  if (!two) throw new Error("Missing second snippet");
+  for (const name of ["one", "two"]) await writeFile(join(f.root, `${name}.md`), "Changed");
+  let queued = false;
+  f.files.subscribe(() => {
+    if (queued) return;
+    queued = true;
+    f.files.invalidate(join(f.root, "two.md"));
+    void f.files.flush();
+  });
+  f.files.invalidate(join(f.root, "one.md"));
+  await f.files.flush();
+  expect(f.catalog.resolve(target, two.id)).toEqual({
+    ok: true,
+    plan: { kind: "prompt", provider: "claude", text: "Changed" },
+  });
+});
