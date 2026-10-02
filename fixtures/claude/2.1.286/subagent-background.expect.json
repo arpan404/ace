@@ -1,0 +1,44 @@
+{
+  "checkpoints": [
+    {
+      "t": 4418,
+      "thread": "working",
+      "agentStates": {
+        "root": "blocked"
+      }
+    },
+    {
+      "t": 6947,
+      "thread": "working"
+    },
+    {
+      "t": 6948,
+      "thread": "working",
+      "agentStates": {
+        "root": "working"
+      },
+      "note": "Notification has arrived; the unprompted turn has not started."
+    },
+    {
+      "t": 9404,
+      "thread": "done"
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 2,
+    "interactions": {
+      "resolved": 0,
+      "pending": 0,
+      "cancelled": 0,
+      "expired": 0
+    },
+    "items": {
+      "tool_call": 2,
+      "message": 4
+    },
+    "agentStates": {
+      "root": "idle"
+    }
+  }
+}

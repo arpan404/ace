@@ -1,3 +1,4 @@
+import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { WebSocket } from "ws";
 import type { DeliveryEvent, ServerMessage } from "@ace/protocol";
 
@@ -16,6 +17,10 @@ export const defaultPressure: PressureOptions = {
 };
 export function coalesceEvents(events: DeliveryEvent[]): DeliveryEvent[] {
   const result: DeliveryEvent[] = [];
+  appendCoalesced(result, events);
+  return result;
+}
+function appendCoalesced(result: DeliveryEvent[], events: DeliveryEvent[]): void {
   for (const event of events) {
     const last = result.at(-1);
     if (
@@ -35,7 +40,6 @@ export function coalesceEvents(events: DeliveryEvent[]): DeliveryEvent[] {
       };
     } else result.push(event);
   }
-  return result;
 }
 interface EventBatch {
   subscriptionId: string;
@@ -49,7 +53,9 @@ export class Outbox {
   private aboveHardSince: number | undefined;
   private options: PressureOptions;
   private socket: WebSocket;
-  constructor(socket: WebSocket, options: PressureOptions) {
+  private now: () => number;
+  constructor(socket: WebSocket, options: PressureOptions, now = systemDeliveryRuntime.now) {
+    this.now = now;
     this.socket = socket;
     this.options = options;
   }
@@ -58,7 +64,7 @@ export class Outbox {
     if (message.type === "events" && this.socket.bufferedAmount > this.options.softLimit) {
       const last = this.pending.at(-1);
       if (last?.subscriptionId === message.subscriptionId && last.throughSeq === message.afterSeq) {
-        last.events = coalesceEvents([...last.events, ...message.events]);
+        appendCoalesced(last.events, message.events);
         last.throughSeq = message.throughSeq;
       } else
         this.pending.push({
@@ -69,6 +75,22 @@ export class Outbox {
         });
       this.bytes += Buffer.byteLength(JSON.stringify(message));
       if (this.bytes > this.options.maxQueuedBytes) this.resync();
+      this.tick();
+      return;
+    }
+    // Admit the whole snapshot before handing any of its bytes to the transport.
+    // This caps transport bytes; bounding status allocation needs snapshot paging.
+    if (message.type === "snapshot") {
+      const serialized = JSON.stringify(message);
+      if (
+        this.bytes + this.socket.bufferedAmount + Buffer.byteLength(serialized) >
+        this.options.maxQueuedBytes
+      ) {
+        this.resync();
+        return;
+      }
+      this.flush();
+      this.writeSerialized(serialized);
       this.tick();
       return;
     }
@@ -87,9 +109,13 @@ export class Outbox {
       this.resync();
       return;
     }
-    this.socket.send(encoded, (error) => {
-      if (error) this.socket.terminate();
-    });
+    this.writeSerialized(encoded);
+  }
+  private writeSerialized(message: string): void {
+    if (this.socket.readyState === WebSocket.OPEN)
+      this.socket.send(message, (error) => {
+        if (error) this.socket.terminate();
+      });
   }
   private flush(): void {
     const pending = this.pending;
@@ -97,7 +123,7 @@ export class Outbox {
     this.bytes = 0;
     for (const batch of pending) this.write({ type: "events", ...batch });
   }
-  tick(now = Date.now()): void {
+  tick(now = this.now()): void {
     if (this.socket.bufferedAmount > this.options.hardLimit) {
       this.aboveHardSince ??= now;
       if (now - this.aboveHardSince >= this.options.hardTimeoutMs) this.resync();

@@ -119,3 +119,35 @@ were retained. No full suite, additional test files, benchmarks or mutations ran
 The remaining final-revision runtime validation still needs run at merge.
 
 Formatting, lint and all workspace typechecks passed after the correction.
+
+## Integration merge with daemon audit and workspace services
+
+Merged `origin/main` at `fe670b0` without rebasing. Conflicts were resolved by
+retaining both NOTICE entries, all dependencies and the union of process-test
+suites. Both settings socket suites run in the process project. Settings cleanup
+runs after main's idempotent-cleanup guard. Outbox preserves settings' hard byte
+cap while reusing main's serialized-write path and snapshot admission check.
+Model requests, notifications, remote authorization and injected delivery runtime
+remain unchanged from main. Settings already uses main's `allows` device-scope
+API; no local authorization stand-in remains. No PR comment titled
+"Integration rehearsal: findings for this PR" was present when checked.
+
+Under the explicit merge-conflict exception, these specific daemon files ran:
+settings.server, settings.remote, models.server, server, outbox-work, pressure,
+delivery-runtime, notification-shutdown, notifications.server and presence-pressure.
+All **10 files / 52 tests passed**. Existing behavior tests cover both sides of
+the conflicted server/outbox code. Formatting, lint, all workspace typechecks and
+the size check passed, with all **579** sources within 1,500 lines. Dependency
+installation rebuilt the workspace descriptor helper successfully.
+
+No full suite, aggregate `bun run check`, Docker tests, benchmark, mutation run or
+CI was executed. The full repository runtime gate still needs run at merge.
+
+| Merge mutation case                        | Existing guarding behavior                        | Status                            |
+| ------------------------------------------ | ------------------------------------------------- | --------------------------------- |
+| Drop settings socket byte admission        | Oversized settings delivery requests reconnect    | not executed (tests run at merge) |
+| Drop main's snapshot admission             | Oversized snapshot closes before delivery         | not executed (tests run at merge) |
+| Drop main's idempotent cleanup             | Registered presence drains once per session       | not executed (tests run at merge) |
+| Drop model handlers from server routing    | Authenticated correlated model requests resolve   | not executed (tests run at merge) |
+| Drop settings handlers from server routing | Authenticated settings requests assign and stream | not executed (tests run at merge) |
+| Drop shared device-scope checks            | Read-only/operate-only settings permissions hold  | not executed (tests run at merge) |
