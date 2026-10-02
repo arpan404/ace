@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 import { mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { startDaemon, readConfig } from "./index.ts";
+import { Client } from "./socket-test-support.ts";
+import { once } from "node:events";
+import { Command, DeviceId } from "@ace/protocol";
+import { writeFile } from "node:fs/promises";
 import { afterEach, expect, it } from "vitest";
 const exec = promisify(execFile);
 const roots: string[] = [];
@@ -64,4 +69,38 @@ it("ace support-bundle creates an archive and refuses to overwrite an existing o
   expect(bytes[1]).toBe(0x8b);
   await expect(exec(process.execPath, args, { env })).rejects.toThrow();
   expect(await readFile(path)).toEqual(bytes);
+});
+
+it("an unavailable log directory does not prevent daemon operation and health counts the failed writes", async () => {
+  const { dataDir } = await setup();
+  await writeFile(join(dataDir, "logs"), "blocking file");
+  const daemon = await startDaemon(readConfig({ ACE_HOME: dataDir, ACE_PORT: "0" }));
+  const client = new Client(daemon.url);
+  try {
+    await once(client.socket, "open");
+    const token = await readFile(daemon.tokenPath, "utf8");
+    client.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: DeviceId.parse("diagnostics-test"),
+      token,
+    });
+    await client.next();
+    client.send({
+      type: "command",
+      command: Command.parse({
+        id: "failure-health",
+        deviceId: "diagnostics-test",
+        payload: { type: "diagnostics.health" },
+      }),
+    });
+    const response = await client.next();
+    if (response.type !== "commandResult" || !response.health) throw new Error("Missing health");
+    expect(response.ok).toBe(true);
+    expect(response.health.logs.failed).toBeGreaterThan(0);
+    expect(daemon.store.createWorkspace("/diagnostics-test", "Test")).toBeTruthy();
+  } finally {
+    await client.close();
+    await daemon.close();
+  }
 });

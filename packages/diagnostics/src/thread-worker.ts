@@ -5,7 +5,7 @@ const { path } = z.object({ path: z.string() }).parse(workerData);
 const db = new DatabaseSync(path, { readOnly: true, timeout: 200 });
 // Limit each event before transferring it. Work is bounded to the newest 2000 rows.
 const query = db.prepare(`SELECT seq, at, type,
-  CASE WHEN length(CAST(payload AS BLOB)) <= 60000 THEN payload ELSE '"<OVERSIZED EVENT OMITTED>"' END AS payload
+  CASE WHEN octet_length(payload) <= 60000 THEN payload ELSE '"<OVERSIZED EVENT OMITTED>"' END AS payload
   FROM events WHERE seq IN (SELECT seq FROM events ORDER BY seq DESC LIMIT 2000) ORDER BY seq`);
 const iterator = query.iterate();
 const port = parentPort;

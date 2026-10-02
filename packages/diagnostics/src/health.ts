@@ -1,14 +1,25 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { DiagnosticsHealth } from "@ace/protocol";
 import { sqliteSizes } from "./sqlite.ts";
+export interface DelayProbe {
+  count: number;
+  mean: number;
+  max: number;
+  percentile(percentile: number): number;
+  enable(): unknown;
+  disable(): unknown;
+  reset(): void;
+}
 export interface HealthOptions {
+  /** Inject time measurements without sleeps in tests. */
+  delay?: DelayProbe;
   database: string;
   now: () => number;
   workload: () => { activeSessions: number | null; queues: Record<string, number> };
   logs: () => { dropped: number; failed: number; queued: number };
 }
 export function createHealthMonitor(options: HealthOptions) {
-  const histogram = monitorEventLoopDelay({ resolution: 20 });
+  const histogram = options.delay ?? monitorEventLoopDelay({ resolution: 20 });
   histogram.enable();
   let collecting: Promise<DiagnosticsHealth> | undefined;
   let closed = false;

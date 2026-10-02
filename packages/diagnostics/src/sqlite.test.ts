@@ -70,7 +70,10 @@ it("thread export reads recent events with bounded oversized payloads", async ()
   const insert = db.prepare("INSERT INTO events VALUES (?, 0, 'event', ?)");
   db.exec("BEGIN");
   for (let n = 1; n <= 2001; n++)
-    insert.run(n, n === 2001 ? "x".repeat(100000) : '{"value":"safe"}');
+    insert.run(
+      n,
+      n === 2001 ? "x".repeat(100000) : n === 2000 ? "é".repeat(40000) : '{"value":"safe"}',
+    );
   db.exec("COMMIT");
   db.close();
   const lines: string[] = [];
@@ -78,5 +81,39 @@ it("thread export reads recent events with bounded oversized payloads", async ()
   expect(lines).toHaveLength(2000);
   expect(JSON.parse(lines[0] ?? "null").seq).toBe(2);
   expect(lines.at(-1)).toContain("OVERSIZED EVENT OMITTED");
+  expect(lines.at(-2)).toContain("OVERSIZED EVENT OMITTED");
   expect(lines.at(-1)?.length).toBeLessThan(200);
+});
+
+it("health converts loop delay to milliseconds and resets the measured interval after collection", async () => {
+  const path = join(await temporary(), "events.sqlite");
+  const db = new DatabaseSync(path);
+  db.exec("CREATE TABLE example(value TEXT)");
+  db.close();
+  let samples = 2;
+  const monitor = createHealthMonitor({
+    database: path,
+    now: () => 0,
+    workload: () => ({ activeSessions: 0, queues: {} }),
+    logs: () => ({ dropped: 0, failed: 0, queued: 0 }),
+    delay: {
+      get count() {
+        return samples;
+      },
+      mean: 1500000,
+      max: 3000000,
+      percentile: () => 2500000,
+      enable() {},
+      disable() {},
+      reset() {
+        samples = 0;
+      },
+    },
+  });
+  try {
+    expect((await monitor.collect()).eventLoop).toEqual({ meanMs: 1.5, p99Ms: 2.5, maxMs: 3 });
+    expect((await monitor.collect()).eventLoop).toEqual({ meanMs: null, p99Ms: null, maxMs: null });
+  } finally {
+    monitor.close();
+  }
 });
