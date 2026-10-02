@@ -58,7 +58,8 @@ export class BrowserClient {
   async close(): Promise<void> {
     if (this.socket.readyState === WebSocket.CLOSED) return;
     const closed = once(this.socket, "close");
-    this.socket.close();
+    // Teardown must not wait for a peer close handshake under worker load.
+    this.socket.terminate();
     await closed;
   }
 }
