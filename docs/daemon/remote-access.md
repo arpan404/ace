@@ -73,7 +73,7 @@ Only the host/admin that creates the code chooses scopes. Redemption cannot add 
 
 A device record has `id`, `name`, `scopes`, `createdAt`, `lastSeenAt` and nullable `revokedAt`. SQLite stores these in `devices(id, name, token_hash, scopes, created_at, last_seen_at, revoked_at)`. Tokens contain 32 random bytes encoded as 64 hexadecimal characters. Only SHA-256 hashes are stored; tokens and hashes are absent from device listings. Device authentication and ticket use update `lastSeenAt`.
 
-Pairing requests are limited to five per source address per minute, including malformed requests, with a global cap of 100 per minute. A forwarded connection uses the proxy's source address. Forwarded headers are not trusted. Pending codes are capped at 100 and tickets at 10,000. Wrong/expired credentials return 401, missing scope returns 403, rate/cap limits return 429 and pairing with remote access disabled returns 409.
+Pairing requests are limited to five per source address per minute, including malformed requests, with a global cap of 100 per minute. A forwarded connection uses the proxy's source address. Forwarded headers are not trusted. Pending codes are capped at 100. Tickets are capped at 10,000 globally, 32 pending per device and 120 issuances per device per minute, including tickets consumed immediately. Revocation releases that device's pending tickets and rate entries immediately. Ticket expiry uses an indexed min-heap, so issuance never scans retained ticket history. Entries are removed on consumption, expiry or revocation, with no retained heap tombstones. Wrong/expired credentials return 401, missing scope returns 403, rate/cap limits return 429 and pairing with remote access disabled returns 409.
 
 ## WebSocket authentication and client helper
 
@@ -118,7 +118,13 @@ socket.once("open", () =>
 );
 ```
 
-Persist `token` in the client's secure credential storage. The helper checks the TLS pin before any request bytes are written, rejects unpinned remote requests, and refuses credentials in HTTP or socket URLs. It uses Node TLS and is not a browser/React Native transport. Those clients need an equivalent native certificate-pinning boundary. Trust begins with the URL shown on the host's terminal.
+Persist `token` in the client's secure credential storage. The helper checks the TLS pin before any request bytes are written, rejects unpinned remote requests, and refuses credentials in HTTP or socket URLs. The helper caps responses at 1 MiB and checks certificate validity using one clock reading per handshake. Its clock can be supplied through `accessRequest` or `ticketSocket`. It uses Node TLS and is not a browser/React Native transport. Those clients need an equivalent native certificate-pinning boundary. Trust begins with the URL shown on the host's terminal.
+
+## Performance and runtime boundaries
+
+Run `bun run --filter @ace/daemon bench:remote` for an informational benchmark through real HTTP, SQLite and cryptographic credential generation. It requests successive batches of 1,000, 3,000 and 6,000 tickets across 314 devices, leaving 10,000 pending without bypassing the per-device limits. No timing threshold gates tests. Results and the comparison against the previous ticket scan are in [remote-verification.md](./remote-verification.md).
+
+The allocation policy receives time and hashed identities from the I/O layer. Credential entropy and IDs, TLS certificate signing and temporary IDs, network-interface/status discovery, and client certificate clocks are injected at their boundaries. Default adapters use the host's crypto, OpenSSL, Tailscale and clock. Complete device records and lifecycle timestamps are validated before SQLite changes, so rejected public store operations preserve existing rows.
 
 ## Dependency decisions
 
