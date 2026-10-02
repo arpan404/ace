@@ -1,7 +1,6 @@
-import { ItemId, type EventPayload, type Item } from "@ace/protocol";
-import type { ApplyContext, ThreadState } from "./state.ts";
+import { ItemId, type EventPayload, type Item, type RunId } from "@ace/protocol";
+import type { AgentRecord, ApplyContext, ThreadState } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
-import { ensureAgent, ensureInitialRoot } from "./tree.ts";
 
 /** Preserve JSON facts verbatim, and describe values JSON cannot represent. */
 export function diagnosticData(value: unknown, seen = new Set<object>(), depth = 0): unknown {
@@ -32,7 +31,31 @@ export function diagnosticData(value: unknown, seen = new Set<object>(), depth =
   }
 }
 
-/** A rejected fact has exactly one diagnostic and leaves existing work untouched. */
+function publishNotice(
+  state: ThreadState,
+  owner: AgentRecord,
+  notice: ThreadState["pendingNotices"][number],
+  ctx: ApplyContext,
+  events: EventPayload[],
+  runId?: RunId,
+): void {
+  const id = ItemId.parse(ctx.ids.next("item"));
+  const item: Item = {
+    id,
+    agentId: owner.agent.id,
+    complete: true,
+    ...(runId === undefined ? {} : { runId }),
+    type: "notice",
+    level: "warning",
+    ...notice,
+  };
+  let key = `ace:notice:${id}`;
+  while (get(state.items, key)) key += ":";
+  put(state.items, key, item);
+  emit(events, { type: "item.created", item });
+}
+
+/** Rejection never creates agents or refreshes liveness. */
 export function rejectFact(
   state: ThreadState,
   input: unknown,
@@ -40,23 +63,22 @@ export function rejectFact(
   ctx: ApplyContext,
 ): EventPayload[] {
   const events: EventPayload[] = [];
-  ensureInitialRoot(state, ctx, events);
-  const owner = ensureAgent(state, state.rootKey ?? "ace:diagnostics", ctx, events);
-  const id = ItemId.parse(ctx.ids.next("item"));
-  const item: Item = {
-    id,
-    agentId: owner.agent.id,
+  const notice = {
     createdAt: ctx.now,
-    complete: true,
-    ...(owner.activeRun === undefined ? {} : { runId: owner.activeRun }),
-    type: "notice",
-    level: "warning",
     text: `Ignored adapter fact: ${reason}`,
     raw: [{ type: "core.rejected_fact", data: diagnosticData(input) }],
   };
-  let key = `ace:notice:${id}`;
-  while (get(state.items, key)) key += ":";
-  put(state.items, key, item);
-  emit(events, { type: "item.created", item });
+  const owner = state.rootKey === undefined ? undefined : get(state.agents, state.rootKey);
+  if (owner) publishNotice(state, owner, notice, ctx, events, owner.activeRun);
+  else state.pendingNotices.push(notice);
   return events;
+}
+
+/** Deferred warnings join the first root established by valid provider facts. */
+export function flushNotices(state: ThreadState, ctx: ApplyContext, events: EventPayload[]): void {
+  if (state.pendingNotices.length === 0) return;
+  const owner = state.rootKey === undefined ? undefined : get(state.agents, state.rootKey);
+  if (!owner) return;
+  for (const notice of state.pendingNotices) publishNotice(state, owner, notice, ctx, events);
+  state.pendingNotices = [];
 }

@@ -8,6 +8,7 @@ import type {
   Run,
   RunId,
   ProviderKind,
+  RawPayload,
   ThreadId,
   ThreadStatus,
 } from "@ace/protocol";
@@ -79,6 +80,8 @@ export interface ThreadState {
   taskHistory: Record<string, BackgroundTask>;
   indexes: LiveIndexes;
   outcomeOrder: number;
+  /** Rejected facts wait for a real fact to establish their root owner. */
+  pendingNotices: { createdAt: number; text: string; raw: RawPayload[] }[];
   itemLinks: Record<Key, { childAgent?: Key; targetAgent?: Key }>;
   queueCount: number;
   hasRun: boolean;
@@ -125,6 +128,7 @@ export function createThreadState(init: {
       pendingItemLinks: dictionary(),
     },
     outcomeOrder: 0,
+    pendingNotices: [],
     itemLinks: dictionary(),
     queueCount: 0,
     hasRun: false,

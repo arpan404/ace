@@ -9,7 +9,7 @@ import { startTurn, endTurn } from "./runs.ts";
 import { openInteraction, closeInteraction, startBackground, endBackground } from "./entities.ts";
 import { exitProcess } from "./cleanup.ts";
 import { validateFact } from "./validate.ts";
-import { rejectFact } from "./diagnostics.ts";
+import { flushNotices, rejectFact } from "./diagnostics.ts";
 
 function signal(state: ThreadState, fact: Fact, ctx: ApplyContext, events: EventPayload[]): void {
   if ("agent" in fact && fact.agent !== undefined) {
@@ -51,6 +51,7 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
       reconcileLinks(state, ctx, events);
       recomputeStatuses(state, ctx.now, events);
     }
+    flushNotices(state, ctx, events);
     return events;
   }
   switch (fact.type) {
@@ -133,6 +134,7 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
     case "tick":
       break;
   }
+  flushNotices(state, ctx, events);
   reconcileLinks(state, ctx, events);
   recomputeStatuses(state, ctx.now, events);
   return events;

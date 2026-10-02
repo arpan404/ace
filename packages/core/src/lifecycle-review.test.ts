@@ -78,7 +78,8 @@ describe("partial and resumed provider lifecycles", () => {
         cwd: "/repo",
       },
     );
-    const events = h.send({ type: "agent.linked", agent: "root", parent: "phantom-child" });
+    expect(h.send({ type: "agent.linked", agent: "root", parent: "phantom-child" })).toEqual([]);
+    const events = h.send({ type: "queue.changed", count: 0 });
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "item.created",

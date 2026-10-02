@@ -47,8 +47,10 @@ Prototype property names such as `__proto__` are valid.
 `apply` validates provider facts before changing liveness, allocating their ids
 or creating placeholders. Invalid, contradictory or unknown facts produce a
 warning notice containing the raw fact and leave existing work untouched. If no
-agent exists, core materializes the configured root or a diagnostic placeholder
-to own the notice. Non-JSON values get descriptive markers in that diagnostic.
+root exists, warnings wait in the JSON snapshot until a valid fact establishes
+the root. They then appear under that root with their original timestamps and
+raw data. Rejection never creates an agent or refreshes liveness. Non-JSON
+values get descriptive markers in the diagnostic.
 Bad caller configuration and context remain programmer errors.
 
 ## Adapter contract
@@ -115,6 +117,10 @@ The ordered rules in the milestone brief apply with these fixture refinements:
 - Never-started children and placeholders become unresponsive after subtree
   silence or when their spawning tool finishes. A configured root before the
   first run leaves the thread new, unless higher-priority waiting work exists.
+  A never-started unresponsive child stays visible but does not block completion
+  or make the thread unresponsive by itself. Its live tasks, pending interactions,
+  retries and descendants still hold completion. A child with an active or past
+  run remains relevant when unresponsive: silence does not prove that work ended.
 
 The explicit thread precedence counts every starting or working child, including
 background children. Thus a finished root can wait on a background task while
