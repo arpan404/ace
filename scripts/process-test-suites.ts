@@ -13,4 +13,8 @@ export const processTestSuites = [
   // Main advanced during this audit; these match after the model catalog merges.
   "apps/daemon/src/models.server.test.ts",
   "packages/models/src/{catalog,discover,review,storage,streaming}.test.ts",
+  // Command discovery owns native filesystem I/O, watchers and directory cursors.
+  "packages/commands/src/{files,recovery,lifecycle,session-lifecycle,containment}.test.ts",
+  "apps/daemon/src/command-library.server.test.ts",
+  "apps/daemon/src/command-events.test.ts",
 ];

@@ -30,7 +30,12 @@ it("repairs missed body edits in bounded batches without scanning all sources", 
   const commands = f.catalog.list(target, "value", 100).commands;
   expect(commands).toHaveLength(64);
   for (let i = 0; i < 64; i++) await writeFile(join(f.root, `value-${i}.md`), "Changed");
+  const before = f.files.metrics();
   await f.files.reconcile();
+  expect(f.files.metrics().recoveryChecks - before.recoveryChecks).toBeLessThanOrEqual(32);
+  expect(f.files.metrics().metadataChecks - before.metadataChecks).toBeLessThanOrEqual(32);
+  expect(f.files.metrics().fileReads - before.fileReads).toBeLessThanOrEqual(32);
+  expect(f.files.metrics().directoryEntries - before.directoryEntries).toBe(0);
   const changed = () =>
     commands.filter((command) => {
       const result = f.catalog.resolve(target, command.id);

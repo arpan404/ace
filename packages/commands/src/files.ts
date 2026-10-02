@@ -1,44 +1,21 @@
-import { watch, constants } from "node:fs";
-import { lstat, opendir, open, realpath } from "node:fs/promises";
-import { dirname, basename, relative, resolve, sep, join } from "node:path";
-import { createHash } from "node:crypto";
+import { watch } from "node:fs";
+import { lstat } from "node:fs/promises";
+import { dirname, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { CommandCatalog } from "./catalog.ts";
-import { parseMarkdown, parseOpenCodeConfig } from "./parse.ts";
 import type { DiscoveryRoot } from "./roots.ts";
 import { FileRecovery } from "./recovery.ts";
-
+import { SecureCommandIo, type CommandFileIo } from "./secure-io.ts";
+import { FileIndex, type DiscoveryMetrics } from "./file-index.ts";
+import { inside, key, sourceId, type RegisteredRoot } from "./file-keys.ts";
 const rootSchema = z.object({
-  path: z.string().min(1),
+  path: z.string().min(1).max(4096),
   format: z.enum(["library", "claude", "codex", "opencode", "opencode-config"]),
   scope: z.enum(["user", "workspace"]),
   instance: z.string().max(128).optional(),
   skill: z.boolean().optional(),
-  trustedRoot: z.string().optional(),
+  trustedRoot: z.string().max(4096).optional(),
 });
-const inside = (root: string, path: string) => path === root || path.startsWith(root + sep);
-const sourceId = (root: DiscoveryRoot, path: string) =>
-  createHash("sha256")
-    .update(`${root.instance ?? "library"}:${root.scope}:${root.format}:${path}`)
-    .digest("hex")
-    .slice(0, 24);
-async function readBounded(path: string): Promise<string> {
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  try {
-    if (!(await file.stat()).isFile()) throw new Error("Not a regular file");
-    const buffer = Buffer.alloc(65537);
-    let offset = 0;
-    while (offset < buffer.length) {
-      const read = await file.read(buffer, offset, buffer.length - offset, offset);
-      if (!read.bytesRead) break;
-      offset += read.bytesRead;
-    }
-    if (offset > 65536) throw new Error("Command exceeds 64 KiB");
-    return buffer.subarray(0, offset).toString("utf8");
-  } finally {
-    await file.close();
-  }
-}
 export type WatchSource = (
   path: string,
   changed: (file: string | undefined) => void,
@@ -56,43 +33,66 @@ const scheduleRecovery: RecoveryScheduler = (run) => {
   timer.unref();
   return () => clearInterval(timer);
 };
+/** Thin watcher/lifecycle shell; FileIndex advances bounded incremental discovery jobs. */
 export class CommandFiles {
-  private readonly catalog: CommandCatalog;
-  private readonly roots: DiscoveryRoot[];
+  private readonly roots: RegisteredRoot[];
   private readonly watchers = new Map<string, () => void>();
-  private readonly children = new Map<string, Set<string>>();
-  private readonly sources = new Map<string, string>();
   private readonly pending = new Set<string>();
   private readonly listeners = new Set<() => void>();
-  private timer: NodeJS.Timeout | undefined;
-  private batch: Promise<void> | undefined;
-  private closed = false;
-  private links = 0;
   private readonly recovery = new FileRecovery();
+  private readonly index: FileIndex;
+  private readonly io: CommandFileIo;
   private readonly watchSource: WatchSource;
-  private stopRecovery: (() => void) | undefined;
   private readonly scheduleRecovery: RecoveryScheduler;
+  private timer: NodeJS.Timeout | undefined;
+  private continuation: NodeJS.Immediate | undefined;
+  private batch: Promise<void> | undefined;
+  private flushing: Promise<void> | undefined;
   private healing: Promise<void> | undefined;
+  private startup: Promise<void> | undefined;
+  private closing: Promise<void> | undefined;
+  private stopRecovery: (() => void) | undefined;
+  private closed = false;
   constructor(
     catalog: CommandCatalog,
     roots: readonly DiscoveryRoot[],
-    options: { watch?: WatchSource; schedule?: RecoveryScheduler } = {},
+    options: { watch?: WatchSource; schedule?: RecoveryScheduler; io?: CommandFileIo } = {},
   ) {
     this.watchSource = options.watch ?? nativeWatch;
     this.scheduleRecovery = options.schedule ?? scheduleRecovery;
-    this.catalog = catalog;
+    this.io = options.io ?? new SecureCommandIo();
     this.roots = z
       .array(rootSchema)
       .max(32)
       .parse(roots)
-      .map((root) => Object.assign(root, { path: resolve(root.path) }));
+      .map((root) => {
+        const path = resolve(root.path);
+        return Object.assign(root, { path, id: sourceId(root, path) });
+      });
     for (const root of this.roots) this.recovery.track(root.path, undefined);
+    this.index = new FileIndex(catalog, this.io, this.recovery, this.roots, {
+      watch: (root, path) => this.watchDirectory(root, path),
+      unwatch: (root, path) => {
+        const slot = key(root, path);
+        this.watchers.get(slot)?.();
+        this.watchers.delete(slot);
+      },
+      missing: (root) => this.watchAncestor(root),
+    });
   }
-  private watchDirectory(root: DiscoveryRoot, path: string): void {
-    const key = `${sourceId(root, root.path)}:${path}`;
-    if (this.watchers.has(key)) return;
+  metrics(): DiscoveryMetrics {
+    return this.index.metrics();
+  }
+  private watchDirectory(root: RegisteredRoot, path: string): void {
+    if (this.closed) return;
+    const slot = key(root, path);
+    if (this.watchers.has(slot)) return;
     if (this.watchers.size >= 128) {
-      this.report(root, path, "Native watcher limit exceeded; metadata recovery remains active");
+      this.index.report(
+        root,
+        path,
+        "Native watcher limit exceeded; metadata recovery remains active",
+      );
       return;
     }
     try {
@@ -100,26 +100,34 @@ export class CommandFiles {
         path,
         (file) => {
           if (!file) {
-            this.invalidate(root.path);
+            this.invalidate(inside(root.path, path) ? path : root.path);
             return;
           }
-          const changed = resolve(path, String(file));
+          const changed = resolve(path, file);
           if (inside(root.path, changed)) this.invalidate(changed);
           else if (inside(changed, root.path)) this.invalidate(root.path);
         },
         () =>
-          this.report(root, path, "Native watcher unavailable; metadata recovery remains active"),
+          this.index.report(
+            root,
+            path,
+            "Native watcher unavailable; metadata recovery remains active",
+          ),
       );
-      this.watchers.set(key, stop);
+      if (this.closed) stop();
+      else this.watchers.set(slot, stop);
     } catch {
-      this.report(root, path, "Native watcher unavailable; metadata recovery remains active");
+      this.index.report(root, path, "Native watcher unavailable; metadata recovery remains active");
     }
   }
-  private async watchAncestor(root: DiscoveryRoot): Promise<void> {
+  private async watchAncestor(root: RegisteredRoot): Promise<void> {
     let parent = dirname(root.path);
-    while (true) {
+    while (!this.closed) {
       try {
-        if ((await lstat(parent)).isDirectory()) break;
+        if ((await lstat(parent)).isDirectory()) {
+          this.watchDirectory(root, parent);
+          return;
+        }
       } catch {
         /* nearest existing ancestor */
       }
@@ -127,251 +135,135 @@ export class CommandFiles {
       if (next === parent) return;
       parent = next;
     }
-    this.watchDirectory(root, parent);
   }
-  async start(): Promise<void> {
-    for (const root of this.roots) {
-      await this.watchAncestor(root);
-      await this.sync(root, root.path, 0);
-    }
-    this.stopRecovery = this.scheduleRecovery(() => {
-      void this.reconcile();
-    });
-  }
-  /** Bounded recovery for dropped native notifications; also an explicit refresh port. */
-  reconcile(): Promise<void> {
+  start(): Promise<void> {
     if (this.closed) return Promise.resolve();
-    if (this.healing) return this.healing;
-    const run = (async () => {
-      for (const path of await this.recovery.check()) this.invalidate(path);
+    this.startup ??= (async () => {
+      for (const root of this.roots) {
+        if (this.closed) return;
+        await this.watchAncestor(root);
+        this.queue(root.path);
+      }
       await this.flush();
+      if (!this.closed) {
+        const stop = this.scheduleRecovery(() => {
+          void this.reconcile();
+        });
+        if (this.closed) stop();
+        else this.stopRecovery = stop;
+      }
     })();
-    this.healing = run.finally(() => {
-      this.healing = undefined;
-    });
-    return this.healing;
+    return this.startup;
   }
-  /** Subscription wakes clients/tests after a complete batch, without polling or sleeps. */
   subscribe(listener: () => void): () => void {
+    if (this.closed) throw new Error("Command files closed");
     if (this.listeners.size >= 64) throw new Error("Listener limit");
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
-  invalidate(path: string): void {
+  private queue(path: string): void {
     if (this.closed) return;
     if (this.pending.size >= 256) {
       this.pending.clear();
       for (const root of this.roots) this.pending.add(root.path);
     } else this.pending.add(resolve(path));
+  }
+  invalidate(path: string): void {
+    this.queue(path);
+    if (this.closed || this.healing || this.flushing) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.flush();
+      void this.pump();
     }, 30);
     this.timer.unref();
   }
-  async flush(): Promise<void> {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = undefined;
-    }
+  private cancelWake(): void {
+    if (this.timer) clearTimeout(this.timer);
+    if (this.continuation) clearImmediate(this.continuation);
+    this.timer = undefined;
+    this.continuation = undefined;
+  }
+  private advance(): Promise<void> {
     if (this.batch) return this.batch;
-    const run = (async () => {
-      while (!this.closed && this.pending.size) {
-        const paths = [...this.pending];
-        this.pending.clear();
-        for (const path of paths)
-          for (const root of this.roots)
-            if (inside(root.path, path))
-              await this.sync(root, path, relative(root.path, path).split(sep).length - 1);
+    this.batch = (async () => {
+      if (this.closed) return;
+      for (const path of this.pending)
+        for (const root of this.roots)
+          if (inside(root.path, path))
+            this.index.enqueue(
+              root,
+              path,
+              path === root.path ? 0 : relative(root.path, path).split(sep).length,
+            );
+      this.pending.clear();
+      await this.index.step();
+      if (!this.closed)
         for (const listener of this.listeners) {
           try {
             listener();
           } catch {
-            /* A subscriber cannot stop discovery. */
+            /* subscribers cannot stop discovery */
           }
         }
-      }
-    })();
-    this.batch = run.finally(() => {
+    })().finally(() => {
       this.batch = undefined;
     });
-    await this.batch;
+    return this.batch;
   }
-  private report(root: DiscoveryRoot, path: string, message: string): void {
-    const id = sourceId(root, path);
-    const key = `${sourceId(root, root.path)}:${path}`;
-    if (!this.sources.has(key) && this.sources.size >= 2048) return;
-    if (this.catalog.replaceSource(id, { commands: [], diagnostics: [{ source: id, message }] }))
-      this.sources.set(key, id);
-  }
-  private remove(root: DiscoveryRoot, path: string): void {
-    const key = `${sourceId(root, root.path)}:${path}`;
-    if (this.children.get(`${sourceId(root, root.path)}:${dirname(path)}`)?.delete(path))
-      this.links--;
-    for (const child of this.children.get(key) ?? []) this.remove(root, child);
-    this.links -= this.children.get(key)?.size ?? 0;
-    this.children.delete(key);
-    const watchKey = `${sourceId(root, root.path)}:${path}`;
-    this.watchers.get(watchKey)?.();
-    this.watchers.delete(watchKey);
-    const id = this.sources.get(key);
-    if (id) this.catalog.removeSource(id);
-    this.sources.delete(key);
-    if (!this.roots.some((candidate) => candidate.path === path)) this.recovery.forget(path);
-  }
-  private async sync(root: DiscoveryRoot, path: string, depth: number): Promise<void> {
-    if (this.closed) return;
-    const key = `${sourceId(root, root.path)}:${path}`;
-    let stat;
-    try {
-      stat = await lstat(path);
-    } catch {
-      if (path === root.path) this.recovery.track(path, undefined);
-      this.remove(root, path);
-      if (path === root.path) await this.watchAncestor(root);
-      return;
-    }
-    if (path === root.path) this.recovery.track(path, stat);
-    const parentChildren = this.children.get(`${sourceId(root, root.path)}:${dirname(path)}`);
-    if (parentChildren && !parentChildren.has(path)) {
-      if (this.links >= 8192) {
-        this.report(root, path, "Discovery path limit exceeded");
-        return;
-      }
-      parentChildren.add(path);
-      this.links++;
-    }
-    if (root.trustedRoot) {
-      let parent = dirname(path);
-      const anchor = resolve(root.trustedRoot);
-      while (inside(anchor, parent) && parent !== anchor) {
-        try {
-          if ((await lstat(parent)).isSymbolicLink()) {
-            this.remove(root, path);
-            return;
-          }
-        } catch {
-          this.remove(root, path);
-          return;
-        }
-        parent = dirname(parent);
-      }
-      // A root outside its registered anchor is never read.
-      if (!inside(anchor, path)) {
-        this.remove(root, path);
-        return;
-      }
-    }
-    if (stat.isSymbolicLink()) {
-      this.remove(root, path);
-      return;
-    }
-    if (stat.isDirectory()) {
-      if (
-        root.format === "opencode-config" ||
-        depth > 8 ||
-        (root.format === "codex" && path !== root.path)
-      ) {
-        this.remove(root, path);
-        return;
-      }
-      this.watchDirectory(root, path);
-      if (!this.children.has(key) && this.children.size >= 2048) {
-        this.report(root, path, "Directory limit exceeded");
-        return;
-      }
-      this.recovery.track(path, stat);
-      try {
-        const current = new Set<string>();
-        const dir = await opendir(path);
-        let count = 0;
-        for await (const entry of dir) {
-          if (++count > 2048) {
-            this.report(root, path, "Directory entry limit exceeded");
-            return;
-          }
-          if (!entry.isSymbolicLink() && (entry.isDirectory() || entry.isFile()))
-            current.add(join(path, entry.name));
-        }
-        const oldChildren = this.children.get(key);
-        const nextLinks = this.links - (oldChildren?.size ?? 0) + current.size;
-        if (nextLinks > 8192) {
-          this.report(root, path, "Discovery path limit exceeded");
-          return;
-        }
-        for (const old of oldChildren ?? []) if (!current.has(old)) this.remove(root, old);
-        const oldSource = this.sources.get(key);
-        if (oldSource) {
-          this.catalog.removeSource(oldSource);
-          this.sources.delete(key);
-        }
-        this.links += current.size - (oldChildren?.size ?? 0);
-        this.children.set(key, current);
-        for (const child of current) await this.sync(root, child, depth + 1);
-      } catch {
-        this.report(root, path, "Cannot scan commands directory");
-      }
-      return;
-    }
-    if (
-      !stat.isFile() ||
-      (root.format !== "opencode-config" &&
-        (!path.endsWith(".md") || (root.skill && basename(path) !== "SKILL.md")))
-    ) {
-      this.remove(root, path);
-      return;
-    }
-    if (this.children.has(key)) {
-      this.remove(root, path);
-      if (parentChildren && !parentChildren.has(path)) {
-        parentChildren.add(path);
-        this.links++;
-      }
-    }
-    if (!this.sources.has(key) && this.sources.size >= 2048) return;
-    this.recovery.track(path, stat);
-    const id = sourceId(root, path);
-    const name = root.skill
-      ? basename(dirname(path))
-      : relative(root.path, path).replace(/\.md$/, "").split(sep).join(":");
-    const ctx = {
-      source: id,
-      name,
-      scope: root.scope,
-      ...(root.instance === undefined ? {} : { instance: root.instance }),
-      ...(root.skill === undefined ? {} : { skill: root.skill }),
-    };
-    try {
-      const resolvedPath = await realpath(path);
-      const resolvedRoot = await realpath(
-        root.format === "opencode-config" ? dirname(root.path) : root.path,
-      );
-      if (!inside(resolvedRoot, resolvedPath))
-        throw new Error("Command escaped its discovery root");
-      const text = await readBounded(resolvedPath);
-      const parsed =
-        root.format === "opencode-config"
-          ? parseOpenCodeConfig(text, ctx)
-          : parseMarkdown(text, { ...ctx, format: root.format });
-      if (!this.catalog.replaceSource(id, parsed)) {
-        this.report(root, path, "Catalog admission limit exceeded");
-        return;
-      }
-      this.sources.set(key, id);
-    } catch {
-      this.report(root, path, "Cannot read command file within size limit");
+  private async pump(): Promise<void> {
+    if (this.closed || this.healing || this.flushing) return;
+    await this.advance();
+    if (!this.closed && (this.pending.size || this.index.pending) && !this.continuation) {
+      this.continuation = setImmediate(() => {
+        this.continuation = undefined;
+        void this.pump();
+      });
+      this.continuation.unref();
     }
   }
-  async close(): Promise<void> {
+  /** Explicit callers drain all queued work; automatic discovery stays in 32-unit turns. */
+  flush(): Promise<void> {
+    this.cancelWake();
+    this.flushing ??= (async () => {
+      do {
+        await this.advance();
+      } while (!this.closed && (this.pending.size || this.index.pending));
+    })().finally(() => {
+      this.flushing = undefined;
+    });
+    return this.flushing;
+  }
+  /** One recovery tick: <=32 metadata checks and <=32 discovery work units. */
+  reconcile(): Promise<void> {
+    this.cancelWake();
+    if (this.closed) return Promise.resolve();
+    if (this.flushing) return this.flushing;
+    this.healing ??= (async () => {
+      for (const path of await this.recovery.check()) this.queue(path);
+      await this.advance();
+    })().finally(() => {
+      this.healing = undefined;
+    });
+    return this.healing;
+  }
+  close(): Promise<void> {
+    this.closing ??= this.dispose();
+    return this.closing;
+  }
+  private async dispose(): Promise<void> {
     this.closed = true;
-    if (this.timer) clearTimeout(this.timer);
+    this.cancelWake();
     this.stopRecovery?.();
-    for (const stop of this.watchers.values()) stop();
-    this.watchers.clear();
     this.pending.clear();
     this.listeners.clear();
-    await this.healing;
-    await this.batch;
+    await Promise.allSettled([this.startup, this.healing, this.flushing, this.batch]);
+    try {
+      await this.index.close();
+    } finally {
+      for (const stop of this.watchers.values()) stop();
+      this.watchers.clear();
+      await this.io.close();
+    }
   }
 }

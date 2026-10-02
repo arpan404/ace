@@ -87,12 +87,17 @@ it("reads only invalidated paths and preserves cached results for all other file
     two = id("two");
   await writeFile(join(f.root, "one.md"), "---\ndescription: Updated one\n---\nOne");
   await writeFile(join(f.root, "two.md"), "---\ndescription: Updated two\n---\nTwo");
+  const before = files.metrics();
   files.invalidate(join(f.root, "one.md"));
   await files.flush();
   expect(f.catalog.list(target, "one").commands.find((d) => d.id === one)?.description).toBe(
     "Updated one",
   );
   expect(f.catalog.list(target, "two").commands.find((d) => d.id === two)?.description).toBe("");
+  expect(files.metrics().readBytes - before.readBytes).toBe(
+    Buffer.byteLength("---\ndescription: Updated one\n---\nOne"),
+  );
+  expect(files.metrics().fileReads - before.fileReads).toBe(1);
   files.invalidate(join(f.root, "two.md"));
   await files.flush();
   expect(f.catalog.list(target, "two").commands.find((d) => d.id === two)?.description).toBe(

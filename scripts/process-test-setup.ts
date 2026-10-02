@@ -38,6 +38,8 @@ export default async function setup(project: TestProject) {
           "@ace/mcp-server",
           "--external",
           "@ace/models",
+          "--external",
+          "@ace/commands",
           "--outfile",
           daemonCli,
         ],

@@ -4,7 +4,7 @@ interface Tracked {
   path: string;
   version: string | undefined;
 }
-const version = (stat: Stats) =>
+export const statVersion = (stat: Stats) =>
   `${stat.dev}:${stat.ino}:${stat.mode}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
 /** A fixed ring prevents churn at the tail from starving earlier paths. No history scan. */
 export class FileRecovery {
@@ -12,9 +12,13 @@ export class FileRecovery {
   private readonly indexes = new Map<string, number>();
   private readonly free: number[] = [];
   private cursor = 0;
+  private inspected = 0;
+  get checks(): number {
+    return this.inspected;
+  }
   track(path: string, stat: Stats | undefined): void {
     const current = this.indexes.get(path),
-      value = stat === undefined ? undefined : version(stat);
+      value = stat === undefined ? undefined : statVersion(stat);
     if (current !== undefined) {
       const entry = this.slots[current];
       if (entry) entry.version = value;
@@ -40,8 +44,9 @@ export class FileRecovery {
       this.cursor = (this.cursor + 1) % this.slots.length;
       if (!entry) continue;
       let current: string | undefined;
+      this.inspected++;
       try {
-        current = version(await lstat(entry.path));
+        current = statVersion(await lstat(entry.path));
       } catch {
         current = undefined;
       }

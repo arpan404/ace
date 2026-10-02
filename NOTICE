@@ -5,3 +5,6 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 Terminal QR encoding uses qrcode-generator 2.0.4, Copyright (c) 2009 Kazuhiko Arase, MIT licensed.
 Tests use jsQR 1.4.0, Apache-2.0 licensed. These dependencies are accepted under their respective licenses.
+
+Descriptor-relative command discovery uses Koffi 3.1.0, Copyright (C) 2026 Niels Martignène,
+MIT licensed. This dependency and its bundled MIT license are accepted for the POSIX FFI binding.
