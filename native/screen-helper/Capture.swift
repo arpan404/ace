@@ -6,23 +6,16 @@ import AppKit
 final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate {
     let writer: FrameWriter
     let sessionId: String
-    private let context = CIContext(options: [.cacheIntermediates: false])
+    private let encoder = JPEGEncoder(context: CIContext(options: [.cacheIntermediates: false]))
     private var sequence: UInt64 = 0
     init(writer: FrameWriter, sessionId: String) { self.writer = writer; self.sessionId = sessionId }
     func stream(_ stream: SCStream, didOutputSampleBuffer sample: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, sample.isValid, let image = sample.imageBuffer else { return }
         guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let status = attachments.first?[.status] as? Int, status == SCFrameStatus.complete.rawValue else { return }
-        let ciImage = CIImage(cvPixelBuffer: image)
-        guard let jpeg = context.jpegRepresentation(of: ciImage, colorSpace: CGColorSpaceCreateDeviceRGB(), options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.75]),
-              jpeg.count > 0, jpeg.count <= 8 * 1024 * 1024 else { return }
-        let header: [String: Any] = ["version": 1, "sessionId": sessionId, "sequence": sequence, "timestamp": Date().timeIntervalSince1970 * 1000,
-                                   "width": CVPixelBufferGetWidth(image), "height": CVPixelBufferGetHeight(image), "codec": "jpeg", "bytes": jpeg.count]
+        guard let packet = encoder.packet(image: image, sessionId: sessionId, sequence: sequence, timestamp: Date().timeIntervalSince1970 * 1000) else { return }
         sequence += 1
-        guard let json = try? JSONSerialization.data(withJSONObject: header), json.count <= 4096 else { return }
-        var length = UInt32(json.count).bigEndian
-        var packet = withUnsafeBytes(of: &length) { Data($0) }
-        packet.append(json); packet.append(jpeg); writer.publish(packet)
+        writer.publish(packet)
     }
     func stream(_ stream: SCStream, didStopWithError error: Error) { exit(1) }
 }

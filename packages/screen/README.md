@@ -57,6 +57,7 @@ A helper failure clears the last screenshot, subscriptions and controller owners
 bun run test packages/screen apps/daemon/src/screen.server.test.ts
 ACE_SCREEN_INTEGRATION=1 bun run test packages/screen/src/native.test.ts
 bun run --filter @ace/screen bench
+native/screen-helper/bench.sh
 bun run check
 ```
 

@@ -59,9 +59,16 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
         expect(frame.header.width).toBeGreaterThan(0);
         expect(frame.header.height).toBeGreaterThan(0);
         if (permissions.accessibility) {
+          await expect(
+            helper.request({
+              op: "action",
+              action: { kind: "click", x: frame.header.width + 1, y: 1, button: "left" },
+            }),
+          ).rejects.toThrow("outside capture bounds");
+          const text = "abcdefghijklmnop🙂 qrstuvwxyz ace input across multiple events";
           const typed = once(app.stdout, "line");
-          await helper.request({ op: "action", action: { kind: "type", text: "ace input" } });
-          expect((await typed)[0]).toBe("typed:ace input");
+          await helper.request({ op: "action", action: { kind: "type", text } });
+          expect((await typed)[0]).toBe(`typed:${text}`);
         } else {
           await expect(
             helper.request({ op: "action", action: { kind: "type", text: "ace input" } }),
