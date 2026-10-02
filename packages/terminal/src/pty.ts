@@ -107,7 +107,8 @@ export function createPosixBackendFactory(
     const base: ProcessControl = ports?.processes ?? {
       async read() {
         const deadline = context.scheduler.now() + 5000;
-        for (let attempt = 0; !lease.ready() && !exited; attempt++) {
+        for (let attempt = 0; attempt <= 128; attempt++) {
+          if (lease.ready() || exited) break;
           if (attempt === 128 || context.scheduler.now() >= deadline)
             throw new Error("Terminal ownership lease did not start");
           await context.scheduler.delay(0);
