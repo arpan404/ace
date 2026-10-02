@@ -7,14 +7,24 @@ export function contains(root: string, path: string): boolean {
   return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`));
 }
 export async function safeOpen(home: string, path: string) {
-  if (!contains(home, path) || !contains(await realpath(home), await realpath(path)))
+  if (!contains(home, path)) throw new Error("Session path escaped its registered home");
+  const [canonicalHome, canonicalPath] = await Promise.all([realpath(home), realpath(path)]);
+  if (!contains(canonicalHome, canonicalPath))
     throw new Error("Session path escaped its registered home");
+  const parts = relative(home, path).split(sep).filter(Boolean);
+  if (parts.length > 32) throw new Error("Session path depth limit exceeded");
   let current = home;
-  for (const part of relative(home, path).split(sep).filter(Boolean)) {
+  const parents: string[] = [];
+  for (const part of parts) {
     current = join(current, part);
-    if ((await lstat(current)).isSymbolicLink()) throw new Error("Session path contains a symlink");
+    parents.push(current);
   }
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const checked = await Promise.allSettled(parents.map((parent) => lstat(parent)));
+  for (const result of checked) {
+    if (result.status === "rejected") throw result.reason;
+    if (result.value.isSymbolicLink()) throw new Error("Session path contains a symlink");
+  }
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   if (!(await file.stat()).isFile()) {
     await file.close();
     throw new Error("Session source is not a regular file");

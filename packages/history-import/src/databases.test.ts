@@ -107,7 +107,7 @@ test("live SQLite WAL changes refresh the index and include committed messages",
   const s = (await service.list({ type: "history.list", cwd })).sessions.find(
     (r) => r.nativeId === "session-root",
   );
-  expect(s?.messageCount).toBe(3);
+  expect(s).toMatchObject({ messageCount: 3, model: "opencode-model" });
   expect(await readFile(path)).toEqual(before);
   expect(await readFile(path + "-wal")).toEqual(walAfter);
   expect(await readFile(path + "-shm")).toEqual(shmAfter);
@@ -309,4 +309,29 @@ test("giant SQLite scalar records are refused before an unbounded native allocat
     status: "unsupported",
     reason: expect.stringContaining("bounded decoder"),
   });
+});
+
+test("legacy storage follows message timestamps rather than directory creation order", async () => {
+  const env = await environment();
+  cleanup.push(env.close);
+  const home = join(env.root, "legacy");
+  await jsonl(join(home, "storage/session/project/session.json"), [
+    { id: "session", directory: cwd, title: "ordered", time: { updated: 100 } },
+  ]);
+  await jsonl(join(home, "storage/message/session/a-late.json"), [
+    { id: "a-late", role: "assistant", time: { created: 20 } },
+  ]);
+  await jsonl(join(home, "storage/part/a-late/p.json"), [{ type: "text", text: "later" }]);
+  await jsonl(join(home, "storage/message/session/z-early.json"), [
+    { id: "z-early", role: "user", time: { created: 10 } },
+  ]);
+  await jsonl(join(home, "storage/part/z-early/p.json"), [{ type: "text", text: "earlier" }]);
+  const service = await env.start([{ id: "legacy", provider: "opencode", homeDir: home }]);
+  await service.scan();
+  const s = (await service.list({ type: "history.list", cwd })).sessions[0];
+  if (!s) throw new Error("missing");
+  await service.importSession(init(s.id));
+  expect(text((await service.itemsPage({ threadId: init(s.id).threadId })).items)).toBe(
+    "earlier later",
+  );
 });

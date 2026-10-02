@@ -114,10 +114,10 @@ export class Catalog {
     const { cwd, limit, before } = HistoryListRequest.parse(input);
     const rows = before
       ? this.statement(
-          "SELECT summary FROM sources WHERE cwd=? AND (activity<? OR (activity=? AND id<?)) ORDER BY activity DESC,id DESC LIMIT ?",
+          "SELECT summary FROM sources WHERE cwd=? AND parent IS NULL AND (activity<? OR (activity=? AND id<?)) ORDER BY activity DESC,id DESC LIMIT ?",
         ).all(cwd, before.lastActivity, before.lastActivity, before.id, limit + 1)
       : this.statement(
-          "SELECT summary FROM sources WHERE cwd=? ORDER BY activity DESC,id DESC LIMIT ?",
+          "SELECT summary FROM sources WHERE cwd=? AND parent IS NULL ORDER BY activity DESC,id DESC LIMIT ?",
         ).all(cwd, limit + 1);
     const sessions = rows
       .slice(0, limit)

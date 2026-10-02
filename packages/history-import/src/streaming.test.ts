@@ -114,6 +114,7 @@ test("import waits for each sink write before reading the next item", async () =
     },
   });
   await entered;
+  await expect(service.list({ type: "history.list", cwd })).rejects.toThrow("Import in progress");
   expect(writes).toBe(1);
   expect(sink.committed).toBe(false);
   release();
@@ -265,3 +266,33 @@ test("large tool inputs remain lossless blobs while their display items fit a pa
     900000,
   );
 });
+
+test.skipIf(process.platform === "win32")(
+  "a transcript replaced by a FIFO after staging is refused without waiting for a writer",
+  async () => {
+    const { spawnSync } = await import("node:child_process");
+    const { unlink } = await import("node:fs/promises");
+    const env = await environment();
+    cleanup.push(env.close);
+    const home = join(env.root, "home"),
+      path = join(home, "projects/p", nativeId + ".jsonl");
+    await jsonl(path, claudeRecords());
+    const service = await env.start([{ id: "home", provider: "claude", homeDir: home }]);
+    await service.scan();
+    const s = (await service.list({ type: "history.list", cwd })).sessions[0];
+    if (!s) throw new Error("missing");
+    const sink = service.archiveSink();
+    await expect(
+      service.importSession(init(s.id), {
+        ...sink,
+        begin: async (thread) => {
+          await sink.begin(thread);
+          await unlink(path);
+          const result = spawnSync("mkfifo", [path]);
+          if (result.status !== 0) throw new Error("Could not create FIFO");
+        },
+      }),
+    ).rejects.toThrow("regular file");
+    expect(await service.importedThread(init(s.id).threadId)).toBeNull();
+  },
+);

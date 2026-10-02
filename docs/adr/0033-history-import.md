@@ -10,7 +10,7 @@ Read the provider and fixture research under `docs/research`. Recorded transport
 
 ## Decision
 
-Add `@ace/history-import` and `@ace/native-session`. History operations run in a Node worker. A private ace SQLite index stores source fingerprints and metadata, with bounded list pages. Scan each configured instance home independently. The account boundary is `{id, provider, homeDir}`. Home selection stays host-local, and instance identity stays attached to imported threads and continuation requests.
+Add `@ace/history-import` and `@ace/native-session`. History operations run in a Node worker. A private ace SQLite index stores source fingerprints and metadata, with bounded list pages. Scan each configured instance home independently. Workspace lists show root sessions, with sidechain activity contributing to their recency. Import attaches child transcripts to the agent tree. The account boundary is `{id, provider, homeDir}`. Home selection stays host-local, and instance identity stays attached to imported threads and continuation requests.
 
 `@ace/native-session` owns bounded JSONL iteration, head/tail sampling, Codex metadata and lineage references, and Claude sidechain paths. ADR 0018 on `feat/accounts` already owns migration planning. Until it merges, the narrow reusable contract is `CodexSessionMeta`, `codexParents`, `claudeSidechainRoot`, `walkFiles`, and `readHeadTail`. Accounts should replace its private metadata schema and directory convention with these exports. Migration safety, publication and writer leases remain accounts responsibilities. Do not merge the whole accounts branch into this workstream.
 
@@ -26,7 +26,7 @@ The caller supplies a transactional `ImportSink`: begin, append agent/item, stor
 
 Add schema-only `history.ts` through the `@ace/protocol/history` export. Define session summaries, list requests with workspace cwd and bounded cursors, import requests, unsupported outcomes, and imported provenance. Extend Thread additively with optional imported provenance including NativeRef and instance ID. Wire contracts use `history.list` and `history.import`; source paths never cross the wire. Authentication and request routing remain the daemon's existing boundary. These independent schemas and the sink port avoid rewriting the shared wire union during parallel development.
 
-Continuation returns the existing adapter `resume: {nativeSessionId}` context plus instance ID and cwd. Fork continuation requires a caller-supplied native fork operation which returns the new native ID. ace never fabricates fork IDs or claims capabilities a provider lacks. No provider process is launched during discovery or import.
+Continuation returns the existing adapter `resume: {nativeSessionId}` context plus instance ID and cwd. Fork continuation requires a caller-supplied native fork operation which returns the new native ID. ace never fabricates fork IDs or claims capabilities a provider lacks. No provider process is launched during discovery or import. Legacy OpenCode messages sort by stored creation time in a private SQLite file; part IDs give deterministic part order. Small part inventories sort at most 16 paths, then spill to disk.
 
 ## Security
 

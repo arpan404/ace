@@ -155,7 +155,7 @@ export function* dbSessions(
     throw new Error("OpenCode session metadata exceeds supported limits");
   const count = db.prepare("SELECT COUNT(*) AS n FROM message WHERE session_id = ?");
   const latest = db.prepare(
-    "SELECT CASE WHEN octet_length(data)<=65536 THEN data ELSE NULL END AS data FROM message WHERE session_id = ? ORDER BY time_created DESC,id DESC LIMIT 1",
+    "SELECT CASE WHEN octet_length(data)<=65536 THEN data ELSE NULL END AS data FROM message WHERE session_id = ? ORDER BY time_created DESC,id DESC LIMIT 32",
   );
   const v2 = columns(db, "session_message").has("session_id")
     ? db.prepare("SELECT COUNT(*) AS n FROM session_message WHERE session_id = ?")
@@ -167,11 +167,14 @@ export function* dbSessions(
     .prepare("SELECT id,directory,title,time_updated,parent_id FROM session ORDER BY id")
     .iterate()) {
     let model: string | undefined;
-    try {
-      const m = object(JSON.parse(String(latest.get(String(row.id))?.data)));
-      model = string(m.modelID) ?? string(object(m.model).modelID);
-    } catch {
-      /* no messages */
+    for (const entry of latest.iterate(String(row.id))) {
+      try {
+        const m = object(JSON.parse(String(entry.data)));
+        model = string(m.modelID) ?? string(object(m.model).modelID);
+        if (model) break;
+      } catch {
+        /* unknown or oversized metadata remains unguessed */
+      }
     }
     const v2History = Number(v2?.get(String(row.id))?.n ?? 0) > 0;
     const largeRecord = Number(oversized.get(String(row.id), String(row.id))?.too_large ?? 0) > 0;

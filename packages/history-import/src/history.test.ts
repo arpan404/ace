@@ -144,6 +144,7 @@ test("Claude sidechains become child agents and changes are indexed independentl
   const side = join(home, "projects/-workspace-project", nativeId, "subagents/agent-child.jsonl");
   await jsonl(side, claudeRecords("child prompt"));
   expect((await service.scan()).reads).toBe(1);
+  expect((await service.list({ type: "history.list", cwd })).sessions).toHaveLength(1);
   const sink = memorySink();
   await service.importSession(init(source.id), sink);
   expect(sink.agents).toHaveLength(2);

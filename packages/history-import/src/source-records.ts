@@ -1,13 +1,6 @@
+import { orderedMessages, orderedParts } from "./storage-order.ts";
 import { basename, join } from "node:path";
-import {
-  readJsonLines,
-  readRange,
-  readHeadTail,
-  walkFiles,
-  object,
-  string,
-  RECORD_LIMIT,
-} from "@ace/native-session";
+import { readJsonLines, readRange, object, string, RECORD_LIMIT } from "@ace/native-session";
 import type { ProviderHome } from "./contracts.ts";
 import type { Source } from "./catalog.ts";
 import { openProviderDb, supportsOpenCode } from "./provider-db.ts";
@@ -32,21 +25,22 @@ export async function* sourceRecords(
     return;
   }
   if (source.kind === "storage") {
-    for await (const messagePath of walkFiles(
+    for await (const header of orderedMessages(
+      instance,
       join(instance.homeDir, "storage/message", source.summary.nativeId),
+      scratchRoot,
       signal,
     )) {
-      const sample = await readHeadTail(instance.homeDir, messagePath, signal);
-      if (!sample.exact || sample.records.length !== 1)
-        throw new Error("Legacy OpenCode message exceeds metadata limit");
-      const message = object(sample.records[0]);
-      for await (const record of readJsonLines(instance.homeDir, messagePath, signal)) {
-        const chunks = () =>
-          readRange(instance.homeDir, messagePath, record.offset, record.bytes, signal);
-        if ("value" in record) yield { value: record.value, bytes: record.bytes, chunks };
-      }
-      for await (const part of walkFiles(
+      const messagePath = header.path;
+      const message = object(header.value);
+      yield {
+        value: header.value,
+        bytes: header.bytes,
+        chunks: () => readRange(instance.homeDir, messagePath, 0, header.bytes, signal),
+      };
+      for await (const part of orderedParts(
         join(instance.homeDir, "storage/part", basename(messagePath, ".json")),
+        scratchRoot,
         signal,
       )) {
         for await (const record of readJsonLines(instance.homeDir, part, signal)) {

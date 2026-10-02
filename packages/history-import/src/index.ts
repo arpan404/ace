@@ -107,12 +107,17 @@ export class HistoryService {
       this.onProgress = undefined;
     }
   }
+  private requireIdle(): void {
+    if (this.importing) throw new Error("Import in progress");
+  }
   async list(request: z.input<typeof HistoryListRequest>) {
+    this.requireIdle();
     return HistoryListResponse.parse(
       await this.request({ op: "list", request: HistoryListRequest.parse(request) }),
     );
   }
   async get(id: string) {
+    this.requireIdle();
     return SessionOrNull.parse(await this.request({ op: "get", id }));
   }
   archiveSink(): ImportSink {
@@ -131,20 +136,24 @@ export class HistoryService {
     };
   }
   async importedThread(id: ThreadId) {
+    this.requireIdle();
     return ArchiveThread.parse(await this.request({ op: "archive.thread", id }));
   }
   async importedAgents(id: ThreadId) {
+    this.requireIdle();
     return z
       .array(Agent)
       .max(512)
       .parse(await this.request({ op: "archive.agents", id }));
   }
   async itemsPage(request: z.input<typeof PageRequest>) {
+    this.requireIdle();
     return PageResponse.parse(
       await this.request({ op: "archive.page", request: PageRequest.parse(request) }),
     );
   }
   async readBlob(request: z.infer<typeof BlobRequest>) {
+    this.requireIdle();
     return BlobResponse.parse(
       await this.request({ op: "archive.blob", request: BlobRequest.parse(request) }),
     );
@@ -210,6 +219,8 @@ export class HistoryService {
   ) {
     const s = await this.get(sourceId);
     if (!s || s.support.status !== "supported") throw new Error("Session cannot be continued");
+    if (s.provider === "claude" && s.parentNativeId)
+      throw new Error("Claude sidechains continue through their parent session");
     const nativeSessionId =
       mode === "resume" ? s.nativeId : await this.nativeFork(s.instanceId, s.nativeId, fork);
     return {
