@@ -139,11 +139,12 @@ describe("JSON-RPC stdio", () => {
   it("rejects every pending request and reports EPIPE while the peer is still alive", async () => {
     const failures: Error[] = [];
     // Close the OS read end before Node can retain a separate stdin handle.
+    // Signal readiness from the final peer, after exec has released shell FDs.
     const proc = spawnSupervised({
       command: "/bin/sh",
       args: [
         "-c",
-        `IFS= read -r line; exec 0<&-; printf '%s\\n' '{"method":"stdin-closed"}'; exec "$1" -e 'setInterval(()=>{},1000)'`,
+        `IFS= read -r line; exec 0<&-; exec "$1" -e 'console.log(JSON.stringify({method:"stdin-closed"}));setInterval(()=>{},1000)'`,
         "epipe-peer",
         process.execPath,
       ],
