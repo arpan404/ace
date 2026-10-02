@@ -2,7 +2,7 @@
 
 Offline verification on this branch uses Vitest, the public adapter contract, core facts and projected client views. Session tests start a boundary double for the installed CLI as a real child process with a real authenticated HTTP/SSE server. They synchronize on received frames and HTTP responses, without sleeps or elapsed-time assertions. No provider prompt or recorder was run.
 
-The review follow-up merged `origin/main` before changes. The nine fixture expectation files remain unchanged. The package now has 78 passing tests and one skipped health-only live test. `bun run check` passed format, lint, the 1,500-line size limit, all workspace typechecks and 528 tests after the latest origin/main merge; five live tests were skipped. Session regressions use the exported adapter factory, real authenticated HTTP/SSE and child processes; the shutdown deadline is driven through an injected scheduler.
+The review follow-up merged `origin/main` before changes. The nine fixture expectation files remain unchanged. The package now has 78 passing tests and one skipped health-only live test. `bun run check` passed format, lint, the 1,500-line size limit, all workspace typechecks and 627 tests after the latest origin/main merge; five live tests were skipped. The first run after merging relay/notification work hit default five-second timeouts in fixture replay and daemon lifecycle; the unchanged full-check rerun passed all 627 tests. Session regressions use the exported adapter factory, real authenticated HTTP/SSE and child processes; the shutdown deadline is driven through an injected scheduler.
 
 ## Fixture timelines
 
