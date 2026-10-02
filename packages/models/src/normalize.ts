@@ -1,36 +1,11 @@
 import { CatalogModel } from "@ace/protocol";
-import {
-  AcpSession,
-  ClaudeModels,
-  CodexPage,
-  ConfigOption,
-  OpenCodeModel,
-} from "./native-schemas.ts";
+import { AcpSession, ClaudeModels, CodexPage, ConfigOption } from "./native-schemas.ts";
 import { rawPayload } from "./raw.ts";
 import type { ModelInstance } from "./types.ts";
 import { z } from "zod";
+import { base } from "./model.ts";
+import { OpenCodeParser } from "./open-code.ts";
 
-function base(
-  instance: ModelInstance,
-  id: string,
-  displayName: string,
-  raw: unknown,
-): CatalogModel {
-  return {
-    id,
-    displayName,
-    nativeModelId: id,
-    provider: instance.provider,
-    instance: instance.id,
-    reasoningEfforts: [],
-    serviceTiers: [],
-    inputModalities: [],
-    isDefault: false,
-    hidden: false,
-    deprecated: false,
-    raw: rawPayload(raw),
-  };
-}
 export function normalizeCodex(payload: unknown, instance: ModelInstance): CatalogModel[] {
   return CodexPage.parse(payload).data.map((native) =>
     CatalogModel.parse({
@@ -140,37 +115,15 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
     return applyConfig(model, configs);
   });
 }
-/** CLI verbose output is alternating native provider/model headings and JSON objects. */
+/** Convenience for callers that already hold a bounded CLI transcript. */
 export function normalizeOpenCode(output: string, instance: ModelInstance): CatalogModel[] {
-  const rows: CatalogModel[] = [];
-  let heading: string | undefined;
-  let json: string[] = [];
-  for (const line of output.split(/\r?\n/)) {
-    if (!heading) {
-      if (!line.trim()) continue;
-      if (!/^[^\s/]+\/\S+$/.test(line.trim())) throw new Error("Malformed model heading");
-      heading = line.trim();
-      continue;
-    }
-    json.push(line);
-    if (line !== "}" && !(json.length === 1 && line.startsWith("{") && line.endsWith("}")))
-      continue;
-    const native = OpenCodeModel.parse(JSON.parse(json.join("\n")));
-    if (heading !== `${native.providerID}/${native.id}`) throw new Error("Model heading mismatch");
-    const model = base(instance, heading, native.name, native);
-    model.nativeProviderId = native.providerID;
-    model.nativeModelId = native.id;
-    if (native.limit?.context !== undefined) model.contextWindow = native.limit.context;
-    model.inputModalities = Object.entries(native.capabilities?.input ?? {})
-      .filter(([, enabled]) => enabled)
-      .map(([id]) => id);
-    model.reasoningEfforts = Object.keys(native.variants);
-    model.deprecated = native.status === "deprecated";
-    rows.push(CatalogModel.parse(model));
-    if (rows.length > 512) throw new Error("Too many models");
-    heading = undefined;
-    json = [];
+  const parser = new OpenCodeParser(instance);
+  let start = 0;
+  for (let end = 0; end < output.length; end++) {
+    if (output[end] !== "\n") continue;
+    parser.push(output.slice(start, end).replace(/\r$/, ""));
+    start = end + 1;
   }
-  if (heading !== undefined) throw new Error("Incomplete model metadata");
-  return rows;
+  if (start < output.length) parser.push(output.slice(start).replace(/\r$/, ""));
+  return parser.finish();
 }

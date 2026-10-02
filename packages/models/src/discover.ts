@@ -6,8 +6,9 @@ import {
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 import { z } from "zod";
 import { cursorSessionOptions, isMissingMethod } from "./cursor.ts";
+import { OpenCodeParser } from "./open-code.ts";
 import { CodexPage } from "./native-schemas.ts";
-import { normalizeAcp, normalizeClaude, normalizeCodex, normalizeOpenCode } from "./normalize.ts";
+import { normalizeAcp, normalizeClaude, normalizeCodex } from "./normalize.ts";
 import type { DiscoverModels, ModelInstance } from "./types.ts";
 import type { CatalogModel } from "@ace/protocol";
 
@@ -118,12 +119,27 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       if (instance.provider === "claude")
         return normalizeClaude(await claudeInitialize(proc, signal), instance);
       if (instance.provider === "opencode") {
-        const lines: string[] = [];
-        proc.stdout.on("line", (line) => lines.push(line));
-        const exit = await proc.exited;
-        signal.throwIfAborted();
-        if (exit.code !== 0) throw new Error("Model listing failed");
-        return normalizeOpenCode(lines.join("\n"), instance);
+        const parser = new OpenCodeParser(instance);
+        let failure: unknown;
+        const receive = (line: string) => {
+          try {
+            parser.push(line);
+          } catch (error) {
+            failure = error;
+            proc.stdout.removeListener("line", receive);
+            void proc.stop({ graceMs: 0 });
+          }
+        };
+        proc.stdout.on("line", receive);
+        try {
+          const exit = await proc.exited;
+          signal.throwIfAborted();
+          if (failure) throw failure;
+          if (exit.code !== 0) throw new Error("Model listing failed");
+          return parser.finish();
+        } finally {
+          proc.stdout.removeListener("line", receive);
+        }
       }
       rpc = new JsonRpcPeer(proc, { timeoutMs: null });
       if (instance.provider === "codex") {

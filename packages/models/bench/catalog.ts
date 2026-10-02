@@ -1,5 +1,11 @@
 import { performance } from "node:perf_hooks";
-import { ModelCatalog, ModelInstance, openModelStorage, normalizeCodex } from "../src/index.ts";
+import {
+  ModelCatalog,
+  ModelInstance,
+  openModelStorage,
+  normalizeCodex,
+  OpenCodeParser,
+} from "../src/index.ts";
 const config = ModelInstance.parse({
   id: "bench",
   provider: "codex",
@@ -58,3 +64,41 @@ measure("strongest compatible fast policy", () =>
   }),
 );
 await catalog.close();
+
+// Feed the same lines that readline provides. No complete transcript is joined.
+const lines = Array.from({ length: 512 }, (_, index) => [
+  `local/model-${index}`,
+  "{",
+  `  "id": "model-${index}",`,
+  '  "providerID": "local",',
+  `  "name": "Model ${index}",`,
+  '  "limit": {"context": 200000},',
+  '  "capabilities": {"input": {"text": true, "image": true}},',
+  '  "variants": {"high": {}},',
+  `  "extension": "${"x".repeat(1024)}"`,
+  "}",
+]).flat();
+const parserIterations = 100;
+for (let i = 0; i < 5; i++) {
+  const parser = new OpenCodeParser(config);
+  for (const line of lines) parser.push(line);
+  parser.finish();
+}
+const start = performance.now();
+for (let i = 0; i < parserIterations; i++) {
+  const parser = new OpenCodeParser(config);
+  for (const line of lines) parser.push(line);
+  parser.finish();
+}
+const milliseconds = performance.now() - start;
+console.log(
+  JSON.stringify({
+    name: "incremental OpenCode verbose catalog, 512 models",
+    iterations: parserIterations,
+    bytesPerCatalog: lines.reduce((bytes, line) => bytes + Buffer.byteLength(line) + 1, 0),
+    opsPerSecond: Math.round((parserIterations * 1000) / milliseconds),
+    microsecondsPerOp: (milliseconds * 1000) / parserIterations,
+    modelsPerSecond: Math.round((parserIterations * 512 * 1000) / milliseconds),
+    peakRssBytes: process.resourceUsage().maxRSS * 1024,
+  }),
+);
