@@ -68,9 +68,11 @@ export function createAgentRegistry(config: {
     parent?: string,
     spawnedBy?: string,
   ): Agent {
+    const wasKnown = agents.get(id)?.known === true;
     const agent = ensure(id, true, facts, p, parent);
     agent.known = true;
-    const retained = config.takeBuffer(id);
+    // Known threads receive frames directly; repeated metadata cannot imply newly lost history.
+    const retained = wasKnown ? { frames: [], lost: false } : config.takeBuffer(id);
     const buffered = retained.frames;
     if (retained.lost) agent.bufferLost = true;
     if (agent.bufferLost && !Array.isArray(p["turns"]) && !agent.unknownTask) {
@@ -149,6 +151,7 @@ export function createAgentRegistry(config: {
       delete agent.unknownTask;
       delete agent.bufferLost;
     }
+    if (Array.isArray(p["turns"])) delete agent.bufferLost;
     config.discovered(facts);
     return agent;
   }

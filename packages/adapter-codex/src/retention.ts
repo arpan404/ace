@@ -53,7 +53,8 @@ export function unknownBuffers() {
             overflow = true;
           }
         }
-        thread = { frames: [], lost: false };
+        // No per-id tombstones survive eviction; a recreated buffer must inherit the loss guard.
+        thread = { frames: [], lost: overflow };
         threads.set(id, thread);
       }
       const size = JSON.stringify(frame).length * 2;
