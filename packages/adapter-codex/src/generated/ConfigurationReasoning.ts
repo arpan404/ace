@@ -6,4 +6,4 @@ import type { ReasoningEffort } from "./ReasoningEffort.ts";
 /**
  * Reasoning settings interpreted by the backend for the routed model.
  */
-export type ConfigurationReasoning = { effort: ReasoningEffort, };
+export type ConfigurationReasoning = { effort: ReasoningEffort };

@@ -4,4 +4,6 @@
 import type { DynamicToolFunctionSpec } from "./DynamicToolFunctionSpec.ts";
 import type { DynamicToolNamespaceSpec } from "./DynamicToolNamespaceSpec.ts";
 
-export type DynamicToolSpec = { "type": "function" } & DynamicToolFunctionSpec | { "type": "namespace" } & DynamicToolNamespaceSpec;
+export type DynamicToolSpec =
+  | ({ type: "function" } & DynamicToolFunctionSpec)
+  | ({ type: "namespace" } & DynamicToolNamespaceSpec);

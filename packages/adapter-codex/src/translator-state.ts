@@ -1,0 +1,38 @@
+import type { Fact, Key } from "@ace/core";
+import type { Frame } from "@ace/engine-api";
+import type { RunTrigger } from "@ace/protocol";
+import type { Obj } from "./native.ts";
+type OpenItem = { data: Obj; turn: string; output: string };
+export type Agent = {
+  key: Key;
+  parent?: string;
+  known: boolean;
+  buffer: Frame[];
+  turn?: string;
+  hadTurn: boolean;
+  mode: string;
+  open: Map<string, OpenItem>;
+  items: Set<string>;
+  requests: Map<string, string>;
+  async: Set<string>;
+  children: Set<string>;
+  plan?: { id: string; text: string };
+  pendingTrigger?: RunTrigger;
+  backgroundResult: boolean;
+  childResult: boolean;
+  unmatchedFlag?: { data: Obj; since: number };
+  failureText?: string;
+};
+export interface TranslationContext {
+  agents: Map<string, Agent>;
+  tasks: Set<string>;
+  discover(
+    id: string,
+    p: Obj,
+    facts: Fact[],
+    now: number,
+    parent?: string,
+    spawnedBy?: string,
+  ): Agent;
+  note(agent: Key, type: string, data: unknown, text?: string): Fact;
+}

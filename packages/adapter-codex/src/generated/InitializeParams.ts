@@ -4,4 +4,7 @@
 import type { ClientInfo } from "./ClientInfo.ts";
 import type { InitializeCapabilities } from "./InitializeCapabilities.ts";
 
-export type InitializeParams = { clientInfo: ClientInfo, capabilities: InitializeCapabilities | null, };
+export type InitializeParams = {
+  clientInfo: ClientInfo;
+  capabilities: InitializeCapabilities | null;
+};

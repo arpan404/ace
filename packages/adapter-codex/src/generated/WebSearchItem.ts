@@ -4,11 +4,15 @@
 import type { JsonValue } from "./serde_json/JsonValue.ts";
 import type { WebSearchAction } from "./v2/WebSearchAction.ts";
 
-export type WebSearchItem = { id: string, query: string, action: WebSearchAction | null,
-/**
- * Structured search results returned out-of-band by standalone web search.
- *
- * These stay as opaque JSON at the extension/app-server boundary so new
- * result fields and result types can pass through without a Codex release.
- */
-results: Array<JsonValue> | null, };
+export type WebSearchItem = {
+  id: string;
+  query: string;
+  action: WebSearchAction | null;
+  /**
+   * Structured search results returned out-of-band by standalone web search.
+   *
+   * These stay as opaque JSON at the extension/app-server boundary so new
+   * result fields and result types can pass through without a Codex release.
+   */
+  results: Array<JsonValue> | null;
+};

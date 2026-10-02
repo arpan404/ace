@@ -6,7 +6,19 @@ import { findExecutable } from "@ace/provider-kit/discovery";
 import { probe } from "@ace/provider-kit/process";
 
 // Keep only the dependency closure used by this adapter. No protocol is handwritten.
-const roots = ["InitializeParams", "InitializeResponse", "v2/ThreadItem", "v2/ThreadStartParams", "v2/ThreadResumeParams", "v2/TurnStartParams", "v2/TurnSteerParams", "v2/TurnInterruptParams", "v2/ThreadBackgroundTerminalsListParams", "v2/ThreadBackgroundTerminalsTerminateParams"];
+const roots = [
+  "InitializeParams",
+  "InitializeResponse",
+  "v2/ThreadItem",
+  "v2/ThreadStartParams",
+  "v2/ThreadResumeParams",
+  "v2/TurnStartParams",
+  "v2/TurnSteerParams",
+  "v2/TurnInterruptParams",
+  "v2/ThreadQueueAddParams",
+  "v2/ThreadBackgroundTerminalsListParams",
+  "v2/ThreadBackgroundTerminalsTerminateParams",
+];
 const binary = await findExecutable(process.env["ACE_CODEX_BIN"] ?? "codex");
 if (!binary) throw new Error("Install Codex or set ACE_CODEX_BIN");
 const scratch = await mkdtemp(resolve(tmpdir(), "ace-codex-protocol-"));

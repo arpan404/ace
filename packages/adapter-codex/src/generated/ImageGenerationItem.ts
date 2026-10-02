@@ -4,4 +4,12 @@
 import type { AbsolutePathBuf } from "./AbsolutePathBuf.ts";
 import type { ImageGenerationFailure } from "./ImageGenerationFailure.ts";
 
-export type ImageGenerationItem = { id: string, status: string, revisedPrompt: string | null, result: string, transparentBackground?: boolean, failure: ImageGenerationFailure | null, savedPath?: AbsolutePathBuf, };
+export type ImageGenerationItem = {
+  id: string;
+  status: string;
+  revisedPrompt: string | null;
+  result: string;
+  transparentBackground?: boolean;
+  failure: ImageGenerationFailure | null;
+  savedPath?: AbsolutePathBuf;
+};

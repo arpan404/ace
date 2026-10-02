@@ -1,0 +1,34 @@
+{
+  "checkpoints": [
+    {
+      "t": 9510,
+      "thread": "working"
+    },
+    {
+      "t": 15731,
+      "thread": "working",
+      "note": "Approval is opened and resolved at the same timestamp; the checkpoint observes both."
+    },
+    {
+      "t": 16252,
+      "thread": "working"
+    },
+    {
+      "t": 40199,
+      "thread": "working"
+    },
+    {
+      "t": 44286,
+      "thread": "done"
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 2,
+    "interactions": {
+      "pending": 0,
+      "expired": 0,
+      "resolved": 3
+    }
+  }
+}

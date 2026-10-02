@@ -6,4 +6,4 @@ import type { McpAppDisplayMode } from "./McpAppDisplayMode.ts";
 /**
  * UI resource and display preference for model invocations, captured from the tool descriptor.
  */
-export type McpAppUi = { resourceUri: string, preferredModelDisplayMode: McpAppDisplayMode, };
+export type McpAppUi = { resourceUri: string; preferredModelDisplayMode: McpAppDisplayMode };

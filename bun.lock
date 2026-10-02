@@ -27,8 +27,12 @@
       "name": "@ace/adapter-codex",
       "dependencies": {
         "@ace/core": "workspace:*",
+        "@ace/engine-api": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+      },
+      "devDependencies": {
+        "@ace/adapter-testkit": "workspace:*",
       },
     },
     "packages/adapter-testkit": {

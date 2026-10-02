@@ -3,7 +3,20 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "typecheck": "tsc -p tsconfig.json", "generate": "node scripts/generate.ts" },
-  "dependencies": { "@ace/core": "workspace:*", "@ace/protocol": "workspace:*", "@ace/provider-kit": "workspace:*" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "generate": "node scripts/generate.ts"
+  },
+  "dependencies": {
+    "@ace/core": "workspace:*",
+    "@ace/engine-api": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*"
+  },
+  "devDependencies": {
+    "@ace/adapter-testkit": "workspace:*"
+  }
 }

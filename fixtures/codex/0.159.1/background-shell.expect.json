@@ -1,0 +1,31 @@
+{
+  "checkpoints": [
+    {
+      "t": 12289,
+      "thread": "working"
+    },
+    {
+      "t": 12290,
+      "thread": "waiting",
+      "on": "background_task"
+    },
+    {
+      "t": 23074,
+      "thread": "waiting",
+      "on": "background_task"
+    },
+    {
+      "t": 23076,
+      "thread": "done"
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 1,
+    "interactions": {
+      "pending": 0,
+      "expired": 0,
+      "resolved": 1
+    }
+  }
+}
