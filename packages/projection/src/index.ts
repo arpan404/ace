@@ -79,8 +79,17 @@ function reparentAgent(
 /** Rebuild the derived parent index after loading materialized agents. */
 export function rebuildAgentChildren(view: ThreadView): void {
   view.agentChildren = {};
-  for (const agent of Object.values(view.agents))
-    reparentAgent(view, agent.id, undefined, agent.parentId);
+  const parents = new Map<string, Set<string>>();
+  for (const agent of Object.values(view.agents)) {
+    if (!agent.parentId) continue;
+    let children = parents.get(agent.parentId);
+    if (!children) {
+      children = new Set();
+      parents.set(agent.parentId, children);
+    }
+    children.add(agent.id);
+  }
+  for (const [parent, children] of parents) put(view.agentChildren, parent, [...children]);
 }
 function advance(view: { seq: number }, event: DeliveryEvent): ApplyResult {
   if (event.seq <= view.seq) return { kind: "ignored" };
