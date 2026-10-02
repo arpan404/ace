@@ -1,11 +1,26 @@
 import { DatabaseSync, backup } from "node:sqlite";
-import { readdir, mkdir, copyFile, rm, lstat, open } from "node:fs/promises";
+import { opendir, mkdir, copyFile, rm, lstat, open } from "node:fs/promises";
 import { join } from "node:path";
 import { syncDirectory } from "./files.ts";
-export async function snapshotDatabases(dataDir: string, destination: string): Promise<void> {
+import { z } from "zod";
+export const DatabaseInventory = z
+  .array(
+    z
+      .string()
+      .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.sqlite$/)
+      .max(160),
+  )
+  .max(32)
+  .refine((names) => new Set(names).size === names.length, "Duplicate database inventory");
+export async function snapshotDatabases(dataDir: string, destination: string): Promise<string[]> {
   await mkdir(destination, { mode: 0o700 });
-  const names = (await readdir(dataDir)).filter((name) => name.endsWith(".sqlite"));
-  if (names.length > 32) throw new Error("Too many databases");
+  const names: string[] = [];
+  for await (const entry of await opendir(dataDir)) {
+    if (!entry.name.endsWith(".sqlite")) continue;
+    if (names.length >= 32) throw new Error("Too many databases");
+    names.push(entry.name);
+  }
+  DatabaseInventory.parse(names);
   for (const name of names) {
     const db = new DatabaseSync(join(dataDir, name), { readOnly: true });
     try {
@@ -14,13 +29,27 @@ export async function snapshotDatabases(dataDir: string, destination: string): P
       db.close();
     }
   }
+  return names;
 }
 /** Caller has stopped the daemon. Originals include the old schema and WAL contents. */
-export async function restoreDatabases(dataDir: string, snapshot: string): Promise<void> {
+export async function restoreDatabases(
+  dataDir: string,
+  snapshot: string,
+  inventory: unknown,
+): Promise<void> {
   // Validate the entire snapshot before deleting anything. Recovery keeps this copy
   // until the restored files are durable, so another crash can repeat the operation.
-  const names = await readdir(snapshot);
-  if (names.length > 32) throw new Error("Too many snapshot databases");
+  const expected = DatabaseInventory.parse(inventory);
+  const actual = new Set<string>();
+  const names: string[] = [];
+  for await (const entry of await opendir(snapshot)) {
+    if (names.length >= expected.length || !expected.includes(entry.name))
+      throw new Error("Rollback snapshot inventory mismatch");
+    names.push(entry.name);
+    actual.add(entry.name);
+  }
+  if (names.length !== expected.length || expected.some((name) => !actual.has(name)))
+    throw new Error("Rollback snapshot inventory mismatch");
   for (const name of names) {
     if (!name.endsWith(".sqlite") || !(await lstat(join(snapshot, name))).isFile())
       throw new Error("Invalid migration snapshot");
@@ -33,8 +62,9 @@ export async function restoreDatabases(dataDir: string, snapshot: string): Promi
     }
   }
   // Remove newly introduced candidate databases as well as old sidecars.
-  for (const name of await readdir(dataDir)) {
-    if (/\.sqlite(?:-wal|-shm)?$/.test(name)) await rm(join(dataDir, name), { force: true });
+  for await (const entry of await opendir(dataDir)) {
+    if (/\.sqlite(?:-wal|-shm)?$/.test(entry.name))
+      await rm(join(dataDir, entry.name), { force: true });
   }
   for (const name of names) {
     await copyFile(join(snapshot, name), join(dataDir, name));

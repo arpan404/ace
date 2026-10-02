@@ -275,6 +275,8 @@ test(
         old: "releases/1.0.0-linux-x64",
         candidate: "releases/1.1.0-linux-x64",
         version: "1.0.0",
+        stage: "snapshotted",
+        databases: ["events.sqlite"],
       }),
     );
     const db = new DatabaseSync(join(f.root, "events.sqlite"));
@@ -291,7 +293,12 @@ test("an unsafe recovery target is rejected before stopping or removing installa
   const f = await fixture();
   await writeFile(
     join(f.root, "update.json"),
-    JSON.stringify({ old: "releases/1.0.0-linux-x64", candidate: "releases/..", version: "1.0.0" }),
+    JSON.stringify({
+      old: "releases/1.0.0-linux-x64",
+      candidate: "releases/..",
+      version: "1.0.0",
+      stage: "prepared",
+    }),
   );
   await expect(recoverUpdate(f.root, f.root, f.request.ports)).rejects.toThrow();
   expect(f.running).toBe(true);
@@ -325,10 +332,10 @@ test("an interrupted snapshot restarts the old generation without overwriting li
 test("missing or corrupt rollback snapshots never delete live databases", async () => {
   const f = await fixture();
   const missing = join(f.root, "missing-snapshot");
-  await expect(restoreDatabases(f.root, missing)).rejects.toThrow();
+  await expect(restoreDatabases(f.root, missing, ["events.sqlite"])).rejects.toThrow();
   await mkdir(missing);
   await writeFile(join(missing, "events.sqlite"), "corrupt");
-  await expect(restoreDatabases(f.root, missing)).rejects.toThrow();
+  await expect(restoreDatabases(f.root, missing, ["events.sqlite"])).rejects.toThrow();
   const db = new DatabaseSync(join(f.root, "events.sqlite"));
   try {
     expect(db.prepare("SELECT value FROM data").get()?.value).toBe("original");
@@ -354,4 +361,19 @@ test("a failed stop leaves recoverable intent and restarts the unchanged generat
   expect(f.running).toBe(true);
   expect(await readFile(join(f.root, "current/marker"), "utf8")).toBe("old");
   expect(f.gate.admit()).toBe(true);
+});
+
+test("an approved drain deadline refuses restart and reopens admission while work remains active", async () => {
+  const f = await fixture();
+  f.block();
+  f.request.drain = true;
+  let now = 0;
+  f.request.ports.now = () => now;
+  f.request.ports.wait = async () => {
+    now = 300_001;
+  };
+  await expect(applyUpdate(f.request)).rejects.toThrow("Active threads");
+  expect(f.stops).toBe(0);
+  expect(f.gate.admit()).toBe(true);
+  expect(await readlink(join(f.root, "current"))).toBe("releases/1.0.0-linux-x64");
 });

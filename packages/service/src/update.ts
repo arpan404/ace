@@ -18,15 +18,20 @@ import {
   syncDirectory,
   withInstallLock,
 } from "./files.ts";
-import { snapshotDatabases, restoreDatabases } from "./migration.ts";
+import { DatabaseInventory, snapshotDatabases, restoreDatabases } from "./migration.ts";
 import type { Fetcher } from "./feed.ts";
+import { isNewer } from "./version.ts";
+const PreparedJournal = z.object({
+  old: ReleaseDirectory,
+  candidate: ReleaseDirectory,
+  version: ReleaseVersion,
+  stage: z.literal("prepared"),
+});
 const Journal = z
-  .object({
-    old: ReleaseDirectory,
-    candidate: ReleaseDirectory,
-    version: ReleaseVersion,
-    stage: z.enum(["prepared", "snapshotted"]).default("snapshotted"),
-  })
+  .discriminatedUnion("stage", [
+    PreparedJournal,
+    PreparedJournal.extend({ stage: z.literal("snapshotted"), databases: DatabaseInventory }),
+  ])
   .refine((journal) => journal.old !== journal.candidate, "Recovery generations must differ");
 export interface UpdatePorts {
   maintenance(method: "GET" | "POST" | "DELETE"): Promise<unknown>;
@@ -66,7 +71,8 @@ async function rollback(
   journal: z.infer<typeof Journal>,
 ) {
   await ports.stop();
-  if (journal.stage === "snapshotted") await restoreDatabases(dataDir, join(root, ".rollback-db"));
+  if (journal.stage === "snapshotted")
+    await restoreDatabases(dataDir, join(root, ".rollback-db"), journal.databases);
   await atomicPointer(join(root, "current"), journal.old);
   await ports.start();
   if (!(await ports.health(journal.version)))
@@ -134,9 +140,9 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
         check = join(root, ".migration-check");
       await rm(snapshot, { recursive: true, force: true });
       await rm(check, { recursive: true, force: true });
-      await snapshotDatabases(dataDir, snapshot);
+      const databases = await snapshotDatabases(dataDir, snapshot);
       await syncTree(snapshot);
-      journal = { ...journal, stage: "snapshotted" };
+      journal = { ...journal, stage: "snapshotted", databases };
       await durableJson(join(root, "update.json"), journal);
       await cp(snapshot, check, { recursive: true });
       await ports.migrate(staging, check);
@@ -169,13 +175,4 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
       await rm(join(root, ".migration-check"), { recursive: true, force: true });
     }
   });
-}
-const numericVersion = (v: string) => v.split("-")[0]?.split(".").map(Number) ?? [];
-export function isNewer(next: string, current: string): boolean {
-  const n = numericVersion(next),
-    c = numericVersion(current);
-  for (let i = 0; i < 3; i++) {
-    if (n[i] !== c[i]) return (n[i] ?? 0) > (c[i] ?? 0);
-  }
-  return !next.includes("-") && current.includes("-");
 }
