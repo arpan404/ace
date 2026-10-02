@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
+import { PROCESS_TEST_TIMEOUT } from "./testing/cli.ts";
 import { probeOutput, spawnSupervised, type SupervisedProcess } from "./process.ts";
 
 const owned: SupervisedProcess[] = [];
@@ -18,7 +19,7 @@ function cleanupGroup(pgid: number) {
   }
 }
 async function waitForGroupExit(pgid: number) {
-  const deadline = performance.now() + 10_000;
+  const deadline = performance.now() + PROCESS_TEST_TIMEOUT;
   while (performance.now() < deadline) {
     try {
       process.kill(-pgid, 0);
@@ -32,7 +33,7 @@ async function waitForGroupExit(pgid: number) {
   throw new Error("Owned process group still existed after the cleanup deadline");
 }
 async function expectRefused(port: number) {
-  const deadline = performance.now() + 10_000;
+  const deadline = performance.now() + PROCESS_TEST_TIMEOUT;
   while (performance.now() < deadline) {
     const socket = connect({ host: "127.0.0.1", port });
     const result = await new Promise<string>((resolve) => {
@@ -94,7 +95,7 @@ describe("supervised processes", () => {
       `process.on('SIGTERM', () => process.exit(0)); console.log('ready'); setInterval(() => {}, 1000)`,
     );
     await once(proc.stdout, "line");
-    expect(await proc.stop({ graceMs: 1000 })).toEqual({
+    expect(await proc.stop({ graceMs: PROCESS_TEST_TIMEOUT })).toEqual({
       code: 0,
       signal: null,
       reason: "stopped",
@@ -108,7 +109,7 @@ describe("supervised processes", () => {
     );
     try {
       await once(proc.stdout, "line");
-      expect(await proc.stop({ graceMs: 5000 })).toEqual({
+      expect(await proc.stop({ graceMs: PROCESS_TEST_TIMEOUT })).toEqual({
         code: 0,
         signal: null,
         reason: "stopped",
@@ -156,7 +157,7 @@ describe("supervised processes", () => {
       const moduleUrl = new URL("./process.ts", import.meta.url).href;
       const service = `const server=require('node:net').createServer().listen(0, '127.0.0.1', function(){console.log(JSON.stringify({port:this.address().port,pgid:process.pid}));});process.on('SIGTERM',()=>{console.log('transcript-flushed');server.close(()=>process.exit(0));});`;
       const script = `import {spawnSupervised,installShutdownHandlers} from ${JSON.stringify(moduleUrl)};
-      ${termination === "exit" ? "" : "installShutdownHandlers({graceMs:1000});"}
+      ${termination === "exit" ? "" : `installShutdownHandlers({graceMs:${PROCESS_TEST_TIMEOUT}});`}
       const p = spawnSupervised({command:process.execPath,args:['-e',${JSON.stringify(service)}],env:{},name:'owned-service'});
       let sent=false;
       p.stdout.on('line', line => { console.log(line); if(!sent) {sent=true; ${termination === "exit" ? "process.exit(0)" : `process.kill(process.pid, '${termination}')`}; } });`;
@@ -175,7 +176,6 @@ describe("supervised processes", () => {
       await waitForGroupExit(address.pgid);
       await expectRefused(address.port);
     },
-    20_000,
   );
   it.each(["default", "disposed"])(
     "leaves application signal handling alone in %s mode",
@@ -272,7 +272,7 @@ describe("supervised processes", () => {
       // Clean up the group spawned by this test even when the regression is present.
       cleanupGroup(address.pgid);
     }
-  }, 20_000);
+  });
   it("owner exit cleans a retained descendant even after every child pipe has closed", async () => {
     const moduleUrl = new URL("./process.ts", import.meta.url).href;
     const service = `require('node:net').createServer(s=>s.end('alive')).listen(0,'127.0.0.1',function(){process.send(this.address().port);});`;
@@ -299,7 +299,7 @@ describe("supervised processes", () => {
       owner.kill("SIGKILL");
       cleanupGroup(address.pgid);
     }
-  }, 20_000);
+  });
   it("drains ten megabytes from each pipe even without subscribers", async () => {
     const proc = child(
       `process.stdout.write('x'.repeat(10 * 1024 * 1024)); process.stderr.write('y'.repeat(10 * 1024 * 1024));`,
@@ -325,7 +325,7 @@ describe("supervised processes", () => {
       probeOutput(
         process.execPath,
         ["-e", "console.log('x'.repeat(10000)); setInterval(()=>{},1000)"],
-        { maxBytes: 100, timeoutMs: 5000 },
+        { maxBytes: 100, timeoutMs: PROCESS_TEST_TIMEOUT },
       ),
     ).rejects.toThrow("Probe output exceeded limit");
   });
