@@ -199,6 +199,23 @@ test("session extensions choose the current row even when it is not the first mo
   });
 });
 
+test("representative session metadata remains redacted and capped when per-model configs are empty", () => {
+  const rows = normalizeAcp(
+    {
+      configOptions: [
+        { ...model, options: [{ value: "a", name: "A", configOptions: [] }] },
+        { ...sessionExtension, extra: "x".repeat(4096) },
+      ],
+    },
+    instance("acp"),
+  );
+  expect(rows[0]).toMatchObject({ id: "a", isDefault: true, reasoningEfforts: [] });
+  expect(rows[0]?.raw.truncated).toBe(true);
+  expect(Buffer.byteLength(rows[0]?.raw.json ?? "")).toBeLessThanOrEqual(2048);
+  expect(rows[0]?.raw.json).toContain('"apiKey":"[redacted]"');
+  expect(rows[0]?.raw.json).not.toContain("private-value");
+});
+
 test.each([
   { id: "future", type: "select", currentValue: true },
   { id: "reasoning_effort", type: "select", options: [true] },
