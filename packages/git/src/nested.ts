@@ -15,6 +15,9 @@ export async function nestedPaths(
   env: Record<string, string> = {},
 ): Promise<string[]> {
   const paths = new Set(tracked.filter((e) => e.mode === "160000").map((e) => e.path));
+  for (const entry of tracked) {
+    for (const ancestor of pathAncestors(entry.path).slice(0, -1)) paths.add(ancestor);
+  }
   const untracked = nul(
     (
       await repository.cli.call(
@@ -65,7 +68,31 @@ export async function repositoryPaths(root: string, paths: Iterable<string>): Pr
     );
     for (const path of roots) if (path !== undefined) nested.push(path);
   }
-  return nested.toSorted();
+  // A repository owns discovery below its root. Returning deeper roots here
+  // would snapshot them twice and acquire their locks out of hierarchy order.
+  const roots = new Set(nested);
+  return nested.toSorted().filter(
+    (path) =>
+      !pathAncestors(path)
+        .slice(0, -1)
+        .some((p) => roots.has(p)),
+  );
+}
+
+export async function nestedRoot(
+  repository: Repository,
+  root: string,
+  path: string,
+): Promise<string> {
+  const nested = await realpath(join(root, path));
+  if (textOutput(await repository.cli.call(nested, ["rev-parse", "--show-prefix"])) !== "")
+    throw new GitError("not_a_repo", "Nested path is not a repository root");
+  if (relative(root, nested).split(sep).join("/") !== path)
+    throw new GitError(
+      "unsupported_repository",
+      "Nested repository must have its own working root",
+    );
+  return nested;
 }
 
 export async function flattenNested(
@@ -74,17 +101,26 @@ export async function flattenNested(
   paths: string[],
   env: Record<string, string>,
   snapshot: (repository: Repository, root: string) => Promise<string>,
+  heldRoots: ReadonlySet<string>,
 ): Promise<void> {
+  if (paths.length) {
+    const roots = new Set(paths);
+    const seeded = parseIndex(
+      (await repository.cli.call(root, ["ls-files", "--stage", "-z"], { env })).stdout,
+    );
+    const remove = seeded.filter((entry) =>
+      pathAncestors(entry.path).some((path) => roots.has(path)),
+    );
+    if (remove.length)
+      await repository.cli.call(root, ["update-index", "--force-remove", "-z", "--stdin"], {
+        write: true,
+        env,
+        input: remove.map((entry) => entry.path).join("\0") + "\0",
+      });
+  }
   for (const path of paths) {
-    const nested = await realpath(join(root, path));
-    if (textOutput(await repository.cli.call(nested, ["rev-parse", "--show-prefix"])) !== "")
-      throw new GitError("not_a_repo", "Nested path is not a repository root");
-    if (relative(root, nested).split(sep).join("/") !== path)
-      throw new GitError(
-        "unsupported_repository",
-        "Nested repository must have its own working root",
-      );
-    await serial(nested, async () => {
+    const nested = await nestedRoot(repository, root, path);
+    const capture = async () => {
       const tree = await snapshot(repository, nested);
       await transferTree(repository, nested, root, tree);
       const entries = parseTree(
@@ -98,7 +134,9 @@ export async function flattenNested(
         env,
         input,
       });
-    });
+    };
+    if (heldRoots.has(nested)) await capture();
+    else await serial(nested, capture);
   }
 }
 

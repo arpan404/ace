@@ -17,7 +17,11 @@ import { GitError, type Checkpoint } from "./types.ts";
 
 export { withIndex } from "./temporary-index.ts";
 
-export async function snapshot(repository: Repository, root: string): Promise<string> {
+export async function snapshot(
+  repository: Repository,
+  root: string,
+  heldRoots: ReadonlySet<string> = new Set(),
+): Promise<string> {
   const { cli } = repository;
   const sparse = await cli.call(root, ["config", "--type=bool", "--get", "core.sparseCheckout"], {
     allowFailure: true,
@@ -58,7 +62,14 @@ export async function snapshot(repository: Repository, root: string): Promise<st
       env,
       input: [".", ...nested.map((path) => `:(exclude,literal)${path}`)].join("\0") + "\0",
     });
-    await flattenNested(repository, root, nested, env, snapshot);
+    await flattenNested(
+      repository,
+      root,
+      nested,
+      env,
+      (repo, child) => snapshot(repo, child, heldRoots),
+      heldRoots,
+    );
     const current = parseIndex(
       (await cli.call(root, ["ls-files", "--stage", "-z"], { env })).stdout,
     );
@@ -87,9 +98,10 @@ export async function createCheckpoint(
   root: string,
   threadId: string,
   label: string,
+  heldRoots: ReadonlySet<string> = new Set(),
 ): Promise<Checkpoint> {
   const prefix = checkpointPrefix(threadId);
-  const tree = await snapshot(repository, root);
+  const tree = await snapshot(repository, root, heldRoots);
   const createdAt = (await repository.now()).toISOString();
   for (let attempt = 0; attempt < 20; attempt++) {
     const previous = await repository.numbers.get(root, threadId);
