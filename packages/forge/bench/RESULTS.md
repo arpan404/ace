@@ -1,5 +1,22 @@
 # Forge verification
 
+## Current owner policy
+
+Tests run once at merge. No tests, probes, mutation runs, flakiness runs or benchmarks are executed during this delivery phase. The preceding policy’s in-flight check was stopped when this rule arrived. All execution results below are historical evidence recorded before the rule; current runtime validation **needs run at merge**. Static formatting, lint, size (387 source files) and every package typecheck passed after the rule arrived.
+
+| Mutation case designed to be caught  | Public behaviour guard                            | Current execution                 |
+| ------------------------------------ | ------------------------------------------------- | --------------------------------- |
+| N4: remove generation assertion      | Feedback-free paused identical relink rejects     | not executed (tests run at merge) |
+| N12: remove location digest fields   | Location-only edit queues fresh file/line context | not executed (tests run at merge) |
+| Remove legacy acceptance adoption    | Historical accepted ledger does not replay        | not executed (tests run at merge) |
+| Keep old accepted key after adoption | Subsequent location edit queues fresh feedback    | not executed (tests run at merge) |
+| Remove legacy candidate alias        | Pending retry retains original executor key       | not executed (tests run at merge) |
+| Observe before admission             | Backpressure preserves unadmitted feedback        | not executed (tests run at merge) |
+| Remap unchanged page rows            | Unaffected public feedback versions remain stable | not executed (tests run at merge) |
+| Drop collection upserts              | Changed feedback appears in pending candidates    | not executed (tests run at merge) |
+
+## Historical evidence (before owner policy)
+
 Run on 2026-10-02 in the feature worktree with Node 26.8.1 on Darwin arm64 using native TypeScript execution. Benchmarks are non-gating; process RSS is the cumulative high-water mark, including the in-memory SQLite benchmark database. The production ledger uses a file database and removes acknowledged payloads.
 
 | Operation                                               |   Samples |      Ops/s |    µs/op | Peak RSS MiB |
@@ -92,7 +109,7 @@ Under load above 230, unchanged pre-round head `2749697` also hit the default fi
 
 ## Final merged-worktree checks under load
 
-After merging main through `19a7e14`, formatting, lint, size (387 files), and every package typecheck passed. The complete repository test run had 929 passes, four opt-in skips and ten completion timeouts across seven unchanged files. All 58 forge tests passed separately after that merge (11 files, 144.59 seconds under load). A second full `bun run check` attempt also encountered unchanged baseline timeouts; the local repository gate is therefore not green. No CI operation was requested.
+After merging main through `19a7e14`, formatting, lint, size (387 files), and every package typecheck passed. The complete repository test run had 929 passes, four opt-in skips and ten completion timeouts across seven unchanged files. All 58 forge tests passed separately after that merge (11 files, 144.59 seconds under load). A second full `bun run check` attempt encountered unchanged baseline timeouts and was stopped when the owner’s new rule arrived. Historical repository execution was not green; current runtime validation is deferred to merge. No CI operation was requested.
 
 The baseline was an archive of `origin/main` inside this worktree, with its own offline-installed dependencies. Its source files and all core/git/notification/daemon production sources are unchanged by this PR. The archive was removed after verification. Default completion deadlines were left intact:
 
