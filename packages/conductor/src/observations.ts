@@ -1,0 +1,38 @@
+import { InteractionRequest, ThreadStatus } from "@ace/protocol";
+import { z } from "zod";
+import { Fact, Gate, Key } from "./schema.ts";
+
+const Observation = z.object({
+  laneId: Key,
+  generation: z.number().int().nonnegative(),
+  at: z.number().int().nonnegative(),
+  status: ThreadStatus,
+});
+/** Feed canonical whole-thread status from core/engine, never an individual turn's end.
+ * Rate-limit waits are not assumed to be account exhaustion; the accounts boundary
+ * supplies a separate confirmed usage_limit fact. */
+export function threadObservation(input: unknown): Fact | null {
+  const observation = Observation.parse(input);
+  const state = observation.status.state;
+  if (state === "new") return null;
+  return Fact.parse({
+    type: "status",
+    laneId: observation.laneId,
+    generation: observation.generation,
+    at: observation.at,
+    status: state === "needs_you" || state === "waiting" ? "waiting" : state,
+  });
+}
+/** The interaction port persists this request and a notification intent atomically. */
+export function gateRequest(input: unknown): InteractionRequest {
+  const gate = Gate.parse(input);
+  return InteractionRequest.parse({
+    kind: "approval",
+    title: `Conductor ${gate.kind}`,
+    description: gate.message,
+    options: [
+      { id: "approve", label: "Approve", kind: "allow_once" },
+      { id: "reject", label: "Reject and cancel run", kind: "deny" },
+    ],
+  });
+}
