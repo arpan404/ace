@@ -1,3 +1,4 @@
+import recorded from "./__fixtures__/github.json" with { type: "json" };
 import { mkdtemp, writeFile, readFile, rm, copyFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,21 +89,11 @@ export type Response = {
   wait?: boolean;
 };
 export type Fixtures = Record<string, Response[]>;
+/** Synthetic JSON records follow primary GitHub response contracts. */
 export function standard(): Fixtures {
-  return {
-    "repos/octo/ace/pulls/7": [{ body: pr, headers: { ETag: '"pr1"' } }],
-    [`repos/octo/ace/commits/${sha}/check-runs?per_page=100&filter=latest`]: [
-      { body: { check_runs: [check] }, headers: { ETag: '"checks1"' } },
-    ],
-    [`repos/octo/ace/commits/${sha}/statuses?per_page=100`]: [{ body: [] }],
-    "repos/octo/ace/pulls/7/comments?per_page=100": [
-      { body: [comment], headers: { ETag: '"comments1"' } },
-    ],
-    "repos/octo/ace/issues/7/comments?per_page=100": [{ body: [] }],
-    graphql: [{ body: threads([thread()]) }],
-    "repos/octo/ace/actions/jobs/99/logs": [{ raw: "test failed\n" }],
-  };
+  return structuredClone(recorded);
 }
+
 export async function fakeGh(fixtures: Fixtures, options: { maxBytes?: number } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "ace-forge-"));
   const executable = join(dir, "gh");

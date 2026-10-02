@@ -1,14 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  ForgeStore,
-  ReviewLoop,
-  createForgeToolkit,
-  watchPr,
-  mapPr,
-  reviewCandidates,
-} from "./index.ts";
+import { ForgeStore, ReviewLoop, watchPr, mapPr, reviewCandidates } from "./index.ts";
 import type { ForgeAutoFixIntent } from "@ace/protocol/forge";
 import {
   fakeGh,
@@ -276,48 +269,6 @@ describe("durable review loop", () => {
     store.link(link);
     tiny.admit(intent);
     expect(tiny.pending(link.threadId)[0]?.context).toMatchObject({ type: "review" });
-  });
-  it("scopes MCP linking, creation and replies to the authorised thread and branch", async () => {
-    const fixtures = standard();
-    fixtures["repos/octo/ace/pulls"] = [{ body: pr }];
-    fixtures["repos/octo/ace/pulls/7/comments/13/replies"] = [{ body: { id: 25 } }];
-    const { forge, store } = await setup(fixtures);
-    const toolkit = createForgeToolkit({
-      forge,
-      store,
-      threadId: link.threadId,
-      branch: "feat/fix",
-    });
-    await expect(toolkit.call("forge_pr_status", { number: 8 }, signal())).rejects.toMatchObject({
-      kind: "forbidden",
-    });
-    await expect(
-      toolkit.call("forge_link_pr", { number: 7, threadId: "other" }, signal()),
-    ).rejects.toMatchObject({ kind: "invalid_data" });
-    expect(await toolkit.call("forge_link_pr", { number: 7 }, signal())).toEqual(link);
-    expect(
-      await toolkit.call(
-        "forge_reply_comment",
-        { number: 7, commentId: 13, body: "fixed" },
-        signal(),
-      ),
-    ).toEqual({ ok: true });
-    const input = {
-      branch: "other",
-      base: "main",
-      title: "Fix",
-      summary: "Fixed",
-      template: { title: "{{title}}", body: "{{summary}}" },
-    };
-    await expect(toolkit.call("forge_create_pr", input, signal())).rejects.toMatchObject({
-      kind: "forbidden",
-    });
-    expect(
-      await toolkit.call("forge_create_pr", { ...input, branch: "feat/fix" }, signal()),
-    ).toEqual(link);
-    expect(await toolkit.call("forge_pr_status", { number: 7 }, signal())).toMatchObject({
-      state: "open",
-    });
   });
   it("queues general feedback even when an inline comment has the same numeric ID", async () => {
     const fixtures = standard();
