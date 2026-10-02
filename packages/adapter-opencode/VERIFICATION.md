@@ -1,10 +1,10 @@
 # Verification
 
-The repository owner now requires static checks only during authoring. No tests, probes, benchmarks, mutations or CI are executed after that instruction. Final-head dynamic validation **needs run at merge**. The authoring gate is formatting, lint, typechecking and the 1,500-line size check. `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed after the final main merge. All 416 source files fit within 1,500 lines.
+The repository owner now requires static checks only during authoring. No tests, probes, benchmarks, mutations or CI are executed after that instruction. Final-head dynamic validation **needs run at merge**. The authoring gate is formatting, lint, typechecking and the 1,500-line size check. `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed after the final main merge. All 510 source files fit within 1,500 lines.
 
 Behavior tests use the public adapter contract, core facts and projected client views. Session tests start a CLI double as a real child process with authenticated HTTP/SSE and synchronize through received frames and HTTP responses. Clocks and shutdown deadlines are injected. No installed provider received a prompt and no recorder ran.
 
-This follow-up merged main and the ACP branch that supplies the shared transport facts, then merged main's model catalog at `19a7e14`. The nine fixture expectation files remain unchanged. Earlier reviews recorded passing suites and mutation campaigns before the new owner instruction; those results do not validate the final integrated head.
+This follow-up merged main and the ACP branch that supplies the shared transport facts, then merged main through `50c725f`, including the model catalog, automations, process-test reliability and conductor work. The nine fixture expectation files remain unchanged. Earlier reviews recorded passing suites and mutation campaigns before the new owner instruction; those results do not validate the final integrated head.
 
 ## Fixture timelines
 
@@ -93,7 +93,18 @@ The following public regressions were written around the verifier's failing scen
 - Idle eviction: idling one child evicts only that child's completed reasoning route. Another child's live reasoning still accepts deltas after the recent window fills.
 - I15 integration note: after its parent turn ends, an active background child keeps the thread working. Once the child idles, the undelivered background result keeps it waiting. The existing fixture also expects working at t=9703; the shared core precedence is unchanged.
 
-Snapshot receipt does not establish server generation order. Recovery tracks request-start and receipt ordinals, observes owned work synchronously, and stages idle snapshots through both bounded passes. An idle snapshot cannot close a turn if newer work arrived during its request. Replaying busy after premature turn completion cannot reopen the same native run, so staging happens before translation. Ambiguous terminal evidence waits for later live evidence or REST reconciliation.
+Snapshot receipt does not establish server generation order. Recovery observes owned updates synchronously and covers events only through snapshot request start, in both directions. It retains both passes' buffered events and replays only the latest update per entity before applying deferred idle snapshots. Running tools are registered before their owner settles; newer idle and completed-tool events supersede older busy/running responses. Replaying an intermediate idle before a later busy could close the native run permanently, so intermediate status evidence stays raw rather than settling the run.
+
+### Second static verifier follow-up
+
+- F1: the held idle-response test delivers a running tool without another busy event. Reconciliation registers it before idle and synthesizes a survivor task; the test requires waiting and one prompt until terminal shell evidence releases the queue.
+- F2: held busy-status and running-history responses receive newer idle and tool completion over acknowledged SSE. The tests require done and immediate second-prompt delivery after resync, without another disconnect.
+- Ordering regression: buffered idle followed by busy keeps the original active turn and the queue held.
+- Timing risk: every history response waits for acknowledgment of its forcing SSE event, and tests await the initial busy frame before starting recovery. No sleep or scheduling budget is used.
+- Performance note: child/item ownership indexes replace global background scans. A min-heap contains one entry per live grace deadline, without stale tombstones. Status updates touch only one child's jobs, survivor deduplication uses the item index, and ticks process due jobs only. Public tests cover staggered expiration, resume/re-idle, final settlement, duplicate survivor avoidance and late live tools.
+- F3/I15 precedence: the combined background/approval disconnect test requires expired approval, unresponsive agents, a still-running background task, and the owner's waiting thread precedence. Resync restores working. This deliberately preserves the owner's contract; it does not implement the verifier's conflicting request to put thread unresponsive above waiting.
+
+All these outcomes **need run at merge**; only static checks were run.
 
 Before the owner instruction, an untouched main checkout at `709f66d` failed the local full check with 14 framework timeout errors under machine load above 250. The same main Git cases reproduced timeouts, and the previous adapter head merged with that main reproduced the background-shell fixture timeout. The integrated branch run also had framework timeouts. No unrelated test deadline was changed. Both temporary verification worktrees were clean and have been removed. No reruns are authorized now; the final suite needs run at merge.
 
@@ -126,7 +137,7 @@ The recovery benchmark drives the public adapter against the boundary CLI double
 | Backgrounds | 1,000         | 71.96 µs           | 4.84 µs                  |
 | Backgrounds | 10,000        | 404.44 µs          | 4.27 µs                  |
 
-The former all-parts scan on idle was removed. Background status/grace transitions still scan live backgrounds to bind child completion and recompute the earliest fallback deadline. That cost depends on live jobs, never transcript history, and occurs on status/grace changes rather than deltas. The benchmark makes this remaining cost explicit; replacing grace deadline scans with an indexed scheduler is a separate optimization. No latency assertion gates tests.
+These live-tree measurements precede the latest background indexing fix. The former global part/background scans and per-tool background searches are now replaced by ownership indexes and an indexed deadline heap. Updating k jobs for one child costs O(k log L), expiring d jobs costs O(d log L), and minimum deadline and item ownership lookup are constant time, where L is the number of active grace deadlines. Storage has one heap entry per deadline. Final-head performance confirmation **needs run at merge**; no benchmark was rerun.
 
 ## Mutation plan
 
@@ -163,7 +174,7 @@ Additional planned cases, each **not executed (tests run at merge)**:
 
 | #   | Production fault                              | Guarding behavior                                                           |
 | --- | --------------------------------------------- | --------------------------------------------------------------------------- |
-| 23  | ignore snapshot receipt watermark             | older buffered idle cannot overwrite a newer busy REST snapshot             |
+| 23  | ignore snapshot request-start coverage        | older buffered idle cannot overwrite a newer busy REST snapshot             |
 | 24  | do not rearm an early grace callback          | queued delivery remains held before, and proceeds at, the injected deadline |
 | 25  | recover without reconnecting a stalled stream | opens a new SSE connection before restoring heartbeat-gap recovery          |
 | 26  | ignore unfamiliar native live tool states     | holds the tool pending until a terminal update                              |
@@ -176,11 +187,27 @@ Verifier follow-up cases, each **not executed (tests run at merge)**:
 | 28  | omit disconnect for recovered children            | a newly discovered child stays unresponsive until resync     |
 | 29  | discard native part envelope evidence             | tool/text/reasoning sibling fields stay raw                  |
 | 30  | allow stale terminal snapshots despite newer work | the delayed idle response cannot release queued input        |
-| 31  | apply idle snapshots before final reconciliation  | the delayed idle response cannot close the active turn       |
+| 31  | apply idle snapshots before final reconciliation  | a newer running shell is registered before the idle snapshot |
 | 32  | take status request start at receipt              | an in-flight busy event keeps the queue held                 |
 | 33  | omit live-part owner index entries                | idling one child evicts its route without evicting another's |
 | 34  | omit shared reconnect facts                       | successful resync restores working status                    |
 | 35  | discard malformed part body                       | a recognized part without ID retains unknown fields          |
+
+Second static follow-up cases, every row **not executed (tests run at merge)**:
+
+| #   | Production fault                                      | Guarding behavior                                               |
+| --- | ----------------------------------------------------- | --------------------------------------------------------------- |
+| 36  | restore receipt-time terminal coverage                | newer idle settles an older busy response                       |
+| 37  | finalize idle before replaying running tools          | newer shell stays live and holds delivery through old idle      |
+| 38  | discard newer terminal status during reconciliation   | newer idle releases second input without another disconnect     |
+| 39  | discard newer terminal tool as covered by old history | completed shell supersedes running history and releases input   |
+| 40  | replay an intermediate idle before its newer busy     | original active turn survives buffered idle then busy           |
+| 41  | retain background registry entries after completion   | staggered jobs finish and public settlement becomes true        |
+| 42  | omit background item ownership entries                | an existing background tool cannot create a second survivor     |
+| 43  | omit late live-tool survivor synthesis                | running shell after owner idle keeps the thread waiting         |
+| 44  | skip disconnect facts when backgrounds exist          | affected background agents stay unresponsive through heartbeats |
+| 45  | keep pending approval during disconnect               | approval expires during combined background/disconnect sequence |
+| 46  | clear observations before deferred idle decisions     | newer busy holds the active turn and second prompt              |
 
 ## Boundaries
 
@@ -188,8 +215,14 @@ The optional real-CLI test was not enabled in this run. It starts only the serve
 
 The adapter drives v1 routes. `session.next.*` remains raw until a separate v2 translation contract is specified. Detached shells have no native task lifecycle, so capabilities report partial background visibility. Recovery uses at most two snapshot passes and cannot wait indefinitely for global traffic to stop. Buffered deltas are never appended to snapshot content; continuously streaming content converges at the provider's later full part updates. Provider I/O stays outside the translator.
 
-The second verifier follow-up merged `origin/feat/adapter-acp` to reuse core's `agent.disconnected` / `agent.reconnected` facts from PR #14. The original core-owner request is resolved. Known and newly recovered children remain unresponsive until resync; heartbeat/busy evidence cannot clear explicit loss. Core's existing human and background-task precedence remains authoritative. No core/protocol implementation was written in this adapter branch.
+The second verifier follow-up merged `origin/feat/adapter-acp` to reuse core's `agent.disconnected` / `agent.reconnected` facts from PR #14. The original core-owner request is resolved. Known and newly recovered children remain unresponsive until resync; heartbeat/busy evidence cannot clear explicit loss. The owner's thread precedence remains authoritative, including waiting before unresponsive. No core/protocol implementation was written in this adapter branch.
 
 That dependency predates main's large-payload unions. Its inline raw reads now narrow the `data` variant, and its assertions accept streamed shell-output tails. These three ACP compatibility files are the only direct edits outside OpenCode in this follow-up.
 
 CI is disabled by the repository owner. This follow-up does not run, retry or watch CI. Only the permitted static checks gate authoring; tests, mutations and benchmark confirmation need run at merge.
+
+## Shared owner requests from I15 and F3
+
+OpenCode's working checkpoint at t=9703 and the active-background-child regression remain unchanged. The combined loss test records the intended waiting thread plus unresponsive agent diagnostics. F3's requested global precedence reversal conflicts with the owner's explicit integration rule, so no adapter-specific override or shared-core edit was made. The core owner should reconcile fixture-analysis wording with that settled contract before calling this discrepancy fixed.
+
+I15's snapshot migration belongs to [engine PR #15](https://github.com/arpan404/ace/pull/15) and [core/Codex PR #16](https://github.com/arpan404/ace/pull/16), which are not merged into this branch. Static inspection of `origin/feat/m3-engine` at `f4cd349` shows the engine snapshot decoder still validates a handwritten schema through `z.custom<ThreadState>` without a versioned migration for missing `queueSources`. The requested fix is a shared versioned state schema/default migration consumed by engine decode and record schemas, with restart coverage for provider/engine queue sources, disconnect metadata, explicit wait targets and uncertain tasks. Core's current public API exports no state decoder; an adapter-local decoder would duplicate owned persistence logic. Per the package ownership brief, this remains a concrete upstream request rather than an unauthorized change in core or daemon. Cross-PR persistence validation **needs run at merge** after those owners integrate the migration.
