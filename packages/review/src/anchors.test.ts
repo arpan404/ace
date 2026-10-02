@@ -63,6 +63,23 @@ describe("comment anchors", () => {
     expect(result?.position.start).toBe(9);
     expect(result?.state).toBe("addressed-pending-review");
   });
+  it("deleted text cannot attach to an identical unchanged context line", () => {
+    const result = run(
+      patch("@@ -3,3 +3,2 @@\n const value = wrong;\n-const value = wrong;\n after"),
+    );
+    expect(result?.state).toBe("outdated");
+    expect(result?.position).toEqual(anchor.position);
+    expect(result?.revision).toEqual(anchor.revision);
+  });
+  it("a move follows the added copy even when unchanged context is identical", () => {
+    const result = run(
+      patch(
+        "@@ -3,3 +3,2 @@\n const value = wrong;\n-const value = wrong;\n after\n@@ -9,1 +8,2 @@\n last\n+const value = wrong;",
+      ),
+    );
+    expect(result?.position.start).toBe(9);
+    expect(result?.state).toBe("addressed-pending-review");
+  });
   it("does not guess between identical destinations", () => {
     expect(
       run(
@@ -142,4 +159,59 @@ it("marks text findings outdated when the file becomes binary", () => {
     truncated: false,
   };
   expect(run(diff)?.state).toBe("outdated");
+});
+
+it("malformed hunk coordinates cannot silently move a finding", () => {
+  expect(() => run(patch("@@ -999999999999999999999999999,1 +1,1 @@\n-old\n+new"))).toThrow();
+});
+
+it("a small insertion inside a long selection refreshes text outside the transition hunk", () => {
+  const long = ReviewAnchor.parse({
+    ...anchor,
+    position: { ...anchor.position, start: 3, end: 20 },
+    fingerprint: {
+      before: ["line-1", "line-2"],
+      lines: Array.from({ length: 18 }, (_, n) => `line-${n + 3}`),
+      after: ["line-21", "line-22", "line-23"],
+    },
+  });
+  const result = run(patch("@@ -10,3 +10,4 @@\n line-10\n+inserted\n line-11\n line-12"), long);
+  expect(result?.position).toEqual({ ...long.position, end: 21 });
+  expect(result?.fingerprint.lines).toHaveLength(19);
+  expect(result?.fingerprint.lines.slice(7, 11)).toEqual([
+    "line-10",
+    "inserted",
+    "line-11",
+    "line-12",
+  ]);
+  expect(result?.fingerprint.after).toEqual(["line-21", "line-22", "line-23"]);
+  expect(result?.state).toBe("addressed-pending-review");
+});
+it("a deletion inside a long selection removes its old text from the refreshed fingerprint", () => {
+  const long = ReviewAnchor.parse({
+    ...anchor,
+    position: { ...anchor.position, start: 3, end: 20 },
+    fingerprint: {
+      before: ["line-1", "line-2"],
+      lines: Array.from({ length: 18 }, (_, n) => `line-${n + 3}`),
+      after: ["line-21", "line-22", "line-23"],
+    },
+  });
+  const result = run(patch("@@ -10,3 +10,2 @@\n line-10\n-line-11\n line-12"), long);
+  expect(result?.position.end).toBe(19);
+  expect(result?.fingerprint.lines).toHaveLength(17);
+  expect(result?.fingerprint.lines).not.toContain("line-11");
+  expect(result?.state).toBe("addressed-pending-review");
+});
+
+it("zero-context insertions map the line after the insertion caret", () => {
+  expect(run(patch("@@ -2,0 +3,1 @@\n+inserted"))?.position.start).toBe(5);
+});
+it("zero-context deletions map the line after the removed range", () => {
+  expect(run(patch("@@ -2,1 +1,0 @@\n-removed"))?.position.start).toBe(3);
+});
+
+it("unrelated changes preserve an outdated finding's last revision and position", () => {
+  const outdated = { ...anchor, state: "outdated" as const };
+  expect(run(patch("@@ -1 +1 @@\n-old\n+new", "other.ts"), outdated)).toEqual(outdated);
 });

@@ -1,5 +1,8 @@
+import { z } from "zod";
 import type { DiffResult } from "@ace/git";
 import { ReviewPath } from "@ace/protocol";
+
+const count = z.number().int().min(0).max(10_000_000);
 
 export interface Change {
   oldStart: number;
@@ -109,11 +112,11 @@ export function readPatch(diff: DiffResult): PatchFile[] {
     } else if (line.startsWith("@@ ")) {
       const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
       if (!match || !file) throw new Error("review_invalid_patch");
-      oldRemaining = Number(match[2] ?? 1);
-      newRemaining = Number(match[4] ?? 1);
+      oldRemaining = count.parse(Number(match[2] ?? 1));
+      newRemaining = count.parse(Number(match[4] ?? 1));
       hunk = {
-        oldStart: Number(match[1]),
-        newStart: Number(match[3]),
+        oldStart: count.parse(Number(match[1])) + (oldRemaining === 0 ? 1 : 0),
+        newStart: count.parse(Number(match[3])) + (newRemaining === 0 ? 1 : 0),
         oldLines: [],
         newLines: [],
         changes: [],

@@ -74,10 +74,16 @@ interface Index {
   changes: Change[];
   lines: Map<number, string>;
   postings: Map<string, number[]>;
+  addedLines: Set<number>;
 }
 function indexFile(file: PatchFile): Index {
   const lines = new Map<number, string>();
   const postings = new Map<string, number[]>();
+  const changes = file.hunks.flatMap((h) => h.changes);
+  const addedLines = new Set<number>();
+  for (const change of changes)
+    for (let offset = 0; offset < change.newCount; offset++)
+      addedLines.add(change.newStart + offset);
   for (const hunk of file.hunks)
     for (const [offset, text] of hunk.newLines.entries()) {
       const number = hunk.newStart + offset;
@@ -88,7 +94,7 @@ function indexFile(file: PatchFile): Index {
       if (list.length < 65) list.push(number);
       postings.set(key, list);
     }
-  return { file, lines, postings, changes: file.hunks.flatMap((h) => h.changes) };
+  return { file, lines, postings, changes, addedLines };
 }
 function mapLine(changes: Change[], line: number): { line?: number; replacement: boolean } {
   let lo = 0;
@@ -138,7 +144,10 @@ function locate(index: Index, anchor: ReviewAnchor, allowFuzzy: boolean): number
     const list = index.postings.get(normalize(text));
     if (list && list.length <= 64)
       for (const number of list) {
-        if (number - offset > 0) candidates.add(number - offset);
+        const start = number - offset;
+        // Unchanged duplicates are not evidence that a deleted selection moved.
+        if (start > 0 && f.lines.some((_, lineOffset) => index.addedLines.has(start + lineOffset)))
+          candidates.add(start);
         if (candidates.size > 64) break;
       }
   };
@@ -180,6 +189,55 @@ function locate(index: Index, anchor: ReviewAnchor, allowFuzzy: boolean): number
   return tied ? undefined : best;
 }
 
+function mappedFingerprint(
+  index: Index,
+  anchor: ReviewAnchor,
+  start: number,
+  end: number,
+): ReviewFingerprint | undefined {
+  const f = anchor.fingerprint;
+  if (
+    anchor.state !== "outdated" &&
+    !touches(
+      index.changes,
+      anchor.position.start - f.before.length,
+      anchor.position.end + f.after.length,
+    )
+  )
+    return f;
+  const known = new Map<number, string>();
+  if (anchor.state !== "outdated") {
+    const remember = (lines: string[], first: number) =>
+      lines.forEach((text, offset) => {
+        const mapped = mapLine(index.changes, first + offset).line;
+        if (mapped !== undefined) known.set(mapped, text);
+      });
+    remember(f.before, anchor.position.start - f.before.length);
+    remember(f.lines, anchor.position.start);
+    remember(f.after, anchor.position.end + 1);
+  }
+  const read = (line: number) => index.lines.get(line) ?? known.get(line);
+  const lines: string[] = [];
+  for (let line = start; line <= end; line++) {
+    const text = read(line);
+    if (text === undefined) return undefined;
+    lines.push(text);
+  }
+  const before: string[] = [];
+  const after: string[] = [];
+  for (let line = start - 1; line > 0 && line >= start - 3; line--) {
+    const text = read(line);
+    if (text === undefined) break;
+    before.unshift(text);
+  }
+  for (let line = end + 1; line <= end + 3; line++) {
+    const text = read(line);
+    if (text === undefined) break;
+    after.push(text);
+  }
+  return ReviewFingerprint.parse({ before, lines, after });
+}
+
 /** Transition is the old revision → new revision of the anchor's own side. */
 export function reanchorComments(
   anchors: readonly ReviewAnchor[],
@@ -191,7 +249,7 @@ export function reanchorComments(
   return anchors.map((input) => {
     const anchor = ReviewAnchor.parse(input);
     const index = files.get(anchor.position.file);
-    if (!index) return { ...anchor, revision };
+    if (!index) return anchor.state === "outdated" ? anchor : { ...anchor, revision };
     if (index.file.unavailable) return { ...anchor, state: "outdated" };
     const first = mapLine(index.changes, anchor.position.start);
     const last = mapLine(index.changes, anchor.position.end);
@@ -208,7 +266,8 @@ export function reanchorComments(
     const available = findHunk(index.file.hunks, start, end, "new");
     const f = available
       ? fingerprint(available.newLines, start - available.newStart, end - start + 1)
-      : anchor.fingerprint;
+      : mappedFingerprint(index, anchor, start, end);
+    if (!f) return { ...anchor, state: "outdated" };
     return ReviewAnchor.parse({
       ...anchor,
       position,

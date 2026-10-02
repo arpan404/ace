@@ -49,12 +49,17 @@ export const ReviewFingerprint = z
     "Fingerprint too large",
   );
 export type ReviewFingerprint = z.infer<typeof ReviewFingerprint>;
-export const ReviewAnchor = z.object({
-  position: ReviewPosition,
-  revision: ReviewRevision,
-  fingerprint: ReviewFingerprint,
-  state: z.enum(["active", "outdated", "addressed-pending-review"]),
-});
+export const ReviewAnchor = z
+  .object({
+    position: ReviewPosition,
+    revision: ReviewRevision,
+    fingerprint: ReviewFingerprint,
+    state: z.enum(["active", "outdated", "addressed-pending-review"]),
+  })
+  .refine(
+    (anchor) => anchor.position.end - anchor.position.start + 1 === anchor.fingerprint.lines.length,
+    "Fingerprint must cover the selected range",
+  );
 export type ReviewAnchor = z.infer<typeof ReviewAnchor>;
 export const ReviewComment = z.object({
   id,
