@@ -37,6 +37,7 @@ test(
         ACE_MODEL_INSTANCES: "[]",
         ACE_VERSION: "1.2.3",
         ACE_DEV: "0",
+        ACE_HISTORY_INSTANCES: "[]",
         ACE_MAINTENANCE: "0",
       },
       stdio: ["ignore", "pipe", "pipe"],

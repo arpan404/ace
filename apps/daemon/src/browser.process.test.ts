@@ -11,6 +11,7 @@ import { BrowserFrame } from "@ace/protocol";
 import { startDaemon } from "./index.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread } from "./commands.ts";
+import { daemonCli } from "./process-test-support.ts";
 import { BrowserClient } from "./browser-test-client.ts";
 import { ownedBrowserPids, waitForBrowserExit } from "./browser-test-process.ts";
 
@@ -127,13 +128,14 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
     "leaves no owned Chromium after daemon exit on %s",
     async (signal) => {
       const home = await mkdtemp(join(tmpdir(), "ace-browser-exit-"));
-      const daemon = spawn(process.execPath, ["apps/daemon/src/cli.ts"], {
+      const daemon = spawn(process.execPath, [daemonCli()], {
         env: {
           ...process.env,
           ACE_HOME: home,
           ACE_PORT: "0",
           ACE_LOG_LEVEL: "silent",
           ACE_DEV: "1",
+          ACE_HISTORY_INSTANCES: "[]",
         },
         stdio: ["ignore", "pipe", "pipe"],
       });

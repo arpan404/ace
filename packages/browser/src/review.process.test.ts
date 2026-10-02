@@ -87,7 +87,7 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     expect(approvals).toBe(32);
     await f.service.close();
     expect(() => f.service.state("thread")).toThrow("not open");
-  }, 60_000);
+  });
 
   it("cancels only the closing thread's pending approval", async () => {
     const { promise: entered, resolve: notify } = Promise.withResolvers<void>();
