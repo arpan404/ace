@@ -130,3 +130,18 @@ test("Claude plaintext uploads become native document blocks when supported", ()
   ]);
   expect(result.diagnostics).toEqual([]);
 });
+
+test("projection rejects noncanonical padding bits before producing provider media", () => {
+  for (const provider of ["claude", "acp"] as const) {
+    for (const base64 of ["AB==", "AAB="])
+      expect(() => projectAttachments([{ ...image, base64 }], capabilities(provider))).toThrow();
+    for (const base64 of ["AA==", "AAA="]) {
+      const result = projectAttachments([{ ...image, base64 }], capabilities(provider));
+      expect(result.input).toEqual(
+        provider === "claude"
+          ? [{ type: "image", source: { type: "base64", media_type: "image/png", data: base64 } }]
+          : [{ type: "image", mimeType: "image/png", data: base64 }],
+      );
+    }
+  }
+});

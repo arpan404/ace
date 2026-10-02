@@ -417,3 +417,15 @@ test("WebP framing rejects a missing image chunk even with a valid canvas", asyn
   expect(attachment(await f.put(webpFrame("VP8L", 1, 1))).width).toBe(1);
   expect(attachment(await f.put(webpFrame("VP8 ", 1, 1))).height).toBe(1);
 });
+
+test("WebP lossless version bits cannot bypass container validation", async () => {
+  const f = await fixture();
+  const bytes = webpFrame("VP8L", 1, 1);
+  bytes[42] = (bytes[42] ?? 0) | 0x20;
+  await expect(f.put(bytes)).rejects.toMatchObject({ code: "invalid_image" });
+  expect(await f.store.handle("device", { op: "attachment.list", threadId: thread })).toEqual({
+    kind: "attachments",
+    attachments: [],
+  });
+  expect(attachment(await f.put(webpFrame("VP8L", 1, 1))).mimeType).toBe("image/webp");
+});
