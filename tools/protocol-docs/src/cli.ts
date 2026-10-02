@@ -1,11 +1,11 @@
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { sourceFingerprint, withManifest, checkFingerprint } from "./fingerprint.ts";
 import {
   protocolCatalog,
   convertSchemas,
   renderReference,
-  checkFiles,
   writeFiles,
   compareSnapshots,
   readSnapshot,
@@ -31,15 +31,17 @@ try {
     if (changes.some((change) => change.kind !== "additive")) process.exitCode = 1;
   } else {
     const root = fileURLToPath(new URL("../../../docs/protocol/", import.meta.url));
-    const files = renderReference(catalog.entries, catalog.tools, snapshot);
+    const sourceRoot = fileURLToPath(new URL("../../../", import.meta.url));
+    const input = await sourceFingerprint(sourceRoot, snapshot, catalog.tools);
     if (args[0] === "--check") {
-      const stale = await checkFiles(root, files);
+      const stale = await checkFingerprint(root, input);
       if (stale.length)
         throw new Error(
           `Stale protocol reference: ${stale.join(", ")}. Run bun run docs:protocol.`,
         );
-      console.log(`Protocol reference is current (${files.size} files)`);
+      console.log("Protocol reference is current");
     } else {
+      const files = withManifest(renderReference(catalog.entries, catalog.tools, snapshot), input);
       await writeFiles(root, files);
       console.log(`Generated ${files.size} protocol reference files`);
     }

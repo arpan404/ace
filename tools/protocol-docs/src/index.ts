@@ -11,3 +11,5 @@ export {
   type Snapshot,
   type JsonSchema,
 } from "./model.ts";
+
+export { sourceFingerprint, withManifest, checkFingerprint } from "./fingerprint.ts";

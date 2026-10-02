@@ -30,7 +30,7 @@ Release tooling calls `bun run docs:protocol:compat --baseline PATH`. The baseli
 
 Generation runs locally without starting the daemon, invoking provider CLIs or obtaining credentials. Examples use synthetic identifiers and dummy credentials. Never load user state or provider config. Output paths come from a fixed generator namespace; stale output files are removed only within that directory. Snapshot input has byte and recursion limits. Generated documentation has no authentication authority.
 
-The drift check performs one schema conversion and compares deterministic bytes, including unexpected files. It must finish under two seconds in normal local conditions. Bounds cover schema count, traversal depth, example attempts and snapshot bytes. No daemon hot path is added. A non-gating benchmark records generation, check time and peak RSS. Disk work lives in a thin CLI/file shell; conversion, rendering and compatibility decisions are pure.
+The drift check performs native schema conversion and compares a generated fingerprint of the schemas, MCP definitions, production sources and lockfile. It then verifies every output's byte length and SHA-256 digest, including missing and unexpected files. Generation validates examples and writes the manifest with its deterministic output; the check avoids recompiling example validators. It must finish under two seconds in normal local conditions. Bounds cover schema count, traversal depth, example attempts and snapshot bytes. No daemon hot path is added. A non-gating benchmark records generation, check time and peak RSS. Disk work lives in a thin CLI/file shell; conversion, rendering and compatibility decisions are pure.
 
 ## Testing
 

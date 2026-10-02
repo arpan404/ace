@@ -1,0 +1,570 @@
+{
+  "files": {
+    "README.md": {
+      "bytes": 2056,
+      "sha256": "f64103ff8e852c967f83548e90a77f4a10e1a9147df2cc77d02fb35ae6068d3f"
+    },
+    "commands.md": {
+      "bytes": 5575,
+      "sha256": "6a82d2d2cbbb061bac467fc8d4718da2cda9d05cdd3bd6c82fb9b65d2e2f49f8"
+    },
+    "events.md": {
+      "bytes": 9457,
+      "sha256": "8330a1143342eb6cd902e3cd1cf65e1c36da6f4ab831223a69b272a4ea7df393"
+    },
+    "mcp.md": {
+      "bytes": 8628,
+      "sha256": "9f06ef952f2111bd2ea7309ac5b5597d1ecd16d35ad4164b601f91499d9bfb5a"
+    },
+    "models.md": {
+      "bytes": 9078,
+      "sha256": "d76732efd6b0497705443f55379226907df5c28fb0339755f95e67e31b087ffd"
+    },
+    "orchestration.md": {
+      "bytes": 27589,
+      "sha256": "b764a6c4ccdb191cf8ba3d8735e846912f6ffd1fbbce4f0e0b843351cdae3e29"
+    },
+    "push.md": {
+      "bytes": 7249,
+      "sha256": "f7e9cf563febb8d7f5672c2ba8039e818f14e40b92ca4caa913a169347019469"
+    },
+    "requests.md": {
+      "bytes": 6313,
+      "sha256": "7927b498c02b1fc013363523aacbf28e36db3b9a899af626408c853c1cfeee8e"
+    },
+    "schema/Agent.json": {
+      "bytes": 1502,
+      "sha256": "a305690d17dd3948af8331aef0ec2217d507c2212fed5398186931d2ab1a8119"
+    },
+    "schema/AgentActivity.json": {
+      "bytes": 262,
+      "sha256": "cba2f4bd7061c93700357556522cbe48f373d3e514a2403bdba88ac1e9cb2822"
+    },
+    "schema/AgentFidelity.json": {
+      "bytes": 207,
+      "sha256": "76c3e3a65188a6939c44df008c47f1bcb1efc71f04cf4565788c0e7e1d6e3768"
+    },
+    "schema/AgentId.json": {
+      "bytes": 157,
+      "sha256": "b614252adf65943d846846250cd5ec4c18e4b826af9ef1ab724f584fb2e7b96a"
+    },
+    "schema/AgentOrigin.json": {
+      "bytes": 207,
+      "sha256": "8dfe0d838a5a77db24eb71781949b9f1152c248eec3e156dc6ed29088980cd92"
+    },
+    "schema/AgentStatus.json": {
+      "bytes": 3003,
+      "sha256": "029754d13b97d1f345f8659675b37c56ecd07b9f89afe75ffdac0e10373a72e5"
+    },
+    "schema/ApprovalOption.json": {
+      "bytes": 506,
+      "sha256": "4c085ae068a77eec164b89b7613f54511b3e268b9936ad528f2eaaedf1dd3209"
+    },
+    "schema/BackgroundTask.json": {
+      "bytes": 1478,
+      "sha256": "53522fb38b3846b00242cfeb85d88ea6c2c46ebc5e9e8da99f6e747d2f15a9d3"
+    },
+    "schema/BackgroundTaskId.json": {
+      "bytes": 166,
+      "sha256": "32e2ab0738553db05df3bd5e1c02ad6481f1db79f6579afef819f4ac09c017c1"
+    },
+    "schema/BlockedReason.json": {
+      "bytes": 263,
+      "sha256": "1b999afd820f830fc49cd771271582dfe8357a7cfb6bfe0e20a95ccb18ac31b8"
+    },
+    "schema/Capabilities.json": {
+      "bytes": 1061,
+      "sha256": "69cb7bb9aacc196549701dd4fdd1d7bd290eecb259b4a6b98b9da0643554cffc"
+    },
+    "schema/CatalogModel.json": {
+      "bytes": 2556,
+      "sha256": "9e7e5c7f06d776b4c9ee3a53cb6cbbf0a16eb0979ffbb2e188bd9160c9d36195"
+    },
+    "schema/ClientMessage.json": {
+      "bytes": 4121,
+      "sha256": "417e31e5f6024875f34d2e85ff918e360205d5f9f1489f544a223ef2655846fe"
+    },
+    "schema/Command.json": {
+      "bytes": 477,
+      "sha256": "066e9293dbfa3d9de03d3c8bac8315d6ca9ae862833bcfc62f71caf90d713e68"
+    },
+    "schema/CommandId.json": {
+      "bytes": 159,
+      "sha256": "b65cdd57e3595d55d32fdb9bce3c5498945bfac9be2f122383582635ed9ad4ec"
+    },
+    "schema/CommandPayload.json": {
+      "bytes": 3478,
+      "sha256": "b0770e52cf6ea490efd57b593ea453b23a54de4a9a73285512b173c7c463eefa"
+    },
+    "schema/CommandResult.json": {
+      "bytes": 389,
+      "sha256": "3574c1ae7f0cff9f7cf328099fea77fbe26ec2da83f1b58985a0cdcb771d8c35"
+    },
+    "schema/ContentPart.json": {
+      "bytes": 1074,
+      "sha256": "d4efb04b0232138bb60dcc4dcd334600dfd235b16717bcc6f50e5610c5cb265e"
+    },
+    "schema/DeliveryEvent.json": {
+      "bytes": 876,
+      "sha256": "b6ad509f6d87b4155d83af3be4c3695400c6560eacd461d732cbd6d7a8ec54ef"
+    },
+    "schema/Device.json": {
+      "bytes": 1034,
+      "sha256": "329b4210cdaa5480beda91fe10c72dff813aa8458597d8626450c3a43ff6b259"
+    },
+    "schema/DeviceCredential.json": {
+      "bytes": 378,
+      "sha256": "bc5ed7c82522343da67494614a6946163ec08818c1af24969cfbfc1a43e9b742"
+    },
+    "schema/DeviceId.json": {
+      "bytes": 158,
+      "sha256": "fdbe6b88ebde71f9f7ffe94071158c71b9f807be7ea35c0ee51cd1ba00837856"
+    },
+    "schema/DeviceScope.json": {
+      "bytes": 199,
+      "sha256": "4e85c90a0fd7da4d2d08195247c5e21c366057ac1a33878ccf47eb363b528aee"
+    },
+    "schema/Event.json": {
+      "bytes": 671,
+      "sha256": "a8c2ddc2e8e66be43e3db2af9623ce79258e28814c0de33053199e715417daec"
+    },
+    "schema/EventId.json": {
+      "bytes": 157,
+      "sha256": "21567123f34d6cb1202d462e74a6ae138d0b8128e08a231d80d06b2071ccac8a"
+    },
+    "schema/EventPayload.json": {
+      "bytes": 7613,
+      "sha256": "13315e0b0612404fda6b2f58fc67653c585d76c09695b33dd7a04e09588a8887"
+    },
+    "schema/FileChange.json": {
+      "bytes": 607,
+      "sha256": "e3e4953ea57dd2be995269def34ea78641ada262b3bde4ae749386c538caff47"
+    },
+    "schema/HostId.json": {
+      "bytes": 156,
+      "sha256": "ea73c1f70d786704fc437194d49c27b4ce9ec1e1d685346e2228484ff6d5901d"
+    },
+    "schema/InlineRawPayload.json": {
+      "bytes": 318,
+      "sha256": "70f205106eedecf6dcb1063ee450ffa00fbd1e400956226cc48eacfd82aa31a8"
+    },
+    "schema/Interaction.json": {
+      "bytes": 1370,
+      "sha256": "48b3fd7d9596d8ea7908d8fa2914f5010aca921dfc7291fbf900cf023e33fc6d"
+    },
+    "schema/InteractionId.json": {
+      "bytes": 163,
+      "sha256": "b7c7ba0e77621857d7703ea16c4e8315ce21db466f8972c8277d10c46e6d67a1"
+    },
+    "schema/InteractionRequest.json": {
+      "bytes": 2086,
+      "sha256": "c8a354b598175fe1da07289bfb8503cbeaf36b7eaebaa0db8f7a2914d7c5b942"
+    },
+    "schema/InteractionResolution.json": {
+      "bytes": 1877,
+      "sha256": "c3fe1b7292b0f5b69ec18208cf1397cee3124569a09a47a6f5b831c779a3f1a4"
+    },
+    "schema/InteractionState.json": {
+      "bytes": 227,
+      "sha256": "1a291381c40ba56d606e173c70621821fa8de619c7953cab5f3d1c4ec18fc1a0"
+    },
+    "schema/Item.json": {
+      "bytes": 5420,
+      "sha256": "9fed7cec3b55d1cd33e561820b48045e47cac91ce5f8dc8ea4baae8cb14093bf"
+    },
+    "schema/ItemId.json": {
+      "bytes": 156,
+      "sha256": "d00b8164938968ec4b8a925d4e4074c28e344af4c1545a4f6292f2b8d97fae42"
+    },
+    "schema/ItemsPage.json": {
+      "bytes": 663,
+      "sha256": "f83106df6aa03f6febfbf757a33dafcead75ed791c92e2454fc7a646ad83e831"
+    },
+    "schema/LaneComparison.json": {
+      "bytes": 1941,
+      "sha256": "8a69fe880a898b1adb15cd025c5aa84154a96f61db1c2785db7ffe1a40538aae"
+    },
+    "schema/LaneId.json": {
+      "bytes": 389,
+      "sha256": "4d997c67a5dfe89071a9efcb8846237d5f17659a9aee563dc0763bba27571c6f"
+    },
+    "schema/LanePhase.json": {
+      "bytes": 332,
+      "sha256": "383e07adcb0149de38ba687bb8f9b94a698e6c2fe6aae6f8ea43bc6fd8bff11b"
+    },
+    "schema/LaneSpec.json": {
+      "bytes": 391,
+      "sha256": "26383578e7424168ed1918b45777377648809a5f30391d6f0d2e3b9de42ece98"
+    },
+    "schema/McpAttribution.json": {
+      "bytes": 499,
+      "sha256": "67324e46697b3f8c4ddfb094b9328291743d5abc5cba09732a3803b940b68fa7"
+    },
+    "schema/McpCapability.json": {
+      "bytes": 248,
+      "sha256": "4f1cc2fe475f8dab43a15106075ff92a4f35d5815656d48f7f56d6fc4ebd1289"
+    },
+    "schema/McpIntent.json": {
+      "bytes": 303,
+      "sha256": "fcf82b185f1af1f166147183650a192f4c51e5d8e7168e886ee2ebe2a588eff1"
+    },
+    "schema/McpNoticeInput.json": {
+      "bytes": 470,
+      "sha256": "1fde781b74f8d74b0d9c4553f9b822e82fbc77401f2a520811948a7440c67042"
+    },
+    "schema/McpNotificationIntent.json": {
+      "bytes": 694,
+      "sha256": "b0eafa3aa3e319a3e708e2fa276908bfd4563017e48aa70d3ac7c7ba06ef71e7"
+    },
+    "schema/McpScope.json": {
+      "bytes": 678,
+      "sha256": "f32898bb3caa149539abc1e9896f9aba4216649b4ce4742e3d5910c59e81a134"
+    },
+    "schema/McpSpawnInput.json": {
+      "bytes": 503,
+      "sha256": "0f7a239ab6acf418207ce75528a73a1ee2a8d37f2e40721ee85be5b98f0272d3"
+    },
+    "schema/McpSpawnIntent.json": {
+      "bytes": 683,
+      "sha256": "fd05b15bfd02251ed1433afe9dc91865798f218fc2c8cbe85e1bdd31a7b74f5b"
+    },
+    "schema/ModelFilter.json": {
+      "bytes": 348,
+      "sha256": "083fc95e125bfab3fd0ffbc9ca533f6820fb8f10882c7a94e5ee437907f4b9aa"
+    },
+    "schema/ModelInstanceStatus.json": {
+      "bytes": 753,
+      "sha256": "7c4762eaa1fac17ecee59bb677504916f414989f26740b4b762742cddd716c02"
+    },
+    "schema/ModelListOptions.json": {
+      "bytes": 574,
+      "sha256": "5e38fc14075b8f8a04793e2dad02f236f6780b6c297ff57afa0eb1869a007e17"
+    },
+    "schema/ModelListResult.json": {
+      "bytes": 655,
+      "sha256": "fabc72e594121befd0b2d0a518d2c81804b451bff9ddbb28a5504e1378196204"
+    },
+    "schema/ModelResolution.json": {
+      "bytes": 1127,
+      "sha256": "5f8f0880aa81d0d3c51b8faa2a3d2705cf3d329d095a8dcfc992258accf3c83c"
+    },
+    "schema/ModelRoleSpec.json": {
+      "bytes": 1160,
+      "sha256": "65e1c7b800e4f23e77f04f78abddb4ef9acc05e5f569d02a541b417981b29f03"
+    },
+    "schema/ModelTier.json": {
+      "bytes": 952,
+      "sha256": "dffb845632dce124651cbf3542da9eef063dbcba1d6025061e727e5021c7203c"
+    },
+    "schema/ModelsListRequest.json": {
+      "bytes": 551,
+      "sha256": "508d4aa319706781b56a3d8aa2143088293acc0fada58b469322f58b3cf2009b"
+    },
+    "schema/ModelsRefreshRequest.json": {
+      "bytes": 502,
+      "sha256": "dcbcd433ab91bd082d4f2d6db2450accdedd028c7663c01ef18afe5599a6de8b"
+    },
+    "schema/ModelsResolveRequest.json": {
+      "bytes": 501,
+      "sha256": "46569d53f2fa59647c3de642839ef6b7e0bf3eb5b900563e0717ffab2bd26088"
+    },
+    "schema/ModelsResult.json": {
+      "bytes": 631,
+      "sha256": "b67fd5a6a10219b671c64285771102089b135cad870b328471ee1567685cd6d4"
+    },
+    "schema/NativeRef.json": {
+      "bytes": 477,
+      "sha256": "391724b32ab8a603404f2bec7446278bb74410c4abcf366fdbcf03066dd9eed8"
+    },
+    "schema/Notification.json": {
+      "bytes": 1679,
+      "sha256": "4c0f763b71b6734398859e00545b60df808bf8d0f75cde1a03272a673d28141f"
+    },
+    "schema/NotificationAddress.json": {
+      "bytes": 1875,
+      "sha256": "0e34ceaf7504bd559cee6c1b45d963b09918fa6c23945a49a6909c11374d1691"
+    },
+    "schema/NotificationDevice.json": {
+      "bytes": 664,
+      "sha256": "f96c9c4b414f78c7bceb3854fff4dbdcf49be40324b7698705e04b20b75857c5"
+    },
+    "schema/NotificationMessage.json": {
+      "bytes": 393,
+      "sha256": "8839e4cf9af2fbc6027ed703a58edb6d8b84effc6edba2a24d3bd3df9825c8aa"
+    },
+    "schema/NotificationPreferences.json": {
+      "bytes": 463,
+      "sha256": "8394d30a4c055d673dd528f9d97e712556ce96e5b3fe593e53047a1f45215158"
+    },
+    "schema/NotificationRegister.json": {
+      "bytes": 398,
+      "sha256": "586deb0bfd6ce629dbd79596fa82559eaf6c9c43d0b3fe959a7ea9291386f823"
+    },
+    "schema/NotificationSettings.json": {
+      "bytes": 415,
+      "sha256": "7430dd29c608c15606a1234745b24eff843652a157a218be21ad59719a7ad9e4"
+    },
+    "schema/NotificationSnooze.json": {
+      "bytes": 634,
+      "sha256": "a0147072fddec182567ed5291b17724e22799ea0b2cb242eeef54649a2615933"
+    },
+    "schema/NotificationStatus.json": {
+      "bytes": 252,
+      "sha256": "80b8e99aa3fca2dfa4dfa65707948573bc7c0adf11b225a600e4e9998bcad6e0"
+    },
+    "schema/Orchestration.json": {
+      "bytes": 991,
+      "sha256": "8b3c24acefd3467e636508391af1776980d19ab14d306ca9ca4879212b25501b"
+    },
+    "schema/OrchestrationArtifact.json": {
+      "bytes": 587,
+      "sha256": "a028bdc7a84518b812efa97ff8dd1b67993bcbc997f091db76728cdb12adaa04"
+    },
+    "schema/OrchestrationBudget.json": {
+      "bytes": 894,
+      "sha256": "2e5080cdd766ab47be6cbe8409d319970132bbd36526749b6b7ed76b492e9aac"
+    },
+    "schema/OrchestrationCancelCommand.json": {
+      "bytes": 408,
+      "sha256": "f8213abc25760c8517b886edb5e42243486dbbf337521e9c3bb569b0b4efd953"
+    },
+    "schema/OrchestrationChecks.json": {
+      "bytes": 536,
+      "sha256": "332f204716e46968819c2dca107aefea983986443730bd51a10b0376ce1019a4"
+    },
+    "schema/OrchestrationCreate.json": {
+      "bytes": 803,
+      "sha256": "e1dec4d8f5232600640142cc1cba0a7bb0e1662449deffc48b7f5ed32b719bdd"
+    },
+    "schema/OrchestrationCreateCommand.json": {
+      "bytes": 401,
+      "sha256": "f966680923964dd5ff3a80f0a4035e699ac3d2f86df7d0a826057423a78dbb56"
+    },
+    "schema/OrchestrationEffect.json": {
+      "bytes": 2445,
+      "sha256": "5c1bf348c00c53de2f6bea23ed9bb813bf075c7263884cc12eadf6645bcc99a1"
+    },
+    "schema/OrchestrationEvent.json": {
+      "bytes": 3209,
+      "sha256": "d756e31d41f36b45da70382145ea6e4d1d9ee4db37eefcbfd35f00ca9be7d58f"
+    },
+    "schema/OrchestrationFact.json": {
+      "bytes": 7164,
+      "sha256": "ef93387af8a56986c6d3f99f1763615cd0ac1d41fe5c81c00c78537192c1fe7b"
+    },
+    "schema/OrchestrationId.json": {
+      "bytes": 182,
+      "sha256": "9ffb490ecec1f339515a3a16260a50ad525b4ddba824612c37148b50672e1f35"
+    },
+    "schema/OrchestrationIntent.json": {
+      "bytes": 388,
+      "sha256": "ed32f686e2ec9b62852afd5b3b529016a3cb675e3ae5800ff466bba0bea4cca2"
+    },
+    "schema/OrchestrationLane.json": {
+      "bytes": 2212,
+      "sha256": "912aca4a61b7da770f2d03a32b9c57cf9a8bb1d633551d1c49158c1ec1ee8daa"
+    },
+    "schema/OrchestrationPickCommand.json": {
+      "bytes": 569,
+      "sha256": "5ca05ca14f0ad7ac21a653e1f76fb522358e2ada94a1a87be2a8a8db2aadfde2"
+    },
+    "schema/OrchestrationRunPage.json": {
+      "bytes": 456,
+      "sha256": "75b6fa5c58c4a5c8f6128082ab247905fab521b81474bc47be65d50fd92d7a6a"
+    },
+    "schema/OrchestrationRunStatus.json": {
+      "bytes": 290,
+      "sha256": "9970d96f028ae6f0c0446a0b9d1624a0eb699124aa073b1927cc721b56432113"
+    },
+    "schema/OrchestrationRunSummary.json": {
+      "bytes": 985,
+      "sha256": "016e58c403cd8d0d1d9519a8907d643e92a32cc2ff10545ee45bcb6930777b9d"
+    },
+    "schema/OrchestrationState.json": {
+      "bytes": 2797,
+      "sha256": "f02d8305a492bb8e92a308303d3192ddb44759f0ccdef6296b83d856fb360724"
+    },
+    "schema/OrchestrationTemplate.json": {
+      "bytes": 864,
+      "sha256": "5a0215af65dabee24c4dbe3a2c2c4509b840d1084c8816e31a8a7e1a7ad4f1ea"
+    },
+    "schema/OrchestrationUsage.json": {
+      "bytes": 419,
+      "sha256": "4da22da6d95c6427c39c7a1ec36fd27d2a780f7557c007cddbfe240ca0c9bcba"
+    },
+    "schema/OutputSummary.json": {
+      "bytes": 582,
+      "sha256": "7feefd9d4031e35fd5b24342d80a1bafc0ece8003bcea862bb83d30a2e88ae87"
+    },
+    "schema/PairingRedemption.json": {
+      "bytes": 395,
+      "sha256": "0197c18a63b11d293296e17eac5d4954887b8ee7fff4cbfea41fb0a057f6ee83"
+    },
+    "schema/PairingRequest.json": {
+      "bytes": 408,
+      "sha256": "cc442a71e870f0ca5ccd1f7d78abee97109817b6993efbb4c370ace302a2ff8b"
+    },
+    "schema/PairingResponse.json": {
+      "bytes": 388,
+      "sha256": "cf35f4f29d3e1478cb3fc0567128da2176543b462c4dddedc43b1377d3559437"
+    },
+    "schema/PendingMcpIntent.json": {
+      "bytes": 386,
+      "sha256": "8042d7592bebc39e5bb3dd678d8c3547c1cc81f84bfc8fe86d3ee2079cbdf67e"
+    },
+    "schema/PresenceUpdate.json": {
+      "bytes": 777,
+      "sha256": "c2e05b976f95e0625529b5697b4ac429543216bf0c350bbcd33d3af60786e64f"
+    },
+    "schema/ProviderKind.json": {
+      "bytes": 247,
+      "sha256": "828b6694aa57aaec0a25c7ac1559ba9b1e8a3a0f7a627fa909f7912e44acc0cd"
+    },
+    "schema/Question.json": {
+      "bytes": 892,
+      "sha256": "03a5a6961f505b52c2c50c73577e5f8af1c53c2b88b999fd689f9efef59d5ffa"
+    },
+    "schema/QuietHours.json": {
+      "bytes": 606,
+      "sha256": "337306bca0b2a3998040e71aad21ad70b0db883d0ac5546113c05e90466d02dd"
+    },
+    "schema/RawPayload.json": {
+      "bytes": 836,
+      "sha256": "56549ee3cb5c0441b782e3de8a87e4cfc8504d7310fc9ad34b0d59dba575ea45"
+    },
+    "schema/Run.json": {
+      "bytes": 962,
+      "sha256": "f32fd7f3403ff458d87097a9c3aa25c1e19bb30bed0bf78033fa4c1d6e519ca2"
+    },
+    "schema/RunId.json": {
+      "bytes": 155,
+      "sha256": "85262317127fed509562d00ccd22c8806c7db3b9f04d4799a5b1ee2ba0f8d14d"
+    },
+    "schema/RunTrigger.json": {
+      "bytes": 311,
+      "sha256": "ff8fbc1f6c166bafcfba1bcc7e194dbbab19a4025d4468555aef0919468ad833"
+    },
+    "schema/ServerMessage.json": {
+      "bytes": 5629,
+      "sha256": "983ff5c5c2b9d688b9b1e7298f17209fd3367890825908267af742448ed72b21"
+    },
+    "schema/SnapshotView.json": {
+      "bytes": 295,
+      "sha256": "ad35dacfb0eee14ed4b75f57bcfe08074f3975c0d2e0a132194e45be261b1b3c"
+    },
+    "schema/SocketTicket.json": {
+      "bytes": 403,
+      "sha256": "9d07e7930cbe7745808b8362c0b0a5cb2f7ce9000504de17c96bfe84335b1620"
+    },
+    "schema/SpawnAgentRequest.json": {
+      "bytes": 526,
+      "sha256": "89e3d8265f6c932cdec0f480808eed5efc1b4d4fd6c7d627ee689dea98a96a79"
+    },
+    "schema/SubscriptionScope.json": {
+      "bytes": 654,
+      "sha256": "786437475fbbb3319a93b27233a8cdf51451c97af9164aab37f8206fb6f98aa8"
+    },
+    "schema/TestResults.json": {
+      "bytes": 512,
+      "sha256": "6032a6da32a707b212e179437a9ef656f65e3c941ba28329308762d7958fb11a"
+    },
+    "schema/Thread.json": {
+      "bytes": 1026,
+      "sha256": "b7ae749356cea74617bb95cae33315c9fe1f81afdd0ce41f5131d4ccbea0e98a"
+    },
+    "schema/ThreadId.json": {
+      "bytes": 158,
+      "sha256": "67bedaa0ccd43f85db0691cafb618dab7992e79ee79e9557d5d902e2aecbf97e"
+    },
+    "schema/ThreadListEntry.json": {
+      "bytes": 948,
+      "sha256": "9c86d6e6f7b6d5fe909ec8166f7087bd01df4fab33bab16a64ea72ad8f5d16a8"
+    },
+    "schema/ThreadListView.json": {
+      "bytes": 611,
+      "sha256": "605db7e019609b8909acd86ad2bdf13f6c0e2d2fb0fe8e7f8d9488aa930fb8eb"
+    },
+    "schema/ThreadStatus.json": {
+      "bytes": 2061,
+      "sha256": "646338ab7622436cc116a83b6dd79a81dd8a919900a7ddf7700e1201329fd5f4"
+    },
+    "schema/ThreadView.json": {
+      "bytes": 2438,
+      "sha256": "8da418f70263ef737bd4f0a30b5f27c1d6255f1d4ab8cfd01c77a1550efa9d9e"
+    },
+    "schema/Timestamp.json": {
+      "bytes": 189,
+      "sha256": "82116e5d555f9647ca738d53050bb8b374b78a3681361e72d4b5a4da773ad24a"
+    },
+    "schema/TodoEntry.json": {
+      "bytes": 455,
+      "sha256": "c9002116f66416eb0ca06cc233d0dfa78e8e24a3816c31ff2c619664fe1be9b4"
+    },
+    "schema/ToolCall.json": {
+      "bytes": 1194,
+      "sha256": "bd431dde9e434deb7eef2fe45aab6474668131c0b9866b7c02c3c0f7f36bb967"
+    },
+    "schema/ToolDetail.json": {
+      "bytes": 5546,
+      "sha256": "b20149c6298a8ff722ce61f0df0c1ac3ec6ea2548a03c7d857736d8fd87c95ac"
+    },
+    "schema/ToolKind.json": {
+      "bytes": 455,
+      "sha256": "950dd4c471c6d614662fb30389ee29599ec191cb847f886278a812bc8358c2cb"
+    },
+    "schema/ToolStatus.json": {
+      "bytes": 277,
+      "sha256": "cdcb14066e2334a52ec338995735682c2de97e6015122266da722a6e2b173256"
+    },
+    "schema/UsageUpdated.json": {
+      "bytes": 924,
+      "sha256": "2da4ecb818d667b03cec2e949be8d87c95deab92d414e17fb14cbcdd1b7fdc48"
+    },
+    "schema/WebPushSubscription.json": {
+      "bytes": 501,
+      "sha256": "0ba8572a4ea6a3d6cd5b242ad1ddc84b9b5c8945c98b1a53fce477243e810f66"
+    },
+    "schema/WorkspaceId.json": {
+      "bytes": 161,
+      "sha256": "ff604cfe03fb01dfa2d8cacc346b717179383f28068036cbfce53018cd120943"
+    },
+    "schema/ace_list_agents.input.json": {
+      "bytes": 387,
+      "sha256": "33452a412c1f2ff81decdc1e5eafebc5b8ff11a2b629d8f9ef4f381bc1fd0988"
+    },
+    "schema/ace_list_agents.output.json": {
+      "bytes": 8476,
+      "sha256": "17e21d9a2080fccb9461d7ed67ce11eb7340b94f16f6a4d52de2266773e98028"
+    },
+    "schema/ace_notify_user.input.json": {
+      "bytes": 196,
+      "sha256": "a067e09acaa8e990a4a3a5feb7681565d251534c37fc7440b06c73de06b51e2e"
+    },
+    "schema/ace_notify_user.output.json": {
+      "bytes": 425,
+      "sha256": "6bb766504472cd8569ae7bac291c8bc53df1239113ba9388b0d07ce6c2113ace"
+    },
+    "schema/ace_spawn_agent.input.json": {
+      "bytes": 195,
+      "sha256": "ed27d2c8171bcb985de2d75986bf1a766ea29cc567f51cfea45cc001ed63a658"
+    },
+    "schema/ace_spawn_agent.output.json": {
+      "bytes": 205,
+      "sha256": "cf5a32f21ddc0e66b1e98f935d9b9141659cb2ae7d805307224c7949deccd13f"
+    },
+    "schema/ace_thread_info.input.json": {
+      "bytes": 206,
+      "sha256": "22ae0188b964246cec5f773212f13da4664bf8d67dfb7ebf074a72972b88775c"
+    },
+    "schema/ace_thread_info.output.json": {
+      "bytes": 4590,
+      "sha256": "cee23aa0b4150e6b3c87ec1ed6da3aefc95ee0a433b753e74a39264303db10d8"
+    },
+    "types.md": {
+      "bytes": 53049,
+      "sha256": "d794ed2bcb767eab9b4092cc6eecfdd1d37e3ce352d96f1581a4ee898df09aae"
+    }
+  },
+  "input": "018e09854226687ac7d66a66c623a03398ba332106c43840fede65b14e5bf11e",
+  "version": 1
+}

@@ -1,4 +1,5 @@
 import { mkdir, readdir, unlink, writeFile, open } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { type Snapshot } from "./model.ts";
@@ -24,10 +25,13 @@ async function paths(root: string, relative = ""): Promise<string[]> {
   }
   return result.toSorted();
 }
-async function matches(path: string, expected: string): Promise<boolean> {
+async function matches(
+  path: string,
+  expected: { bytes: number; accepts(content: Buffer): boolean },
+): Promise<boolean> {
   const handle = await open(path, "r");
   try {
-    const length = Buffer.byteLength(expected);
+    const length = expected.bytes;
     if ((await handle.stat()).size !== length) return false;
     const bytes = Buffer.alloc(length + 1);
     let total = 0;
@@ -36,7 +40,7 @@ async function matches(path: string, expected: string): Promise<boolean> {
       if (!bytesRead) break;
       total += bytesRead;
     }
-    return total === length && bytes.subarray(0, total).toString("utf8") === expected;
+    return total === length && expected.accepts(bytes.subarray(0, total));
   } finally {
     await handle.close();
   }
@@ -52,11 +56,29 @@ async function forFiles<T>(items: T[], run: (item: T) => Promise<void>): Promise
     }),
   );
 }
-export async function checkFiles(root: string, expected: Map<string, string>): Promise<string[]> {
+export async function checkFiles(
+  root: string,
+  expected: Map<string, string>,
+  fingerprints: Record<string, { sha256: string; bytes: number }> = {},
+): Promise<string[]> {
   const actual = new Set(await paths(root));
   const stale: string[] = [];
-  await forFiles([...expected], async ([name, content]) => {
-    if (!actual.has(name) || !(await matches(join(root, name), content))) stale.push(name);
+  const checks = [
+    ...[...expected].map(([name, content]) => ({
+      name,
+      bytes: Buffer.byteLength(content),
+      accepts: (value: Buffer) => value.equals(Buffer.from(content)),
+    })),
+    ...Object.entries(fingerprints).map(([name, fingerprint]) => ({
+      name,
+      bytes: fingerprint.bytes,
+      accepts: (value: Buffer) =>
+        createHash("sha256").update(value).digest("hex") === fingerprint.sha256,
+    })),
+  ];
+  await forFiles(checks, async (check) => {
+    const name = check.name;
+    if (!actual.has(name) || !(await matches(join(root, name), check))) stale.push(name);
     actual.delete(name);
   });
   return [...stale, ...actual].toSorted();
