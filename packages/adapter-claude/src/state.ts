@@ -180,7 +180,7 @@ export class ClaudeState {
     if (!task.child) return;
     const alreadyEnded = this.terminalChildren.has(task.child);
     this.terminalChildren.add(task.child);
-    this.rawItems.delete(task.child);
+    // Keep compact item ids so late enrichment cannot replace the first raw payload.
 
     this.contentSeen.delete(task.child);
     this.errors.delete(task.child);

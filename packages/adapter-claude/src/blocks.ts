@@ -1,22 +1,45 @@
 import type { StreamState } from "./content.ts";
 import { string, type Data } from "./native.ts";
 
-/** Only the current message of each live agent is indexed. No transcript is retained. */
+/** Stable child identities contain only ids, hashes and stream indices, never payloads. */
 export interface MessageBlocks {
   id: string;
   next: number;
   identities: Map<string, number>;
 }
-export function messageBlocks(
-  messages: Map<string, MessageBlocks>,
-  agent: string,
-  id: string,
-): MessageBlocks {
-  const prior = messages.get(agent);
-  if (prior?.id === id) return prior;
-  const current = { id, next: 0, identities: new Map<string, number>() };
-  messages.set(agent, current);
-  return current;
+export class MessageIndex {
+  #root: string;
+  #rootMessage: MessageBlocks | undefined;
+  #children = new Map<string, Map<string, MessageBlocks>>();
+  constructor(root: string) {
+    this.#root = root;
+  }
+  forMessage(agent: string, id: string): MessageBlocks {
+    if (agent === this.#root) {
+      if (this.#rootMessage?.id !== id) this.#rootMessage = this.#create(id);
+      return this.#rootMessage;
+    }
+    let messages = this.#children.get(agent);
+    if (!messages) {
+      messages = new Map();
+      this.#children.set(agent, messages);
+    }
+    const prior = messages.get(id);
+    if (prior) return prior;
+    const current = this.#create(id);
+    messages.set(id, current);
+    return current;
+  }
+  endRoot(): void {
+    this.#rootMessage = undefined;
+  }
+  clear(): void {
+    this.endRoot();
+    this.#children.clear();
+  }
+  #create(id: string): MessageBlocks {
+    return { id, next: 0, identities: new Map() };
+  }
 }
 export function matchBlock(
   current: MessageBlocks,

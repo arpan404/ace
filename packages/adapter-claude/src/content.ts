@@ -1,6 +1,6 @@
 import { ClaudeState } from "./state.ts";
 import { list, number, object, string, text, type Data } from "./native.ts";
-import { matchBlock, messageBlocks, type MessageBlocks } from "./blocks.ts";
+import { matchBlock, type MessageIndex } from "./blocks.ts";
 import { childUsage } from "./usage.ts";
 import { toolDetail } from "./tools.ts";
 
@@ -45,7 +45,7 @@ export function message(
   data: Data,
   seq: number,
   streams: Map<string, StreamState>,
-  messages: Map<string, MessageBlocks>,
+  messages: MessageIndex,
 ): void {
   const agent = state.agentFor(data);
   const m = object(data["message"]);
@@ -57,7 +57,7 @@ export function message(
   if (role === "assistant" && content.length > 0) state.contentSeen.add(agent);
   const id = string(m["id"], string(data["uuid"], `${seq}`));
   if (role === "assistant") childUsage(state, agent, id, m);
-  const blocks = messageBlocks(messages, agent, id);
+  const blocks = messages.forMessage(agent, id);
   for (const [index, value] of content.entries()) {
     const block = object(value);
     const type = string(block["type"]);

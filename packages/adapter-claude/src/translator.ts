@@ -2,7 +2,7 @@ import type { Fact, Key } from "@ace/core";
 import type { RawPayload } from "@ace/protocol";
 import type { Translator, Frame } from "@ace/engine-api";
 import { PendingTranscripts } from "./pending-transcripts.ts";
-import type { MessageBlocks } from "./blocks.ts";
+import { MessageIndex } from "./blocks.ts";
 import { ClaudeState } from "./state.ts";
 import { message, stream, tool, finishStream, type StreamState } from "./content.ts";
 import { taskFrame, taskTick } from "./tasks.ts";
@@ -34,7 +34,7 @@ function canonicalOnly(fact: Fact): Fact {
 export function createTranslator(init: { rootKey: Key }): Translator {
   let state = new ClaudeState(init.rootKey);
   const streams = new Map<string, StreamState>();
-  const messages = new Map<string, MessageBlocks>();
+  const messages = new MessageIndex(init.rootKey);
   const pending = new PendingTranscripts();
   function sdk(data: Data, frame: Frame, now: number): boolean {
     const type = string(data["type"]);
@@ -135,7 +135,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           : {}),
       });
       state.active.delete(state.root);
-      for (const agent of messages.keys()) if (!state.active.has(agent)) messages.delete(agent);
+      messages.endRoot();
       state.releaseTurn();
       if (state.sessionState && state.sessionState !== "idle")
         state.emit({
@@ -192,18 +192,24 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       state.toolFrames.set(interaction.toolId, frame.seq);
       const result = object(data["result"]);
       const denied = result["behavior"] === "deny";
-      state.emit({
-        type: "item.upsert",
-        agent: interaction.agent,
-        item: interaction.item,
-        draft: {
-          type: "tool_call",
-          complete: denied,
-          call: {
-            status: denied ? (result["interrupt"] === true ? "cancelled" : "declined") : "running",
+      // A late reply cannot replace a tool's settled outcome or reopen its work.
+      if (!state.terminalChildren.has(interaction.agent))
+        state.emit({
+          type: "item.upsert",
+          agent: interaction.agent,
+          item: interaction.item,
+          draft: {
+            type: "tool_call",
+            complete: denied,
+            call: {
+              status: denied
+                ? result["interrupt"] === true
+                  ? "cancelled"
+                  : "declined"
+                : "running",
+            },
           },
-        },
-      });
+        });
       state.emit({
         type: "interaction.closed",
         interaction: state.key("interaction", id),
@@ -217,10 +223,15 @@ export function createTranslator(init: { rootKey: Key }): Translator {
     const id = string(options["requestId"]);
     if (!id) return;
     const native = string(options["agentID"]);
+    const task = state.tasks.get(native);
     const agent = native
       ? (state.nativeAgents.get(native) ??
-        state.child(`native:${native}`, state.root, false, native))
+        state.child(`native:${native}`, state.root, false, native, task?.terminalStatus))
       : state.root;
+    if (task?.terminal) {
+      task.child = agent;
+      state.endChild(task, task.terminalStatus ?? "failed");
+    }
     const toolId = string(options["toolUseID"], `interaction:${id}`);
     const name = string(data["toolName"], "Unknown tool");
     state.toolFrames.set(toolId, frame.seq);
@@ -289,7 +300,9 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           finishStream(state, streams, fact.agent);
       const carriesRaw = state.facts.some((fact) => {
         const payloads = factRaw(fact);
-        return payloads.some((payload) => "data" in payload && (payload.data === frame.data || payload.data === data));
+        return payloads.some(
+          (payload) => "data" in payload && (payload.data === frame.data || payload.data === data),
+        );
       });
       if (!carriesRaw && frame.channel !== "lifecycle")
         state.notice(
