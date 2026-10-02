@@ -95,7 +95,7 @@ export const Agent = z.object({
   native: NativeRef,
   fidelity: AgentFidelity,
   /** Tool call in the parent's transcript that spawned this agent. */
-  spawnedBy: ItemId.optional(),
+  spawnedBy: ItemId.nullable().optional(),
   name: z.string().optional(),
   role: z.string().optional(),
   model: z.string().optional(),

@@ -68,6 +68,10 @@ function setParent(
 ): void {
   const record = ensureAgent(state, key, ctx, events);
   if (parentKey === key) throw new Error("an agent cannot be its own parent");
+  const clearsSpawn =
+    record.parentKey !== parentKey &&
+    (record.spawnedByKey !== undefined || record.agent.spawnedBy != null);
+  const spawnFields = clearsSpawn ? { spawnedBy: null } : {};
   if (parentKey !== undefined) {
     const visited = new Set<Key>();
     let ancestor: Key | undefined = parentKey;
@@ -77,14 +81,16 @@ function setParent(
       ancestor = get(state.agents, ancestor)?.parentKey;
     }
     const parent = ensureAgent(state, parentKey, ctx, events);
+    if (clearsSpawn) delete record.spawnedByKey;
     record.parentKey = parentKey;
     const previousParentId = record.agent.parentId;
-    changeAgent(record, { parentId: parent.agent.id }, events);
+    changeAgent(record, { parentId: parent.agent.id, ...spawnFields }, events);
     refreshAgentIndex(state, key, previousParentId);
   } else {
+    if (clearsSpawn) delete record.spawnedByKey;
     delete record.parentKey;
     const previousParentId = record.agent.parentId;
-    changeAgent(record, { parentId: null }, events);
+    changeAgent(record, { parentId: null, ...spawnFields }, events);
     refreshAgentIndex(state, key, previousParentId);
   }
 }
