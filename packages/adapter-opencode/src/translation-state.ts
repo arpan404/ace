@@ -25,9 +25,11 @@ type Background = { agent: string; child?: string; item: string; idleAt?: number
 
 export class TranslationState {
   rootNative?: string;
+  disconnected = false;
   clockOffset?: number;
   sessions = new Map<string, Session>();
   parts = new Map<string, Part>();
+  private partKeys = new Map<string, Set<string>>();
   recentParts = new RecentMap<Part>(256);
   messages = new RecentMap<Data>(1024);
   liveTools = new Map<string, Set<string>>();
@@ -88,6 +90,7 @@ export class TranslationState {
         name: string(info.title),
         role: string(info.agent),
       },
+      ...(this.disconnected ? [{ type: "agent.disconnected" as const, agent: this.key(id) }] : []),
     ];
   }
   start(id: string, s: Session): Fact[] {
@@ -123,19 +126,33 @@ export class TranslationState {
       },
     };
     for (const key of new Set([id, item])) {
+      const previous = this.parts.get(key);
+      if (previous) {
+        const keys = this.partKeys.get(previous.agent);
+        keys?.delete(key);
+        if (!keys?.size) this.partKeys.delete(previous.agent);
+      }
       this.parts.delete(key);
       this.recentParts.delete(key);
-      if (live) this.parts.set(key, part);
-      else this.recentParts.set(key, part);
+      if (live) {
+        this.parts.set(key, part);
+        const keys = this.partKeys.get(part.agent) ?? new Set<string>();
+        keys.add(key);
+        this.partKeys.set(part.agent, keys);
+      } else this.recentParts.set(key, part);
     }
   }
   settleParts(id: string): void {
-    for (const [key, part] of this.parts) {
-      if (part.agent === id && part.data.type !== "tool") {
+    const keys = this.partKeys.get(id);
+    for (const key of keys ?? []) {
+      const part = this.parts.get(key);
+      if (part && part.data.type !== "tool") {
         this.parts.delete(key);
+        keys?.delete(key);
         this.recentParts.set(key, part);
       }
     }
+    if (!keys?.size) this.partKeys.delete(id);
   }
   refresh(): void {
     for (const id of this.dirty) {

@@ -2,12 +2,16 @@ import type { Fact } from "@ace/core";
 import { number, object, raw, string, type Data } from "./data.ts";
 import { detail, toolStatus } from "./tools.ts";
 import type { TranslationState } from "./translation-state.ts";
-export function translatePart(state: TranslationState, p: Data): Fact[] {
+export function translatePart(state: TranslationState, p: Data, envelope: unknown): Fact[] {
+  const evidence = (type: string, name?: string) => [
+    ...raw(type, p, name),
+    ...raw("message.part.envelope", envelope),
+  ];
   const id = string(p.sessionID);
   const agent = state.key(id);
   const s = state.session(id);
   const partId = string(p.id);
-  if (!partId) return state.notice(p, "part without id");
+  if (!partId) return state.notice({ part: p, envelope }, "part without id");
   const item = p.type === "tool" ? string(p.callID, partId) : partId;
   const previous = state.getPart(partId);
   const statusHint = p.type === "tool" ? toolStatus(object(p.state), false) : "";
@@ -62,7 +66,7 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
               text,
               complete: typeof object(p.time).end === "number",
               summary: false,
-              raw: raw("message.part.updated", p),
+              raw: evidence("message.part.updated"),
             }
           : {
               type: "message",
@@ -70,7 +74,7 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
               parts: [{ type: "text", text }],
               complete: user || typeof object(p.time).end === "number",
               synthetic: p.synthetic === true,
-              raw: raw("message.part.updated", p),
+              raw: evidence("message.part.updated"),
             },
     });
     if (!user && s.active) {
@@ -143,7 +147,7 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
               ? { output: string(nativeState.output, string(meta.output)) }
               : {}),
           },
-          raw: raw("message.part.updated", p, name),
+          raw: evidence("message.part.updated", name),
           ...(typeof nativeState.error === "string" ? { error: nativeState.error } : {}),
         },
       },
@@ -173,7 +177,7 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
           item,
           childAgent: state.key(child),
           stoppable: true,
-          raw: raw("task", p, name),
+          raw: evidence("task", name),
         });
       }
     }
@@ -191,7 +195,7 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
       state.graceDirty = true;
     }
   } else if (p.type === "step-finish") {
-    facts.push(...state.metadata("step-finish", item, p));
+    facts.push(...state.metadata("step-finish", item, { part: p, envelope }));
     const tokens = object(p.tokens);
     facts.push({
       type: "usage",
@@ -201,6 +205,6 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
       cachedInputTokens: number(object(tokens.cache).read),
       costUsd: number(p.cost),
     });
-  } else facts.push(...state.notice(p, string(p.type, "unknown part")));
+  } else facts.push(...state.notice({ part: p, envelope }, string(p.type, "unknown part")));
   return facts;
 }

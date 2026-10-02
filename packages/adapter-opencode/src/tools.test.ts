@@ -93,7 +93,12 @@ for (const [tool, input, metadata, kind, detail] of cases) {
         kind,
         detail,
         status: "succeeded",
-        raw: [{ name: tool, data: { state: { input } } }],
+        raw: expect.arrayContaining([
+          expect.objectContaining({
+            name: tool,
+            data: expect.objectContaining({ state: expect.objectContaining({ input }) }),
+          }),
+        ]),
       },
     });
   });

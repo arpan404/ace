@@ -41,16 +41,26 @@ export class OpenCodeTranslator implements Translator {
           },
         ];
       if (data.type === "disconnected") {
+        this.state.disconnected = true;
         const facts: Fact[] = [...this.state.pending.keys()].map((interaction) => ({
           type: "interaction.closed",
           interaction,
           state: "expired",
         }));
         this.state.pending.clear();
-        return [...facts, ...this.state.metadata("transport.lost", "stream", frame.data)];
+        return [
+          ...facts,
+          ...this.transportFacts("agent.disconnected"),
+          ...this.state.metadata("transport.lost", "stream", frame.data),
+        ];
       }
-      if (data.type === "resynced")
-        return this.state.metadata("transport.restored", "stream", frame.data);
+      if (data.type === "resynced") {
+        this.state.disconnected = false;
+        return [
+          ...this.transportFacts("agent.reconnected"),
+          ...this.state.metadata("transport.restored", "stream", frame.data),
+        ];
+      }
       return [];
     }
     if (frame.channel === "clock") {
@@ -249,8 +259,18 @@ export class OpenCodeTranslator implements Translator {
       }
       return facts;
     }
-    if (type === "message.part.updated")
-      return [...facts, ...translatePart(this.state, object(p.part))];
+    if (type === "message.part.updated") {
+      const part = object(p.part);
+      if (!string(part.id)) return [...facts, ...this.state.notice(frame.data, "part without id")];
+      // The native part remains directly available in raw; retain its envelope's
+      // fields separately so transcript/input bodies are not copied twice.
+      const envelope = {
+        ...(data.payload === undefined ? {} : data),
+        payload: { ...payload, properties: { ...p } },
+      };
+      delete envelope.payload.properties.part;
+      return [...facts, ...translatePart(this.state, part, envelope)];
+    }
     if (type === "message.part.delta") {
       const part = this.state.getPart(string(p.partID));
       if (!part) return [...facts, ...this.state.notice(frame.data, type)];
@@ -290,6 +310,11 @@ export class OpenCodeTranslator implements Translator {
     if (type === "server.connected" || type === "server.heartbeat" || type === "session.idle")
       return [...facts, ...this.state.metadata(type, id || "stream", frame.data)];
     return [...facts, ...this.state.notice(frame.data, type || "unknown")];
+  }
+  private transportFacts(type: "agent.disconnected" | "agent.reconnected"): Fact[] {
+    const agents = new Set([this.state.rootKey]);
+    for (const id of this.state.sessions.keys()) if (id) agents.add(this.state.key(id));
+    return [...agents].map((agent) => ({ type, agent }));
   }
   private http(frame: Frame, data: Data): Fact[] {
     const path = string(data.path).split("?")[0] ?? "";
