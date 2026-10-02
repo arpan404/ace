@@ -91,6 +91,27 @@ export async function startServer(
         return;
       }
       switch (message.type) {
+        case "search.status":
+          send({
+            type: "search.progress",
+            requestId: message.requestId,
+            ...options.store.search.status(options.store.headSeq()),
+          });
+          break;
+        case "search.query":
+          void options.store.searchQueries.query(message).then(
+            (results) => send({ type: "search.results", requestId: message.requestId, ...results }),
+            (error: unknown) => {
+              const code =
+                error instanceof Error &&
+                (error.message === "search_cursor_stale" ||
+                  error.message === "search_invalid_query")
+                  ? error.message
+                  : "search_failed";
+              send({ type: "search.error", requestId: message.requestId, code });
+            },
+          );
+          break;
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;

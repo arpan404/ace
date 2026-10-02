@@ -14,9 +14,15 @@ import {
 import { applyEvent, createThreadView, updateThread } from "@ace/projection";
 import { migrate } from "./migrations.ts";
 
+import { SearchIndex, SearchQueries } from "@ace/search";
+
 type Listener = (events: Event[]) => void;
 export class Store {
   private readonly db: DatabaseSync;
+  readonly search: SearchIndex;
+  readonly searchQueries: SearchQueries;
+  private readonly searchAbort = new AbortController();
+  private readonly searchTimer: ReturnType<typeof setInterval>;
   private statements = new Map<string, StatementSync>();
   private closed = false;
   private transactionEvents: Event[] | undefined;
@@ -33,15 +39,29 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
+      this.search = new SearchIndex(this.db);
+      this.searchQueries = new SearchQueries(path);
     } catch (error) {
       this.db.close();
       throw error;
     }
+    this.searchTimer = setInterval(() => {
+      try {
+        this.search.flush();
+      } catch (error) {
+        this.onError(error);
+      }
+    }, 100);
+    this.searchTimer.unref();
+    void this.search.backfill(this, { signal: this.searchAbort.signal }).catch(this.onError);
   }
   private onError: (error: unknown) => void;
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.searchAbort.abort();
+    this.searchQueries.close();
+    clearInterval(this.searchTimer);
     this.statements.clear();
     this.listeners.clear();
     this.caches.clear();
@@ -205,6 +225,16 @@ export class Store {
         );
         events.push(event);
       }
+      if (
+        events.some(
+          (event) =>
+            event.payload.type === "thread.created" || event.payload.type === "thread.updated",
+        )
+      ) {
+        const current = this.getThread(threadId);
+        if (current) this.search.observeThread(current, seq);
+      }
+      this.search.append(events);
       this.transactionEvents?.push(...events);
       return events;
     });
