@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PROCESS_TEST_TIMEOUT } from "./testing/cli.ts";
 import { JsonRpcPeer, MethodNotFound } from "./jsonrpc.ts";
 import { spawnSupervised, type SupervisedProcess } from "./process.ts";
 
@@ -21,7 +22,7 @@ function peer(onInput: string, options: ConstructorParameters<typeof JsonRpcPeer
     name: "fake-jsonrpc-peer",
   });
   processes.push(proc);
-  return { proc, rpc: new JsonRpcPeer(proc, options) };
+  return { proc, rpc: new JsonRpcPeer(proc, { timeoutMs: PROCESS_TEST_TIMEOUT, ...options }) };
 }
 afterEach(async () => {
   await Promise.all(processes.splice(0).map((proc) => proc.stop({ graceMs: 0 })));
@@ -125,7 +126,7 @@ describe("JSON-RPC stdio", () => {
       killGroupOnExit: false,
     });
     processes.push(proc);
-    const rpc = new JsonRpcPeer(proc, { timeoutMs: 10_000 });
+    const rpc = new JsonRpcPeer(proc, { timeoutMs: PROCESS_TEST_TIMEOUT });
     let pipesClosed = false;
     void proc.exited.then(() => {
       pipesClosed = true;
@@ -138,11 +139,12 @@ describe("JSON-RPC stdio", () => {
   it("rejects every pending request and reports EPIPE while the peer is still alive", async () => {
     const failures: Error[] = [];
     // Close the OS read end before Node can retain a separate stdin handle.
+    // Signal readiness from the final peer, after exec has released shell FDs.
     const proc = spawnSupervised({
       command: "/bin/sh",
       args: [
         "-c",
-        `IFS= read -r line; exec 0<&-; printf '%s\\n' '{"method":"stdin-closed"}'; exec "$1" -e 'setInterval(()=>{},1000)'`,
+        `IFS= read -r line; exec 0<&-; exec "$1" -e 'console.log(JSON.stringify({method:"stdin-closed"}));setInterval(()=>{},1000)'`,
         "epipe-peer",
         process.execPath,
       ],
