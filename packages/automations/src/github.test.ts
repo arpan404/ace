@@ -235,9 +235,12 @@ it("rejects untrusted endpoints, header injection and oversized process output",
   await expect(bounded.get(pulls)).rejects.toThrow("byte limit");
 });
 it("rejects malformed resource data", async () => {
-  const gh = fakeGh();
-  gh.respond({ [pulls]: { etag: '"bad"', data: [{ id: "not an ID" }] } });
-  await expect(pollGithub(gh.client, trigger("pr_changed"), {})).rejects.toThrow();
+  const client = {
+    async get(): Promise<GhResponse> {
+      return { status: 200, etag: '"bad"', next: undefined, data: [{ id: "not an ID" }] };
+    },
+  };
+  await expect(pollGithub(client, trigger("pr_changed"), {})).rejects.toThrow('"id"');
 });
 it("rejects pagination loops and cross-repository next pages", async () => {
   const t = trigger("pr_changed");

@@ -98,3 +98,40 @@ it("uses the injected process boundary to read a real bounded response", async (
     data: [],
   });
 });
+
+it("reads a raw gh response with the shared supervisor output cap enabled", async () => {
+  const { spawnRawSupervised } = await import("@ace/provider-kit/process");
+  const client = createGhClient({
+    binary: "unused",
+    spawn: () =>
+      spawnRawSupervised({
+        command: process.execPath,
+        args: ["-e", "process.stdout.write('HTTP/2 200 OK\\r\\netag: bounded\\r\\n\\r\\n[]')"],
+        env: {},
+        name: "bounded-gh",
+        maxOutputBytes: 128,
+      }),
+  });
+  expect(await client.get("repos/user/project/issues")).toEqual({
+    status: 200,
+    etag: "bounded",
+    next: undefined,
+    data: [],
+  });
+});
+
+it("enforces the shared supervisor byte cap across both raw streams", async () => {
+  const { spawnRawSupervised } = await import("@ace/provider-kit/process");
+  const child = spawnRawSupervised({
+    command: process.execPath,
+    args: ["-e", "process.stdout.write('x'.repeat(64));process.stderr.write('y'.repeat(64));"],
+    env: {},
+    name: "raw-output-limit",
+    maxOutputBytes: 100,
+  });
+  try {
+    expect((await child.exited).reason).toBe("output-limit");
+  } finally {
+    await child.stop({ graceMs: 0 });
+  }
+});

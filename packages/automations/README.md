@@ -55,4 +55,6 @@ Definitions and deadlines occupy small SQLite rows. Snapshots occupy a separate 
 
 ## Verification
 
-`bun run test packages/automations` exercises the public API, temp SQLite, fake clocks/timers, executor fakes and real fake-gh processes. `bun run --filter @ace/automations bench` reports recurrence, snapshot translation, SQLite admission, deduplication, deadline selection and inbox throughput plus composed polling/admission at 0, 100 and 1,000 cached entries and supervised process I/O, without gating tests on machine timing. Full delivery requires `bun run check`.
+The tests exercise the public API, temp SQLite, fake clocks/timers, executor fakes and real fake-gh processes. The malformed-resource polling test uses an injected response instead of starting a process just to validate JSON. Real fake-gh tests continue to cover HTTP parsing, conditional requests, restart and cancellation.
+
+The repository owner now runs tests once at merge time. During feature work, run only `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size`. New behavior tests and mutation cases remain pending execution at merge. Historical benchmark measurements and completed test runs are recorded in `VERIFICATION.md`; do not rerun tests or benchmarks during this workflow.

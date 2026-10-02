@@ -188,3 +188,21 @@ A second comparison used an origin/main archive at 9f2a382 and the ten shared su
 `VITEST_MAX_WORKERS=4 bun run check --testTimeout=30000 --hookTimeout=30000` exited zero. Formatting, lint, every package typecheck and all 355 source-file size limits passed. Vitest passed 921 tests with four existing skips across 119 files, including all 97 automation tests. Runtime: 249.58 seconds. No CI run, retry or watch was made; CI is disabled by the repository owner.
 
 The default-worker and later one-worker runs encountered shared test timeouts reproduced on origin/main; the latter hit the same notification catch-up and core delta deadlines even with one worker. Those failed runs were stopped and are not green gate evidence. The final command overrides the runner's default test/hook timeout to 30 seconds while leaving assertions, test files, explicit per-test deadlines and global runner configuration unchanged. This records the actual configuration rather than claiming a default-settings pass. No production automation behavior, ownership cap or hot-path algorithm changed in this round.
+
+## Main integration follow-up
+
+Merged origin/main at 19a7e14 without rebasing. The protocol export conflict retains automation, model catalog, orchestration, notification, MCP and remote schemas. The process-supervisor conflict keeps the raw-stream API used by GitHub polling and the line-oriented facade used by model discovery. Main's maxOutputBytes validation, combined stdout/stderr accounting and output-limit outcome now live in the shared raw owner, so both facades preserve its bound.
+
+No comment titled "Integration rehearsal: findings for this PR" was present when the PR comments were read. Main has no PROCESS_TEST_TIMEOUT-style helper. The intermittent malformed-resource test now injects its GhResponse and asserts rejection of the invalid id through pollGithub; it no longer starts fake gh just to validate JSON. Other real fake-gh tests retain process, HTTP, ETag, restart and cancellation coverage.
+
+The new model catalog requires registered instance identity and role policy. The automation executor contract carries explicit provider/model inputs, thread-creation idempotency and observer cancellation. Catalog resolution is deferred to that executor rather than adding instance registration and model policy to this package. Remote-access scopes remain the authenticated daemon routing layer's responsibility. No merged @ace/workspace implementation is available to replace WorkspaceChanges.
+
+The owner changed the verification rule during this round: tests, probes, mutations and benchmarks run at merge time only. No such command was started after that instruction, and no surviving test process remained. Earlier runs in this document are historical evidence, not verification of this merge. Current evidence is static only: formatting, lint, every package typecheck and all 381 source-file size limits pass. Runtime behavior of this merged tree needs run at merge.
+
+| Behavior test                                                         | Mutation designed to fail                                          | Status                            |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------- |
+| rejects malformed resource data                                       | Bypass resource schema validation and accept the invalid id        | not executed (tests run at merge) |
+| reads a raw gh response with the shared supervisor output cap enabled | Discard raw stdout while installing the metadata cap               | not executed (tests run at merge) |
+| enforces the shared supervisor byte cap across both raw streams       | Remove the output cap or count only stdout instead of both streams | not executed (tests run at merge) |
+
+No new scheduling dependency, process singleton or unbounded buffer was added. The merged accounting updates a byte counter per chunk. Its runtime integration and the new regression tests need run at merge. CI remains disabled and was not invoked.
