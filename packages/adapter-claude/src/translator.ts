@@ -19,15 +19,25 @@ function factRaw(fact: Fact): RawPayload[] {
   return [];
 }
 
-// Deferred frames already persist their raw payload at receipt, before identity is known.
+// The receipt notice owns raw data; canonical enrichment must preserve prior raw.
 function canonicalOnly(fact: Fact): Fact {
   if (fact.type === "item.upsert") {
-    if (fact.draft.type === "tool_call")
-      return { ...fact, draft: { ...fact.draft, call: { ...fact.draft.call, raw: [] } } };
-    if (fact.draft.type !== "compaction") return { ...fact, draft: { ...fact.draft, raw: [] } };
+    if (fact.draft.type === "tool_call") {
+      const call = { ...fact.draft.call };
+      delete call.raw;
+      return { ...fact, draft: { ...fact.draft, call } };
+    }
+    if (fact.draft.type !== "compaction") {
+      const draft = { ...fact.draft };
+      delete draft.raw;
+      return { ...fact, draft };
+    }
   }
-  if (fact.type === "interaction.opened" || fact.type === "background.started")
-    return { ...fact, raw: [] };
+  if (fact.type === "interaction.opened" || fact.type === "background.started") {
+    const canonical = { ...fact };
+    delete canonical.raw;
+    return canonical;
+  }
   return fact;
 }
 
@@ -235,7 +245,24 @@ export function createTranslator(init: { rootKey: Key }): Translator {
     const toolId = string(options["toolUseID"], `interaction:${id}`);
     const name = string(data["toolName"], "Unknown tool");
     state.toolFrames.set(toolId, frame.seq);
+    const start = state.facts.length;
     tool(state, agent, { id: toolId, name, input: data["input"] }, data, true);
+    if (state.terminalChildren.has(agent)) {
+      state.interactions.delete(id);
+      // Retire stale permissions without opening human work. Keep their raw once.
+      for (let index = start; index < state.facts.length; index++) {
+        const fact = state.facts[index];
+        if (fact) state.facts[index] = canonicalOnly(fact);
+      }
+      state.notice(
+        data,
+        `settled-permission:${frame.seq}`,
+        agent,
+        "info",
+        "Claude permission retired for a settled child",
+      );
+      return;
+    }
     const request = requestFor(name, object(data["input"]), options);
     state.interactions.set(id, { agent, item: state.key("tool", toolId), toolId, request });
     state.emit({

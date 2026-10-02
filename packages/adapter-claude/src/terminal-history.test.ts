@@ -44,13 +44,11 @@ for (const status of ["succeeded", "failed"])
       h.items().find((item) => item.type === "tool_call" && item.call.kind === "file.read");
     expect(result()).toMatchObject({ complete: true, call: { status } });
     request("late");
+    expect(h.state.status.state).toBe("done");
     expect(result()).toMatchObject({ complete: true, call: { status } });
     allow("late");
     expect(result()).toMatchObject({ complete: true, call: { status } });
-    expect(Object.values(h.state.interactions).map((item) => item.state)).toEqual([
-      "resolved",
-      "resolved",
-    ]);
+    expect(Object.values(h.state.interactions).map((item) => item.state)).toEqual(["resolved"]);
     expect(h.state.status.state).toBe("done");
   });
 

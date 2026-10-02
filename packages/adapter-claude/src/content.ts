@@ -14,7 +14,7 @@ export function tool(
   const id = string(block["id"]);
   if (!id) return;
   const settled = state.terminalChildren.has(agent);
-  const existing = state.rawItems.get(agent)?.has(state.key("tool", id)) === true;
+  const item = state.key("tool", id);
   const name = string(block["name"], "Unknown tool");
   const input = object(block["input"]);
   state.toolOwners.set(id, agent);
@@ -23,7 +23,7 @@ export function tool(
   state.emit({
     type: "item.upsert",
     agent,
-    item: state.key("tool", id),
+    item,
     draft: {
       type: "tool_call",
       complete: settled,
@@ -31,7 +31,7 @@ export function tool(
         title: name,
         kind: detail.kind,
         // Late inputs enrich settled tools without replacing their persisted outcome.
-        ...(settled && existing
+        ...(state.settledItem(agent, item)
           ? {}
           : { status: settled ? "cancelled" : awaiting ? "awaiting_approval" : "running" }),
         detail,
@@ -80,34 +80,45 @@ export function message(
       const toolId = string(block["tool_use_id"]);
       if (!toolId || seq < (state.toolFrames.get(toolId) ?? -1)) continue;
       state.toolFrames.set(toolId, seq);
+      const owner = state.toolOwners.get(toolId) ?? agent;
+      state.toolOwners.set(toolId, owner);
+      const item = state.key("tool", toolId);
       const declined = list(data["tool_result_meta"]).some((nativeMeta) => {
         const meta = object(nativeMeta);
         return meta["id"] === toolId && meta["non_execution_kind"] === "permission-rule";
       });
       state.emit({
         type: "item.upsert",
-        agent: state.toolOwners.get(toolId) ?? agent,
-        item: state.key("tool", toolId),
+        agent: owner,
+        item,
         draft: {
           type: "tool_call",
           complete: true,
           call: {
-            status: declined ? "declined" : block["is_error"] === true ? "failed" : "succeeded",
+            ...(state.settledItem(owner, item)
+              ? {}
+              : {
+                  status: declined
+                    ? "declined"
+                    : block["is_error"] === true
+                      ? "failed"
+                      : "succeeded",
+                }),
             ...state.keepToolRaw(toolId, data),
           },
         },
       });
       state.emit({
         type: "activity",
-        agent: state.toolOwners.get(toolId) ?? agent,
+        agent: owner,
         activity: "thinking",
       });
       const output = text(block["content"]);
       if (output && state.toolKinds.get(toolId) === "shell")
         state.emit({
           type: "item.delta",
-          agent,
-          item: state.key("tool", toolId),
+          agent: owner,
+          item,
           field: "output",
           append: output,
         });

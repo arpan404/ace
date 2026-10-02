@@ -156,6 +156,9 @@ export class ClaudeState {
       draft: { type: "notice", complete: true, level, text: message, raw: [raw(data)] },
     });
   }
+  settledItem(agent: Key, item: Key): boolean {
+    return this.terminalChildren.has(agent) && this.rawItems.get(agent)?.has(item) === true;
+  }
   keepRaw(item: Key, data: unknown, agent = this.root, name?: string): { raw?: RawPayload[] } {
     const items = this.rawItems.get(agent) ?? new Set<Key>();
     this.rawItems.set(agent, items);

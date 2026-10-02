@@ -30,8 +30,8 @@ for (const timing of ["before", "after"])
     expect(
       h.items().find((item) => item.type === "tool_call" && item.call.kind === "file.read"),
     ).toMatchObject({ complete: true, call: { status: "cancelled" } });
-    expect(Object.values(h.state.interactions)[0]?.state).toBe(
-      timing === "before" ? "cancelled" : "resolved",
+    expect(Object.values(h.state.interactions).map((interaction) => interaction.state)).toEqual(
+      timing === "before" ? ["cancelled"] : [],
     );
   });
 
@@ -246,6 +246,7 @@ test("a permission after a known terminal edge cannot start a child before regis
     true,
   );
   expect(facts.filter((fact) => fact.type === "turn.started")).toEqual([]);
+  expect(facts.filter((fact) => fact.type === "interaction.opened")).toEqual([]);
   const h = harness();
   h.init();
   complete(h);
