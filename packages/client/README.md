@@ -1,0 +1,47 @@
+# @ace/client
+
+One headless daemon SDK for Electron renderers, browsers and React Native. Runtime code imports no Node built-ins. Inject credentials, storage, socket creation, timers, randomness and ids. Callers own one client and one storage namespace per daemon/device. Only one active client may write that namespace at a time. Storage.save must atomically replace the previous value before resolving.
+
+```ts
+import { Client, webSocketTransport } from "@ace/client";
+import { DeviceId } from "@ace/protocol";
+
+const client = new Client({
+  deviceId: DeviceId.parse(deviceId),
+  transport: () => webSocketTransport(() => new WebSocket(daemonUrl)),
+  credential: () => secureStorage.readDeviceToken(),
+  storage: outboxStorage,
+  scheduler: {
+    set(ms, callback) {
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    },
+  },
+  random: () => Math.random(),
+  id: () => crypto.randomUUID(),
+});
+await client.start();
+const thread = client.thread(threadId);
+const title = thread.store.select(["thread"], (reader) => reader.thread?.title);
+const item = thread.store.select([`item:${itemId}`], (reader) => reader.item(itemId));
+const stop = item.subscribe(() => render(item.getSnapshot()));
+// React: useSyncExternalStore(item.subscribe, item.getSnapshot, item.getSnapshot).
+// Keep the Selection stable between renders. Keys must include everything read.
+stop();
+thread.release();
+client.close();
+```
+
+`start()` loads the outbox and initiates connection. Observe `connectionState()` for readiness. `networkOnline(false/true)` cancels a dead connection and immediately retries after connectivity returns. Authentication rejection is fatal; create a new client after correcting credentials. `close()` is terminal for that instance, leaving durable intents available to its replacement.
+
+`threads()` shares the sidebar subscription. `thread(id)` shares one subscription across views and retains inactive views in a bounded LRU. Release subscriptions and selector listeners when their UI owner unmounts. Selected objects are SDK-owned values; do not mutate them. Previously selected entities remain stable across future updates. A selector can read entities, their bounded order, cursor, history cursor and truncation flags. Selectors returning a new object should supply an equality function.
+
+`enqueue(payload, id?)` durably records an intent before sending. Use stable globally unique ids for retry keys. `intent(id)` selects pending, acked or failed state, including daemon rejection text. Acked means the daemon accepted the command, not that an agent finished its work. Terminal receipts leave the bounded local cache as new intents arrive. Retry keys still work through the daemon's receipt store.
+
+`command(payload, options?, id?)` adds a cancellable, timed waiter for the daemon receipt. Aborting or timing out a waiter cannot undo the durable intent or daemon effects. Use `enqueue` for offline sends. A reconnect replays pending intents even if a prior waiter was cancelled. A failed persistence write does not send anything. Persistence failures while recording receipts put the client in fatal state and keep the durable command replayable.
+
+`itemsPage({threadId,before?,limit}, options?)` returns older items. Apply a page with `thread.store.page(page.items, page.itemsBefore)` to replace the end of the bounded item window. Live item creation advances that window; updates to unloaded history do not reinsert it. `outputRead` returns one chunk; `output` is an async generator that fetches only when the consumer asks for another chunk. Output offsets currently count UTF-16 units because the daemon still stores legacy strings. Stream-id byte reads will be additive when ADR 0006 storage lands.
+
+Limits cover frame bytes, outgoing bytes, outbox bytes, concurrent persistence operations, intents, requests, cached threads, items, entity counts, item text and listeners. Text trims to half its capacity on overflow to amortize copying and reports `truncated(id)`. Non-item entity limits fail explicitly rather than dropping facts needed for tree status. The SDK processes each frame synchronously and retains no receive queue. Unordered or missing coverage conservatively resyncs from a snapshot with a new subscription id. All scope cursors remain host-wide, including filtered progress.
+
+Run `bun run --filter @ace/client bench` for event application and notification fan-out measurements. Tests use real daemon sockets and SQLite; injected time controls deadlines without sleeps.
