@@ -3,6 +3,16 @@ import { ReviewData } from "./review.ts";
 import { z } from "zod";
 import { ContextRequest, ContextResult } from "./context.ts";
 import {
+  HistoryListRequest,
+  HistoryListResponse,
+  HistoryImportRequest,
+  HistoryImportResponse,
+  HistoryScanRequest,
+  HistoryScanResponse,
+  HistoryContinueRequest,
+  HistoryContinueResponse,
+} from "./history.ts";
+import {
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -101,6 +111,10 @@ export const ClientMessage = z.discriminatedUnion("type", [
   SettingsGet,
   SettingsSet,
   SettingsSubscribe,
+  HistoryListRequest,
+  HistoryImportRequest,
+  HistoryScanRequest,
+  HistoryContinueRequest,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -157,6 +171,10 @@ export const ServerMessage = z.discriminatedUnion("type", [
   SettingsResult,
   SettingsChanged,
   SettingsDiagnosticMessage,
+  HistoryListResponse,
+  HistoryImportResponse,
+  HistoryScanResponse,
+  HistoryContinueResponse,
   ModelsResult,
   NotificationMessage,
   z.object({

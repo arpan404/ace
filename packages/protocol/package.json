@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./plugins": "./src/plugins.ts",
     "./preview": "./src/preview.ts",
+    "./history": "./src/history.ts",
     "./forge": "./src/forge.ts"
   },
   "scripts": {

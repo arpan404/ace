@@ -3,6 +3,7 @@ import { settingsSession } from "./settings.ts";
 import { previewHttp } from "./preview-http.ts";
 import { createDaemonPreview, type DaemonPreview, type DaemonPreviewOptions } from "./preview.ts";
 import { dispatchReviewCommand, type ReviewPort } from "./review.ts";
+import type { DaemonHistory } from "./history.ts";
 import type { ModelCatalogApi } from "@ace/models";
 import { handleModelRequest } from "./models.ts";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
@@ -64,6 +65,7 @@ const closeListener = (listener: Server) =>
 export interface ServerOptions {
   settings?: SettingsService;
   preview?: DaemonPreviewOptions;
+  history?: Pick<DaemonHistory, "handle">;
   models?: ModelCatalogApi;
   port: number;
   remote?: RemoteListener;
@@ -201,6 +203,7 @@ export async function startServer(options: ServerOptions): Promise<{
       socket.terminate();
     });
     let modelRequests = 0;
+    const historyLifetime = new AbortController();
     if (cleanups.size >= 256) {
       socket.terminate();
       return;
@@ -261,6 +264,7 @@ export async function startServer(options: ServerOptions): Promise<{
       settings.close();
       releaseHealth();
       browser?.close();
+      historyLifetime.abort();
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -490,6 +494,34 @@ export async function startServer(options: ServerOptions): Promise<{
           }
           settings.accept(message);
           break;
+        case "history.scan":
+        case "history.list":
+        case "history.import":
+        case "history.continue": {
+          const scope = message.type === "history.list" ? "read" : "operate";
+          if (!allows(authenticated.get(socket), scope)) {
+            fail("forbidden", `${scope} scope required`);
+            break;
+          }
+          if (
+            message.type === "history.continue" &&
+            options.canReadThread?.(device, message.threadId) === false
+          ) {
+            fail("read_denied", "Thread is not readable");
+            break;
+          }
+          if (!options.history) {
+            fail("history_unavailable", "History is not configured");
+            break;
+          }
+          try {
+            send(await options.history.handle(message, historyLifetime.signal));
+          } catch {
+            fail("history_rejected", "History operation rejected");
+          }
+          break;
+        }
+
         case "models.list":
         case "models.resolve":
         case "models.refresh": {

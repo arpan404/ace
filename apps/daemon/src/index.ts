@@ -27,6 +27,7 @@ import type { SpawnOptions } from "@ace/provider-kit/process";
 import type { Provider } from "@ace/plugins";
 import { ContextService } from "@ace/context";
 import { createDaemonReview, type DaemonReviewOptions } from "./review.ts";
+import { openDaemonHistory, type DaemonHistory, type DaemonHistoryOptions } from "./history.ts";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
@@ -71,6 +72,7 @@ export async function startDaemon(
   browserOptions: Omit<BrowserServiceOptions, "dataDir" | "onArtifact"> = {},
   previewOptions?: DaemonPreviewOptions,
   reviewOptions: DaemonReviewOptions = {},
+  historyOptions?: DaemonHistoryOptions,
 ): Promise<{
   url: string;
   tokenPath: string;
@@ -107,6 +109,7 @@ export async function startDaemon(
   let context: ContextService | undefined;
   let maintenance: ReturnType<typeof setInterval> | undefined;
   let settings: SettingsService | undefined;
+  let history: DaemonHistory | undefined;
   let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
@@ -143,6 +146,7 @@ export async function startDaemon(
                 try {
                   await context?.close();
                   await settings?.close();
+                  await history?.close();
                 } finally {
                   await models?.close();
                 }
@@ -267,6 +271,7 @@ export async function startDaemon(
     const ownedContext = context;
     settings = new SettingsService({ dataDir: config.dataDir });
     review = createDaemonReview(config.dataDir, store, reviewOptions);
+    if (historyOptions) history = await openDaemonHistory(config.dataDir, store, historyOptions);
     models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
@@ -292,6 +297,7 @@ export async function startDaemon(
       plugins: new PluginService(plugins),
       browser,
       review,
+      ...(history ? { history } : {}),
       models,
       notifications: notifications.service,
       ...(previewOptions ? { preview: previewOptions } : {}),
@@ -346,3 +352,6 @@ export async function startDaemon(
     throw error;
   }
 }
+
+export { readHistoryInstances, type DaemonHistoryOptions } from "./history.ts";
+export type { HistoryAdapterPort } from "./history-continuation.ts";

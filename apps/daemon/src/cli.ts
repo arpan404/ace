@@ -4,6 +4,7 @@ import { PairingResponse } from "@ace/protocol";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import createQr from "qrcode-generator";
+import { readHistoryInstances } from "./history.ts";
 import { readModelInstances } from "./models.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread, stubHandler } from "./commands.ts";
@@ -70,6 +71,8 @@ async function main(args: string[]): Promise<void> {
       [],
       undefined,
       readModelInstances(),
+      undefined, undefined, undefined, undefined,
+      { instances: readHistoryInstances() },
     );
     try {
       if (development && daemon.store.listThreads().length === 0)
