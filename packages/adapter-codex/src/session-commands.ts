@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { ProviderSession } from "@ace/engine-api";
 import type { ContentPart } from "@ace/protocol";
 import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
@@ -28,6 +27,7 @@ export type SessionCommandsContext = {
   request(method: string, params: unknown, interactive?: boolean): Promise<unknown>;
   emit(dir: "send" | "recv" | "stderr" | "note", data: unknown, channel?: string): void;
   getModel(): string;
+  userMessageId(): string;
   refreshQueue(threadId: string): Promise<void>;
 };
 export function createSessionCommands(
@@ -56,7 +56,7 @@ export function createSessionCommands(
       await request("thread/queue/add", {
         threadId,
         input: input(parts),
-        clientUserMessageId: randomUUID(),
+        clientUserMessageId: config.userMessageId(),
       } satisfies ThreadQueueAddParams);
       await config.refreshQueue(threadId);
     } else if (turn)

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ProviderSession, SessionContext } from "@ace/engine-api";
 import {
   discoverProviders,
@@ -267,6 +268,7 @@ export async function openCodexSession(
       request,
       emit,
       getModel: () => model,
+      userMessageId: randomUUID,
       refreshQueue,
     }),
   };
