@@ -36,7 +36,7 @@ bun run check   # format check, lint, typecheck, tests
 bun run --filter @ace/daemon dev
 ```
 
-The daemon prints its URL and token-file path. See [store and sync](docs/daemon/store-and-sync.md) for configuration, the development creator, the command port, and replay behavior.
+The daemon prints its URL and token-file path. Remote access is off by default. See [remote access](docs/daemon/remote-access.md) for LAN/Tailscale pairing, device scopes and the `ace` CLI. See [store and sync](docs/daemon/store-and-sync.md) for configuration, the development creator, the command port, and replay behavior.
 
 Remote access relay setup and APIs are described in [encrypted relay](docs/relay/README.md).
 
