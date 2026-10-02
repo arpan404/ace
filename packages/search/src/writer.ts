@@ -23,6 +23,7 @@ const Stage = z.object({
 const Document = Stage.omit({ head: true, tail: true, size: true, tool_kind: true }).extend({
   body: z.string(),
 });
+const Title = z.object({ title: z.string() });
 export class Statements {
   private readonly cache = new Map<string, StatementSync>();
   readonly db: DatabaseSync;
@@ -65,7 +66,7 @@ export class SearchWriter {
         null,
         "thread",
         t.createdAt,
-        capText(t.title),
+        this.currentTitle(event.threadId),
         "",
         "",
         0,
@@ -87,14 +88,7 @@ export class SearchWriter {
         ).changes;
       if (changes && (p.status || p.title !== undefined))
         this.sql.run("UPDATE search_meta SET generation=generation+1 WHERE id=1");
-      if (p.title !== undefined) {
-        this.sql.run(
-          "UPDATE search_stage SET title=?,dirty_since=CASE WHEN dirty=0 THEN ? ELSE dirty_since END,dirty=1 WHERE thread=? AND item=''",
-          capText(p.title),
-          event.seq,
-          event.threadId,
-        );
-      }
+      if (p.title !== undefined) this.stageTitle(event.threadId, event.seq);
     } else if (p.type === "item.created" || p.type === "item.updated") {
       const detail = p.item.type === "tool_call" ? p.item.call.detail : undefined;
       const output =
@@ -148,7 +142,24 @@ export class SearchWriter {
         capText(thread.title),
         seq,
       ).changes;
-    if (changes) this.sql.run("UPDATE search_meta SET generation=generation+1 WHERE id=1");
+    if (changes) {
+      this.sql.run("UPDATE search_meta SET generation=generation+1 WHERE id=1");
+      this.stageTitle(thread.id, seq);
+    }
+  }
+  private currentTitle(thread: string): string {
+    return Title.parse(this.sql.get("SELECT title FROM search_threads WHERE id=?").get(thread))
+      .title;
+  }
+  private stageTitle(thread: string, seq: number): void {
+    const title = this.currentTitle(thread);
+    this.sql.run(
+      "UPDATE search_stage SET title=?,dirty_since=CASE WHEN dirty=0 THEN ? ELSE dirty_since END,dirty=1 WHERE thread=? AND item='' AND title<>?",
+      title,
+      seq,
+      thread,
+      title,
+    );
   }
   private put(
     thread: string,
@@ -261,7 +272,11 @@ export class SearchWriter {
   }
   deleteItem(thread: string, item: string): void {
     const row = this.sql
-      .get("SELECT * FROM search_docs WHERE thread=? AND item=?")
+      // The stage's unique key resolves directly to the document primary key,
+      // including misses for staged items which have never been indexed.
+      .get(
+        "SELECT * FROM search_docs WHERE id=(SELECT id FROM search_stage WHERE thread=? AND item=?)",
+      )
       .get(thread, item);
     if (row) {
       this.removePostings(Document.parse(row));

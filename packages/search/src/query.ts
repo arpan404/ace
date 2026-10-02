@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { SQLInputValue } from "node:sqlite";
 import { z } from "zod";
 import { SearchQuery, SearchResults, SearchSnippet } from "@ace/protocol";
-import { matchExpression } from "./text.ts";
+import { matchExpression, truncateText } from "./text.ts";
 import type { Statements } from "./writer.ts";
 
 const Cursor = z.object({
@@ -31,14 +31,16 @@ function snippet(marked: string): z.infer<typeof SearchSnippet> {
   let text = "";
   let start: number | undefined;
   const highlights: { start: number; end: number }[] = [];
-  for (let i = 0; i < marked.length && text.length < 4096; i++) {
-    const char = marked[i];
+  for (const char of marked) {
     if (char === "\u0001") start = text.length;
     else if (char === "\u0002") {
       if (start !== undefined && highlights.length < 256)
         highlights.push({ start, end: text.length });
       start = undefined;
-    } else text += char;
+    } else {
+      if (text.length + char.length > 4096) break;
+      text += char;
+    }
   }
   if (start !== undefined && highlights.length < 256) highlights.push({ start, end: text.length });
   return { text, highlights };
@@ -142,7 +144,7 @@ export function querySearch(
     // oxlint-disable-next-line oxc/no-map-spread
     hits: page.map((row) => ({
       threadId: row.thread,
-      threadTitle: row.threadTitle.slice(0, 1024),
+      threadTitle: truncateText(row.threadTitle, 1024),
       ...(row.item ? { itemId: row.item } : {}),
       ...(row.agent ? { agentId: row.agent } : {}),
       workspaceId: row.workspace,

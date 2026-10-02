@@ -214,8 +214,8 @@ test("pagination keeps tied ranks ordered, binds filters and rejects changed gen
 
 test("title matches rank above body matches and the palette searches only titles with prefixes", () => {
   const titled = Thread.parse({ ...thread, id: randomUUID(), title: "needle" });
-  log.append([{ type: "thread.created", thread: titled }], titled.id);
   log.append([{ type: "item.created", item: message("needle") }]);
+  log.append([{ type: "thread.created", thread: titled }], titled.id);
   const results = log.query("needle");
   expect(results.hits[0]?.threadId).toBe(titled.id);
   expect(log.query("nee", { scope: "threads" }).hits.map((h) => h.threadId)).toEqual([titled.id]);
@@ -371,6 +371,8 @@ test("current thread metadata wins over older backfill so active threads never a
   expect(results.hits[0]?.status).toBe("working");
   expect(results.hits[0]?.statusSeq).toBe(log.headSeq() + 1);
   expect(results.hits[0]?.threadTitle).toBe("Current title");
+  expect(log.query("Curr", { scope: "threads" }).hits[0]?.threadId).toBe(thread.id);
+  expect(log.query("Old", { scope: "threads" }).hits).toEqual([]);
   expect(log.query("statusneedle", { filters: { status: "done" } }).hits).toEqual([]);
 });
 

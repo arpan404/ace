@@ -2,6 +2,13 @@ import type { Item } from "@ace/protocol";
 
 export const FIELD_CAP = 8192;
 export const GAP = "\n[… omitted …]\n";
+export function truncateText(text: string, limit: number): string {
+  let end = Math.min(text.length, limit);
+  const last = text.charCodeAt(end - 1);
+  const next = text.charCodeAt(end);
+  if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end--;
+  return text.slice(0, end);
+}
 export interface TextWindow {
   head: string;
   tail: string;

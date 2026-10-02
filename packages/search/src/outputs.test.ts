@@ -6,6 +6,11 @@ import { Item } from "@ace/protocol";
 import { FIELD_CAP } from "./index.ts";
 import { Log, message, shell, thread, agent } from "./test-support.ts";
 
+function paddedHalf(first: string, last: string): string {
+  const remaining = FIELD_CAP - 1 - first.length - last.length;
+  return first + "x ".repeat(Math.floor(remaining / 2)) + " ".repeat(remaining % 2) + last;
+}
+
 let directory: string;
 let log: Log;
 beforeEach(() => {
@@ -116,6 +121,43 @@ test("text streamed after an attachment keeps the path and first word searchable
   log.index.flush();
   for (const text of ["src/widget.ts", "firstword"])
     expect(log.query(text).hits[0]?.itemId).toBe(item.id);
+});
+
+test("every retained text boundary returns whole characters and literal highlights", () => {
+  const head = paddedHalf("headstart ", " headedge ");
+  const tail = paddedHalf(" tailedge ", " tailend");
+  const completed = message(head + "😀" + tail);
+  const streamed = message("", false);
+  log.append([
+    { type: "item.created", item: completed },
+    { type: "item.created", item: streamed },
+    {
+      type: "item.delta",
+      itemId: streamed.id,
+      agentId: streamed.agentId,
+      field: "text",
+      append: head + "\ud83d",
+    },
+    {
+      type: "item.delta",
+      itemId: streamed.id,
+      agentId: streamed.agentId,
+      field: "text",
+      append: "\ude00" + tail,
+    },
+  ]);
+  log.index.flush();
+  for (const text of ["headstart", "headedge", "tailedge", "tailend"]) {
+    const hits = log.query(text).hits;
+    expect(hits.map((hit) => hit.itemId)).toEqual([completed.id, streamed.id]);
+    for (const hit of hits) {
+      expect(hit.snippet.text.isWellFormed()).toBe(true);
+      expect(hit.snippet.text).not.toContain("�");
+      expect(
+        hit.snippet.highlights.map((range) => hit.snippet.text.slice(range.start, range.end)),
+      ).toContain(text);
+    }
+  }
 });
 
 test("notice and reasoning accept both text fields and reject unrelated output", () => {
