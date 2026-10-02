@@ -5,7 +5,7 @@ import type { Frame } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
 import { createCodexAdapter } from "./index.ts";
 import { replayHarness } from "./replay.test-helper.ts";
-export async function sessionHarness(resume = false) {
+export async function sessionHarness(resume = false, mode = "") {
   const directory = await mkdtemp(join(tmpdir(), "ace-codex-session-"));
   const binary = join(directory, "codex.mjs");
   await writeFile(
@@ -13,19 +13,25 @@ export async function sessionHarness(resume = false) {
     `#!${process.execPath}\nimport ${JSON.stringify(new URL("./testing/cli.ts", import.meta.url).href)};\n`,
   );
   await chmod(binary, 0o755);
+  let now = 0;
+  const scheduled = new Map<() => void, number>();
   const adapter = createCodexAdapter({
-    discovery: { overrides: { codex: binary } },
-    cli: {
-      installed: true,
-      path: binary,
-      version: "0.159.1",
-      auth: "logged_in",
-      loginHint: "unused",
+    runtime: {
+      now: () => now,
+      userMessageId: () => "offline-message",
+      schedule(callback, delay) {
+        scheduled.set(callback, delay);
+        return () => {
+          scheduled.delete(callback);
+        };
+      },
     },
+    discovery: { overrides: { codex: binary }, env: { ACE_FAKE_RESUME: mode, PATH: directory } },
   });
   const controller = new AbortController();
   const replay = replayHarness();
   const frames: Frame[] = [];
+  const exits: { deliberate: boolean; message?: string }[] = [];
   const waiters = new Set<{ match(frame: Frame): boolean; resolve(frame: Frame): void }>();
   const exit = Promise.withResolvers<{ deliberate: boolean; message?: string }>();
   const exited = exit.promise;
@@ -44,6 +50,7 @@ export async function sessionHarness(resume = false) {
         }
     },
     onExit(result) {
+      exits.push(result);
       replay.feedFact({ type: "process.exited", ...result }, frames.at(-1)?.t ?? 0);
       exit.resolve(result);
     },
@@ -54,6 +61,15 @@ export async function sessionHarness(resume = false) {
     replay,
     controller,
     exited,
+    exits,
+    runTimers() {
+      const due = Array.from(scheduled);
+      for (const [callback, delay] of due) {
+        scheduled.delete(callback);
+        now += delay;
+        callback();
+      }
+    },
     wait(match: (frame: Frame) => boolean) {
       const previous = frames.find(match);
       if (previous) return Promise.resolve(previous);

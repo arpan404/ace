@@ -1,3 +1,4 @@
+import { RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
 import type { Frame } from "@ace/engine-api";
 import type { Agent } from "./translator-state.ts";
@@ -8,6 +9,7 @@ export function createAgentRegistry(config: {
   getRoot(): string;
   getCwd(): string;
   replay(frame: Frame, now: number): Fact[];
+  takeBuffer(agent: Agent): Frame[];
 }) {
   const { agents } = config;
   function ensure(
@@ -28,9 +30,10 @@ export function createAgentRegistry(config: {
         hadTurn: false,
         mode: "default",
         open: new Map(),
-        items: new Set(),
+        items: new RecentSet(),
+        completed: new RecentSet(),
         requests: new Map(),
-        ended: new Set(),
+        ended: new RecentSet(),
         async: new Set(),
         children: new Set(),
         backgroundResult: false,
@@ -88,36 +91,31 @@ export function createAgentRegistry(config: {
     }
     if (
       p["status"] &&
-      !agent.buffer.some((frame) =>
-        ["turn/started", "turn/completed"].includes(str(obj(frame.data)["method"])),
-      ) &&
-      !agent.hadTurn
+      (agent.bufferLost ||
+        !agent.buffer.some((frame) =>
+          ["turn/started", "turn/completed"].includes(str(obj(frame.data)["method"])),
+        )) &&
+      (!agent.hadTurn || agent.bufferLost)
     ) {
       const turns = list(p["turns"]);
       for (const turn of turns) {
         const t = obj(turn);
         const turnId = str(t["id"]);
         if (!turnId) continue;
-        agent.hadTurn = true;
-        facts.push({
-          type: "turn.started",
-          agent: agent.key,
-          nativeTurnId: turnId,
-          trigger: "unknown",
-        });
-        if (t["status"] === "inProgress") agent.turn = turnId;
-        else
-          facts.push({
-            type: "turn.ended",
-            agent: agent.key,
-            nativeTurnId: turnId,
-            outcome:
-              t["status"] === "failed"
-                ? "failed"
-                : t["status"] === "interrupted"
-                  ? "interrupted"
-                  : "completed",
-          });
+        const replay = (method: string, params: unknown) =>
+          facts.push(
+            ...config.replay(
+              { seq: 0, t: now, dir: "recv", channel: "hydration", data: { method, params } },
+              now,
+            ),
+          );
+        replay("turn/started", { threadId: id, turn: t });
+        for (const value of list(t["items"])) {
+          const item = obj(value);
+          const incomplete = item["status"] === "inProgress";
+          replay(incomplete ? "item/started" : "item/completed", { threadId: id, turnId, item });
+        }
+        if (t["status"] !== "inProgress") replay("turn/completed", { threadId: id, turn: t });
       }
       if (!agent.hadTurn && obj(p["status"])["type"] === "active") {
         agent.turn = `observed:${id}`;
@@ -130,11 +128,13 @@ export function createAgentRegistry(config: {
         });
       }
     }
-    const buffered = agent.buffer.splice(0);
-    for (const frame of buffered) facts.push(...config.replay(frame, now));
-    if (agent.unknownTask) {
+    const buffered = config.takeBuffer(agent);
+    if (!agent.bufferLost || !Array.isArray(p["turns"]))
+      for (const frame of buffered) facts.push(...config.replay(frame, now));
+    if (agent.unknownTask && (!agent.bufferLost || Array.isArray(p["turns"]))) {
       facts.push({ type: "background.ended", task: `unknown:${id}`, status: "completed" });
       delete agent.unknownTask;
+      delete agent.bufferLost;
     }
     return agent;
   }

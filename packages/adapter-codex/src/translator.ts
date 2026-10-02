@@ -1,3 +1,4 @@
+import { unknownBuffers, RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
 import type { ThreadId, RunTrigger } from "@ace/protocol";
 import type { Frame, Translator } from "@ace/engine-api";
@@ -17,15 +18,12 @@ const requestMethods = new Set([
   "mcpServer/elicitation/request",
 ]);
 
-function resolveAsync(agent: Agent, facts: Fact[]): void {
-  for (const item of agent.async)
-    facts.push({ type: "interaction.closed", interaction: asyncKey(item), state: "resolved" });
-  agent.async.clear();
-}
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
   const agents = new Map<string, Agent>();
-  const sent = new Map<string, { method: string; params: Obj }>();
-  const userTurns = new Set<string>();
+  const sent = new Map<string, { method: string; params: Obj; interaction?: string }>();
+  let recordedAnswer: string | undefined;
+  const userTurns = new RecentSet();
+  const buffers = unknownBuffers();
 
   let root = "";
   let cwd = "";
@@ -35,6 +33,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     getRoot: () => root,
     getCwd: () => cwd,
     replay: handle,
+    takeBuffer: buffers.take,
   });
   const translation: TranslationContext = {
     agents,
@@ -44,15 +43,6 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
   };
   let synthetic = 0;
   let deliberate = false;
-  const beforeRoot: { type: string; data: unknown; text?: string }[] = [];
-  function retainEarly(type: string, data: unknown, text?: string): void {
-    beforeRoot.push({ type, data, ...(text ? { text } : {}) });
-  }
-  function flushEarly(facts: Fact[]): void {
-    if (root)
-      for (const entry of beforeRoot.splice(0))
-        facts.push(note(init.rootKey, entry.type, entry.data, entry.text));
-  }
   const note = (agent: Key, type: string, data: unknown, text = type): Fact => ({
     type: "item.upsert",
     agent,
@@ -66,6 +56,22 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       method = str(message["method"]);
     const id = message["id"];
     if (frame.dir === "note") {
+      if (message["event"] === "thread-discovered") {
+        const thread = obj(message["thread"]);
+        const source = obj(obj(obj(thread["source"])["subAgent"])["thread_spawn"]);
+        discover(
+          str(thread["id"]),
+          thread,
+          facts,
+          now,
+          str(thread["parentThreadId"], str(source["parent_thread_id"])) || undefined,
+        );
+      }
+      // Recorded fixtures explicitly annotate an answer; ambiguous annotations close nothing.
+      if (message["event"] === "async-question-answered") {
+        const questions = [...agents.values()].flatMap((a) => [...a.async].map(asyncKey));
+        if (questions.length === 1) recordedAnswer = questions[0];
+      }
       if (message["event"] === "discovery-start")
         facts.push({
           type: "background.started",
@@ -86,30 +92,40 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       if (message["event"] === "stop") deliberate = true;
       if (message["event"] === "process-exit")
         facts.push({ type: "process.exited", deliberate, message: "Codex app-server exited" });
-      if (message["event"] === "interaction-resolved")
+      if (message["event"] === "interaction-resolved") {
+        for (const agent of agents.values())
+          for (const item of agent.async)
+            if (asyncKey(item) === message["interaction"]) agent.async.delete(item);
         facts.push({
           type: "interaction.closed",
           interaction: str(message["interaction"]),
           state: "resolved",
         });
+      }
       return facts;
     }
     if (frame.dir === "send") {
-      if (method && id !== undefined) sent.set(requestKey(id), { method, params: p });
+      if (method && id !== undefined) {
+        sent.set(requestKey(id), {
+          method,
+          params: p,
+          ...(recordedAnswer && ["turn/start", "turn/steer"].includes(method)
+            ? { interaction: recordedAnswer }
+            : {}),
+        });
+        recordedAnswer = undefined;
+      }
       if (method === "thread/start") cwd = str(p["cwd"]);
       if (method === "turn/start") {
         const agent = agents.get(str(p["threadId"]));
         if (agent && p["collaborationMode"])
           agent.mode = str(obj(p["collaborationMode"])["mode"], agent.mode);
       }
-      if (root) facts.push(note(init.rootKey, method || "rpc.response.sent", frame.data));
-      else retainEarly(method || "rpc.response.sent", frame.data);
+      facts.push(note(init.rootKey, method || "rpc.response.sent", frame.data));
       return facts;
     }
     if (frame.dir === "stderr") {
-      if (root) return [note(init.rootKey, "stderr", frame.data, str(frame.data))];
-      retainEarly("stderr", frame.data, str(frame.data));
-      return [];
+      return [note(init.rootKey, "stderr", frame.data, str(frame.data))];
     }
     if (!method && id !== undefined) {
       const pending = sent.get(requestKey(id));
@@ -124,7 +140,11 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           cwd = str(thread["cwd"], str(pending.params["cwd"], cwd));
           discover(root, thread, facts, now);
         }
-      } else if (pending?.method === "thread/read" && str(thread["id"])) {
+      } else if (
+        pending?.method === "thread/read" &&
+        frame.channel !== "codex-discovery" &&
+        str(thread["id"])
+      ) {
         const source = obj(obj(obj(thread["source"])["subAgent"])["thread_spawn"]);
         discover(
           str(thread["id"]),
@@ -135,15 +155,18 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
         );
       } else if (pending?.method === "turn/start" && message["error"] === undefined) {
         userTurns.add(str(obj(result["turn"])["id"]));
-        const agent = agents.get(str(pending.params["threadId"]));
-        if (agent) resolveAsync(agent, facts);
-      } else if (pending?.method === "turn/steer" && message["error"] === undefined) {
-        const agent = agents.get(str(pending.params["threadId"]));
-        if (agent) resolveAsync(agent, facts);
       }
-      flushEarly(facts);
-      if (root) facts.push(note(init.rootKey, "rpc.response", frame.data));
-      else retainEarly("rpc.response", frame.data);
+      if (pending?.interaction && message["error"] === undefined) {
+        facts.push({
+          type: "interaction.closed",
+          interaction: pending.interaction,
+          state: "resolved",
+        });
+        for (const agent of agents.values())
+          for (const item of agent.async)
+            if (asyncKey(item) === pending.interaction) agent.async.delete(item);
+      }
+      facts.push(note(init.rootKey, "rpc.response", frame.data));
       return facts;
     }
     if (method === "thread/started") {
@@ -152,14 +175,12 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       if (!native) return root ? [note(init.rootKey, method, frame.data)] : [];
       if (!root) root = native;
       discover(native, thread, facts, now, str(thread["parentThreadId"]) || undefined);
-      flushEarly(facts);
       facts.push(note(init.rootKey, method, frame.data));
       return facts;
     }
     const native = str(p["threadId"], root);
     if (!native) {
-      retainEarly(method || "unknown", frame.data);
-      return [];
+      return [note(init.rootKey, method || "unknown", frame.data)];
     }
     const agent = ensure(native, native === root, facts);
     facts.push({ type: "signal", agent: agent.key });
@@ -175,7 +196,8 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           stoppable: false,
         });
       }
-      agent.buffer.push(frame);
+      facts.push(note(agent.key, method || "unknown", frame.data));
+      buffers.push(agent, frame);
       return facts;
     }
     if (
@@ -237,6 +259,15 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       facts.push({ type: "turn.started", agent: agent.key, nativeTurnId: turn, trigger });
     } else if (method === "turn/completed") {
       completeTurn(agent, native, p, translation, facts);
+      if (agent.unmatchedFlag)
+        facts.push({
+          type: "interaction.opened",
+          agent: agent.key,
+          interaction: `status:${native}`,
+          blocking: true,
+          request: { kind: "approval", title: "Codex is waiting for input", options: [] },
+          raw: raw("thread/status/changed", agent.unmatchedFlag.data),
+        });
     } else if (method === "item/started" || method === "item/completed") {
       translateItem(agent, native, p, method, frame, now, translation, facts);
     } else if (
@@ -296,8 +327,17 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       if ((status["type"] === "idle" || status["type"] === "notLoaded") && !agent.turn)
         facts.push({ type: "wake.expected", agent: agent.key, until: now });
       const key = `status:${native}`;
-      if (flags.length && agent.requests.size === 0) agent.unmatchedFlag = { data: p, since: now };
-      else delete agent.unmatchedFlag;
+      if (flags.length && agent.requests.size === 0) {
+        agent.unmatchedFlag = { data: p, since: now };
+        facts.push({
+          type: "interaction.opened",
+          agent: agent.key,
+          interaction: key,
+          blocking: true,
+          request: { kind: "approval", title: "Codex is waiting for input", options: [] },
+          raw: raw(method, p),
+        });
+      } else delete agent.unmatchedFlag;
       if (!flags.length || agent.requests.size > 0)
         facts.push({ type: "interaction.closed", interaction: key, state: "cancelled" });
       if (status["type"] === "systemError")
@@ -332,9 +372,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       try {
         return handle(frame, now);
       } catch {
-        if (root) return [note(init.rootKey, "malformed", frame.data)];
-        retainEarly("malformed", frame.data);
-        return [];
+        return [note(init.rootKey, "malformed", frame.data)];
       }
     },
     tick(now) {

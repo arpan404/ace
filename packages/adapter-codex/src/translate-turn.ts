@@ -41,6 +41,13 @@ export function completeTurn(
         raw: raw("commandExecution", open.data),
       });
     } else {
+      if (open.streamStarted)
+        facts.push({
+          type: "item.upsert",
+          agent: agent.key,
+          item: `codex:plan-stream:${itemId}`,
+          draft: { type: "notice", complete: true },
+        });
       const draft = itemDraft(open.data, true);
       if (draft.type === "tool_call" && draft.call)
         draft.call.status = outcome === "completed" ? "succeeded" : "cancelled";

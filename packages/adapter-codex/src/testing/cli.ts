@@ -1,6 +1,19 @@
 // Offline provider boundary. This process never imports or starts a real Codex binary.
 import { createInterface } from "node:readline";
 import { list, obj, str } from "../native.ts";
+const args = process.argv.slice(2);
+if (args.join(" ") === "--version") {
+  process.stdout.write("codex-cli 0.159.1\n");
+  process.exit(0);
+}
+if (args.join(" ") === "login status") {
+  process.stderr.write("Logged in using ChatGPT\n");
+  process.exit(0);
+}
+if (args.join(" ") !== "app-server") {
+  process.stderr.write("Expected app-server launch\n");
+  process.exit(64);
+}
 const write = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
 const notify = (method: string, params: unknown) => write({ method, params });
 const item = (threadId: string, turnId: string, data: unknown, complete = true) =>
@@ -11,6 +24,7 @@ const active = new Map<string, string>();
 const terminals = new Map<string, { itemId: string; processId: string }[]>();
 let pendingKind = "";
 let queued = 0;
+let discoveryFailed = false;
 function end(threadId = "native", status = "completed"): void {
   const id = active.get(threadId) ?? "turn";
   active.delete(threadId);
@@ -38,18 +52,60 @@ for await (const line of createInterface({ input: process.stdin })) {
         platformFamily: "unix",
         platformOs: "macos",
       });
-  } else if (method === "thread/start" || method === "thread/resume")
+  } else if (method === "thread/start" || method === "thread/resume") {
+    if (process.env["ACE_FAKE_RESUME"] === "active") active.set("native", "resumed");
+    const shellHistory = process.env["ACE_FAKE_RESUME"] === "shell";
+    if (shellHistory)
+      terminals.set("native", [{ itemId: "hydrated", processId: "hydrated-process" }]);
     respond({
-      thread: { id: "native", cwd: process.cwd(), status: { type: "idle" }, turns: [] },
+      thread: {
+        id: "native",
+        cwd: process.cwd(),
+        status: { type: "idle" },
+        turns: shellHistory
+          ? [
+              {
+                id: "old",
+                status: "completed",
+                items: [
+                  { type: "agentMessage", id: "history", text: "historical message" },
+                  {
+                    type: "commandExecution",
+                    id: "hydrated",
+                    status: "inProgress",
+                    command: "loop",
+                    commandActions: [],
+                  },
+                ],
+              },
+            ]
+          : active.has("native")
+            ? [{ id: "resumed", status: "inProgress", items: [] }]
+            : [],
+      },
       model: "fake-model",
     });
-  else if (method === "turn/start") {
+  } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
     pendingKind = text;
+    if (text === "same-chunk") {
+      process.stdout.write(
+        `${JSON.stringify({ id, result: { turn: { id: "turn" } } })}\n${JSON.stringify({ method: "turn/started", params: { threadId: "native", turn: { id: "turn" } } })}\n${JSON.stringify({ method: "turn/completed", params: { threadId: "native", turn: { id: "turn", status: "completed" } } })}\n`,
+      );
+      continue;
+    }
     respond({ turn: { id: "turn" } });
     active.set("native", "turn");
     notify("turn/started", { threadId: "native", turn: { id: "turn" } });
-    if (text === "question")
+    if (text === "two-questions") {
+      for (const questionId of ["q", "q2"])
+        item("native", "turn", {
+          id: questionId,
+          type: "agentMessage",
+          delivery: "async",
+          questions: [{ title: "Tabs?", options: ["Tabs", "Spaces"] }],
+        });
+    } else if (text === "question")
       item("native", "turn", {
         id: "q",
         type: "agentMessage",
@@ -120,8 +176,22 @@ for await (const line of createInterface({ input: process.stdin })) {
     } else if (text === "hidden-child") {
       active.set("hidden", "hidden-turn");
       end();
+    } else if (["unrelated", "failed-discovery", "delta-shell"].includes(text)) {
+      if (text === "delta-shell") {
+        terminals.set("native", [{ itemId: "delta-exec", processId: "delta-process" }]);
+        notify("item/commandExecution/outputDelta", {
+          threadId: "native",
+          turnId: "turn",
+          itemId: "delta-exec",
+          delta: "running",
+        });
+      }
+      end();
     } else if (text === "exit") process.exit(7);
-    else if (text === "finish") end();
+    else if (text === "terminal-proof") {
+      message(JSON.stringify([...terminals.values()].flat()), "terminal-proof");
+      end();
+    } else if (text === "finish") end();
     else if (text === "Implement the plan." || obj(p["collaborationMode"])["mode"]) {
       message(JSON.stringify(p), "plan-proof");
       end();
@@ -175,13 +245,28 @@ for await (const line of createInterface({ input: process.stdin })) {
         commandActions: [],
       });
     }
-  } else if (method === "thread/loaded/list")
+  } else if (method === "thread/loaded/list") {
+    if (pendingKind === "failed-discovery" && !discoveryFailed) {
+      discoveryFailed = true;
+      active.set("hidden", "hidden-turn");
+      write({ id, error: { code: -32000, message: "discovery failed" } });
+      continue;
+    }
+    if (pendingKind === "unrelated") {
+      respond({ data: ["unrelated"], nextCursor: null });
+      continue;
+    }
     respond({ data: active.has("hidden") ? ["native", "hidden"] : ["native"], nextCursor: null });
-  else if (method === "thread/read")
+  } else if (method === "thread/read")
     respond({
       thread: {
         id: p["threadId"],
-        parentThreadId: "native",
+        parentThreadId:
+          p["threadId"] === "unrelated"
+            ? "other-root"
+            : p["threadId"] === "other-root"
+              ? null
+              : "native",
         cwd: process.cwd(),
         status: { type: "active" },
         turns: [{ id: active.get(str(p["threadId"])), status: "inProgress" }],

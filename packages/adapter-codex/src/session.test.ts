@@ -116,10 +116,14 @@ test("cascade interrupts children and terminates surviving terminals by listed p
     await h.wait(received("item/started"));
     await h.session.interrupt({ cascade: true });
     expect(Object.values(h.replay.state.runs).every((r) => r.state === "interrupted")).toBe(true);
-    await h.wait((f) => proof("root-exec")(f));
-    await h.wait((f) => proof("child-exec")(f));
-    expect(Object.values(h.replay.state.tasks).every((t) => t.status === "completed")).toBe(true);
-    expect(Object.values(h.replay.state.runs).every((r) => r.state === "interrupted")).toBe(true);
+    await h.session.send(text("terminal-proof"), "steer");
+    const terminals = await h.wait(proof("terminal-proof"));
+    expect(JSON.parse(str(obj(obj(obj(terminals.data)["params"])["item"])["text"]))).toEqual([]);
+    expect(
+      Object.values(h.replay.state.tasks)
+        .filter((t) => t.kind === "shell")
+        .every((t) => t.status === "completed"),
+    ).toBe(true);
   } finally {
     await h.dispose();
   }
@@ -164,6 +168,7 @@ test("abort closes the owned process once and rejects subsequent work", async ()
     expect((await h.exited).deliberate).toBe(true);
     await expect(h.session.send(text("after"), "queue")).rejects.toThrow("closed");
     await h.session.close("user");
+    expect(h.exits).toHaveLength(1);
   } finally {
     await h.dispose();
   }
@@ -199,8 +204,13 @@ test("an unknown thread without a spawn item is adopted from thread-read metadat
   const h = await sessionHarness();
   try {
     await h.session.send(text("orphan"), "queue");
+    await h.wait(proof("orphan-text"));
+    h.runTimers();
     await h.wait(
-      (f) => f.dir === "recv" && obj(obj(obj(f.data)["result"])["thread"])["id"] === "orphan",
+      (f) =>
+        f.dir === "note" &&
+        obj(f.data)["event"] === "thread-discovered" &&
+        obj(obj(f.data)["thread"])["id"] === "orphan",
     );
     const orphan = Object.values(h.replay.state.agents).find(
       (a) => a.agent.native.nativeId === "orphan",

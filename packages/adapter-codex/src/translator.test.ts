@@ -110,6 +110,13 @@ test("async final-answer questions stay non-blocking and become actionable after
     channel: "stdio",
     data: { id: 90, result: { turn: { id: "answer" } } },
   });
+  h.feed({
+    seq: 100,
+    t: 101,
+    dir: "note",
+    channel: "stdio",
+    data: { event: "interaction-resolved", interaction: "async:question" },
+  });
   expect(Object.values(h.state.interactions)[0]?.state).toBe("resolved");
 });
 test("a failed steer does not silently resolve an async question", () => {
@@ -209,7 +216,10 @@ test("a completed plan opens review and keeps the thread from finishing", () => 
   const plan = Object.values(h.state.items).find(
     (i) => i.type === "tool_call" && i.call.kind === "plan",
   );
-  expect(plan?.type === "tool_call" && plan.call.detail).toMatchObject({ markdown: "# Proposal" });
+  expect(plan?.type === "tool_call" && plan.call.detail).toMatchObject({ markdown: "" });
+  expect(
+    Object.values(h.state.items).some((i) => i.type === "notice" && i.text === "# Proposal"),
+  ).toBe(true);
   h.item({ id: "plan-item", type: "plan", text: "# Proposal" }, true);
   h.end();
   expect(h.state.status.state).toBe("needs_you");

@@ -67,7 +67,7 @@ export function translateItem(
     } else if (item["kind"] === "completed") {
       facts.push(note(agent.key, type, item, `${str(item["agentPath"], child)} finished`));
       if (!agent.turn) agent.childResult = true;
-    }
+    } else facts.push(note(agent.key, type, item));
   } else {
     if (type === "collabAgentToolCall" && item["tool"] === "spawnAgent") {
       for (const receiver of list(item["receiverThreadIds"])) {
@@ -91,10 +91,26 @@ export function translateItem(
       }
     }
     const previous = agent.open.get(itemId);
-    if (!complete)
-      agent.open.set(itemId, { data: item, turn: str(p["turnId"], agent.turn), output: "" });
-    else agent.open.delete(itemId);
+    if (!complete) {
+      // The full start payload has already been emitted as raw. Output is tracked by offset only.
+      const { aggregatedOutput: _output, ...metadata } = item;
+      agent.open.set(itemId, {
+        data: metadata,
+        turn: str(p["turnId"], agent.turn),
+        output: str(item["aggregatedOutput"]).length,
+      });
+    } else {
+      agent.open.delete(itemId);
+      agent.completed.add(itemId);
+    }
     const draft = itemDraft(item, complete);
+    if (type === "plan" && previous?.streamStarted && complete)
+      facts.push({
+        type: "item.upsert",
+        agent: agent.key,
+        item: `codex:plan-stream:${itemId}`,
+        draft: { type: "notice", complete: true },
+      });
     if (previous && complete) {
       const earlier = raw(
         str(previous.data["type"]),
@@ -112,16 +128,14 @@ export function translateItem(
       output &&
       draft.type === "tool_call" &&
       draft.call?.kind === "shell" &&
-      output !== previous?.output
+      output.length > (previous?.output ?? 0)
     )
       facts.push({
         type: "item.delta",
         agent: agent.key,
         item: itemId,
         field: "output",
-        append: output.startsWith(previous?.output ?? "")
-          ? output.slice(previous?.output.length ?? 0)
-          : output,
+        append: output.slice(previous?.output ?? 0),
       });
     if (complete && tasks.has(shellKey(itemId))) {
       tasks.delete(shellKey(itemId));

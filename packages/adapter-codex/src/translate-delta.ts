@@ -30,7 +30,7 @@ export function translateDelta(
   facts.push({ type: "retry.cleared", agent: agent.key });
   let open = agent.open.get(item);
   if (method === "item/plan/delta" || field === "output") {
-    if (!open) {
+    if (!open && !agent.completed.has(item)) {
       open = {
         data: {
           id: item,
@@ -40,7 +40,7 @@ export function translateDelta(
           text: "",
         },
         turn: str(p["turnId"], agent.turn),
-        output: "",
+        output: 0,
       };
       agent.open.set(item, open);
       agent.items.add(item);
@@ -52,17 +52,29 @@ export function translateDelta(
       });
     }
     if (method === "item/plan/delta") {
-      open.data = { ...open.data, text: str(open.data["text"]) + append };
-      facts.push({
-        type: "item.upsert",
-        agent: agent.key,
-        item,
-        draft: itemDraft(open.data, false),
-      });
+      if (!open) {
+        facts.push(ctx.note(agent.key, method, frame.data));
+        return;
+      }
+      const stream = `codex:plan-stream:${item}`;
+      if (!open.streamStarted) {
+        facts.push({
+          type: "item.upsert",
+          agent: agent.key,
+          item: stream,
+          draft: { type: "notice", level: "info", text: str(open.data["text"]), complete: false },
+        });
+        open.streamStarted = true;
+      }
+      facts.push({ type: "item.delta", agent: agent.key, item: stream, field: "text", append });
+      return;
+    }
+    if (!open) {
+      facts.push({ type: "item.delta", agent: agent.key, item, field: "output", append });
       return;
     }
     const draft = itemDraft(open.data, false);
-    open.output += append;
+    open.output += append.length;
     if (draft.type !== "tool_call" || draft.call?.kind !== "shell") {
       facts.push(ctx.note(agent.key, method, frame.data));
       return;

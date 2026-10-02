@@ -18,6 +18,7 @@ export type Pending = {
 export type SessionCommandsContext = {
   nativeSessionId: string;
   active: Map<string, string>;
+  ended: Set<string>;
   parents: Map<string, string>;
   shells: Map<string, string>;
   pending: Map<string, Pending>;
@@ -74,7 +75,7 @@ export function createSessionCommands(
         ),
       );
       const id = str(obj(result["turn"])["id"]);
-      if (id) active.set(threadId, id);
+      if (id && !config.ended.has(id)) active.set(threadId, id);
     }
   }
   async function stopShells(threadId: string, itemId?: string): Promise<void> {
