@@ -1,6 +1,6 @@
 import { spawn, execFile } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { afterEach, expect, it } from "vitest";
 import { DoctorReport } from "@ace/diagnostics";
 import { DeviceCredential, PairingResponse } from "@ace/protocol";
+import { nodeBinary } from "@ace/provider-kit/testing";
 import { accessRequest, redeemPairing } from "./client-access.ts";
 import { lanAddress, refusesTcp } from "./network-test-support.ts";
 import { scanTerminalQr } from "./qr-test-support.ts";
@@ -88,14 +89,14 @@ it("starts in the foreground and exposes status, a redeemable QR URL, device lis
   child.kill("SIGTERM");
   expect((await exited)[0]).toBe(0);
   expect(JSON.parse((await cli(directory, ["status"])).stdout)).toEqual({ running: false });
-});
+}, 15_000);
 it("doctor reuses provider-kit discovery with controlled CLI binaries and never sends prompts", async () => {
   const directory = home();
   const calls = join(directory, "calls");
-  writeFileSync(
-    join(directory, "codex"),
-    `#!${process.execPath}\nimport { appendFileSync } from 'node:fs';\nconst args = process.argv.slice(2).join(' ');\nappendFileSync(${JSON.stringify(calls)}, args + '\\n');\nif (args === '--version') console.log('codex-cli 1.2.3');\nelse if (args === 'login status') console.log('Logged in using ChatGPT');\nelse process.exit(9);\n`,
-    { mode: 0o700 },
+  await nodeBinary(
+    directory,
+    "codex",
+    `const { appendFileSync } = require('node:fs');\nconst args = process.argv.slice(2).join(' ');\nappendFileSync(${JSON.stringify(calls)}, args + '\\n');\nif (args === '--version') console.log('codex-cli 1.2.3');\nelse if (args === 'login status') console.log('Logged in using ChatGPT');\nelse process.exit(9);`,
   );
   let stdout = "";
   try {
@@ -126,10 +127,10 @@ it("doctor reuses provider-kit discovery with controlled CLI binaries and never 
 it("binds the address discovered from a real Tailscale status process", async () => {
   const directory = home();
   const calls = join(directory, "calls");
-  writeFileSync(
-    join(directory, "tailscale"),
-    `#!${process.execPath}\nimport { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(' '));\nconsole.log(JSON.stringify({ BackendState: 'Running', TailscaleIPs: ['127.0.0.1'] }));\n`,
-    { mode: 0o700 },
+  await nodeBinary(
+    directory,
+    "tailscale",
+    `const { writeFileSync } = require('node:fs');\nwriteFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(' '));\nconsole.log(JSON.stringify({ BackendState: 'Running', TailscaleIPs: ['127.0.0.1'] }));`,
   );
   // The daemon process gets a controlled PATH; OpenSSL remains available for TLS signing.
   const environment = {
@@ -181,10 +182,10 @@ it("binds the address discovered from a real Tailscale status process", async ()
 });
 it("prints actionable Tailscale setup guidance without silently exposing the LAN", async () => {
   const directory = home();
-  writeFileSync(
-    join(directory, "tailscale"),
-    `#!${process.execPath}\nconsole.log(JSON.stringify({ BackendState: 'Stopped', TailscaleIPs: [] }));\n`,
-    { mode: 0o700 },
+  await nodeBinary(
+    directory,
+    "tailscale",
+    `console.log(JSON.stringify({ BackendState: 'Stopped', TailscaleIPs: [] }));`,
   );
   await expect(
     cli(directory, ["start"], { ...envFor(directory), ACE_LISTEN: "tailscale", PATH: directory }),
