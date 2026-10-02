@@ -304,7 +304,7 @@ test("late frames from a retired session cannot enter the resumed transcript", a
   ).toBe(false);
 });
 
-test("legacy untracked queue uncertainty is reported and reconciled on startup", async () => {
+test("untracked queue uncertainty in a supported snapshot is reported and reconciled on startup", async () => {
   const frames = scriptFrames();
   const h = track(
     await harness([{ on: "send", frames: [frames.frame(start, end)] }, { on: "send" }], frames),
@@ -312,7 +312,7 @@ test("legacy untracked queue uncertainty is reported and reconciled on startup",
   const id = await h.create();
   h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
   await h.engine.flush();
-  // Version 1 marked delivery done without persisting acknowledgement ownership.
+  // An orphaned queue in a supported-format snapshot must not remain waiting forever.
   h.store.atomic((db) => db.prepare("UPDATE intents SET awaiting=0").run());
   const store = new Store(h.path);
   const engine = new Engine(store, { registry: h.registry, clock: h.clock });

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { recordSchemas } from "./snapshot.ts";
 import { itemMetadata } from "./item-metadata.ts";
 import { Records } from "./records.ts";
+import { engineSchemaVersion } from "./schema-version.ts";
 
 /** A complete core snapshot is a small header plus native-keyed entity records. */
 export class Snapshot {
@@ -151,7 +152,7 @@ export class Snapshot {
         pendingSpawnLinks: {},
         pendingItemLinks: {},
       },
-      engineSnapshot: 2,
+      engineSnapshot: engineSchemaVersion,
     });
   }
   begin(): void {

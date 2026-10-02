@@ -30,15 +30,21 @@ native-keyed records. Historical items, runs and native turn ids load on demand.
 deltas append to a journal instead of rewriting the item's accumulated text. Full item
 updates replace its base and retire the corresponding journal. This is a physical storage
 departure from the original single JSON row, needed to meet the review's O(change) requirement.
-Recovery uses this snapshot, not canonical events, preserving native identities. Version 1
-full snapshots remain readable and convert on their next write. Cache state is discarded
-after failed persistence so uncommitted mutations cannot enter a later transaction.
+Recovery uses this snapshot, not canonical events, preserving native identities. Both the
+engine database and snapshot header require schema version 8. The engine has never shipped;
+older inline snapshots and pre-ADR-0006 shell records/journals are development formats with
+no upgrade path. Older, newer, malformed or unversioned formats fail with a clear error
+requesting a fresh development database. Cache state is discarded after failed persistence
+so uncommitted mutations cannot enter a later transaction.
 
 Ordinary sends, steering and controls use independent worker lanes. A pending send response
 cannot hold an interrupt, task stop or capable steering call. Each intent is claimed before
 provider I/O. `thread.create` has mandatory input and therefore opens and sends immediately;
 other sessions open when their first send becomes runnable. Unsupported steering uses the
 normal queue. Readiness derives from core with queue count excluded.
+Thread status also comes from core: human requests precede active work anywhere in the tree,
+then waiting reasons, unresponsiveness and settled outcomes. A running background child
+keeps the thread working; queued input waits until the entire tree settles.
 
 Delivered sends retain a durable acknowledgement target until core accepts a fresh
 root run caused by user input, queue delivery or an unknown partial stream. Replayed native
@@ -76,7 +82,8 @@ Text appends fold against a persisted metadata record whose string bodies are em
 and append chunks remain the complete snapshot. The scoped append value keeps core validation,
 identity and append semantics while avoiding historical string reconstruction. Full reads and
 upserts materialize the text on demand; replacing a body retires its old journal. Both full bodies
-and metadata use bounded dictionary caches. Legacy snapshots gain metadata on their first append.
+and metadata use bounded dictionary caches. Missing metadata is derived on its first append
+only within the supported snapshot format.
 
 ADR 0006 is on main. Shell deltas persist the bounded summary in engine state and fill Store's
 shared output stream; `output.read` serves its bytes. Store provides windowed snapshots and item
@@ -87,15 +94,18 @@ reconstruct its accumulated body. No engine-authored changes touch those package
 
 ## Verification and performance
 
-Run `bun run test apps/daemon/src/engine` for public API tests with scripted providers,
-file-backed SQLite and real WebSockets. Provider waits and clocks are controlled boundaries;
-there are no synchronization sleeps or gating performance budgets.
+The repository owner requires tests to run once at merge. The committed public API tests use
+scripted providers, file-backed SQLite and real WebSockets. Provider waits and clocks are
+controlled boundaries; there are no synchronization sleeps or gating performance budgets.
+Until merge, run only formatting, lint, typechecking and size checks. Runtime assertions,
+performance measurements and mutation cases need run at merge.
 
-Run `node apps/daemon/src/engine/benchmark.ts` for the complete adapter callback, translation,
-core, SQLite and WebSocket delivery benchmark. It seeds 10, 100, 1,000 and 10,000 items, then
+`benchmark.ts` contains the complete adapter callback, translation, core, SQLite and WebSocket
+delivery benchmark, deferred to merge under the same rule. It seeds 10, 100, 1,000 and 10,000 items, then
 measures 30 one-character deltas at each size. It also measures active messages of 1 KiB,
 1 MiB + 1 byte and 4 MiB. Detail items load through real WebSocket pages before timing so
-client projection applies every delta even when the item is outside the snapshot window. The PR records results and mutation failures.
+client projection applies every delta even when the item is outside the snapshot window. The
+PR distinguishes historical measurements from final-head verification deferred to merge.
 The header remains about 542 bytes at every history size; untouched entities are not decoded
 or serialized on the frame path. SQLite intent queries index only outstanding statuses and
 acknowledgements. Core status traversal still depends on the agent tree and live work.

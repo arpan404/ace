@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireSnapshotVersion } from "./schema-version.ts";
 import type { AgentRecord, ThreadState } from "@ace/core";
 import {
   Agent,
@@ -126,5 +127,7 @@ const savedState = z.custom<ThreadState>(
   "Invalid saved core state",
 );
 export function decodeSnapshot(json: string): ThreadState {
-  return savedState.parse(JSON.parse(json));
+  const value: unknown = JSON.parse(json);
+  requireSnapshotVersion(value);
+  return savedState.parse(value);
 }
