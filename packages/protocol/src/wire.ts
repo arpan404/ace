@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { ReadRequest, ReadResponse } from "./reads.ts";
+import {
+  PresenceUpdate,
+  NotificationRegister,
+  NotificationSettings,
+  NotificationSnooze,
+  NotificationMessage,
+} from "./notifications.ts";
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import { Command } from "./commands.ts";
@@ -50,6 +57,10 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ClientMessage = z.discriminatedUnion("type", [
   ReadRequest,
+  PresenceUpdate,
+  NotificationRegister,
+  NotificationSettings,
+  NotificationSnooze,
   z
     .object({
       type: z.literal("hello"),
@@ -79,6 +90,7 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 const CoreServerMessage = z.discriminatedUnion("type", [
+  NotificationMessage,
   z.object({
     type: z.literal("welcome"),
     hostId: HostId,
