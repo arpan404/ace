@@ -93,7 +93,14 @@ length and result counts. Diagnostics use logical source labels.
 Each file is an independent source. A watcher event invalidates that path only;
 rename updates reconcile that subtree. Debounce uses a bounded pending set and
 falls back to a bounded root reconciliation on overflow or unnamed events.
-Missing roots are watched through their nearest existing ancestor. File reads
+Missing roots are watched through their nearest existing ancestor.
+A repeated real-filesystem probe demonstrated missing native notifications,
+even with a single watcher. A round-robin recovery ring therefore checks at
+most 32 path metadata records per 250 ms tick and queues only changed paths.
+At most 4,160 paths are retained; slot reuse preserves fairness under churn.
+Only one recovery batch can run at a time. Tests inject notification loss and
+a controlled scheduler while retaining real filesystem I/O. See the
+[Node watch caveats](https://nodejs.org/api/fs.html#caveats). File reads
 use a fixed byte limit, never unbounded `readFile`. A catalog admits at most 8 MiB of estimated definition data. Native directory
 watches are capped at 128 per context and never recurse over an entire home.
 Contexts with runtime sources stay pinned until their sessions clear them.

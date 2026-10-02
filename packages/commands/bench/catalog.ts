@@ -40,11 +40,18 @@ const home = await realpath(await mkdtemp(join(tmpdir(), "ace-command-bench-")))
 const root = join(home, "prompts");
 await mkdir(root);
 for (let i = 0; i < 100; i++) await writeFile(join(root, `${i}.md`), "body");
-const files = new CommandFiles(new CommandCatalog(Date.now), [
-  { path: root, format: "library", scope: "user" },
-]);
+const files = new CommandFiles(
+  new CommandCatalog(Date.now),
+  [{ path: root, format: "library", scope: "user" }],
+  { schedule: () => () => {} },
+);
 try {
   await files.start();
+  const recoveryStart = performance.now();
+  for (let i = 0; i < 100; i++) await files.reconcile();
+  process.stdout.write(
+    `recovery batch of up to 32 metadata checks: ${((performance.now() - recoveryStart) * 10).toFixed(2)} us/op\n`,
+  );
   const start = performance.now();
   for (let i = 0; i < 100; i++) {
     files.invalidate(join(root, "1.md"));

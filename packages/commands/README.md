@@ -66,9 +66,14 @@ Limits include 64 KiB per file, 8 MiB estimated retained definitions per catalog
 watchers per context, 256 pending invalidations, 16 service requests and 1,024
 usage records. Oversized files and malformed frontmatter produce diagnostics.
 Full catalogs reject new sources. Watcher limits leave affected directories
-available to explicit `invalidate`/`flush` refresh. Missing directories are
-watched through existing ancestors. Call `close` to dispose the service.
+covered by metadata recovery and explicit `invalidate`/`flush` refresh. Missing
+directories are watched through existing ancestors. Native notification loss
+is repaired by checking up to 32 metadata records per 250 ms tick in a fair
+ring, capped at 4,160 paths. Batches never overlap. `reconcile` runs one batch
+explicitly; tests inject the uncontrolled notification source and scheduler.
+Call `close` to dispose the service.
 
-Run focused tests with `bun run test packages/commands/src -- --maxWorkers=2`.
-`bun run --filter @ace/commands bench` measures source replacement, resolution,
-fuzzy ranking and incremental file refresh. It is not a test gate.
+Behavior tests and benchmark execution are deferred to merge time under the
+repository owner's current validation policy. The non-gating benchmark in
+`bench/catalog.ts` measures source replacement, resolution, fuzzy ranking,
+metadata recovery and incremental file refresh.

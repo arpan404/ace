@@ -1,5 +1,6 @@
 export { CommandCatalog, type CommandService, type ProviderInstance } from "./catalog.ts";
-export { CommandFiles, discoveryRoots, type DiscoveryRoot } from "./files.ts";
+export { CommandFiles, type WatchSource, type RecoveryScheduler } from "./files.ts";
+export { discoveryRoots, type DiscoveryRoot } from "./roots.ts";
 export { parseMarkdown, parseOpenCodeConfig } from "./parse.ts";
 export { parseRuntime } from "./runtime.ts";
 export { resolveCommand } from "./plan.ts";

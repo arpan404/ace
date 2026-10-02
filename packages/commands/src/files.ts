@@ -1,89 +1,13 @@
-import { watch, constants, type FSWatcher } from "node:fs";
+import { watch, constants } from "node:fs";
 import { lstat, opendir, open, realpath } from "node:fs/promises";
 import { dirname, basename, relative, resolve, sep, join } from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { CommandCatalog, type ProviderInstance } from "./catalog.ts";
+import { CommandCatalog } from "./catalog.ts";
 import { parseMarkdown, parseOpenCodeConfig } from "./parse.ts";
-import type { ParseContext } from "./types.ts";
+import type { DiscoveryRoot } from "./roots.ts";
+import { FileRecovery } from "./recovery.ts";
 
-export interface DiscoveryRoot {
-  path: string;
-  format: ParseContext["format"] | "opencode-config";
-  scope: "user" | "workspace";
-  instance?: string | undefined;
-  skill?: boolean | undefined;
-  trustedRoot?: string | undefined;
-}
-export function discoveryRoots(
-  instances: readonly ProviderInstance[],
-  aceHome: string,
-  workspace: string,
-): DiscoveryRoot[] {
-  const roots: DiscoveryRoot[] = [
-    { path: join(aceHome, "prompts"), trustedRoot: aceHome, format: "library", scope: "user" },
-    {
-      path: join(workspace, ".ace/prompts"),
-      trustedRoot: workspace,
-      format: "library",
-      scope: "workspace",
-    },
-  ];
-  for (const instance of instances) {
-    const scopes = [
-      { path: instance.home, scope: "user" as const },
-      { path: join(workspace, `.${instance.provider}`), scope: "workspace" as const },
-    ];
-    if (instance.provider === "claude")
-      for (const scope of scopes) {
-        roots.push({
-          path: join(scope.path, "commands"),
-          scope: scope.scope,
-          format: "claude",
-          instance: instance.id,
-          trustedRoot: scope.scope === "workspace" ? workspace : instance.home,
-        });
-        roots.push({
-          path: join(scope.path, "skills"),
-          scope: scope.scope,
-          format: "claude",
-          instance: instance.id,
-          trustedRoot: scope.scope === "workspace" ? workspace : instance.home,
-          skill: true,
-        });
-      }
-    else if (instance.provider === "codex")
-      for (const scope of scopes)
-        roots.push({
-          path: join(scope.path, "prompts"),
-          scope: scope.scope,
-          format: "codex",
-          instance: instance.id,
-          trustedRoot: scope.scope === "workspace" ? workspace : instance.home,
-        });
-    else if (instance.provider === "opencode") {
-      for (const scope of scopes) {
-        for (const folder of ["command", "commands"])
-          roots.push({
-            path: join(scope.path, folder),
-            scope: scope.scope,
-            format: "opencode",
-            instance: instance.id,
-            trustedRoot: scope.scope === "workspace" ? workspace : instance.home,
-          });
-        for (const file of ["opencode.json", "opencode.jsonc"])
-          roots.push({
-            path: join(scope.scope === "workspace" ? workspace : scope.path, file),
-            scope: scope.scope,
-            format: "opencode-config",
-            instance: instance.id,
-            trustedRoot: scope.scope === "workspace" ? workspace : instance.home,
-          });
-      }
-    }
-  }
-  return roots;
-}
 const rootSchema = z.object({
   path: z.string().min(1),
   format: z.enum(["library", "claude", "codex", "opencode", "opencode-config"]),
@@ -115,10 +39,27 @@ async function readBounded(path: string): Promise<string> {
     await file.close();
   }
 }
+export type WatchSource = (
+  path: string,
+  changed: (file: string | undefined) => void,
+  failed: () => void,
+) => () => void;
+const nativeWatch: WatchSource = (path, changed, failed) => {
+  const watcher = watch(path, (_event, file) => changed(file === null ? undefined : String(file)));
+  watcher.on("error", failed);
+  watcher.unref();
+  return () => watcher.close();
+};
+export type RecoveryScheduler = (run: () => void) => () => void;
+const scheduleRecovery: RecoveryScheduler = (run) => {
+  const timer = setInterval(run, 250);
+  timer.unref();
+  return () => clearInterval(timer);
+};
 export class CommandFiles {
   private readonly catalog: CommandCatalog;
   private readonly roots: DiscoveryRoot[];
-  private readonly watchers = new Map<string, FSWatcher>();
+  private readonly watchers = new Map<string, () => void>();
   private readonly children = new Map<string, Set<string>>();
   private readonly sources = new Map<string, string>();
   private readonly pending = new Set<string>();
@@ -127,38 +68,51 @@ export class CommandFiles {
   private work: Promise<void> = Promise.resolve();
   private closed = false;
   private links = 0;
-  constructor(catalog: CommandCatalog, roots: readonly DiscoveryRoot[]) {
+  private readonly recovery = new FileRecovery();
+  private readonly watchSource: WatchSource;
+  private stopRecovery: (() => void) | undefined;
+  private readonly scheduleRecovery: RecoveryScheduler;
+  private healing: Promise<void> | undefined;
+  constructor(
+    catalog: CommandCatalog,
+    roots: readonly DiscoveryRoot[],
+    options: { watch?: WatchSource; schedule?: RecoveryScheduler } = {},
+  ) {
+    this.watchSource = options.watch ?? nativeWatch;
+    this.scheduleRecovery = options.schedule ?? scheduleRecovery;
     this.catalog = catalog;
     this.roots = z
       .array(rootSchema)
       .max(32)
       .parse(roots)
       .map((root) => Object.assign(root, { path: resolve(root.path) }));
+    for (const root of this.roots) this.recovery.track(root.path, undefined);
   }
   private watchDirectory(root: DiscoveryRoot, path: string): void {
     const key = `${sourceId(root, root.path)}:${path}`;
     if (this.watchers.has(key)) return;
     if (this.watchers.size >= 128) {
-      this.report(root, path, "Watcher limit exceeded; explicit refresh required");
+      this.report(root, path, "Native watcher limit exceeded; metadata recovery remains active");
       return;
     }
     try {
-      const watcher = watch(path, (_event, file) => {
-        if (!file) {
-          this.invalidate(root.path);
-          return;
-        }
-        const changed = resolve(path, String(file));
-        if (inside(root.path, changed)) this.invalidate(changed);
-        else if (inside(changed, root.path)) this.invalidate(root.path);
-      });
-      watcher.on("error", () =>
-        this.report(root, path, "File watcher unavailable; explicit refresh required"),
+      const stop = this.watchSource(
+        path,
+        (file) => {
+          if (!file) {
+            this.invalidate(root.path);
+            return;
+          }
+          const changed = resolve(path, String(file));
+          if (inside(root.path, changed)) this.invalidate(changed);
+          else if (inside(changed, root.path)) this.invalidate(root.path);
+        },
+        () =>
+          this.report(root, path, "Native watcher unavailable; metadata recovery remains active"),
       );
-      watcher.unref();
-      this.watchers.set(key, watcher);
+      this.watchers.set(key, stop);
     } catch {
-      this.report(root, path, "File watcher unavailable; explicit refresh required");
+      this.report(root, path, "Native watcher unavailable; metadata recovery remains active");
     }
   }
   private async watchAncestor(root: DiscoveryRoot): Promise<void> {
@@ -180,6 +134,22 @@ export class CommandFiles {
       await this.watchAncestor(root);
       await this.sync(root, root.path, 0);
     }
+    this.stopRecovery = this.scheduleRecovery(() => {
+      void this.reconcile();
+    });
+  }
+  /** Bounded recovery for dropped native notifications; also an explicit refresh port. */
+  reconcile(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    if (this.healing) return this.healing;
+    const run = (async () => {
+      for (const path of await this.recovery.check()) this.invalidate(path);
+      await this.flush();
+    })();
+    this.healing = run.finally(() => {
+      this.healing = undefined;
+    });
+    return this.healing;
   }
   /** Subscription wakes clients/tests after a complete batch, without polling or sleeps. */
   subscribe(listener: () => void): () => void {
@@ -238,11 +208,12 @@ export class CommandFiles {
     this.links -= this.children.get(key)?.size ?? 0;
     this.children.delete(key);
     const watchKey = `${sourceId(root, root.path)}:${path}`;
-    this.watchers.get(watchKey)?.close();
+    this.watchers.get(watchKey)?.();
     this.watchers.delete(watchKey);
     const id = this.sources.get(key);
     if (id) this.catalog.removeSource(id);
     this.sources.delete(key);
+    if (!this.roots.some((candidate) => candidate.path === path)) this.recovery.forget(path);
   }
   private async sync(root: DiscoveryRoot, path: string, depth: number): Promise<void> {
     if (this.closed) return;
@@ -251,10 +222,12 @@ export class CommandFiles {
     try {
       stat = await lstat(path);
     } catch {
+      if (path === root.path) this.recovery.track(path, undefined);
       this.remove(root, path);
       if (path === root.path) await this.watchAncestor(root);
       return;
     }
+    if (path === root.path) this.recovery.track(path, stat);
     const parentChildren = this.children.get(`${sourceId(root, root.path)}:${dirname(path)}`);
     if (parentChildren && !parentChildren.has(path)) {
       if (this.links >= 8192) {
@@ -294,13 +267,16 @@ export class CommandFiles {
         root.format === "opencode-config" ||
         depth > 8 ||
         (root.format === "codex" && path !== root.path)
-      )
+      ) {
+        this.remove(root, path);
         return;
+      }
       this.watchDirectory(root, path);
       if (!this.children.has(key) && this.children.size >= 2048) {
         this.report(root, path, "Directory limit exceeded");
         return;
       }
+      this.recovery.track(path, stat);
       try {
         const current = new Set<string>();
         const dir = await opendir(path);
@@ -337,8 +313,10 @@ export class CommandFiles {
       !stat.isFile() ||
       (root.format !== "opencode-config" &&
         (!path.endsWith(".md") || (root.skill && basename(path) !== "SKILL.md")))
-    )
+    ) {
+      this.remove(root, path);
       return;
+    }
     if (this.children.has(key)) {
       this.remove(root, path);
       if (parentChildren && !parentChildren.has(path)) {
@@ -347,6 +325,7 @@ export class CommandFiles {
       }
     }
     if (!this.sources.has(key) && this.sources.size >= 2048) return;
+    this.recovery.track(path, stat);
     const id = sourceId(root, path);
     const name = root.skill
       ? basename(dirname(path))
@@ -382,10 +361,12 @@ export class CommandFiles {
   async close(): Promise<void> {
     this.closed = true;
     if (this.timer) clearTimeout(this.timer);
-    for (const watcher of this.watchers.values()) watcher.close();
+    this.stopRecovery?.();
+    for (const stop of this.watchers.values()) stop();
     this.watchers.clear();
     this.pending.clear();
     this.listeners.clear();
+    await this.healing;
     await this.work;
   }
 }

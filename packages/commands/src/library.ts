@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { ProviderKind, type CommandResolution } from "@ace/protocol";
 import { CommandCatalog, type CommandService, type ProviderInstance } from "./catalog.ts";
-import { CommandFiles, discoveryRoots } from "./files.ts";
+import { CommandFiles } from "./files.ts";
+import { discoveryRoots } from "./roots.ts";
 const context = z.object({
   workspace: z.string().min(1),
   provider: ProviderKind,
