@@ -41,6 +41,8 @@ have separate namespaces and stable IDs, so collisions remain selectable.
 
 Claude commands and skills pass through natively on Claude, preserving its
 permissions and dynamic context. Terminal-only commands are unavailable.
+Consumers submit prompt plans verbatim and native plans through the provider
+command transport, so slash text inside a snippet cannot select a command.
 OpenCode commands pass through with their metadata. ACP commands pass through
 only on their originating provider. Codex file prompts expand locally, including
 named and positional arguments. File-only project Codex prompts are an ace

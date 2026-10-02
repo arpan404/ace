@@ -7,7 +7,9 @@ See [ADR 0039](../../docs/adr/0039-commands-and-prompts.md).
 an ace home and a clock. It loads each workspace and instance lazily. Eight
 contexts are retained; contexts with runtime catalogs stay pinned until their
 sessions clear them. `list` returns metadata; `resolve` returns a plan and never
-sends it. Call `recordUse` after execution to rank by frequency and recency.
+sends it. Consumers submit prompt plans verbatim and send native plans through
+the provider command transport. This keeps slash text inside snippets literal.
+Call `recordUse` after execution to rank by frequency and recency.
 Usage statistics are bounded and kept in memory for the daemon's lifetime.
 
 Adapters feed `updateRuntime(threadId, frame)` with the Claude system init or the
