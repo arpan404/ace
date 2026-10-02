@@ -36,6 +36,7 @@ export function settingsSession(options: {
   store: Store;
   subscriptions: Map<string, () => void>;
   send(message: ServerMessage): void;
+  authorize?(request: SettingsRequest): boolean;
 }) {
   let closed = false;
   let tail: Promise<void> = Promise.resolve();
@@ -80,6 +81,8 @@ export function settingsSession(options: {
       tail = tail
         .then(async () => {
           if (closed || reservation.cancelled) return;
+          if (options.authorize && !options.authorize(request))
+            throw new SettingsError("validation", "Device authority changed");
           const service = options.service;
           if (!service) throw new SettingsError("io", "Settings service is unavailable");
           const wireScope =
@@ -178,6 +181,7 @@ export function settingsSession(options: {
           pending--;
         });
     },
+    drained: () => tail,
     close() {
       closed = true;
     },

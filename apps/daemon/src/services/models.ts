@@ -11,7 +11,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
 import { handleModelRequest } from "../models.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export function createModelsSession(context: SocketContext): SocketService {
-  const { options, authorize, send } = context;
+  const { options, authorize, send, tasks } = context;
   let modelRequests = 0;
   return {
     async handle(message) {
@@ -39,11 +39,13 @@ export function createModelsSession(context: SocketContext): SocketService {
             return true;
           }
           modelRequests++;
-          void handleModelRequest(options.models, message)
+          const task = handleModelRequest(options.models, message)
             .then(send, () => modelFailure("Model catalog request failed"))
             .finally(() => {
               modelRequests--;
             });
+          tasks.add(task);
+          void task.finally(() => tasks.delete(task));
           return true;
         }
       }

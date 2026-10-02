@@ -11,16 +11,20 @@ export async function startSettings(context: ServiceContext): Promise<void> {
 import { settingsSession } from "../settings.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export function createSettingsSession(context: SocketContext): SocketService {
-  const { options, subscriptions, authorize, send, fail } = context;
+  const { options, subscriptions, authorize, send, fail, tasks } = context;
   const settings = settingsSession({
     service: options.settings,
     store: options.store,
     subscriptions,
     send,
+    authorize: (request) => authorize(request.type === "settings.set" ? "operate" : "read"),
   });
   return {
     close() {
       settings.close();
+      const pending = settings.drained();
+      tasks.add(pending);
+      void pending.finally(() => tasks.delete(pending));
     },
     async handle(message) {
       switch (message.type) {

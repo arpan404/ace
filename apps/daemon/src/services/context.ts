@@ -42,7 +42,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
 
 import type { SocketContext, SocketService } from "./socket.ts";
 export function createContextSession(context: SocketContext): SocketService {
-  const { options, authorize, send } = context;
+  const { options, authorize, canReadThread, send, tasks } = context;
   let contextBusy = false;
   return {
     async handle(message, device) {
@@ -53,7 +53,10 @@ export function createContextSession(context: SocketContext): SocketService {
             op === "attachment.list" || op === "upload.status" || op.startsWith("mention.")
               ? "read"
               : "operate";
-          if (!authorize(scope)) {
+          if (
+            !authorize(scope) ||
+            ("threadId" in message.operation && !canReadThread(message.operation.threadId))
+          ) {
             send({
               type: "context.result",
               requestId: message.requestId,
@@ -76,7 +79,7 @@ export function createContextSession(context: SocketContext): SocketService {
             return true;
           }
           contextBusy = true;
-          void options.context
+          const task = options.context
             .handle(device, message, () => authorize(scope))
             .then(send)
             .catch((error: unknown) => {
@@ -94,6 +97,8 @@ export function createContextSession(context: SocketContext): SocketService {
             .finally(() => {
               contextBusy = false;
             });
+          tasks.add(task);
+          void task.finally(() => tasks.delete(task));
           return true;
         }
       }
