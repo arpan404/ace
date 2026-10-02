@@ -1,5 +1,7 @@
 # SDK benchmark results
 
+Historical measurements taken before the owner prohibited tests, probes and benchmarks. They describe the measured fix-round revision; performance of the final revision needs run at merge. No benchmarks were executed after the new rule.
+
 Node 26.8.1 on macOS, 2026-10-02. Non-gating measurements on the shared development machine while other worktrees were checking; scheduling contention makes these unsuitable for absolute comparison with earlier runs. Store cases apply 200,000 events, do not include wire parsing, and include the bounded reconciliation journal. RSS is the process high-water mark, cumulative across cases. Multipart prefixes remain 199 empty text parts plus the changing tail throughout this run.
 
 | Case                                            | Operations/s |     µs/op | Peak RSS MiB |
@@ -15,7 +17,7 @@ Node 26.8.1 on macOS, 2026-10-02. Non-gating measurements on the shared developm
 
 Reparenting retained 0.157 MiB additional heap after GC. Cold reads release the subscription and cross a socket barrier before measuring. They use the daemon's indexed stream API, with no transcript reconstruction. The 200-part case costs 14.6% more per event than the one-part case, rather than scanning/copying all 200 parts per delta. Accessing the lazy public parts array materializes that bounded array on demand.
 
-Run from the repository root:
+For the authorized merge-time workflow, run from the repository root:
 
 ```
 node packages/client/bench/events.ts

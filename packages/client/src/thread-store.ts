@@ -330,8 +330,6 @@ export class ThreadStore implements ThreadReader {
         this.clipped.delete(id);
         this.hydrated.delete(id);
         this.creation.delete(id);
-        this.hydrated.delete(id);
-        this.creation.delete(id);
         keys.add(`item:${id}`);
       }
     }
