@@ -2,7 +2,7 @@
 
 Run on 2026-10-02 with Node 26.8.1, Bun 1.4.0 and Vitest 5.0.3.
 
-`bun run check` passes format, lint, file-size, TypeScript and the full test suite. The final run has 394 passing tests and four existing opt-in live-provider tests skipped. No provider prompts or recorder sessions were run.
+`bun run check` passes format, lint, file-size, TypeScript and the full test suite. The final run has 398 passing tests and four existing opt-in live-provider tests skipped. No provider prompts or recorder sessions were run.
 
 The added behaviors use real HTTP/HTTPS/WebSocket listeners, temporary SQLite databases and real child processes. Time is injected for expiry and rate windows. Tests synchronize through process output, socket messages and close events, without sleeps or explicit wall-clock budgets.
 
@@ -40,7 +40,7 @@ Merged `origin/main` before changing the reviewed implementation. The following 
 - A wildcard Tailscale binding passed the old advertised-address test. The strengthened test fails on a successful real TCP connection through the machine's external IPv4 address and redeems a pairing through the selected loopback interface as a positive control. Restoring the interface binding passes.
 - A shared ticket pool across two daemon starts passed the old restart test. Using the paired device ID makes the old ticket incorrectly yield `welcome`, which now fails the assertion. A fresh ticket for that same device successfully authenticates after restart. Restoring per-server ticket ownership passes.
 
-The unchanged provider discovery concurrency test passed five separate focused runs after the merge, as well as the full check. The earlier missing-version failure did not reproduce. Controlled provider binaries only report version/authentication facts; no provider prompts run.
+The initial provider discovery concurrency runs passed with ordinary OS temporary directories. The independent verifier later reproduced the missing-version failure with checkout-local `TMPDIR`: extensionless CommonJS stand-ins inherited an ESM package scope. The fixture now writes an explicit CommonJS package boundary. A new public discovery test first failed with a missing version under an ESM parent, then passed after the boundary fix. Controlled provider binaries only report version/authentication facts; no provider prompts run.
 
 ## Review mutation checks
 
@@ -77,3 +77,16 @@ Run `bun run --filter @ace/daemon bench:remote`. Five fresh Node processes per v
 Median retained heap after explicit GC was 2.86 MiB for the scan and 3.20 MiB for the indexed heap plus per-device ownership/rate accounting. Updated batch ranges were 105–119, 242–257 and 476–621 ms. Shared-machine load produced wider baseline ranges of 112–2,318, 289–4,609 and 665–1,090 ms, so these measurements are informational, not a speed guarantee or test threshold.
 
 Issuance and consumption use O(log N) heap work rather than O(N) retained-ticket scans. Expiry processes only due entries. Revocation visits only that device's pending set, capped at 32 by default, removing each heap entry in O(log N). Tickets, ownership keys and rate entries are bounded by the configured global limit, with no tombstones accumulating after consumption or revocation.
+
+## Independent verification follow-up
+
+The verifier confirmed every previous runtime fix and all eight original survivors, then identified two new mutation gaps. These are now guarded through public APIs:
+
+- Issue four tickets at relative times 0, 10, 20 and 30 seconds. Consume the oldest at 30 seconds, then use the second at its exact 70-second expiry. It must be unauthorized, while the two later tickets still authenticate. A separate real HTTP/WebSocket test verifies two capacity slots become available without consuming the expired ticket first, and that all later and newly allocated tickets authenticate. Removing heap repair after deletion fails both tests, first with expired-ticket `welcome`, then with an unexpected 429. Restoring production code makes both pass.
+- Inject a one-byte entropy source into the public Store. Device creation must throw before any row persists. Close and reopen the actual SQLite database, verify it remains empty, then create and authenticate a valid credential as a positive control. Removing the source-length check fails the throw assertion. Restoring validation makes the test pass.
+
+Both mutations were applied individually and reverted in `finally` blocks. Combined with the preceding 29, this PR records 31 applied production mutations. No ticket allocator or credential runtime change was necessary in this round; the new tests close the coverage gaps in correct existing code. The committed benchmark and allocation complexity remain applicable.
+
+A new discovery regression test creates a nested temporary directory below an explicit ESM package and runs an extensionless CommonJS fake CLI through public `discoverProviders`. It reproduced the missing-version assertion before the fixture fix. The fixture now supplies an explicit CommonJS boundary, so it works with OS-temp or checkout-local `TMPDIR` without changing provider discovery production behavior. This was a deterministic environment assumption, not machine-load flakiness.
+
+`bun run check` passes both with ordinary temporary directories and with `TMPDIR` rooted inside this ESM checkout, without a neutral package override at the TMPDIR root. Each run has 398 passing tests and four existing opt-in skips. All 140 source files satisfy the size limit. CI was disabled by the repo owner for this round; no CI run, rerun or wait was requested.
