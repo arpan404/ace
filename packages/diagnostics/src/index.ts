@@ -25,3 +25,5 @@ export { createSystemProbes, portAvailable } from "./probes.ts";
 export { checkIntegrity, sqliteSizes } from "./sqlite.ts";
 export { writeSupportBundle, type BundleOptions } from "./bundle.ts";
 export { recentThreadEvents } from "./threads.ts";
+
+export { logFields } from "./bounded.ts";

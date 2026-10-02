@@ -2,7 +2,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createRedactor } from "@ace/redaction";
-import { createLogger, createFileSink, type LogRecord } from "./index.ts";
+import { createLogger, createFileSink, logFields, type LogRecord } from "./index.ts";
 import { temporary, deferred } from "./test-support.ts";
 const context = {
   home: "/Users/someone",
@@ -28,11 +28,15 @@ it("no known token, home path or environment value reaches the file or recent ri
   const sink = await createFileSink({ directory, fileBytes: 65536, totalBytes: 131072, context });
   const logger = createLogger({ sink, now: () => 123, redact, level: "debug" });
   try {
-    logger.child("provider").log("warn", `${tokens.join(" ")} /Users/someone/private`, {
-      password: 42,
-      nested: { accessToken: ["unrecognized"] },
-      huge: "sk-" + "a".repeat(10000),
-    });
+    logger.child("provider").log(
+      "warn",
+      `${tokens.join(" ")} /Users/someone/private`,
+      logFields([
+        ["password", 42],
+        ["nested", logFields([["accessToken", ["unrecognized"]]])],
+        ["huge", "sk-" + "a".repeat(10000)],
+      ]),
+    );
     await logger.flush();
     const file = await readFile(join(directory, "ace.jsonl"), "utf8");
     for (const token of tokens) {
@@ -142,7 +146,74 @@ it("logging a circular object or an object with getters does not throw or invoke
       throw new Error("getter invoked");
     },
   });
-  expect(() => logger.log("info", "safe", object)).not.toThrow();
-  expect(logger.recent()[0]).toContain("<CYCLE>");
+  expect(() =>
+    logger.log(
+      "info",
+      "safe",
+      logFields([
+        ["self", object],
+        ["danger", object],
+      ]),
+    ),
+  ).not.toThrow();
+  expect(logger.recent()[0]).toContain("<UNPREPARED OBJECT OMITTED>");
+  await logger.close();
+});
+it("ordinary array values remain available in recent and persisted logs", async () => {
+  const directory = await temporary();
+  const logger = createLogger({
+    sink: await createFileSink({ directory, fileBytes: 4096, totalBytes: 8192, context: {} }),
+    now: () => 0,
+    redact,
+  });
+  logger.log("info", "arrays", logFields([["values", ["visible", 7, [true, null]]]]));
+  await logger.flush();
+  expect(JSON.parse(logger.recent()[0] ?? "null").data.values).toEqual([
+    "visible",
+    7,
+    [true, null],
+  ]);
+  expect(JSON.parse(await readFile(join(directory, "ace.jsonl"), "utf8")).data.values).toEqual([
+    "visible",
+    7,
+    [true, null],
+  ]);
+  await logger.close();
+});
+it("record-wide field and text budgets bound copying and omit oversized keys whole", async () => {
+  const logger = createLogger({
+    sink: { async write() {}, async close() {} },
+    now: () => 0,
+    redact,
+    schedule: () => {},
+  });
+  const entries: [string, unknown][] = [];
+  for (let n = 0; n < 32; n++) entries.push([`value-${n}`, "é".repeat(2000)]);
+  entries.unshift(["x".repeat(1000000), "private-value"]);
+  logger.log("info", "bounded", logFields(entries));
+  const line = logger.recent()[0] ?? "";
+  expect(line).not.toContain("private-value");
+  expect(line).toContain("OVERSIZED FIELD OMITTED");
+  expect(Buffer.byteLength(line)).toBeLessThan(12000);
+  await logger.close();
+});
+it("an Error name accessor cannot replace its safe own message or escape to the producer", async () => {
+  const logger = createLogger({
+    sink: { async write() {}, async close() {} },
+    now: () => 0,
+    redact,
+    schedule: () => {},
+  });
+  const error = new Error("visible error");
+  Object.defineProperty(error, "name", {
+    get() {
+      throw new Error("name getter invoked");
+    },
+  });
+  expect(() => logger.log("error", "failure", error)).not.toThrow();
+  expect(JSON.parse(logger.recent()[0] ?? "null").data).toEqual({
+    message: "visible error",
+    name: "Error",
+  });
   await logger.close();
 });

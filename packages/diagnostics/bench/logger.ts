@@ -3,7 +3,7 @@ import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { createRedactor } from "@ace/redaction";
-import { createLogger, createFileSink } from "../src/index.ts";
+import { createLogger, createFileSink, logFields } from "../src/index.ts";
 const directory = await mkdtemp(join(tmpdir(), "ace-log-bench-"));
 const context = { home: homedir(), env: process.env };
 const logger = createLogger({
@@ -25,11 +25,15 @@ try {
   for (let offset = 0; offset < entries; offset += 256) {
     const enqueueBegan = performance.now();
     for (let i = 0; i < 256 && offset + i < entries; i++) {
-      logger.log("info", "Provider process changed state", {
-        session: "synthetic-session",
-        bytes: 128,
-        status: "working",
-      });
+      logger.log(
+        "info",
+        "Provider process changed state",
+        logFields([
+          ["session", "synthetic-session"],
+          ["bytes", 128],
+          ["status", "working"],
+        ]),
+      );
     }
     enqueueMs += performance.now() - enqueueBegan;
     await logger.flush();

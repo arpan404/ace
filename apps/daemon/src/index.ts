@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { createRedactor } from "@ace/redaction";
 import {
+  logFields,
   createFileSink,
   createLogger,
   createHealthMonitor,
@@ -140,7 +141,7 @@ export async function startDaemon(
       health: health.collect,
       log: (error) => ownedLog.log("error", "WebSocket failure", error),
     });
-    ownedLog.log("info", "Daemon listening", { url: server.url });
+    ownedLog.log("info", "Daemon listening", logFields([["url", server.url]]));
     notifications.setSender(server.notify);
     await notifications.start();
     const path = join(config.dataDir, "daemon-endpoint");

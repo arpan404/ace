@@ -76,7 +76,9 @@ export function createLogger(options: LoggerOptions) {
   function componentLogger(component: string): ComponentLogger {
     return {
       child(name) {
-        return componentLogger(`${component}.${name}`.slice(0, 128));
+        return componentLogger(
+          `${component}.${name.length > 128 ? "<OVERSIZED>" : name}`.slice(0, 128),
+        );
       },
       log(level, message, data) {
         if (rank[level] < rank[options.level ?? "info"]) return;

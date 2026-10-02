@@ -6,7 +6,7 @@ import { pipeline } from "node:stream/promises";
 import { StringDecoder } from "node:string_decoder";
 import { createGzip } from "node:zlib";
 import tar from "tar-stream";
-import { bounded } from "./bounded.ts";
+import { boundedMetadata } from "./bounded.ts";
 import { DoctorReport } from "./doctor.ts";
 export interface BundleOptions {
   logsDirectory: string;
@@ -97,8 +97,8 @@ export async function writeSupportBundle(options: BundleOptions): Promise<void> 
       "doctor.json",
       Readable.from([JSON.stringify(DoctorReport.parse(options.report)) + "\n"]),
     );
-    await entry("versions.json", Readable.from([JSON.stringify(bounded(options.versions)) + "\n"]));
-    await entry("settings.json", Readable.from([JSON.stringify(bounded(options.settings)) + "\n"]));
+    await entry("versions.json", Readable.from([JSON.stringify(boundedMetadata(options.versions)) + "\n"]));
+    await entry("settings.json", Readable.from([JSON.stringify(boundedMetadata(options.settings)) + "\n"]));
     const logs: string[] = [];
     const directory = await opendir(options.logsDirectory).catch((error: unknown) => {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
