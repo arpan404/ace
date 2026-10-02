@@ -15,6 +15,7 @@ import { InteractionResolution } from "./interactions.ts";
 import { ContentPart } from "./items.ts";
 import { ProviderKind } from "./provider.ts";
 
+import { ReviewCommands } from "./review.ts";
 import {
   OrchestrationCreateCommand,
   OrchestrationCancelCommand,
@@ -24,6 +25,7 @@ import {
 export const CommandPayload = z.discriminatedUnion("type", [
   DiagnosticsHealthCommand,
   ...ConductorCommandPayload.options,
+  ...ReviewCommands,
   OrchestrationCreateCommand,
   OrchestrationCancelCommand,
   OrchestrationPickCommand,

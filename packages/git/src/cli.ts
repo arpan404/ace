@@ -28,6 +28,10 @@ export class GitCli {
   readonly timeoutMs: number;
   private ready: Promise<void> | undefined;
   private readonly runtime: GitProcessRuntime;
+  private readonly calls = new Set<Promise<Output>>();
+  private readonly cancellations = new Set<() => void>();
+  private closed = false;
+  private closing: Promise<void> | undefined;
 
   constructor(options: GitOptions) {
     this.runtime = processRuntime(options.processRuntime);
@@ -48,7 +52,29 @@ export class GitCli {
     }
   }
 
-  async call(cwd: string, args: string[], options: CallOptions = {}): Promise<Output> {
+  get activeCalls(): number {
+    return this.calls.size;
+  }
+  close(): Promise<void> {
+    if (this.closing) return this.closing;
+    this.closed = true;
+    for (const cancel of this.cancellations) cancel();
+    this.closing = Promise.allSettled(this.calls).then(() => {});
+    return this.closing;
+  }
+  call(cwd: string, args: string[], options: CallOptions = {}): Promise<Output> {
+    if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    if (this.calls.size >= 64)
+      return Promise.reject(new GitError("git_busy", "Git call limit reached"));
+    const result = this.runCall(cwd, args, options);
+    this.calls.add(result);
+    void result.then(
+      () => this.calls.delete(result),
+      () => this.calls.delete(result),
+    );
+    return result;
+  }
+  private async runCall(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (args.some((arg) => arg.includes("\0"))) {
       throw new GitError("invalid_argument", "Git arguments cannot contain NUL bytes");
     }
@@ -80,6 +106,7 @@ export class GitCli {
   }
 
   private execute(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+    if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
     // Repository/index selectors inherited from an agent must not redirect our commands.
     const env = Object.fromEntries(
       Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
@@ -106,7 +133,15 @@ export class GitCli {
       let truncated = false;
       let failure: GitError | undefined;
       let spawnFailure: Promise<GitError> | undefined;
-      const kill = () => killTree(this.runtime, child);
+      let stopping: Promise<void> | undefined;
+      const kill = () => {
+        stopping ??= killTree(this.runtime, child);
+      };
+      const cancel = () => {
+        failure = new GitError("git_closed", "Git service closed");
+        kill();
+      };
+      this.cancellations.add(cancel);
       const cancelDeadline = this.runtime.scheduleTimeout(() => {
         failure = new GitError("git_timeout", `Git exceeded ${this.timeoutMs}ms`, { args });
         kill();
@@ -151,6 +186,10 @@ export class GitCli {
       });
       child.on("close", async (code) => {
         cancelDeadline();
+        this.cancellations.delete(cancel);
+        if (options.output) options.output.off("error", streamFailure);
+        if (options.input instanceof Readable) options.input.off("error", streamFailure);
+        if (stopping) await stopping;
         if (spawnFailure) failure = await spawnFailure;
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
@@ -164,6 +203,7 @@ export class GitCli {
         options.input.on("error", streamFailure);
         options.input.pipe(child.stdin);
       } else child.stdin.end(options.input);
+      if (this.closed) cancel();
     });
   }
 }

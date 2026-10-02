@@ -1,4 +1,5 @@
 import { DiagnosticsHealth } from "./diagnostics.ts";
+import { ReviewData } from "./review.ts";
 import { z } from "zod";
 import { ContextRequest, ContextResult } from "./context.ts";
 import {
@@ -148,6 +149,7 @@ export const CommandResult = z.object({
   ok: z.boolean(),
   health: DiagnosticsHealth.optional(),
   error: z.string().optional(),
+  review: ReviewData.optional(),
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [

@@ -27,4 +27,6 @@ export const processTestSuites = [
   // Context uses real Git/CLI processes and authenticated WS/WSS peers.
   "packages/context/src/{delivery,mentions,service,workspace-review}.test.ts",
   "apps/daemon/src/context.{server,remote}.test.ts",
+  "apps/daemon/src/review{.server,-dispatch}.test.ts",
+  "packages/review/src/{service,worker,edgecases,shutdown,newline,refresh}.test.ts",
 ];

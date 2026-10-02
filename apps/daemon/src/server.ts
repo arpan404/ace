@@ -2,6 +2,7 @@ import type { SettingsService } from "@ace/settings";
 import { settingsSession } from "./settings.ts";
 import { previewHttp } from "./preview-http.ts";
 import { createDaemonPreview, type DaemonPreview, type DaemonPreviewOptions } from "./preview.ts";
+import { dispatchReviewCommand, type ReviewPort } from "./review.ts";
 import type { ModelCatalogApi } from "@ace/models";
 import { handleModelRequest } from "./models.ts";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
@@ -77,6 +78,7 @@ export interface ServerOptions {
   handler: CommandHandler;
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
   browser?: BrowserService;
+  review?: ReviewPort;
   replayLimit?: number;
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
@@ -656,9 +658,9 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         }
         case "command": {
-          const scope = message.command.payload.type === "diagnostics.health" ? "read" : "operate";
+          const scope = ["diagnostics.health", "review.list"].includes(message.command.payload.type) ? "read" : "operate";
           if (!allows(authenticated.get(socket), scope)) {
-            fail("forbidden", `${scope === "read" ? "Read" : "Operate"} scope required`);
+            fail("forbidden", `${scope} scope required`);
             break;
           }
           try {
@@ -713,6 +715,20 @@ export async function startServer(options: ServerOptions): Promise<{
             break;
           }
           try {
+            if (message.command.payload.type.startsWith("review.")) {
+              if (!options.review) {
+                fail("reviews_unavailable", "Reviews unavailable");
+                break;
+              }
+              const result = await dispatchReviewCommand(
+                options.review,
+                options.store,
+                message.command,
+              );
+              if (socket.readyState === WebSocket.OPEN && authenticated.has(socket))
+                send({ type: "commandResult", ...result });
+              break;
+            }
             const result = options.store.recordCommand(message.command.id, device, () =>
               options.handler.handle(message.command, commandContext(options.store)),
             );

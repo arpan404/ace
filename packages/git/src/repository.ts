@@ -13,9 +13,14 @@ export class Repository {
   readonly now: () => Date | Promise<Date>;
   readonly tempDirectory: string;
 
-  constructor(cli: GitCli, now: () => Date | Promise<Date>, tempDirectory: string) {
+  constructor(
+    cli: GitCli,
+    now: () => Date | Promise<Date>,
+    tempDirectory: string,
+    counterCapacity?: number,
+  ) {
     this.cli = cli;
-    this.numbers = new CheckpointNumbers(cli);
+    this.numbers = new CheckpointNumbers(cli, counterCapacity);
     this.now = now;
     this.tempDirectory = tempDirectory;
   }

@@ -26,6 +26,7 @@ import {
 import type { SpawnOptions } from "@ace/provider-kit/process";
 import type { Provider } from "@ace/plugins";
 import { ContextService } from "@ace/context";
+import { createDaemonReview, type DaemonReviewOptions } from "./review.ts";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
@@ -43,6 +44,7 @@ import { type Config, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
+export { createDaemonReview, type ReviewPort, type DaemonReviewOptions } from "./review.ts";
 export { Store, type StoreOptions } from "./store.ts";
 export {
   createDevThread,
@@ -68,6 +70,7 @@ export async function startDaemon(
   workload?: HealthOptions["workload"],
   browserOptions: Omit<BrowserServiceOptions, "dataDir" | "onArtifact"> = {},
   previewOptions?: DaemonPreviewOptions,
+  reviewOptions: DaemonReviewOptions = {},
 ): Promise<{
   url: string;
   tokenPath: string;
@@ -84,6 +87,7 @@ export async function startDaemon(
   settings: SettingsService;
   models: ModelCatalog;
   notifications: NotificationWorker;
+  review: ReturnType<typeof createDaemonReview>;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   remoteUrl?: string;
   fingerprint?: string;
@@ -108,12 +112,14 @@ export async function startDaemon(
   let closeChannels = noop;
   let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  let review: ReturnType<typeof createDaemonReview> | undefined;
   let endpointPath: string | undefined;
   const closeResources = async () => {
     if (maintenance) clearInterval(maintenance);
     try {
       try {
         await launches?.close();
+        await review?.close();
       } finally {
         await mcp?.close();
       }
@@ -260,6 +266,7 @@ export async function startDaemon(
     });
     const ownedContext = context;
     settings = new SettingsService({ dataDir: config.dataDir });
+    review = createDaemonReview(config.dataDir, store, reviewOptions);
     models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
@@ -284,6 +291,7 @@ export async function startDaemon(
       handler,
       plugins: new PluginService(plugins),
       browser,
+      review,
       models,
       notifications: notifications.service,
       ...(previewOptions ? { preview: previewOptions } : {}),
@@ -326,6 +334,7 @@ export async function startDaemon(
       settings,
       models,
       notifications: notifications.service,
+      review,
       mcp,
       close() {
         closing ??= closeResources();
