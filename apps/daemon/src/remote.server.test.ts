@@ -280,22 +280,32 @@ describe("remote access", () => {
     if (!second.remoteUrl || !second.fingerprint) throw new Error("Remote listener missing");
     expect(second.fingerprint).toBe(first.fingerprint);
     expect(statSync(join(home, "tls/key.pem")).mode & 0o777).toBe(0o600);
-    expect(
+    const fresh = SocketTicket.parse(
       await accessRequest(second.remoteUrl.replace("wss:", "https:"), "/v1/tickets", {
         token: paired.token,
         fingerprint: second.fingerprint,
         method: "POST",
       }),
-    ).toMatchObject({ ticket: expect.any(String) });
+    );
     const client = new Client(second.url);
     cleanups.push(() => client.close());
     await once(client.socket, "open");
     client.send({
       type: "hello",
       protocolVersion: 1,
-      deviceId: DeviceId.parse("device"),
+      deviceId: paired.device.id,
       ticket: pending.ticket,
     });
     expect(await client.next()).toMatchObject({ type: "error", code: "unauthorized" });
+    const control = new Client(second.url);
+    cleanups.push(() => control.close());
+    await once(control.socket, "open");
+    control.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: paired.device.id,
+      ticket: fresh.ticket,
+    });
+    expect(await control.next()).toMatchObject({ type: "welcome" });
   });
 });

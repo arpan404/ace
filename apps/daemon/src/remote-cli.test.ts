@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { afterEach, expect, it } from "vitest";
 import { DeviceCredential, PairingResponse } from "@ace/protocol";
 import { accessRequest, redeemPairing } from "./client-access.ts";
+import { lanAddress, refusesTcp } from "./network-test-support.ts";
 import { scanTerminalQr } from "./qr-test-support.ts";
 import { readConfig } from "./config.ts";
 import { startDaemon } from "./index.ts";
@@ -155,6 +156,9 @@ it("binds the address discovered from a real Tailscale status process", async ()
   const pairing = PairingResponse.parse(
     await accessRequest(origin, "/v1/pairings", { method: "POST", token, body: {} }),
   );
+  await expect(
+    refusesTcp(lanAddress(), Number(new URL(pairing.url).port)),
+  ).resolves.toBeUndefined();
   expect(
     DeviceCredential.parse(await redeemPairing(pairing.url, "Tailnet phone")).device.name,
   ).toBe("Tailnet phone");
