@@ -46,6 +46,8 @@ Child disconnects emit canonical `agent.disconnected` facts and produce `unrespo
 
 ## Verification
 
+The repository owner requires tests to run only at merge. Do not execute tests, `bun run check`, benchmarks, live probes or mutations during development. Use formatting, lint, size and type checks only. The commands below describe merge-time verification; final-head runtime behavior **needs run at merge**.
+
 All eight Cursor recordings have `.expect.json` files and replay through `@ace/adapter-testkit`. Checkpoint notes explain the hidden-shell and core-precedence qualifications. The timeline CLI was run for every recording with the package's named `adapter` export.
 
 ```sh

@@ -1,6 +1,8 @@
 # ACP refresh benchmark
 
-Run `node packages/adapter-acp/bench/refreshes.ts` from the repository root. This offline probe measures translation, core application and JSON serialization of every emitted event. It sends no provider requests and imposes no timing budget on tests.
+The measurements below were collected before the owner prohibited runtime verification. Do not run this benchmark during development. Final-head confirmation **needs run at merge**.
+
+For merge-time verification only, `node packages/adapter-acp/bench/refreshes.ts` runs from the repository root. This offline probe measures translation, core application and JSON serialization of every emitted event. It sends no provider requests and imposes no timing budget on tests.
 
 Measured on Node v26.8.1 after warm-up. CPU and wall columns are independent medians of three sequential runs; ranges show all three wall observations. Process CPU includes user and system time. Host scheduling makes wall times noisy, so timings are informational. Event bytes were identical across all runs.
 

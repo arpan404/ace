@@ -1,5 +1,35 @@
 # ACP mutation verification
 
+The repository owner now requires tests to run only at merge. No tests, benchmarks, probes, mutation runs or flakiness runs are executed after that rule. Runtime claims below describe historical runs before the rule; final-head runtime verification **needs run at merge**. Existing behavior tests remain committed.
+
+## Merge-time mutation plan
+
+Each case below is designed to fail its named public behavior test. Revalidation status for every case is **not executed (tests run at merge)**. Earlier sections record the historical evidence separately.
+
+| Case          | Behavior guarded                                                   | Status                            |
+| ------------- | ------------------------------------------------------------------ | --------------------------------- |
+| D1a           | Reparenting clears actual and pending canonical spawn ownership    | not executed (tests run at merge) |
+| D1b           | Nullable spawn clearing survives JSON/schema and client replay     | not executed (tests run at merge) |
+| D2a           | Null, array and numeric input cannot replace valid input/name      | not executed (tests run at merge) |
+| D2b           | Malformed Antigravity names cannot replace valid names             | not executed (tests run at merge) |
+| D2c           | Delayed original input remains visible after partial updates       | not executed (tests run at merge) |
+| D2d           | Unknown initial metadata remains in live and terminal snapshots    | not executed (tests run at merge) |
+| D3a           | Interpretation does not accumulate opaque input history            | not executed (tests run at merge) |
+| D3b           | Ordinary refreshes do not serialize the collected input map        | not executed (tests run at merge) |
+| D3c           | All collected fields survive completion                            | not executed (tests run at merge) |
+| D3d           | Terminal raw assembly contains all fields, not just original input | not executed (tests run at merge) |
+| D3e           | Completed MCP details retain all streamed arguments                | not executed (tests run at merge) |
+| D3f           | Permission-placeholder arguments participate in final assembly     | not executed (tests run at merge) |
+| F15           | Settled shell identity cannot overwrite an old item after restart  | not executed (tests run at merge) |
+| N15           | Current snapshots retain original input alongside the latest frame | not executed (tests run at merge) |
+| M5            | Child grace remains live until its injected deadline               | not executed (tests run at merge) |
+| M13           | ACP v2 rejects before creating a native session                    | not executed (tests run at merge) |
+| M14           | A process start clears stale lifecycle state                       | not executed (tests run at merge) |
+| M21           | Malformed stdio text retains its complete raw payload              | not executed (tests run at merge) |
+| Output stream | Antigravity completion retains summary and emitted output bytes    | not executed (tests run at merge) |
+
+## Historical execution before the owner rule
+
 Each behavior-changing mutation below modified production code, ran the complete offline adapter suite, failed at least one named public API behavior test, and was restored before the next run. No provider CLI received a prompt. The four review survivors are **M5, M13, M14 and M21**; all now fail tests. M5 changes only the child cancellation deadline to 1 ms, leaving the parent's wake deadline intact.
 
 | Mutation | Broken behavior                                     | Detecting behavior test                                                                  |
