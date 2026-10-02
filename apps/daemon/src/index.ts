@@ -7,6 +7,8 @@ import {
   createHealthMonitor,
   type HealthOptions,
 } from "@ace/diagnostics";
+import type { ModelCatalog, InstanceInput } from "@ace/models";
+import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
@@ -20,7 +22,7 @@ import { type Config, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
-export { Store } from "./store.ts";
+export { Store, type StoreOptions } from "./store.ts";
 export {
   createDevThread,
   stubHandler,
@@ -35,11 +37,13 @@ export async function startDaemon(
   handler: CommandHandler = stubHandler(),
   toolkits: readonly Toolkit[] = [],
   notificationChannels?: Omit<NotificationChannels, "websocket">,
+  modelInstances: readonly InstanceInput[] = [],
   workload: HealthOptions["workload"] = () => ({ activeSessions: null, queues: {} }),
 ): Promise<{
   url: string;
   tokenPath: string;
   store: Store;
+  models: ModelCatalog;
   notifications: NotificationWorker;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   remoteUrl?: string;
@@ -51,6 +55,7 @@ export async function startDaemon(
   let log: ReturnType<typeof createLogger> | undefined;
   let health: ReturnType<typeof createHealthMonitor> | undefined;
   let store: Store | undefined;
+  let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
   let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
@@ -70,7 +75,11 @@ export async function startDaemon(
             closeChannels();
           } finally {
             try {
-              store?.close();
+              try {
+                await models?.close();
+              } finally {
+                store?.close();
+              }
             } finally {
               try {
                 if (endpointPath) unlinkSync(endpointPath);
@@ -128,6 +137,7 @@ export async function startDaemon(
     store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
       ownedLog.log("error", "Event subscriber failed", error),
     );
+    models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
       ? { channels: notificationChannels, close: closeChannels }
@@ -147,6 +157,7 @@ export async function startDaemon(
       hostId,
       store,
       handler,
+      models,
       notifications: notifications.service,
       health: health.collect,
       log: (error) => ownedLog.log("error", "WebSocket failure", error),
@@ -165,6 +176,7 @@ export async function startDaemon(
         : {}),
       tokenPath,
       store,
+      models,
       notifications: notifications.service,
       mcp,
       close() {
