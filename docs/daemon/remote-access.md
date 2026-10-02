@@ -69,7 +69,7 @@ All JSON endpoints return HTTP 200 on success and `{ "error": "..." }` otherwise
 | `GET /v1/devices`         | admin               | none                                        | device records, including revoked devices                    |
 | `DELETE /v1/devices/<id>` | admin               | none                                        | `{ revoked: true }`                                          |
 
-Only the host/admin that creates the code chooses scopes. Redemption cannot add scopes. The default grant is `read` plus `operate`. `read` permits subscriptions, `operate` permits all current agent commands, and `admin` includes both and device administration. Ping and unsubscribe remain available to authenticated devices.
+Only the host/admin that creates the code chooses scopes. Redemption cannot add scopes. The default grant is `read` plus `operate`. `read` permits subscriptions, output reads and item pages, `operate` permits all current agent commands, and `admin` includes both and device administration. Ping and unsubscribe remain available to authenticated devices.
 
 A device record has `id`, `name`, `scopes`, `createdAt`, `lastSeenAt` and nullable `revokedAt`. SQLite stores these in `devices(id, name, token_hash, scopes, created_at, last_seen_at, revoked_at)`. Tokens contain 32 random bytes encoded as 64 hexadecimal characters. Only SHA-256 hashes are stored; tokens and hashes are absent from device listings. Device authentication and ticket use update `lastSeenAt`.
 

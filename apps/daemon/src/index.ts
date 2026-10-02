@@ -12,7 +12,7 @@ import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
 import { createDaemonUsage, loadUsageSettings } from "./usage.ts";
-export { Store } from "./store.ts";
+export { Store, type StoreOptions } from "./store.ts";
 export { createDaemonUsage, loadUsageSettings, type UsageCommands } from "./usage.ts";
 export {
   createDevThread,
