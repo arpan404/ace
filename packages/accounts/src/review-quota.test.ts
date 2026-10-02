@@ -214,3 +214,16 @@ test("reopening a historical registry refuses physical aliases before scheduling
   db.close();
   await expect(openRegistry(path)).rejects.toThrow("distinct");
 });
+test("unknown facts preserve a textual blocker and its last meaningful observation", () => {
+  const state = fold({ message: "Usage limit reached" }).state;
+  const payload = { future: true };
+  const result = ingestQuota(state, {
+    provider: "claude",
+    payload,
+    observedAt: now + 1,
+    timeZone: "UTC",
+  });
+  expect(result.state).toBe(state);
+  expect(result.raw).toBe(payload);
+  expect(availability(result.state, now + 1)).toBe("exhausted");
+});

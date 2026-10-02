@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { exists } from "./paths.ts";
+export { exists } from "./paths.ts";
 import { createHash } from "node:crypto";
 import { constants, createWriteStream } from "node:fs";
 import { opendir, lstat, mkdir, open, link, unlink, realpath } from "node:fs/promises";
@@ -10,15 +12,6 @@ export class MigrationFailure extends Error {
   constructor(status: "unsupported" | "refused", reason: string) {
     super(reason);
     this.status = status;
-  }
-}
-export async function exists(path: string) {
-  try {
-    await lstat(path);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-    throw error;
   }
 }
 /** No recursion through symlinks, bounded directory depth and total entries. */

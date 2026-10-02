@@ -7,6 +7,7 @@ import { cleanup, temp } from "./test-support.ts";
 afterEach(cleanup);
 test("cancelled login waits until a CLI ignoring SIGTERM has been reaped", async () => {
   const root = await temp();
+  await writeFile(join(root, "package.json"), JSON.stringify({ type: "commonjs" }));
   let pid: number | undefined;
   const server = createServer();
   const ready = new Promise<void>((resolve) =>

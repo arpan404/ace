@@ -1,6 +1,6 @@
 import { realpath, lstat } from "node:fs/promises";
 import { resolve, basename, dirname, join } from "node:path";
-async function exists(path: string) {
+export async function exists(path: string) {
   try {
     await lstat(path);
     return true;

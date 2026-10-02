@@ -1,6 +1,6 @@
 import { opendir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { discoverProviders, type DiscoveryOptions } from "@ace/provider-kit/discovery";
+import { discoverProvider, type DiscoveryOptions } from "@ace/provider-kit/discovery";
 import { ProviderInstance, type AccountProvider } from "@ace/protocol/accounts";
 import type { z } from "zod";
 
@@ -81,11 +81,10 @@ export function instanceEnv(
   return { ...env, ...parsed.env };
 }
 export async function loginStatus(instance: ProviderInstance, options: DiscoveryOptions = {}) {
-  const results = await discoverProviders({
+  const result = await discoverProvider(instance.provider, {
     ...options,
     env: instanceEnv(instance, options.env ?? process.env),
   });
-  const result = results[instance.provider];
   // This credential-store selector is hidden, so do not trust unknown releases
   // to isolate auth merely because they accept data/config directory variables.
   if (instance.provider === "cursor" && result.version !== "2026.09.26-dd393fe")

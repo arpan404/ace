@@ -158,6 +158,21 @@ const mutations = [
     after: "join(ancestor, ...missing.toReversed())",
     test: "review-quota.test.ts",
   },
+  {
+    name: "allow read-only migration after remote merge",
+    file: "../../../apps/daemon/src/server.ts",
+    before: 'const scope = message.type === "accounts.migrate" ? "operate" : "read";',
+    after: 'const scope = "read";',
+    test: "apps/daemon/src/accounts.server.test.ts",
+  },
+  {
+    name: "probe unrelated providers for one account",
+    file: "instances.ts",
+    before: "const result = await discoverProvider(instance.provider, {",
+    after:
+      'const { discoverProviders } = await import("@ace/provider-kit/discovery"); await discoverProviders({ ...options, env: instanceEnv(instance, options.env ?? process.env) }); const result = await discoverProvider(instance.provider, {',
+    test: "instances.test.ts",
+  },
 ];
 for (const mutation of mutations) {
   const path = new URL(`../src/${mutation.file}`, import.meta.url);
@@ -179,9 +194,19 @@ for (const mutation of mutations) {
       tail = (tail + chunk.toString()).slice(-16_384);
     };
     const code = await new Promise<number | null>((resolve, reject) => {
-      const child = spawn("bun", ["run", "test", `packages/accounts/src/${mutation.test}`], {
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+      const child = spawn(
+        "bun",
+        [
+          "run",
+          "test",
+          mutation.test.startsWith("apps/")
+            ? mutation.test
+            : `packages/accounts/src/${mutation.test}`,
+        ],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
       child.stdout.on("data", capture);
       child.stderr.on("data", capture);
       child.once("error", reject);

@@ -1,14 +1,48 @@
 import type { AccountService } from "@ace/accounts";
+import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
+import { z } from "zod";
+import { defaultTicketLimits, type TicketLimits } from "./ticket-pool.ts";
+import { createServer as httpServer } from "node:http";
+import { createServer as httpsServer } from "node:https";
+import type { Server, IncomingMessage } from "node:http";
+import { accessHttp } from "./access-http.ts";
+import { allows, type Device } from "./devices.ts";
+import { RemoteAuth } from "./remote-auth.ts";
+import { urlHost, type RemoteListener } from "./network.ts";
+
 import { WebSocket, WebSocketServer } from "ws";
 import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
-import { validToken } from "./local-files.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 import { subscribe } from "./subscription.ts";
 
+const bind = (listener: Server, host: string, port: number) =>
+  new Promise<number>((resolve, reject) => {
+    listener.once("error", reject);
+    listener.listen(port, host, () => {
+      listener.removeListener("error", reject);
+      const address = listener.address();
+      if (!address || typeof address === "string") {
+        reject(new Error("Missing listener address"));
+        return;
+      }
+      resolve(address.port);
+    });
+  });
+const closeListener = (listener: Server) =>
+  new Promise<void>((resolve) => {
+    listener.close(() => resolve());
+    listener.closeAllConnections();
+  });
+
 export interface ServerOptions {
   port: number;
+  remote?: RemoteListener;
+  now?: () => number;
+  entropy?: EntropySource;
+  pairingAddress?: (request: IncomingMessage) => string;
+  ticketLimits?: Partial<TicketLimits>;
   token: string;
   hostId: string;
   store: Store;
@@ -20,22 +54,77 @@ export interface ServerOptions {
   log?: (error: unknown) => void;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
-export async function startServer(
-  options: ServerOptions,
-): Promise<{ url: string; close(): Promise<void> }> {
+export async function startServer(options: ServerOptions): Promise<{
+  url: string;
+  httpUrl: string;
+  remoteUrl?: string;
+  fingerprint?: string;
+  close(): Promise<void>;
+}> {
   const hostId = HostId.parse(options.hostId);
   if (!/^[0-9a-f]{64}$/.test(options.token)) throw new Error("Invalid server token");
-  const wss = new WebSocketServer({
-    host: "127.0.0.1",
-    port: options.port,
-    maxPayload: 1024 * 1024,
+  const auth = new RemoteAuth(
+    options.store.devices,
+    options.token,
+    {
+      now: options.now ?? Date.now,
+      secret: () => generateSecret(options.entropy ?? systemCredentials.randomBytes),
+    },
+    z
+      .object({
+        global: z.number().int().positive(),
+        perDevice: z.number().int().positive(),
+        perMinute: z.number().int().positive(),
+      })
+      .parse({ ...defaultTicketLimits, ...options.ticketLimits }),
+  );
+  let remoteOrigin: string | undefined;
+  const pairing = () =>
+    options.remote && remoteOrigin
+      ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
+      : undefined;
+  const local = httpServer(
+    accessHttp(auth, auth.localBearer.bind(auth), pairing, options.pairingAddress),
+  );
+  const remote = options.remote
+    ? httpsServer(
+        { ...options.remote.identity, minVersion: "TLSv1.2" },
+        accessHttp(auth, auth.deviceBearer.bind(auth), pairing, options.pairingAddress),
+      )
+    : undefined;
+  for (const listener of [local, remote])
+    if (listener) {
+      listener.requestTimeout = 10_000;
+      listener.headersTimeout = 10_000;
+    }
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+  const attach = (listener: Server, isLocal: boolean) =>
+    listener.on("upgrade", (request, socket, head) => {
+      if (request.url !== "/") {
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (websocket) =>
+        wss.emit("connection", websocket, isLocal),
+      );
+    });
+  attach(local, true);
+  if (remote) attach(remote, false);
+  const authenticated = new Map<WebSocket, Device & { revocable: boolean }>();
+  const stopRevocation = auth.onRevoke((id) => {
+    for (const [socket, device] of authenticated)
+      if (device.revocable && device.id === id) {
+        cleanups.get(socket)?.();
+        socket.close(4003, "Device revoked");
+        socket.terminate();
+      }
   });
   const cleanups = new Map<WebSocket, () => void>();
   const ticks = new Map<WebSocket, () => void>();
-  wss.on("connection", (socket) => {
+  wss.on("connection", (socket, isLocal: boolean) => {
     let device: DeviceId | undefined;
     let accountRequests = 0;
-    let lastActivity = Date.now();
+    let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
     const send = (message: ServerMessage) => outbox.send(message);
@@ -49,10 +138,11 @@ export async function startServer(
       outbox.clear();
       cleanups.delete(socket);
       ticks.delete(socket);
+      authenticated.delete(socket);
     };
     cleanups.set(socket, cleanup);
     ticks.set(socket, () => {
-      if (Date.now() - lastActivity > (options.idleTimeoutMs ?? 60_000))
+      if (auth.now() - lastActivity > (options.idleTimeoutMs ?? 60_000))
         socket.close(4008, "Idle timeout");
       outbox.tick();
     });
@@ -66,7 +156,7 @@ export async function startServer(
     });
     socket.on("message", (data, binary) => {
       if (socket.readyState !== WebSocket.OPEN) return;
-      lastActivity = Date.now();
+      lastActivity = auth.now();
       let message: ClientMessage;
       try {
         if (binary) throw new Error("Text required");
@@ -80,11 +170,33 @@ export async function startServer(
         return;
       }
       if (!device) {
-        if (message.type !== "hello" || !validToken(message.token, options.token)) {
+        if (message.type !== "hello") {
           fail("unauthorized", "Valid hello required", true);
           return;
         }
-        device = message.deviceId;
+        const actor =
+          message.ticket !== undefined
+            ? auth.consume(message.ticket)
+            : message.token !== undefined && isLocal && auth.local(message.token)
+              ? {
+                  id: message.deviceId,
+                  name: "Host",
+                  scopes: ["admin"] as const,
+                  createdAt: 0,
+                  lastSeenAt: auth.now(),
+                  revokedAt: null,
+                }
+              : undefined;
+        if (!actor || (message.ticket !== undefined && actor.id !== message.deviceId)) {
+          fail("unauthorized", "Valid hello required", true);
+          return;
+        }
+        device = actor.id;
+        authenticated.set(socket, {
+          ...actor,
+          scopes: [...actor.scopes],
+          revocable: message.ticket !== undefined,
+        });
         send({
           type: "welcome",
           hostId,
@@ -97,6 +209,11 @@ export async function startServer(
         case "accounts.list":
         case "accounts.status":
         case "accounts.migrate": {
+          const scope = message.type === "accounts.migrate" ? "operate" : "read";
+          if (!allows(authenticated.get(socket), scope)) {
+            fail("forbidden", `${scope} scope required`);
+            break;
+          }
           if (!options.accounts) {
             fail("accounts_unavailable", "Accounts service is unavailable");
             break;
@@ -128,6 +245,10 @@ export async function startServer(
           subscriptions.delete(message.subscriptionId);
           break;
         case "subscribe": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
           subscriptions.get(message.subscriptionId)?.();
           subscriptions.delete(message.subscriptionId);
           if (subscriptions.size >= 64) {
@@ -150,6 +271,10 @@ export async function startServer(
           break;
         }
         case "command": {
+          if (!allows(authenticated.get(socket), "operate")) {
+            fail("forbidden", "Operate scope required");
+            break;
+          }
           if (message.command.deviceId !== device) {
             fail("device_mismatch", "Command device must match hello");
             break;
@@ -175,33 +300,47 @@ export async function startServer(
     Math.max(10, Math.min(1000, (options.idleTimeoutMs ?? 60_000) / 2)),
   );
   timer.unref();
+  let port: number;
   try {
-    await new Promise<void>((resolve, reject) => {
-      wss.once("listening", resolve);
-      wss.once("error", reject);
-    });
+    port = await bind(local, "127.0.0.1", options.port);
+    if (remote && options.remote) {
+      const remotePort = await bind(remote, options.remote.host, options.remote.port);
+      remoteOrigin = `https://${urlHost(options.remote.advertisedHost)}:${remotePort}`;
+    }
   } catch (error) {
     clearInterval(timer);
+    stopRevocation();
+    await closeListener(local);
+    if (remote) await closeListener(remote);
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     throw error;
   }
-  const address = wss.address();
-  if (!address || typeof address === "string") throw new Error("Missing listener address");
   let closing: Promise<void> | undefined;
   return {
-    url: `ws://127.0.0.1:${address.port}`,
+    url: `ws://127.0.0.1:${port}`,
+    httpUrl: `http://127.0.0.1:${port}`,
+    ...(remoteOrigin && options.remote
+      ? {
+          remoteUrl: remoteOrigin.replace("https:", "wss:"),
+          fingerprint: options.remote.identity.fingerprint,
+        }
+      : {}),
     close() {
       closing ??= new Promise<void>((resolve, reject) => {
         clearInterval(timer);
+        stopRevocation();
         for (const cleanup of cleanups.values()) cleanup();
         for (const socket of wss.clients) {
           socket.close(1001, "Daemon shutdown");
           socket.terminate();
         }
-        wss.close((error) => {
-          if (error) reject(error);
-          else resolve();
-        });
+        void Promise.all([closeListener(local), ...(remote ? [closeListener(remote)] : [])]).then(
+          () =>
+            wss.close((error) => {
+              if (error) reject(error);
+              else resolve();
+            }),
+        );
       });
       return closing;
     },

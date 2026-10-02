@@ -213,3 +213,22 @@ test("unverified Cursor versions cannot advertise isolated auth or launch an acc
   }
   await expect(readFile(join(account.homeDir, "user", ".cursor", "logged-in"))).rejects.toThrow();
 });
+test("checking one account does not execute unrelated provider programs", async () => {
+  const root = await temp();
+  await fakeClis(root);
+  const sentinel = join(root, "unrelated-probe");
+  for (const command of ["claude", "opencode", "agent"])
+    await writeFile(
+      join(root, command),
+      `#!${process.execPath}\nimport fs from 'node:fs';fs.writeFileSync(${JSON.stringify(sentinel)},'unrelated provider ran');`,
+      { mode: 0o755 },
+    );
+  const account = createInstance({
+    id: "codex-only",
+    provider: "codex",
+    label: "Codex",
+    homeDir: join(root, "home"),
+  });
+  expect((await loginStatus(account, { env: { PATH: root } })).auth).toBe("logged_out");
+  await expect(readFile(sentinel, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+});

@@ -48,8 +48,7 @@ export class AccountService {
       return AccountsResponse.parse({
         type: request.type,
         requestId: request.requestId,
-        account:
-          this.registry.summaries(this.now()).find((a) => a.id === request.instanceId) ?? null,
+        account: this.registry.summary(request.instanceId, this.now()) ?? null,
       });
     const from = this.registry.get(request.from)?.instance;
     const to = this.registry.get(request.to)?.instance;

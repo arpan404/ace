@@ -23,6 +23,19 @@ async function canonicalInstance(input: ProviderInstance): Promise<ProviderInsta
   return ProviderInstance.parse({ ...parsed, homeDir, env });
 }
 
+function summarize(
+  { instance, quota }: { instance: ProviderInstance; quota: AccountQuota },
+  now: number,
+) {
+  return {
+    id: instance.id,
+    provider: instance.provider,
+    label: instance.label,
+    quota,
+    availability: availability(quota, now),
+  };
+}
+
 export class AccountRegistry {
   private db: DatabaseSync;
   private select;
@@ -80,7 +93,7 @@ export class AccountRegistry {
       for (const other of accounts) {
         if (other.instance.id === instance.id) {
           if (
-            JSON.stringify(other.instance.env) !== JSON.stringify(instance.env) ||
+            AccountEnvKey.options.some((key) => other.instance.env[key] !== instance.env[key]) ||
             other.instance.provider !== instance.provider ||
             other.instance.homeDir !== instance.homeDir
           )
@@ -151,14 +164,12 @@ export class AccountRegistry {
       throw error;
     }
   }
+  summary(id: string, now: number) {
+    const account = this.get(id);
+    return account ? summarize(account, now) : undefined;
+  }
   summaries(now: number) {
-    return this.list().map(({ instance, quota }) => ({
-      id: instance.id,
-      provider: instance.provider,
-      label: instance.label,
-      quota,
-      availability: availability(quota, now),
-    }));
+    return this.list().map((account) => summarize(account, now));
   }
   pickInstance(input: Parameters<typeof pickInstance>[0], now: number) {
     return pickInstance(input, this.list(), now);

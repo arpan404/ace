@@ -71,13 +71,7 @@ export function ingestQuota(
   if (input !== undefined) usage.inputTokens = input;
   if (output !== undefined) usage.outputTokens = output;
   if (cost !== undefined) usage.costUsd = cost;
-  if (
-    !auth &&
-    !decoded.count &&
-    !decoded.overflow &&
-    !Object.keys(usage).length &&
-    !blockers.limitError
-  )
+  if (!auth && !decoded.count && !decoded.overflow && !Object.keys(usage).length && !limited)
     return { state, raw: fact.payload };
   const windows: Record<string, QuotaWindow> =
     decoded.authoritative && decoded.complete && decoded.count ? {} : { ...state.windows };

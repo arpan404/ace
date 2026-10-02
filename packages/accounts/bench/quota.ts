@@ -123,6 +123,7 @@ try {
       timeZone: "UTC",
     }),
   );
+  measure("single instance status", 50000, () => registry.summary("bench", observedAt));
   await opened.session.close("shutdown");
 } finally {
   registry.close();

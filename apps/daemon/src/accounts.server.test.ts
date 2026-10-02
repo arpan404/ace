@@ -75,6 +75,8 @@ test("the accounts CLI and default daemon routes share the ACE_HOME registry", a
     host: "127.0.0.1",
     port: 0,
     logLevel: "silent",
+    listen: "local",
+    remotePort: 0,
   });
   const client = new Client(daemon.url);
   try {
@@ -85,6 +87,12 @@ test("the accounts CLI and default daemon routes share the ACE_HOME registry", a
       { env: { ...process.env, ACE_HOME: root, ACE_ACCOUNTS_DB: undefined } },
     );
     expect(JSON.parse(stdout)).toMatchObject([{ id: "shared", label: "Shared" }]);
+    const delegated = await promisify(execFile)(
+      process.execPath,
+      ["apps/daemon/src/cli.ts", "accounts", "list"],
+      { env: { ...process.env, ACE_HOME: root, ACE_ACCOUNTS_DB: undefined } },
+    );
+    expect(JSON.parse(delegated.stdout)).toMatchObject([{ id: "shared", label: "Shared" }]);
     const { readFile } = await import("node:fs/promises");
     const actualToken = (await readFile(daemon.tokenPath, "utf8")).trim();
     client.socket.send(
@@ -96,6 +104,58 @@ test("the accounts CLI and default daemon routes share the ACE_HOME registry", a
   } finally {
     await client.close();
     await daemon.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+test("paired read devices can inspect accounts but migration requires operate scope", async () => {
+  const { setup } = await import("./remote-test-support.ts");
+  const root = await mkdtemp(join(tmpdir(), "ace-accounts-scopes-"));
+  const registry = await openRegistry(join(root, "accounts.sqlite"));
+  await registry.register(
+    createInstance({ id: "a", provider: "codex", label: "A", homeDir: join(root, "home") }),
+  );
+  const f = await setup({
+    accounts: new AccountService({ registry, now: () => 1, timeZone: "UTC", env: {} }),
+  });
+  try {
+    const read = await f.pair(["read"]);
+    const readTicket = await f.ticket(read.token);
+    const reader = await f.connectTicket(read.device.id, readTicket.ticket);
+    await reader.next();
+    reader.send({ type: "accounts.list", requestId: "list" });
+    expect(await reader.next()).toMatchObject({ accounts: [{ id: "a" }] });
+    reader.send({ type: "accounts.status", requestId: "status", instanceId: "a" });
+    expect(await reader.next()).toMatchObject({ account: { id: "a" } });
+    reader.send({
+      type: "accounts.migrate",
+      requestId: "m",
+      provider: "codex",
+      nativeSessionId: "opaque",
+      from: "a",
+      to: "missing",
+    });
+    expect(await reader.next()).toMatchObject({ type: "error", code: "forbidden" });
+    const operate = await f.pair(["operate"]);
+    const operateTicket = await f.ticket(operate.token);
+    const operator = await f.connectTicket(operate.device.id, operateTicket.ticket);
+    await operator.next();
+    operator.send({ type: "accounts.list", requestId: "list" });
+    expect(await operator.next()).toMatchObject({ type: "error", code: "forbidden" });
+    operator.send({ type: "accounts.status", requestId: "s", instanceId: "a" });
+    expect(await operator.next()).toMatchObject({ type: "error", code: "forbidden" });
+    operator.send({
+      type: "accounts.migrate",
+      requestId: "m",
+      provider: "codex",
+      nativeSessionId: "opaque",
+      from: "a",
+      to: "missing",
+    });
+    expect(await operator.next()).toMatchObject({
+      result: { status: "refused", reason: "Unknown instance" },
+    });
+  } finally {
+    registry.close();
     await rm(root, { recursive: true, force: true });
   }
 });
