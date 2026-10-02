@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { mkdtemp, open, rm } from "node:fs/promises";
+import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -41,4 +41,22 @@ it("settles cancellation while a FIFO config has no writer", async () => {
   const discovery = discoverMcpServers({ ...options, signal: controller.signal });
   controller.abort(new Error("Discovery cancelled"));
   await expect(discovery).rejects.toThrow("Discovery cancelled");
+});
+
+it("rejects character devices before parsing and continues with regular config files", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-mcp-device-"));
+  cleanups.push(() => rm(home, { recursive: true, force: true }));
+  const path = join(home, "config.json");
+  await writeFile(path, '{"mcpServers":{"regular":{"command":"node"}}}');
+  const result = await discoverMcpServers({
+    provider: "cursor",
+    home,
+    cwd: home,
+    configPaths: ["/dev/null", path],
+    signal: new AbortController().signal,
+  });
+  expect(result.issues).toEqual([{ source: "/dev/null", code: "unreadable" }]);
+  expect(result.servers).toEqual([
+    { provider: "cursor", name: "regular", source: path, transport: "stdio", enabled: true },
+  ]);
 });

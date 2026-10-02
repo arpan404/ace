@@ -1,3 +1,5 @@
+import { writeFileSync, unlinkSync } from "node:fs";
+import { remoteListener } from "./network.ts";
 import { startDaemonMcp } from "./mcp.ts";
 import type { Toolkit } from "@ace/mcp-server";
 import { join } from "node:path";
@@ -18,7 +20,15 @@ export async function startDaemon(
   config: Config = readConfig(),
   handler: CommandHandler = stubHandler(),
   toolkits: readonly Toolkit[] = [],
-) {
+): Promise<{
+  url: string;
+  tokenPath: string;
+  store: Store;
+  mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
+  remoteUrl?: string;
+  fingerprint?: string;
+  close(): Promise<void>;
+}> {
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
   let store: Store | undefined;
@@ -33,7 +43,9 @@ export async function startDaemon(
     const ownedStore = store;
     mcp = await startDaemonMcp(store, toolkits);
     const ownedMcp = mcp;
+    const remote = await remoteListener(config);
     server = await startServer({
+      ...(remote ? { remote } : {}),
       port: config.port,
       token,
       hostId,
@@ -42,9 +54,14 @@ export async function startDaemon(
       log: (error) => log("error", "WebSocket failure", error),
     });
     const ownedServer = server;
+    const endpointPath = join(config.dataDir, "daemon-endpoint");
+    writeFileSync(endpointPath, server.httpUrl, { mode: 0o600 });
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
+      ...(server.remoteUrl && server.fingerprint
+        ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
+        : {}),
       tokenPath,
       store,
       mcp: ownedMcp,
@@ -59,7 +76,11 @@ export async function startDaemon(
               try {
                 ownedStore.close();
               } finally {
-                unlock();
+                try {
+                  unlinkSync(endpointPath);
+                } finally {
+                  unlock();
+                }
               }
             }
           }

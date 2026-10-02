@@ -1,9 +1,18 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Agent, ItemId, McpNotificationIntent, McpScope, type EventPayload } from "@ace/protocol";
+import {
+  Agent,
+  DeviceCredential,
+  ItemId,
+  McpNotificationIntent,
+  McpScope,
+  PairingResponse,
+  type EventPayload,
+} from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
 import { startDaemon, readConfig, createDevThread, Store } from "./index.ts";
+import { accessRequest, redeemPairing } from "./client-access.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -65,6 +74,62 @@ async function call(url: string, bearer: string, name: string, args: unknown = {
   });
   return response;
 }
+
+it("serves remote device access alongside isolated MCP authority and shuts down both", async () => {
+  const directory = home();
+  const config = readConfig({
+    ACE_HOME: directory,
+    ACE_PORT: "0",
+    ACE_REMOTE_PORT: "0",
+    ACE_LISTEN: "lan",
+    ACE_ADVERTISE_HOST: "127.0.0.1",
+    ACE_LOG_LEVEL: "silent",
+  });
+  const daemon = await startDaemon(config);
+  cleanups.push(() => daemon.close());
+  const { scope } = seed(daemon.store);
+  const lease = daemon.mcp.openSession(scope, new AbortController().signal);
+  const endpointPath = join(directory, "daemon-endpoint");
+  const local = readFileSync(endpointPath, "utf8");
+  const token = readFileSync(daemon.tokenPath, "utf8").trim();
+  const pairing = PairingResponse.parse(
+    await accessRequest(local, "/v1/pairings", {
+      method: "POST",
+      token,
+      body: { scopes: ["admin"] },
+    }),
+  );
+  const paired = DeviceCredential.parse(await redeemPairing(pairing.url, "Integration device"));
+  if (!daemon.remoteUrl || !daemon.fingerprint) throw new Error("Missing remote listener");
+  const remote = daemon.remoteUrl.replace("wss:", "https:");
+  expect(
+    await accessRequest(remote, "/v1/status", {
+      token: paired.token,
+      fingerprint: daemon.fingerprint,
+    }),
+  ).toMatchObject({ running: true });
+  expect(await (await call(daemon.mcp.url, lease.bearer, "ace_thread_info")).json()).toMatchObject({
+    result: { structuredContent: { thread: { id: scope.threadId } } },
+  });
+  expect((await call(daemon.mcp.url, paired.token, "ace_thread_info")).status).toBe(401);
+  await expect(
+    accessRequest(remote, "/mcp", {
+      token: paired.token,
+      fingerprint: daemon.fingerprint,
+    }),
+  ).rejects.toThrow("HTTP 404");
+  await daemon.close();
+  expect(lease.principal.signal.aborted).toBe(true);
+  expect(existsSync(endpointPath)).toBe(false);
+  const reopened = await startDaemon(config);
+  cleanups.push(() => reopened.close());
+  expect(reopened.store.devices.get(paired.device.id)).toMatchObject({
+    name: "Integration device",
+  });
+  expect(reopened.store.getMcpAgent(scope.threadId, scope.agentId)).toMatchObject({ id: "root" });
+  expect(reopened.fingerprint).toBe(daemon.fingerprint);
+  expect((await call(reopened.mcp.url, lease.bearer, "ace_thread_info")).status).toBe(401);
+});
 
 it("persists an attributed notice and notification intent together and preserves pending intents across restart", async () => {
   const config = readConfig({ ACE_HOME: home(), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" });

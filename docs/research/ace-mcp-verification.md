@@ -92,8 +92,38 @@ applied and killed these eleven additional production mutations individually:
 | Omit prepared input-schema lookup                | Custom-header validation rejects missing/mismatched values       |
 
 No mutation remains. The final baseline passes `bun run check` on Node
-24.21.0: 407 passed, four opt-in live-provider tests skipped. Format, lint,
+24.21.0: 450 passed, four opt-in live-provider tests skipped. Format, lint,
 workspace typechecks and the 1,500-line size check pass.
+
+## Main integration and verifier N3
+
+Merged remote-access main `844e0eb` without rebasing. Both benchmark scripts,
+MCP and remote dependencies, protocol exports, Store projections and daemon
+listeners are retained. Shutdown closes MCP and local/remote listeners, closes
+the Store, removes the endpoint file and releases the lock. The startup error
+path closes both owned servers before releasing the Store and lock.
+
+A real LAN/TLS daemon test pairs an admin device, reads remote status, calls the
+local MCP endpoint with an agent lease, rejects a device token at MCP, and
+verifies the remote listener does not expose `/mcp`. Restart preserves devices,
+the TLS identity and the MCP agent index while invalidating the old agent lease.
+Device scopes (`read`, `operate`, `admin`) authorize companion clients; MCP
+capabilities authorize provider-session tools and carry thread/agent attribution.
+They remain separate authority models, with no device-to-tool implicit grant.
+
+The CLI loads the daemon only for `start`, so short admin commands do not load
+the MCP SDK. A non-gating stopped-status probe on the shared machine measured
+1.23s before and 0.41s after this change; these are observations, not assertions.
+Full-suite attempts encountered runner timeouts under contention; an isolated
+instrumented CLI sequence finished in 1.09s. Instrumentation was removed, and
+an unchanged-deadline full Node 24 check passed all 450 tests afterward.
+
+Verifier mutation N3 removed the opened-descriptor regular-file check. Added a
+public discovery test using `/dev/null` plus a valid regular config as a control.
+The original passes, removal fails because discovery reports `invalid` instead
+of rejecting the device as `unreadable`, and restoration passes. The mutation
+is reverted. No test-runner settings or deadlines changed. CI is disabled by
+the repository owner and was not run or queried in this integration round.
 
 ## Non-gating performance
 

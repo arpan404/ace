@@ -1,3 +1,4 @@
+import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync, type StatementSync, type SQLOutputValue } from "node:sqlite";
 import {
@@ -14,10 +15,12 @@ import {
 } from "@ace/protocol";
 import { applyEvent, createThreadView, updateThread } from "@ace/projection";
 import { McpData } from "./mcp-data.ts";
+import { Devices } from "./devices.ts";
 import { migrate } from "./migrations.ts";
 
 type Listener = (events: Event[]) => void;
 export class Store {
+  readonly devices: Devices;
   private readonly db: DatabaseSync;
   private readonly mcp: McpData;
   private statements = new Map<string, StatementSync>();
@@ -28,7 +31,11 @@ export class Store {
   private caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
   private publications: Event[][] = [];
   private publishing = false;
-  constructor(path: string, onError: (error: unknown) => void = console.error) {
+  constructor(
+    path: string,
+    onError: (error: unknown) => void = console.error,
+    credentials: CredentialRuntime = systemCredentials,
+  ) {
     this.onError = onError;
     this.db = new DatabaseSync(path);
     try {
@@ -37,6 +44,7 @@ export class Store {
       );
       migrate(this.db);
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
+      this.devices = new Devices(this.db, credentials);
     } catch (error) {
       this.db.close();
       throw error;
