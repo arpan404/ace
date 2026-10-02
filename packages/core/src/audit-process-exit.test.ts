@@ -15,18 +15,21 @@ it.each([false, true])(
         type: "item.updated",
         item: expect.objectContaining({
           complete: true,
-          call: expect.objectContaining({ status: "cancelled" }),
+          call: expect.objectContaining({ status: "cancelled", endedAt: 200 }),
         }),
       }),
     );
+    expect(h.item("old-shell")).toMatchObject({ call: { status: "cancelled", endedAt: 200 } });
     expect(h.task("old-task")?.status).toBe("unknown");
-    h.send({ type: "process.started" }, 201);
+    expect(h.send({ type: "process.exited", deliberate }, 250)).toEqual([]);
+    expect(h.item("old-shell")).toMatchObject({ call: { endedAt: 200 } });
+    h.send({ type: "process.started" }, 251);
     h.start("root", "replacement");
-    expect(nextDeadline(h.state)).toBe(213);
+    expect(nextDeadline(h.state)).toBe(263);
     expect(h.send({ type: "tick" }, 1000)).toContainEqual({
       type: "thread.updated",
       status: { state: "unresponsive" },
     });
-    expect(h.agent("root")?.status).toEqual({ state: "unresponsive", lastSignalAt: 202 });
+    expect(h.agent("root")?.status).toEqual({ state: "unresponsive", lastSignalAt: 252 });
   },
 );
