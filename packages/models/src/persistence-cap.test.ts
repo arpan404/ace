@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { ModelCatalog, normalizeCodex, openModelStorage } from "./index.ts";
+import { ModelCatalog, normalizeCodex, openModelStorage, type CatalogStorage } from "./index.ts";
 import { Clock, codexPayload, instance, workspace } from "./testing/support.ts";
 
 function entry(id: string, model = "cached") {
@@ -15,114 +15,129 @@ function entry(id: string, model = "cached") {
   };
 }
 
-test("durable capacity rejects new accounts but permits updates and reuse after removal", async () => {
-  const work = await workspace();
-  const path = join(work.path, "models.sqlite");
+async function usingStorage(path: string, use: (storage: CatalogStorage) => Promise<void>) {
   const storage = openModelStorage(path);
   try {
-    for (let index = 0; index < 64; index++) await storage.replace(entry(`account-${index}`));
-    await storage.replace(entry("account-0", "updated"));
-    await expect(Promise.resolve(storage.replace(entry("replacement")))).rejects.toThrow(
-      "persistence",
-    );
+    await use(storage);
+  } finally {
     await storage.close();
-    const reopened = openModelStorage(path);
-    try {
-      const loaded = reopened.load();
+  }
+}
+
+async function usingWorkspace(use: (path: string) => Promise<void>) {
+  const work = await workspace();
+  try {
+    await use(join(work.path, "models.sqlite"));
+  } finally {
+    await work.close();
+  }
+}
+
+test("durable capacity rejects new accounts but permits updates and reuse after removal", async () => {
+  await usingWorkspace(async (path) => {
+    await usingStorage(path, async (storage) => {
+      for (let index = 0; index < 64; index++) await storage.replace(entry(`account-${index}`));
+      await storage.replace(entry("account-0", "updated"));
+      await expect(Promise.resolve(storage.replace(entry("replacement")))).rejects.toThrow(
+        "persistence",
+      );
+    });
+    await usingStorage(path, async (storage) => {
+      const loaded = storage.load();
       expect(loaded).toHaveLength(64);
       expect(loaded.find((row) => row.instance === "account-0")?.models[0]?.id).toBe("updated");
-      await reopened.remove("account-0");
-      await reopened.replace(entry("replacement"));
-    } finally {
-      await reopened.close();
-    }
-    const final = openModelStorage(path);
-    try {
-      const loaded = final.load();
+      await storage.remove("account-0");
+      await storage.replace(entry("replacement"));
+    });
+    await usingStorage(path, async (storage) => {
+      const loaded = storage.load();
       expect(loaded).toHaveLength(64);
       expect(loaded.some((row) => row.instance === "account-0")).toBe(false);
       expect(loaded.find((row) => row.instance === "replacement")?.models[0]?.id).toBe("cached");
-    } finally {
-      await final.close();
-    }
-  } finally {
-    await storage.close();
-    await work.close();
-  }
+    });
+  });
 });
 
 test.each(["eviction", "explicit removal"])(
   "failed %s cannot overflow durable capacity or make the catalog unusable after restart",
   async (removal) => {
-    const work = await workspace();
-    const path = join(work.path, "models.sqlite");
-    const configs = Array.from({ length: 64 }, (_, index) => instance("codex", `account-${index}`));
-    const seed = openModelStorage(path);
-    for (const config of configs) await seed.replace(entry(config.id));
-    await seed.close();
-    const clock = new Clock();
-    const options = {
-      discover: async (config: ReturnType<typeof instance>) =>
-        normalizeCodex(codexPayload("fresh"), config),
-      now: () => clock.now,
-      deadline: clock.deadline,
-    };
-    const catalog = new ModelCatalog({
-      ...options,
-      storage: openModelStorage(path),
-      instances: removal === "eviction" ? [] : configs,
-    });
-    const db = new DatabaseSync(path);
-    db.exec(
-      "CREATE TRIGGER reject_delete BEFORE DELETE ON model_catalog WHEN OLD.instance='account-0' BEGIN SELECT RAISE(ABORT, 'blocked'); END",
-    );
-    try {
-      if (removal === "explicit removal")
-        await expect(catalog.removeInstance("account-0")).rejects.toThrow("persistence");
-      catalog.registerInstance(instance("codex", "replacement"));
-      expect(await catalog.refresh({ instance: "replacement" })).toMatchObject([
-        { error: "persistence_failed", stale: true },
-      ]);
-      expect(catalog.list({ instance: "replacement" }).models).toEqual([]);
-
-      // Reopen before graceful shutdown can retry deletion, as after a crash.
-      const storage = openModelStorage(path);
-      const loaded = storage.load();
-      expect(loaded).toHaveLength(64);
-      expect(loaded.some((row) => row.instance === "replacement")).toBe(false);
-      await storage.close();
-      const restarted = new ModelCatalog({
-        ...options,
-        storage: openModelStorage(path),
-        instances: [instance("codex", "account-1")],
+    await usingWorkspace(async (path) => {
+      const configs = Array.from({ length: 64 }, (_, index) =>
+        instance("codex", `account-${index}`),
+      );
+      await usingStorage(path, async (storage) => {
+        for (const config of configs) await storage.replace(entry(config.id));
       });
-      try {
-        expect(restarted.list().models[0]?.id).toBe("cached");
-        expect(restarted.list().instances[0]?.refreshing).toBe(false);
-      } finally {
-        await restarted.close();
-      }
+      const clock = new Clock();
+      const options = {
+        discover: async (config: ReturnType<typeof instance>) =>
+          normalizeCodex(codexPayload("fresh"), config),
+        now: () => clock.now,
+        deadline: clock.deadline,
+      };
+      await usingStorage(path, async (storage) => {
+        const catalog = new ModelCatalog({
+          ...options,
+          storage,
+          instances: removal === "eviction" ? [] : configs,
+        });
+        try {
+          const db = new DatabaseSync(path);
+          try {
+            db.exec(
+              "CREATE TRIGGER reject_delete BEFORE DELETE ON model_catalog WHEN OLD.instance='account-0' BEGIN SELECT RAISE(ABORT, 'blocked'); END",
+            );
+            if (removal === "explicit removal")
+              await expect(catalog.removeInstance("account-0")).rejects.toThrow("persistence");
+            catalog.registerInstance(instance("codex", "replacement"));
+            expect(await catalog.refresh({ instance: "replacement" })).toMatchObject([
+              { error: "persistence_failed", stale: true },
+            ]);
+            expect(catalog.list({ instance: "replacement" }).models).toEqual([]);
 
-      db.exec("DROP TRIGGER reject_delete");
-      expect(await catalog.refresh({ instance: "replacement" })).toMatchObject([
-        { stale: false, refreshing: false },
-      ]);
-      expect(catalog.list({ instance: "replacement" }).models[0]?.id).toBe("fresh");
-      await catalog.close();
-      const final = openModelStorage(path);
-      try {
-        const rows = final.load();
+            // Reopen before graceful shutdown can retry deletion. This checks durable
+            // startup admission, without claiming to simulate process death.
+            await usingStorage(path, async (reopened) => {
+              const loaded = reopened.load();
+              expect(loaded).toHaveLength(64);
+              expect(loaded.some((row) => row.instance === "replacement")).toBe(false);
+            });
+            await usingStorage(path, async (restartStorage) => {
+              const restarted = new ModelCatalog({
+                ...options,
+                storage: restartStorage,
+                instances: [instance("codex", "account-1")],
+              });
+              try {
+                expect(restarted.list().models[0]?.id).toBe("cached");
+                expect(restarted.list().instances[0]?.refreshing).toBe(false);
+              } finally {
+                await restarted.close();
+              }
+            });
+
+            db.exec("DROP TRIGGER reject_delete");
+            expect(await catalog.refresh({ instance: "replacement" })).toMatchObject([
+              { stale: false, refreshing: false },
+            ]);
+            expect(catalog.list({ instance: "replacement" }).models[0]?.id).toBe("fresh");
+          } finally {
+            try {
+              db.exec("DROP TRIGGER IF EXISTS reject_delete");
+            } finally {
+              db.close();
+            }
+          }
+        } finally {
+          await catalog.close();
+        }
+      });
+      await usingStorage(path, async (storage) => {
+        const rows = storage.load();
         expect(rows).toHaveLength(64);
         expect(rows.some((row) => row.instance === "account-0")).toBe(false);
         expect(rows.find((row) => row.instance === "replacement")?.models[0]?.id).toBe("fresh");
-      } finally {
-        await final.close();
-      }
-    } finally {
-      db.exec("DROP TRIGGER IF EXISTS reject_delete");
-      db.close();
-      await catalog.close();
-      await work.close();
-    }
+      });
+    });
   },
 );
