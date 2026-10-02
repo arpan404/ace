@@ -252,3 +252,18 @@ it("does not discover project prompts through a symlinked configuration director
   await files.start();
   expect(f.catalog.list(target, "secret").commands).toEqual([]);
 });
+
+it("removes overlapping user and workspace roots together when their shared file disappears", async () => {
+  const f = await fixture();
+  await writeFile(join(f.root, "shared.md"), "Shared");
+  const files = new CommandFiles(f.catalog, [
+    { path: f.root, format: "claude", scope: "user", instance: "personal" },
+    { path: f.root, format: "claude", scope: "workspace", instance: "personal" },
+  ]);
+  cleanups.push(() => files.close());
+  await files.start();
+  expect(f.catalog.list(target, "shared").commands[0]?.scope).toBe("workspace");
+  const event = changed(files, () => f.catalog.list(target, "shared").commands.length === 0);
+  await rm(join(f.root, "shared.md"));
+  await event;
+});

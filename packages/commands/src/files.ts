@@ -225,14 +225,14 @@ export class CommandFiles {
   }
   private report(root: DiscoveryRoot, path: string, message: string): void {
     const id = sourceId(root, path);
-    const key = `${root.instance ?? "library"}:${path}`;
+    const key = `${sourceId(root, root.path)}:${path}`;
     if (!this.sources.has(key) && this.sources.size >= 2048) return;
     if (this.catalog.replaceSource(id, { commands: [], diagnostics: [{ source: id, message }] }))
       this.sources.set(key, id);
   }
   private remove(root: DiscoveryRoot, path: string): void {
-    const key = `${root.instance ?? "library"}:${path}`;
-    if (this.children.get(`${root.instance ?? "library"}:${dirname(path)}`)?.delete(path))
+    const key = `${sourceId(root, root.path)}:${path}`;
+    if (this.children.get(`${sourceId(root, root.path)}:${dirname(path)}`)?.delete(path))
       this.links--;
     for (const child of this.children.get(key) ?? []) this.remove(root, child);
     this.links -= this.children.get(key)?.size ?? 0;
@@ -246,7 +246,7 @@ export class CommandFiles {
   }
   private async sync(root: DiscoveryRoot, path: string, depth: number): Promise<void> {
     if (this.closed) return;
-    const key = `${root.instance ?? "library"}:${path}`;
+    const key = `${sourceId(root, root.path)}:${path}`;
     let stat;
     try {
       stat = await lstat(path);
@@ -255,7 +255,7 @@ export class CommandFiles {
       if (path === root.path) await this.watchAncestor(root);
       return;
     }
-    const parentChildren = this.children.get(`${root.instance ?? "library"}:${dirname(path)}`);
+    const parentChildren = this.children.get(`${sourceId(root, root.path)}:${dirname(path)}`);
     if (parentChildren && !parentChildren.has(path)) {
       if (this.links >= 8192) {
         this.report(root, path, "Discovery path limit exceeded");
