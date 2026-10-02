@@ -4,7 +4,7 @@ import { lookup, type AgentRecord, type ThreadState } from "./state.ts";
 import { emit } from "./emit.ts";
 import { isActionableInteraction } from "./human.ts";
 import { liveToolKeys, pendingInteractionKeys, runningTaskKeys } from "./indexes.ts";
-import { isLiveTool, statusInputs, suppressesActiveSilence } from "./status-inputs.ts";
+import { statusInputs, suppressesActiveSilence } from "./status-inputs.ts";
 export { isLiveTool } from "./status-inputs.ts";
 
 export function isSettled(status: AgentStatus): boolean {

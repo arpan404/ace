@@ -11,14 +11,15 @@ it("daemon health reads current engine workload and preserves its own queue coun
   const root = await mkdtemp(join(tmpdir(), "ace-diag-workload-"));
   let sessions = 4,
     pending = 2;
-  const daemon = await startDaemon(
-    readConfig({ ACE_HOME: root, ACE_PORT: "0" }),
-    undefined,
-    { registry: new AdapterRegistry() },
-    undefined,
-    [],
-    () => ({ activeSessions: sessions, queues: { engine: pending, "daemon.healthRequests": 999 } }),
-  );
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: root, ACE_PORT: "0" }),
+    engine: { registry: new AdapterRegistry() },
+    modelInstances: [],
+    workload: () => ({
+      activeSessions: sessions,
+      queues: { engine: pending, "daemon.healthRequests": 999 },
+    }),
+  });
   const client = new Client(daemon.url);
   try {
     await once(client.socket, "open");

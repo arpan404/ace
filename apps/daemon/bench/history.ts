@@ -27,15 +27,13 @@ try {
   }
   stream.end();
   await once(stream, "finish");
-  daemon = await startDaemon(
-    readConfig({ ACE_HOME: join(root, "ace"), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-    undefined,
-    [],
-    {},
-    [],
-    undefined, undefined, undefined, undefined,
-    { instances: [{ id: "account", provider: "claude", homeDir: home }] },
-  );
+  daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: join(root, "ace"), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+    toolkits: [],
+    notificationChannels: {},
+    modelInstances: [],
+    history: { instances: [{ id: "account", provider: "claude", homeDir: home }] },
+  });
   client = new Client(daemon.url);
   await once(client.socket, "open");
   client.send({

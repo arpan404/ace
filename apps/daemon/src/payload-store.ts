@@ -44,7 +44,11 @@ export class PayloadStore {
   private readonly items: ItemStore;
   private readonly nextBlobId: () => string;
   private readonly statement: (sql: string) => StatementSync;
-  constructor(db: DatabaseSync, nextBlobId: () => string, statement: (sql: string) => StatementSync) {
+  constructor(
+    db: DatabaseSync,
+    nextBlobId: () => string,
+    statement: (sql: string) => StatementSync,
+  ) {
     this.statement = statement;
     this.db = db;
     this.items = new ItemStore(db, statement);
@@ -76,18 +80,18 @@ export class PayloadStore {
           payload = { type: legacy.type, item };
           const streamId = outputStreamId(item.id);
           this.statement(
-              "INSERT INTO output_streams (id, thread_id, item_id) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
-            )
-            .run(streamId, threadId, item.id);
+            "INSERT INTO output_streams (id, thread_id, item_id) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
+          ).run(streamId, threadId, item.id);
           const size = Number(
             this.statement("SELECT size FROM output_streams WHERE id = ?").get(streamId)?.size,
           );
           const bytes = Buffer.from(output).subarray(size);
           if (bytes.length) {
-            this.statement("INSERT INTO output_chunks VALUES (?, ?, ?)")
-              .run(streamId, size, bytes);
-            this.statement("UPDATE output_streams SET size = size + ? WHERE id = ?")
-              .run(bytes.length, streamId);
+            this.statement("INSERT INTO output_chunks VALUES (?, ?, ?)").run(streamId, size, bytes);
+            this.statement("UPDATE output_streams SET size = size + ? WHERE id = ?").run(
+              bytes.length,
+              streamId,
+            );
           }
         }
         const event = Event.parse({
@@ -98,8 +102,10 @@ export class PayloadStore {
           payload: this.cap(payload, threadId),
         });
         this.persist(event);
-        this.statement("UPDATE events SET payload = ? WHERE seq = ?")
-          .run(JSON.stringify(event.payload), event.seq);
+        this.statement("UPDATE events SET payload = ? WHERE seq = ?").run(
+          JSON.stringify(event.payload),
+          event.seq,
+        );
       }
       this.db.exec("INSERT INTO payload_migration VALUES (1); COMMIT");
     } catch (error) {
@@ -151,8 +157,10 @@ export class PayloadStore {
         this.items.append(event, p);
         return;
       }
-      const row = this.statement("SELECT item FROM items WHERE id = ? AND thread_id = ?")
-        .get(p.itemId, event.threadId);
+      const row = this.statement("SELECT item FROM items WHERE id = ? AND thread_id = ?").get(
+        p.itemId,
+        event.threadId,
+      );
       if (!row) {
         if (p.field === "output") throw new Error("Output needs a shell item");
         return;
@@ -161,21 +169,24 @@ export class PayloadStore {
       if (p.field === "output" && item.type === "tool_call" && item.call.detail.kind === "shell") {
         const streamId = item.call.detail.output?.streamId ?? outputStreamId(item.id);
         this.statement(
-            "INSERT INTO output_streams (id, thread_id, item_id) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
-          )
-          .run(streamId, event.threadId, item.id);
+          "INSERT INTO output_streams (id, thread_id, item_id) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
+        ).run(streamId, event.threadId, item.id);
         const stream = this.statement("SELECT * FROM output_streams WHERE id = ?").get(streamId);
         if (stream?.thread_id !== event.threadId || stream.item_id !== item.id)
           throw new Error("Stream outside item scope");
         const bytes = this.writeOutput(streamId, Number(stream.size), p.append);
-        this.statement("UPDATE output_streams SET size = size + ? WHERE id = ?")
-          .run(bytes, streamId);
+        this.statement("UPDATE output_streams SET size = size + ? WHERE id = ?").run(
+          bytes,
+          streamId,
+        );
       }
       if (!applyDelta(item, p.field, p.append)) return;
       const body = JSON.stringify(item);
       this.statement("UPDATE items SET item = ? WHERE id = ?").run(body, item.id);
-      this.statement("UPDATE item_heads SET size = ? WHERE id = ?")
-        .run(Buffer.byteLength(body), item.id);
+      this.statement("UPDATE item_heads SET size = ? WHERE id = ?").run(
+        Buffer.byteLength(body),
+        item.id,
+      );
     }
   }
   private writeOutput(streamId: string, offset: number, text: string): number {
@@ -199,9 +210,8 @@ export class PayloadStore {
   }
   streamThread(streamId: string): ThreadId | undefined {
     const row = this.statement(
-        "SELECT thread_id FROM output_streams WHERE id = ? UNION ALL SELECT thread_id FROM item_text_streams WHERE id = ? LIMIT 1",
-      )
-      .get(streamId, streamId);
+      "SELECT thread_id FROM output_streams WHERE id = ? UNION ALL SELECT thread_id FROM item_text_streams WHERE id = ? LIMIT 1",
+    ).get(streamId, streamId);
     return row ? ThreadId.parse(row.thread_id) : undefined;
   }
   private readStatement(sql: string): StatementSync {

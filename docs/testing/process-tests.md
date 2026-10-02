@@ -185,6 +185,7 @@ establish runtime success; that needs run at merge.
 make the concurrency cap independent of the host's advertised CPU count.
 
 PR #7 adds the terminal PTY, shell, scrollback review, lifetime lease, frozen-daemon, memory and foreign-group safety suites to the shared process-test manifest. These keep output/process barriers and behavior assertions, with the shared 120-second hang guards. Runtime validation needs run at merge.
+
 ## Settings merge failure follow-up
 
 After settings joined the daemon, bundling its jsonc-parser dependency produced

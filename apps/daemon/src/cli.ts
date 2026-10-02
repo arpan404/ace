@@ -66,15 +66,13 @@ async function main(args: string[]): Promise<void> {
     if (args.length > 1) throw new Error("Usage: ace start");
     const development = process.env.ACE_DEV === "1";
     const { startDaemon } = await import("./index.ts");
-    const daemon = await startDaemon(
-      config,
-      development ? stubHandler({ development }) : undefined,
-      [],
-      undefined,
-      readModelInstances(),
-      undefined, undefined, undefined, undefined,
-      { instances: readHistoryInstances() },
-    );
+    const daemon = await startDaemon({
+      config: config,
+      handler: development ? stubHandler({ development }) : undefined,
+      toolkits: [],
+      modelInstances: readModelInstances(),
+      history: { instances: readHistoryInstances() },
+    });
     try {
       if (development && daemon.store.listThreads().length === 0)
         createDevThread(daemon.store, daemon.store.createWorkspace(process.cwd(), "Development"));

@@ -24,7 +24,7 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
     logLevel: "silent",
     listen: "local",
     remotePort: 0,
-  } satisfies Parameters<typeof startDaemon>[0];
+  } satisfies NonNullable<NonNullable<Parameters<typeof startDaemon>[0]>["config"]>;
   let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
   let socket: WebSocket | undefined;
   try {
@@ -63,7 +63,7 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
     await writeFile(join(repo, "server.js"), "console.log('SESSION_RESOURCE');");
     await git(["add", "."]);
     await git(["commit", "-m", "fixture"]);
-    daemon = await startDaemon(config);
+    daemon = await startDaemon({ config: config });
     socket = new WebSocket(daemon.url);
     await once(socket, "open");
     const received = once(socket, "message");
@@ -156,7 +156,7 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
     });
     socket.terminate();
     await daemon.close();
-    daemon = await startDaemon(config);
+    daemon = await startDaemon({ config: config });
     const restarted = await daemon.preparePlugins("claude", join(root, "claude-session"));
     expect(restarted.args).toContain("--plugin-dir");
     expect(

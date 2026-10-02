@@ -55,10 +55,9 @@ test("daemon health reports provider sessions and held input then observes idle 
     },
     { installed: true, auth: "logged_in", loginHint: "unused" },
   );
-  const daemon = await startDaemon(
-    readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-    undefined,
-    {
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+    engine: {
       registry,
       clock,
       idleMs: 500,
@@ -67,7 +66,7 @@ test("daemon health reports provider sessions and held input then observes idle 
         throw new Error("Explicit registry must bypass discovery");
       },
     },
-  );
+  });
   const client = new Client(daemon.url);
   try {
     await once(client.socket, "open");

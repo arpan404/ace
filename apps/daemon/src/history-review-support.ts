@@ -139,7 +139,13 @@ export async function reviewFixture(backpressure = true) {
         : {}),
     },
   };
-  let daemon = await startDaemon(config, undefined, [], {}, [], undefined, undefined, undefined, undefined, options);
+  let daemon = await startDaemon({
+    config: config,
+    toolkits: [],
+    notificationChannels: {},
+    modelInstances: [],
+    history: options,
+  });
   store = daemon.store;
   const clients: Client[] = [];
   async function connect() {
@@ -230,7 +236,13 @@ export async function reviewFixture(backpressure = true) {
       for (const c of clients.splice(0)) await c.close();
       await daemon.close();
       sessions.clear();
-      daemon = await startDaemon(config, undefined, [], {}, [], undefined, undefined, undefined, undefined, options);
+      daemon = await startDaemon({
+        config: config,
+        toolkits: [],
+        notificationChannels: {},
+        modelInstances: [],
+        history: options,
+      });
       store = daemon.store;
       return connect();
     },

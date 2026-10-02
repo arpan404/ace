@@ -33,8 +33,13 @@ test("authenticated history import publishes a daemon thread with windowed canon
     ACE_LOG_LEVEL: "silent",
   });
   // The sixth argument supplies registered homes; before the fix it is ignored.
-  const daemon = await startDaemon(config, undefined, [], undefined, [], undefined, undefined, undefined, undefined, {
-    instances: [{ id: "account", provider: "claude", homeDir: home }],
+  const daemon = await startDaemon({
+    config: config,
+    toolkits: [],
+    modelInstances: [],
+    history: {
+      instances: [{ id: "account", provider: "claude", homeDir: home }],
+    },
   });
   cleanup.unshift(daemon.close);
   const client = new Client(daemon.url);
@@ -162,14 +167,11 @@ test("native continuation uses the registered home-bound adapter and persists it
       };
     },
   };
-  const daemon = await startDaemon(
-    readConfig({ ACE_HOME: join(root, "ace"), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-    undefined,
-    [],
-    undefined,
-    [],
-    undefined, undefined, undefined, undefined,
-    {
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: join(root, "ace"), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+    toolkits: [],
+    modelInstances: [],
+    history: {
       instances: [{ id: "account-two", provider: "claude", homeDir: home }],
       adapters: {
         resolve: (instance) => (instance === "account-two" ? adapter : undefined),
@@ -200,7 +202,7 @@ test("native continuation uses the registered home-bound adapter and persists it
         onExit() {},
       },
     },
-  );
+  });
   store = daemon.store;
   cleanup.unshift(daemon.close);
   const client = new Client(daemon.url);

@@ -85,7 +85,7 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
     ACE_ADVERTISE_HOST: "127.0.0.1",
     ACE_LOG_LEVEL: "silent",
   });
-  const daemon = await startDaemon(config);
+  const daemon = await startDaemon({ config: config });
   cleanups.push(() => daemon.close());
   const { scope } = seed(daemon.store);
   const lease = daemon.mcp.openSession(scope, new AbortController().signal);
@@ -121,7 +121,7 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
   await daemon.close();
   expect(lease.principal.signal.aborted).toBe(true);
   expect(existsSync(endpointPath)).toBe(false);
-  const reopened = await startDaemon(config);
+  const reopened = await startDaemon({ config: config });
   cleanups.push(() => reopened.close());
   expect(reopened.store.devices.get(paired.device.id)).toMatchObject({
     name: "Integration device",
@@ -133,7 +133,7 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
 
 it("persists an attributed notice and notification intent together and preserves pending intents across restart", async () => {
   const config = readConfig({ ACE_HOME: home(), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" });
-  const daemon = await startDaemon(config);
+  const daemon = await startDaemon({ config: config });
   cleanups.push(() => daemon.close());
   const { thread, scope } = seed(daemon.store);
   const lease = daemon.mcp.openSession(scope, new AbortController().signal);
@@ -167,7 +167,7 @@ it("persists an attributed notice and notification intent together and preserves
   await daemon.close();
   expect(lease.principal.signal.aborted).toBe(true);
   expect(() => daemon.mcp.openSession(scope, new AbortController().signal)).toThrow();
-  const reopened = await startDaemon(config);
+  const reopened = await startDaemon({ config: config });
   cleanups.push(() => reopened.close());
   expect(reopened.store.readMcpIntents()).toMatchObject([
     pending[0],
@@ -214,9 +214,9 @@ it("rolls back both intent and notice when event persistence fails", () => {
 });
 
 it("reads indexed agent pages with canonical status and late parent linkage", async () => {
-  const daemon = await startDaemon(
-    readConfig({ ACE_HOME: home(), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-  );
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: home(), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+  });
   cleanups.push(() => daemon.close());
   const { thread, agent, scope } = seed(daemon.store);
   const child = Agent.parse({

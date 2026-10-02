@@ -32,13 +32,12 @@ test.each([true, false])(
       cursor: absent,
       opencode: absent,
     };
-    const daemon = await startDaemon(
-      readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-      undefined,
-      {
+    const daemon = await startDaemon({
+      config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+      engine: {
         adapterDiscovery: async () => discovered,
       },
-    );
+    });
     cleanups.push(() => daemon.close());
     // A regular file exercises discovery and admission without ever opening a provider session.
     const path = join(home, "file");

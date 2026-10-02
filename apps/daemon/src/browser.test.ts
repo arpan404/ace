@@ -19,15 +19,10 @@ const exec = promisify(execFile);
 describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
   it("streams to two authenticated clients, scopes control to a connection, and persists recordings as thread artifacts", async () => {
     const home = await mkdtemp(join(tmpdir(), "ace-browser-wire-"));
-    const daemon = await startDaemon(
-      readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      { ffmpeg: "/nonexistent/ffmpeg" },
-    );
+    const daemon = await startDaemon({
+      config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+      browser: { ffmpeg: "/nonexistent/ffmpeg" },
+    });
     const clients = [new BrowserClient(daemon.url), new BrowserClient(daemon.url)];
     try {
       const workspace = daemon.store.createWorkspace("/repo", "Repo");

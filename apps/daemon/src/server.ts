@@ -1,50 +1,24 @@
-import type { SettingsService } from "@ace/settings";
-import { settingsSession } from "./settings.ts";
+import { createServiceSessions, parseSocketMessage } from "./services/registry.ts";
+import type { SocketMessage } from "./services/socket.ts";
 import { previewHttp } from "./preview-http.ts";
-import { createDaemonPreview, type DaemonPreview, type DaemonPreviewOptions } from "./preview.ts";
-import { dispatchReviewCommand, type ReviewPort } from "./review.ts";
-import type { DaemonHistory } from "./history.ts";
+import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
 import { MaintenanceGate } from "@ace/service";
-import type { ModelCatalogApi } from "@ace/models";
-import { handleModelRequest } from "./models.ts";
-import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
-import type { UsageCommands } from "./usage.ts";
-import type { NotificationWorker } from "@ace/notify";
-import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
+import { systemDeliveryRuntime } from "./delivery-runtime.ts";
+import { generateSecret, systemCredentials } from "./credential-runtime.ts";
 import { z } from "zod";
-import { defaultTicketLimits, type TicketLimits } from "./ticket-pool.ts";
-import { createServer as httpServer } from "node:http";
+import { defaultTicketLimits } from "./ticket-pool.ts";
+import { createServer as httpServer, type Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
-import type { Server, IncomingMessage } from "node:http";
 import { accessHttp } from "./access-http.ts";
 import { allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
-import { urlHost, type RemoteListener } from "./network.ts";
+import { urlHost } from "./network.ts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
-import { connectBrowser, type BrowserService } from "@ace/browser";
-import {
-  BrowserClientMessage,
-  ThreadId,
-  ClientMessage,
-  HostId,
-  DeviceId,
-  type ServerMessage,
-  type DiagnosticsHealth,
-  type Notification,
-  type ContextRequest,
-  type ContextResult,
-} from "@ace/protocol";
-import {
-  PluginClientMessage,
-  PluginResponse,
-  type PluginServerMessage,
-} from "@ace/protocol/plugins";
-import { commandContext, type CommandHandler } from "./commands.ts";
-import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
-import type { Store } from "./store.ts";
+import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/protocol";
+import type { PluginServerMessage } from "@ace/protocol/plugins";
+import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
 import { subscribe } from "./subscription.ts";
-
 const bind = (listener: Server, host: string, port: number) =>
   new Promise<number>((resolve, reject) => {
     listener.once("error", reject);
@@ -64,45 +38,8 @@ const closeListener = (listener: Server) =>
     listener.closeAllConnections();
   });
 
-export interface ServerOptions {
-  settings?: SettingsService;
-  preview?: DaemonPreviewOptions;
-  history?: Pick<DaemonHistory, "handle">;
-  usage?: UsageCommands;
-  maintenance?: boolean;
-  version?: string;
-  models?: ModelCatalogApi;
-  port: number;
-  remote?: RemoteListener;
-  now?: () => number;
-  runtime?: Partial<DeliveryRuntime>;
-  entropy?: EntropySource;
-  pairingAddress?: (request: IncomingMessage) => string;
-  ticketLimits?: Partial<TicketLimits>;
-  token: string;
-  hostId: string;
-  store: Store;
-  handler: CommandHandler;
-  plugins?: { handle(input: unknown): Promise<PluginResponse> };
-  browser?: BrowserService;
-  review?: ReviewPort;
-  replayLimit?: number;
-  idleTimeoutMs?: number;
-  pressure?: Partial<PressureOptions>;
-  log?: (error: unknown) => void;
-  health?: () => Promise<DiagnosticsHealth>;
-  context?: {
-    handle(device: string, request: ContextRequest, access?: () => boolean): Promise<ContextResult>;
-  };
-  /** Local-token clients can read all threads by default. */
-  canReadThread?: (deviceId: DeviceId, threadId: ThreadId) => boolean;
-  notifications?: Pick<
-    NotificationWorker,
-    "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
-  > &
-    Partial<Pick<NotificationWorker, "revoke">>;
-  onDisconnect?: (deviceId: DeviceId | undefined) => void;
-}
+export type { ServerOptions } from "./server-options.ts";
+import type { ServerOptions } from "./server-options.ts";
 export async function startServer(options: ServerOptions): Promise<{
   maintenance: MaintenanceGate;
   url: string;
@@ -147,7 +84,14 @@ export async function startServer(options: ServerOptions): Promise<{
   const local = httpServer(
     previewHttp(
       () => preview,
-      accessHttp(auth, auth.localBearer.bind(auth), pairing, options.pairingAddress, maintenance, options.version),
+      accessHttp(
+        auth,
+        auth.localBearer.bind(auth),
+        pairing,
+        options.pairingAddress,
+        maintenance,
+        options.version,
+      ),
     ),
   );
   const remote = options.remote
@@ -155,7 +99,14 @@ export async function startServer(options: ServerOptions): Promise<{
         { ...options.remote.identity, minVersion: "TLSv1.2" },
         previewHttp(
           () => preview,
-          accessHttp(auth, auth.deviceBearer.bind(auth), pairing, options.pairingAddress, undefined, options.version),
+          accessHttp(
+            auth,
+            auth.deviceBearer.bind(auth),
+            pairing,
+            options.pairingAddress,
+            undefined,
+            options.version,
+          ),
         ),
       )
     : undefined;
@@ -197,9 +148,9 @@ export async function startServer(options: ServerOptions): Promise<{
         socket.terminate();
       }
   });
-  const pluginTasks = new Set<Promise<void>>();
+  const serviceTasks = new Set<Promise<void>>();
+  const serviceSessions = new Map<WebSocket, ReturnType<typeof createServiceSessions>>();
   const input = new SocketInput();
-  let healthRequests = 0;
   const cleanups = new Map<WebSocket, () => void>();
   let disconnects = Promise.resolve();
   let disconnectError: Error | undefined;
@@ -210,69 +161,52 @@ export async function startServer(options: ServerOptions): Promise<{
       options.log?.(error);
       socket.terminate();
     });
-    let modelRequests = 0;
-    const historyLifetime = new AbortController();
     if (cleanups.size >= 256) {
       socket.terminate();
       return;
     }
     const sessionId = z.string().min(1).max(200).parse(runtime.id());
     let device: DeviceId | undefined;
-    let healthPending = false;
-    let pluginPending = false;
-    let contextBusy = false;
     let hasPresence = false;
     let cleaned = false;
     let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
-    const browser = options.browser
-      ? connectBrowser(options.browser, {
-          connectionId: sessionId,
-          authorize: (threadId, workspaceId, access) => {
-            const thread = options.store.getThread(ThreadId.parse(threadId));
-            return (
-              device !== undefined &&
-              thread !== undefined &&
-              allows(authenticated.get(socket), access) &&
-              (workspaceId === undefined || thread.workspaceId === workspaceId)
-            );
-          },
-          send: (message, serialized) => {
-            if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 256 * 1024) {
-              if (message.type !== "browser.frame")
-                socket.close(4009, "Browser transport backpressure");
-              return false;
-            }
-            socket.send(serialized ?? JSON.stringify(message));
-            return true;
-          },
-        })
-      : undefined;
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure }, runtime.now);
     const send = (message: ServerMessage | PluginServerMessage) => outbox.send(message);
-    const fail = (code: string, message: string, close = false,
-      scope: { requestId?: string; subscriptionId?: string } = {}) => {
+    const fail = (
+      code: string,
+      message: string,
+      close = false,
+      scope: { requestId?: string; subscriptionId?: string } = {},
+    ) => {
       send({ type: "error", code, message, ...scope });
       if (close) socket.close(4001, code);
     };
-    const settings = settingsSession({
-      service: options.settings,
-      store: options.store,
-      subscriptions,
-      send,
-    });
-    const releaseHealth = () => {
-      if (!healthPending) return;
-      healthPending = false;
-      healthRequests--;
+    const authorize = (scope: import("@ace/protocol").DeviceScope) => {
+      const actor = authenticated.get(socket);
+      return allows(actor?.revocable ? options.store.devices.get(actor.id) : actor, scope);
     };
+    const sessions = createServiceSessions({
+      options,
+      socket,
+      sessionId,
+      subscriptions,
+      tasks: serviceTasks,
+      maintenance,
+      device: () => device,
+      authorize,
+      canReadThread: (thread) =>
+        device !== undefined && options.canReadThread?.(device, thread) !== false,
+      connected: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
+      send,
+      fail,
+    });
+    serviceSessions.set(socket, sessions);
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
-      settings.close();
-      releaseHealth();
-      browser?.close();
-      historyLifetime.abort();
+      for (const service of sessions) service.close?.();
+      serviceSessions.delete(socket);
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -310,19 +244,10 @@ export async function startServer(options: ServerOptions): Promise<{
     const receive = async (data: RawData, binary: boolean) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       lastActivity = auth.now();
-      let message: ClientMessage | PluginClientMessage;
+      let message: SocketMessage;
       try {
         if (binary) throw new Error("Text required");
-        const decoded: unknown = JSON.parse(data.toString());
-        if (device && browser) {
-          const request = BrowserClientMessage.safeParse(decoded);
-          if (request.success) {
-            void browser.handle(request.data).catch((error: unknown) => options.log?.(error));
-            return;
-          }
-        }
-        const standard = ClientMessage.safeParse(decoded);
-        message = standard.success ? standard.data : PluginClientMessage.parse(decoded);
+        message = parseSocketMessage(JSON.parse(data.toString()));
       } catch {
         fail(
           device ? "invalid_message" : "unauthorized",
@@ -384,202 +309,8 @@ export async function startServer(options: ServerOptions): Promise<{
         });
         return;
       }
+      for (const service of sessions) if (await service.handle?.(message, device)) return;
       switch (message.type) {
-        case "pluginRequest": {
-          const scope =
-            message.request.type === "plugins.list" || message.request.type === "plugins.readReview"
-              ? "read"
-              : "admin";
-          if (!allows(authenticated.get(socket), scope)) {
-            fail("forbidden", `${scope} scope required`);
-            break;
-          }
-          if (!options.plugins) {
-            fail("plugins_unavailable", "Plugin service unavailable");
-            break;
-          }
-          if (pluginPending || pluginTasks.size >= 8) {
-            fail("plugins_busy", "Plugin operation already pending");
-            break;
-          }
-          pluginPending = true;
-          const service = options.plugins;
-          const request = message;
-          const task = (async () => {
-            try {
-              const response = PluginResponse.parse(await service.handle(request.request));
-              const result: PluginServerMessage = {
-                type: "pluginResult",
-                requestId: request.requestId,
-                response,
-              };
-              if (Buffer.byteLength(JSON.stringify(result)) > 1024 * 1024)
-                throw new Error("Plugin response exceeds wire limit");
-              send(result);
-            } catch (error) {
-              options.log?.(error);
-              fail(
-                "plugin_failed",
-                error instanceof Error ? error.message.slice(0, 8192) : "Plugin operation failed",
-              );
-            } finally {
-              pluginPending = false;
-            }
-          })();
-          pluginTasks.add(task);
-          void task.finally(() => pluginTasks.delete(task));
-          break;
-        }
-        case "context.request": {
-          const op = message.operation.op;
-          const scope =
-            op === "attachment.list" || op === "upload.status" || op.startsWith("mention.")
-              ? "read"
-              : "operate";
-          if (!allows(authenticated.get(socket), scope)) {
-            send({
-              type: "context.result",
-              requestId: message.requestId,
-              result: { kind: "error", code: "forbidden", message: `${scope} scope required` },
-            });
-            break;
-          }
-          if (!options.context || contextBusy) {
-            send({
-              type: "context.result",
-              requestId: message.requestId,
-              result: {
-                kind: "error",
-                code: options.context ? "busy" : "unsupported",
-                message: options.context
-                  ? "Wait for the previous context result"
-                  : "Context service unavailable",
-              },
-            });
-            break;
-          }
-          contextBusy = true;
-          void options.context
-            .handle(device, message, () => {
-              const actor = authenticated.get(socket);
-              if (!actor) return false;
-              return (
-                !actor.revocable ||
-                (allows(options.store.devices.get(actor.id), scope) &&
-                  options.store.devices.get(actor.id)?.revokedAt === null)
-              );
-            })
-            .then(send)
-            .catch((error: unknown) => {
-              options.log?.(error);
-              send({
-                type: "context.result",
-                requestId: message.requestId,
-                result: {
-                  kind: "error",
-                  code: "invalid_request",
-                  message: "Context operation failed",
-                },
-              });
-            })
-            .finally(() => {
-              contextBusy = false;
-            });
-          break;
-        }
-        case "settings.get":
-        case "settings.subscribe":
-          if (!allows(authenticated.get(socket), "read")) {
-            fail("forbidden", "Read scope required");
-            break;
-          }
-          settings.accept(message);
-          break;
-        case "settings.set":
-          if (!allows(authenticated.get(socket), "operate")) {
-            fail("forbidden", "Operate scope required");
-            break;
-          }
-          settings.accept(message);
-          break;
-        case "history.scan":
-        case "history.list":
-        case "history.import":
-        case "history.continue": {
-          const scope = message.type === "history.list" ? "read" : "operate";
-          if (!allows(authenticated.get(socket), scope)) {
-            fail("forbidden", `${scope} scope required`);
-            break;
-          }
-          if (
-            message.type === "history.continue" &&
-            options.canReadThread?.(device, message.threadId) === false
-          ) {
-            fail("read_denied", "Thread is not readable");
-            break;
-          }
-          if (!options.history) {
-            fail("history_unavailable", "History is not configured");
-            break;
-          }
-          try {
-            send(await options.history.handle(message, historyLifetime.signal));
-          } catch {
-            fail("history_rejected", "History operation rejected");
-          }
-          break;
-        }
-
-        case "usage.summary":
-        case "usage.series": {
-          if (!allows(authenticated.get(socket), "read")) {
-            fail("forbidden", "Read scope required");
-            break;
-          }
-          if (!options.usage) {
-            fail("usage_unavailable", "Usage analytics unavailable");
-            break;
-          }
-          try {
-            const kind = message.type === "usage.summary" ? "summary" : "series";
-            const result = await options.usage[kind](message.query);
-            if (socket.readyState === WebSocket.OPEN && authenticated.has(socket))
-              send({ type: "usage.result", requestId: message.requestId, kind, result });
-          } catch {
-            fail("usage_failed", "Usage query rejected");
-          }
-          break;
-        }
-        case "models.list":
-        case "models.resolve":
-        case "models.refresh": {
-          const modelFailure = (reason: string) =>
-            send({
-              type: "models.result",
-              requestId: message.requestId,
-              result: { ok: false, reason },
-            });
-          const requiredScope = message.type === "models.refresh" ? "operate" : "read";
-          if (!allows(authenticated.get(socket), requiredScope)) {
-            modelFailure(`${requiredScope} scope required`);
-            break;
-          }
-          if (!options.models) {
-            modelFailure("Model catalog is not configured");
-            break;
-          }
-          if (modelRequests >= 8) {
-            modelFailure("Too many catalog requests");
-            break;
-          }
-          modelRequests++;
-          void handleModelRequest(options.models, message)
-            .then(send, () => modelFailure("Model catalog request failed"))
-            .finally(() => {
-              modelRequests--;
-            });
-          break;
-        }
         case "presence.update":
         case "notification.register":
         case "notification.preferences":
@@ -718,8 +449,11 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         }
         case "command": {
-          const scope = ["diagnostics.health", "review.list"].includes(message.command.payload.type) ? "read" : "operate";
-          if (!allows(authenticated.get(socket), scope)) {
+          const route = sessions
+            .flatMap((service) => (service.command ? [service.command] : []))
+            .find((service) => service.types.includes(message.command.payload.type));
+          const scope = route?.scope(message.command) ?? "operate";
+          if (!authorize(scope)) {
             fail("forbidden", `${scope} scope required`);
             break;
           }
@@ -735,68 +469,19 @@ export async function startServer(options: ServerOptions): Promise<{
             fail("device_mismatch", "Command device must match hello");
             break;
           }
-          if (message.command.payload.type === "diagnostics.health") {
-            if (!options.health) {
-              send({
-                type: "commandResult",
-                commandId: message.command.id,
-                ok: false,
-                error: "diagnostics_unavailable",
-              });
-              break;
-            }
-            if (healthPending) {
-              send({
-                type: "commandResult",
-                commandId: message.command.id,
-                ok: false,
-                error: "diagnostics_busy",
-              });
-              break;
-            }
-            healthPending = true;
-            healthRequests++;
-            void Promise.resolve()
-              .then(options.health)
-              .then(
-                (health) =>
-                  send({ type: "commandResult", commandId: message.command.id, ok: true, health }),
-                () =>
-                  send({
-                    type: "commandResult",
-                    commandId: message.command.id,
-                    ok: false,
-                    error: "diagnostics_failed",
-                  }),
-              )
-              .finally(() => {
-                releaseHealth();
-              });
-            break;
-          }
           if (!maintenance.admitCommand(message.command)) {
             fail("maintenance", "Daemon is draining for an update");
             break;
           }
           try {
-            if (message.command.payload.type.startsWith("review.")) {
-              if (!options.review) {
-                fail("reviews_unavailable", "Reviews unavailable");
-                break;
-              }
-              const result = await dispatchReviewCommand(
-                options.review,
-                options.store,
-                message.command,
-              );
-              if (socket.readyState === WebSocket.OPEN && authenticated.has(socket))
-                send({ type: "commandResult", ...result });
-              break;
-            }
-            const result = options.store.recordCommand(message.command.id, device, () =>
-              options.handler.handle(message.command, commandContext(options.store)),
-            );
-            send({ type: "commandResult", ...result });
+            if (route) await route.accept(message.command, device);
+            else
+              send({
+                type: "commandResult",
+                commandId: message.command.id,
+                ok: false,
+                error: "not_implemented",
+              });
           } catch (error) {
             options.log?.(error);
             fail("command_failed", "Command transaction rolled back");
@@ -837,7 +522,14 @@ export async function startServer(options: ServerOptions): Promise<{
     maintenance,
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
-    diagnosticsQueues: () => ({ socketInput: input.depth(), healthRequests }),
+    diagnosticsQueues: () => ({
+      socketInput: input.depth(),
+      healthRequests: [...serviceSessions.values()].reduce(
+        (count, sessions) =>
+          count + sessions.reduce((sum, service) => sum + (service.healthPending?.() ?? 0), 0),
+        0,
+      ),
+    }),
     ...(remoteOrigin && options.remote
       ? {
           remoteUrl: remoteOrigin.replace("https:", "wss:"),
@@ -870,7 +562,7 @@ export async function startServer(options: ServerOptions): Promise<{
         ]).then(
           () =>
             wss.close((error) => {
-              void Promise.all([Promise.allSettled(pluginTasks), disconnects]).then(() => {
+              void Promise.all([Promise.allSettled(serviceTasks), disconnects]).then(() => {
                 if (error) reject(error);
                 else if (disconnectError) reject(disconnectError);
                 else resolve();

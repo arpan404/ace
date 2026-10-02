@@ -48,7 +48,9 @@ export function statusInputs(state: ThreadState) {
     liveToolKeys(state).flatMap((key) => {
       const targets = lookup(state.itemLinks, key)?.waitingFor;
       const item = lookup(state.items, key);
-      return targets !== undefined && item && item.type === "tool_call" ? [{ agentId: item.agentId, targets }] : [];
+      return targets !== undefined && item && item.type === "tool_call"
+        ? [{ agentId: item.agentId, targets }]
+        : [];
     }),
   );
   return {

@@ -8,12 +8,14 @@ import { startDaemon } from "./index.ts";
 test("daemon shutdown stops its plugin-launched providers and removes their projections", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-launch-owner-")));
   const daemon = await startDaemon({
-    dataDir: join(root, "daemon"),
-    host: "127.0.0.1",
-    port: 0,
-    logLevel: "silent",
-    listen: "local",
-    remotePort: 0,
+    config: {
+      dataDir: join(root, "daemon"),
+      host: "127.0.0.1",
+      port: 0,
+      logLevel: "silent",
+      listen: "local",
+      remotePort: 0,
+    },
   });
   const connected = Promise.withResolvers<void>();
   const disconnected = Promise.withResolvers<void>();
@@ -68,12 +70,14 @@ process.stdin.resume();`,
 test("plugin launches reject retained groups before starting a provider or creating resources", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-launch-retained-")));
   const daemon = await startDaemon({
-    dataDir: join(root, "daemon"),
-    host: "127.0.0.1",
-    port: 0,
-    logLevel: "silent",
-    listen: "local",
-    remotePort: 0,
+    config: {
+      dataDir: join(root, "daemon"),
+      host: "127.0.0.1",
+      port: 0,
+      logLevel: "silent",
+      listen: "local",
+      remotePort: 0,
+    },
   });
   try {
     const marker = join(root, "started");
@@ -97,12 +101,14 @@ test("plugin launches reject retained groups before starting a provider or creat
 test("shutdown drains an accepted launch preparation and rejects subsequent launches", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-launch-race-")));
   const daemon = await startDaemon({
-    dataDir: join(root, "daemon"),
-    host: "127.0.0.1",
-    port: 0,
-    logLevel: "silent",
-    listen: "local",
-    remotePort: 0,
+    config: {
+      dataDir: join(root, "daemon"),
+      host: "127.0.0.1",
+      port: 0,
+      logLevel: "silent",
+      listen: "local",
+      remotePort: 0,
+    },
   });
   try {
     const options = {

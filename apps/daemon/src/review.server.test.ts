@@ -122,17 +122,18 @@ it("daemon review follows a thread's isolated worktree and refreshes when its fi
     await git("commit", "-qm", "base");
     await git("worktree", "add", "--detach", worktree, "HEAD");
     await writeFile(join(worktree, "file.ts"), "before\nwrong\nafter\n");
-    daemon = await startDaemon(
-      readConfig({ ACE_HOME: join(directory, "daemon"), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-      stubHandler(),
-      [],
-      {},
-      [],
-      undefined,
-      undefined,
-      undefined,
-      { threadWorktree: (id) => (id === threadId ? worktree : undefined) },
-    );
+    daemon = await startDaemon({
+      config: readConfig({
+        ACE_HOME: join(directory, "daemon"),
+        ACE_PORT: "0",
+        ACE_LOG_LEVEL: "silent",
+      }),
+      handler: stubHandler(),
+      toolkits: [],
+      notificationChannels: {},
+      modelInstances: [],
+      review: { threadWorktree: (id) => (id === threadId ? worktree : undefined) },
+    });
     const workspaceId = daemon.store.createWorkspace(root, "Review workspace");
     threadId = createDevThread(daemon.store, workspaceId).id;
     let serial = 0;

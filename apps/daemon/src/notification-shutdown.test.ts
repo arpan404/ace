@@ -81,9 +81,9 @@ it("finishes pending plugin persistence before reporting a presence shutdown fai
 
 it("gracefully shuts down more than 64 unauthenticated connections", async () => {
   const home = mkdtempSync(join(tmpdir(), "ace-shutdown-"));
-  const daemon = await startDaemon(
-    readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-  );
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+  });
   const clients: Client[] = [];
   try {
     await Promise.all(

@@ -137,7 +137,9 @@ export class GitCli {
       let failure: GitError | undefined;
       let spawnFailure: Promise<GitError> | undefined;
       let stopping: Promise<void> | undefined;
-      const kill = () => { stopping ??= killTree(this.runtime, child); };
+      const kill = () => {
+        stopping ??= killTree(this.runtime, child);
+      };
       const cancel = () => {
         failure ??= new GitError("git_closed", "Git service closed");
         kill();

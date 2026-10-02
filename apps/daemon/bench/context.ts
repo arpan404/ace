@@ -9,9 +9,9 @@ import { DeviceId, ServerMessage, type ClientMessage, type ContextOperation } fr
 import { startDaemon, readConfig, createDevThread } from "../src/index.ts";
 
 const root = await mkdtemp(join(tmpdir(), "ace-context-wire-bench-"));
-const daemon = await startDaemon(
-  readConfig({ ACE_HOME: root, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-);
+const daemon = await startDaemon({
+  config: readConfig({ ACE_HOME: root, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+});
 const socket = new WebSocket(daemon.url);
 try {
   await once(socket, "open");

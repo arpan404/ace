@@ -259,7 +259,7 @@ describe("remote access", () => {
       ACE_ADVERTISE_HOST: "127.0.0.1",
       ACE_LOG_LEVEL: "silent",
     });
-    const first = await startDaemon(config);
+    const first = await startDaemon({ config: config });
     cleanups.push(() => first.close());
     const credential = readFileSync(first.tokenPath, "utf8");
     const origin = readFileSync(join(home, "daemon-endpoint"), "utf8");
@@ -276,7 +276,7 @@ describe("remote access", () => {
       }),
     );
     await first.close();
-    const second = await startDaemon(config);
+    const second = await startDaemon({ config: config });
     cleanups.push(() => second.close());
     if (!second.remoteUrl || !second.fingerprint) throw new Error("Remote listener missing");
     expect(second.fingerprint).toBe(first.fingerprint);

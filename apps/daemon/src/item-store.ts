@@ -56,17 +56,17 @@ export class ItemStore {
         const item = Item.parse(JSON.parse(String(row.item)));
         let { prefix, lastUnit } = textMetadata(item);
         let size = Buffer.byteLength(JSON.stringify(item));
-        for (const chunk of this.statement("SELECT append FROM item_text_chunks WHERE item_id = ? ORDER BY seq")
-          .iterate(item.id)) {
+        for (const chunk of this.statement(
+          "SELECT append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
+        ).iterate(item.id)) {
           const append = decodeAppend(chunk.append);
           size += appendSize(append, lastUnit) + prefix;
           prefix = 0;
           if (append.length) lastUnit = append.charCodeAt(append.length - 1);
         }
         this.statement(
-            "UPDATE item_heads SET size = ?, text_prefix = ?, text_last_unit = ? WHERE id = ?",
-          )
-          .run(size, prefix, lastUnit, item.id);
+          "UPDATE item_heads SET size = ?, text_prefix = ?, text_last_unit = ? WHERE id = ?",
+        ).run(size, prefix, lastUnit, item.id);
       }
       this.db.exec("INSERT INTO text_encoding_migration VALUES (1); COMMIT");
     } catch (error) {
@@ -83,28 +83,25 @@ export class ItemStore {
     const body = JSON.stringify(item);
     const { prefix, lastUnit } = textMetadata(item);
     this.statement(
-        "INSERT INTO items VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET item = excluded.item",
-      )
-      .run(item.id, event.threadId, event.seq, body);
+      "INSERT INTO items VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET item = excluded.item",
+    ).run(item.id, event.threadId, event.seq, body);
     this.statement(`INSERT INTO item_heads VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET size = excluded.size, item_type = excluded.item_type, text_prefix = excluded.text_prefix, text_last_unit = excluded.text_last_unit`)
-      .run(
-        item.id,
-        event.threadId,
-        event.seq,
-        Buffer.byteLength(body),
-        item.type,
-        prefix,
-        lastUnit,
-      );
+      ON CONFLICT(id) DO UPDATE SET size = excluded.size, item_type = excluded.item_type, text_prefix = excluded.text_prefix, text_last_unit = excluded.text_last_unit`).run(
+      item.id,
+      event.threadId,
+      event.seq,
+      Buffer.byteLength(body),
+      item.type,
+      prefix,
+      lastUnit,
+    );
     this.statement("DELETE FROM item_text_chunks WHERE item_id = ?").run(item.id);
     this.texts.seed(item, event.seq);
   }
   append(event: Event, delta: Extract<EventPayload, { type: "item.delta" }>): void {
     const row = this.statement(
-        "SELECT item_type, text_prefix, text_last_unit FROM item_heads WHERE id = ? AND thread_id = ?",
-      )
-      .get(delta.itemId, event.threadId);
+      "SELECT item_type, text_prefix, text_last_unit FROM item_heads WHERE id = ? AND thread_id = ?",
+    ).get(delta.itemId, event.threadId);
     if (
       !row ||
       !(
@@ -120,20 +117,24 @@ export class ItemStore {
     const lastUnit = delta.append.length
       ? delta.append.charCodeAt(delta.append.length - 1)
       : Number(row.text_last_unit);
-    this.statement("INSERT INTO item_text_chunks VALUES (?, ?, ?, ?)")
-      .run(delta.itemId, event.seq, delta.field, JSON.stringify(delta.append));
+    this.statement("INSERT INTO item_text_chunks VALUES (?, ?, ?, ?)").run(
+      delta.itemId,
+      event.seq,
+      delta.field,
+      JSON.stringify(delta.append),
+    );
     this.statement(
-        "UPDATE item_heads SET size = size + ?, text_prefix = 0, text_last_unit = ? WHERE id = ?",
-      )
-      .run(size, lastUnit, delta.itemId);
+      "UPDATE item_heads SET size = size + ?, text_prefix = 0, text_last_unit = ? WHERE id = ?",
+    ).run(size, lastUnit, delta.itemId);
   }
   private materialize(id: string, body: unknown): Item {
     const item = Item.parse(JSON.parse(String(body)));
     let field: unknown;
     const appends: string[] = [];
     // Stream rows instead of retaining their objects. Accepted fields share one append target.
-    for (const row of this.statement("SELECT field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq")
-      .iterate(id)) {
+    for (const row of this.statement(
+      "SELECT field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
+    ).iterate(id)) {
       field ??= row.field;
       appends.push(decodeAppend(row.append));
     }
@@ -157,9 +158,8 @@ export class ItemStore {
     byteLimit: number,
   ): Omit<ItemsPage, "seq"> {
     const rows = this.statement(
-        "SELECT id, created_seq, size, item_type FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
-      )
-      .all(threadId, before, limit + 1);
+      "SELECT id, created_seq, size, item_type FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
+    ).all(threadId, before, limit + 1);
     const decoded = z
       .array(
         z.object({
@@ -216,9 +216,8 @@ export class ItemStore {
     )
       throw new Error("Invalid item page");
     const rows = this.statement(
-        "SELECT id, created_seq, size FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
-      )
-      .all(threadId, before, limit + 1);
+      "SELECT id, created_seq, size FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
+    ).all(threadId, before, limit + 1);
     let count = 0;
     // Budget both items:{} and itemOrder:[], including serialized ids, colons and commas.
     let bytes = 4;
@@ -235,8 +234,8 @@ export class ItemStore {
     const oldest = oldestRow ? Number(oldestRow.created_seq) : before;
     const items = count
       ? this.statement(
-            "SELECT id, item FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
-          )
+          "SELECT id, item FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
+        )
           .all(threadId, oldest, before)
           .map((row) => this.materialize(String(row.id), row.item))
       : [];

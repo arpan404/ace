@@ -257,12 +257,14 @@ test("daemon startup exposes the same settings service used by its sockets and c
   const { Client } = await import("./socket-test-support.ts");
   const dataDir = await mkdtemp(join(tmpdir(), "ace-settings-daemon-"));
   const daemon = await startDaemon({
-    dataDir,
-    host: "127.0.0.1",
-    port: 0,
-    listen: "local",
-    remotePort: 0,
-    logLevel: "silent",
+    config: {
+      dataDir,
+      host: "127.0.0.1",
+      port: 0,
+      listen: "local",
+      remotePort: 0,
+      logLevel: "silent",
+    },
   });
   const client = new Client(daemon.url);
   cleanups.push(async () => {

@@ -69,16 +69,13 @@ test("daemon startup serves health, its model catalog and an optional preview ga
   await once(upstream, "listening");
   const address = upstream.address();
   if (!address || typeof address === "string") throw new Error("Missing upstream address");
-  daemon = await startDaemon(
-    readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-    undefined,
-    [],
-    undefined,
-    [],
-    () => ({ activeSessions: 2, queues: { engine: 3 } }),
-    undefined,
-    { host: "127.0.0.1", wildcardHost: "preview.test" },
-  );
+  daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+    toolkits: [],
+    modelInstances: [],
+    workload: () => ({ activeSessions: 2, queues: { engine: 3 } }),
+    preview: { host: "127.0.0.1", wildcardHost: "preview.test" },
+  });
   const paired = daemon.store.devices.create("Operator", ["operate"], 1000);
   const preview = daemon.preview;
   if (!preview) throw new Error("Missing preview gateway");
