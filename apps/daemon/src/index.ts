@@ -67,8 +67,11 @@ export async function startDaemon(
           } finally {
             try {
               try {
-                await usage?.close();
-                await models?.close();
+                try {
+                  await usage?.close();
+                } finally {
+                  await models?.close();
+                }
               } finally {
                 store?.close();
               }
