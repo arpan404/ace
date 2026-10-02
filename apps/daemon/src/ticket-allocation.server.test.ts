@@ -61,3 +61,48 @@ it("expiration releases pending capacity without evicting a later unexpired tick
   const stillValid = await f.connectTicket(paired.device.id, later.ticket);
   expect(await stillValid.next()).toMatchObject({ type: "welcome" });
 });
+
+it("consuming an old ticket never makes a different expired ticket usable", async () => {
+  const f = await setup({ ticketLimits: { global: 4, perDevice: 4 } });
+  const paired = await f.pair();
+  const a = await f.ticket(paired.token);
+  f.advance(10_000);
+  const b = await f.ticket(paired.token);
+  f.advance(10_000);
+  const c = await f.ticket(paired.token);
+  f.advance(10_000);
+  const d = await f.ticket(paired.token);
+  const consumed = await f.connectTicket(paired.device.id, a.ticket);
+  expect(await consumed.next()).toMatchObject({ type: "welcome" });
+  f.advance(40_000);
+  const expired = await f.connectTicket(paired.device.id, b.ticket);
+  expect(await expired.next()).toMatchObject({ type: "error", code: "unauthorized" });
+  for (const valid of [c, d]) {
+    const client = await f.connectTicket(paired.device.id, valid.ticket);
+    expect(await client.next()).toMatchObject({ type: "welcome" });
+  }
+});
+
+it("consumption and expiry release all pending capacity while preserving later tickets", async () => {
+  const f = await setup({ ticketLimits: { global: 4, perDevice: 4 } });
+  const paired = await f.pair();
+  const a = await f.ticket(paired.token);
+  f.advance(10_000);
+  await f.ticket(paired.token);
+  f.advance(10_000);
+  const c = await f.ticket(paired.token);
+  f.advance(10_000);
+  const d = await f.ticket(paired.token);
+  const consumed = await f.connectTicket(paired.device.id, a.ticket);
+  expect(await consumed.next()).toMatchObject({ type: "welcome" });
+  f.advance(40_000);
+  const first = f.ticket(paired.token);
+  await expect(first).resolves.toMatchObject({ ticket: expect.any(String) });
+  const second = f.ticket(paired.token);
+  await expect(second).resolves.toMatchObject({ ticket: expect.any(String) });
+  await expect(f.ticket(paired.token)).rejects.toThrow("Too many pending tickets");
+  for (const valid of [c, d, await first, await second]) {
+    const client = await f.connectTicket(paired.device.id, valid.ticket);
+    expect(await client.next()).toMatchObject({ type: "welcome" });
+  }
+});

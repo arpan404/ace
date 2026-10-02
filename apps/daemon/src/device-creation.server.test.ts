@@ -51,3 +51,33 @@ it("rejects invalid lifecycle timestamps without damaging a stored credential", 
     expect(f.store.devices.list()).toEqual([created.device]);
   }
 });
+
+it("undersized entropy never persists a device credential", async () => {
+  const f = await setup();
+  const { Store } = await import("./index.ts");
+  const { join } = await import("node:path");
+  const path = join(f.home, "short-entropy.sqlite");
+  const store = new Store(path, undefined, {
+    id: () => "short-entropy-device",
+    randomBytes: () => new Uint8Array([42]),
+  });
+  try {
+    expect(() => store.devices.create("Phone", ["read"], 1000)).toThrow(
+      "Credential entropy source must return 32 bytes",
+    );
+    expect(store.devices.list()).toEqual([]);
+  } finally {
+    store.close();
+  }
+  const reopened = new Store(path);
+  try {
+    expect(reopened.devices.list()).toEqual([]);
+    const valid = reopened.devices.create("Valid phone", ["read"], 1000);
+    expect(reopened.devices.authenticate(valid.token, 2000)).toMatchObject({
+      id: valid.device.id,
+      name: "Valid phone",
+    });
+  } finally {
+    reopened.close();
+  }
+});
