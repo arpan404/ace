@@ -49,5 +49,5 @@ it("appends new siblings without rereading older siblings and preserves order ac
   send({ type: "agent.updated", agentId: agent("first").id, parentId: agent("x").parentId });
   expect(view.agentChildren.parent?.at(-1)).toBe("first");
   expect(view.agentChildren.parent).toHaveLength(1001);
-  expect(view.agentChildren.other).toEqual([]);
+  expect(view.agentChildren.other).toBeUndefined();
 });

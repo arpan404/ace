@@ -22,7 +22,7 @@ it("active background descendants keep the thread working above retry and shell 
   expect(h.view.status).toEqual({ state: "working", agents: 1 });
   h.question("approval", "grandchild");
   expect(h.view.status).toEqual({ state: "needs_you", interactions: 1 });
-  h.send({ type: "interaction.resolved", interaction: "approval" });
+  h.send({ type: "interaction.closed", interaction: "approval", state: "resolved" });
   expect(h.view.status).toEqual({ state: "working", agents: 1 });
 
   h.end("grandchild");

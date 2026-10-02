@@ -78,7 +78,6 @@ test("legacy consent exposes every argument from a native MCP file at the JSON l
       command: "x",
       args,
       env: {},
-      cwd: "${PLUGIN_ROOT}",
     });
     const review = {
       id: "legacy-limit",
@@ -86,9 +85,7 @@ test("legacy consent exposes every argument from a native MCP file at the JSON l
       version: "0.0.0",
       commit: await git(f.repo, ["rev-parse", "HEAD"]),
       hash: (await inspectPackage(join(f.repo, "plugins/sample"))).hash,
-      executions: [
-        { kind: "stdio", name: "x", command: "x", args, env: {}, cwd: "${PLUGIN_ROOT}" },
-      ],
+      executions: [{ kind: "stdio", name: "x", command: "x", args, env: {} }],
       unsupported: [],
     };
     f.manager.close();

@@ -19,10 +19,16 @@ async function installation(output?: string) {
       ? `require('node:fs').writeFileSync(process.argv[1], 'installed-by-fixture', {mode:0o700})`
       : `const fs=require('node:fs');
          if(fs.readFileSync(process.argv[1],'utf8')!=='installed-by-fixture')process.exit(1);
-         process.stdout.write(process.argv[2]);`;
+         process.stdout.write(Buffer.from(process.argv[2], 'base64'));`;
     return spawn(
       process.execPath,
-      ["--input-type=commonjs", "-e", script, executable, output ?? executable],
+      [
+        "--input-type=commonjs",
+        "-e",
+        script,
+        executable,
+        Buffer.from(output ?? executable).toString("base64"),
+      ],
       options,
     );
   };
