@@ -13,7 +13,17 @@
     "thread": "done",
     "agents": 1,
     "interactions": {
-      "resolved": 0
+      "resolved": 0,
+      "pending": 0,
+      "cancelled": 0,
+      "expired": 0
+    },
+    "items": {
+      "tool_call": 1,
+      "message": 1
+    },
+    "agentStates": {
+      "root": "idle"
     }
   }
 }

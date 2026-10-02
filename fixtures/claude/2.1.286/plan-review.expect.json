@@ -9,7 +9,17 @@
     "thread": "done",
     "agents": 1,
     "interactions": {
-      "resolved": 1
+      "resolved": 1,
+      "pending": 0,
+      "cancelled": 0,
+      "expired": 0
+    },
+    "items": {
+      "tool_call": 5,
+      "message": 2
+    },
+    "agentStates": {
+      "root": "idle"
     }
   }
 }
