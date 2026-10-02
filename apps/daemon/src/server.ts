@@ -1,5 +1,10 @@
 import { WebSocket, WebSocketServer } from "ws";
 import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
+import {
+  PluginClientMessage,
+  PluginResponse,
+  type PluginServerMessage,
+} from "@ace/protocol/plugins";
 import { commandContext, type CommandHandler } from "./commands.ts";
 import { validToken } from "./local-files.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
@@ -12,6 +17,7 @@ export interface ServerOptions {
   hostId: string;
   store: Store;
   handler: CommandHandler;
+  plugins?: { handle(input: unknown): Promise<PluginResponse> };
   replayLimit?: number;
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
@@ -28,14 +34,16 @@ export async function startServer(
     port: options.port,
     maxPayload: 1024 * 1024,
   });
+  const pluginTasks = new Set<Promise<void>>();
   const cleanups = new Map<WebSocket, () => void>();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket) => {
     let device: DeviceId | undefined;
+    let pluginPending = false;
     let lastActivity = Date.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
-    const send = (message: ServerMessage) => outbox.send(message);
+    const send = (message: ServerMessage | PluginServerMessage) => outbox.send(message);
     const fail = (code: string, message: string, close = false) => {
       send({ type: "error", code, message });
       if (close) socket.close(4001, code);
@@ -64,10 +72,12 @@ export async function startServer(
     socket.on("message", (data, binary) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       lastActivity = Date.now();
-      let message: ClientMessage;
+      let message: ClientMessage | PluginClientMessage;
       try {
         if (binary) throw new Error("Text required");
-        message = ClientMessage.parse(JSON.parse(data.toString()));
+        const input: unknown = JSON.parse(data.toString());
+        const standard = ClientMessage.safeParse(input);
+        message = standard.success ? standard.data : PluginClientMessage.parse(input);
       } catch {
         fail(
           device ? "invalid_message" : "unauthorized",
@@ -91,6 +101,43 @@ export async function startServer(
         return;
       }
       switch (message.type) {
+        case "pluginRequest": {
+          if (!options.plugins) {
+            fail("plugins_unavailable", "Plugin service unavailable");
+            break;
+          }
+          if (pluginPending || pluginTasks.size >= 8) {
+            fail("plugins_busy", "Plugin operation already pending");
+            break;
+          }
+          pluginPending = true;
+          const service = options.plugins;
+          const request = message;
+          const task = (async () => {
+            try {
+              const response = PluginResponse.parse(await service.handle(request.request));
+              const result: PluginServerMessage = {
+                type: "pluginResult",
+                requestId: request.requestId,
+                response,
+              };
+              if (Buffer.byteLength(JSON.stringify(result)) > 1024 * 1024)
+                throw new Error("Plugin response exceeds wire limit");
+              send(result);
+            } catch (error) {
+              options.log?.(error);
+              fail(
+                "plugin_failed",
+                error instanceof Error ? error.message.slice(0, 8192) : "Plugin operation failed",
+              );
+            } finally {
+              pluginPending = false;
+            }
+          })();
+          pluginTasks.add(task);
+          void task.finally(() => pluginTasks.delete(task));
+          break;
+        }
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;
@@ -173,8 +220,10 @@ export async function startServer(
           socket.terminate();
         }
         wss.close((error) => {
-          if (error) reject(error);
-          else resolve();
+          void Promise.allSettled(pluginTasks).then(() => {
+            if (error) reject(error);
+            else resolve();
+          });
         });
       });
       return closing;

@@ -76,3 +76,16 @@ export const PluginResponse = z.discriminatedUnion("type", [
 ]);
 
 export type PluginResponse = z.infer<typeof PluginResponse>;
+
+export const PluginClientMessage = z.strictObject({
+  type: z.literal("pluginRequest"),
+  requestId: z.string().min(1).max(80),
+  request: PluginRequest,
+});
+export type PluginClientMessage = z.infer<typeof PluginClientMessage>;
+export const PluginServerMessage = z.strictObject({
+  type: z.literal("pluginResult"),
+  requestId: PluginClientMessage.shape.requestId,
+  response: PluginResponse,
+});
+export type PluginServerMessage = z.infer<typeof PluginServerMessage>;

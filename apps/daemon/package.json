@@ -11,6 +11,7 @@
     "dev": "node src/cli.ts"
   },
   "dependencies": {
+    "@ace/plugins": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "ws": "^8.18.3"

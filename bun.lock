@@ -15,6 +15,7 @@
     "apps/daemon": {
       "name": "@ace/daemon",
       "dependencies": {
+        "@ace/plugins": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "ws": "^8.18.3",
@@ -51,6 +52,7 @@
       "name": "@ace/plugins",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
       },
     },
