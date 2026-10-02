@@ -199,3 +199,24 @@ it("a second interaction refreshes needs-you and closed interactions are never d
   expect(f.deliveries).toHaveLength(4);
   expect(f.deliveries[2]?.notification.interactionId).not.toBe(first.payload.interaction.id);
 });
+
+it("large active task sets complete incrementally without losing completion counts", async () => {
+  const f = fixture();
+  f.start();
+  for (let i = 0; i < 160; i++)
+    f.fact({
+      type: "background.started",
+      agent: "root",
+      task: `task-${i}`,
+      kind: "shell",
+      title: "private",
+      stoppable: true,
+    });
+  for (let i = 0; i < 160; i++)
+    f.fact({ type: "background.ended", task: `task-${i}`, status: "completed" });
+  await f.flush();
+  expect(f.deliveries.map((d) => d.notification)).toEqual([
+    expect.objectContaining({ status: "background_done", backgroundCount: 160 }),
+    expect.objectContaining({ status: "background_done", backgroundCount: 160 }),
+  ]);
+});

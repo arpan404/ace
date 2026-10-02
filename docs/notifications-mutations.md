@@ -1,6 +1,6 @@
 # Notification mutation checks
 
-Run on 2026-10-02 using `bun run test <test-file>`. Each mutation was applied to production code alone, produced a behavioral test failure, then was reverted.
+Run on 2026-10-02 using `bun run test <test-file>`. Each mutation was applied to production code alone, produced a behavioral test failure, then was reverted. Repeated after moving active entity indexes to SQLite.
 
 | Production mutation                                     | First failing behavior                                                                                                                   |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |

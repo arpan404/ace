@@ -8,7 +8,7 @@ import {
 } from "@ace/protocol";
 import { alertStatus } from "./policy.ts";
 
-const Link = z.object({
+export const InteractionLink = z.object({
   id: InteractionId.and(z.string().max(200)),
   actions: Notification.shape.actions,
 });
@@ -17,8 +17,6 @@ export const CompactThread = z.object({
   generation: z.number().int().nonnegative().default(0),
   title: z.string().max(200),
   status: ThreadStatus,
-  interactions: z.array(Link).max(128),
-  tasks: z.array(z.string().max(200)).max(128),
 });
 export type CompactThread = z.infer<typeof CompactThread>;
 export const Pending = z.object({
@@ -30,7 +28,7 @@ export const Pending = z.object({
 });
 export type Pending = z.infer<typeof Pending>;
 
-function link(interaction: Interaction): z.infer<typeof Link> {
+export function interactionLink(interaction: Interaction): z.infer<typeof InteractionLink> {
   const actions: Notification["actions"] = [];
   if (interaction.request.kind === "approval") {
     const allow = interaction.request.options.find((option) => option.kind === "allow_once");
@@ -38,7 +36,7 @@ function link(interaction: Interaction): z.infer<typeof Link> {
     if (allow && allow.id.length <= 200) actions.push({ action: "approve", optionId: allow.id });
     if (deny && deny.id.length <= 200) actions.push({ action: "deny", optionId: deny.id });
   }
-  return Link.parse({ id: interaction.id, actions });
+  return InteractionLink.parse({ id: interaction.id, actions });
 }
 /** Only canonical event-log entities are observed. No provider data or transcript folding. */
 export function advance(
@@ -47,6 +45,7 @@ export function advance(
   event: Event,
   now: number,
   windowMs: number,
+  changes: { interactionOpened: boolean; backgroundCompleted: boolean },
 ): Pending | undefined {
   const p = event.payload;
   let changed = false;
@@ -64,26 +63,10 @@ export function advance(
         else delete pending.status;
       }
     }
-  } else if (p.type === "interaction.opened" && p.interaction.state === "pending") {
-    if (!state.interactions.some((value) => value.id === p.interaction.id)) {
-      if (state.interactions.length >= 128) throw new Error("Interaction capacity reached");
-      state.interactions.push(link(p.interaction));
-      changed = state.status.state === "needs_you";
-    }
-  } else if (p.type === "interaction.closed") {
-    state.interactions = state.interactions.filter((value) => value.id !== p.interactionId);
-  } else if (p.type === "background_task.started" && p.task.status === "running") {
-    if (!state.tasks.includes(p.task.id)) {
-      if (state.tasks.length >= 128) throw new Error("Task capacity reached");
-      state.tasks.push(p.task.id);
-    }
-  } else if (p.type === "background_task.updated" && p.status !== "running") {
-    const index = state.tasks.indexOf(p.taskId);
-    if (index >= 0) {
-      state.tasks.splice(index, 1);
-      background = p.status === "completed" ? 1 : 0;
-    }
+  } else if (p.type === "interaction.opened") {
+    changed = changes.interactionOpened && state.status.state === "needs_you";
   }
+  background = changes.backgroundCompleted ? 1 : 0;
   const status = alertStatus(state.status);
   if ((changed && status) || background) {
     pending ??= { seq: event.seq, due: now + windowMs, at: event.at, backgroundCount: 0 };
@@ -98,9 +81,10 @@ export function content(
   threadId: Event["threadId"],
   state: CompactThread,
   pending: Pending,
+  link: z.infer<typeof InteractionLink> | undefined,
 ): Notification {
   const status = pending.status ?? "background_done";
-  const interaction = status === "needs_you" ? state.interactions[0] : undefined;
+  const interaction = status === "needs_you" ? link : undefined;
   return Notification.parse({
     id: `n:${pending.seq}`,
     threadId,

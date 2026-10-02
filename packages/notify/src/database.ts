@@ -1,3 +1,4 @@
+import { chmodSync } from "node:fs";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { z } from "zod";
 import {
@@ -9,7 +10,14 @@ import {
   type DeviceId,
   type Event,
 } from "@ace/protocol";
-import { CompactThread, Pending, advance, content } from "./model.ts";
+import {
+  CompactThread,
+  Pending,
+  advance,
+  content,
+  InteractionLink,
+  interactionLink,
+} from "./model.ts";
 
 const Job = z.object({
   id: z.number().int(),
@@ -39,10 +47,14 @@ export class NotificationDatabase {
       throw new Error("Invalid coalescing window");
     this.windowMs = windowMs;
     this.db = new DatabaseSync(path);
+    if (path !== ":memory:") chmodSync(path, 0o600);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS cursor (id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER NOT NULL);
       INSERT OR IGNORE INTO cursor VALUES(1,0);
       CREATE TABLE IF NOT EXISTS threads (id TEXT PRIMARY KEY, body TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS interactions (thread TEXT NOT NULL, id TEXT NOT NULL, seq INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(thread,id));
+      CREATE INDEX IF NOT EXISTS interaction_first ON interactions(thread,seq);
+      CREATE TABLE IF NOT EXISTS tasks (thread TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(thread,id));
       CREATE TABLE IF NOT EXISTS pending (thread TEXT PRIMARY KEY, due INTEGER NOT NULL, body TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS pending_due ON pending(due);
       CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, body TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
@@ -98,8 +110,6 @@ export class NotificationDatabase {
             archived: event.payload.thread.archivedAt !== undefined,
             title: event.payload.thread.title.slice(0, 200),
             status: event.payload.thread.status,
-            interactions: [],
-            tasks: [],
           });
           this.statement("INSERT INTO threads VALUES(?,?) ON CONFLICT(id) DO NOTHING").run(
             event.threadId,
@@ -117,6 +127,7 @@ export class NotificationDatabase {
           event,
           now,
           this.windowMs,
+          this.track(event),
         );
         // State is compact and bounded independently of transcript length.
         this.statement("UPDATE threads SET body=? WHERE id=?").run(
@@ -135,6 +146,37 @@ export class NotificationDatabase {
         coverage ? Math.max(cursor, coverage.throughSeq) : cursor,
       );
     });
+  }
+  /** Active entity rows are indexed on disk; no per-thread live set grows in memory. */
+  private track(event: Event): { interactionOpened: boolean; backgroundCompleted: boolean } {
+    const p = event.payload;
+    let interactionOpened = false,
+      backgroundCompleted = false;
+    if (p.type === "interaction.opened" && p.interaction.state === "pending") {
+      const link = interactionLink(p.interaction);
+      interactionOpened =
+        this.statement(
+          "INSERT INTO interactions VALUES(?,?,?,?) ON CONFLICT(thread,id) DO NOTHING RETURNING id",
+        ).get(event.threadId, p.interaction.id, event.seq, JSON.stringify(link)) !== undefined;
+    } else if (p.type === "interaction.closed") {
+      this.statement("DELETE FROM interactions WHERE thread=? AND id=?").run(
+        event.threadId,
+        p.interactionId,
+      );
+    } else if (p.type === "background_task.started" && p.task.status === "running") {
+      z.string().max(200).parse(p.task.id);
+      this.statement("INSERT INTO tasks VALUES(?,?) ON CONFLICT(thread,id) DO NOTHING").run(
+        event.threadId,
+        p.task.id,
+      );
+    } else if (p.type === "background_task.updated" && p.status !== "running") {
+      const removed = this.statement("DELETE FROM tasks WHERE thread=? AND id=? RETURNING id").get(
+        event.threadId,
+        p.taskId,
+      );
+      backgroundCompleted = removed !== undefined && p.status === "completed";
+    }
+    return { interactionOpened, backgroundCompleted };
   }
   private count(table: "pending" | "devices" | "jobs"): number {
     return Number(this.statement(`SELECT count(*) AS n FROM ${table}`).get()?.n);
@@ -216,7 +258,11 @@ export class NotificationDatabase {
           continue;
         }
         const state = this.thread(threadId);
-        const notification = content(threadId, state, value);
+        const rowLink = this.statement(
+          "SELECT body FROM interactions WHERE thread=? ORDER BY seq LIMIT 1",
+        ).get(threadId);
+        const link = rowLink ? InteractionLink.parse(JSON.parse(String(rowLink.body))) : undefined;
+        const notification = content(threadId, state, value, link);
         const serialized = JSON.stringify(notification);
         for (const device of devices) {
           this.statement(
@@ -248,7 +294,10 @@ export class NotificationDatabase {
       state.generation === generation &&
       state.status.state === notification.status &&
       (notification.interactionId === undefined ||
-        state.interactions.some((value) => value.id === notification.interactionId))
+        this.statement("SELECT id FROM interactions WHERE thread=? AND id=?").get(
+          notification.threadId,
+          notification.interactionId,
+        ) !== undefined)
     );
   }
   due(now: number): Job[] {

@@ -79,6 +79,7 @@ export function setup(result: DeliveryResult = "accepted") {
       return service;
     },
     threadId,
+    path,
     state,
     desktop,
     phone,

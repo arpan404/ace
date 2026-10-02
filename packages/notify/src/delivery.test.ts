@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
 import { setup } from "./notify.test-helper.ts";
 import { attachNotifications } from "./index.ts";
@@ -330,4 +331,9 @@ it("phone retry rechecks fresh presence and desktop retry rechecks changed quiet
   f.setTime(7000);
   await f.service.drain();
   expect(f.deliveries).toHaveLength(2);
+});
+
+it("stored push subscription secrets are accessible only to the local file owner", () => {
+  const f = fixture();
+  expect(statSync(f.path).mode & 0o777).toBe(0o600);
 });
