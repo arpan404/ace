@@ -5,3 +5,6 @@ export { initialQuota, ingestQuota, availability, type QuotaFact } from "./quota
 export { parseLimitReset } from "./reset-time.ts";
 export { pickInstance, speedHint, type Candidate, type RolePolicy } from "./scheduler.ts";
 export { migrateSession, type MigrationSafety, type MigrationRequest } from "./migration.ts";
+
+export type { MigrationObserver, MigrationProgress } from "./migration-files.ts";
+export { AccountService } from "./service.ts";

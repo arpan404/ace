@@ -1,3 +1,4 @@
+import type { AccountService } from "@ace/accounts";
 import { WebSocket, WebSocketServer } from "ws";
 import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
@@ -12,6 +13,7 @@ export interface ServerOptions {
   hostId: string;
   store: Store;
   handler: CommandHandler;
+  accounts?: AccountService;
   replayLimit?: number;
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
@@ -32,6 +34,7 @@ export async function startServer(
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket) => {
     let device: DeviceId | undefined;
+    let accountRequests = 0;
     let lastActivity = Date.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
@@ -91,6 +94,29 @@ export async function startServer(
         return;
       }
       switch (message.type) {
+        case "accounts.list":
+        case "accounts.status":
+        case "accounts.migrate": {
+          if (!options.accounts) {
+            fail("accounts_unavailable", "Accounts service is unavailable");
+            break;
+          }
+          if (accountRequests >= 8) {
+            fail("accounts_busy", "Too many account requests");
+            break;
+          }
+          accountRequests++;
+          void options.accounts
+            .handle(message)
+            .then(send)
+            .catch(() =>
+              fail("accounts_failed", "Account request failed validation or safety checks"),
+            )
+            .finally(() => {
+              accountRequests--;
+            });
+          break;
+        }
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;

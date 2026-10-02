@@ -1,3 +1,4 @@
+import { AccountService, openRegistry } from "@ace/accounts";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
@@ -19,12 +20,23 @@ export async function startDaemon(
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
   let store: Store | undefined;
+  let registry: Awaited<ReturnType<typeof openRegistry>> | undefined;
   try {
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
     store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
       log("error", "Event subscriber failed", error),
     );
+    registry = await openRegistry(
+      process.env["ACE_ACCOUNTS_DB"] ?? join(config.dataDir, "accounts.sqlite"),
+    );
+    const ownedRegistry = registry;
+    const accounts = new AccountService({
+      registry,
+      now: Date.now,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      env: process.env,
+    });
     const ownedStore = store;
     const server = await startServer({
       port: config.port,
@@ -32,6 +44,7 @@ export async function startDaemon(
       hostId,
       store,
       handler,
+      accounts,
       log: (error) => log("error", "WebSocket failure", error),
     });
     let closing: Promise<void> | undefined;
@@ -47,7 +60,11 @@ export async function startDaemon(
             try {
               ownedStore.close();
             } finally {
-              unlock();
+              try {
+                ownedRegistry.close();
+              } finally {
+                unlock();
+              }
             }
           }
         })();
@@ -56,7 +73,11 @@ export async function startDaemon(
     };
   } catch (error) {
     try {
-      store?.close();
+      try {
+        store?.close();
+      } finally {
+        registry?.close();
+      }
     } finally {
       unlock();
     }

@@ -39,6 +39,8 @@ export interface Translator {
 export interface SessionContext {
   threadId: ThreadId;
   cwd: string;
+  /** Instance-specific environment; adapters must pass it to every owned provider process. */
+  env?: NodeJS.ProcessEnv;
   model?: string;
   resume?: { nativeSessionId: string };
   /** Every sent and received frame goes to the engine for translation and persistence. */

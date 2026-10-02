@@ -10,7 +10,8 @@ import { addAccount } from "./login.ts";
 const args = process.argv.slice(2);
 const [namespace, command, ...rest] = args;
 const path =
-  process.env["ACE_ACCOUNTS_DB"] ?? join(homedir(), ".local", "state", "ace", "accounts.sqlite");
+  process.env["ACE_ACCOUNTS_DB"] ??
+  join(process.env["ACE_HOME"] ?? join(homedir(), ".ace"), "accounts.sqlite");
 async function main() {
   if (namespace !== "accounts" || !["add", "list", "status", "discover"].includes(command ?? ""))
     throw new Error(
