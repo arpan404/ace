@@ -36,20 +36,25 @@ The dev script resolves the local binary through provider-kit and runs `codex ap
 
 ## Verification
 
+The repository owner requires tests to run once, at merge. During this fix round, run only static checks:
+
 ```sh
-bun run test packages/adapter-codex
-node packages/adapter-codex/scripts/mutations.ts
-ACE_LIVE_CLI=1 bun run test packages/adapter-codex/src/live.test.ts
+bun run fmt
+bun run lint
+bun run check:size
+bun run typecheck
 ```
+
+Tests, mutation runs, benchmarks and live CLI probes are not executed now. Their results need run at merge. The checked-in mutation cases are not executed (tests run at merge).
 
 Offline tests replay every committed Codex fixture through `@ace/adapter-testkit` and core, with expectations at the analysis timestamps. Session tests run a fake provider in a real supervised process and synchronize on frames. The live test only initializes app-server and stops it. It never starts a thread or sends a prompt.
 
 ## Shared core behavior
 
-Background children retain their own working status while a finished parent makes the thread `waiting/background_task`. A successfully announced child remains `starting` through its silence grace; completing the spawn item cannot mark it immediately unresponsive. Native wait tools derive `blocked/subagents` from live target children. These fixes and the idempotent snapshot fact are isolated in the shared-core commit requested by the verifier follow-up.
+The owner's integration rule keeps the thread `working` while any background child or descendant is working. A finished parent can remain `blocked/background_task` at the same time. Human input takes precedence over working; provider and background-task waits apply after active work settles. A successfully announced child remains `starting` through its silence grace; completing the spawn item cannot mark it immediately unresponsive. Native wait tools derive `blocked/subagents` from live target children. These fixes and the idempotent snapshot fact are isolated in the shared-core commit requested by the verifier follow-up.
 
 Provider-native queue counts and engine-owned queued input also share one core `queue.changed` count. The daemon should combine these sources if it ever holds ace input while a native queue is nonempty.
 
 Plan preview text streams through a companion notice with append-only `item.delta{text}` facts. The plan tool receives full markdown on completion, and review uses that authoritative native text. This uses the existing core API with linear emitted traffic. A native tool-markdown delta would let a future client render preview directly inside the plan tool.
 
-Run `node --expose-gc packages/adapter-codex/bench/plan.ts` and `node --expose-gc packages/adapter-codex/bench/ownership.ts` for non-gating measurements. The latest plan run emitted 464,013 / 927,013 / 1,853,013 bytes for 1k / 2k / 4k 100-byte chunks, including final markdown and two plan-tool upserts each. With host load above 250, measured wall times were 35.66 / 116.40 / 35.68 ms and CPU times 10.73 / 24.67 / 20.29 ms. The 10,000-frame 4-KiB probes retained 0.44 MiB for one unknown ID and 0.35 MiB for 10,000 distinct IDs after GC and a far-future tick. Closing 10,000 questions took 143.65 / 157.35 / 221.37 / 149.02 ms with 1k / 2k / 4k / 10k historical agents; CPU times were 22.66 / 48.58 / 21.27 / 29.18 ms. Timings vary under host load and never gate tests. Traffic growth, replay recovery and canonical state assertions guard behavior.
+Historical measurements below were collected before the owner stopped tests and benchmarks. Current performance validation needs run at merge. That plan run emitted 464,013 / 927,013 / 1,853,013 bytes for 1k / 2k / 4k 100-byte chunks, including final markdown and two plan-tool upserts each. With host load above 250, measured wall times were 35.66 / 116.40 / 35.68 ms and CPU times 10.73 / 24.67 / 20.29 ms. The 10,000-frame 4-KiB probes retained 0.44 MiB for one unknown ID and 0.35 MiB for 10,000 distinct IDs after GC and a far-future tick. Closing 10,000 questions took 143.65 / 157.35 / 221.37 / 149.02 ms with 1k / 2k / 4k / 10k historical agents; CPU times were 22.66 / 48.58 / 21.27 / 29.18 ms. Timings vary under host load and never gate tests. Traffic growth, replay recovery and canonical state assertions guard behavior.

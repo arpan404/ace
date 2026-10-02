@@ -1,10 +1,10 @@
 # Codex adapter verification
 
-All eight Codex 0.159.1 recordings replay through the shared testkit with their original checkpoints. No raw recording changed. Background-child waiting remains at 9062 and 11294, with done at 14153; interrupted shell work remains live until 67107.
+All eight Codex 0.159.1 recordings have shared-testkit replay tests and expectation files. No raw recording changed. The latest owner integration rule changes active background-child checkpoints at 9062, 11294 and 11357 to working, with done at 14153. Interrupted shell work still waits until 67107. Current replay validation needs run at merge.
 
 ## Latest verifier follow-up
 
-The verifier inspected d193f17 and found two blockers and two mutation survivors. This round addresses all four:
+The verifier inspected d193f17 and found two blockers and two mutation survivors. This round implements changes for all four. The reproductions described below happened before the owner stopped test execution. Current runtime validation needs run at merge:
 
 - **V1:** An isolated Node consumer copies core source and links only declared dependencies. It failed with ERR_MODULE_NOT_FOUND for Zod while exercising public native-wait validation. Adding the direct dependency and lockfile entry makes the consumer pass.
 - **V2 / partly fixed N1:** A real offline provider fills 256 recovery timers, supplies a completed child transcript, evicts it with 300 other IDs, then registers the child. The initial test failed with no recovered message. Session ancestry and successful full-history recovery now have separate indexes. Loaded scans read admitted children without recovered history, and admitted children can schedule recovery despite the unknown-timer cap. Successful reads cancel pending retries.
@@ -17,15 +17,17 @@ Earlier verifier findings B1–B10, N2/N3 and R1–R4 remain guarded by the exis
 
 ## Integration with updated main
 
-Merged main at 726fb6b, then at 709f66d, without rebasing. Main adds bounded output summaries, append-only output streams, Git services and orchestration. Core reconciliation now uses the existing stream writer for missing aggregate suffixes. Repeated completion snapshots retain late output and canonical completion. Tests verify exact emitted Unicode bytes and bounded summary metadata, with no duplicate or broken UTF-8 chunks.
+Merged main at 726fb6b, 709f66d and 19a7e14 without rebasing. Main adds bounded output summaries, append-only output streams, Git services, orchestration and model catalogs. Core reconciliation now uses the existing stream writer for missing aggregate suffixes. Repeated completion snapshots retain late output and canonical completion. Tests verify exact emitted Unicode bytes and bounded summary metadata, with no duplicate or broken UTF-8 chunks.
 
 A nonextending native aggregate cannot rewrite an append-only stream. It stays in exact raw data while verified chunks and completion are preserved. This matters for the interrupt recording, whose deltas begin at tick 2 while final aggregatedOutput includes tick 1. Supporting stream corrections would require an explicit protocol operation; this adapter never invents or corrupts an append-only suffix.
+
+The newer integration-rehearsal comment requires needs_you > working > waiting > unresponsive > done. Removed the adapter fix round's exclusion of background descendants from working status. Public tests assert an active child after root completion, nested active descendants above retry/shell waits, human-input precedence, and waiting only after active work ends. Fixture expectations follow that newer instruction rather than the older research waiting rule. These tests and the affected fixture replays need run at merge.
 
 Core edits are isolated in focused commits: dependency declaration and reconciliation integration. The latest user instruction explicitly requests the core dependency blocker. Other shared packages changed only through main merges. The translator remains pure; clocks, IDs, schedulers, discovery and process spawning stay injected at the I/O boundary. New external-data handling uses schemas and guards.
 
 ## Performance
 
-Non-gating measurements on Node 26.8.1 under host load above 250:
+Historical non-gating measurements on Node 26.8.1, collected before the owner stopped tests and benchmarks, under host load above 250. Current performance validation needs run at merge:
 
 | Probe                                                           | Result                                                                  |
 | --------------------------------------------------------------- | ----------------------------------------------------------------------- |
@@ -36,29 +38,32 @@ Non-gating measurements on Node 26.8.1 under host load above 250:
 | 10,000 keyed closures with 1k / 2k / 4k / 10k historical agents | 143.65 / 157.35 / 221.37 / 149.02 ms; 10,000 closures per run           |
 | Closure CPU milliseconds                                        | 22.66 / 48.58 / 21.27 / 29.18                                           |
 
-Commands: `node --expose-gc packages/adapter-codex/bench/plan.ts` and `node --expose-gc packages/adapter-codex/bench/ownership.ts`. Traffic remains linear, retained unknown metadata remains bounded, and keyed closure does not scan agent history. Timings vary under host load and never gate tests.
+The checked-in plan and ownership benchmark scripts produced these historical numbers. Static review shows append-only plan deltas, bounded unknown retention and indexed keyed closure. Timing and memory claims for the final head need run at merge.
 
 ## Mutation checks
 
 The script retains the earlier mutation cases and adds the four latest coverage guards plus recovery before root completion. The former shutdown-grace mutation depended only on a framework timeout; it is replaced by a behavior assertion against conflicting aggregate output. The runner now rejects import failures and timeouts as mutation evidence and uses one worker with a longer framework watchdog for this heavily loaded host.
 
-This round applies ten meaningful production mutations, restores each in finally, and checks these behaviors:
+The tests are designed to kill these mutations. Every case below is **not executed (tests run at merge)** for the delivered head:
 
-- Restoring resume controls after awaiting a reply fails the same-chunk completion probe.
-- Applying stale read controls fails the child interrupt probe.
-- Duplicating native aggregate output fails the exact output assertion.
-- Discarding the first raw payload fails exact input preservation.
-- Appending a conflicting aggregate fails verified output preservation.
-- Omitting acknowledged-turn controls fails steering before notification.
-- Retaining resolved async owners leaves a subsequent interaction pending.
-- Equating ancestry with recovery loses an evicted child's transcript.
-- Losing complete eviction evidence releases recovery prematurely.
-- Skipping admitted-child recovery loses history while the root stays active.
+- Restore resume controls after awaiting a reply, guarded by same-chunk completion coverage; not executed (tests run at merge).
+- Apply stale read controls, guarded by child interruption coverage; not executed (tests run at merge).
+- Duplicate native aggregate output, guarded by exact output assertions; not executed (tests run at merge).
+- Discard the first raw payload, guarded by exact input preservation; not executed (tests run at merge).
+- Append a conflicting aggregate, guarded by verified output preservation; not executed (tests run at merge).
+- Omit acknowledged-turn controls, guarded by steering before notification; not executed (tests run at merge).
+- Retain resolved async owners, guarded by sequential question resolution; not executed (tests run at merge).
+- Equate ancestry with recovery, guarded by recovered child transcript assertions; not executed (tests run at merge).
+- Lose complete eviction evidence, guarded by the independent recovery guard assertion; not executed (tests run at merge).
+- Skip admitted-child recovery, guarded by recovery before root completion; not executed (tests run at merge).
+- Hide active background children from thread status, guarded by working-after-parent-completion coverage; not executed (tests run at merge).
 
-All failures must be assertions or explicit provider errors, with no timeout, import or type error accepted. No mutation remains applied after the run.
+Earlier mutation cases remain in the script, also not executed (tests run at merge). At merge, only behavioral assertion failures or explicit provider errors count; timeout, import or type errors do not count. No mutation is applied in the delivered worktree.
 
 ## Local gate and delivery
 
-The first targeted run after stream integration passed 93 tests and skipped the opt-in live handshake. The added recovery-before-root-completion probe also passed with all seven session-verifier tests. Tests use exported adapter/core APIs, real supervised offline processes and manual schedulers. No installed-provider prompt, model session or recorder ran.
+The latest owner instruction permits only format, lint, size and type checks. The surviving test runner was interrupted when that instruction arrived. No test, benchmark, mutation, flakiness run, live CLI probe or CI operation runs afterward. Fast static checks passed: `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size`. The size check covers 482 source files, all below 1,500 lines. Full runtime correctness, fixture replay, mutation coverage and final-head performance all need run at merge.
 
-The final local gate result is recorded in the PR description. CI is disabled by the repository owner; no CI run, retry or watch is performed. Provider-native and engine-owned queue counts still need combining if both coexist, and plan preview still uses companion notices because generic tool-markdown deltas are absent.
+Before the instruction, a full-suite attempt had two Git timeouts at 30 seconds. A submodule timeout also reproduced on a clean origin/main 19a7e14 snapshot under host load. No Git source or tests changed. The nested-repository timeout and final full-suite result need run at merge; this report does not claim a passing full suite.
+
+Tests use exported adapter/core APIs, real supervised offline processes and manual schedulers. No installed-provider prompt, model session or recorder ran. CI is disabled by the repository owner; no CI run, retry or watch is performed. Provider-native and engine-owned queue counts still need combining if both coexist, and plan preview still uses companion notices because generic tool-markdown deltas are absent.
