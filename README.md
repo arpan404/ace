@@ -17,6 +17,7 @@ ace never asks for or stores your provider credentials. Each agent CLI uses the 
 | Path                | Purpose                                                              |
 | ------------------- | -------------------------------------------------------------------- |
 | `packages/protocol` | Canonical protocol: Zod schemas and types, no runtime logic          |
+| `packages/git`      | Local Git worktrees, checkpoints, diffs and safe restore             |
 | `tools/recorder`    | Records raw provider sessions as fixtures for adapter contract tests |
 | `docs/adr`          | Architecture decision records                                        |
 | `docs/research`     | Primary-source research behind the decisions                         |
