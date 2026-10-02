@@ -66,7 +66,7 @@ async function main(args: string[]): Promise<void> {
     const { startDaemon } = await import("./index.ts");
     const daemon = await startDaemon(
       config,
-      stubHandler({ development }),
+      development ? stubHandler({ development }) : undefined,
       [],
       undefined,
       readModelInstances(),

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command, DeviceId } from "@ace/protocol";
 import { expect, it } from "vitest";
-import { startDaemon, readConfig } from "./index.ts";
+import { startDaemon, readConfig, AdapterRegistry } from "./index.ts";
 import { Client } from "./socket-test-support.ts";
 
 it("daemon health reads current engine workload and preserves its own queue counters", async () => {
@@ -14,7 +14,7 @@ it("daemon health reads current engine workload and preserves its own queue coun
   const daemon = await startDaemon(
     readConfig({ ACE_HOME: root, ACE_PORT: "0" }),
     undefined,
-    [],
+    { registry: new AdapterRegistry() },
     undefined,
     [],
     () => ({ activeSessions: sessions, queues: { engine: pending, "daemon.healthRequests": 999 } }),

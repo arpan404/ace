@@ -1,0 +1,212 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { once } from "node:events";
+import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
+import type { Fact } from "@ace/core";
+import type { Frame, SessionContext } from "@ace/engine-api";
+import { Command, Capabilities, type CommandPayload, type ServerMessage } from "@ace/protocol";
+import { Store, Engine, AdapterRegistry, type EngineClock, type EngineOptions } from "@ace/daemon";
+import { startServer } from "../server.ts";
+import { Client, token } from "../socket-test-support.ts";
+
+export class ManualClock implements EngineClock {
+  time = 1_000;
+  private timers = new Set<{ at: number; callback: () => void }>();
+  now = () => this.time;
+  setTimer = (callback: () => void, delay: number) => {
+    const timer = { at: this.time + delay, callback };
+    this.timers.add(timer);
+    return () => {
+      this.timers.delete(timer);
+    };
+  };
+  advance(to: number): void {
+    this.time = to;
+    for (const timer of this.timers)
+      if (timer.at <= to) {
+        this.timers.delete(timer);
+        timer.callback();
+      }
+  }
+}
+export const start = { type: "turn.started", agent: "root", trigger: "user" } satisfies Fact;
+export const end = { type: "turn.ended", agent: "root", outcome: "completed" } satisfies Fact;
+export const question: Fact = {
+  type: "interaction.opened",
+  agent: "root",
+  interaction: "approval",
+  blocking: true,
+  request: {
+    kind: "approval",
+    title: "Continue?",
+    options: [{ id: "yes", label: "Yes", kind: "allow_once" }],
+  },
+};
+export const task: Fact = {
+  type: "background.started",
+  agent: "root",
+  task: "shell",
+  kind: "shell",
+  title: "Background build",
+  stoppable: true,
+};
+export function scriptFrames() {
+  const bundles = new Map<string, Fact[]>();
+  let seq = 0;
+  return {
+    frame(...facts: Fact[]): Frame {
+      const channel = `facts-${++seq}`;
+      bundles.set(channel, facts);
+      return { seq, t: seq, dir: "recv", channel, data: { scripted: true } };
+    },
+    translate(frame: Frame): Fact[] {
+      return structuredClone(bundles.get(frame.channel) ?? []);
+    },
+  };
+}
+export async function harness(
+  steps: ScriptedStep[],
+  frames: ReturnType<typeof scriptFrames>,
+  options: {
+    limits?: EngineOptions["limits"];
+    steer?: boolean;
+    idleMs?: number;
+    tick?: (now: number) => Fact[];
+    nextDeadline?: () => number | undefined;
+    resolveGate?: Promise<void>;
+  } = {},
+) {
+  const home = mkdtempSync(join(tmpdir(), "ace-engine-"));
+  const path = join(home, "events.sqlite");
+  const store = new Store(path);
+  const workspace = store.createWorkspace(home, "Workspace");
+  const clock = new ManualClock();
+  const contexts: SessionContext[] = [];
+  const adapter = createScriptedAdapter({
+    provider: "codex",
+    nativeSessionId: "native-1",
+    capabilities: Capabilities.parse({
+      steer: options.steer ?? false,
+      interruptCascades: false,
+      resume: true,
+      fork: false,
+      subagentTranscripts: true,
+      backgroundTaskControl: true,
+      backgroundVisibility: "full",
+      planMode: false,
+      tokenUsage: false,
+      imageInput: true,
+      rewindFiles: false,
+    }),
+    createTranslator: () => ({
+      translate: frames.translate,
+      tick: options.tick ?? (() => []),
+      ...(options.nextDeadline ? { nextDeadline: options.nextDeadline } : {}),
+    }),
+    steps,
+  });
+  const registry = new AdapterRegistry();
+  registry.register(
+    {
+      ...adapter,
+      async openSession(ctx) {
+        contexts.push(ctx);
+        const session = await adapter.openSession(ctx);
+        return {
+          ...session,
+          async resolve(interaction, resolution) {
+            await options.resolveGate;
+            return session.resolve(interaction, resolution);
+          },
+        };
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  const errors: unknown[] = [];
+  const engine = new Engine(store, {
+    registry,
+    ...(options.limits === undefined ? {} : { limits: options.limits }),
+    clock,
+    idleMs: options.idleMs ?? 30_000,
+    silenceMs: 100,
+    onError: (error) => errors.push(error),
+  });
+  const server = await startServer({
+    port: 0,
+    token,
+    hostId: "host",
+    store,
+    handler: engine.handler,
+  });
+  const clients: Client[] = [];
+  function command(payload: CommandPayload, deviceId = "device", id: string = randomUUID()) {
+    const value = Command.parse({ id, deviceId, payload });
+    return store.recordCommand(value.id, value.deviceId, () => engine.handler.handle(value, store));
+  }
+  async function connect(deviceId: string) {
+    const client = new Client(server.url);
+    clients.push(client);
+    await once(client.socket, "open");
+    client.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: Command.parse({
+        id: "hello",
+        deviceId,
+        payload: {
+          type: "thread.create",
+          workspaceId: workspace,
+          provider: "codex",
+          input: [{ type: "text", text: "hi" }],
+        },
+      }).deviceId,
+      token,
+    });
+    await client.next();
+    return client;
+  }
+  return {
+    home,
+    path,
+    store,
+    workspace,
+    clock,
+    adapter,
+    contexts,
+    registry,
+    engine,
+    command,
+    connect,
+    errors,
+    async create() {
+      const result = command({
+        type: "thread.create",
+        workspaceId: workspace,
+        provider: "codex",
+        model: "model",
+        input: [{ type: "text", text: "first" }],
+      });
+      if (!result.ok) throw new Error(result.error);
+      const thread = store.listThreads()[0];
+      if (!thread) throw new Error("Missing created thread");
+      await engine.flush();
+      return thread.id;
+    },
+    async close() {
+      for (const client of clients) await client.close();
+      await server.close();
+      await engine.close();
+      store.close();
+      rmSync(home, { recursive: true, force: true });
+    },
+  };
+}
+export async function until(client: Client, predicate: (message: ServerMessage) => boolean) {
+  for (;;) {
+    const message = await client.next();
+    if (predicate(message)) return message;
+  }
+}

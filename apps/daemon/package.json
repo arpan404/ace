@@ -19,7 +19,10 @@
     "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {
+    "@ace/adapter-claude": "workspace:*",
+    "@ace/core": "workspace:*",
     "@ace/diagnostics": "workspace:*",
+    "@ace/engine-api": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
@@ -32,6 +35,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/adapter-testkit": "workspace:*",
     "@types/ws": "^8.18.1",
     "jsqr": "1.4.0"
   }

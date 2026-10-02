@@ -1,3 +1,7 @@
+import { discoverAdapters } from "./engine/adapters.ts";
+import type { discoverProviders } from "@ace/provider-kit/discovery";
+import { Engine, type EngineOptions } from "./engine/index.ts";
+export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 import { homedir } from "node:os";
 import { createRedactor } from "@ace/redaction";
 import {
@@ -17,7 +21,7 @@ import { remoteListener } from "./network.ts";
 import { startDaemonMcp } from "./mcp.ts";
 import { loadNotificationChannels } from "./notification-config.ts";
 import { createDaemonNotifications, type DaemonNotifications } from "./notifications.ts";
-import { type CommandHandler, stubHandler } from "./commands.ts";
+import { type CommandHandler } from "./commands.ts";
 import { type Config, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
@@ -31,14 +35,20 @@ export {
 } from "./commands.ts";
 export { readConfig } from "./config.ts";
 const noop = () => {};
+export type DaemonOptions = EngineOptions & {
+  toolkits?: readonly Toolkit[];
+  adapterDiscovery?: typeof discoverProviders;
+};
+const isToolkitList = (input: DaemonOptions | readonly Toolkit[]): input is readonly Toolkit[] =>
+  Array.isArray(input);
 
 export async function startDaemon(
   config: Config = readConfig(),
-  handler: CommandHandler = stubHandler(),
-  toolkits: readonly Toolkit[] = [],
+  handler?: CommandHandler,
+  options: DaemonOptions | readonly Toolkit[] = {},
   notificationChannels?: Omit<NotificationChannels, "websocket">,
   modelInstances: readonly InstanceInput[] = [],
-  workload: HealthOptions["workload"] = () => ({ activeSessions: null, queues: {} }),
+  workload?: HealthOptions["workload"],
 ): Promise<{
   url: string;
   tokenPath: string;
@@ -50,11 +60,14 @@ export async function startDaemon(
   fingerprint?: string;
   close(): Promise<void>;
 }> {
+  const engineOptions = isToolkitList(options) ? {} : options;
+  const toolkits = isToolkitList(options) ? options : (options.toolkits ?? []);
   const unlock = acquireLock(config.dataDir);
   const context = { home: homedir(), env: process.env };
   let log: ReturnType<typeof createLogger> | undefined;
   let health: ReturnType<typeof createHealthMonitor> | undefined;
   let store: Store | undefined;
+  let engine: Engine | undefined;
   let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
@@ -69,7 +82,11 @@ export async function startDaemon(
         await server?.close();
       } finally {
         try {
-          await notifications?.close();
+          try {
+            await engine?.close();
+          } finally {
+            await notifications?.close();
+          }
         } finally {
           try {
             closeChannels();
@@ -120,11 +137,11 @@ export async function startDaemon(
       database: join(config.dataDir, "events.sqlite"),
       now: Date.now,
       workload: () => {
-        const engine = workload();
+        const current = workload?.() ?? engine?.workload() ?? { activeSessions: null, queues: {} };
         return {
-          ...engine,
+          ...current,
           queues: {
-            ...engine.queues,
+            ...current.queues,
             "daemon.socketInput": server?.diagnosticsQueues().socketInput ?? 0,
             "daemon.healthRequests": server?.diagnosticsQueues().healthRequests ?? 0,
           },
@@ -137,6 +154,16 @@ export async function startDaemon(
     store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
       ownedLog.log("error", "Event subscriber failed", error),
     );
+    if (!handler) {
+      engine = new Engine(store, {
+        ...engineOptions,
+        registry:
+          engineOptions.registry ?? (await discoverAdapters(engineOptions.adapterDiscovery)),
+        onError:
+          engineOptions.onError ?? ((error) => ownedLog.log("error", "Engine failure", error)),
+      });
+      handler = engine.handler;
+    }
     models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels

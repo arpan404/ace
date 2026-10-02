@@ -9,6 +9,7 @@ import {
   type DeviceId,
   type CommandId,
   type EventPayload,
+  type RawPayload,
   type ThreadId,
   type ThreadView,
   WorkspaceId,
@@ -131,6 +132,14 @@ export class Store {
     }
     this.publish(events);
     return result;
+  }
+  /** Extend a receipt or event transaction on the same connection. No async I/O. */
+  atomic<T>(run: (db: DatabaseSync) => T): T {
+    return this.transaction(() => run(this.db));
+  }
+  /** Cap provider facts using the same blob owner and transaction as canonical events. */
+  capRaw(raw: RawPayload[], threadId: ThreadId): RawPayload[] {
+    return this.transaction(() => this.payloads.capRaw(raw, threadId));
   }
   private publish(events: Event[]): void {
     if (!events.length) return;
