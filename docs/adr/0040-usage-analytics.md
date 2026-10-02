@@ -119,13 +119,13 @@ Accounts integration is optional until that workstream lands.
 ## Security and performance
 
 The projection stays in the private daemon directory and stores opaque ids,
-model ids and numbers only. It never reads CLI credentials, prompts, source,
+model ids and numbers only. Durable deletion tombstones retain opaque thread ids and timestamps. It never reads CLI credentials, prompts, source,
 outputs or competitor implementation. Query column names come from a fixed
 allowlist, values use bound SQL parameters and schemas validate boundaries.
 The worker has bounded RPC count and bytes with rejection/backpressure. It
 accepts compact pages, excludes raw data, and validates responses. SQL uses
 prepared statements, indexed counters and one batched daily upsert per
-transaction. Ingestion is O(change), with O(1) counter/metadata lookups per
+transaction. Usage-fact ingestion is O(change), with O(1) counter/metadata lookups per
 event; no scans of event history. SQLite indexes and bounded result limits
 serve queries. Subtree queries visit the selected tree; groups within that subtree remain
 direct and additive. Relationship changes walk ancestors to reject cycles;
@@ -146,4 +146,44 @@ reported/estimated/subscription/unknown costs; price overrides; all dimensions,
 filters and top results; exact quota boundaries; resumable backfill; transaction
 rollback; randomized streams against an independent raw recomputation. Kill
 at least eight meaningful production mutations and record them with benchmark
-numbers in the PR. Run the full repository check before delivery.
+numbers in the PR. The owner's replacement rule now permits only static format,
+lint, type and size checks before merge; tests, mutations and benchmarks must
+run at merge. Existing measurements are historical rather than validation of
+this revision.
+
+## Review amendments
+
+Cache reclassification keeps signed pricing adjustments on its reporting day.
+Linear estimates are additive across days and dimension groups; estimated and
+equivalent dollars may be negative for a partial period. Provider-reported
+amounts remain nonnegative. Individual finite provider amounts and result
+amounts share the same range. Aggregates use SQLite REAL sums, saturate unsafe
+token/finite-dollar bounds and expose `overflow`; overflowed quota observations
+have no exhaustion forecast.
+
+Canonical model and identifier schemas no longer conflict with a 512-character
+projection cap. SQL replay projects required fields and measures compact byte
+sizes before fetching payloads into Node. Pages are capped at 256 sequences /
+512 KiB, records at 64 KiB, and worker frames at sixteen records / 512 KiB.
+Models above 8 KiB become unknown/unpriced; oversized workspace/parent metadata
+uses unknown/unlinked attribution. Incompatible records carry omission markers
+and advance coverage with a visible `omittedEvents` count. Missing metadata
+cannot pin replay for unrelated threads. Canonical retained data is preserved.
+Queries iterate bounded rows and cap row JSON at 512 KiB with explicit truncation.
+
+Thread deletion writes a separate durable analytics tombstone within the event
+store's deletion transaction. Tombstones consume host sequence coverage and
+persist after the thread's canonical events are removed. Analytics subscriptions
+wake on committed deletions; replay clears corresponding counters, metadata,
+daily rows and exact-window increments, including deferred rows in the same
+batch. A rebuild reads the same tombstones. Projection v1 is derived/rebuildable;
+v2 resets that projection's cursor and replays retained history to add thread
+ownership to the quota ledger.
+
+Provider accounting policy is pure and separate from the SQLite shell. Fixture
+tests exercise its default modes, run scoping and legacy normalization through
+public queries. They do not claim to verify adapters that have not landed.
+Shutdown has one reserved control RPC slot, preserving FIFO completion of all
+accepted data operations before closing SQLite. Relationship validation remains
+O(ancestor depth) on link changes and has a dedicated benchmark case; individual
+usage facts never walk ancestors.

@@ -84,6 +84,25 @@ try {
   measure("year daily series", () => store.series(q));
   measure("year top threads", () => store.summary({ ...q, groupBy: ["thread"], limit: 10 }));
   measure("year subtree series", () => store.series({ ...q, agentTree: "a0" }));
+  // Relationship changes validate ancestor chains; usage facts above remain O(1).
+  const linkStart = performance.now();
+  add({ type: "thread.created", workspace: "links", provider: "codex" }, "links");
+  for (let depth = 0; depth < 1000; depth++) {
+    add(
+      {
+        type: "agent.created",
+        id: `link-${depth}`,
+        parent: depth ? `link-${depth - 1}` : null,
+        model: null,
+        provider: "codex",
+      },
+      "links",
+    );
+  }
+  flush();
+  process.stdout.write(
+    `1000-deep relationship validation: ${(((performance.now() - linkStart) * 1000) / 1000).toFixed(2)} us/link\n`,
+  );
   process.stdout.write(`peak RSS=${(process.resourceUsage().maxRSS / 1024).toFixed(1)} MiB\n`);
 } finally {
   store.close();

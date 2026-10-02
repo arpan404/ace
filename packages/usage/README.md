@@ -27,12 +27,12 @@ Authenticated devices with read scope can send:
 `usage.series` takes the same query and includes daily groups ordered by date.
 Both return `usage.result` with the matching request id, kind and a result.
 Results include the processed canonical cursor, fixed timezone, price-table
-version, rows and a truncation flag. Backfill is asynchronous; compare cursor
+version, rows, `omittedEvents` and a truncation flag. Backfill is asynchronous; compare cursor
 to the daemon log head to determine whether history is caught up.
 
 Group/filter dimensions are `day`, `thread`, `agent`, `provider`, `account`,
 `model` and `workspace`. Dates are inclusive local calendar dates, up to 366
-in one request. At most 1,000 rows return. Missing model/account groups are
+in one request. At most 1,000 rows and 512 KiB of row JSON return. Missing model/account groups are
 null. Unknown models retain tokens and increment `unpricedTokens`.
 
 For top threads or agents, group by that dimension, choose `orderBy: "tokens"`
@@ -55,6 +55,15 @@ is null if any selected consumption has an unknown model. Unknown billing mode
 has no estimated bill, though explicit provider-reported amounts remain visible.
 The `subscriptionTokens` and `unknownBillingTokens` counters expose coverage.
 
+Late cache classification is a signed pricing adjustment booked on the report's
+local day. For example, 1M Sonnet input followed the next day by classification
+of 500K as cached yields $3 and -$1.35, totaling $1.65 in every grouping.
+`estimatedUsd` and `equivalentApiUsd` may therefore be negative for a period.
+Token counters and provider-reported dollars remain nonnegative. Numeric totals
+saturate at the safe integer token bound or maximum finite dollar value and set
+`overflow: true`. Saturated totals are approximate; their partitions need not
+sum exactly. Quota overflow suppresses the exhaustion forecast.
+
 ## Adapter contract
 
 Canonical `usage.updated` and core `usage` facts accept optional usage metadata:
@@ -75,7 +84,10 @@ A keyed incremental sample is immutable and accepted once. Unkeyed incremental
 samples add once per canonical sequence. Scope rows live in SQLite, so process
 memory does not grow with historical messages.
 
-Provider contracts validated against existing recordings:
+Recorded frame extraction in the tests feeds the production provider policy:
+Codex defaults to cumulative, Claude scopes by canonical run, and OpenCode uses
+legacy inclusive normalization with step-key deduplication. These are accounting
+fixture tests. Adapter enrichment needs end-to-end tests when adapters land.
 
 | Provider | Accounting source                                 | Key                             |
 | -------- | ------------------------------------------------- | ------------------------------- |
@@ -139,11 +151,25 @@ late reports cannot recover the sampling time when that timestamp was absent.
 ## Backfill and accounts
 
 `backfillBatch(sink, history)` reads one page of at most 256 canonical sequences,
-projects only needed metadata, and sends frames of at most sixteen records.
+projects only needed metadata, and sends frames of at most sixteen records
+and 512 KiB. Worker admission allows sixteen data RPCs/4 MiB in flight, with a
+reserved shutdown slot that follows accepted work in FIFO order.
 A page may contain no usage but still advances coverage. Store replay excludes
-transcript/output payloads in SQL. Cursor, counters and daily upserts commit
+transcript/output payloads in SQL, selects only accounting fields, measures
+compact bytes before materialization and limits each record to 64 KiB and each
+page to 512 KiB. `readUsagePage` accepts a smaller `maxBytes` (minimum 1 KiB).
+Models up to 8 KiB remain intact; larger model metadata becomes null/unpriced.
+Oversized workspace labels become empty/unknown and oversized parent links
+become null. Unsupported identities or incompatible facts become omission
+markers, counted in `omittedEvents`, so healthy threads still progress.
+The retained canonical events remain unchanged. Cursor, counters and daily upserts commit
 together. Daemon scheduling yields between batches and coalesces live wakeups;
-there is no in-memory history queue.
+there is no in-memory history queue. Deleting a thread commits an analytics
+tombstone in `events.sqlite` using the host sequence and wakes replay. It
+removes that thread's counters, rollups, metadata and exact quota observations.
+Tombstones survive deletion/restart and rebuilds; they retain only the opaque
+thread id and time. Projection schema v1 upgrades by clearing derived data and
+resetting its cursor for replay into v2; pricing/timezone behavior stays fixed.
 
 `QuotaReader.windows(account)` returns up to twenty windows with id, unit
 `tokens` or `usd`, start/end milliseconds and nullable remaining units.
@@ -157,12 +183,15 @@ must stay in accounts. Usage from other applications is outside ace's log.
 
 ## Validation and measurement
 
-```sh
-bun run test packages/usage/src apps/daemon/src/usage.server.test.ts --maxWorkers=2
-bun run --filter @ace/usage bench
-bun run check
-```
+Under the current owner policy, only format, lint, type and size checks execute
+before merge. Behavior tests, mutations, probes and benchmarks run at merge.
+[Mutation coverage](MUTATIONS.md) lists every review case and the two previous
+survivors; all are marked not executed.
 
-The benchmark ingests 73,000 cumulative facts into 365 days of rollups for 200
-agents, then measures summary, series, top-thread and subtree queries. It prints
-throughput, p50/p95 latency and peak RSS, without a gating time threshold.
+`bench/usage.ts` ingests 73,000 cumulative facts into 365 days of rollups for 200
+agents, measures summary/series/top-thread/subtree queries, and measures
+relationship validation through a 1,000-deep tree. Usage facts do indexed O(1)
+lookups; relationship changes walk ancestors to validate cycles. The daemon's
+`bench/usage-replay.ts` measures byte-bounded SQL replay over large metadata.
+Both print throughput/latency and peak RSS without a gating time threshold.
+No revised benchmark was executed; current results need run at merge.
