@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { connect } from "node:net";
 import { expect, it } from "vitest";
 import { z } from "zod";
+import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 import { register } from "./testing/peer.ts";
 
 it("malformed upgrade targets are rejected without killing the relay or occupying admission", async () => {
@@ -23,7 +24,7 @@ it("malformed upgrade targets are rejected without killing the relay or occupyin
     stderr += chunk.toString();
   });
   const exited = once(child, "exit");
-  const timeout = setTimeout(() => child.kill(), 10000);
+  const timeout = setTimeout(() => child.kill(), PROCESS_TEST_TIMEOUT / 2);
   let socket: ReturnType<typeof connect> | undefined;
   let host: Awaited<ReturnType<typeof register>> | undefined;
   try {
@@ -62,4 +63,4 @@ it("malformed upgrade targets are rejected without killing the relay or occupyin
     child.kill();
     await exited;
   }
-}, 15000);
+});

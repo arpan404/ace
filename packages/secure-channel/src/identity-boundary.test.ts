@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { loadOrCreateHostKeys } from "@ace/secure-channel/node";
+import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 import { fingerprint, keyPair } from "./index.ts";
 
 const directories: string[] = [];
@@ -41,7 +42,7 @@ it("a FIFO identity fails without waiting for a writer", async () => {
     error += chunk.toString();
   });
   const exited = once(child, "close");
-  const timeout = setTimeout(() => child.kill(), 10000);
+  const timeout = setTimeout(() => child.kill(), PROCESS_TEST_TIMEOUT / 2);
   try {
     const [code, signal] = await exited;
     expect(signal).toBeNull();
@@ -52,7 +53,7 @@ it("a FIFO identity fails without waiting for a writer", async () => {
     child.kill();
     await exited;
   }
-}, 15000);
+});
 
 it.each([0, 31, 33, 64 * 1024 * 1024])(
   "a %i-byte identity is rejected without rotating the file",
