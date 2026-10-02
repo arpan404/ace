@@ -16,7 +16,20 @@ import { Item } from "./items.ts";
 import { Run, Thread } from "./thread.ts";
 
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const records = <T extends z.ZodType>(schema: T) => z.record(z.string(), schema);
+// Zod records intentionally strip __proto__. Validate entries before rebuilding
+// with own data properties so every supported opaque ID survives decoding.
+const records = <T>(schema: z.ZodType<T>) =>
+  z
+    .custom<Record<string, unknown>>(
+      (value) =>
+        typeof value === "object" &&
+        value !== null &&
+        (Object.getPrototypeOf(value) === null ||
+          Object.getPrototypeOf(value) === Object.prototype),
+    )
+    .transform((value): unknown => Object.entries(value))
+    .pipe(z.array(z.tuple([z.string(), schema])))
+    .transform((entries) => Object.fromEntries<T>(entries));
 export const ThreadView = z.object({
   kind: z.literal("thread"),
   seq,
