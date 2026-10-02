@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProviderKind } from "@ace/protocol";
-import type { ProviderAdapter } from "@ace/engine-api";
+import { readAdapterModule } from "./cli-adapter.ts";
 import { readFixture } from "./fixture.ts";
 import { readExpectations } from "./expectations.ts";
 import { replayFixture } from "./replay.ts";
@@ -28,10 +28,8 @@ async function main(): Promise<void> {
       ? pathToFileURL(resolve(values.adapter)).href
       : values.adapter;
   // Adapter modules export a default ProviderAdapter, or a named `adapter`.
-  const loaded: { default?: ProviderAdapter; adapter?: ProviderAdapter } = await import(specifier);
-  const adapter = loaded.default ?? loaded.adapter;
-  if (!adapter || typeof adapter.createTranslator !== "function")
-    throw new Error(`${values.adapter} must export a default ProviderAdapter or named adapter`);
+  const loaded: unknown = await import(specifier);
+  const adapter = readAdapterModule(loaded, values.adapter);
   const fixture = await readFixture(path);
   if (fixture.header.provider !== adapter.provider)
     throw new Error(
