@@ -10,7 +10,7 @@ export const executablePath = await detectChromium();
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
-});
+}, 30_000);
 
 export const Snapshot = z.object({
   nodes: z.array(
@@ -70,6 +70,7 @@ export async function fixture(options: Partial<BrowserServiceOptions> = {}) {
     try {
       await service.close();
     } finally {
+      server.closeAllConnections();
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
