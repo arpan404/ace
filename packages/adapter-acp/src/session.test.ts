@@ -9,9 +9,11 @@ import { antigravityQuirks } from "./quirks/antigravity.ts";
 import { genericQuirks } from "./quirks/generic.ts";
 import { interactionKey } from "./interactions.ts";
 import { nativeAgentKey } from "./keys.ts";
+import { spawnSupervised } from "@ace/provider-kit/process";
+import type { SessionRuntime } from "./index.ts";
 import { object } from "./data.ts";
 const fake = fileURLToPath(new URL("./testing/acp-server.ts", import.meta.url));
-async function setup(quirks = cursorQuirks, resume = false) {
+async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRuntime) {
   const frames: Frame[] = [];
   const watchers = new Set<() => void>();
   const controller = new AbortController();
@@ -34,7 +36,7 @@ async function setup(quirks = cursorQuirks, resume = false) {
   const session: ProviderSession =
     quirks === genericQuirks
       ? await createAcpAdapter(quirks, { command: process.execPath, args: [fake] }).openSession(ctx)
-      : await openAcpSession(ctx, quirks, { command: process.execPath, args: [fake] });
+      : await openAcpSession(ctx, quirks, { command: process.execPath, args: [fake] }, runtime);
   function wait(predicate: (f: Frame) => boolean): Promise<Frame> {
     return new Promise((resolve) => {
       const check = () => {
@@ -224,4 +226,147 @@ it("does not mislabel a crash as deliberate when cleanup immediately follows req
   await expect(h.session.send(input("die"), "queue")).rejects.toThrow();
   await h.session.close("shutdown");
   expect((await h.exited).deliberate).toBe(false);
+});
+
+it("rejects extra Antigravity question IDs before any answer is transmitted", async () => {
+  const h = await setup(antigravityQuirks);
+  try {
+    const active = h.session.send(input("permission"), "queue");
+    await h.wait((f) => method(f, "session/request_permission"));
+    await expect(
+      h.session.resolve(interactionKey(100), {
+        kind: "question",
+        answers: { extra: ["UNAPPROVED"], interaction_choice: ["a"] },
+      }),
+    ).rejects.toThrow("question");
+    await h.session.resolve(interactionKey(100), {
+      kind: "question",
+      answers: { interaction_choice: ["a"] },
+    });
+    await active;
+    expect(object((await h.wait((f) => method(f, "test/answer"))).data)["params"]).toEqual({
+      outcome: { outcome: "selected", optionId: "a" },
+    });
+  } finally {
+    await h.session.close("user");
+  }
+});
+it("uses repaired native parentage for cascade cancellation", async () => {
+  const h = await setup();
+  try {
+    await h.session.send(input("repair"), "queue");
+    await h.session.interrupt({ agent: nativeAgentKey("session-test", "branch"), cascade: true });
+    expect(
+      h.frames
+        .filter((f) => f.dir === "send" && method(f, "session/cancel"))
+        .map((f) => object(object(f.data)["params"])["sessionId"]),
+    ).toEqual(["branch", "leaf"]);
+  } finally {
+    await h.session.close("user");
+  }
+});
+it("rejects unknown prompt completion and queued input instead of sending a second prompt", async () => {
+  const h = await setup();
+  try {
+    const first = h.session.send(input("unknown"), "queue");
+    const next = h.session.send(input("next"), "queue");
+    await expect(first).rejects.toThrow("completion");
+    await expect(next).rejects.toThrow();
+    expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(1);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+it("rejects active work and stops the process when stdout ends while it is alive", async () => {
+  const h = await setup();
+  try {
+    await expect(h.session.send(input("eof"), "queue")).rejects.toThrow();
+    expect((await h.exited).deliberate).toBe(false);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+it("rejects ACP v2 before creating a native session", async () => {
+  const frames: Frame[] = [];
+  await expect(
+    openAcpSession(
+      {
+        threadId: ThreadId.parse("v2"),
+        cwd: process.cwd(),
+        signal: new AbortController().signal,
+        onFrame: (frame) => frames.push(frame),
+        onExit() {},
+      },
+      cursorQuirks,
+      { command: process.execPath, args: [fake, "--protocol-v2"] },
+    ),
+  ).rejects.toThrow("protocol version");
+  expect(frames.some((f) => method(f, "session/new"))).toBe(false);
+});
+
+it("rejects queued input at cancellation grace when a child never confirms termination", async () => {
+  let clock = 1000;
+  let scheduled: { delay: number; run(): void } | undefined;
+  const h = await setup(cursorQuirks, false, {
+    spawn: spawnSupervised,
+    now: () => clock,
+    schedule(delay, run) {
+      scheduled = { delay, run };
+      return () => {
+        scheduled = undefined;
+      };
+    },
+  });
+  try {
+    const active = h.session.send(input("grace"), "queue");
+    await h.wait((f) => method(f, "session/update"));
+    const queued = h.session.send(input("next"), "queue").catch((error: unknown) => error);
+    await h.session.interrupt({ cascade: true });
+    await active;
+    expect(scheduled?.delay).toBe(12000);
+    clock += 12000;
+    scheduled?.run();
+    expect(await queued).toBeInstanceOf(Error);
+    expect((await h.exited).deliberate).toBe(false);
+    expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(1);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+
+it("holds queued input for child traffic that precedes native registration", async () => {
+  const h = await setup();
+  try {
+    await h.session.send(input("late"), "queue");
+    const next = h.session.send(input("next"), "queue").catch((error: unknown) => error);
+    expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(1);
+    await h.session.interrupt({
+      agent: nativeAgentKey("session-test", "native-late"),
+      cascade: false,
+    });
+    expect(await next).toBeUndefined();
+  } finally {
+    await h.session.close("user");
+  }
+});
+
+it("binds the root before queued input when session creation and root traffic share a read", async () => {
+  const frames: Frame[] = [];
+  const session = await openAcpSession(
+    {
+      threadId: ThreadId.parse("batched-new"),
+      cwd: process.cwd(),
+      signal: new AbortController().signal,
+      onFrame: (frame) => frames.push(frame),
+      onExit() {},
+    },
+    cursorQuirks,
+    { command: process.execPath, args: [fake, "--new-replay"] },
+  );
+  try {
+    await session.send(input("next"), "queue");
+    expect(frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(1);
+  } finally {
+    await session.close("shutdown");
+  }
 });

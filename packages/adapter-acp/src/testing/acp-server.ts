@@ -1,4 +1,5 @@
 // Real local JSON-RPC boundary for session tests. Never invokes a provider.
+import { closeSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { object, string, list } from "../data.ts";
 if (process.argv.includes("--version")) {
@@ -26,19 +27,42 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   const method = message["method"];
   if (method === "initialize")
     result(message["id"], {
-      protocolVersion: 1,
+      protocolVersion: process.argv.includes("--protocol-v2") ? 2 : 1,
       agentInfo: { name: "antigravity-acp", version: "1.2.1" },
     });
-  else if (method === "session/new" || method === "session/load")
-    result(message["id"], { sessionId: "native-root" });
-  else if (method === "session/set_config_option") result(message["id"], {});
+  else if (method === "session/new" || method === "session/load") {
+    if (process.argv.includes("--new-replay"))
+      process.stdout.write(
+        `${JSON.stringify({ id: message["id"], result: { sessionId: "native-root" } })}\n${JSON.stringify({ method: "session/update", params: { sessionId: "native-root", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "initial notification" } } } })}\n`,
+      );
+    else result(message["id"], { sessionId: "native-root" });
+  } else if (method === "session/set_config_option") result(message["id"], {});
   else if (method === "session/prompt") {
     if (held) {
       send({ id: message["id"], error: { code: -1, message: "Reprompt cancelled a live turn" } });
       return;
     }
     const text = string(object(list(params["prompt"])[0])["text"]);
-    if (text === "hold") {
+    if (text === "eof") {
+      closeSync(1);
+    } else if (text === "unknown") {
+      result(message["id"], { stopReason: "future-paused" });
+    } else if (text === "repair") {
+      update({ sessionUpdate: "subagent_spawned", subagentSessionId: "branch" });
+      update({ sessionUpdate: "subagent_spawned", subagentSessionId: "leaf" });
+      send({
+        method: "session/update",
+        params: {
+          sessionId: "branch",
+          update: { sessionUpdate: "subagent_spawned", subagentSessionId: "leaf" },
+        },
+      });
+      result(message["id"], { stopReason: "end_turn" });
+    } else if (text === "grace") {
+      prompt = message["id"];
+      held = true;
+      update({ sessionUpdate: "subagent_spawned", subagentSessionId: "unconfirmed" });
+    } else if (text === "hold") {
       prompt = message["id"];
       held = true;
       update({
@@ -61,6 +85,18 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       send({ id: 102, method: "future/unknown", params: {} });
     } else if (text === "child") {
       update({ sessionUpdate: "subagent_spawned", subagentSessionId: "native-child" });
+      result(message["id"], { stopReason: "end_turn" });
+    } else if (text === "late") {
+      send({
+        method: "session/update",
+        params: {
+          sessionId: "native-late",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "before registration" },
+          },
+        },
+      });
       result(message["id"], { stopReason: "end_turn" });
     } else if (text === "tree") {
       update({ sessionUpdate: "subagent_spawned", subagentSessionId: "branch" });
@@ -91,10 +127,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       result(message["id"], { stopReason: "end_turn" });
     }
   } else if (method === "session/cancel") {
-    if (params["sessionId"] === "native-child")
+    if (["native-child", "native-late"].includes(string(params["sessionId"])))
       update({
         sessionUpdate: "subagent_state_update",
-        subagentSessionId: "native-child",
+        subagentSessionId: params["sessionId"],
         state: "cancelled",
       });
     if (held) {

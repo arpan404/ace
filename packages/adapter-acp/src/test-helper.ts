@@ -6,7 +6,10 @@ import { cursorQuirks } from "./quirks/cursor.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
 export function harness(quirks: AcpQuirks = cursorQuirks) {
   const threadId = ThreadId.parse("fixture-thread");
-  const translator = createAcpTranslator({ threadId, rootKey: "root" }, quirks);
+  const translator = createAcpTranslator(
+    { threadId, rootKey: "root", identity: { generation: "test", cursor: 0 } },
+    quirks,
+  );
   const state = createThreadState({
     threadId,
     config: { provider: quirks.provider, silenceMs: 90_000 },

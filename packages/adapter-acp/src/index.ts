@@ -8,3 +8,5 @@ export { nativeAgentKey } from "./keys.ts";
 export type { AdapterOptions } from "./adapter.ts";
 export { openAcpSession } from "./session.ts";
 export type { LaunchOptions, SessionRuntime } from "./session.ts";
+
+export { createTranslatorIdentity, type TranslatorIdentity } from "./identity.ts";

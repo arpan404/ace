@@ -1,3 +1,6 @@
+import type { TranslatorIdentity } from "./identity.ts";
+import { promptStop } from "./settlement.ts";
+import { retainToolRaw } from "./tool-raw.ts";
 import { decodeContent } from "./content.ts";
 import type { Fact } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
@@ -12,10 +15,12 @@ import { endPrompt } from "./lifecycle.ts";
 import { toolDetail, toolStatus, todos } from "./tools.ts";
 
 export function createAcpTranslator(
-  init: { threadId: ThreadId; rootKey: string },
+  init: { threadId: ThreadId; rootKey: string; identity: TranslatorIdentity },
   quirks: AcpQuirks = genericQuirks,
 ): Translator {
-  return new AcpTranslator(new TranslationState(init.rootKey, quirks, init.threadId));
+  return new AcpTranslator(
+    new TranslationState(init.rootKey, quirks, init.threadId, init.identity),
+  );
 }
 class AcpTranslator implements Translator {
   readonly state: TranslationState;
@@ -33,6 +38,8 @@ class AcpTranslator implements Translator {
     if (frame.dir === "note") {
       if (data["event"] === "stop") s.stopped = true;
       if (data["event"] === "process-start") {
+        s.resetProcess();
+        s.stopped = false;
         s.processDead = false;
         facts.push({ type: "process.started" });
       }
@@ -41,7 +48,7 @@ class AcpTranslator implements Translator {
           type: "process.exited",
           deliberate: s.stopped || object(data["detail"])["deliberate"] === true,
         });
-        s.requests.clear();
+        s.resetProcess();
         s.processDead = true;
       }
       if (data["event"] === "queue-changed" && typeof data["count"] === "number")
@@ -119,9 +126,7 @@ class AcpTranslator implements Translator {
         if (
           sent.method === "session/prompt" &&
           data["error"] === undefined &&
-          !["end_turn", "cancelled", "max_tokens", "max_turn_requests", "refusal"].includes(
-            string(result["stopReason"]),
-          )
+          promptStop(result) === undefined
         ) {
           s.notice(
             facts,
@@ -165,7 +170,7 @@ class AcpTranslator implements Translator {
   update(agent: AgentState, update: Data, frame: unknown, facts: Fact[]): boolean {
     const s = this.state;
     const kind = string(update["sessionUpdate"]);
-    if (childUpdate(s, agent, update, facts)) return true;
+    if (childUpdate(s, agent, update, frame, facts)) return true;
     if (kind === "tool_call" || kind === "tool_call_update") {
       const id = string(update["toolCallId"]);
       if (!id) return false;
@@ -197,9 +202,12 @@ class AcpTranslator implements Translator {
       if (!tool.task) s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
       s.finishStream(agent, facts);
       agent.segment = "";
-      tool.data = { ...tool.data, ...update };
+      // Retain only fields needed to interpret subsequent partial refreshes.
+      for (const field of ["kind", "title", "name", "rawInput", "rawOutput", "content", "_meta"])
+        if (Object.hasOwn(update, field)) tool.data[field] = update[field];
       tool.status = tool.declined ? "declined" : toolStatus(update, tool.status);
-      tool.raw.push(
+      retainToolRaw(
+        tool,
         raw(
           frame,
           "session/update",
@@ -289,7 +297,8 @@ class AcpTranslator implements Translator {
           field: thought ? "reasoning" : "text",
           append: text,
         });
-        if (!thought && kind !== "user_message_chunk") agent.segment += text;
+        if (!thought && kind !== "user_message_chunk")
+          agent.segment += text.slice(0, Math.max(0, 8192 - agent.segment.length));
       }
       if (
         agent === s.root &&
@@ -311,7 +320,7 @@ class AcpTranslator implements Translator {
     }
     if (kind === "plan" && agent.planTool) {
       const tool = agent.planTool;
-      tool.raw.push(raw(frame, "session/update"));
+      retainToolRaw(tool, raw(frame, "session/update"));
       facts.push({
         type: "item.upsert",
         agent: agent.key,

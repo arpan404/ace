@@ -1,3 +1,4 @@
+import { childAssociation } from "./association.ts";
 import type { Fact } from "@ace/core";
 import { object, string, type Data } from "./data.ts";
 import { TranslationState, type AgentState, type ToolState } from "./state.ts";
@@ -26,13 +27,12 @@ export function childUpdate(
   state: TranslationState,
   parent: AgentState,
   update: Data,
+  frame: unknown,
   facts: Fact[],
 ): boolean {
-  const type = update["sessionUpdate"];
-  if (!["subagent_spawned", "subagent_state_update", "subagent_update"].includes(string(type)))
-    return false;
-  const id = string(update["subagentSessionId"] ?? update["sessionId"]);
-  if (!id || id === parent.nativeId) return false;
+  const association = childAssociation(update);
+  if (!association || association.id === parent.nativeId) return false;
+  const { id, type, status } = association;
   const child = state.agent(id, facts);
   const meta = object(object(update["_meta"])["cursor"]);
   const nativeTool = string(meta["toolCallId"]);
@@ -76,12 +76,11 @@ export function childUpdate(
   }
   if (type === "subagent_spawned") state.start(child, facts, "spawn");
   const snapshot = object(update["state"]);
-  const status = typeof update["state"] === "string" ? update["state"] : snapshot["state"];
   if (status === "running") {
     child.terminal = false;
     state.start(child, facts, "spawn");
   }
-  if (["completed", "failed", "cancelled", "idle"].includes(string(status))) {
+  if (association.terminal && !child.terminal) {
     const stop = string(snapshot["stopReason"]);
     const cancelled = status === "cancelled" || stop === "cancelled";
     const classified =
@@ -114,16 +113,17 @@ export function childUpdate(
       });
   }
   if (status === "disconnected") {
+    facts.push({ type: "agent.disconnected", agent: child.key });
     if (tool?.task) facts.push({ type: "background.ended", task: tool.task, status: "unknown" });
     state.notice(
       facts,
-      update,
+      frame,
       "subagent_state_update",
       "Child disconnected; completion is unconfirmed",
       child,
     );
   }
-  state.notice(facts, update, string(type), "ACP child association", parent);
+  state.notice(facts, frame, string(type), "ACP child association", parent);
   return true;
 }
 export function placeholderChild(state: TranslationState, tool: ToolState, facts: Fact[]): void {

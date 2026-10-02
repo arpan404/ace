@@ -1,3 +1,4 @@
+import type { TranslatorIdentity } from "./identity.ts";
 import { nativeAgentKey } from "./keys.ts";
 import type { Fact } from "@ace/core";
 import type { InteractionRequest, RawPayload, ToolStatus } from "@ace/protocol";
@@ -49,12 +50,18 @@ export class TranslationState {
   readonly quirks: AcpQuirks;
   threadId: string;
   cwd = "";
-  sequence = 0;
+  readonly identity: TranslatorIdentity;
   promptOpen = false;
   stopped = false;
   initialized = false;
   processDead = false;
-  constructor(rootKey: string, quirks: AcpQuirks, readonlyThreadId: string) {
+  constructor(
+    rootKey: string,
+    quirks: AcpQuirks,
+    readonlyThreadId: string,
+    identity: TranslatorIdentity,
+  ) {
+    this.identity = identity;
     this.quirks = quirks;
     this.threadId = readonlyThreadId;
     this.root = {
@@ -68,7 +75,28 @@ export class TranslationState {
     };
   }
   key(kind: string): string {
-    return `${this.root.key}:${this.root.nativeId || "initial"}:${kind}:${++this.sequence}`;
+    return `${this.root.key}:${JSON.stringify(this.identity.generation)}:${kind}:${++this.identity.cursor}`;
+  }
+  resetProcess(): void {
+    this.promptOpen = false;
+    this.sent.clear();
+    this.requests.clear();
+    this.liveTools.clear();
+    this.backgroundTools.clear();
+    this.tools.clear();
+    this.ownedTools.clear();
+    this.pendingChildren.clear();
+    this.childTools.clear();
+    for (const agent of new Set([this.root, ...this.agents.values()])) {
+      agent.active = false;
+      agent.terminal = false;
+      agent.suspended = false;
+      agent.segment = "";
+      delete agent.stream;
+      delete agent.cancelAt;
+      delete agent.planTool;
+    }
+    this.agents.clear();
   }
   tool(owner: AgentState, id: string): ToolState | undefined {
     return this.ownedTools.get(owner.key)?.get(id);
@@ -128,7 +156,9 @@ export class TranslationState {
     facts: Fact[],
     trigger: "user" | "spawn" | "subagent_result" | "unknown" = "unknown",
   ): void {
-    if (agent.active || agent.terminal) return;
+    agent.terminal = false;
+    facts.push({ type: "agent.reconnected", agent: agent.key });
+    if (agent.active) return;
     agent.active = true;
     agent.segment = "";
     facts.push(

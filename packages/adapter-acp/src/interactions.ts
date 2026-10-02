@@ -1,4 +1,8 @@
-import { InteractionRequest, type InteractionResolution } from "@ace/protocol";
+import {
+  InteractionRequest,
+  InteractionResolution as ResolutionSchema,
+  type InteractionResolution,
+} from "@ace/protocol";
 import { list, object, string, type Data } from "./data.ts";
 export function interactionRequest(
   method: string,
@@ -104,7 +108,11 @@ export function decodeResolution(
     };
   return undefined;
 }
-export function encodeResolution(method: string, resolution: InteractionResolution): Data {
+export function encodeResolution(
+  method: string,
+  resolution: InteractionResolution,
+  request: InteractionRequest,
+): Data {
   if (resolution.kind === "approval")
     return { outcome: { outcome: "selected", optionId: resolution.optionId } };
   if (resolution.kind === "question") {
@@ -114,7 +122,13 @@ export function encodeResolution(method: string, resolution: InteractionResoluti
       };
     if (method === "session/request_permission")
       return {
-        outcome: { outcome: "selected", optionId: Object.values(resolution.answers)[0]?.[0] ?? "" },
+        outcome: {
+          outcome: "selected",
+          optionId:
+            request.kind === "question"
+              ? (resolution.answers[request.questions[0]?.id ?? ""]?.[0] ?? "")
+              : "",
+        },
       };
     return {
       outcome: {
@@ -143,4 +157,39 @@ export function encodeResolution(method: string, resolution: InteractionResoluti
 /** Stable process-local request key, shared by the session and translator. */
 export function interactionKey(id: string | number): string {
   return `request:${typeof id}:${id}`;
+}
+
+/** Pure validation shared by the I/O boundary; encoding only receives a validated choice. */
+export function validateResolution(
+  request: InteractionRequest,
+  input: unknown,
+): InteractionResolution {
+  const resolution = ResolutionSchema.parse(input);
+  if (request.kind !== resolution.kind)
+    throw new Error("Interaction resolution kind does not match");
+  if (
+    resolution.kind === "approval" &&
+    request.kind === "approval" &&
+    !request.options.some((o) => o.id === resolution.optionId)
+  )
+    throw new Error("Unknown approval option");
+  if (resolution.kind === "question" && request.kind === "question") {
+    if (
+      Object.keys(resolution.answers).some(
+        (id) => !request.questions.some((question) => question.id === id),
+      )
+    )
+      throw new Error("Unknown question ID");
+    if (!resolution.dismissed)
+      for (const question of request.questions) {
+        const answers = resolution.answers[question.id] ?? [];
+        if (
+          answers.length === 0 ||
+          (!question.multiSelect && answers.length > 1) ||
+          answers.some((id) => !question.allowOther && !question.options.some((o) => o.id === id))
+        )
+          throw new Error("Invalid question answer");
+      }
+  }
+  return resolution;
 }

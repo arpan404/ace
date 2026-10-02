@@ -101,7 +101,14 @@ it("exposes the child cancellation grace to the engine deadline scheduler", () =
   chunk(h, "still working", "child");
   h.frame("recv", { id: 2, result: { stopReason: "cancelled" } }, 1000);
   expect(h.deadline()).toBe(13000);
+  h.tick(12999);
+  expect(
+    required(h.state.agents[nativeAgentKey("fixture-thread", "child")]).agent.status.state,
+  ).toBe("working");
   h.tick(13000);
+  expect(
+    required(h.state.agents[nativeAgentKey("fixture-thread", "child")]).agent.status.state,
+  ).toBe("interrupted");
   expect(h.state.status.state).toBe("done");
 });
 it("binds load replay to the existing root before the load response arrives", () => {

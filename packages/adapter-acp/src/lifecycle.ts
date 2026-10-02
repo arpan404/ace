@@ -1,3 +1,4 @@
+import { cancellationDeadline } from "./settlement.ts";
 import type { Fact } from "@ace/core";
 import { string, type Data } from "./data.ts";
 import { TranslationState, type AgentState } from "./state.ts";
@@ -30,7 +31,7 @@ export function endPrompt(
         raw: [...tool.raw],
       });
       if (!cancelled) continue;
-      facts.push({ type: "background.ended", task: tool.task, status: "unknown" });
+      facts.push({ type: "background.ended", task: tool.task, status: "unknown", uncertain: true });
     }
     if (!cancelled && tool.child && !tool.child.terminal) continue;
     tool.status = "cancelled";
@@ -48,9 +49,9 @@ export function endPrompt(
   }
   if (cancelled)
     for (const child of s.agents.values())
-      if (child !== s.root && !child.terminal) child.cancelAt = now + 12_000;
+      if (child !== s.root && !child.terminal) child.cancelAt = cancellationDeadline(now);
   if (cancelled && [...s.agents.values()].some((child) => child !== s.root && !child.terminal))
-    facts.push({ type: "wake.expected", agent: agent.key, until: now + 12_000 });
+    facts.push({ type: "wake.expected", agent: agent.key, until: cancellationDeadline(now) });
   for (const [id, request] of s.requests)
     if (cancelled || request.owner === agent) {
       facts.push({ type: "interaction.closed", interaction: request.key, state: "cancelled" });

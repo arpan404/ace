@@ -1,10 +1,16 @@
+import { cancellationGraceMs, promptStop } from "./settlement.ts";
 import type { ProviderSession, SessionContext } from "@ace/engine-api";
 import { encodeContent } from "./content.ts";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import { JsonRpcPeer, MethodNotFound, type ServerRequest } from "@ace/provider-kit/jsonrpc";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { object, string } from "./data.ts";
-import { encodeResolution, interactionKey, interactionRequest } from "./interactions.ts";
+import {
+  encodeResolution,
+  interactionKey,
+  interactionRequest,
+  validateResolution,
+} from "./interactions.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
 import { SessionRouting } from "./session-routing.ts";
 import { nativeAgentKey } from "./keys.ts";
@@ -26,6 +32,7 @@ export interface LaunchOptions {
 export interface SessionRuntime {
   spawn: typeof spawnSupervised;
   now(): number;
+  schedule?(delay: number, run: () => void): () => void;
 }
 export async function openAcpSession(
   ctx: SessionContext,
@@ -41,7 +48,7 @@ export async function openAcpSession(
     env: launch.env ?? {},
     name: quirks.provider,
   });
-  const session = new AcpSession(ctx, quirks, proc, runtime.now);
+  const session = new AcpSession(ctx, quirks, proc, runtime);
   try {
     await session.initialize();
     return session;
@@ -57,7 +64,10 @@ class AcpSession implements ProviderSession {
   readonly proc: SupervisedProcess;
   readonly rpc: JsonRpcPeer;
   readonly pending = new Map<string, PendingInteraction>();
-  readonly routing = new SessionRouting();
+  readonly routing: SessionRouting;
+  readonly schedule: (delay: number, run: () => void) => () => void;
+  cancelGrace?: () => void;
+  fault?: Error;
   readonly queue: Queued[] = [];
   active = false;
   closed = false;
@@ -65,9 +75,21 @@ class AcpSession implements ProviderSession {
   sequence = 0;
   readonly started: number;
   readonly now: () => number;
-  constructor(ctx: SessionContext, quirks: AcpQuirks, proc: SupervisedProcess, now: () => number) {
-    this.now = now;
-    this.started = now();
+  constructor(
+    ctx: SessionContext,
+    quirks: AcpQuirks,
+    proc: SupervisedProcess,
+    runtime: SessionRuntime,
+  ) {
+    this.now = runtime.now;
+    this.started = runtime.now();
+    this.routing = new SessionRouting(ctx.threadId, ctx.resume?.nativeSessionId ?? "");
+    this.schedule =
+      runtime.schedule ??
+      ((delay, run) => {
+        const timer = setTimeout(run, delay);
+        return () => clearTimeout(timer);
+      });
     this.ctx = ctx;
     this.quirks = quirks;
     this.proc = proc;
@@ -81,12 +103,15 @@ class AcpSession implements ProviderSession {
     this.rpc.onNotification = (notification) => {
       if (notification.method !== "session/update") return;
       this.routing.receive(object(notification.params));
+      if (!this.routing.hasLiveChildren) this.clearGrace();
       void this.drain();
     };
+    proc.stdout.once("close", this.stdoutClosed);
     proc.stderr.on("line", (line) => this.frame("stderr", "stdio", line));
     ctx.signal.addEventListener("abort", this.abort, { once: true });
     void proc.exited.then((exit) => {
       this.closed = true;
+      this.clearGrace();
       ctx.signal.removeEventListener("abort", this.abort);
       this.cancelQuestions();
       this.rejectQueue(new Error("ACP process exited"));
@@ -101,6 +126,25 @@ class AcpSession implements ProviderSession {
     });
     this.frame("note", "recorder", { event: "process-start" });
     if (ctx.signal.aborted) this.abort();
+  }
+  clearGrace(): void {
+    this.cancelGrace?.();
+    delete this.cancelGrace;
+  }
+  stdoutClosed = (): void => {
+    if (!this.closed && !this.proc.signal.aborted)
+      this.fail(new Error("ACP transport stdout closed before process termination"));
+  };
+  fail(error: Error): void {
+    if (this.closed) return;
+    this.fault = error;
+    this.closed = true;
+    this.clearGrace();
+    this.frame("note", "transport", { event: "transport-error", message: error.message });
+    this.cancelQuestions();
+    this.rejectQueue(error);
+    this.rpc.close(error);
+    void this.proc.stop();
   }
   abort = (): void => {
     void this.close("shutdown");
@@ -150,6 +194,7 @@ class AcpSession implements ProviderSession {
       ),
     );
     this.nativeSessionId = string(session["sessionId"]) || resume?.nativeSessionId || "";
+    this.routing.bindRoot(this.nativeSessionId);
     if (!this.nativeSessionId) throw new Error("ACP server did not return a session id");
     if (this.ctx.model)
       await this.rpc.request(
@@ -176,11 +221,24 @@ class AcpSession implements ProviderSession {
     this.active = true;
     this.queueChanged();
     try {
-      await this.rpc.request(
+      const result = await this.rpc.request(
         "session/prompt",
         { sessionId: this.nativeSessionId, prompt: next.input.map(encodeContent) },
         { timeoutMs: null, signal: this.ctx.signal },
       );
+      const stop = promptStop(result);
+      if (!stop) {
+        const error = new Error("ACP prompt completion is unconfirmed");
+        this.fail(error);
+        throw error;
+      }
+      if (stop === "cancelled" && this.routing.hasLiveChildren) {
+        this.clearGrace();
+        this.cancelGrace = this.schedule(cancellationGraceMs, () => {
+          if (this.routing.hasLiveChildren)
+            this.fail(new Error("ACP child cancellation completion is unconfirmed after grace"));
+        });
+      }
       next.resolve();
     } catch (error) {
       next.reject(error);
@@ -217,26 +275,9 @@ class AcpSession implements ProviderSession {
       object(pending.request.params),
       this.quirks.provider === "antigravity",
     );
-    if (!request || request.kind !== resolution.kind)
-      throw new Error("Interaction resolution kind does not match");
-    if (
-      resolution.kind === "approval" &&
-      request.kind === "approval" &&
-      !request.options.some((o) => o.id === resolution.optionId)
-    )
-      throw new Error("Unknown approval option");
-    if (resolution.kind === "question" && request.kind === "question" && !resolution.dismissed) {
-      for (const question of request.questions) {
-        const answers = resolution.answers[question.id] ?? [];
-        if (
-          answers.length === 0 ||
-          (!question.multiSelect && answers.length > 1) ||
-          answers.some((id) => !question.allowOther && !question.options.some((o) => o.id === id))
-        )
-          throw new Error("Invalid question answer");
-      }
-    }
-    const answer = encodeResolution(pending.request.method, resolution);
+    if (!request) throw new Error("Interaction request is no longer valid");
+    const validated = validateResolution(request, resolution);
+    const answer = encodeResolution(pending.request.method, validated, request);
     this.pending.delete(key);
     pending.answer(answer);
   }
@@ -249,11 +290,7 @@ class AcpSession implements ProviderSession {
   }
   async interrupt(target: { agent?: string; cascade: boolean }): Promise<void> {
     if (this.closed) throw new Error("ACP session closed");
-    const child = target.agent
-      ? [...this.routing.children.values()].find(
-          (value) => nativeAgentKey(this.ctx.threadId, value.id) === target.agent,
-        )
-      : undefined;
+    const child = target.agent ? this.routing.byKey.get(target.agent) : undefined;
     if (
       target.agent &&
       !child &&
@@ -274,9 +311,11 @@ class AcpSession implements ProviderSession {
     throw new Error("ACP does not expose individual background task control");
   }
   async close(_reason: "idle" | "user" | "shutdown"): Promise<void> {
-    if (!this.proc.signal.aborted) this.deliberate = true;
+    if (!this.proc.signal.aborted && !this.fault) this.deliberate = true;
     if (!this.closed) {
       this.closed = true;
+      this.clearGrace();
+      this.proc.stdout.removeListener("close", this.stdoutClosed);
       this.frame("note", "recorder", { event: "stop" });
       this.cancelQuestions();
       this.rejectQueue(new Error("ACP session closed"));

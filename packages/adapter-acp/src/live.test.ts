@@ -13,7 +13,7 @@ for (const quirks of [cursorQuirks, antigravityQuirks]) {
         quirks.provider === "cursor"
           ? (await discoverProviders()).cursor.path
           : await findExecutable(quirks.command);
-      if (!path) return;
+      if (!path) throw new Error(`Opted-in live ACP check requires installed ${quirks.command}`);
       const proc = spawnSupervised({
         command: path,
         args: quirks.args,

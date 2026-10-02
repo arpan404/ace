@@ -101,7 +101,8 @@ it("records an interrupted shell as unknown rather than claiming its process sto
     stoppable: false,
   });
   expect(required(h.tools()[0]).call.status).toBe("cancelled");
-  expect(required(h.state.agents["root"]).agent.status.state).toBe("interrupted");
+  expect(required(h.state.agents["root"]).agent.status.state).toBe("blocked");
+  expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
 });
 it("reclassifies tool placeholders on refresh while retaining their running status and native inputs", () => {
   const h = harness();
@@ -251,15 +252,23 @@ it("keeps unknown and malformed frames as raw without rejecting later traffic", 
   chunk(h, "still here");
   end(h);
   expect(h.state.status.state).toBe("done");
+  const retained = Object.values(h.state.items).flatMap((i) =>
+    i.type === "notice" ? i.raw.map((r) => r.data) : [],
+  );
+  for (const value of [
+    null,
+    [],
+    "garbage",
+    { method: "future/extension", params: { opaque: [1, 2] } },
+  ])
+    expect(retained).toContainEqual(value);
+  h.replay({ seq: 999, t: 1000, dir: "recv", channel: "stdio-text", data: "{broken JSON" });
   expect(
-    Object.values(h.state.items).some(
-      (i) => i.type === "notice" && i.raw.some((r) => objectHas(r.data, "future/extension")),
+    Object.values(h.state.items).flatMap((i) =>
+      i.type === "notice" ? i.raw.map((r) => r.data) : [],
     ),
-  ).toBe(true);
+  ).toContain("{broken JSON");
 });
-function objectHas(data: unknown, method: string) {
-  return typeof data === "object" && data !== null && "method" in data && data.method === method;
-}
 it("does not expire a silent live tool but marks silent model work unresponsive", () => {
   const h = harness();
   h.ready();

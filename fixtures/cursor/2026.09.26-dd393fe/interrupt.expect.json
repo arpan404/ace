@@ -14,18 +14,20 @@
     },
     {
       "t": 17950,
-      "thread": "done",
-      "note": "The shell has no terminal update. Its task is unknown; current core permits completion."
+      "thread": "waiting",
+      "note": "The shell has no terminal update. Unknown execution holds completion until explicit terminal evidence.",
+      "on": "background_task"
     }
   ],
   "final": {
-    "thread": "done",
+    "thread": "waiting",
     "agents": 1,
     "interactions": {
       "resolved": 1
     },
     "agentStates": {
       "root": "interrupted"
-    }
+    },
+    "on": "background_task"
   }
 }

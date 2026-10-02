@@ -1,3 +1,4 @@
+import { retainToolRaw } from "./tool-raw.ts";
 import type { Fact } from "@ace/core";
 import { object, raw, string, type Data } from "./data.ts";
 import { decodeResolution, interactionKey, interactionRequest } from "./interactions.ts";
@@ -24,7 +25,7 @@ export function openRequest(
   const owner = tool?.owner ?? s.agent(string(params["sessionId"]), facts);
   if (!request) {
     if (method.startsWith("cursor/") && tool) {
-      tool.raw.push(raw(frame, method));
+      retainToolRaw(tool, raw(frame, method));
       facts.push({
         type: "item.upsert",
         agent: owner.key,
@@ -98,7 +99,7 @@ export function answerRequest(
     tool.status = tool.declined ? "declined" : "running";
     if (tool.declined) s.liveTools.delete(tool);
     else s.liveTools.add(tool);
-    tool.raw.push(raw(frame, pending.method));
+    retainToolRaw(tool, raw(frame, pending.method));
     facts.push({
       type: "item.upsert",
       agent: pending.owner.key,
