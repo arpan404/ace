@@ -8,7 +8,7 @@ export class HistoryReader {
   private directory: string;
   private frame: (dir: Frame["dir"], channel: string, data: unknown) => void;
   private signal: AbortSignal;
-  private receive: (data: unknown) => void;
+  private receive: (data: unknown, started: number) => void;
   constructor(
     server: OpenCodeServer,
     directory: string,
@@ -33,6 +33,7 @@ export class HistoryReader {
       let count = 0;
       let oldest = "";
       let reachedHead = false;
+      const started = this.server.eventWatermark;
       for await (const message of this.server.history(
         `/session/${id}/message?${query}`,
         this.directory,
@@ -46,16 +47,22 @@ export class HistoryReader {
         if (!oldest || msg < oldest) oldest = msg;
         if (!newest || msg > newest) newest = msg;
         if (head && msg <= head) reachedHead = true;
-        this.receive({
-          payload: {
-            type: "message.updated",
-            properties: { sessionID: id, info: m.info, historical: true },
+        this.receive(
+          {
+            payload: {
+              type: "message.updated",
+              properties: { sessionID: id, info: m.info, historical: true },
+            },
           },
-        });
+          started,
+        );
         for (const part of array(m.parts))
-          this.receive({
-            payload: { type: "message.part.updated", properties: { sessionID: id, part } },
-          });
+          this.receive(
+            {
+              payload: { type: "message.part.updated", properties: { sessionID: id, part } },
+            },
+            started,
+          );
       }
       if (count < 128 || reachedHead || !oldest || cursors.has(oldest)) break;
       cursors.add(oldest);

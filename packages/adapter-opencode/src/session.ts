@@ -46,8 +46,12 @@ export class OpenCodeSession implements ProviderSession {
     this.startedAt = server.runtime.monotonic();
     this.translator = new OpenCodeTranslator({ threadId: ctx.threadId, rootKey: "root" });
     this.server = server;
-    this.history = new HistoryReader(server, ctx.cwd, this.emit, this.controller.signal, (data) =>
-      this.receive(data),
+    this.history = new HistoryReader(
+      server,
+      ctx.cwd,
+      this.emit,
+      this.controller.signal,
+      (data, started) => this.snapshot(data, started),
     );
     this.nativeId = id;
     this.known.add(id);
@@ -65,7 +69,11 @@ export class OpenCodeSession implements ProviderSession {
     const session = new OpenCodeSession(ctx, server, ctx.resume?.nativeSessionId ?? "");
     // Subscribe before creation so early session/child announcements cannot be lost.
     session.unsubscribe = server.subscribe({
-      accepts: (data) => session.owns(data),
+      accepts: (data, watermark) => {
+        if (!session.owns(data)) return false;
+        session.watermarks.observe(data, watermark);
+        return true;
+      },
       receive: (data) => session.receive(data),
       frame: session.emit,
       disconnected: () => {
@@ -101,6 +109,7 @@ export class OpenCodeSession implements ProviderSession {
         void session.pump();
       },
       resync: () => session.resync(),
+      finalizeSnapshots: () => session.finalizeSnapshots(),
       exited: (deliberate, message) => {
         if (!session.closed && !session.reportedExit) {
           session.reportedExit = true;
@@ -125,7 +134,10 @@ export class OpenCodeSession implements ProviderSession {
       session.opening = false;
       for (const data of session.buffer.splice(0)) session.receive(data);
       await session.request("GET", "/mcp");
-      if (ctx.resume) await session.resync();
+      if (ctx.resume) {
+        await session.resync();
+        session.finalizeSnapshots();
+      }
       if (ctx.signal.aborted) {
         await session.close("shutdown");
         ctx.signal.throwIfAborted();
@@ -151,9 +163,12 @@ export class OpenCodeSession implements ProviderSession {
     this.translator.translate(frame, t);
     this.ctx.onFrame(frame);
   };
-  private snapshot(data: unknown): void {
-    this.watermarks.record(data, this.server.eventWatermark);
-    this.receive(data);
+  private snapshot(data: unknown, started: number): void {
+    if (this.watermarks.stage(data, started, this.server.eventWatermark)) this.receive(data);
+    else this.emit("recv", "snapshot.deferred", data);
+  }
+  private finalizeSnapshots(): void {
+    for (const data of this.watermarks.flush()) this.receive(data);
   }
   private owns(data: unknown): boolean {
     const envelope = object(data);
@@ -303,11 +318,15 @@ export class OpenCodeSession implements ProviderSession {
     const visit = async (id: string): Promise<void> => {
       if (visited.has(id)) return;
       visited.add(id);
+      const started = this.server.eventWatermark;
       const info = await this.request("GET", `/session/${id}`);
-      this.snapshot({
-        directory: this.ctx.cwd,
-        payload: { type: "session.created", properties: { info, sessionID: id } },
-      });
+      this.snapshot(
+        {
+          directory: this.ctx.cwd,
+          payload: { type: "session.created", properties: { info, sessionID: id } },
+        },
+        started,
+      );
       for (const child of array(await this.request("GET", `/session/${id}/children`))) {
         const c = object(child);
         if (typeof c.id === "string") {
@@ -320,24 +339,32 @@ export class OpenCodeSession implements ProviderSession {
     };
     await visit(this.nativeSessionId);
     for (const path of ["/permission", "/question"]) {
+      const started = this.server.eventWatermark;
       const pending = await this.request("GET", path);
-      this.watermarks.category(path.slice(1), this.server.eventWatermark);
+      this.watermarks.category(path.slice(1), started, this.server.eventWatermark);
       for (const p of array(pending))
-        this.snapshot({
-          payload: {
-            type: path === "/permission" ? "permission.asked" : "question.asked",
-            properties: p,
+        this.snapshot(
+          {
+            payload: {
+              type: path === "/permission" ? "permission.asked" : "question.asked",
+              properties: p,
+            },
           },
-        });
+          started,
+        );
     }
+    const started = this.server.eventWatermark;
     const statuses = object(await this.request("GET", "/session/status"));
     for (const id of this.known)
-      this.snapshot({
-        payload: {
-          type: "session.status",
-          properties: { sessionID: id, status: statuses[id] ?? { type: "idle" } },
+      this.snapshot(
+        {
+          payload: {
+            type: "session.status",
+            properties: { sessionID: id, status: statuses[id] ?? { type: "idle" } },
+          },
         },
-      });
+        started,
+      );
     this.resynchronizing = false;
     void this.pump();
   }

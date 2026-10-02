@@ -7,7 +7,7 @@ import type { Frame } from "@ace/engine-api";
 import { supportedVersion } from "./capabilities.ts";
 import { object, string } from "./data.ts";
 export type ServerConsumer = {
-  accepts(data: unknown): boolean;
+  accepts(data: unknown, watermark: number): boolean;
   receive(data: unknown): void;
   frame(dir: Frame["dir"], channel: string, data: unknown): void;
   disconnected(): void;
@@ -15,6 +15,7 @@ export type ServerConsumer = {
   reconcile(data: unknown, watermark: number): void;
   recovered(): void;
   resync(): Promise<void>;
+  finalizeSnapshots(): void;
   exited(deliberate: boolean, message?: string): void;
 };
 export type ServerOptions = {
@@ -195,8 +196,9 @@ export class OpenCodeServer {
             }
           }
           if (this.recovering) {
-            if ([...this.consumers].some((c) => c.accepts(parsed)))
-              this.buffered.push({ data: parsed, watermark });
+            let owned = false;
+            for (const c of this.consumers) if (c.accepts(parsed, watermark)) owned = true;
+            if (owned) this.buffered.push({ data: parsed, watermark });
             if (this.buffered.length > 4096) {
               this.controller.abort();
               void this.process?.stop({ graceMs: 0 });
@@ -236,6 +238,7 @@ export class OpenCodeServer {
             // Full settlement updates are idempotent. Deltas are raw evidence only:
             // the snapshot may already contain them. The next live full part update
             // reconciles content without an unbounded wait for a quiet global stream.
+            for (const c of this.consumers) c.finalizeSnapshots();
             for (const data of buffered)
               for (const c of this.consumers) c.reconcile(data.data, data.watermark);
             break;
