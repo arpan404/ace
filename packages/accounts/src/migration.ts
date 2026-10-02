@@ -13,6 +13,7 @@ import {
   digestFile,
   safeParents,
   type CopyFile,
+  canonicalDestination,
 } from "./migration-files.ts";
 import { instanceEnv } from "./instances.ts";
 
@@ -57,11 +58,13 @@ export async function migrateSession(
       };
     const id = NativeSessionId.parse(request.nativeSessionId);
     const sourceHome = await realpath(from.homeDir);
-    await mkdir(to.homeDir, { recursive: true, mode: 0o700 });
-    const targetHome = await realpath(to.homeDir);
+    const targetHome = await canonicalDestination(to.homeDir);
     if (contains(sourceHome, targetHome) || contains(targetHome, sourceHome))
       throw new MigrationFailure("refused", "Instance homes overlap");
-    if ((await lstat(from.homeDir)).isSymbolicLink() || (await lstat(to.homeDir)).isSymbolicLink())
+    if (
+      (await lstat(from.homeDir)).isSymbolicLink() ||
+      ((await exists(to.homeDir)) && (await lstat(to.homeDir)).isSymbolicLink())
+    )
       throw new MigrationFailure("refused", "Symlinked instance homes cannot be migrated");
     lease = await safety.acquire({ ...request, from, to, nativeSessionId: id });
     if (!lease)
@@ -69,6 +72,9 @@ export async function migrateSession(
         "refused",
         "Source or destination is live, or exclusive quiescence cannot be proven",
       );
+    await mkdir(to.homeDir, { recursive: true, mode: 0o700 });
+    if ((await realpath(to.homeDir)) !== targetHome)
+      throw new MigrationFailure("refused", "Destination changed before migration");
     const plan =
       request.provider === "codex"
         ? await codexPlan(sourceHome, id)

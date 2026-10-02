@@ -3,6 +3,13 @@ import { readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 const mutations = [
   {
+    name: "write into overlapping source homes",
+    file: "migration.ts",
+    before: "if (contains(sourceHome, targetHome) || contains(targetHome, sourceHome))",
+    after: "if (false)",
+    test: "migration.test.ts",
+  },
+  {
     name: "reuse global Cursor credentials",
     file: "instances.ts",
     before: 'env["AGENT_CLI_CREDENTIAL_STORE"] = "file";',

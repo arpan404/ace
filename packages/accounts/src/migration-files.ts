@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants, createWriteStream } from "node:fs";
 import { opendir, lstat, mkdir, open, link, unlink, realpath } from "node:fs/promises";
-import { dirname, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 
 export class MigrationFailure extends Error {
@@ -83,7 +83,7 @@ export async function stageFile(file: CopyFile, stage: string) {
 }
 export function contains(root: string, path: string) {
   const rel = relative(root, path);
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !rel.startsWith(sep));
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 export async function safeParents(home: string, target: string) {
   if (!contains(home, target))
@@ -127,4 +127,20 @@ export async function digestFile(path: string) {
   } finally {
     await file.close();
   }
+}
+
+/** Resolve a not-yet-created destination without writing into a source alias. */
+export async function canonicalDestination(path: string): Promise<string> {
+  let ancestor = resolve(path);
+  const missing: string[] = [];
+  while (!(await exists(ancestor))) {
+    if (missing.length >= 128)
+      throw new MigrationFailure("refused", "Destination depth limit exceeded");
+    missing.push(basename(ancestor));
+    const parent = dirname(ancestor);
+    if (parent === ancestor)
+      throw new MigrationFailure("refused", "Destination root does not exist");
+    ancestor = parent;
+  }
+  return join(await realpath(ancestor), ...missing.toReversed());
 }

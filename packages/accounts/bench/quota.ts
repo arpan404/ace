@@ -30,11 +30,12 @@ function measure(name: string, count: number, fn: (index: number) => void) {
     `${name}: ${Math.round((count / elapsed) * 1000)} ops/s, ${((elapsed * 1000) / count).toFixed(2)} us/op, peak RSS ${(process.resourceUsage().maxRSS / 1024).toFixed(1)} MiB\n`,
   );
 }
-measure("quota fold", 200000, (index) => {
+let observedAt = 1_000_000;
+measure("quota fold", 200000, () => {
   state = ingestQuota(state, {
     provider: "codex",
     payload,
-    observedAt: index + 1_000_000,
+    observedAt: observedAt++,
     timeZone: "UTC",
   }).state;
 });

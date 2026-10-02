@@ -217,3 +217,24 @@ test("sibling forks reuse byte-identical migrated ancestors and repeated migrati
   expect(await migrateSession(request, idle)).toMatchObject({ status: "migrated", copiedFiles: 1 });
   expect(await migrateSession(request, idle)).toMatchObject({ status: "migrated", copiedFiles: 0 });
 });
+
+test("overlapping destinations and aliases are refused before creating anything in the source home", async () => {
+  const { createInstance } = await import("./index.ts");
+  const request = await homes("codex");
+  await rollout(request.from.homeDir, 3);
+  const before = await readdir(request.from.homeDir);
+  const nested = createInstance({ ...request.to, homeDir: join(request.from.homeDir, "nested") });
+  expect(await migrateSession({ ...request, to: nested }, idle)).toMatchObject({
+    status: "refused",
+    reason: "Instance homes overlap",
+  });
+  expect(await readdir(request.from.homeDir)).toEqual(before);
+  const alias = join(request.to.homeDir, "alias");
+  await symlink(request.from.homeDir, alias);
+  const viaAlias = createInstance({ ...request.to, homeDir: join(alias, "nested") });
+  expect(await migrateSession({ ...request, to: viaAlias }, idle)).toMatchObject({
+    status: "refused",
+    reason: "Instance homes overlap",
+  });
+  expect(await readdir(request.from.homeDir)).toEqual(before);
+});
