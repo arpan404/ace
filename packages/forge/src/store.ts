@@ -25,6 +25,8 @@ export class ForgeStore {
   readonly #ack;
   readonly #discard;
   readonly #advance;
+  readonly #adoptAccepted;
+  readonly #retireAccepted;
   readonly #count;
   readonly #maxPending: number;
   constructor(db: DatabaseSync, maxPending = 2_000) {
@@ -47,6 +49,12 @@ export class ForgeStore {
     this.#admit = db.prepare("INSERT OR IGNORE INTO forge_intents VALUES (?,?,?)");
     this.#pending = db.prepare(
       "SELECT payload FROM forge_intents WHERE thread_id=? AND payload IS NOT NULL ORDER BY rowid LIMIT 32",
+    );
+    this.#adoptAccepted = db.prepare(
+      "INSERT INTO forge_intents(thread_id,key,payload) SELECT thread_id,?,NULL FROM forge_intents WHERE thread_id=? AND key=? AND payload IS NULL ON CONFLICT(thread_id,key) DO UPDATE SET payload=NULL",
+    );
+    this.#retireAccepted = db.prepare(
+      "DELETE FROM forge_intents WHERE thread_id=? AND key=? AND payload IS NULL",
     );
     this.#advance = db.prepare(
       "INSERT INTO forge_link_epochs VALUES (?,1) ON CONFLICT(thread_id) DO UPDATE SET generation=generation+1",
@@ -97,6 +105,19 @@ export class ForgeStore {
   }
   hasIntent(threadId: string, key: string): boolean {
     return this.#seen.get(threadId, key) !== undefined;
+  }
+  /** Adopt only acknowledged legacy identities, then retire the ambiguous old digest. */
+  adoptAccepted(threadId: string, legacyKey: string, key: string): boolean {
+    this.#db.exec("SAVEPOINT forge_adopt");
+    try {
+      this.#adoptAccepted.run(key, threadId, legacyKey);
+      const result = this.#retireAccepted.run(threadId, legacyKey);
+      this.#db.exec("RELEASE forge_adopt");
+      return Number(result.changes) > 0;
+    } catch (error) {
+      this.#db.exec("ROLLBACK TO forge_adopt; RELEASE forge_adopt");
+      throw error;
+    }
   }
   admit(input: ForgeAutoFixIntent): void {
     const intent = ForgeAutoFixIntent.parse(redactData(input));

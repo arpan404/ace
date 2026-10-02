@@ -51,7 +51,7 @@ export class ReviewLoop {
       this.#scope?.generation !== generation ||
       this.#scope.link.threadId !== threadId
     ) {
-      this.#index = new ReviewIndex(state, this.#ignored);
+      this.#index = new ReviewIndex(state, this.#ignored, this.#forge.revisions);
       this.#scope = state;
     }
     const index = this.#index;
@@ -60,7 +60,11 @@ export class ReviewLoop {
     await this.#drain(state, status, index, signal);
     for (const candidate of index.pending()) {
       if (signal.aborted) throw new ForgeError("cancelled");
-      if (this.#store.hasIntent(threadId, candidate.key)) {
+      if (
+        (candidate.legacyKey &&
+          this.#store.adoptAccepted(threadId, candidate.legacyKey, candidate.key)) ||
+        this.#store.hasIntent(threadId, candidate.key)
+      ) {
         index.observe(candidate.key);
         continue;
       }
@@ -116,13 +120,29 @@ export class ReviewLoop {
       for (const intent of pending) {
         if (signal.aborted) throw new ForgeError("cancelled");
         this.#assertLink(state);
+        const current = index.get(intent.key);
+        const legacyChanged =
+          current?.key !== intent.key &&
+          intent.context.type === "review" &&
+          (current?.type !== "review" ||
+            current.comment.body !== intent.context.comment.body ||
+            current.comment.file !== intent.context.comment.file ||
+            current.comment.line !== intent.context.comment.line);
         if (
+          legacyChanged ||
           intent.linkGeneration !== state.generation ||
           intent.headSha !== status.headSha ||
-          !index.get(intent.key)
+          !current
         ) {
           this.#store.discard(intent);
           index.retry(intent.key);
+          continue;
+        }
+        if (
+          current?.legacyKey &&
+          this.#store.adoptAccepted(threadId, current.legacyKey, current.key)
+        ) {
+          index.observe(current.key);
           continue;
         }
         try {

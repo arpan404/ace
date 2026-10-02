@@ -1,4 +1,6 @@
 import type { ForgePrStatus, ForgeRepository } from "@ace/protocol/forge";
+import type { z } from "zod";
+import type { StatusRevisions } from "./revisions.ts";
 import type { GhApi, Page } from "./http.ts";
 import type { ReadBudget } from "./read-budget.ts";
 import { PageDecoder } from "./resource.ts";
@@ -13,10 +15,39 @@ type Query = { query: string; variables: Record<string, string | number | null> 
 type Planned = { key: string; query: Query; page: Page };
 type ReviewResource = { threads: ForgePrStatus["reviewThreads"]; raw: unknown[] };
 
+type SourceThread = z.infer<
+  typeof ReviewThreadsPage
+>["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"][number];
+type Thread = ForgePrStatus["reviewThreads"][number];
+type Projection = { source: SourceThread; versions: string[]; row: Thread };
+function sameThread(a: SourceThread, b: SourceThread): boolean {
+  return (
+    a.id === b.id &&
+    a.path === b.path &&
+    a.line === b.line &&
+    a.isResolved === b.isResolved &&
+    a.isOutdated === b.isOutdated &&
+    a.comments.nodes.length === b.comments.nodes.length &&
+    a.comments.nodes.every((item, index) => {
+      const previous = b.comments.nodes[index];
+      return (
+        previous?.databaseId === item.databaseId &&
+        previous.body === item.body &&
+        previous.updatedAt === item.updatedAt &&
+        previous.author?.login === item.author?.login
+      );
+    })
+  );
+}
 /** Bounded query plan avoids traversing every thread on unchanged GraphQL polls. */
 export class ReviewThreadReader {
   readonly #threads = new PageDecoder(ReviewThreadsPage);
   readonly #comments = new PageDecoder(ReviewCommentConnection);
+  readonly #versions: StatusRevisions["threads"];
+  #projections = new Map<string, Projection>();
+  constructor(revisions: StatusRevisions) {
+    this.#versions = revisions.threads;
+  }
   #plan: Planned[] = [];
   #number: number | undefined;
   #last: ReviewResource | undefined;
@@ -58,6 +89,8 @@ export class ReviewThreadReader {
       return page;
     };
     const result: ForgePrStatus["reviewThreads"] = [];
+    const projections = new Map<string, Projection>();
+    const upsert: Thread[] = [];
     let commentCount = 0;
     let cursor: string | null = null;
     let more = true;
@@ -68,8 +101,9 @@ export class ReviewThreadReader {
       });
       const connection = this.#threads.read(response).data.repository.pullRequest.reviewThreads;
       for (const thread of connection.nodes) {
-        const comments = [...thread.comments.nodes];
-        commentCount += comments.length;
+        const connections = [thread.comments.nodes];
+        const versions: string[] = [];
+        commentCount += thread.comments.nodes.length;
         if (commentCount > 2_000) throw new ForgeError("limit");
         let info = thread.comments.pageInfo;
         for (let count = 1; info.hasNextPage && count < 20; count++) {
@@ -81,29 +115,41 @@ export class ReviewThreadReader {
           const replies = this.#comments.read(next).data.node.comments;
           commentCount += replies.nodes.length;
           if (commentCount > 2_000) throw new ForgeError("limit");
-          comments.push(...replies.nodes);
+          connections.push(replies.nodes);
+          versions.push(next.version);
           if (replies.pageInfo.hasNextPage && replies.pageInfo.endCursor === info.endCursor)
             throw new ForgeError("invalid_data");
           info = replies.pageInfo;
         }
         if (info.hasNextPage) throw new ForgeError("limit");
-        result.push({
-          id: thread.id,
-          resolved: thread.isResolved,
-          outdated: thread.isOutdated,
-          file: thread.path,
-          line: thread.line,
-          comments: comments.map((comment) => ({
-            kind: "inline",
-            id: comment.databaseId,
-            body: comment.body,
-            author: comment.author?.login ?? "ghost",
-            file: thread.path,
-            line: thread.line,
-            updatedAt: comment.updatedAt,
-            replyTo: null,
-          })),
-        });
+        const knownProjection = this.#projections.get(thread.id);
+        const unchanged =
+          knownProjection &&
+          sameThread(knownProjection.source, thread) &&
+          versions.length === knownProjection.versions.length &&
+          versions.every((version, index) => version === knownProjection.versions[index]);
+        const row: Thread = unchanged
+          ? knownProjection.row
+          : immutable({
+              id: thread.id,
+              resolved: thread.isResolved,
+              outdated: thread.isOutdated,
+              file: thread.path,
+              line: thread.line,
+              comments: connections.flat().map((comment) => ({
+                kind: "inline",
+                id: comment.databaseId,
+                body: comment.body,
+                author: comment.author?.login ?? "ghost",
+                file: thread.path,
+                line: thread.line,
+                updatedAt: comment.updatedAt,
+                replyTo: null,
+              })),
+            });
+        result.push(row);
+        projections.set(thread.id, { source: thread, versions, row });
+        if (row !== knownProjection?.row) upsert.push(row);
       }
       more = connection.pageInfo.hasNextPage;
       if (more && (!connection.pageInfo.endCursor || connection.pageInfo.endCursor === cursor))
@@ -112,9 +158,14 @@ export class ReviewThreadReader {
       if (result.length > 2_000) throw new ForgeError("limit");
     }
     if (more) throw new ForgeError("limit");
+    const removed: Thread[] = [];
+    for (const [id, projection] of this.#projections)
+      if (!projections.has(id)) removed.push(projection.row);
+    this.#projections = projections;
+    const items = this.#versions.retain(this.#last?.threads ?? [], result, { upsert, removed });
     this.#number = number;
     this.#plan = plan;
-    this.#last = immutable({ threads: result, raw: plan.map((entry) => entry.page.body) });
+    this.#last = immutable({ threads: items, raw: plan.map((entry) => entry.page.body) });
     return this.#last;
   }
 }

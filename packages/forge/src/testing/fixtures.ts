@@ -6,6 +6,13 @@ import { z } from "zod";
 import { createCommandRunner, GitHubForge } from "../index.ts";
 import type { ForgeRepository } from "@ace/protocol/forge";
 
+// A completion safeguard, not a performance assertion. Allow the real runner's
+// 30-second command deadline to finish before Vitest aborts the enclosing test.
+if (process.env.VITEST === "true") {
+  const { vi } = await import("vitest");
+  vi.setConfig({ testTimeout: 60_000 });
+}
+
 export const repository: ForgeRepository = {
   forge: "github",
   host: "github.com",

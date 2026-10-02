@@ -4,9 +4,11 @@ import type {
   ForgePrStatus,
   ForgeRepository,
 } from "@ace/protocol/forge";
+import type { StatusRevisions } from "./revisions.ts";
 export type MergeMethod = "merge" | "squash" | "rebase";
 export interface Forge {
   readonly repository: ForgeRepository;
+  readonly revisions?: StatusRevisions;
   /** Immutable validated revisions; reuse unchanged collections and snapshot identity. */
   status(number: number, signal: AbortSignal): Promise<ForgePrStatus>;
   createPr(threadId: string, input: ForgeCreatePrInput, signal: AbortSignal): Promise<ForgePrRef>;

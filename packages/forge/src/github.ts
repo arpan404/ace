@@ -6,6 +6,7 @@ import {
   ForgePrStatus,
 } from "@ace/protocol/forge";
 import type { Forge, MergeMethod } from "./api.ts";
+import { StatusRevisions } from "./revisions.ts";
 import { GitHubStatusReader } from "./github-status.ts";
 import { GhApi } from "./http.ts";
 import { GitHubPr } from "./github-schemas.ts";
@@ -18,7 +19,8 @@ const mergeSchema = z.enum(["merge", "squash", "rebase"]);
 export class GitHubForge implements Forge {
   readonly repository: ForgeRepository;
   readonly #api: GhApi;
-  readonly #status = new GitHubStatusReader();
+  readonly revisions = new StatusRevisions();
+  readonly #status = new GitHubStatusReader(this.revisions);
   readonly #root: string;
   constructor(options: {
     repository: ForgeRepository;

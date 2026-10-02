@@ -81,3 +81,28 @@ it("redacts generic access-token assignments across streamed chunk boundaries", 
     await fake.cleanup();
   }
 });
+
+it("rejects oversized review states before publishing an invalid protocol snapshot", async () => {
+  const fixtures = standard();
+  fixtures["repos/octo/ace/pulls/7/reviews?per_page=100"] = [
+    {
+      body: [
+        {
+          id: 1,
+          body: "Feedback",
+          state: "x".repeat(257),
+          user: { login: "alice" },
+          submitted_at: "now",
+        },
+      ],
+    },
+  ];
+  const fake = await fakeGh(fixtures);
+  try {
+    await expect(fake.forge.status(7, new AbortController().signal)).rejects.toMatchObject({
+      kind: "invalid_data",
+    });
+  } finally {
+    await fake.cleanup();
+  }
+});
