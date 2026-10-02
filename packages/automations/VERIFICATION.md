@@ -136,4 +136,55 @@ Refreshed non-gating measurements on Node v26.8.1, macOS arm64, shared machine. 
 | Supervised fake-gh process, 64-KiB response         |      17 |       58,817.34 |         101.8 |
 | Restart, recovery and cancellation, one pending run |   9,782 |          102.23 |         117.3 |
 
-The final merged-tree `bun run check` passed formatting, lint, all 266 tracked source-file sizes, all package typechecks and 641 tests with four existing skips. The automation suite has 92 passing tests.
+The previous follow-up's final merged-tree `bun run check` passed formatting, lint, all 266 tracked source-file sizes, all package typechecks and 641 tests with four existing skips. The automation suite has 92 passing tests.
+
+## Second verifier follow-up
+
+Merged origin/main at 726fb6b before changes, then through 9f2a382 when Git landed and 709f66d when orchestration landed. The additive protocol export conflict preserves both schema groups. No production automation behavior changed in this round. The verifier had confirmed the behavior but identified missing regression guards. Added five public-service tests with real temporary SQLite and injected workspace, executor and timer boundaries. Each exact surviving mutation first failed its new test, passed after restoration, and then failed again against all 97 automation tests. Each mutation was restored in a finally block; the restored package suite passes.
+
+| Verifier mutation                             | New guarded behavior                                                                                                             | Failure with mutation                                        |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| N2 ignore startup stop in admission authority | A subscription requests stop, then a wire run immediately rejects; no run row or execution exists                                | Wire result incorrectly returns ok=true                      |
+| N7 continue job startup after requested stop  | An overdue later schedule retains its persisted deadline and cursor; explicit later startup applies the skip policy              | Deadline and ordinal advance during stopped startup          |
+| N8 continue recovery after requested stop     | First recovery requests stop; later durable runs acquire no observer; explicit later startup recovers both and records successes | A second recovery subscription starts during stopped startup |
+| N10 propagate timer cancellation failure      | Stop still removes watchers, reports the error, blocks recursive lifecycle acquisition and permits a usable later start          | Stop throws before watcher cleanup                           |
+| N11 omit partial-startup rollback             | Failure subscribing the second workspace releases the first watcher, preserves definitions, rejects admission and permits retry  | One watcher remains installed after startup failure          |
+
+The new tests use boundary outcomes and resource lifetimes rather than private state, sleeps, microtask counts or timing assertions. Runtime ownership caps and the pure lifecycle state machine are unchanged. R3 remains retired as a redundant removed guard.
+
+### Full-suite timeout comparison
+
+The initial full check after merging 726fb6b reproduced the reported daemon crash-recovery timeout, another daemon restart timeout and a notification-spool timeout, all at the existing 5,000-ms deadline. To compare with main, a temporary archive of origin/main at 726fb6b was installed and tested inside this worktree. No other worker's checkout was used. Main's first run passed 607 tests with four skips. Simultaneous full-suite runs on the PR and main then failed identically in `prevents a second process sharing the database and restarts after SIGTERM` and `a full disk spool evicts the oldest alert and catches up without sending historical state`. Main had 605 passes/two failures/four skips; the PR had 702 passes/two failures/four skips. Both failed at 5,000 ms. Daemon and notification sources were identical to main. A later main run passed again, 607 tests/four skips.
+
+A second comparison used an origin/main archive at 9f2a382 and the ten shared suites affected by the default-worker run. On main, 82 tests passed and five timed out: daemon SIGTERM restart, the exact reported crash-recovery case, the first remote CLI case, the core root-delta case and notification-spool catch-up. The crash case hit the same 5,000-ms deadline at lifecycle.test.ts:111, taking 5,126 ms on main and 5,034 ms in the PR default-worker run. This reproduces the reported failure without automation production code. The two branches' daemon and notification sources are identical. These comparisons establish shared test failures under machine load; no behavioral defect specific to automations was reproduced. No daemon or notification test, timeout or global runner configuration was changed. `VITEST_MAX_WORKERS=4 bun run check` passed all stages with 704 tests/four skips on the 726fb6b merged tree; this caps concurrency rather than changing assertions or deadlines. Both temporary main archives were removed. The default-worker full run and the simultaneous four-worker diagnostic run were stopped after recording failures; they are not passing gate evidence. The older discovery failure's historical cause also remains unproved; current discovery tests pass. Historical install chronology and complete provenance cannot be independently established from checkout inspection; no new claim is made about them.
+
+### Refreshed performance observations
+
+`bun run --filter @ace/automations bench`, Node v26.8.1, macOS arm64, shared machine. These remain non-gating measurements. RSS is cumulative within each benchmark process, including transient allocations. No hot-path production changes were made in this round.
+
+| Path                                                |  Ops/s | Microseconds/op | Peak RSS, MiB |
+| --------------------------------------------------- | -----: | --------------: | ------------: |
+| Weekday RRULE                                       | 25,151 |           39.76 |         116.2 |
+| Five-minute cron                                    | 21,694 |           46.10 |         116.5 |
+| Counted cursor advance                              | 18,719 |           53.42 |         116.8 |
+| 100 PR snapshot, one change                         | 92,102 |           10.86 |         116.9 |
+| Durable admission and template failure              |  5,760 |          173.61 |         122.7 |
+| Durable dedup over 10k records                      | 27,980 |           35.74 |         124.9 |
+| File admission, executor and outcome                |  2,500 |          399.96 |         128.5 |
+| Indexed next deadline, 1,000 jobs                   |  9,550 |          104.71 |         130.2 |
+| Indexed inbox page, 15k records                     |  5,494 |          182.02 |         220.9 |
+| Admission, zero cached entries                      |  4,446 |          224.93 |         107.1 |
+| Admission, 100 cached entries                       |  2,828 |          353.59 |         113.5 |
+| Admission, 1,000 cached entries                     |  6,671 |          149.91 |         139.7 |
+| List 31 definitions with 30 large snapshots         |  8,768 |          114.05 |         148.2 |
+| Poll 1,000 cached entries, one change               |     12 |       83,678.87 |         251.4 |
+| Poll 1,000 cached entries, 100 changes              |      7 |      137,663.65 |         276.5 |
+| Poll 1,000 cached entries, 1,000 changes            |      1 |      754,190.30 |         286.1 |
+| Supervised fake-gh process, 64-KiB response         |     15 |       66,709.92 |         102.2 |
+| Restart, recovery and cancellation, one pending run | 24,984 |           40.03 |         118.6 |
+
+### Final gate on the merged tree
+
+`VITEST_MAX_WORKERS=4 bun run check --testTimeout=30000 --hookTimeout=30000` exited zero. Formatting, lint, every package typecheck and all 355 source-file size limits passed. Vitest passed 921 tests with four existing skips across 119 files, including all 97 automation tests. Runtime: 249.58 seconds. No CI run, retry or watch was made; CI is disabled by the repository owner.
+
+The default-worker and later one-worker runs encountered shared test timeouts reproduced on origin/main; the latter hit the same notification catch-up and core delta deadlines even with one worker. Those failed runs were stopped and are not green gate evidence. The final command overrides the runner's default test/hook timeout to 30 seconds while leaving assertions, test files, explicit per-test deadlines and global runner configuration unchanged. This records the actual configuration rather than claiming a default-settings pass. No production automation behavior, ownership cap or hot-path algorithm changed in this round.
