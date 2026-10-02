@@ -27,7 +27,8 @@ export class AutomationStore {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;
       CREATE TABLE IF NOT EXISTS automation_jobs(id TEXT PRIMARY KEY, body TEXT NOT NULL, nominal INTEGER, due INTEGER, state TEXT NOT NULL);
-      CREATE INDEX IF NOT EXISTS automation_due ON automation_jobs(due) WHERE due IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS automation_due ON automation_jobs(due,id) WHERE due IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS automation_schedule_due ON automation_jobs(due,id) WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule';
       CREATE TABLE IF NOT EXISTS automation_runs(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, automation_id TEXT NOT NULL, event_key TEXT NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL, input TEXT, UNIQUE(automation_id,event_key));
       CREATE INDEX IF NOT EXISTS automation_active ON automation_runs(automation_id) WHERE status='running';
       CREATE INDEX IF NOT EXISTS automation_status ON automation_runs(status,seq);`);
@@ -48,6 +49,7 @@ export class AutomationStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const result = operation();
+      if (result instanceof Promise) throw new Error("Automation transactions must be synchronous");
       this.db.exec("COMMIT");
       return result;
     } catch (error) {
@@ -98,9 +100,16 @@ export class AutomationStore {
         return job ? [job] : [];
       });
   }
-  next(): Job | undefined {
+  next(excluded: readonly string[] = []): Job | undefined {
+    if (excluded.length > 4) throw new Error("Too many excluded polls");
     const row = this.sql(
-      "SELECT id FROM automation_jobs WHERE due IS NOT NULL ORDER BY due,id LIMIT 1",
+      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND id NOT IN(?,?,?,?) ORDER BY due,id LIMIT 1",
+    ).get(excluded[0] ?? "", excluded[1] ?? "", excluded[2] ?? "", excluded[3] ?? "");
+    return row ? this.get(String(row.id)) : undefined;
+  }
+  nextScheduled(): Job | undefined {
+    const row = this.sql(
+      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1",
     ).get();
     return row ? this.get(String(row.id)) : undefined;
   }

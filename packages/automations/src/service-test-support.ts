@@ -73,7 +73,7 @@ const cleanup: (() => void)[] = [];
 afterEach(() => {
   for (const dispose of cleanup.splice(0).toReversed()) dispose();
 });
-export function harness() {
+export function harness(gh?: import("./index.ts").GhClient) {
   const dir = mkdtempSync(join(tmpdir(), "ace-automations-"));
   let store = new AutomationStore(join(dir, "auto.sqlite"));
   let now = start - 60_000;
@@ -118,7 +118,7 @@ export function harness() {
       },
     },
   };
-  let service = new AutomationService(store, deps);
+  let service = new AutomationService(store, deps, gh);
   service.start();
   cleanup.push(() => {
     service.stop();
@@ -149,7 +149,7 @@ export function harness() {
       service.stop();
       store.close();
       store = new AutomationStore(join(dir, "auto.sqlite"));
-      service = new AutomationService(store, deps);
+      service = new AutomationService(store, deps, gh);
       service.start();
     },
     async finish(index = 0, status: ExecutionResult["status"] = "succeeded") {

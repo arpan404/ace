@@ -31,6 +31,17 @@ export function recoverOccurrence(
 ): Occurrence | undefined {
   return due < now && automation.missedRun === "skip" ? recurrence.seek(now, current) : current;
 }
+export function scheduledDeadline(
+  occurrence: Occurrence | undefined,
+  recurrence: Recurrence,
+  jitterMs: number,
+  random: number,
+): number | undefined {
+  if (!occurrence) return undefined;
+  const following = recurrence.seek(occurrence.at, occurrence);
+  const maximum = following ? Math.min(jitterMs, following.at - occurrence.at - 1) : jitterMs;
+  return jitterDeadline(occurrence.at, maximum, random);
+}
 export function canAdmit(active: number, limit: number): boolean {
   return active < limit;
 }

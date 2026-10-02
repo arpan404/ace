@@ -41,7 +41,7 @@ All schedules carry an IANA timezone and a minute-aligned epoch `startAt`. The s
 
 `compileSchedule(schedule).next(after)` returns the next instant strictly after the cursor, or `undefined` when COUNT/UNTIL ends the rule. `seek(after, previous?)` returns `{ at, ordinal }`. The service persists this cursor, so advancing counted schedules examines new occurrences instead of rereading history. An initial COUNT lookup or counted downtime recovery enumerates occurrences with a one-million candidate budget. Other lookups jump to the cursor's civil date. Date search has a 400-year bound. Exhaustion is an explicit error.
 
-Jitter is additive, uniformly drawn from zero through `jitterMs`, and persisted per occurrence. The downtime policy uses the jittered deadline. `skip` advances beyond startup time; `run_once` runs the first persisted overdue occurrence once. Both coalesce old occurrences and advance beyond the current time. Overlapping arrivals are recorded as skipped. There is no waiting queue. Each automation allows 1 through 32 active runs, with a host cap of 256. At most 1,000 definitions are loaded.
+Jitter is additive and persisted per occurrence. Its upper bound is the smaller of `jitterMs` and the time remaining before the following nominal occurrence. This keeps large jitter from swallowing later scheduled runs. The last occurrence uses the configured maximum. The downtime policy uses the jittered deadline. `skip` advances beyond startup time; `run_once` runs the first persisted overdue occurrence once. Both coalesce old occurrences and advance beyond the current time. Overlapping arrivals are recorded as skipped. There is no waiting queue. Each automation allows 1 through 32 active runs, with a host cap of 256. At most 1,000 definitions are loaded.
 
 ## GitHub behavior
 
@@ -49,7 +49,7 @@ Jitter is additive, uniformly drawn from zero through `jitterMs`, and persisted 
 
 The first poll establishes a baseline. Polling cannot recover changes that appear and disappear entirely between requests. Resource ID and updated timestamp identify an event. ETags and per-page snapshots survive restart. Unchanged conditional pages retain their cached data; an entirely unchanged response avoids snapshot rewriting. Pages must stay within the configured repository and GitHub API origin. GitHub Enterprise hosts are not yet supported.
 
-Limits are 100 resources per page, 20 pages, 2,000 emitted events per poll, and 2 MiB total child output per request by default. Each request has a 30-second deadline and cancellation. Overflow fails visibly through `onError` and retries at the next interval; it does not silently truncate. Large repositories need narrower endpoint queries in a future extension. Run history and event keys remain on disk for audit and deduplication; memory does not cache history. Retention is a separate policy decision.
+Limits are 100 resources per page, 20 pages, 2,000 emitted events per poll, and 2 MiB total child output per request by default. Each request has a 30-second deadline and cancellation. Four sources can poll concurrently. Excess sources remain due on disk; a separate schedule index keeps their waits from delaying scheduled tasks. Overflow fails visibly through `onError` and retries at the next interval; it does not silently truncate. Large repositories need narrower endpoint queries in a future extension. Run history and event keys remain on disk for audit and deduplication; memory does not cache history. Retention is a separate policy decision.
 
 ## Verification
 

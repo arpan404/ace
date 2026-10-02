@@ -6,7 +6,7 @@ import {
   type AutomationRun,
 } from "@ace/protocol";
 import { ExecutionResult, type Dependencies, type ExecutionInput } from "./contracts.ts";
-import { renderPrompt, jitterDeadline, recoverOccurrence } from "./decisions.ts";
+import { renderPrompt, scheduledDeadline, recoverOccurrence } from "./decisions.ts";
 import { compileSchedule, Occurrence, type Recurrence } from "./recurrence.ts";
 import { AutomationStore, type Job } from "./store.ts";
 import { pollGithub } from "./github.ts";
@@ -25,6 +25,7 @@ export class AutomationService {
   private watches = new Map<string, () => void>();
   private cancelTimer: (() => void) | undefined;
   private pending = new Set<Promise<void>>();
+  private polling = new Set<string>();
   private live = false;
   private controller = new AbortController();
   private generation = 0;
@@ -62,13 +63,18 @@ export class AutomationService {
               this.store.advance(
                 job.automation.id,
                 occurrence?.at,
-                jitterDeadline(occurrence?.at, job.automation.jitterMs, this.deps.random()),
+                scheduledDeadline(
+                  occurrence,
+                  recurrence,
+                  job.automation.jitterMs,
+                  this.deps.random(),
+                ),
               );
               this.store.savePoll(job.automation.id, occurrence ?? {});
             });
         }
       }
-      for (const { run, input } of this.store.active()) this.launch(run, input, true);
+      for (const { run, input } of this.store.active()) this.restore(run, input);
       this.arm();
     } catch (error) {
       this.stop();
@@ -141,7 +147,9 @@ export class AutomationService {
       ? undefined
       : automation.trigger.kind === "github"
         ? this.deps.now()
-        : jitterDeadline(nominal, automation.jitterMs, this.deps.random());
+        : recurrence
+          ? scheduledDeadline(occurrence, recurrence, automation.jitterMs, this.deps.random())
+          : undefined;
     this.store.put(automation, nominal, due, occurrence ?? {});
     this.configure(automation);
     this.arm();
@@ -168,7 +176,7 @@ export class AutomationService {
     const event = AutomationEvent.parse(input);
     const admission = this.store.transaction(() => this.admit(job.automation, event, kind));
     if (admission.created) this.publish(admission.run);
-    if (admission.admitted && admission.input) this.launch(admission.run, admission.input, false);
+    if (admission.admitted && admission.input) this.launch(admission.run, admission.input);
     return admission.run;
   }
   private admit(automation: Automation, event: AutomationEvent, kind: AutomationRun["trigger"]) {
@@ -197,35 +205,52 @@ export class AutomationService {
     this.pending.add(operation);
     void operation.finally(() => this.pending.delete(operation));
   }
-  private launch(run: AutomationRun, input: ExecutionInput, recover: boolean): void {
+  private launch(run: AutomationRun, input: ExecutionInput): void {
+    this.monitor(run, () => this.deps.executor.execute(input));
+  }
+  private restore(run: AutomationRun, input: ExecutionInput): void {
+    const generation = this.generation;
+    this.monitor(run, async () => {
+      let recovered: ExecutionResult | undefined;
+      try {
+        recovered = await this.deps.executor.recover(input.idempotencyKey);
+      } catch (error) {
+        // Uncertain recovery keeps the slot occupied by potentially live work.
+        this.report(error);
+        return undefined;
+      }
+      if (!this.live || generation !== this.generation) return undefined;
+      return recovered ?? this.deps.executor.execute(input);
+    });
+  }
+  private complete(
+    id: string,
+    outcome: ExecutionResult | { status: "failed"; result: string },
+  ): void {
+    try {
+      const finished = this.store.finish(id, this.deps.now(), outcome);
+      if (finished) this.publish(finished);
+    } catch (error) {
+      this.report(error); // Persistence failure leaves the durable record active for recovery.
+    }
+  }
+  private monitor(run: AutomationRun, execute: () => Promise<ExecutionResult | undefined>): void {
     const generation = this.generation;
     const operation = async () => {
       try {
-        let recovered: ExecutionResult | undefined;
-        if (recover) {
-          try {
-            recovered = await this.deps.executor.recover(input.idempotencyKey);
-          } catch (error) {
-            // Uncertain recovery must keep the slot occupied by potentially live work.
-            this.report(error);
-            return;
-          }
-        }
         if (!this.live || generation !== this.generation) return;
-        const outcome = ExecutionResult.parse(
-          recovered ?? (await this.deps.executor.execute(input)),
-        );
+        const result = await execute();
+        if (result === undefined) return;
+        const outcome = ExecutionResult.parse(result);
         if (this.live && generation === this.generation) {
-          const finished = this.store.finish(run.id, this.deps.now(), outcome);
-          if (finished) this.publish(finished);
+          this.complete(run.id, outcome);
         }
       } catch (error) {
         if (this.live && generation === this.generation) {
-          const finished = this.store.finish(run.id, this.deps.now(), {
+          this.complete(run.id, {
             status: "failed",
             result: message(error),
           });
-          if (finished) this.publish(finished);
         }
       }
     };
@@ -235,7 +260,7 @@ export class AutomationService {
     this.cancelTimer?.();
     this.cancelTimer = undefined;
     if (!this.live || this.ticking) return;
-    const job = this.store.next();
+    const job = this.nextJob();
     if (job?.due === null || job?.due === undefined) return;
     const delay = Math.min(2_147_483_647, Math.max(0, job.due - this.deps.now()));
     this.cancelTimer = this.deps.timer.arm(delay, () => {
@@ -245,15 +270,25 @@ export class AutomationService {
       return operation;
     });
   }
+  private nextJob(): Job | undefined {
+    return this.polling.size >= 4 ? this.store.nextScheduled() : this.store.next([...this.polling]);
+  }
   private async tick(): Promise<void> {
     this.ticking = true;
     try {
       // A bounded batch yields to I/O if a large number of jobs share a deadline.
       for (let i = 0; i < 100 && this.live; i++) {
-        const job = this.store.next();
+        const job = this.nextJob();
         if (!job || job.due === null || job.due > this.deps.now()) break;
-        if (job.automation.trigger.kind === "github") await this.poll(job);
-        else this.scheduled(job);
+        if (job.automation.trigger.kind === "github") {
+          this.polling.add(job.automation.id);
+          this.track(
+            this.poll(job).finally(() => {
+              this.polling.delete(job.automation.id);
+              this.arm();
+            }),
+          );
+        } else this.scheduled(job);
       }
     } finally {
       this.ticking = false;
@@ -275,7 +310,12 @@ export class AutomationService {
       throw error;
     }
     const nominal = occurrence?.at;
-    const due = jitterDeadline(nominal, job.automation.jitterMs, this.deps.random());
+    const due = scheduledDeadline(
+      occurrence,
+      recurrence,
+      job.automation.jitterMs,
+      this.deps.random(),
+    );
     const admission = this.store.transaction(() => {
       const result = this.admit(
         job.automation,
@@ -290,7 +330,7 @@ export class AutomationService {
       return result;
     });
     if (admission.created) this.publish(admission.run);
-    if (admission.admitted && admission.input) this.launch(admission.run, admission.input, false);
+    if (admission.admitted && admission.input) this.launch(admission.run, admission.input);
   }
   private async poll(job: Job): Promise<void> {
     const generation = this.generation;

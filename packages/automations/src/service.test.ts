@@ -313,3 +313,79 @@ it("repeated event delivery does not republish run notifications", async () => {
   h.service.trigger("triage", event);
   expect(h.changes.map((run) => run.status)).toEqual(["running", "succeeded"]);
 });
+it("dispatches scheduled work while a GitHub request is still pending", async () => {
+  const response = deferred<import("./index.ts").GhResponse>();
+  const h = harness({ get: () => response.promise });
+  h.service.put(
+    definition({
+      id: "github",
+      trigger: {
+        kind: "github",
+        repository: "user/project",
+        event: "pr_changed",
+        pollIntervalMs: 60_000,
+      },
+    }),
+  );
+  h.service.put(scheduled());
+  await h.timer.fire();
+  expect(h.timer.delay).toBe(60_000);
+  h.now = start;
+  await h.timer.fire();
+  expect(h.inputs[0]?.prompt).toBe("Triage 2024-01-01T09:00:00.000Z");
+  response.resolve({ status: 200, etag: undefined, next: undefined, data: [] });
+  await h.finish();
+  expect(h.timer.maximum).toBe(1);
+});
+it("bounds GitHub processes and resumes queued sources when requests complete", async () => {
+  const responses: ReturnType<typeof deferred<import("./index.ts").GhResponse>>[] = [];
+  const h = harness({
+    get() {
+      const response = deferred<import("./index.ts").GhResponse>();
+      responses.push(response);
+      return response.promise;
+    },
+  });
+  for (let i = 0; i < 5; i++)
+    h.service.put(
+      definition({
+        id: `github-${i}`,
+        trigger: {
+          kind: "github",
+          repository: "user/project",
+          event: "pr_changed",
+          pollIntervalMs: 60_000,
+        },
+      }),
+    );
+  await h.timer.fire();
+  expect(responses).toHaveLength(4);
+  expect(h.timer.active.size).toBe(0);
+  for (const response of responses)
+    response.resolve({ status: 200, etag: undefined, next: undefined, data: [] });
+  await h.service.settled();
+  expect(h.timer.delay).toBe(0);
+  await h.timer.fire();
+  expect(responses).toHaveLength(5);
+  responses[4]?.resolve({ status: 200, etag: undefined, next: undefined, data: [] });
+  await h.service.settled();
+  expect(h.timer.maximum).toBe(1);
+});
+it("records oversized rendered prompts without invoking the executor", () => {
+  const h = harness();
+  h.service.put(definition({ prompt: "{{subject}}".repeat(9) }));
+  expect(
+    h.service.trigger("triage", { key: "too-large", variables: { subject: "x".repeat(8192) } }),
+  ).toMatchObject({ status: "failed", result: "Rendered prompt exceeds limit" });
+  expect(h.inputs).toHaveLength(0);
+});
+it("treats trigger text as literal content rather than another template", async () => {
+  const h = harness();
+  h.service.put(definition());
+  h.service.trigger("triage", {
+    key: "literal",
+    variables: { subject: "{{other}} $(not-a-command)" },
+  });
+  expect(h.inputs[0]?.prompt).toBe("Triage {{other}} $(not-a-command)");
+  await h.finish();
+});
