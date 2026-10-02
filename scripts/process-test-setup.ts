@@ -18,10 +18,8 @@ export default async function setup(project: TestProject) {
   const gitTemplate = join(directory, "git-template");
   try {
     await mkdir(tls, { recursive: true, mode: 0o700 });
-    // Build once per run, never per spawn. Keep notify external so its worker
-    // entry URL still resolves to the real worker-entry.ts beside worker.ts.
-    // MCP's jsonc-parser uses runtime-relative UMD requires; keep them native.
-    // Main's model catalog also resolves a storage worker beside its source.
+    // Build local CLI modules once per run. Keep package imports native so
+    // runtime-relative CommonJS requires and worker URLs resolve beside their sources.
     const results = await Promise.allSettled([
       execute(
         "bun",
@@ -30,14 +28,8 @@ export default async function setup(project: TestProject) {
           "apps/daemon/src/cli.ts",
           "--target",
           "node",
-          "--external",
-          "ws",
-          "--external",
-          "@ace/notify",
-          "--external",
-          "@ace/mcp-server",
-          "--external",
-          "@ace/models",
+          "--packages",
+          "external",
           "--outfile",
           daemonCli,
         ],

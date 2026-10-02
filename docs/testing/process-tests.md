@@ -11,9 +11,9 @@ fixture and initializes one empty Git repository in parallel. Each daemon gets
 private TLS files; each Git test copies the empty repository and creates its own
 real commit. Restart and crash tests still spawn separate Node daemon processes.
 The remote restart test still generates and persists an identity through the
-production path. MCP, notify and the model catalog remain external to the bundle because MCP
-has runtime-relative UMD requires and the other two resolve workers relative
-to their modules. The temporary fixtures are removed at teardown and on setup failure.
+production path. All package imports remain external to the CLI bundle. Node resolves them through
+the daemon workspace node_modules, preserving runtime-relative CommonJS requires
+and module-relative worker URLs. Only the local CLI modules are bundled. The temporary fixtures are removed at teardown and on setup failure.
 
 Readiness comes from CLI stdout, IPC, socket open/listening/close and request
 completion. No test runs `bun install`, and no spawn performs a build. The only
@@ -68,6 +68,7 @@ worker resolves beside the real source. That merged behavior needs run at merge.
 | `apps/daemon/src/remote-cli.test.ts`                    | Daemon/CLI processes and sockets                          |
 | `apps/daemon/src/remote-payloads.test.ts`               | HTTP/WebSocket servers; remote fixtures also sign TLS     |
 | `apps/daemon/src/remote.server.test.ts`                 | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/settings.remote.test.ts`               | TLS HTTP/WebSocket servers and settings authorization     |
 | `apps/daemon/src/server.test.ts`                        | HTTP/WebSocket servers; remote fixtures also sign TLS     |
 | `apps/daemon/src/subscription.test.ts`                  | HTTP/WebSocket servers; remote fixtures also sign TLS     |
 | `apps/daemon/src/text-storage.test.ts`                  | HTTP/WebSocket servers; remote fixtures also sign TLS     |
@@ -177,3 +178,23 @@ establish runtime success; that needs run at merge.
 [Vitest worker limits](https://vitest.dev/config/maxworkers) and
 [project group order](https://vitest.dev/config/sequence#sequence-grouporder)
 make the concurrency cap independent of the host's advertised CPU count.
+
+## Settings merge failure follow-up
+
+After settings joined the daemon, bundling its jsonc-parser dependency produced
+`Cannot find module './impl/format'` in the real CLI. The bundle now leaves all
+package imports external instead of keeping an expanding package allowlist.
+The settings remote suite also belongs to the process manifest so it receives
+the shared TLS identity from global setup.
+
+The owner authorized only these three files for this fix. The command below
+reproduced the reported module error and missing TLS fixture before correction,
+then passed all three files and all 11 tests afterward. Existing stdout, process
+exit and socket barriers were retained; no assertions or timing budgets changed.
+
+```sh
+bunx vitest run apps/daemon/src/settings.remote.test.ts apps/daemon/src/lifecycle.test.ts apps/daemon/src/remote-cli.test.ts
+```
+
+No other tests, full suite, benchmark or mutation run was executed. The complete
+merge gate still needs run at merge.

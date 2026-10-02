@@ -2,7 +2,7 @@
 
 This follows the independent report on `94c9534`. `origin/main` at `19a7e14` was merged without rebasing in `65aaffc` before these changes. Settings and model-catalog lifecycle/wire additions are both retained. Before delivery, main advanced to `5494e21`; it was merged again in `04a8b39`, retaining automations exports and the upstream process-test reliability work.
 
-The owner changed validation policy during this run. Tests, probes, mutation runs, benchmarks, the aggregate check and GitHub CI are not executed under that policy. Final runtime claims below **need run at merge**. Historical observations from before the policy change do not validate the final revision.
+The owner changed validation policy during this run. Tests, probes, mutation runs, benchmarks, the aggregate check and GitHub CI are not executed under that policy. Final runtime claims below **need run at merge**. A later owner exception allowed only the three failing daemon files after a merge-time failure; their results are recorded in the final section. Historical observations from before the policy change do not validate the final revision.
 
 ## Remaining findings
 
@@ -101,3 +101,21 @@ The benchmark source now includes 10,000 unknown keys and native workspace reads
 | Native rejected swap and temporary recovery           | 113,057.70 |      244,400 |
 
 The 10,000-key workload was added after that run. Its measurement and every final-workload result need run at merge. Previous warmer baseline numbers are retained as historical evidence in [review verification](REVIEW-VERIFICATION.md).
+
+## Targeted merge-failure correction
+
+The orchestrator merged main into this branch in `f0b30f5` and reported a failed
+merge-time suite. The CLI fixture bundled settings' jsonc-parser, whose relative
+CommonJS requires could no longer resolve. Global setup now uses Bun's package
+externalization for all package imports. `settings.remote.test.ts` was missing
+from the process manifest and could not receive its injected TLS identity; it
+now runs with process global setup.
+
+Under the owner's explicit exception, only `settings.remote.test.ts`,
+`lifecycle.test.ts` and `remote-cli.test.ts` were executed. The named-file command
+reproduced both reported root causes before the fix and passed **3 files / 11
+tests** afterward. Their existing public behavior assertions and event barriers
+were retained. No full suite, additional test files, benchmarks or mutations ran.
+The remaining final-revision runtime validation still needs run at merge.
+
+Formatting, lint and all workspace typechecks passed after the correction.
