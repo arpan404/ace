@@ -66,7 +66,12 @@ export function validatePlan(
   for (const stream of workstreams)
     for (const path of [...stream.brief.files, ...stream.brief.packages]) {
       const normalized = path.normalize("NFC");
-      const canonical = caseSensitivity === "insensitive" ? normalized.toLowerCase() : normalized;
+      // A conservative casing closure catches non-lowercase aliases such as
+      // final sigma and long s; lowering first also collapses capital sharp s.
+      // It may merge more names than a particular volume, so those owners must
+      // be dependency-ordered. Never use locale-dependent casing here.
+      const canonical =
+        caseSensitivity === "insensitive" ? normalized.toLowerCase().toUpperCase() : normalized;
       const segments = canonical === "." ? [] : canonical.split("/");
       let node = tree;
       const prefixes = [node];
