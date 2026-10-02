@@ -74,7 +74,7 @@ test("a writer lock on any ancestor refuses migration and is left unchanged", as
   expect(await readFile(lock, "utf8")).toBe("live-or-stale");
   expect(await readdir(request.to.homeDir)).toEqual([]);
 });
-test("a real live process prevents acquiring quiescence even without a writer lock", async () => {
+test("a caller lease refuses its live process even without a writer lock", async () => {
   const request = await homes("claude");
   await put(join(request.from.homeDir, "projects", "-work", `${ids[3]}.jsonl`), "synthetic\n");
   const child = spawn(
@@ -138,6 +138,7 @@ test("destination collisions leave both copies unchanged and release the lease",
     join(request.to.homeDir, relative(request.from.homeDir, source)),
     "existing destination",
   );
+  const sourceBefore = await hash(source);
   let released = false;
   const result = await migrateSession(request, {
     acquire: async () => ({
@@ -148,6 +149,7 @@ test("destination collisions leave both copies unchanged and release the lease",
   });
   expect(result).toMatchObject({ status: "refused", reason: "Destination session already exists" });
   expect(await readFile(target, "utf8")).toBe("existing destination");
+  await expect(hash(source)).resolves.toBe(sourceBefore);
   expect(released).toBe(true);
 });
 test("symlinked sidechains and destination directories are refused", async () => {

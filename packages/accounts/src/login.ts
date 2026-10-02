@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawnInteractive } from "@ace/provider-kit/process";
 import { mkdir } from "node:fs/promises";
 import { loginStatus, instanceEnv, loginArgs } from "./instances.ts";
 import type { ProviderInstance } from "@ace/protocol/accounts";
@@ -14,10 +14,13 @@ export async function addAccount(
     discovery?: DiscoveryOptions;
     mode?: "subscription" | "api";
     signal?: AbortSignal;
+    spawn?: typeof spawnInteractive;
+    cancellationGraceMs?: number;
   },
 ) {
   const args = loginArgs(instance.provider, options.mode);
-  registry.register(instance);
+  options.signal?.throwIfAborted();
+  await registry.register(instance);
   await mkdir(instance.homeDir, { recursive: true, mode: 0o700 });
   const status = await loginStatus(instance, options.discovery);
   if (!status.path) throw new Error("Provider CLI is not installed");
@@ -27,15 +30,22 @@ export async function addAccount(
   )
     throw new Error(status.error);
   const env = instanceEnv(instance, options.discovery?.env ?? process.env);
-  const code = await new Promise<number | null>((resolve, reject) => {
-    const child = spawn(status.path ?? "", args, {
-      env,
-      stdio: "inherit",
-      ...(options.signal ? { signal: options.signal } : {}),
-    });
-    child.once("error", reject);
-    child.once("exit", resolve);
-  });
+  options.signal?.throwIfAborted();
+  const child = (options.spawn ?? spawnInteractive)({ command: status.path, args, env });
+  const cancel = () => {
+    void child.stop({ graceMs: options.cancellationGraceMs ?? 500 });
+  };
+  options.signal?.addEventListener("abort", cancel, { once: true });
+  if (options.signal?.aborted) cancel();
+  let code: number | null;
+  try {
+    const exit = await child.exited;
+    options.signal?.throwIfAborted();
+    if (exit.reason === "spawn-error") throw new Error("Login CLI failed to start");
+    code = exit.code;
+  } finally {
+    options.signal?.removeEventListener("abort", cancel);
+  }
   const after = await loginStatus(instance, options.discovery);
   registry.ingest(instance.id, {
     provider: instance.provider,

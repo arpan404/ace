@@ -1,7 +1,8 @@
+import { z } from "zod";
 import { createHash } from "node:crypto";
 import { constants, createWriteStream } from "node:fs";
 import { opendir, lstat, mkdir, open, link, unlink, realpath } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 
 export class MigrationFailure extends Error {
@@ -63,20 +64,33 @@ export type CopyFile = { source: string; relative: string };
 export function fingerprint(stat: Awaited<ReturnType<typeof lstat>>): string {
   return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
 }
-export async function stageFile(file: CopyFile, stage: string) {
+export type MigrationProgress = { phase: "copying" | "staged"; source: string; bytes: number };
+export type MigrationObserver = (progress: MigrationProgress) => Promise<void>;
+export async function stageFile(file: CopyFile, stage: string, observe?: MigrationObserver) {
   const source = await open(file.source, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const before = await source.stat();
     if (!before.isFile()) throw new MigrationFailure("refused", "Source is not a regular file");
     const target = join(stage, file.relative);
     await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+    const input = source.createReadStream({ autoClose: false, highWaterMark: 64 * 1024 });
+    let bytes = 0;
+    async function* monitored() {
+      for await (const chunk of input) {
+        const buffer = z.instanceof(Buffer).parse(chunk);
+        bytes += buffer.length;
+        await observe?.({ phase: "copying", source: file.source, bytes });
+        yield buffer;
+      }
+    }
     await pipeline(
-      source.createReadStream({ autoClose: false, highWaterMark: 64 * 1024 }),
+      observe ? monitored() : input,
       createWriteStream(target, { flags: "wx", mode: 0o600 }),
     );
-    if (fingerprint(before) !== fingerprint(await source.stat()))
+    const after = await source.stat();
+    if (fingerprint(before) !== fingerprint(after))
       throw new MigrationFailure("refused", "Source changed during copy");
-    return fingerprint(before);
+    return fingerprint(after);
   } finally {
     await source.close();
   }
@@ -127,20 +141,4 @@ export async function digestFile(path: string) {
   } finally {
     await file.close();
   }
-}
-
-/** Resolve a not-yet-created destination without writing into a source alias. */
-export async function canonicalDestination(path: string): Promise<string> {
-  let ancestor = resolve(path);
-  const missing: string[] = [];
-  while (!(await exists(ancestor))) {
-    if (missing.length >= 128)
-      throw new MigrationFailure("refused", "Destination depth limit exceeded");
-    missing.push(basename(ancestor));
-    const parent = dirname(ancestor);
-    if (parent === ancestor)
-      throw new MigrationFailure("refused", "Destination root does not exist");
-    ancestor = parent;
-  }
-  return join(await realpath(ancestor), ...missing.toReversed());
 }

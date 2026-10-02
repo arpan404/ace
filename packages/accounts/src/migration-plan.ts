@@ -28,29 +28,38 @@ const sessionMeta = z
 export type MigrationPlan = { files: CopyFile[]; ids: string[]; action: "fork" | "resume" };
 export async function codexPlan(home: string, id: string): Promise<MigrationPlan> {
   const sessions = new Map<string, { path: string; parents: string[]; unsupported: boolean }>();
+  const failures = new Map<string, string>();
+  const fail = (path: string, reason: string) => {
+    const candidate = basename(path).match(
+      /[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}/i,
+    )?.[0];
+    if (candidate) failures.set(candidate, reason);
+  };
   const budget = { entries: 0 };
   for (const root of ["sessions", "archived_sessions"]) {
     for await (const path of walkFiles(join(home, root), budget)) {
-      if (path.endsWith(".zst"))
-        throw new MigrationFailure(
-          "unsupported",
-          "Compressed Codex rollouts need provider-owned materialization",
-        );
+      if (path.endsWith(".zst")) {
+        fail(path, "Compressed Codex rollouts need provider-owned materialization");
+        continue;
+      }
       if (!path.endsWith(".jsonl")) continue;
       let value: unknown;
       try {
         value = JSON.parse(await firstLine(path));
       } catch {
-        throw new MigrationFailure("unsupported", "Unrecognized Codex rollout metadata");
+        fail(path, "Unrecognized Codex rollout metadata");
+        continue;
       }
       const parsed = sessionMeta.safeParse(value).data;
-      if (!parsed) throw new MigrationFailure("unsupported", "Unrecognized Codex rollout metadata");
+      if (!parsed) {
+        fail(path, "Unrecognized Codex rollout metadata");
+        continue;
+      }
       const meta = parsed.payload;
-      if (sessions.has(meta.id))
-        throw new MigrationFailure(
-          "unsupported",
-          "Multiple physical rollouts need provider-owned materialization",
-        );
+      if (sessions.has(meta.id)) {
+        failures.set(meta.id, "Multiple physical rollouts need provider-owned materialization");
+        continue;
+      }
       sessions.set(meta.id, {
         path,
         parents: [
@@ -76,6 +85,8 @@ export async function codexPlan(home: string, id: string): Promise<MigrationPlan
     if (depth > 128) throw new MigrationFailure("refused", "Lineage depth limit exceeded");
     if (visiting.has(current)) throw new MigrationFailure("refused", "Cyclic session lineage");
     if (visited.has(current)) return;
+    const failure = failures.get(current);
+    if (failure) throw new MigrationFailure("unsupported", failure);
     const session = sessions.get(current);
     if (!session) throw new MigrationFailure("refused", "Missing session or ancestor rollout");
     if (session.unsupported)
