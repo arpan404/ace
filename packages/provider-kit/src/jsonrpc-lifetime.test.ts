@@ -1,4 +1,3 @@
-import { once } from "node:events";
 import { afterEach, expect, it } from "vitest";
 import { JsonRpcPeer } from "./jsonrpc.ts";
 import { spawnSupervised, type SupervisedProcess } from "./process.ts";

@@ -70,48 +70,62 @@ it("SSE rejects a fragmented oversized line and closes the live response", async
   let disconnected = Promise.resolve<unknown>(undefined);
   let nextChunk: (() => void) | undefined;
   const url = await server((_, res) => {
-    nextChunk = () => res.end("ééé");
+    nextChunk = () => {
+      res.write("ééé");
+    };
     disconnected = once(res, "close");
     res.writeHead(200, { "content-type": "text/event-stream" });
     res.write("data: éééé\n\n");
     res.write("data: éé");
   });
   const events: string[] = [];
-  await expect(
-    readSse(url, {
-      signal: controller().signal,
-      maxLineBytes: 14,
-      onEvent: (event) => {
-        events.push(event.data);
-        nextChunk?.();
-      },
-      reconnect: false,
-    }),
-  ).rejects.toThrow("SSE line exceeded limit");
-  await disconnected;
-  expect(events).toEqual(["éééé"]);
+  const abort = controller();
+  const timer = setTimeout(() => abort.abort(), 3000);
+  try {
+    await expect(
+      readSse(url, {
+        signal: abort.signal,
+        maxLineBytes: 14,
+        reconnect: false,
+        onEvent: (event) => {
+          events.push(event.data);
+          nextChunk?.();
+        },
+      }),
+    ).rejects.toThrow("SSE line exceeded limit");
+    await disconnected;
+    expect(events).toEqual(["éééé"]);
+  } finally {
+    clearTimeout(timer);
+  }
 });
 
 it("SSE rejects many small data lines before dispatch without reconnecting", async () => {
   const url = await server((_, res) => {
     res.writeHead(200, { "content-type": "text/event-stream" });
-    res.end("data: éé\ndata: éé\ndata: éé\n\n");
+    res.write("data: éé\ndata: éé\ndata: éé\n");
   });
   const events: string[] = [],
     reconnects: unknown[] = [];
-  await expect(
-    readSse(url, {
-      signal: controller().signal,
-      maxEventBytes: 12,
-      onEvent: (event) => events.push(event.data),
-      onReconnect: (info) => {
-        reconnects.push(info);
-        throw new Error("unexpected reconnect");
-      },
-    }),
-  ).rejects.toThrow("SSE event exceeded limit");
-  expect(events).toEqual([]);
-  expect(reconnects).toEqual([]);
+  const abort = controller();
+  const timer = setTimeout(() => abort.abort(), 3000);
+  try {
+    await expect(
+      readSse(url, {
+        signal: abort.signal,
+        maxEventBytes: 12,
+        onEvent: (event) => events.push(event.data),
+        onReconnect: (info) => {
+          reconnects.push(info);
+          throw new Error("unexpected reconnect");
+        },
+      }),
+    ).rejects.toThrow("SSE event exceeded limit");
+    expect(events).toEqual([]);
+    expect(reconnects).toEqual([]);
+  } finally {
+    clearTimeout(timer);
+  }
 });
 
 it("raw probe budgets accept exact UTF-8 byte boundaries without a trailing newline", async () => {
@@ -138,4 +152,22 @@ it("SSE resets byte budgets after each dispatched event", async () => {
     onEvent: (event) => events.push(event.data),
   });
   expect(events).toEqual(["éé", "éé"]);
+});
+
+it("supervision reports an aggregate output-limit exit across both pipes", async () => {
+  const proc = spawnSupervised({
+    command: process.execPath,
+    args: [
+      "-e",
+      "process.stdout.write('ok\\n');process.stderr.write('ééé');setInterval(()=>{},1000);",
+    ],
+    env: {},
+    name: "aggregate-budget",
+    maxOutputBytes: 8,
+  });
+  try {
+    expect((await proc.exited).reason).toBe("output-limit");
+  } finally {
+    await proc.stop({ graceMs: 0 });
+  }
 });
