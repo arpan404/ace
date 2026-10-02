@@ -52,7 +52,10 @@ export class GitCli {
     if (args.some((arg) => arg.includes("\0"))) {
       throw new GitError("invalid_argument", "Git arguments cannot contain NUL bytes");
     }
-    this.ready ??= this.verify(cwd);
+    this.ready ??= this.verify(cwd).catch((error: unknown) => {
+      this.ready = undefined;
+      throw error;
+    });
     await this.ready;
     return this.execute(cwd, args, options);
   }
@@ -107,26 +110,28 @@ export class GitCli {
       let failure: GitError | undefined;
       let spawnFailure: Promise<GitError> | undefined;
       const kill = () => killTree(this.runtime, child);
-      const cancelDeadline = this.runtime.scheduleTimeout(() => {
-        failure = new GitError("git_timeout", `Git exceeded ${this.timeoutMs}ms`, { args });
-        kill();
-      }, this.timeoutMs);
-      const streamFailure = (error: Error) => {
+      const fail = (error: unknown) => {
+        if (failure) return;
         failure = toGitError(error);
         kill();
       };
+      const cancelDeadline = this.runtime.scheduleTimeout(() => {
+        fail(new GitError("git_timeout", `Git exceeded ${this.timeoutMs}ms`, { args }));
+      }, this.timeoutMs);
+      const streamFailure = (error: Error) => fail(error);
+      child.stdout.on("error", streamFailure);
+      child.stderr.on("error", streamFailure);
       if (options.output) {
         options.output.on("error", streamFailure);
         child.stdout.pipe(options.output);
       }
-      child.stdout.on("data", (chunk: Buffer) => {
+      const stdout = (chunk: Buffer) => {
         if (options.output) return;
         if (options.consume) {
           try {
             options.consume(chunk);
           } catch (error) {
-            failure = toGitError(error);
-            kill();
+            fail(error);
           }
           return;
         }
@@ -136,22 +141,37 @@ export class GitCli {
         if (chunk.length > remaining) {
           truncated = true;
           if (options.captureBytes === undefined) {
-            failure = new GitError("output_too_large", "Git metadata exceeded 64 MiB", { args });
-            kill();
+            fail(new GitError("output_too_large", "Git metadata exceeded 64 MiB", { args }));
           }
         }
-      });
-      child.stderr.on("data", (chunk: Buffer) => {
+      };
+      const stderrData = (chunk: Buffer) => {
         const keep = Math.min(chunk.length, Math.max(0, 65_536 - errorBytes));
         if (keep) errors.push(chunk.subarray(0, keep));
         errorBytes += keep;
-      });
-      child.on("error", (error: NodeJS.ErrnoException) => {
+      };
+      child.stdout.on("data", stdout);
+      child.stderr.on("data", stderrData);
+      const spawnError = (error: NodeJS.ErrnoException) => {
         spawnFailure = classifySpawn(error, cwd, this.binary);
-      });
-      child.on("close", async (code) => {
+      };
+      child.on("error", spawnError);
+      child.once("close", async (code) => {
         cancelDeadline();
-        if (spawnFailure) failure = await spawnFailure;
+        if (options.input instanceof Readable) {
+          options.input.unpipe(child.stdin);
+          options.input.off("error", streamFailure);
+        }
+        if (options.output) {
+          child.stdout.unpipe(options.output);
+          options.output.off("error", streamFailure);
+        }
+        child.stdout.off("data", stdout);
+        child.stderr.off("data", stderrData);
+        child.stdout.off("error", streamFailure);
+        child.stderr.off("error", streamFailure);
+        child.off("error", spawnError);
+        if (spawnFailure) failure ??= await spawnFailure;
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
         if (code !== 0 && !options.allowFailure) {
