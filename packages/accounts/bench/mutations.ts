@@ -53,7 +53,7 @@ const mutations = [
   },
   {
     name: "misread Claude utilization units",
-    file: "quota.ts",
+    file: "quota-decode.ts",
     before: "event.utilization * 100",
     after: "event.utilization",
     test: "quota.test.ts",
@@ -86,14 +86,94 @@ const mutations = [
     after: "if (false)",
     test: "migration.test.ts",
   },
+  {
+    name: "ignore destination writer locks",
+    file: "migration.ts",
+    before: "await checkWriterLocks(targetHome, request.provider, plan.ids);",
+    after: "// destination check removed",
+    test: "review-migration.test.ts",
+    all: true,
+  },
+  {
+    name: "accept provider mismatch",
+    file: "migration.ts",
+    before: "from.provider !== request.provider ||\n        to.provider !== request.provider ||",
+    after: "false ||",
+    test: "review-migration.test.ts",
+  },
+  {
+    name: "ignore changes during copying",
+    file: "migration-files.ts",
+    before: "if (fingerprint(before) !== fingerprint(after))",
+    after: "if (false)",
+    test: "review-migration.test.ts",
+  },
+  {
+    name: "ignore source replacement after staging",
+    file: "migration.ts",
+    before: "!file || fingerprint(await lstat(file.source)) !== fingerprints[index]",
+    after: "!file",
+    test: "review-migration.test.ts",
+  },
+  {
+    name: "remove native ID validation",
+    file: "migration.ts",
+    before: "NativeSessionId.parse(request.nativeSessionId)",
+    after: "request.nativeSessionId",
+    test: "review-migration.test.ts",
+  },
+  {
+    name: "delete source on collision",
+    file: "migration.ts",
+    before: "if (source.hash !== destination.hash)\n            throw",
+    after:
+      "if (source.hash !== destination.hash) { await rm(file.source); }\n          if (source.hash !== destination.hash)\n            throw",
+    test: "migration.test.ts",
+  },
+  {
+    name: "accept unknown Claude statuses",
+    file: "quota-decode.ts",
+    before: 'z.enum(["allowed", "allowed_warning", "rejected"]).optional()',
+    after: "z.string().optional()",
+    test: "review-quota.test.ts",
+  },
+  {
+    name: "clear exhaustion on incomplete snapshots",
+    file: "quota.ts",
+    before: "decoded.authoritative && decoded.complete && decoded.count",
+    after: "decoded.authoritative && decoded.count",
+    test: "review-quota.test.ts",
+  },
+  {
+    name: "disable ingress decoding cap",
+    file: "quota-decode.ts",
+    before: "if (++inspected > 32)",
+    after: "if (++inspected > 1000000)",
+    test: "review-quota.test.ts",
+  },
+  {
+    name: "skip canonicalization of home selectors",
+    file: "paths.ts",
+    before: "join(await realpath(ancestor), ...missing.toReversed())",
+    after: "join(ancestor, ...missing.toReversed())",
+    test: "review-quota.test.ts",
+  },
 ];
 for (const mutation of mutations) {
   const path = new URL(`../src/${mutation.file}`, import.meta.url);
   const original = await readFile(path, "utf8");
-  if (original.split(mutation.before).length !== 2)
+  if (
+    (!mutation.all && original.split(mutation.before).length !== 2) ||
+    !original.includes(mutation.before)
+  )
     throw new Error(`Nonunique mutation: ${mutation.name}`);
   try {
-    await writeFile(path, original.replace(mutation.before, mutation.after));
+    await writeFile(
+      path,
+      mutation.all
+        ? original.replaceAll(mutation.before, mutation.after)
+        : original.replace(mutation.before, mutation.after),
+    );
     let tail = "";
     const capture = (chunk: Buffer) => {
       tail = (tail + chunk.toString()).slice(-16_384);
