@@ -1,5 +1,7 @@
 import { Engine, type EngineOptions } from "./engine/index.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { remoteListener } from "./network.ts";
 import { join } from "node:path";
 import { type CommandHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
@@ -18,7 +20,14 @@ export async function startDaemon(
   config: Config = readConfig(),
   handler?: CommandHandler,
   engineOptions: EngineOptions = {},
-): Promise<{ url: string; tokenPath: string; store: Store; close(): Promise<void> }> {
+): Promise<{
+  url: string;
+  tokenPath: string;
+  store: Store;
+  remoteUrl?: string;
+  fingerprint?: string;
+  close(): Promise<void>;
+}> {
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
   let store: Store | undefined;
@@ -37,7 +46,9 @@ export async function startDaemon(
       });
       handler = engine.handler;
     }
+    const remote = await remoteListener(config);
     const server = await startServer({
+      ...(remote ? { remote } : {}),
       port: config.port,
       token,
       hostId,
@@ -45,9 +56,19 @@ export async function startDaemon(
       handler,
       log: (error) => log("error", "WebSocket failure", error),
     });
+    const endpointPath = join(config.dataDir, "daemon-endpoint");
+    try {
+      writeFileSync(endpointPath, server.httpUrl, { mode: 0o600 });
+    } catch (error) {
+      await server.close();
+      throw error;
+    }
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
+      ...(server.remoteUrl && server.fingerprint
+        ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
+        : {}),
       tokenPath,
       store,
       close() {
@@ -62,7 +83,11 @@ export async function startDaemon(
                 ownedStore.close();
               }
             } finally {
-              unlock();
+              try {
+                unlinkSync(endpointPath);
+              } finally {
+                unlock();
+              }
             }
           }
         })();
