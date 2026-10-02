@@ -1,3 +1,4 @@
+import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -21,24 +22,35 @@ test("a child checkpoint waits from parent safety capture until the whole restor
   await put(child, "a.txt", "after a\n");
   await put(child, "z.txt", "after z\n");
   const entry = pathToFileURL(fileURLToPath(new URL("./index.ts", import.meta.url))).href;
-  // One clock call transfers the nested safety tree. The next pauses before the
-  // safety ref is written. With no live subprocesses, beforeExit proves the
+  // Pause the clock after real Git writes the parent's safety tree, before
+  // its safety ref is written. With no live subprocesses, beforeExit proves the
   // competing checkpoint's I/O has drained or is waiting for the restore lock.
   const script = `
     const { GitService } = await import(${JSON.stringify(entry)});
+    const { spawn } = await import('node:child_process');
     const reached = Promise.withResolvers();
     const gate = Promise.withResolvers();
-    let calls = 0;
-    const now = () => ++calls === 2 ? (reached.resolve(), gate.promise) : new Date('2025-01-02T03:04:05.006Z');
+    let parentTreeWritten = false;
+    let paused = false;
+    const processRuntime = { spawn: (command, args, options) => {
+      const child = spawn(command, args, options);
+      if (options.cwd === ${JSON.stringify(repo)} && args.includes('write-tree'))
+        child.once('close', code => { if (code === 0) parentTreeWritten = true; });
+      return child;
+    }};
+    const now = () => {
+      if (parentTreeWritten && !paused) { paused = true; reached.resolve(); return gate.promise; }
+      return new Date('2025-01-02T03:04:05.006Z');
+    };
     process.once('beforeExit', () => gate.resolve(new Date('2025-01-02T03:04:05.006Z')));
-    const restore = new GitService({now}).restoreCheckpoint({worktree:${JSON.stringify(repo)},checkpoint:${JSON.stringify(target.id)}});
+    const restore = new GitService({now,processRuntime}).restoreCheckpoint({worktree:${JSON.stringify(repo)},checkpoint:${JSON.stringify(target.id)}});
     await reached.promise;
     const child = new GitService().createCheckpoint({worktree:${JSON.stringify(child)},threadId:'child',label:'during restore'});
     await restore;
     process.stdout.write(JSON.stringify(await child));
   `;
   const output = await execute(process.execPath, ["--input-type=module", "--eval", script], {
-    timeout: 30_000,
+    timeout: PROCESS_TEST_TIMEOUT,
   });
   const checkpoints = await service.listCheckpoints({ repo: child, threadId: "child" });
   expect(checkpoints).toHaveLength(1);

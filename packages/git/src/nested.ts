@@ -6,6 +6,7 @@ import type { Repository } from "./repository.ts";
 import { textOutput } from "./cli.ts";
 import { transferTree } from "./object-transfer.ts";
 import { serial } from "./lock.ts";
+import { removeIndexSubtrees } from "./temporary-index.ts";
 import { GitError } from "./types.ts";
 
 export async function nestedPaths(
@@ -103,21 +104,7 @@ export async function flattenNested(
   snapshot: (repository: Repository, root: string) => Promise<string>,
   heldRoots: ReadonlySet<string>,
 ): Promise<void> {
-  if (paths.length) {
-    const roots = new Set(paths);
-    const seeded = parseIndex(
-      (await repository.cli.call(root, ["ls-files", "--stage", "-z"], { env })).stdout,
-    );
-    const remove = seeded.filter((entry) =>
-      pathAncestors(entry.path).some((path) => roots.has(path)),
-    );
-    if (remove.length)
-      await repository.cli.call(root, ["update-index", "--force-remove", "-z", "--stdin"], {
-        write: true,
-        env,
-        input: remove.map((entry) => entry.path).join("\0") + "\0",
-      });
-  }
+  await removeIndexSubtrees(repository, root, paths, env);
   for (const path of paths) {
     const nested = await nestedRoot(repository, root, path);
     const capture = async () => {

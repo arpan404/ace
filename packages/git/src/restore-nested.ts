@@ -2,8 +2,8 @@ import { nestedPaths, nestedRoot } from "./nested.ts";
 import { parseIndex, parseTree } from "./parse-index.ts";
 import { transferTree } from "./object-transfer.ts";
 import { serial } from "./lock.ts";
-import { withIndex } from "./temporary-index.ts";
-import { hash, malformed, pathAncestors } from "./decode.ts";
+import { removeIndexSubtrees, withIndex } from "./temporary-index.ts";
+import { hash, malformed } from "./decode.ts";
 import { textOutput } from "./cli.ts";
 import type { Repository } from "./repository.ts";
 
@@ -59,21 +59,12 @@ export async function restoreWorktree(
   const ownedTree = async (tree: string, env: Record<string, string>) => {
     if (!children.length) return tree;
     await repository.cli.call(root, ["read-tree", tree], { write: true, env });
-    if (children.length) {
-      const paths = new Set(children.map((child) => child.path));
-      const entries = parseIndex(
-        (await repository.cli.call(root, ["ls-files", "--stage", "-z"], { env })).stdout,
-      );
-      const remove = entries.filter((entry) =>
-        pathAncestors(entry.path).some((path) => paths.has(path)),
-      );
-      if (remove.length)
-        await repository.cli.call(root, ["update-index", "--force-remove", "-z", "--stdin"], {
-          write: true,
-          env,
-          input: remove.map((entry) => entry.path).join("\0") + "\0",
-        });
-    }
+    await removeIndexSubtrees(
+      repository,
+      root,
+      children.map((child) => child.path),
+      env,
+    );
     return hash(textOutput(await repository.cli.call(root, ["write-tree"], { write: true, env })));
   };
   await withIndex(repository.tempDirectory, async (env) => {
