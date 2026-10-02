@@ -1,28 +1,45 @@
-// Replaced by @ace/adapter-testkit when the shared replay API lands.
-import { readFileSync } from "node:fs";
 import { apply, createThreadState, type Fact } from "@ace/core";
-import { EventPayload, ThreadId } from "@ace/protocol";
-import type { Frame } from "./contract.ts";
+import { applyEvent, createThreadView } from "@ace/projection";
+import { Event, Thread } from "@ace/protocol";
+import type { Frame } from "@ace/engine-api";
 import { OpenCodeTranslator } from "./translator.ts";
 export function harness() {
+  const thread = Thread.parse({
+    id: "thread_fixture",
+    workspaceId: "workspace_fixture",
+    provider: "opencode",
+    title: "test",
+    status: { state: "new" },
+    createdAt: 0,
+    updatedAt: 0,
+  });
   const state = createThreadState({
-    threadId: ThreadId.parse("thread_fixture"),
+    threadId: thread.id,
     config: { provider: "opencode", liveness: "transport", silenceMs: 25_000 },
   });
   const translator = new OpenCodeTranslator({ threadId: state.threadId, rootKey: "root" });
+  const view = createThreadView(thread);
   let sequence = 0;
-  const events: EventPayload[] = [];
+  let eventSequence = 0;
   const accept = (facts: Fact[], now: number) => {
     for (const fact of facts)
-      for (const event of apply(state, fact, {
+      for (const payload of apply(state, fact, {
         now,
         ids: { next: (kind) => `${kind}_${++sequence}` },
       }))
-        events.push(EventPayload.parse(event));
+        applyEvent(
+          view,
+          Event.parse({
+            id: `event_${++eventSequence}`,
+            seq: eventSequence,
+            at: now,
+            threadId: thread.id,
+            payload,
+          }),
+        );
   };
   return {
-    state,
-    events,
+    view,
     translator,
     feed(frame: Frame) {
       accept(translator.translate(frame, frame.t), frame.t);
@@ -31,11 +48,4 @@ export function harness() {
       accept([...translator.tick(now), { type: "tick" }], now);
     },
   };
-}
-export function fixture(path: string) {
-  return readFileSync(path, "utf8")
-    .trim()
-    .split("\n")
-    .slice(1)
-    .map((line) => JSON.parse(line) as Frame);
 }

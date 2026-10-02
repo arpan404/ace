@@ -6,7 +6,12 @@
     },
     {
       "t": 9703,
-      "thread": "working"
+      "thread": "working",
+      "agentStates": {
+        "root": "blocked",
+        "ses_f04d94f47ffeap2m5AyMiFKYS4": "working"
+      },
+      "note": "Parent idle, child still busy; the tree is working."
     },
     {
       "t": 15620,
@@ -14,7 +19,12 @@
     },
     {
       "t": 15621,
-      "thread": "working"
+      "thread": "working",
+      "agentStates": {
+        "root": "working",
+        "ses_f04d94f47ffeap2m5AyMiFKYS4": "idle"
+      },
+      "note": "Delivered task result keeps the parent awake before its next busy."
     },
     {
       "t": 18399,
@@ -25,7 +35,8 @@
     "thread": "done",
     "agents": 2,
     "interactions": {
-      "resolved": 0
+      "resolved": 0,
+      "pending": 0
     }
   }
 }

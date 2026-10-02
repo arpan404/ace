@@ -14,7 +14,7 @@ export function detail(
         command: string(input.command),
         ...(typeof input.workdir === "string" ? { cwd: input.workdir } : {}),
         ...(metadata.exit === null || typeof metadata.exit === "number"
-          ? { exitCode: metadata.exit as number | null }
+          ? { exitCode: metadata.exit }
           : {}),
       };
     case "read":
@@ -52,12 +52,13 @@ export function detail(
       const changes = array(metadata.files).map((entry): FileChange => {
         const f = object(entry);
         const type = string(f.type);
-        return {
+        const change: FileChange = {
           path: string(f.filePath, string(f.path)),
-          kind: type === "add" || type === "delete" || type === "move" ? type : ("update" as const),
-          ...(typeof f.diff === "string" ? { diff: f.diff } : {}),
-          ...(typeof f.movePath === "string" ? { movePath: f.movePath } : {}),
+          kind: type === "add" || type === "delete" || type === "move" ? type : "update",
         };
+        if (typeof f.diff === "string") change.diff = f.diff;
+        if (typeof f.movePath === "string") change.movePath = f.movePath;
+        return change;
       });
       const kinds = new Set(changes.map((c) => c.kind));
       return {
@@ -109,7 +110,7 @@ export function detail(
     default: {
       const server = [...mcp]
         .filter((s) => name.startsWith(`${s}_`))
-        .sort((a, b) => b.length - a.length)[0];
+        .toSorted((a, b) => b.length - a.length)[0];
       return server
         ? { kind: "mcp", server, tool: name.slice(server.length + 1), arguments: input }
         : { kind: "custom" };
@@ -126,5 +127,5 @@ export function toolStatus(state: Data, aborted: boolean): ToolStatus {
     return "cancelled";
   if (state.status === "completed") return "succeeded";
   if (/dismissed|rejected|denied/i.test(string(state.error))) return "declined";
-  return "failed";
+  return state.status === "error" ? "failed" : "pending";
 }

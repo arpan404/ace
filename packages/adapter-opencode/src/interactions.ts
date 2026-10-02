@@ -6,6 +6,7 @@ export function request(
   p: Data,
   tool: string,
   planPath?: string,
+  markdown = "",
 ): InteractionRequest {
   if (type === "permission.asked")
     return {
@@ -23,7 +24,7 @@ export function request(
   if (tool === "plan_exit")
     return {
       kind: "plan_review",
-      markdown: "",
+      markdown,
       title: "Review plan",
       ...(planPath ? { planPath } : {}),
     };

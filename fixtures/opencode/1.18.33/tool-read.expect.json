@@ -17,7 +17,8 @@
     "thread": "done",
     "agents": 1,
     "interactions": {
-      "resolved": 0
+      "resolved": 0,
+      "pending": 0
     }
   }
 }

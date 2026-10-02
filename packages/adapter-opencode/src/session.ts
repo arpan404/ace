@@ -1,19 +1,29 @@
 import { randomBytes } from "node:crypto";
-import { pathToFileURL } from "node:url";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
-import type { Frame, ProviderSession, SessionContext } from "./contract.ts";
+import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
+import { messageId, promptBody } from "./input.ts";
 import { array, object, string } from "./data.ts";
 import { OpenCodeServer, eventSession } from "./server.ts";
 type Queued = { input: ContentPart[]; resolve(): void; reject(error: Error): void };
 export class OpenCodeSession implements ProviderSession {
-  readonly nativeSessionId: string;
+  private nativeId: string;
+  get nativeSessionId(): string {
+    return this.nativeId;
+  }
+  private reportedExit = false;
+  private resynchronizing = false;
+  private disconnected = false;
+  private delivered = new Set<string>();
+  private grace = new Map<string, ReturnType<typeof setTimeout>>();
   private ctx: SessionContext;
   private server: OpenCodeServer;
   private controller = new AbortController();
   private sequence = 0;
   private startedAt = performance.now();
   private known = new Set<string>();
+  private itemOwners = new Map<string, string>();
+  private promptSequence = 0;
   private parents = new Map<string, string>();
   private busy = new Set<string>();
   private backgrounds = new Set<string>();
@@ -29,25 +39,41 @@ export class OpenCodeSession implements ProviderSession {
   private constructor(ctx: SessionContext, server: OpenCodeServer, id: string) {
     this.ctx = ctx;
     this.server = server;
-    this.nativeSessionId = id;
+    this.nativeId = id;
     this.known.add(id);
     this.abortListener = () => {
-      void this.close("shutdown");
+      void this.close("shutdown").catch(() => {});
     };
   }
   static async open(ctx: SessionContext, server: OpenCodeServer): Promise<OpenCodeSession> {
     ctx.signal.throwIfAborted();
     await server.ready();
+    if (ctx.signal.aborted) {
+      await server.release();
+      ctx.signal.throwIfAborted();
+    }
     const session = new OpenCodeSession(ctx, server, ctx.resume?.nativeSessionId ?? "");
     // Subscribe before creation so early session/child announcements cannot be lost.
     session.unsubscribe = server.subscribe({
       receive: (data) => session.receive(data),
-      disconnected: () => session.emit("note", "lifecycle", { type: "disconnected" }),
+      frame: session.emit,
+      disconnected: () => {
+        session.disconnected = true;
+        session.emit("note", "lifecycle", { type: "disconnected" });
+      },
+      buffered: (data) => session.emit("recv", "sse.buffered", data),
+      recovered: () => {
+        session.disconnected = false;
+        session.emit("note", "lifecycle", { type: "resynced" });
+        void session.pump();
+      },
       resync: () => session.resync(),
       exited: (deliberate, message) => {
-        if (!session.closed) {
+        if (!session.closed && !session.reportedExit) {
+          session.reportedExit = true;
           session.emit("note", "lifecycle", { type: "exited", deliberate, message });
           ctx.onExit({ deliberate, ...(message ? { message } : {}) });
+          void session.close("shutdown").catch(() => {});
         }
       },
     });
@@ -58,12 +84,13 @@ export class OpenCodeSession implements ProviderSession {
         const info = object(await session.request("POST", "/session", { title: "ace" }));
         const id = string(info.id);
         if (!id) throw new Error("OpenCode did not return a session id");
-        Object.defineProperty(session, "nativeSessionId", { value: id });
+        session.nativeId = id;
         session.known.clear();
         session.known.add(id);
       }
       session.opening = false;
       for (const data of session.buffer.splice(0)) session.receive(data);
+      await session.request("GET", "/mcp");
       if (ctx.resume) await session.resync();
       if (ctx.signal.aborted) {
         await session.close("shutdown");
@@ -85,7 +112,18 @@ export class OpenCodeSession implements ProviderSession {
     });
   };
   private request(method: string, path: string, body?: unknown): Promise<unknown> {
-    return this.server.request(method, path, this.ctx.cwd, body, this.emit, this.controller.signal);
+    return this.server
+      .request(method, path, this.ctx.cwd, body, this.emit, this.controller.signal)
+      .catch((error: unknown) => {
+        this.emit("note", "transport", {
+          type: "request.failed",
+          method,
+          path,
+          messageID: object(body).messageID,
+          message: String(error),
+        });
+        throw error;
+      });
   }
   private receive(data: unknown): void {
     if (this.closed) return;
@@ -111,8 +149,22 @@ export class OpenCodeSession implements ProviderSession {
       return;
     this.emit("recv", "sse", data);
     if (payload.type === "session.status") {
-      if (object(p.status).type === "idle") this.busy.delete(id);
-      else {
+      if (object(p.status).type === "idle") {
+        this.busy.delete(id);
+        if (this.backgrounds.has(id) && !this.grace.has(id))
+          this.grace.set(
+            id,
+            setTimeout(() => {
+              this.grace.delete(id);
+              this.backgrounds.delete(id);
+              this.emit("note", "lifecycle", { type: "background.grace.expired", task: id });
+              void this.pump();
+            }, 3_000),
+          );
+      } else {
+        const timer = this.grace.get(id);
+        if (timer) clearTimeout(timer);
+        this.grace.delete(id);
         this.busy.add(id);
         if (id === this.nativeSessionId) this.pendingPrompt = false;
       }
@@ -125,13 +177,24 @@ export class OpenCodeSession implements ProviderSession {
       this.questions.delete(string(p.requestID));
     const part = object(p.part);
     const meta = object(object(part.state).metadata);
-    if (part.tool === "task" && meta.background === true && typeof meta.sessionId === "string")
+    if (typeof part.callID === "string" && typeof part.sessionID === "string")
+      this.itemOwners.set(part.callID, part.sessionID);
+    if (
+      part.tool === "task" &&
+      meta.background === true &&
+      typeof meta.sessionId === "string" &&
+      !this.delivered.has(meta.sessionId)
+    )
       this.backgrounds.add(meta.sessionId);
     if (part.type === "text" && part.synthetic === true) {
       const task = /^<task id="([^"]+)" state="(completed|error)">/.exec(string(part.text));
       if (task) {
-        this.backgrounds.delete(task[1]!);
-        this.pendingPrompt = true;
+        this.backgrounds.delete(string(task[1]));
+        this.delivered.add(string(task[1]));
+        const timer = this.grace.get(string(task[1]));
+        if (timer) clearTimeout(timer);
+        this.grace.delete(string(task[1]));
+        if (!this.resynchronizing) this.pendingPrompt = true;
       }
     }
     void this.pump();
@@ -147,6 +210,8 @@ export class OpenCodeSession implements ProviderSession {
   }
   private async pump(): Promise<void> {
     if (
+      this.disconnected ||
+      this.resynchronizing ||
       this.pumping ||
       this.closed ||
       this.pendingPrompt ||
@@ -160,30 +225,16 @@ export class OpenCodeSession implements ProviderSession {
     this.pumping = true;
     this.pendingPrompt = true;
     try {
-      const parts = next.input.map((part) =>
-        part.type === "text"
-          ? part
-          : part.type === "image"
-            ? { type: "file", mime: part.mimeType, url: part.url }
-            : {
-                type: "file",
-                mime: part.mimeType ?? "text/plain",
-                url: pathToFileURL(part.path).href,
-              },
+      await this.request(
+        "POST",
+        `/session/${this.nativeSessionId}/prompt_async`,
+        promptBody(
+          next.input,
+          this.ctx.cwd,
+          messageId(Date.now(), ++this.promptSequence, randomBytes(7).toString("hex")),
+          this.ctx.model,
+        ),
       );
-      const slash = this.ctx.model?.indexOf("/") ?? -1;
-      await this.request("POST", `/session/${this.nativeSessionId}/prompt_async`, {
-        messageID: `msg_${Date.now().toString(16)}${randomBytes(12).toString("hex")}`,
-        parts,
-        ...(slash > 0
-          ? {
-              model: {
-                providerID: this.ctx.model!.slice(0, slash),
-                modelID: this.ctx.model!.slice(slash + 1),
-              },
-            }
-          : {}),
-      });
       next.resolve();
     } catch (error) {
       this.pendingPrompt = false;
@@ -195,10 +246,14 @@ export class OpenCodeSession implements ProviderSession {
   }
   async interrupt(target: { agent?: Key; cascade: boolean }): Promise<void> {
     const id = target.agent && this.known.has(target.agent) ? target.agent : this.nativeSessionId;
+    const visited = new Set<string>();
     const descendants = (parent: string): string[] =>
       [...this.parents]
-        .filter(([, p]) => p === parent)
-        .flatMap(([child]) => [...descendants(child), child]);
+        .filter(([child, p]) => p === parent && child !== id && !visited.has(child))
+        .flatMap(([child]) => {
+          visited.add(child);
+          return descendants(child).concat(child);
+        });
     for (const child of target.cascade ? descendants(id) : [])
       await this.request("POST", `/session/${child}/abort`, {});
     await this.request("POST", `/session/${id}/abort`, {});
@@ -231,14 +286,20 @@ export class OpenCodeSession implements ProviderSession {
     else throw new Error("OpenCode does not support elicitation resolution");
   }
   async stopTask(task: Key): Promise<void> {
-    const id = task.startsWith("survivor:") ? this.nativeSessionId : task;
-    if (!this.known.has(id)) throw new Error("Unknown OpenCode task");
+    const id = task.startsWith("survivor:")
+      ? this.itemOwners.get(task.slice("survivor:".length))
+      : task;
+    if (!id || !this.known.has(id)) throw new Error("Unknown OpenCode task");
     await this.interrupt({ agent: id, cascade: true });
   }
   async resync(): Promise<void> {
     if (this.closed || this.opening) return;
+    this.resynchronizing = true;
     this.questions.clear();
+    const visited = new Set<string>();
     const visit = async (id: string): Promise<void> => {
+      if (visited.has(id)) return;
+      visited.add(id);
       const info = await this.request("GET", `/session/${id}`);
       this.receive({
         directory: this.ctx.cwd,
@@ -273,6 +334,7 @@ export class OpenCodeSession implements ProviderSession {
           },
         });
     const statuses = object(await this.request("GET", "/session/status"));
+    this.pendingPrompt = false;
     for (const id of this.known)
       this.receive({
         payload: {
@@ -280,15 +342,39 @@ export class OpenCodeSession implements ProviderSession {
           properties: { sessionID: id, status: statuses[id] ?? { type: "idle" } },
         },
       });
+    this.resynchronizing = false;
+    void this.pump();
   }
-  async close(_reason: "idle" | "user" | "shutdown"): Promise<void> {
+  async close(reason: "idle" | "user" | "shutdown"): Promise<void> {
     if (this.closed) return;
+    if (
+      reason === "idle" &&
+      (this.busy.size || this.backgrounds.size || this.pendingPrompt || this.questions.size)
+    )
+      throw new Error("Cannot idle-close an unsettled OpenCode session");
     this.closed = true;
+    if (
+      reason !== "idle" &&
+      !this.reportedExit &&
+      (this.busy.size || this.backgrounds.size || this.pendingPrompt || this.questions.size)
+    ) {
+      try {
+        await this.interrupt({ cascade: true });
+      } catch {
+        /* Process teardown still owns cancellation after transport failure. */
+      }
+    }
     this.controller.abort();
+    for (const timer of this.grace.values()) clearTimeout(timer);
+    this.grace.clear();
     this.unsubscribe();
     this.ctx.signal.removeEventListener("abort", this.abortListener);
     for (const q of this.queue.splice(0)) q.reject(new Error("OpenCode session closed"));
-    this.emit("note", "lifecycle", { type: "exited", deliberate: true });
-    this.ctx.onExit({ deliberate: true });
+    if (!this.reportedExit) {
+      this.reportedExit = true;
+      this.emit("note", "lifecycle", { type: "exited", deliberate: true });
+      this.ctx.onExit({ deliberate: true });
+    }
+    await this.server.release();
   }
 }

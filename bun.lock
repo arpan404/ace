@@ -27,8 +27,14 @@
       "name": "@ace/adapter-opencode",
       "dependencies": {
         "@ace/core": "workspace:*",
+        "@ace/engine-api": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@ace/adapter-testkit": "workspace:*",
+        "@ace/projection": "workspace:*",
       },
     },
     "packages/adapter-testkit": {

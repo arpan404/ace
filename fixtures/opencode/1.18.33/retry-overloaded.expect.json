@@ -2,7 +2,8 @@
   "checkpoints": [
     {
       "t": 3378,
-      "thread": "waiting"
+      "thread": "waiting",
+      "on": "upstream"
     },
     {
       "t": 12411,
@@ -14,18 +15,22 @@
     },
     {
       "t": 73739,
-      "thread": "waiting"
+      "thread": "waiting",
+      "on": "upstream"
     },
     {
       "t": 104673,
-      "thread": "waiting"
+      "thread": "waiting",
+      "on": "upstream"
     }
   ],
   "final": {
     "thread": "waiting",
     "agents": 1,
     "interactions": {
-      "resolved": 0
-    }
+      "resolved": 0,
+      "pending": 0
+    },
+    "on": "upstream"
   }
 }

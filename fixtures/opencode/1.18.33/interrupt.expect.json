@@ -6,7 +6,8 @@
     },
     {
       "t": 16661,
-      "thread": "waiting"
+      "thread": "waiting",
+      "on": "background_task"
     },
     {
       "t": 16669,
@@ -21,7 +22,11 @@
     "thread": "done",
     "agents": 1,
     "interactions": {
-      "resolved": 1
+      "resolved": 1,
+      "pending": 0
+    },
+    "agentStates": {
+      "root": "interrupted"
     }
   }
 }

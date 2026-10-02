@@ -3,11 +3,15 @@ import { createServer } from "node:net";
 import { discoverProviders, type DiscoveryOptions } from "@ace/provider-kit/discovery";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { readSse } from "@ace/provider-kit/sse";
-import type { Frame } from "./contract.ts";
+import type { Frame } from "@ace/engine-api";
+import { supportedVersion } from "./capabilities.ts";
 import { object, string } from "./data.ts";
 export type ServerConsumer = {
   receive(data: unknown): void;
+  frame(dir: Frame["dir"], channel: string, data: unknown): void;
   disconnected(): void;
+  buffered(data: unknown): void;
+  recovered(): void;
   resync(): Promise<void>;
   exited(deliberate: boolean, message?: string): void;
 };
@@ -30,7 +34,8 @@ export class OpenCodeServer {
   private consumers = new Set<ServerConsumer>();
   private process?: SupervisedProcess;
   private controller = new AbortController();
-  private opening?: Promise<void>;
+  private opening: Promise<void> | undefined;
+  private closing: Promise<void> | undefined;
   private base?: URL;
   private authorization = "";
   private stream?: Promise<void>;
@@ -39,28 +44,44 @@ export class OpenCodeServer {
   private buffered: unknown[] = [];
   private recovery: Promise<void> | undefined;
   private sequences = new Map<string, number>();
+  private pendingLogs: { dir: Frame["dir"]; channel: string; data: unknown }[] = [];
   private options: ServerOptions;
   constructor(options: ServerOptions = {}) {
     this.options = options;
   }
   subscribe(consumer: ServerConsumer): () => void {
     this.consumers.add(consumer);
+    for (const log of this.pendingLogs.splice(0)) consumer.frame(log.dir, log.channel, log.data);
     return () => this.consumers.delete(consumer);
   }
   async ready(): Promise<void> {
+    if (this.closing) await this.closing;
+    if (this.controller.signal.aborted) {
+      this.controller = new AbortController();
+      this.opening = undefined;
+      this.deliberate = false;
+      this.sequences.clear();
+      this.pendingLogs = [];
+      this.buffered = [];
+      this.recovering = false;
+    }
     this.opening ??= this.start();
     await this.opening;
   }
   private async start(): Promise<void> {
     const cli = (await discoverProviders(this.options.discovery)).opencode;
     if (!cli.installed || !cli.path) throw new Error(cli.error ?? "OpenCode is not installed");
+    if (!supportedVersion(cli.version)) throw new Error("OpenCode >=1.18.33 and <2 is required");
+    this.controller.signal.throwIfAborted();
     const password = randomBytes(32).toString("base64url");
     const port = await freePort();
+    this.controller.signal.throwIfAborted();
     this.authorization = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
     const proc = spawnSupervised({
       command: cli.path,
       args: ["serve", "--hostname", "127.0.0.1", "--port", String(port)],
       env: {
+        ...this.options.discovery?.env,
         OPENCODE_SERVER_PASSWORD: password,
         OPENCODE_SERVER_USERNAME: "opencode",
         OPENCODE_CLIENT: "cli",
@@ -69,6 +90,12 @@ export class OpenCodeServer {
       name: "opencode-server",
     });
     this.process = proc;
+    const log = (dir: Frame["dir"], channel: string, data: unknown) => {
+      if (!this.consumers.size) this.pendingLogs.push({ dir, channel, data });
+      else for (const c of this.consumers) c.frame(dir, channel, data);
+    };
+    proc.stdout.on("line", (line) => log("recv", "stdout", line));
+    proc.stderr.on("line", (line) => log("stderr", "stderr", line));
     void proc.exited.then((exit) => {
       this.controller.abort();
       for (const c of this.consumers) c.exited(this.deliberate, `OpenCode exited: ${exit.reason}`);
@@ -99,6 +126,26 @@ export class OpenCodeServer {
         proc.signal.addEventListener("abort", onAbort, { once: true });
         if (proc.signal.aborted) onAbort();
       });
+      let connected: (() => void) | undefined;
+      const connection = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error("OpenCode SSE handshake timed out"));
+        }, this.options.startupTimeoutMs ?? 30_000);
+        const onAbort = () => {
+          cleanup();
+          reject(new Error("OpenCode exited during SSE handshake"));
+        };
+        const cleanup = () => {
+          clearTimeout(timer);
+          this.controller.signal.removeEventListener("abort", onAbort);
+        };
+        connected = () => {
+          cleanup();
+          resolve();
+        };
+        this.controller.signal.addEventListener("abort", onAbort, { once: true });
+      });
       this.stream = readSse(new URL("/global/event", this.base), {
         signal: this.controller.signal,
         headers: { authorization: this.authorization },
@@ -110,6 +157,7 @@ export class OpenCodeServer {
             parsed = { payload: { type: "malformed", properties: { data } } };
           }
           const p = object(object(parsed).payload);
+          if (p.type === "server.connected") connected?.();
           const sync = object(p.syncEvent);
           if (
             p.type === "sync" &&
@@ -137,9 +185,11 @@ export class OpenCodeServer {
           },
         },
       });
-      void this.stream.catch((error: unknown) => {
-        for (const c of this.consumers) c.exited(false, String(error));
+      void this.stream.catch(() => {
+        this.controller.abort();
+        void proc.stop({ graceMs: 0 });
       });
+      await connection;
     } catch (error) {
       this.deliberate = true;
       this.controller.abort();
@@ -155,9 +205,22 @@ export class OpenCodeServer {
   private recover(): Promise<void> {
     this.recovery ??= (async () => {
       try {
-        for (const c of this.consumers) await c.resync();
+        let changed: boolean;
+        do {
+          for (const c of this.consumers) await c.resync();
+          const buffered = this.buffered.splice(0);
+          changed = buffered.some(
+            (data) =>
+              !["server.connected", "server.heartbeat"].includes(
+                string(object(object(data).payload).type),
+              ),
+          );
+          // REST snapshots include some stream deltas received during the read.
+          // Retain those frames as raw evidence, then refetch until the stream is quiet.
+          for (const data of buffered) for (const c of this.consumers) c.buffered(data);
+        } while (changed && !this.controller.signal.aborted);
         this.recovering = false;
-        for (const data of this.buffered.splice(0)) for (const c of this.consumers) c.receive(data);
+        for (const c of this.consumers) c.recovered();
       } catch {
         this.controller.abort();
         await this.process?.stop({ graceMs: 0 });
@@ -175,7 +238,9 @@ export class OpenCodeServer {
     frame: (dir: Frame["dir"], channel: string, data: unknown) => void,
     signal: AbortSignal,
   ): Promise<unknown> {
+    signal.throwIfAborted();
     await this.ready();
+    signal.throwIfAborted();
     const url = new URL(path, this.base);
     url.searchParams.set("directory", directory);
     frame("send", "http", { method, path, ...(body === undefined ? {} : { body }) });
@@ -196,11 +261,20 @@ export class OpenCodeServer {
     if (!response.ok) throw new Error(`OpenCode ${method} ${path}: HTTP ${response.status}`);
     return result;
   }
-  async close(): Promise<void> {
-    this.deliberate = true;
-    this.controller.abort();
-    await this.process?.stop();
-    await this.stream;
+  async release(): Promise<void> {
+    if (this.consumers.size === 0) await this.close();
+  }
+  close(): Promise<void> {
+    this.closing ??= (async () => {
+      this.deliberate = true;
+      this.controller.abort();
+      await this.opening?.catch(() => {});
+      await this.process?.stop();
+      await this.stream;
+    })().finally(() => {
+      this.closing = undefined;
+    });
+    return this.closing;
   }
 }
 export function eventSession(data: unknown): string {
