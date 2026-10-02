@@ -1,0 +1,220 @@
+import { appendFile, readFile, writeFile, rename, access } from "node:fs/promises";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "vitest";
+import { uploads, hash, attachment, thread, otherThread, png } from "./test-support.ts";
+
+const cleanups: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0)) await cleanup();
+});
+async function fixture(limits: Parameters<typeof uploads>[0] = {}) {
+  const value = await uploads(limits);
+  cleanups.push(() => value.close());
+  return value;
+}
+
+describe("resumable uploads", () => {
+  test("a daemon restart preserves acknowledged bytes and resumes at the durable offset", async () => {
+    const f = await fixture();
+    const bytes = Buffer.from("first second"),
+      id = await f.begin(bytes);
+    await f.chunk(id, bytes.subarray(0, 6));
+    await appendFile(join(f.root, "uploads", id), "unacknowledged");
+    await f.restart();
+    expect(await f.store.handle("device", { op: "upload.status", uploadId: id })).toMatchObject({
+      kind: "upload",
+      offset: 6,
+    });
+    await f.chunk(id, bytes.subarray(6), 6);
+    const result = attachment(await f.commit(id));
+    const blob = await f.store.attachment("device", thread, result.sha256);
+    expect(await readFile(blob.path)).toEqual(bytes);
+    expect(await f.commit(id)).toEqual({ kind: "attachment", attachment: result });
+  });
+  test("retrying identical chunks is safe while changed retries and gaps fail", async () => {
+    const f = await fixture();
+    const bytes = Buffer.from("abcd"),
+      id = await f.begin(bytes);
+    await f.chunk(id, bytes.subarray(0, 2));
+    expect(await f.chunk(id, bytes.subarray(0, 2))).toMatchObject({ offset: 2 });
+    await expect(f.chunk(id, Buffer.from("xx"))).rejects.toMatchObject({ code: "offset" });
+    await expect(f.chunk(id, Buffer.from("d"), 3)).rejects.toMatchObject({ code: "offset" });
+    await expect(f.commit(id)).rejects.toMatchObject({ code: "offset" });
+    await f.chunk(id, bytes.subarray(2), 2);
+    expect(attachment(await f.commit(id)).sha256).toBe(hash(bytes));
+  });
+  test("hash mismatches reject the blob and release the reservation", async () => {
+    const f = await fixture({ threadBytes: 4 });
+    const bytes = Buffer.from("abcd"),
+      id = await f.begin(bytes, thread, "0".repeat(64));
+    await f.chunk(id, bytes);
+    await expect(f.commit(id)).rejects.toMatchObject({ code: "hash_mismatch" });
+    expect(await f.store.handle("device", { op: "attachment.list", threadId: thread })).toEqual({
+      kind: "attachments",
+      attachments: [],
+    });
+    expect(await f.begin(bytes)).toBeTruthy();
+  });
+  test("thread quota counts retained blobs and pending uploads", async () => {
+    const f = await fixture({ threadBytes: 6 });
+    const bytes = Buffer.from("abcd"),
+      id = await f.begin(bytes);
+    await expect(f.begin(Buffer.from("xxx"))).rejects.toMatchObject({ code: "quota" });
+    await f.chunk(id, bytes);
+    await f.commit(id);
+    await expect(f.begin(Buffer.from("xxx"))).rejects.toMatchObject({ code: "quota" });
+    await f.store.handle("device", {
+      op: "attachment.release",
+      threadId: thread,
+      sha256: hash(bytes),
+    });
+    expect(await f.begin(Buffer.from("xxx"))).toBeTruthy();
+  });
+  test("global quota reserves bytes across different threads", async () => {
+    const f = await fixture({ globalBytes: 6 });
+    await f.begin(Buffer.from("abcd"));
+    await expect(f.begin(Buffer.from("xxx"), otherThread)).rejects.toMatchObject({ code: "quota" });
+  });
+  test("entry and file caps reject too many small attachments and oversized files", async () => {
+    const f = await fixture({ threadEntries: 1, fileBytes: 3 });
+    await expect(f.begin(Buffer.from("four"))).rejects.toMatchObject({ code: "quota" });
+    await f.put(Buffer.from("one"));
+    await expect(f.begin(Buffer.from("two"))).rejects.toMatchObject({ code: "quota" });
+  });
+  test("magic-byte sniffing identifies an image despite a lying filename", async () => {
+    const f = await fixture();
+    const result = attachment(await f.put(png, thread, "document.txt"));
+    expect(result.mimeType).toBe("image/png");
+    expect(result.width).toBe(1);
+    expect(result.height).toBe(1);
+    expect(attachment(await f.put(Buffer.from("plain text"), thread, "photo.png")).mimeType).toBe(
+      "text/plain",
+    );
+  });
+  test("a huge PNG header is rejected without attempting decompression", async () => {
+    const f = await fixture();
+    const bomb = Buffer.from(png);
+    bomb.writeUInt32BE(100_000, 16);
+    bomb.writeUInt32BE(100_000, 20);
+    const id = await f.begin(bomb);
+    await f.chunk(id, bomb);
+    await expect(f.commit(id)).rejects.toMatchObject({
+      code: "invalid_image",
+      message: expect.stringContaining("dimensions"),
+    });
+    expect(await f.store.handle("device", { op: "attachment.list", threadId: thread })).toEqual({
+      kind: "attachments",
+      attachments: [],
+    });
+  });
+  test("truncated images are rejected rather than retained", async () => {
+    const f = await fixture();
+    const truncated = png.subarray(0, 33),
+      id = await f.begin(truncated);
+    await f.chunk(id, truncated);
+    await expect(f.commit(id)).rejects.toMatchObject({ code: "invalid_image" });
+  });
+  test("uploads cannot be resumed by another device or after access is revoked", async () => {
+    const f = await fixture();
+    const id = await f.begin(Buffer.from("abcd"));
+    await expect(
+      f.store.handle("other-device", { op: "upload.status", uploadId: id }),
+    ).rejects.toMatchObject({ code: "not_found" });
+    await expect(
+      f.store.handle("other-device", { op: "attachment.list", threadId: thread }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    f.allowed.delete(thread);
+    await expect(f.chunk(id, Buffer.from("abcd"))).rejects.toMatchObject({ code: "forbidden" });
+  });
+  test("expiry cancels abandoned reservations so quota can be used again", async () => {
+    const f = await fixture({ threadBytes: 4, ttlMs: 10 });
+    const id = await f.begin(Buffer.from("abcd"));
+    f.advance(11);
+    await f.store.collect();
+    await expect(
+      f.store.handle("device", { op: "upload.status", uploadId: id }),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(await f.begin(Buffer.from("abcd"))).toBeTruthy();
+  });
+  test("collection removes only blobs with no remaining thread references", async () => {
+    const f = await fixture();
+    const bytes = Buffer.from("shared"),
+      shared = attachment(await f.put(bytes));
+    await f.put(bytes, otherThread, "shared.bin");
+    const lonely = attachment(await f.put(Buffer.from("lonely")));
+    const sharedPath = (await f.store.attachment("device", thread, shared.sha256)).path;
+    const lonelyPath = (await f.store.attachment("device", thread, lonely.sha256)).path;
+    await f.store.handle("device", {
+      op: "attachment.release",
+      threadId: thread,
+      sha256: shared.sha256,
+    });
+    await f.store.handle("device", {
+      op: "attachment.release",
+      threadId: thread,
+      sha256: lonely.sha256,
+    });
+    expect(await f.store.collect()).toBe(1);
+    expect(await readFile(sharedPath)).toEqual(bytes);
+    await expect(access(lonelyPath)).rejects.toThrow();
+    await expect(f.store.attachment("device", thread, shared.sha256)).rejects.toMatchObject({
+      code: "not_found",
+    });
+    expect((await f.store.attachment("device", otherThread, shared.sha256)).attachment.name).toBe(
+      "shared.bin",
+    );
+    await f.store.releaseThread(otherThread);
+    expect(await f.store.collect()).toBe(1);
+    await expect(access(sharedPath)).rejects.toThrow();
+  });
+  test("deduplicating within a thread releases the extra reservation", async () => {
+    const f = await fixture({ threadBytes: 8 });
+    const bytes = Buffer.from("four");
+    await f.put(bytes);
+    await f.put(bytes);
+    expect(
+      await f.store.handle("device", { op: "attachment.list", threadId: thread }),
+    ).toMatchObject({ attachments: [{ sha256: hash(bytes) }] });
+    expect(await f.begin(Buffer.from("next"))).toBeTruthy();
+  });
+  test("orphan files are collected in bounded maintenance batches", async () => {
+    const f = await fixture();
+    const bytes = Buffer.from("retained");
+    const blob = attachment(await f.put(bytes));
+    const orphan = "f".repeat(64);
+    await writeFile(join(f.root, "blobs", orphan), "orphan");
+    await writeFile(join(f.root, "uploads", "orphan-upload"), "orphan");
+    for (let i = 0; i < 5; i++) await f.store.collect(1);
+    await expect(access(join(f.root, "blobs", orphan))).rejects.toThrow();
+    await expect(access(join(f.root, "uploads", "orphan-upload"))).rejects.toThrow();
+    expect(await readFile((await f.store.attachment("device", thread, blob.sha256)).path)).toEqual(
+      bytes,
+    );
+  });
+  test("commit recovers a blob renamed before the metadata transaction completed", async () => {
+    const f = await fixture();
+    const bytes = Buffer.from("crash window"),
+      id = await f.begin(bytes);
+    await f.chunk(id, bytes);
+    await rename(join(f.root, "uploads", id), join(f.root, "blobs", hash(bytes)));
+    await f.restart();
+    await f.store.collect();
+    expect(attachment(await f.commit(id)).sha256).toBe(hash(bytes));
+    expect(await readFile((await f.store.attachment("device", thread, hash(bytes))).path)).toEqual(
+      bytes,
+    );
+  });
+  test("noncanonical base64 and chunks over the wire cap never advance offsets", async () => {
+    const f = await fixture();
+    const id = await f.begin(Buffer.alloc(70_000, 1));
+    await expect(
+      f.store.handle("device", { op: "upload.chunk", uploadId: id, offset: 0, data: "AB==" }),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(f.chunk(id, Buffer.alloc(65_537, 1))).rejects.toMatchObject({
+      code: "invalid_request",
+    });
+    expect(await f.store.handle("device", { op: "upload.status", uploadId: id })).toMatchObject({
+      offset: 0,
+    });
+  });
+});
