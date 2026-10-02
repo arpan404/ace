@@ -1,5 +1,7 @@
 import { ClaudeState } from "./state.ts";
 import { list, number, object, string, text, type Data } from "./native.ts";
+import { matchBlock, messageBlocks, type MessageBlocks } from "./blocks.ts";
+import { childUsage } from "./usage.ts";
 import { toolDetail } from "./tools.ts";
 
 export function tool(
@@ -16,10 +18,6 @@ export function tool(
   state.toolOwners.set(id, agent);
   const detail = toolDetail(name, input);
   state.toolKinds.set(id, detail.kind);
-  const child =
-    detail.kind === "agent.spawn"
-      ? state.child(id, agent, input["run_in_background"] === true)
-      : undefined;
   state.emit({
     type: "item.upsert",
     agent,
@@ -31,8 +29,8 @@ export function tool(
         title: name,
         kind: detail.kind,
         status: awaiting ? "awaiting_approval" : "running",
-        detail: child && detail.kind === "agent.spawn" ? { ...detail, childAgent: child } : detail,
-        raw: state.keepToolRaw(id, frame, name),
+        detail,
+        ...state.keepToolRaw(id, frame, name),
       },
     },
   });
@@ -43,6 +41,7 @@ export function message(
   data: Data,
   seq: number,
   streams: Map<string, StreamState>,
+  messages: Map<string, MessageBlocks>,
 ): void {
   const agent = state.agentFor(data);
   const m = object(data["message"]);
@@ -53,16 +52,19 @@ export function message(
     typeof m["content"] === "string" ? [{ type: "text", text: m["content"] }] : list(m["content"]);
   if (role === "assistant" && content.length > 0) state.contentSeen.add(agent);
   const id = string(m["id"], string(data["uuid"], `${seq}`));
+  if (role === "assistant") childUsage(state, agent, id, m);
+  const blocks = messageBlocks(messages, agent, id);
   for (const [index, value] of content.entries()) {
     const block = object(value);
     const type = string(block["type"]);
     const current = streams.get(agent);
-    const streamed =
-      current?.id === id
-        ? [...current.blocks].find(([i, entry]) => entry.kind === type && !current.finalized.has(i))
-        : undefined;
-    const blockIndex = streamed?.[0] ?? index;
-    if (streamed) current?.finalized.add(blockIndex);
+    const blockIndex = matchBlock(
+      blocks,
+      block,
+      index,
+      string(data["uuid"]),
+      current?.id === id ? current : undefined,
+    );
     const messageItem = state.key("message", `${agent}:${id}:${blockIndex}`);
     if (type === "tool_use") tool(state, agent, block, data);
     else if (type === "tool_result") {
@@ -81,7 +83,7 @@ export function message(
           complete: true,
           call: {
             status: declined ? "declined" : block["is_error"] === true ? "failed" : "succeeded",
-            raw: state.keepToolRaw(toolId, data),
+            ...state.keepToolRaw(toolId, data),
           },
         },
       });
@@ -116,7 +118,7 @@ export function message(
           role,
           parts: [{ type: "text", text: contentText }],
           complete: true,
-          raw: state.keepMessageRaw(item, data),
+          ...state.keepMessageRaw(item, data, agent),
         },
       });
       if (role === "assistant") state.emit({ type: "activity", agent, activity: "responding" });
@@ -129,7 +131,7 @@ export function message(
           type: "reasoning",
           text: string(block["thinking"]),
           complete: true,
-          raw: state.keepMessageRaw(messageItem, data),
+          ...state.keepMessageRaw(messageItem, data, agent),
         },
       });
     else state.notice(data, `${seq}:${index}`, agent);
@@ -152,7 +154,8 @@ export function message(
 export interface StreamState {
   id: string;
   blocks: Map<number, { kind: string; item: string }>;
-  finalized: Set<number>;
+  unmatched: Map<string, number[]>;
+  cursors: Map<string, number>;
 }
 export function stream(state: ClaudeState, data: Data, streams: Map<string, StreamState>): void {
   const agent = state.agentFor(data);
@@ -162,7 +165,8 @@ export function stream(state: ClaudeState, data: Data, streams: Map<string, Stre
     streams.set(agent, {
       id: string(object(event["message"])["id"]),
       blocks: new Map(),
-      finalized: new Set(),
+      unmatched: new Map(),
+      cursors: new Map(),
     });
     return;
   }
@@ -175,6 +179,9 @@ export function stream(state: ClaudeState, data: Data, streams: Map<string, Stre
     const kind = string(block["type"]);
     state.contentSeen.add(agent);
     current.blocks.set(index, { kind, item });
+    const indices = current.unmatched.get(kind) ?? [];
+    indices.push(index);
+    current.unmatched.set(kind, indices);
     if (kind === "text" || kind === "thinking") {
       state.emit({
         type: "item.upsert",
@@ -187,13 +194,13 @@ export function stream(state: ClaudeState, data: Data, streams: Map<string, Stre
                 role: "assistant",
                 parts: [{ type: "text", text: string(block["text"]) }],
                 complete: false,
-                raw: state.keepMessageRaw(item, data),
+                ...state.keepMessageRaw(item, data, agent),
               }
             : {
                 type: "reasoning",
                 text: string(block["thinking"]),
                 complete: false,
-                raw: state.keepMessageRaw(item, data),
+                ...state.keepMessageRaw(item, data, agent),
               },
       });
       state.emit({
@@ -230,7 +237,9 @@ export function finishStream(
   streams: Map<string, StreamState>,
   agent: string,
 ): void {
-  for (const block of streams.get(agent)?.blocks.values() ?? []) {
+  const current = streams.get(agent);
+  streams.delete(agent);
+  for (const block of current?.blocks.values() ?? []) {
     if (block.kind === "text" || block.kind === "thinking")
       state.emit({
         type: "item.upsert",

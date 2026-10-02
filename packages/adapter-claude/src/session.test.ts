@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Frame } from "@ace/engine-api";
+import { apply, createThreadState } from "@ace/core";
+import { createTranslator } from "./index.ts";
 import { ThreadId } from "@ace/protocol";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { createClaudeAdapter } from "./index.ts";
@@ -19,13 +21,15 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
-async function harness(resume?: string) {
+async function harness(resume?: string, rootKey = "root") {
   const frames: Frame[] = [];
   const waiters: { predicate(frame: Frame): boolean; resolve(frame: Frame): void }[] = [];
   const exit = Promise.withResolvers<{ deliberate: boolean; message?: string }>();
+  const exits: { deliberate: boolean; message?: string }[] = [];
   const controller = new AbortController();
   const adapter = createClaudeAdapter({ executable });
   const session = await adapter.openSession({
+    rootKey,
     threadId: ThreadId.parse("session-test"),
     cwd: directory,
     signal: controller.signal,
@@ -40,14 +44,17 @@ async function harness(resume?: string) {
       }
     },
     ...(resume ? { resume: { nativeSessionId: resume } } : {}),
-    onExit: exit.resolve,
+    onExit: (value) => {
+      exits.push(value);
+      exit.resolve(value);
+    },
   });
   function wait(predicate: (frame: Frame) => boolean) {
     const prior = frames.find(predicate);
     if (prior) return Promise.resolve(prior);
     return new Promise<Frame>((resolve) => waiters.push({ predicate, resolve }));
   }
-  return { session, wait, frames, exit: exit.promise, controller };
+  return { session, wait, frames, exit: exit.promise, exits, controller };
 }
 const subtype = (value: string) => (frame: Frame) => object(frame.data)["subtype"] === value;
 test("the installed executable handshakes and receives queued input with a native session id", async () => {
@@ -135,6 +142,7 @@ test("unexpected provider exit is reported once and closes pending commands", as
   expect(await h.exit).toMatchObject({ deliberate: false });
   await expect(h.session.stopTask("task")).rejects.toThrow("closed");
   await h.session.close("shutdown");
+  expect(h.exits).toHaveLength(1);
 });
 test("engine cancellation closes the supervised provider process", async () => {
   const h = await harness();
@@ -222,6 +230,84 @@ test("approving a plan returns permission and resets the CLI permission mode", a
         object(object(f.data)["request"])["subtype"] === "set_permission_mode",
     );
     expect(object(object(mode.data)["request"])["mode"]).toBe("default");
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+
+test("an arbitrary engine root key targets the root interrupt", async () => {
+  const h = await harness(undefined, "engine:root:42");
+  try {
+    await h.session.interrupt({ agent: "engine:root:42", cascade: false });
+    expect(
+      h.frames.some(
+        (f) =>
+          subtype("fake_control")(f) &&
+          object(object(f.data)["request"])["subtype"] === "interrupt",
+      ),
+    ).toBe(true);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+test("a targeted cascade reaches a grandchild registered before its spawning tool", async () => {
+  const h = await harness();
+  try {
+    await h.session.send([{ type: "text", text: "nested-tasks" }], "queue");
+    await h.wait(subtype("nested-ready"));
+    await h.session.interrupt({ agent: "child-one", cascade: true });
+    const stops = h.frames
+      .filter(subtype("fake_control"))
+      .map((f) => object(object(f.data)["request"]))
+      .filter((r) => r["subtype"] === "stop_task")
+      .map((r) => r["task_id"]);
+    expect(stops).toEqual(["child-one", "grandchild"]);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+
+test("SDK options deliver partial root text and forwarded child text", async () => {
+  const h = await harness();
+  try {
+    await h.session.send([{ type: "text", text: "stream-probe" }], "queue");
+    await h.wait((f) => object(f.data)["type"] === "result");
+    const translator = createTranslator({ rootKey: "root" });
+    const state = createThreadState({
+      threadId: ThreadId.parse("probe"),
+      config: { provider: "claude", silenceMs: 60_000 },
+    });
+    let id = 0;
+    for (const f of h.frames)
+      for (const fact of translator.translate(f, f.t))
+        apply(state, fact, { now: f.t, ids: { next: (k) => `${k}:${++id}` } });
+    const text = Object.values(state.items)
+      .filter((i) => i.type === "message")
+      .map((i) => i.parts);
+    expect(text).toContainEqual([{ type: "text", text: "partial answer" }]);
+    expect(text).toContainEqual([{ type: "text", text: "child answer" }]);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+test("selected question identities survive native comma serialization", async () => {
+  const h = await harness();
+  try {
+    await h.session.send([{ type: "text", text: "question" }], "queue");
+    const request = await h.wait((f) => f.channel === "can_use_tool");
+    const id = String(object(object(request.data)["options"])["requestId"]);
+    const resolution = { kind: "question" as const, answers: { "Tabs?": ["Tabs", "Spaces, two"] } };
+    await h.session.resolve(id, resolution);
+    const translator = createTranslator({ rootKey: "root" });
+    const state = createThreadState({
+      threadId: ThreadId.parse("answers"),
+      config: { provider: "claude", silenceMs: 60_000 },
+    });
+    let identity = 0;
+    for (const f of h.frames)
+      for (const fact of translator.translate(f, f.t))
+        apply(state, fact, { now: f.t, ids: { next: (k) => `${k}:${++identity}` } });
+    expect(Object.values(state.interactions)[0]?.resolution).toEqual(resolution);
   } finally {
     await h.session.close("shutdown");
   }

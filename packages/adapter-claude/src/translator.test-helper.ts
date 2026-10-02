@@ -1,19 +1,20 @@
-import { apply, createThreadState, type Fact } from "@ace/core";
-import { ThreadId, type Item } from "@ace/protocol";
+import { apply, createThreadState, nextDeadline, type Fact } from "@ace/core";
+import { ThreadId, type Item, type EventPayload } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
-import { createTranslator } from "./translator.ts";
+import { createTranslator } from "./index.ts";
 export function harness() {
   const state = createThreadState({
     threadId: ThreadId.parse("test"),
     config: { provider: "claude", silenceMs: 60_000 },
   });
+  const events: EventPayload[] = [];
   const translator = createTranslator({ rootKey: "root" });
   let sequence = 0;
   let time = 0;
   let nextId = 0;
   const ids = { next: (kind: string) => `${kind}_${++nextId}` };
   function fold(facts: Fact[], now: number) {
-    for (const fact of facts) apply(state, fact, { now, ids });
+    for (const fact of facts) events.push(...apply(state, fact, { now, ids }));
   }
   function send(data: unknown, channel = "sdk", dir: Frame["dir"] = "recv", now = ++time) {
     time = now;
@@ -26,6 +27,8 @@ export function harness() {
   const items = (): Item[] => Object.values(state.items);
   return {
     state,
+    events,
+    deadline: () => nextDeadline(state, translator.nextDeadline?.()),
     send,
     tick,
     items,

@@ -57,6 +57,7 @@ function finish(
   task.terminal = true;
   state.missing.delete(id);
   state.endChild(task, status);
+  releaseTask(task);
   if (task.background)
     state.emit({
       type: "background.ended",
@@ -103,7 +104,7 @@ export function taskFrame(state: ClaudeState, data: Data, now: number): boolean 
           parts: [{ type: "text", text: data["prompt"] }],
           synthetic: true,
           complete: true,
-          raw: state.keepMessageRaw(state.key("prompt", task.child), data),
+          ...state.keepMessageRaw(state.key("prompt", task.child), data, task.child),
         },
       });
     return true;
@@ -130,7 +131,6 @@ export function taskFrame(state: ClaudeState, data: Data, now: number): boolean 
   return false;
 }
 export function taskTick(state: ClaudeState, now: number): Fact[] {
-  state.facts = [];
   for (const [id, deadline] of state.missing)
     if (now >= deadline) {
       const task = state.tasks.get(id);
@@ -138,8 +138,20 @@ export function taskTick(state: ClaudeState, now: number): Fact[] {
         task.terminal = true;
         state.emit({ type: "background.ended", task: state.key("task", id), status: "unknown" });
         state.endChild(task, "failed");
+        releaseTask(task);
       }
       state.missing.delete(id);
     }
   return state.facts;
+}
+
+function releaseTask(task: NativeTask): void {
+  // Only terminal identity and ancestry are needed after settlement.
+  task.data = {
+    ...(typeof task.data["task_type"] === "string" ? { task_type: task.data["task_type"] } : {}),
+    ...(typeof task.data["tool_use_id"] === "string"
+      ? { tool_use_id: task.data["tool_use_id"] }
+      : {}),
+    ambient: task.data["ambient"] === true,
+  };
 }

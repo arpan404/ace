@@ -1,5 +1,6 @@
 import type { Fact, Key } from "@ace/core";
 import type { InteractionRequest, RawPayload, RunTrigger } from "@ace/protocol";
+import type { ChildUsage } from "./usage.ts";
 import { object, raw, string, type Data } from "./native.ts";
 
 export interface NativeTask {
@@ -23,8 +24,10 @@ export class ClaudeState {
   seen = new Set<Key>();
   toolOwners = new Map<string, Key>();
   toolKinds = new Map<string, string>();
-  toolRaw = new Map<string, RawPayload[]>();
-  messageRaw = new Map<string, RawPayload[]>();
+  rawItems = new Map<Key, Set<Key>>();
+  childUsage: ChildUsage = new Map();
+  rawSequence = 0;
+  terminalChildren = new Set<Key>();
   children = new Map<string, Key>();
   nativeAgents = new Map<string, Key>();
   tasks = new Map<string, NativeTask>();
@@ -68,7 +71,7 @@ export class ClaudeState {
     });
   }
   start(agent: Key, trigger: RunTrigger): void {
-    if (this.active.has(agent)) return;
+    if (this.active.has(agent) || this.terminalChildren.has(agent)) return;
     this.active.add(agent);
     this.contentSeen.delete(agent);
     if (agent === this.root) {
@@ -86,8 +89,8 @@ export class ClaudeState {
   }
   child(spawn: string, owner = this.root, background = false, nativeId?: string): Key {
     const agent =
-      this.children.get(spawn) ??
       (nativeId ? this.nativeAgents.get(nativeId) : undefined) ??
+      this.children.get(spawn) ??
       this.key("child", spawn);
     const fresh = !this.seen.has(agent);
     this.children.set(spawn, agent);
@@ -140,18 +143,35 @@ export class ClaudeState {
       draft: { type: "notice", complete: true, level, text: message, raw: [raw(data)] },
     });
   }
-  keepToolRaw(id: string, data: unknown, name?: string): RawPayload[] {
-    const entries = [...(this.toolRaw.get(id) ?? []), raw(data, name)];
-    this.toolRaw.set(id, entries);
-    return entries;
+  keepRaw(item: Key, data: unknown, agent = this.root, name?: string): { raw?: RawPayload[] } {
+    const items = this.rawItems.get(agent) ?? new Set<Key>();
+    this.rawItems.set(agent, items);
+    if (!items.has(item)) {
+      items.add(item);
+      return { raw: [raw(data, name)] };
+    }
+    // Preserve subsequent payloads once, without copying the item's raw history.
+    this.notice(data, `addition:${++this.rawSequence}`, agent);
+    return {};
   }
-  keepMessageRaw(item: Key, data: unknown): RawPayload[] {
-    const entries = [...(this.messageRaw.get(item) ?? []), raw(data)];
-    this.messageRaw.set(item, entries);
-    return entries;
+  keepToolRaw(id: string, data: unknown, name?: string): { raw?: RawPayload[] } {
+    return this.keepRaw(this.key("tool", id), data, this.toolOwners.get(id), name);
+  }
+  keepMessageRaw(item: Key, data: unknown, agent = this.root): { raw?: RawPayload[] } {
+    return this.keepRaw(item, data, agent);
+  }
+  releaseTurn(): void {
+    this.rawItems.delete(this.root);
+    this.errors.delete(this.root);
   }
   endChild(task: NativeTask, status: string): void {
-    if (!task.child || !this.active.delete(task.child)) return;
+    if (!task.child) return;
+    this.terminalChildren.add(task.child);
+    this.rawItems.delete(task.child);
+    this.childUsage.delete(task.child);
+    this.contentSeen.delete(task.child);
+    this.errors.delete(task.child);
+    if (!this.active.delete(task.child)) return;
     this.emit({
       type: "turn.ended",
       agent: task.child,

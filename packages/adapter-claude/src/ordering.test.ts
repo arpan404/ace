@@ -54,6 +54,10 @@ test("a foreground child's parent stays blocked on the child while the child wor
   h.system("task_started", { task_id: "a", task_type: "local_agent", tool_use_id: "spawn" });
   expect(h.state.agents["root"]?.agent.status).toMatchObject({ state: "blocked", on: "subagents" });
   expect(h.state.status.state).toBe("working");
+  expect(
+    Object.values(h.state.agents).find((r) => r.agent.origin === "provider_subagent")?.agent
+      .background,
+  ).toBe(false);
 });
 test("question text and option labels remain the native answer keys", () => {
   const h = harness();

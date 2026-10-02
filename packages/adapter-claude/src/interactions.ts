@@ -1,4 +1,4 @@
-import type { InteractionRequest, InteractionResolution, Question } from "@ace/protocol";
+import { InteractionResolution, type InteractionRequest, type Question } from "@ace/protocol";
 import { list, object, string, type Data } from "./native.ts";
 export function requestFor(name: string, input: Data, options: Data): InteractionRequest {
   if (name === "AskUserQuestion")
@@ -50,7 +50,13 @@ export function requestFor(name: string, input: Data, options: Data): Interactio
     ],
   };
 }
-export function resolutionFor(request: InteractionRequest, value: unknown): InteractionResolution {
+export function resolutionFor(
+  request: InteractionRequest,
+  value: unknown,
+  canonical?: unknown,
+): InteractionResolution {
+  const parsed = InteractionResolution.safeParse(canonical);
+  if (parsed.success && parsed.data.kind === request.kind) return parsed.data;
   const result = object(value);
   const allowed = result["behavior"] === "allow";
   const message = string(result["message"]);
@@ -68,7 +74,11 @@ export function resolutionFor(request: InteractionRequest, value: unknown): Inte
     };
   }
   if (request.kind === "plan_review")
-    return { kind: "plan_review", decision: allowed ? "approve" : "reject", feedback: message };
+    return {
+      kind: "plan_review",
+      decision: allowed ? "approve" : result["interrupt"] === true ? "cancel" : "reject",
+      feedback: message,
+    };
   if (request.kind === "elicitation") return { kind: "elicitation", action: "cancel" };
   return { kind: "approval", optionId: allowed ? "allow_once" : "deny", message };
 }

@@ -1,6 +1,7 @@
 import type { Fact, Key } from "@ace/core";
 import type { RawPayload } from "@ace/protocol";
 import type { Translator, Frame } from "@ace/engine-api";
+import type { MessageBlocks } from "./blocks.ts";
 import { ClaudeState } from "./state.ts";
 import { message, stream, tool, finishStream, type StreamState } from "./content.ts";
 import { taskFrame, taskTick } from "./tasks.ts";
@@ -20,6 +21,7 @@ function factRaw(fact: Fact): RawPayload[] {
 export function createTranslator(init: { rootKey: Key }): Translator {
   let state = new ClaudeState(init.rootKey);
   const streams = new Map<string, StreamState>();
+  const messages = new Map<string, MessageBlocks>();
   function sdk(data: Data, frame: Frame, now: number): boolean {
     const type = string(data["type"]);
     if (type === "system") {
@@ -85,7 +87,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state.sent = true;
         state.start(state.root, "user");
       }
-      message(state, data, frame.seq, streams);
+      message(state, data, frame.seq, streams, messages);
       return true;
     }
     if (type === "result") {
@@ -119,6 +121,8 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           : {}),
       });
       state.active.delete(state.root);
+      for (const agent of messages.keys()) if (!state.active.has(agent)) messages.delete(agent);
+      state.releaseTurn();
       if (state.sessionState && state.sessionState !== "idle")
         state.emit({
           type: "retry",
@@ -128,7 +132,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         });
       const queued = Math.floor(number(data["queued_turn_count"]));
       if (queued !== state.nativeQueued) {
-        state.emit({ type: "queue.changed", count: queued });
+        state.emit({ type: "queue.changed", count: queued, source: "provider" });
         state.nativeQueued = queued;
       }
       const usage = object(data["usage"]);
@@ -175,7 +179,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         type: "interaction.closed",
         interaction: state.key("interaction", id),
         state: "resolved",
-        resolution: resolutionFor(interaction.request, data["result"]),
+        resolution: resolutionFor(interaction.request, data["result"], data["resolution"]),
       });
       state.interactions.delete(id);
       return;
@@ -211,7 +215,9 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       if (frame.channel === "lifecycle" && data["type"] === "process.started") {
         state = new ClaudeState(init.rootKey);
         streams.clear();
+        messages.clear();
       }
+      taskTick(state, now);
       state.ensureRoot(data);
       state.emit({ type: "signal", agent: state.agentFor(data) });
       if (frame.channel === "can_use_tool") permission(data, frame);
@@ -234,6 +240,9 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           typeof frame.data === "string" ? frame.data : "Claude frame",
         );
       }
+      for (const fact of state.facts)
+        if (fact.type === "turn.ended" && fact.agent !== state.root)
+          finishStream(state, streams, fact.agent);
       const carriesRaw = state.facts.some((fact) => {
         const payloads = factRaw(fact);
         return payloads.some((payload) => payload.data === frame.data || payload.data === data);
@@ -248,7 +257,13 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         );
       return state.facts;
     },
+    nextDeadline() {
+      let deadline = state.wakeUntil;
+      for (const value of state.missing.values()) deadline = Math.min(deadline ?? Infinity, value);
+      return deadline;
+    },
     tick(now) {
+      state.facts = [];
       if (state.wakeUntil !== undefined && now >= state.wakeUntil) {
         state.wake = undefined;
         state.wakeUntil = undefined;

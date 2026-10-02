@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import { probeOutput, type SupervisedProcess } from "@ace/provider-kit/process";
-import type { InteractionResolution } from "@ace/protocol";
+import { InteractionResolution } from "@ace/protocol";
 import {
   query,
   type PermissionResult,
@@ -22,6 +22,7 @@ interface Pending {
   kind: string;
   input: Record<string, unknown>;
   suggestions: PermissionUpdate[];
+  resolution?: InteractionResolution;
   finish(result: PermissionResult, cancelled?: boolean): void;
 }
 function nativeKey(key: string, kind: string): string {
@@ -152,6 +153,7 @@ export async function openSession(
             input: toolInput,
             suggestions: toolOptions.suggestions ?? [],
             finish(result, cancel = false) {
+              const pendingResolution = pending.get(id)?.resolution;
               if (!pending.delete(id)) return;
               signal.removeEventListener("abort", cancelled);
               frame(
@@ -159,7 +161,11 @@ export async function openSession(
                 cancel ? "sdk" : "can_use_tool",
                 cancel
                   ? { type: "control_cancel_request", request_id: id }
-                  : { requestId: id, result },
+                  : {
+                      requestId: id,
+                      result,
+                      ...(pendingResolution ? { resolution: pendingResolution } : {}),
+                    },
               );
               resolve(result);
             },
@@ -237,7 +243,7 @@ export async function openSession(
     async interrupt(target) {
       ensureOpen();
       let targetId: string | undefined;
-      if (target.agent && target.agent !== "root" && target.agent !== sessionId) {
+      if (target.agent && target.agent !== (ctx.rootKey ?? "root") && target.agent !== sessionId) {
         const spawn = nativeKey(target.agent, "child");
         targetId = [...tasks].find(
           ([id, task]) =>
@@ -253,13 +259,17 @@ export async function openSession(
         while (changed) {
           changed = false;
           for (const task of tasks.values())
-            if (spawns.has(task.parent) && !spawns.has(task.spawn)) {
+            if (spawns.has(toolParents.get(task.spawn) ?? task.parent) && !spawns.has(task.spawn)) {
               spawns.add(task.spawn);
               changed = true;
             }
         }
         for (const [id, task] of tasks)
-          if (task.live && id !== targetId && (!targetId || spawns.has(task.parent)))
+          if (
+            task.live &&
+            id !== targetId &&
+            (!targetId || spawns.has(toolParents.get(task.spawn) ?? task.parent))
+          )
             await q.stopTask(id);
       }
     },
@@ -270,7 +280,9 @@ export async function openSession(
       if (!request) throw new Error("Claude interaction is no longer pending");
       if (request.kind !== resolution.kind)
         throw new Error("Claude interaction resolution kind does not match");
-      const result = permissionResult(resolution, request.input, request.suggestions);
+      const parsed = InteractionResolution.parse(resolution);
+      request.resolution = parsed;
+      const result = permissionResult(parsed, request.input, request.suggestions);
       request.finish(result);
       if (resolution.kind === "plan_review" && resolution.decision === "approve")
         await q.setPermissionMode("default");

@@ -10,10 +10,12 @@ const session = process.argv[process.argv.indexOf("--session-id") + 1] ?? "fake-
 const write = (data: unknown) => console.log(JSON.stringify(data));
 const lines = createInterface({ input: process.stdin });
 let id = 0;
+let childText = false;
 for await (const line of lines) {
   const data = object(JSON.parse(line) as unknown);
   if (data["type"] === "control_request") {
     const request = object(data["request"]);
+    if (request["subtype"] === "initialize") childText = request["forwardSubagentText"] === true;
     write({ type: "system", subtype: "fake_control", request, argv: process.argv });
     write({
       type: "control_response",
@@ -48,6 +50,70 @@ for await (const line of lines) {
       console.log("malformed JSON");
       console.log("null");
       write({ type: "future_frame", novel: { value: 42 } });
+    }
+    if (text === "stream-probe") {
+      if (process.argv.includes("--include-partial-messages")) {
+        for (const event of [
+          { type: "message_start", message: { id: "partial" } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "partial answer" },
+          },
+        ])
+          write({
+            type: "stream_event",
+            event,
+            parent_tool_use_id: null,
+            uuid: `event-${++id}`,
+            session_id: session,
+          });
+      }
+      write({
+        type: "system",
+        subtype: "task_started",
+        task_id: "child-text",
+        tool_use_id: "spawn-text",
+        task_type: "local_agent",
+      });
+      if (childText)
+        write({
+          type: "assistant",
+          parent_tool_use_id: "spawn-text",
+          message: {
+            id: "child-text",
+            role: "assistant",
+            content: [{ type: "text", text: "child answer" }],
+          },
+          session_id: session,
+        });
+    }
+    if (text === "nested-tasks") {
+      for (const [task_id, tool_use_id] of [
+        ["child-one", "spawn-one"],
+        ["grandchild", "spawn-two"],
+      ])
+        write({
+          type: "system",
+          subtype: "task_started",
+          task_id,
+          tool_use_id,
+          task_type: "local_agent",
+          is_backgrounded: true,
+        });
+      write({
+        type: "assistant",
+        parent_tool_use_id: "spawn-one",
+        message: {
+          id: "nested",
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: "spawn-two", name: "Agent", input: { prompt: "nested" } },
+          ],
+        },
+      });
+      write({ type: "system", subtype: "nested-ready" });
     }
     if (text === "tasks") {
       write({
