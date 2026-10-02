@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { flattenNested, nestedPaths } from "./nested.ts";
+import { flattenNested, nestedPaths, ownedChildren, type SnapshotOwnership } from "./nested.ts";
 import { textOutput } from "./cli.ts";
 import { decode, hash, malformed } from "./decode.ts";
 import {
@@ -12,40 +12,21 @@ import {
 import { checkpointRefs, counterRef } from "./checkpoint-numbers.ts";
 import { parseIndex, parseTree } from "./parse-index.ts";
 import { Repository } from "./repository.ts";
-import { withIndex } from "./temporary-index.ts";
+import { withSnapshotIndex } from "./snapshot-index.ts";
 import { GitError, type Checkpoint } from "./types.ts";
 
 export { withIndex } from "./temporary-index.ts";
 
-export async function snapshot(repository: Repository, root: string): Promise<string> {
+export async function snapshot(
+  repository: Repository,
+  root: string,
+  ownership?: SnapshotOwnership,
+): Promise<string> {
   const { cli } = repository;
-  const sparse = await cli.call(root, ["config", "--type=bool", "--get", "core.sparseCheckout"], {
-    allowFailure: true,
-  });
-  if (sparse.exitCode !== 0 && sparse.exitCode !== 1)
-    throw new GitError("git_failed", sparse.stderr);
-  if (
-    sparse.exitCode === 0 &&
-    decode(z.enum(["true", "false"]), textOutput(sparse), "sparse checkout config") === "true"
-  ) {
-    throw new GitError(
-      "unsupported_repository",
-      "Full working-tree snapshots do not support sparse checkout",
-    );
-  }
-  return withIndex(repository.tempDirectory, async (env) => {
-    const head = await cli.call(root, ["rev-parse", "--verify", "HEAD^{tree}"], {
-      allowFailure: true,
-    });
-    await cli.call(
-      root,
-      ["read-tree", ...(head.exitCode === 0 ? [hash(textOutput(head))] : ["--empty"])],
-      { write: true, env },
-    );
-    const tracked = parseIndex((await cli.call(root, ["ls-files", "--stage", "-z"])).stdout);
-    const seed = tracked.map((entry) => `${entry.mode} ${entry.sha} 0\t${entry.path}\0`).join("");
-    await cli.call(root, ["update-index", "-z", "--index-info"], { write: true, env, input: seed });
-    const nested = await nestedPaths(repository, root, tracked, env);
+  return withSnapshotIndex(repository, root, async (env, tracked) => {
+    const nested = ownership
+      ? ownedChildren(ownership, root).map((child) => child.path)
+      : await nestedPaths(repository, root, tracked, env);
     const gitlinks = tracked.filter((entry) => entry.mode === "160000");
     if (gitlinks.length)
       await cli.call(root, ["update-index", "--force-remove", "-z", "--stdin"], {
@@ -58,7 +39,14 @@ export async function snapshot(repository: Repository, root: string): Promise<st
       env,
       input: [".", ...nested.map((path) => `:(exclude,literal)${path}`)].join("\0") + "\0",
     });
-    await flattenNested(repository, root, nested, env, snapshot);
+    await flattenNested(
+      repository,
+      root,
+      nested,
+      env,
+      (repo, child) => snapshot(repo, child, ownership),
+      ownership ?? new Map(),
+    );
     const current = parseIndex(
       (await cli.call(root, ["ls-files", "--stage", "-z"], { env })).stdout,
     );
@@ -87,9 +75,10 @@ export async function createCheckpoint(
   root: string,
   threadId: string,
   label: string,
+  ownership?: SnapshotOwnership,
 ): Promise<Checkpoint> {
   const prefix = checkpointPrefix(threadId);
-  const tree = await snapshot(repository, root);
+  const tree = await snapshot(repository, root, ownership);
   const createdAt = (await repository.now()).toISOString();
   for (let attempt = 0; attempt < 20; attempt++) {
     const previous = await repository.numbers.get(root, threadId);
@@ -190,18 +179,28 @@ export async function deleteCheckpoints(
   root: string,
   threadId: string,
 ): Promise<{ deleted: number }> {
-  const refs = await checkpointRefs(repository.cli, root, threadId);
   const current = await repository.numbers.refresh(root, threadId);
+  // Capture the counter before enumerating refs so a later allocation cannot
+  // become the generation we delete while its checkpoint escapes enumeration.
+  const refs = await checkpointRefs(repository.cli, root, threadId);
+  const objectFormat = current.sha
+    ? undefined
+    : decode(
+        z.enum(["sha1", "sha256"]),
+        textOutput(await repository.cli.call(root, ["rev-parse", "--show-object-format"])),
+        "object format",
+      );
   const input = [
     "start",
     ...refs.map((ref) => `delete ${ref.id} ${ref.sha}`),
-    ...(current.sha ? [`delete ${counterRef(threadId)} ${current.sha}`] : []),
+    current.sha
+      ? `delete ${counterRef(threadId)} ${current.sha}`
+      : `verify ${counterRef(threadId)} ${"0".repeat(objectFormat === "sha256" ? 64 : 40)}`,
     "prepare",
     "commit",
     "",
   ].join("\n");
-  if (refs.length || current.sha)
-    await repository.cli.call(root, ["update-ref", "--stdin"], { write: true, input });
+  await repository.cli.call(root, ["update-ref", "--stdin"], { write: true, input });
   repository.numbers.forget(root, threadId);
   return { deleted: refs.length };
 }
