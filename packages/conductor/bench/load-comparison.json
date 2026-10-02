@@ -1,0 +1,46 @@
+{
+  "mainRevision": "19a7e143665bab061ab2c18078520bd83f00bc7d",
+  "branchRevision": "8db7af52ec1798f5814346be812c5963270aca6e",
+  "command": "bun run test apps/daemon/src/lifecycle.test.ts apps/daemon/src/remote-boundaries.server.test.ts packages/notify/src/review.test.ts packages/git/src/nested.test.ts -t 'prevents a second process|enforces a global pairing budget|a full disk spool|checkpoints capture and restore dirty'",
+  "conditions": "Both runs use VITEST_MAX_WORKERS=1, NODE_COMPILE_CACHE and 96 CPU-bound Node worker threads. A message from every worker signals readiness before tests start. Load lifetime caps at 120 seconds; finally terminates and reaps the load process. Tests retain their existing 5000/30000 ms timeouts. All affected sources match main.",
+  "fullIsolatedRun": {
+    "passed": 981,
+    "failed": 5,
+    "skipped": 4,
+    "conductorPassed": 105,
+    "conductorFailed": 0
+  },
+  "controlledComparison": [
+    {
+      "test": "daemon lifecycle prevents a second process sharing the database and restarts after SIGTERM",
+      "mainMs": 5150,
+      "error": "Error: Test timed out in 5000ms.",
+      "branchMs": 5118
+    },
+    {
+      "test": "enforces a global pairing budget across distinct source addresses and resets the window",
+      "mainMs": 5254,
+      "error": "Error: Test timed out in 5000ms.",
+      "branchMs": 5206
+    },
+    {
+      "test": "a full disk spool evicts the oldest alert and catches up without sending historical state",
+      "mainMs": 10452,
+      "error": "Error: Test timed out in 5000ms.",
+      "branchMs": 12380
+    },
+    {
+      "test": "checkpoints capture and restore dirty embedded contents without altering either repository metadata",
+      "mainMs": 30669,
+      "error": "Error: Test timed out in 30000ms.",
+      "branchMs": 30925
+    },
+    {
+      "test": "checkpoints capture and restore dirty submodule contents without altering either repository metadata",
+      "mainMs": 30965,
+      "error": "Error: Test timed out in 30000ms.",
+      "branchMs": 30263
+    }
+  ],
+  "validationPolicy": "Historical measurements captured before the owner policy changed. Not rerun for this delivery; needs run at merge."
+}
