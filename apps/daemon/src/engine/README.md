@@ -3,7 +3,9 @@
 `new Engine(store, options)` owns provider sessions, actors, deadlines and durable intents.
 Pass `engine.handler` to `startServer`. `startDaemon(config, undefined, options)` installs the
 engine by default and closes it before SQLite. The development stub remains available for
-transport fixtures and explicit development CLI mode.
+transport fixtures and explicit development CLI mode. Daemon options can also include MCP
+`toolkits`; the upstream toolkit-array third argument and notification-channel fourth argument
+remain supported.
 
 Register adapters with `AdapterRegistry.register(adapter, discoveryResult)`. The registry
 uses declared capabilities. An empty registry accepts no new provider threads. Discovery
