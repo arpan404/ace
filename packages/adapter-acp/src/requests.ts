@@ -1,4 +1,5 @@
 import { retainToolRaw } from "./tool-raw.ts";
+import { finalizeTool } from "./tool-final.ts";
 import type { Fact } from "@ace/core";
 import { object, raw, string, type Data } from "./data.ts";
 import { decodeResolution, interactionKey, interactionRequest } from "./interactions.ts";
@@ -26,6 +27,10 @@ export function openRequest(
   if (!request) {
     if (method.startsWith("cursor/") && tool) {
       retainToolRaw(tool, raw(frame, method), {});
+      if (tool.finalized && !["pending", "running", "awaiting_approval"].includes(tool.status)) {
+        s.notice(facts, frame, method, "Tool metadata", owner);
+        return true;
+      }
       facts.push({
         type: "item.upsert",
         agent: owner.key,
@@ -100,11 +105,16 @@ export function answerRequest(
     if (tool.declined) s.liveTools.delete(tool);
     else s.liveTools.add(tool);
     retainToolRaw(tool, raw(frame, pending.method), {});
+    const detail = tool.declined ? finalizeTool(tool, s.quirks) : undefined;
     facts.push({
       type: "item.upsert",
       agent: pending.owner.key,
       item: tool.key,
-      draft: { type: "tool_call", call: { status: tool.status, raw: [...tool.raw] } },
+      draft: {
+        type: "tool_call",
+        complete: tool.declined,
+        call: { status: tool.status, ...(detail ? { detail } : {}), raw: [...tool.raw] },
+      },
     });
   }
   return true;

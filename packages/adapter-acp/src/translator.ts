@@ -1,6 +1,8 @@
 import type { TranslatorIdentity } from "./identity.ts";
 import { promptStop } from "./settlement.ts";
-import { retainToolRaw, completeToolRaw } from "./tool-raw.ts";
+import { retainToolRaw } from "./tool-raw.ts";
+import { finalizeTool } from "./tool-final.ts";
+import { appendShellOutput } from "./shell-output.ts";
 import { decodeContent } from "./content.ts";
 import type { Fact } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
@@ -175,6 +177,13 @@ class AcpTranslator implements Translator {
       const id = string(update["toolCallId"]);
       if (!id) return false;
       let tool = s.tool(agent, id);
+      const priorStatus = tool?.status;
+      const priorDefinition = tool && {
+        title: tool.data["title"],
+        name: tool.data["name"],
+        kind: tool.data["kind"],
+      };
+      const priorOutput = object(tool?.data["rawOutput"]);
       if (!tool) {
         tool = {
           nativeId: id,
@@ -201,9 +210,6 @@ class AcpTranslator implements Translator {
           spawnedBy: tool.key,
         });
       }
-      if (!tool.task) s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
-      s.finishStream(agent, facts);
-      agent.segment = "";
       mergeToolData(tool.data, update);
       tool.status = tool.declined ? "declined" : toolStatus(update, tool.status);
       retainToolRaw(
@@ -217,12 +223,37 @@ class AcpTranslator implements Translator {
       );
       if (["pending", "running", "awaiting_approval"].includes(tool.status)) s.liveTools.add(tool);
       else s.liveTools.delete(tool);
-      const assembledInput = ["completed", "failed", "cancelled"].includes(string(update["status"]))
-        ? completeToolRaw(tool)
-        : undefined;
-      const detail = toolDetail(tool.data, s.quirks);
-      if (assembledInput && detail.kind === "mcp")
-        detail.arguments = assembledInput["args"] ?? assembledInput;
+      const live = s.liveTools.has(tool);
+      const definitionChanged =
+        Object.hasOwn(update, "content") ||
+        Object.hasOwn(update, "_meta") ||
+        ["title", "name", "kind"].some(
+          (key) => typeof update[key] === "string" && update[key] !== object(priorDefinition)[key],
+        ) ||
+        (tool.finalized && tool.completedInput === undefined) ||
+        Object.entries(object(update["rawOutput"])).some(
+          ([key, value]) =>
+            ["exitCode", "totalFiles", "isBackground"].includes(key) && value !== priorOutput[key],
+        );
+      if (
+        tool.finalized &&
+        !tool.uncertainShell &&
+        !pendingChild &&
+        !definitionChanged &&
+        priorStatus === tool.status
+      ) {
+        s.notice(facts, frame, "session/update", "Tool metadata", agent);
+        if (toolDetail(tool.data, s.quirks).kind === "shell")
+          appendShellOutput(s, tool, update, facts);
+        return true;
+      }
+      if (!tool.task && (priorStatus === undefined || live || !tool.finalized))
+        s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
+      s.finishStream(agent, facts);
+      agent.segment = "";
+      const detail = live ? toolDetail(tool.data, s.quirks) : finalizeTool(tool, s.quirks);
+      if (detail.kind === "mcp" && tool.completedInput)
+        detail.arguments = tool.completedInput["args"] ?? tool.completedInput;
       facts.push({
         type: "item.upsert",
         agent: agent.key,
@@ -244,6 +275,7 @@ class AcpTranslator implements Translator {
           },
         },
       });
+      if (detail.kind === "shell") appendShellOutput(s, tool, update, facts);
       if (detail.kind === "plan") agent.planTool = tool;
       if (s.quirks.provider === "antigravity" && detail.kind === "agent.spawn")
         placeholderChild(s, tool, facts);

@@ -8,7 +8,10 @@ export function retainToolRaw(tool: ToolState, payload: InlineRawPayload, update
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const input = object(value);
     const parts = (tool.inputParts ??= new Map());
-    for (const [key, data] of Object.entries(input)) parts.set(key, data);
+    for (const [key, data] of Object.entries(input)) {
+      if (!parts.has(key) || parts.get(key) !== data) delete tool.completedInput;
+      parts.set(key, data);
+    }
     if (!tool.originalInput && Object.keys(input).length) tool.originalInput = input;
   }
   if (!tool.inputRaw || Object.hasOwn(update, "rawInput") || typeof update["name"] === "string") {
@@ -29,8 +32,8 @@ export function retainToolRaw(tool: ToolState, payload: InlineRawPayload, update
 /** Terminal snapshots retain all partial input fields; ordinary changes never copy that history. */
 export function completeToolRaw(tool: ToolState): Data | undefined {
   if (!tool.inputRaw) return;
-  const input = Object.fromEntries(tool.inputParts ?? []);
-  tool.inputRaw = raw(
+  const input = (tool.completedInput ??= Object.fromEntries(tool.inputParts ?? []));
+  const completedRaw = raw(
     {
       ...object(tool.inputRaw.data),
       rawInput: input,
@@ -38,6 +41,8 @@ export function completeToolRaw(tool: ToolState): Data | undefined {
     "acp/tool-input",
     tool.inputRaw.name,
   );
-  tool.raw[0] = tool.inputRaw;
+  // The live prefix stays small; the canonical terminal snapshot receives this assembly once.
+  tool.raw[0] = completedRaw;
+  tool.finalized = true;
   return input;
 }

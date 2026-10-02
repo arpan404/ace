@@ -1,4 +1,5 @@
 import { apply, createThreadState, nextDeadline } from "@ace/core";
+import type { Fact } from "@ace/core";
 import { ThreadId, Item, Agent, Interaction, BackgroundTask, Run } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
 import { createAcpTranslator } from "./index.ts";
@@ -16,6 +17,7 @@ export function harness(quirks: AcpQuirks = cursorQuirks) {
   });
   let seq = 0;
   let ids = 0;
+  let lastFacts: Fact[] = [];
   const context = { now: 0, ids: { next: () => `id-${++ids}` } };
   function check() {
     Object.values(state.items).forEach((i) => Item.parse(i));
@@ -31,6 +33,7 @@ export function harness(quirks: AcpQuirks = cursorQuirks) {
   function replay(nativeFrame: Frame) {
     context.now = nativeFrame.t;
     const facts = translator.translate(nativeFrame, nativeFrame.t);
+    lastFacts = facts;
     const events = facts.flatMap((f) => apply(state, f, context));
     check();
     return events;
@@ -56,7 +59,17 @@ export function harness(quirks: AcpQuirks = cursorQuirks) {
     return frame("recv", { method: "session/update", params: { sessionId, update: payload } }, t);
   }
   const tools = () => Object.values(state.items).filter((i) => i.type === "tool_call");
-  return { state, frame, replay, tick, ready, update, tools, deadline: () => nextDeadline(state) };
+  return {
+    state,
+    frame,
+    replay,
+    tick,
+    ready,
+    update,
+    tools,
+    translated: () => lastFacts,
+    deadline: () => nextDeadline(state),
+  };
 }
 
 export function required<T>(value: T | undefined): T {

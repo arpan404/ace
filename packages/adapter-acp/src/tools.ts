@@ -64,13 +64,6 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
         ...(typeof output["exitCode"] === "number" && Number.isInteger(output["exitCode"])
           ? { exitCode: output["exitCode"] }
           : {}),
-        ...(output["stdout"] !== undefined || output["combinedOutput"] !== undefined
-          ? {
-              output:
-                string(output["combinedOutput"]) ||
-                string(output["stdout"]) + string(output["stderr"]),
-            }
-          : {}),
       };
     case "file.read":
       return { kind, path: string(input["path"] ?? input["TargetFile"] ?? input["file_path"]) };
@@ -137,9 +130,25 @@ export function mergeToolData(data: Data, update: Data): void {
         if (Object.hasOwn(previous, key)) retained[key] = previous[key];
       // Interpret known fields plus this change, not accumulated opaque input history.
       data[field] = { ...retained, ...object(value) };
+    } else if (field === "rawOutput") {
+      const output = object(value);
+      data[field] = {
+        ...object(data[field]),
+        ...Object.fromEntries(
+          outputFields.filter((key) => Object.hasOwn(output, key)).map((key) => [key, output[key]]),
+        ),
+      };
     } else data[field] = value;
   }
 }
+const outputFields = [
+  "exitCode",
+  "totalFiles",
+  "error",
+  "permissionDenied",
+  "rejected",
+  "isBackground",
+];
 const inputFields = [
   "_toolName",
   "command",

@@ -1,4 +1,4 @@
-import { completeToolRaw } from "./tool-raw.ts";
+import { finalizeTool } from "./tool-final.ts";
 import { cancellationDeadline, shellSurvivesPrompt } from "./settlement.ts";
 import type { Fact } from "@ace/core";
 import { string, type Data } from "./data.ts";
@@ -38,7 +38,7 @@ export function endPrompt(
       facts.push({ type: "background.ended", task: tool.task, status: "unknown", uncertain: true });
     }
     if (!cancelled && tool.child && !tool.child.terminal) continue;
-    completeToolRaw(tool);
+    const finalDetail = finalizeTool(tool, s.quirks);
     tool.status = "cancelled";
     s.liveTools.delete(tool);
     facts.push({
@@ -48,7 +48,12 @@ export function endPrompt(
       draft: {
         type: "tool_call",
         complete: true,
-        call: { status: "cancelled", error: "turn ended without completion", raw: [...tool.raw] },
+        call: {
+          status: "cancelled",
+          error: "turn ended without completion",
+          detail: finalDetail,
+          raw: [...tool.raw],
+        },
       },
     });
   }
