@@ -92,3 +92,11 @@ it("process termination clears connection uncertainty before a later successful 
   h.send({ type: "turn.ended", agent: "root", outcome: "completed" });
   expect(h.state.status.state).toBe("done");
 });
+it("a live background shell takes precedence over a disconnected child", () => {
+  const h = setup();
+  h.shell();
+  h.child();
+  h.send({ type: "agent.disconnected", agent: "child" });
+  expect(h.state.agents["child"]?.agent.status.state).toBe("unresponsive");
+  expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
+});

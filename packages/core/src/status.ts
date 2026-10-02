@@ -297,6 +297,8 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
       return { state: "waiting", on: reason };
     }
   }
+  if (runningTaskKeys(state).some((key) => lookup(state.tasks, key)?.ambient === false))
+    return { state: "waiting", on: "background_task" };
   if (
     records.some(
       (record) =>
@@ -304,10 +306,7 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
     )
   )
     return { state: "unresponsive" };
-  if (
-    statuses.some((status) => status.state === "blocked" && status.on === "background_task") ||
-    runningTaskKeys(state).some((key) => !lookup(state.tasks, key)!.ambient)
-  ) {
+  if (statuses.some((status) => status.state === "blocked" && status.on === "background_task")) {
     return { state: "waiting", on: "background_task" };
   }
   if (state.queueCount > 0) return { state: "waiting", on: "queue" };
