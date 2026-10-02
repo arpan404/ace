@@ -4,7 +4,7 @@ import { createDevThread, stubHandler } from "./commands.ts";
 
 const config = readConfig();
 const development = process.env.ACE_DEV === "1";
-const daemon = await startDaemon(config, stubHandler({ development }));
+const daemon = await startDaemon(config, development ? stubHandler({ development }) : undefined);
 try {
   if (development && daemon.store.listThreads().length === 0) {
     const workspace = daemon.store.createWorkspace(process.cwd(), "Development");

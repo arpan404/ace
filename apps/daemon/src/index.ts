@@ -1,5 +1,7 @@
+import { Engine, type EngineOptions } from "./engine/index.ts";
+export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 import { join } from "node:path";
-import { type CommandHandler, stubHandler } from "./commands.ts";
+import { type CommandHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
@@ -14,11 +16,13 @@ export {
 export { readConfig } from "./config.ts";
 export async function startDaemon(
   config: Config = readConfig(),
-  handler: CommandHandler = stubHandler(),
+  handler?: CommandHandler,
+  engineOptions: EngineOptions = {},
 ): Promise<{ url: string; tokenPath: string; store: Store; close(): Promise<void> }> {
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
   let store: Store | undefined;
+  let engine: Engine | undefined;
   try {
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
@@ -26,12 +30,13 @@ export async function startDaemon(
       log("error", "Event subscriber failed", error),
     );
     const ownedStore = store;
+    if (!handler) engine = new Engine(store, engineOptions);
     const server = await startServer({
       port: config.port,
       token,
       hostId,
       store,
-      handler,
+      handler: handler ?? engine!.handler,
       log: (error) => log("error", "WebSocket failure", error),
     });
     let closing: Promise<void> | undefined;
@@ -45,6 +50,7 @@ export async function startDaemon(
             await server.close();
           } finally {
             try {
+              await engine?.close();
               ownedStore.close();
             } finally {
               unlock();
@@ -56,6 +62,7 @@ export async function startDaemon(
     };
   } catch (error) {
     try {
+      await engine?.close();
       store?.close();
     } finally {
       unlock();

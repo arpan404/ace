@@ -13,9 +13,13 @@
   "dependencies": {
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "@ace/core": "workspace:*",
+    "@ace/engine-api": "workspace:*",
+    "@ace/provider-kit": "workspace:*"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "@ace/adapter-testkit": "workspace:*"
   }
 }
