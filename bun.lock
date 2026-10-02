@@ -23,6 +23,13 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/automations": {
+      "name": "@ace/automations",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
@@ -53,6 +60,8 @@
     },
   },
   "packages": {
+    "@ace/automations": ["@ace/automations@workspace:packages/automations"],
+
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
