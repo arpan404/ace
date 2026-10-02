@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { probeOwnershipCase, progress, reduce, start } from "./index.ts";
-import { accounts, environment, plan, spec } from "./test-support.ts";
+import { accounts, environment, Harness, plan, spec } from "./test-support.ts";
 
 it("case-insensitive workspace aliases cannot dispatch independent owners", () => {
   const env = { ...environment(), ownershipCase: () => "insensitive" as const };
@@ -82,3 +82,20 @@ it.each(["sensitive", "insensitive"] as const)(
     );
   },
 );
+
+it("plan edits reject case aliases before approval and leave the gate answerable", () => {
+  const h = new Harness(spec({ planApproval: "required" }), plan({ a: [], b: [] }));
+  const gate = progress(h.state).needsUser[0];
+  if (!gate) throw new Error("Approval missing");
+  const edited = plan({ a: [], b: [] });
+  const [a, b] = edited.workstreams;
+  if (!a || !b) throw new Error("Streams missing");
+  a.brief.files = ["Foo.ts"];
+  b.brief.files = ["foo.ts"];
+  expect(() =>
+    h.send({ type: "approve", approval: { gateId: gate.id, decision: "approve", plan: edited } }),
+  ).toThrow("ownership");
+  expect(progress(h.state).needsUser[0]?.id).toBe(gate.id);
+  h.send({ type: "approve", approval: { gateId: gate.id, decision: "approve" } });
+  expect(progress(h.state).lanes.map((l) => l.workstream)).toEqual(["a", "b"]);
+});

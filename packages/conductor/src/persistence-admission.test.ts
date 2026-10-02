@@ -118,3 +118,28 @@ it("active actor capacity applies backpressure and terminal release admits anoth
     context.close();
   }
 });
+
+it("cold restore rejects tampered content-addressed artifacts", async () => {
+  const context = fixture();
+  try {
+    await context.install();
+    const db = new DatabaseSync(context.path);
+    try {
+      db.prepare("UPDATE conductor_artifacts SET payload=replace(payload,?,?) WHERE run=?").run(
+        "A bounded project",
+        "A corrupt project",
+        "run",
+      );
+    } finally {
+      db.close();
+    }
+    const reopened = new ConductorStore(context.path);
+    try {
+      expect(() => reopened.load("run")).toThrow("artifact_digest_mismatch");
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    context.close();
+  }
+});

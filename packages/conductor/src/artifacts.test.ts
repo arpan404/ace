@@ -50,6 +50,7 @@ it("worker briefs quote repository rules and fix evidence; reviewers receive the
     "Fix behaviour",
   );
   const prompt = reviewerPrompt(brief, "a".repeat(40), rules);
+  expect(prompt).toContain(JSON.stringify(rules));
   for (const required of [
     "15 distinct",
     "flakiness",

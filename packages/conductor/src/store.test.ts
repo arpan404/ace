@@ -43,7 +43,7 @@ function launchState(): never {
   throw new Error("Missing persisted run");
 }
 
-it("duplicate command receipts and facts cannot repeat approvals or create extra sessions", async () => {
+it("duplicate input receipts cannot create extra sessions or substitute another fact", async () => {
   const { store, driver, fake, env } = setup();
   await driver.drain("run");
   const planner = progress(store.load("run") ?? launchState()).lanes[0];

@@ -19,6 +19,10 @@ mutations = [
     ("pause allows dispatch", "packages/conductor/src/advance.ts", 'if (s.phase === "paused" || s.phase === "cancelled" || s.phase === "done") return;', 'if (s.phase === "cancelled" || s.phase === "done") return;', "resilience"),
     ("review protocol accepts fourteen mutations", "packages/protocol/src/conductor.ts", '.min(15)', '.min(14)', "artifacts"),
 ]
+mutations.extend([
+    ("root done ignores live trees", "packages/conductor/src/advance.ts", '    Object.values(s.lanes).every((l) => !l.live) &&\n', '', "review-quality"),
+    ("reviewer omits repository rules", "packages/conductor/src/prompts.ts", '    quoted("Repository rules", rules),\n', '', "artifacts"),
+])
 results = []
 with tempfile.TemporaryDirectory(prefix="ace-conductor-mutations-") as directory:
     for i, (name, file, original, replacement, suite) in enumerate(mutations):

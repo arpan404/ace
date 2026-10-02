@@ -3,7 +3,7 @@ import { progress } from "./index.ts";
 import { accounts, completion, effectOf, Harness, mergeFact, plan, spec } from "./test-support.ts";
 
 describe("migration and liveness", () => {
-  it("usage limits migrate full-history sessions within provider and account constraints", () => {
+  it("usage limits select eligible accounts and fence previous generations", () => {
     const h = new Harness();
     const worker = h.lane("worker");
     const migration = effectOf(

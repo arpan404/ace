@@ -38,6 +38,7 @@ export class ArtifactCodec {
   }
   decoder(run: string) {
     const admitted = new Map<string, Envelope>();
+    let bytes = 0;
     return (id: string): Envelope => {
       const known = admitted.get(id);
       if (known) return known;
@@ -45,6 +46,8 @@ export class ArtifactCodec {
       const row = this.sql.artifact.get(run, id);
       if (!row) throw new Error("artifact_not_found");
       const payload = Payload.parse(row).payload;
+      bytes += Buffer.byteLength(payload);
+      if (bytes > MAX_BYTES) throw new Error("artifact_byte_backpressure");
       if (createHash("sha256").update(payload).digest("hex") !== id)
         throw new Error("artifact_digest_mismatch");
       const envelope = Envelope.parse(JSON.parse(payload));

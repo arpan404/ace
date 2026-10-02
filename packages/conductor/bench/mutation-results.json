@@ -37,7 +37,7 @@
   {
     "mutation": "migration does not advance generation",
     "file": "packages/conductor/src/advance.ts",
-    "failingTest": "migration and liveness usage limits migrate full-history sessions within provider and account constraints"
+    "failingTest": "migration and liveness usage limits select eligible accounts and fence previous generations"
   },
   {
     "mutation": "failed verification marks integrated",
@@ -58,5 +58,15 @@
     "mutation": "review protocol accepts fourteen mutations",
     "file": "packages/protocol/src/conductor.ts",
     "failingTest": "passing reviews require all evidence and fifteen distinct caught mutations"
+  },
+  {
+    "mutation": "root done ignores live trees",
+    "file": "packages/conductor/src/advance.ts",
+    "failingTest": "final verification keeps the restored root running while a tree is working"
+  },
+  {
+    "mutation": "reviewer omits repository rules",
+    "file": "packages/conductor/src/prompts.ts",
+    "failingTest": "worker briefs quote repository rules and fix evidence; reviewers receive the adversarial protocol"
   }
 ]
