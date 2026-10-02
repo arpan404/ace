@@ -67,16 +67,7 @@ export class ThreadActor {
   frame(frame: Frame, generation: number): void {
     this.enqueue(() => {
       if (generation !== this.generation) return;
-      const facts = (this.translator?.translate(frame, this.clock.now()) ?? []).map((fact) => {
-        if (fact.type !== "interaction.closed" || fact.state !== "resolved") return fact;
-        const interaction = this.repo.requireState(this.id).interactions[fact.interaction];
-        const answer = interaction ? this.repo.answer(interaction.id) : undefined;
-        if (answer?.payload.type !== "interaction.resolve") return fact;
-        return Object.assign({}, fact, {
-          resolution: answer.payload.resolution,
-          resolvedBy: answer.deviceId,
-        });
-      });
+      const facts = this.translator?.translate(frame, this.clock.now()) ?? [];
       if (
         facts.some(
           (fact) =>
@@ -86,11 +77,21 @@ export class ThreadActor {
         )
       )
         this.awaitingStart = false;
-      this.apply(facts);
       if (facts.some((fact) => fact.type === "turn.ended" || fact.type === "process.exited"))
         this.dispatched = false;
+      this.apply([...facts, this.queueFact()]);
       this.wake();
     });
+  }
+  private queueFact(): Extract<Fact, { type: "queue.changed" }> {
+    return {
+      type: "queue.changed",
+      count: this.repo.queuedCount(this.id) + (this.awaitingStart ? 1 : 0),
+    };
+  }
+  syncQueue(): void {
+    const fact = this.queueFact();
+    if (this.repo.state(this.id)?.queueCount !== fact.count) this.apply([fact]);
   }
   apply(facts: Fact[]): void {
     this.repo.apply(this.id, facts, this.clock.now());

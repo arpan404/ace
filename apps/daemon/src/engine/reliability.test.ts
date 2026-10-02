@@ -161,6 +161,7 @@ test("recovery uses the saved state from the same commit as the final turn event
   try {
     await recovered.flush();
     expect(restartedStore.getThread(id)?.status.state).toBe("done");
+    expect(Object.values(transcript(restartedStore, id).agents)).toHaveLength(1);
   } finally {
     await recovered.close();
     restartedStore.close();
@@ -263,3 +264,122 @@ test("provider resolution echoes keep the winning device attribution", async () 
     resolution: { kind: "approval", optionId: "yes" },
   });
 });
+
+test("a silence deadline advances core even when the translator emits no timed facts", async () => {
+  const frames = scriptFrames();
+  const h = track(await harness([{ on: "send", frames: [frames.frame(start)] }], frames));
+  const id = await h.create();
+  h.clock.advance(1100);
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("working");
+  h.clock.advance(1101);
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("unresponsive");
+});
+
+test("a frame persistence failure stops the session and reports later intents instead of dropping them", async () => {
+  const frames = scriptFrames();
+  const h = track(await harness([{ on: "send", frames: [frames.frame(start)] }], frames));
+  const id = await h.create();
+  h.store.atomic((db) =>
+    db.exec(`CREATE TRIGGER reject_bad_frame BEFORE UPDATE ON thread_state
+    WHEN json_extract(NEW.state, '$.items.bad') IS NOT NULL
+    BEGIN SELECT RAISE(ABORT, 'frame persistence failed'); END`),
+  );
+  const context = h.contexts[0];
+  if (!context) throw new Error("Missing provider context");
+  context.onFrame(
+    frames.frame({
+      type: "item.delta",
+      agent: "root",
+      item: "bad",
+      field: "text",
+      append: "lost frame",
+    }),
+  );
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("failed");
+  h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
+  await h.engine.flush();
+  expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
+  expect(
+    Object.values(transcript(h.store, id).items).some(
+      (item) =>
+        item.type === "notice" && item.text.includes("Thread stopped after a persistence failure"),
+    ),
+  ).toBe(true);
+});
+
+test("shutdown closes a session while its send is still awaiting provider I/O", async () => {
+  const frames = scriptFrames();
+  const h = track(await harness([{ on: "close" }], frames));
+  const entered = Promise.withResolvers<void>();
+  h.registry.register(
+    {
+      ...h.adapter,
+      async openSession(ctx) {
+        const session = await h.adapter.openSession(ctx);
+        return {
+          ...session,
+          async send() {
+            const stopped = new Promise<void>((resolve) =>
+              ctx.signal.addEventListener("abort", () => resolve(), { once: true }),
+            );
+            entered.resolve();
+            await stopped;
+            throw new Error("provider send aborted by shutdown");
+          },
+        };
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex", input });
+  await entered.promise;
+  await h.engine.close();
+  expect(h.adapter.commands).toEqual([{ type: "close", reason: "shutdown" }]);
+});
+
+test.each([true, false])(
+  "a reused native interaction key does not inherit the previous answer when its next interaction is closed=%s",
+  async (closeNext) => {
+    const closed = {
+      type: "interaction.closed" as const,
+      interaction: "approval",
+      state: "resolved" as const,
+    };
+    const frames = scriptFrames();
+    const h = track(
+      await harness(
+        [
+          { on: "send", frames: [frames.frame(start, question)] },
+          {
+            on: "resolve",
+            frames: [frames.frame(closed, question, ...(closeNext ? [closed] : []))],
+          },
+        ],
+        frames,
+      ),
+    );
+    const id = await h.create();
+    const first = Object.values(transcript(h.store, id).interactions)[0];
+    if (!first) throw new Error("Missing interaction");
+    h.command(
+      {
+        type: "interaction.resolve",
+        interactionId: first.id,
+        resolution: { kind: "approval", optionId: "yes" },
+      },
+      "phone",
+    );
+    await h.engine.flush();
+    const interactions = Object.values(transcript(h.store, id).interactions);
+    expect(interactions).toHaveLength(2);
+    expect(interactions.find((interaction) => interaction.id === first.id)?.resolvedBy).toBe(
+      "phone",
+    );
+    const next = interactions.find((interaction) => interaction.id !== first.id);
+    expect(next?.resolvedBy).toBeUndefined();
+    expect(next?.state).toBe(closeNext ? "resolved" : "pending");
+  },
+);

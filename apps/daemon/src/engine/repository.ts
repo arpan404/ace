@@ -53,12 +53,18 @@ export class EngineRepository {
   apply(id: ThreadId, facts: Fact[], now: number): ThreadState {
     const state = this.state(id);
     if (!state) throw new Error("Missing engine state");
-    const events = facts.flatMap((fact) =>
-      apply(state, fact, {
-        now,
-        ids: this.ids,
-      }),
-    );
+    const events = facts.flatMap((input) => {
+      let fact = input;
+      if (fact.type === "interaction.closed" && fact.state === "resolved") {
+        const interaction = Object.hasOwn(state.interactions, fact.interaction)
+          ? state.interactions[fact.interaction]
+          : undefined;
+        const answer = interaction ? this.answer(interaction.id) : undefined;
+        if (answer?.payload.type === "interaction.resolve")
+          fact = { ...fact, resolution: answer.payload.resolution, resolvedBy: answer.deviceId };
+      }
+      return apply(state, fact, { now, ids: this.ids });
+    });
     this.save(state, events, now);
     return state;
   }
@@ -103,6 +109,17 @@ export class EngineRepository {
         attempts: Number(row.attempts),
       }));
     });
+  }
+  queuedCount(id: ThreadId): number {
+    return this.store.atomic((db) =>
+      Number(
+        db
+          .prepare(
+            "SELECT COUNT(*) AS count FROM intents WHERE thread_id = ? AND status = 'queued'",
+          )
+          .get(id)?.count,
+      ),
+    );
   }
   mark(intent: Intent, status: string, error?: string): void {
     this.store.atomic((db) =>

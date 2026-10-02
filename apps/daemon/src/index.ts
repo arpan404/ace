@@ -31,7 +31,10 @@ export async function startDaemon(
     );
     const ownedStore = store;
     if (!handler) {
-      engine = new Engine(store, engineOptions);
+      engine = new Engine(store, {
+        ...engineOptions,
+        onError: engineOptions.onError ?? ((error) => log("error", "Engine failure", error)),
+      });
       handler = engine.handler;
     }
     const server = await startServer({
@@ -53,8 +56,11 @@ export async function startDaemon(
             await server.close();
           } finally {
             try {
-              await engine?.close();
-              ownedStore.close();
+              try {
+                await engine?.close();
+              } finally {
+                ownedStore.close();
+              }
             } finally {
               unlock();
             }
@@ -65,8 +71,11 @@ export async function startDaemon(
     };
   } catch (error) {
     try {
-      await engine?.close();
-      store?.close();
+      try {
+        await engine?.close();
+      } finally {
+        store?.close();
+      }
     } finally {
       unlock();
     }

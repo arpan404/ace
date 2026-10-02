@@ -4,6 +4,7 @@ import type { CommandHandler } from "../commands.ts";
 import type { Store } from "../store.ts";
 import type { ThreadId } from "@ace/protocol";
 import { ThreadActor, systemClock, type EngineClock } from "./actor.ts";
+import { IntentWorkers } from "./workers.ts";
 import { engineHandler } from "./handler.ts";
 import { AdapterRegistry } from "./registry.ts";
 import { EngineRepository, type Intent } from "./repository.ts";
@@ -27,8 +28,8 @@ export class Engine {
   private idleMs: number;
   private report: (error: unknown) => void;
   private actors = new Map<ThreadId, ThreadActor>();
-  private workers = new Map<ThreadId, Promise<void>>();
-  private rerun = new Set<ThreadId>();
+  private sends: IntentWorkers;
+  private controls: IntentWorkers;
   private closing = false;
   private closePromise?: Promise<void>;
   constructor(store: Store, options: EngineOptions = {}) {
@@ -40,6 +41,8 @@ export class Engine {
     if (!Number.isSafeInteger(this.idleMs) || this.idleMs < 0) throw new Error("Invalid idleMs");
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
     this.report = options.onError ?? console.error;
+    this.sends = new IntentWorkers((id) => this.work(this.actor(id)), this.report);
+    this.controls = new IntentWorkers((id) => this.control(this.actor(id)), this.report);
     const handler = engineHandler(
       this.repo,
       this.registry,
@@ -114,35 +117,44 @@ export class Engine {
   }
   private wake(id: ThreadId): void {
     if (this.closing) return;
-    if (this.workers.has(id)) {
-      this.rerun.add(id);
+    this.sends.wake(id);
+    this.controls.wake(id);
+  }
+  private async control(actor: ThreadActor): Promise<void> {
+    await actor.flush();
+    if (actor.poisoned) return;
+    if (actor.idleDue && actor.session) await this.closeSession(actor, "idle");
+    if (
+      !actor.session &&
+      this.repo
+        .intents(actor.id)
+        .some((intent) => ["thread.create", "thread.send"].includes(intent.command.payload.type))
+    )
       return;
+    for (const intent of this.repo.intents(actor.id)) {
+      if (this.closing) return;
+      if (
+        intent.status !== "pending" ||
+        ["thread.create", "thread.send"].includes(intent.command.payload.type)
+      )
+        continue;
+      await this.runIntent(actor, intent);
     }
-    const worker = Promise.resolve()
-      .then(async () => {
-        do {
-          this.rerun.delete(id);
-          await this.work(this.actor(id));
-        } while (this.rerun.has(id) && !this.closing);
-      })
-      .catch((error: unknown) => this.report(error))
-      .finally(() => {
-        this.workers.delete(id);
-        if (this.rerun.has(id)) this.wake(id);
-      });
-    this.workers.set(id, worker);
   }
   private queue(actor: ThreadActor): void {
-    const count =
-      this.repo.intents(actor.id).filter((intent) => intent.status === "queued").length +
-      (actor.awaitingStart ? 1 : 0);
-    if (this.repo.state(actor.id)?.queueCount !== count)
-      actor.apply([{ type: "queue.changed", count }]);
+    actor.syncQueue();
   }
   private async work(actor: ThreadActor): Promise<void> {
     await actor.flush();
     if (actor.poisoned) {
       if (actor.session) await this.closeSession(actor, "user");
+      for (const intent of this.repo.intents(actor.id))
+        if (["pending", "queued"].includes(intent.status))
+          this.fail(
+            intent,
+            "Thread stopped after a persistence failure; restart the daemon before retrying",
+          );
+      this.queue(actor);
       return;
     }
     if (actor.idleDue && actor.session) await this.closeSession(actor, "idle");
@@ -151,6 +163,7 @@ export class Engine {
       if (!["pending", "queued"].includes(intent.status)) continue;
       const p = intent.command.payload;
       const send = p.type === "thread.send" || p.type === "thread.create";
+      if (!send) continue;
       if (send) {
         this.repo.mark(intent, "queued");
         this.queue(actor);
@@ -163,24 +176,29 @@ export class Engine {
         if (!steer && (actor.dispatched || !["new", "done", "failed"].includes(status.state)))
           continue;
       }
-      this.repo.mark(intent, "running");
-      if (send) actor.awaitingStart = true;
-      this.queue(actor);
-      try {
-        await this.execute(actor, intent);
-        await actor.flush();
-        this.repo.mark(intent, "done");
-      } catch (error) {
-        await actor.flush();
-        this.fail(intent, error instanceof Error ? error.message : String(error));
-        if (send) {
-          actor.dispatched = false;
-          actor.awaitingStart = false;
-        }
-      }
-      this.queue(actor);
-      actor.schedule();
+      await this.runIntent(actor, intent);
     }
+    actor.schedule();
+  }
+  private async runIntent(actor: ThreadActor, intent: Intent): Promise<void> {
+    const send = ["thread.create", "thread.send"].includes(intent.command.payload.type);
+    this.repo.mark(intent, "running");
+    if (send) actor.awaitingStart = true;
+    this.queue(actor);
+    try {
+      await this.execute(actor, intent);
+      await actor.flush();
+      if (actor.poisoned) throw new Error("Provider frames could not be persisted");
+      this.repo.mark(intent, "done");
+    } catch (error) {
+      await actor.flush();
+      this.fail(intent, error instanceof Error ? error.message : String(error));
+      if (send) {
+        actor.dispatched = false;
+        actor.awaitingStart = false;
+      }
+    }
+    this.queue(actor);
     actor.schedule();
   }
   private async open(actor: ThreadActor): Promise<void> {
@@ -222,6 +240,7 @@ export class Engine {
     }
     actor.session = session;
     this.repo.nativeSession(actor.id, session.nativeSessionId);
+    this.wake(actor.id);
   }
   private async execute(actor: ThreadActor, intent: Intent): Promise<void> {
     const p = intent.command.payload;
@@ -266,6 +285,8 @@ export class Engine {
       if (!entry || entry[1].state !== "pending")
         throw new Error("Interaction is no longer pending");
       await actor.session.resolve(entry[0], p.resolution);
+      await actor.flush();
+      if (this.repo.requireState(actor.id).interactions[entry[0]]?.id !== p.interactionId) return;
       actor.apply([
         {
           type: "interaction.closed",
@@ -305,16 +326,23 @@ export class Engine {
   ): Promise<void> {
     const session = actor.session;
     if (!session) return;
+    const lifetime = actor.lifetime;
     actor.session = undefined;
-    actor.generation++;
+    const generation = ++actor.generation;
     try {
       await session.close(reason);
     } finally {
-      actor.lifetime?.abort();
-      actor.dispatched = false;
-      actor.awaitingStart = false;
-      actor.idleDue = false;
-      this.repo.apply(actor.id, [{ type: "process.exited", deliberate: true }], this.clock.now());
+      lifetime?.abort();
+      if (actor.generation === generation) {
+        actor.dispatched = false;
+        actor.awaitingStart = false;
+        actor.idleDue = false;
+        this.repo.apply(
+          actor.id,
+          [{ type: "process.exited", deliberate: !actor.poisoned }],
+          this.clock.now(),
+        );
+      }
       actor.schedule();
     }
   }
@@ -322,13 +350,15 @@ export class Engine {
   async flush(): Promise<void> {
     await Promise.resolve();
     do {
-      await Promise.all(this.workers.values());
+      await Promise.all([this.sends.flush(), this.controls.flush()]);
       await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
-    } while (this.workers.size);
+    } while (this.sends.active || this.controls.active);
   }
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      this.sends.stop();
+      this.controls.stop();
       for (const actor of this.actors.values()) {
         actor.stop();
         if (!actor.session) actor.lifetime?.abort();
