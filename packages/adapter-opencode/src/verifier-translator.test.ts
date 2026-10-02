@@ -110,3 +110,33 @@ it("preserves the native body of a malformed recognized part without an ID", () 
   h.event("message.part.updated", { part: { type: "tool", unknownFuture: "NO_ID_FUTURE" } });
   expect(JSON.stringify(Object.values(h.view.items))).toContain("NO_ID_FUTURE");
 });
+
+it("keeps the thread working while an active background child outlives its parent turn", () => {
+  const h = setup();
+  h.event("session.created", { info: { id: "child", parentID: "native_root" } });
+  h.event("message.updated", { sessionID: "child", info: { id: "child_user", role: "user" } });
+  h.event("session.status", { sessionID: "child", status: { type: "busy" } });
+  h.event("message.part.updated", {
+    part: {
+      id: "spawn",
+      callID: "spawn",
+      sessionID: "native_root",
+      type: "tool",
+      tool: "task",
+      state: {
+        status: "completed",
+        input: { description: "Background work" },
+        metadata: { background: true, sessionId: "child" },
+      },
+    },
+  });
+  h.event("session.status", { sessionID: "native_root", status: { type: "idle" } });
+  expect(h.view.thread.status.state).toBe("working");
+  expect(Object.values(h.view.agents).map((agent) => agent.status.state)).toEqual([
+    "blocked",
+    "working",
+  ]);
+  expect(Object.values(h.view.backgroundTasks).map((task) => task.status)).toEqual(["running"]);
+  h.event("session.status", { sessionID: "child", status: { type: "idle" } });
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
+});
