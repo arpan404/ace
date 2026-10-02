@@ -14,8 +14,8 @@ export class BrowserClient {
     reject: (error: Error) => void;
   }[] = [];
   private closed = false;
-  constructor(url: string) {
-    this.socket = new WebSocket(url);
+  constructor(url: string, options: import("ws").ClientOptions = {}) {
+    this.socket = new WebSocket(url, options);
     this.socket.on("message", (data) => {
       const message = Message.parse(JSON.parse(data.toString()));
       const index = this.waiters.findIndex((waiter) => waiter.predicate(message));

@@ -129,11 +129,12 @@ export async function startServer(options: ServerOptions): Promise<{
     const browser = options.browser
       ? connectBrowser(options.browser, {
           connectionId: randomUUID(),
-          authorize: (threadId, workspaceId) => {
+          authorize: (threadId, workspaceId, access) => {
             const thread = options.store.getThread(ThreadId.parse(threadId));
             return (
               device !== undefined &&
               thread !== undefined &&
+              allows(authenticated.get(socket), access) &&
               (workspaceId === undefined || thread.workspaceId === workspaceId)
             );
           },

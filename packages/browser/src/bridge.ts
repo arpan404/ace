@@ -1,12 +1,27 @@
 import { BrowserClientMessage, type BrowserServerMessage } from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
 
+function requiredAccess(message: BrowserClientMessage): "read" | "operate" {
+  if (["browser.subscribe", "browser.unsubscribe", "browser.ack"].includes(message.type))
+    return "read";
+  if (
+    message.type === "browser.execute" &&
+    ["snapshot", "screenshot", "logs", "wait_for"].includes(message.command.action)
+  )
+    return "read";
+  return "operate";
+}
+
 /** Caller supplies an authenticated connection and thread authorization. */
 export function connectBrowser(
   service: BrowserService,
   options: {
     connectionId: string;
-    authorize: (threadId: string, workspaceId?: string) => boolean;
+    authorize: (
+      threadId: string,
+      workspaceId: string | undefined,
+      access: "read" | "operate",
+    ) => boolean;
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
   },
 ): { handle(raw: unknown): Promise<void>; close(): void } {
@@ -29,6 +44,7 @@ export function connectBrowser(
           !options.authorize(
             threadId,
             message.type === "browser.open" ? message.options.workspaceId : undefined,
+            requiredAccess(message),
           )
         )
           throw new Error("Browser thread access denied");
