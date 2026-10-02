@@ -122,6 +122,13 @@ export async function startServer(options: ServerOptions): Promise<{
         socket.destroy();
         return;
       }
+      if (cleanups.size >= 256) {
+        socket.end(
+          "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+          () => socket.destroy(),
+        );
+        return;
+      }
       wss.handleUpgrade(request, socket, head, (websocket) =>
         wss.emit("connection", websocket, isLocal),
       );
@@ -145,9 +152,13 @@ export async function startServer(options: ServerOptions): Promise<{
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
+    socket.on("error", (error) => {
+      options.log?.(error);
+      socket.terminate();
+    });
     let modelRequests = 0;
     if (cleanups.size >= 256) {
-      socket.close(4009, "Connection limit");
+      socket.terminate();
       return;
     }
     const sessionId = randomUUID();
@@ -179,10 +190,6 @@ export async function startServer(options: ServerOptions): Promise<{
       if (auth.now() - lastActivity > (options.idleTimeoutMs ?? 60_000))
         socket.close(4008, "Idle timeout");
       outbox.tick();
-    });
-    socket.on("error", (error) => {
-      options.log?.(error);
-      socket.terminate();
     });
     socket.on("close", () => {
       cleanup();
