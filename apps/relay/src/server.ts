@@ -166,6 +166,13 @@ export async function startRelay(options: RelayOptions = {}) {
     socket.once("close", () => releaseSocket(socket));
   });
   http.on("upgrade", (request, socket, head) => {
+    let url: URL;
+    try {
+      url = new URL(request.url ?? "/", "http://relay");
+    } catch {
+      socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n", () => socket.destroy());
+      return;
+    }
     const admittedBudget = sockets.get(request.socket);
     if (!admittedBudget) {
       socket.destroy();
@@ -224,9 +231,7 @@ export async function startRelay(options: RelayOptions = {}) {
         connections.delete(id);
         void apply(routing.close(id)).catch(() => {});
       });
-      void route(id, new URL(request.url ?? "/", "http://relay"), connection).catch(() =>
-        ws.terminate(),
-      );
+      void route(id, url, connection).catch(() => ws.terminate());
     });
   });
   function sweep(): void {

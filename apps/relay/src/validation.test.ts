@@ -64,6 +64,21 @@ it("authenticated ciphertext containing an invalid daemon message is rejected at
   await receiving;
   expect(await client.closed).toBeInstanceOf(Error);
 });
+it("malformed UTF-8 in otherwise valid encrypted JSON closes the endpoint", async () => {
+  const { client, connection, transport } = await fakeHost();
+  const receiving = expect(client.receive()).rejects.toThrow();
+  // Replacement decoding would turn this into a valid error.message string.
+  const prefix = Buffer.from('{"type":"error","code":"utf8","message":"');
+  const suffix = Buffer.from('"}');
+  const json = Buffer.concat([prefix, Buffer.from([0xc3, 0x28]), suffix]);
+  const plain = new Uint8Array(json.length + 1);
+  plain[0] = 1;
+  plain.set(json, 1);
+  await connection.send(transport.send.encrypt(plain));
+  await receiving;
+  expect(await client.closed).toBeInstanceOf(Error);
+  await expect(client.send({ type: "ping" })).rejects.toThrow("closed");
+});
 it("an injected handshake deadline closes a silent peer without a real-time sleep", async () => {
   const clock = new ManualClock();
   const relay = await startRelay({ clock, limits: { handshakeTimeoutMs: 25 } });
