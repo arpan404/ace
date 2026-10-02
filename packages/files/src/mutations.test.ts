@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -253,4 +253,39 @@ it("allows a read-only device to download while denying all mutation operations 
   client.socket.send(encodeFileFrame(1, 0, Buffer.from("a")));
   expect(await client.next()).toMatchObject({ code: "FORBIDDEN" });
   expect(await readFile(join(f.root, "a"), "utf8")).toBe("a");
+});
+it("preserves executable permissions when replacing a file through edits or uploads", async () => {
+  const f = await setup();
+  const client = await f.connect();
+  const file = join(f.root, "script");
+  await writeFile(file, "old");
+  await chmod(file, 0o755);
+  expect(
+    await client.request({
+      op: "write",
+      path: "script",
+      expected: await version(client, "script"),
+      text: "edited",
+    }),
+  ).toMatchObject({ type: "files.result" });
+  expect((await stat(file)).mode & 0o777).toBe(0o755);
+  const upload = Upload.parse(
+    await client.request({
+      op: "upload.begin",
+      path: "script",
+      expected: await version(client, "script"),
+      size: 3,
+    }),
+  );
+  client.socket.send(encodeFileFrame(upload.channel, 0, Buffer.from("new")));
+  await client.next();
+  expect(
+    await client.request({
+      op: "upload.commit",
+      uploadId: upload.uploadId,
+      sha256: createHash("sha256").update("new").digest("hex"),
+    }),
+  ).toMatchObject({ type: "files.result" });
+  expect((await stat(file)).mode & 0o777).toBe(0o755);
+  expect(await readFile(file, "utf8")).toBe("new");
 });

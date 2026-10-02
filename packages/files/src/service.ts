@@ -159,6 +159,8 @@ export class FilesService {
         case "move":
         case "delete":
         case "restore": {
+          if (operation.op === "delete" || operation.op === "rename" || operation.op === "move")
+            this.uploads.assertUnoccupied(operation.path);
           const change = await this.mutations.apply(operation);
           this.emit(change);
           return change;
@@ -214,17 +216,21 @@ export class FilesService {
         default:
           throw new FileError("INVALID_OPERATION", "Expected download operation");
       }
-      const close = download.close;
-      return {
-        ...download,
-        async close() {
-          try {
-            await close();
-          } finally {
-            release();
-          }
-        },
+      const close = async () => {
+        try {
+          await download.close();
+        } finally {
+          release();
+        }
       };
+      async function* chunks(): AsyncGenerator<Buffer> {
+        try {
+          yield* download.chunks;
+        } finally {
+          await close();
+        }
+      }
+      return { ...download, chunks: chunks(), close };
     } catch (error) {
       release();
       throw error;

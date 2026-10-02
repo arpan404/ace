@@ -118,3 +118,36 @@ it("caps and expires archive previews", async () => {
     await client.request({ op: "archive.preview", path: "", includeIgnored: false }),
   ).toMatchObject({ type: "files.result" });
 });
+it("does not strand resumable uploads when a client moves their parent directory", async () => {
+  const f = await setup();
+  const client = await f.connect();
+  await mkdir(join(f.root, "dir"));
+  const upload = Upload.parse(
+    await client.request({ op: "upload.begin", path: "dir/a", expected: null, size: 1 }),
+  );
+  const current = Version.parse(await client.request({ op: "stat", path: "dir" })).value.version;
+  expect(
+    await client.request({
+      op: "move",
+      path: "dir",
+      expected: current,
+      destination: "renamed",
+      destinationExpected: null,
+    }),
+  ).toMatchObject({ code: "BUSY" });
+  expect(await client.request({ op: "delete", path: "dir", expected: current })).toMatchObject({
+    code: "BUSY",
+  });
+  expect(await client.request({ op: "upload.cancel", uploadId: upload.uploadId })).toMatchObject({
+    type: "files.result",
+  });
+  expect(
+    await client.request({
+      op: "move",
+      path: "dir",
+      expected: Version.parse(await client.request({ op: "stat", path: "dir" })).value.version,
+      destination: "renamed",
+      destinationExpected: null,
+    }),
+  ).toMatchObject({ type: "files.result" });
+});

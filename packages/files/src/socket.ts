@@ -2,9 +2,9 @@ import { createHash, type Hash } from "node:crypto";
 import { WebSocket } from "ws";
 import { z } from "zod";
 import { FilesClientMessage, type FilesServerMessage } from "@ace/protocol";
-import { decodeFileFrame, encodeFileFrame } from "./frame.ts";
+import { decodeFileFrame, fillFileFrame } from "./frame.ts";
 import { FilesService } from "./service.ts";
-import { codeOf, FileError, MAX_CREDITS, type Download } from "./types.ts";
+import { CHUNK_SIZE, codeOf, FileError, MAX_CREDITS, type Download } from "./types.ts";
 
 interface Outgoing {
   download: Download;
@@ -13,6 +13,7 @@ interface Outgoing {
   cancelled: boolean;
   offset: number;
   digest: Hash;
+  frame: Buffer;
 }
 interface Incoming {
   id: string;
@@ -35,6 +36,7 @@ export function attachFilesSocket(
       throw new FileError("FORBIDDEN", "Device scope denies this operation");
   };
   const outgoing = new Map<number, Outgoing>();
+  const opening = new Set<number>();
   const incoming = new Map<number, Incoming>();
   let channel = 0;
   let closed = false;
@@ -87,7 +89,7 @@ export function attachFilesSocket(
           break;
         }
         state.credits--;
-        const frame = encodeFileFrame(id, state.offset, next.value);
+        const frame = fillFileFrame(state.frame, id, state.offset, next.value);
         state.digest.update(next.value);
         state.offset += next.value.length;
         await new Promise<void>((resolve, reject) => {
@@ -109,9 +111,10 @@ export function attachFilesSocket(
     }
   };
   const allocate = () => {
-    if (outgoing.size + incoming.size >= 4 || channel >= 0xffffffff)
+    if (outgoing.size + incoming.size + opening.size >= 4 || channel >= 0xffffffff)
       throw new FileError("BUSY", "Socket channel limit reached");
-    return ++channel;
+    opening.add(++channel);
+    return channel;
   };
   const control = async (input: unknown): Promise<void> => {
     const message = FilesClientMessage.parse(input);
@@ -145,19 +148,26 @@ export function attachFilesSocket(
     );
     if (["download", "artifact.download", "archive.download"].includes(operation.op)) {
       const id = allocate();
-      const download = await service.download(device, operation);
+      let download: Download;
+      try {
+        download = await service.download(device, operation);
+      } finally {
+        opening.delete(id);
+      }
       if (closed) {
         await download.close();
         return;
       }
-      outgoing.set(id, {
+      const state: Outgoing = {
         download,
         credits: 0,
         pumping: false,
         cancelled: false,
         offset: download.offset,
         digest: createHash("sha256"),
-      });
+        frame: Buffer.allocUnsafe(CHUNK_SIZE + 16),
+      };
+      outgoing.set(id, state);
       send({
         type: "files.ready",
         requestId: message.requestId,
@@ -166,12 +176,14 @@ export function attachFilesSocket(
         size: download.size,
         validator: download.validator,
       });
+      void pump(id, state);
       return;
     }
     if (operation.op === "upload.begin" || operation.op === "upload.resume") {
       const id = allocate();
-      const release = service.reserve();
+      let release: (() => void) | undefined;
       try {
+        release = service.reserve();
         const upload = Upload.parse(
           await service.request(device, operation, () =>
             authorize(
@@ -194,8 +206,10 @@ export function attachFilesSocket(
         incoming.set(id, { id: upload.uploadId, busy: false, release });
         send({ type: "files.upload", requestId: message.requestId, channel: id, ...upload });
       } catch (error) {
-        release();
+        release?.();
         throw error;
+      } finally {
+        opening.delete(id);
       }
       return;
     }

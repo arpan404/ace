@@ -73,6 +73,7 @@ export class Mutations {
             dir: operation.path,
             depth: Number.MAX_SAFE_INTEGER,
             includeIgnored: true,
+            exclude: () => false,
           }))
             if (entry.type === "file") bytes += entry.size;
         }

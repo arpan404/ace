@@ -24,6 +24,7 @@ export async function startDaemon(
   url: string;
   tokenPath: string;
   store: Store;
+  files?: FilesService;
   remoteUrl?: string;
   fingerprint?: string;
   close(): Promise<void>;
@@ -87,6 +88,7 @@ export async function startDaemon(
         : {}),
       tokenPath,
       store,
+      ...(files ? { files } : {}),
       close() {
         closing ??= (async () => {
           try {

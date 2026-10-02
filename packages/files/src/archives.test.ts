@@ -165,3 +165,59 @@ it("downloads registered daemon artifacts through the same validated binary stre
     f.service.registerArtifact({ root, path: "../outside", category: "output", name: "escape" }),
   ).rejects.toMatchObject({ code: "INVALID_PATH" });
 });
+it("reports a changed root directory without crashing while an archive waits for credits", async () => {
+  const f = await setup();
+  const client = await f.connect();
+  await writeFile(join(f.root, "a"), "old");
+  const preview = Preview.parse(
+    await client.request({ op: "archive.preview", path: "", includeIgnored: false }),
+  );
+  await writeFile(join(f.root, "new"), "new");
+  const ready = Ready.parse(
+    await client.request({ op: "archive.download", previewId: preview.value.previewId }),
+  );
+  // A stat reply gives the compression stream a chance to observe the changed root.
+  expect(await client.request({ op: "stat", path: "a" })).toMatchObject({ type: "files.result" });
+  client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
+  expect(await client.next()).toMatchObject({ code: "CONFLICT" });
+});
+it("archives long UTF-8 filenames with interoperable PAX headers and previews files beyond 8 GiB", async () => {
+  const f = await setup();
+  const client = await f.connect();
+  const name = "界".repeat(70);
+  await writeFile(join(f.root, name), "unicode bytes");
+  const preview = Preview.parse(
+    await client.request({ op: "archive.preview", path: "", includeIgnored: false }),
+  );
+  const ready = Ready.parse(
+    await client.request({ op: "archive.download", previewId: preview.value.previewId }),
+  );
+  const chunks: Buffer[] = [];
+  for (;;) {
+    client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
+    const next = await client.next();
+    if (!Buffer.isBuffer(next)) {
+      expect(next).toMatchObject({ type: "files.end" });
+      break;
+    }
+    chunks.push(decodeFileFrame(next).bytes);
+  }
+  const output = join(f.home, "unicode.tar.gz");
+  await writeFile(output, Buffer.concat(chunks));
+  const extracted = join(f.home, "unicode");
+  await mkdir(extracted);
+  await run("tar", ["-xzf", output, "-C", extracted]);
+  expect(await readFile(join(extracted, name), "utf8")).toBe("unicode bytes");
+  const huge = await open(join(f.root, "huge"), "w");
+  await huge.truncate(9 * 1024 ** 3);
+  await huge.close();
+  const big = Preview.parse(
+    await client.request({ op: "archive.preview", path: "", includeIgnored: false }),
+  );
+  expect(big.value.bytes).toBe(9 * 1024 ** 3 + Buffer.byteLength("unicode bytes"));
+  const transfer = Ready.parse(
+    await client.request({ op: "archive.download", previewId: big.value.previewId }),
+  );
+  client.send({ type: "files.cancel", channel: transfer.channel });
+  expect(await client.next()).toMatchObject({ type: "files.cancelled" });
+});

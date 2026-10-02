@@ -12,12 +12,21 @@ export function encodeFileFrame(channel: number, offset: number, bytes: Uint8Arr
     bytes.length > CHUNK_SIZE
   )
     throw new FileError("INVALID_FRAME", "Invalid binary envelope");
-  const frame = Buffer.allocUnsafe(16 + bytes.length);
+  return fillFileFrame(Buffer.allocUnsafe(16 + bytes.length), channel, offset, bytes);
+}
+
+/** A socket may reuse this storage only after the previous write callback. */
+export function fillFileFrame(
+  frame: Buffer,
+  channel: number,
+  offset: number,
+  bytes: Uint8Array,
+): Buffer {
   frame.write("ACEF", 0, "ascii");
   frame.writeUInt32BE(channel, 4);
   frame.writeBigUInt64BE(BigInt(offset), 8);
   frame.set(bytes, 16);
-  return frame;
+  return frame.subarray(0, 16 + bytes.length);
 }
 export function decodeFileFrame(frame: Buffer): { channel: number; offset: number; bytes: Buffer } {
   if (

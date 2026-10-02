@@ -19,6 +19,7 @@ export async function observed(safe: SafeRoot, path: string): Promise<string | n
       dir: safe.path(path),
       depth: Number.MAX_SAFE_INTEGER,
       includeIgnored: true,
+      exclude: () => false,
     })) {
       if (entry.path.split("/").some((part) => part.startsWith(".ace-upload-"))) continue;
       const metadata = await safe.metadata(entry.path);
@@ -59,7 +60,10 @@ export async function hashFile(handle: FileHandle): Promise<string> {
   }
   return digest.digest("hex");
 }
-export async function openUpload(safe: SafeRoot, record: UploadRecord): Promise<FileHandle> {
+export async function openUpload(
+  safe: SafeRoot,
+  record: UploadRecord,
+): Promise<{ handle: FileHandle; verify(): Promise<void> }> {
   const target = await safe.target(record.path);
   const handle = await open(
     join(dirname(target.path), record.temp),
@@ -69,8 +73,15 @@ export async function openUpload(safe: SafeRoot, record: UploadRecord): Promise<
     const info = await handle.stat();
     if (!info.isFile() || `${info.dev}:${info.ino}` !== record.identity || info.size > record.bytes)
       throw new FileError("CONFLICT", "Upload temp file changed");
-    await target.verify();
-    return handle;
+    const temp = join(dirname(target.path), record.temp);
+    const verify = async () => {
+      await target.verify();
+      const current = await lstat(temp);
+      if (!current.isFile() || `${current.dev}:${current.ino}` !== record.identity)
+        throw new FileError("CONFLICT", "Upload path changed");
+    };
+    await verify();
+    return { handle, verify };
   } catch (error) {
     await handle.close();
     throw error;
@@ -81,6 +92,11 @@ export function newId(id: () => string): string {
     .string()
     .regex(/^[a-zA-Z0-9_-]{1,128}$/)
     .parse(id());
+}
+export async function replacementMode(path: string): Promise<number> {
+  const info = await lstat(path);
+  if (!info.isFile()) throw new FileError("NOT_FILE", "Replacement target must be a regular file");
+  return info.mode & 0o777;
 }
 export async function atomicWrite(
   safe: SafeRoot,
@@ -97,6 +113,7 @@ export async function atomicWrite(
     await handle.sync();
     await checkedTarget(safe, path, expected);
     await target.verify();
+    if (expected !== null) await handle.chmod(await replacementMode(target.path));
     await rename(temp, target.path);
     await target.verify();
   } finally {

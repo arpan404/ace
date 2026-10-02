@@ -214,3 +214,35 @@ it("caps concurrent downloads and frees a slot on cancellation", async () => {
     type: "files.ready",
   });
 });
+it("waits for each credit before sending more bytes and rejects an oversized credit window", async () => {
+  const f = await setup();
+  const file = await open(join(f.root, "binary"), "w");
+  await file.truncate(3 * CHUNK_SIZE);
+  await file.close();
+  const server = await isolated(f.root, join(f.home, "credit-server"));
+  cleanup.push(() => server.close());
+  const client = server.client;
+  const ready = Ready.parse(await client.request({ op: "download", path: "binary", offset: 0 }));
+  client.send({ type: "test.metrics" });
+  expect(await client.next()).toMatchObject({ type: "test.metrics" });
+  client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
+  expect(decodeFileFrame(z.instanceof(Buffer).parse(await client.next())).bytes.length).toBe(
+    CHUNK_SIZE,
+  );
+  client.send({ type: "test.metrics" });
+  expect(await client.next()).toMatchObject({ type: "test.metrics" });
+  client.send({ type: "files.credit", channel: ready.channel, credits: 9 });
+  expect(await client.next()).toMatchObject({ code: "INVALID_MESSAGE" });
+});
+it("refuses a successful trailer if the file changes during a paused transfer", async () => {
+  const f = await setup();
+  const client = await f.connect();
+  await writeFile(join(f.root, "a"), Buffer.alloc(2 * CHUNK_SIZE, 1));
+  const ready = Ready.parse(await client.request({ op: "download", path: "a", offset: 0 }));
+  client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
+  expect(Buffer.isBuffer(await client.next())).toBe(true);
+  await writeFile(join(f.root, "a"), Buffer.alloc(2 * CHUNK_SIZE, 2));
+  client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
+  expect(Buffer.isBuffer(await client.next())).toBe(true);
+  expect(await client.next()).toMatchObject({ type: "files.error", code: "CONFLICT" });
+});

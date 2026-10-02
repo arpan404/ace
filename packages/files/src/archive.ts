@@ -3,8 +3,9 @@ import { Readable } from "node:stream";
 import { createGzip } from "node:zlib";
 import { GitIgnore, SafeRoot, walkWorkspace } from "@ace/workspace";
 import { z } from "zod";
+import { tarHeaders } from "./tar.ts";
 import { openDownload } from "./download.ts";
-import { FileError, version, type Download } from "./types.ts";
+import { CHUNK_SIZE, FileError, version, type Download } from "./types.ts";
 
 interface Entry {
   path: string;
@@ -20,42 +21,8 @@ export interface Preview {
   bytes: number;
   entries: Entry[];
   validator: string;
-}
-function stringField(header: Buffer, value: string, offset: number, size: number): void {
-  if (Buffer.byteLength(value) > size)
-    throw new FileError("LIMIT_EXCEEDED", "Path exceeds ustar limits");
-  header.write(value, offset, size, "utf8");
-}
-function numberField(header: Buffer, value: number, offset: number, size: number): void {
-  const octal = Math.floor(value).toString(8);
-  if (octal.length >= size) throw new FileError("LIMIT_EXCEEDED", "File exceeds ustar size limit");
-  header.write(octal.padStart(size - 1, "0") + "\0", offset, size, "ascii");
-}
-function tarHeader(entry: Entry): Buffer {
-  const result = Buffer.alloc(512);
-  let name = entry.name;
-  if (Buffer.byteLength(name) > 100) {
-    let split = name.lastIndexOf("/");
-    while (split >= 0 && Buffer.byteLength(name.slice(split + 1)) > 100)
-      split = name.lastIndexOf("/", split - 1);
-    if (split < 0) throw new FileError("LIMIT_EXCEEDED", "Path exceeds ustar limits");
-    stringField(result, name.slice(0, split), 345, 155);
-    name = name.slice(split + 1);
-  }
-  stringField(result, name, 0, 100);
-  numberField(result, entry.directory ? 0o755 : 0o644, 100, 8);
-  numberField(result, 0, 108, 8);
-  numberField(result, 0, 116, 8);
-  numberField(result, entry.directory ? 0 : entry.size, 124, 12);
-  numberField(result, entry.mtime / 1000, 136, 12);
-  result.fill(32, 148, 156);
-  result[156] = entry.directory ? 53 : 48;
-  result.write("ustar\0", 257, "ascii");
-  result.write("00", 263, "ascii");
-  let checksum = 0;
-  for (const byte of result) checksum += byte;
-  result.write(checksum.toString(8).padStart(6, "0") + "\0 ", 148, "ascii");
-  return result;
+  path: string;
+  rootVersion: string;
 }
 export async function previewArchive(
   safe: SafeRoot,
@@ -65,6 +32,7 @@ export async function previewArchive(
   expires: number,
 ): Promise<Preview> {
   const base = safe.path(path);
+  const rootVersion = version((await safe.metadata(base)).info);
   const ignore = await GitIgnore.create(safe);
   const entries: Entry[] = [];
   let bytes = 0;
@@ -87,7 +55,6 @@ export async function previewArchive(
       mtime: info.mtimeMs,
       directory: entry.type === "directory",
     };
-    tarHeader(item); // Validate names and sizes before announcing a stream.
     metadataBytes += Buffer.byteLength(item.path) + Buffer.byteLength(item.name) + 256;
     if (entries.length >= 100_000 || metadataBytes > 16 * 1024 * 1024)
       throw new FileError("LIMIT_EXCEEDED", "Archive metadata exceeds preview budget");
@@ -96,17 +63,21 @@ export async function previewArchive(
     digest.update(item.path);
     digest.update(item.version);
   }
-  return { id, expires, bytes, entries, validator: digest.digest("hex") };
+  if (version((await safe.metadata(base)).info) !== rootVersion)
+    throw new FileError("CONFLICT", "Directory changed during preview");
+  return { id, expires, bytes, entries, validator: digest.digest("hex"), path: base, rootVersion };
 }
 export function archiveDownload(safe: SafeRoot, preview: Preview): Download {
   let current: Download | undefined;
   const gzip = createGzip({ chunkSize: 64 * 1024 });
   async function* tar(): AsyncGenerator<Buffer> {
     try {
+      if (version((await safe.metadata(preview.path)).info) !== preview.rootVersion)
+        throw new FileError("CONFLICT", "Directory changed since preview");
       for (const entry of preview.entries) {
         if (version((await safe.metadata(entry.path)).info) !== entry.version)
           throw new FileError("CONFLICT", "Archive entry changed");
-        yield tarHeader(entry);
+        yield* tarHeaders(entry);
         if (!entry.directory) {
           current = await openDownload(safe, entry.path, 0, entry.version);
           yield* current.chunks;
@@ -122,13 +93,15 @@ export function archiveDownload(safe: SafeRoot, preview: Preview): Download {
   }
   const source = Readable.from(tar(), { objectMode: false, highWaterMark: 64 * 1024 });
   source.on("error", (error) => gzip.destroy(error));
+  gzip.on("error", () => {}); // Preserve the stream error for the next credited iterator read.
   gzip.on("close", () => source.destroy());
   source.pipe(gzip);
   async function* chunks(): AsyncGenerator<Buffer> {
     try {
       for await (const chunk of gzip) {
         const bytes = z.instanceof(Buffer).parse(chunk);
-        yield bytes;
+        for (let start = 0; start < bytes.length; start += CHUNK_SIZE)
+          yield bytes.subarray(start, start + CHUNK_SIZE);
       }
     } finally {
       source.destroy();
