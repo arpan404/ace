@@ -1,4 +1,17 @@
 import { z } from "zod";
+import {
+  ModelsListRequest,
+  ModelsRefreshRequest,
+  ModelsResolveRequest,
+  ModelsResult,
+} from "./models.ts";
+import {
+  PresenceUpdate,
+  NotificationRegister,
+  NotificationSettings,
+  NotificationSnooze,
+  NotificationMessage,
+} from "./notifications.ts";
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import { Command } from "./commands.ts";
@@ -19,6 +32,8 @@ export const ThreadView = z.object({
   runs: records(Run),
   items: records(Item),
   itemOrder: z.array(z.string()),
+  /** Exclusive item creation-sequence cursor for older history. */
+  itemsBefore: seq.positive().nullable().default(null),
   interactions: records(Interaction),
   backgroundTasks: records(BackgroundTask),
   usage: records(UsageUpdated),
@@ -46,7 +61,20 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
     (event.payload.type === "item.delta" && event.firstSeq <= event.seq),
 );
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
+export const ItemsPage = z.object({
+  threadId: ThreadId,
+  items: z.array(Item),
+  itemsBefore: seq.positive().nullable(),
+});
+export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  ModelsListRequest,
+  ModelsRefreshRequest,
+  ModelsResolveRequest,
+  PresenceUpdate,
+  NotificationRegister,
+  NotificationSettings,
+  NotificationSnooze,
   z
     .object({
       type: z.literal("hello"),
@@ -66,6 +94,20 @@ export const ClientMessage = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("unsubscribe"), subscriptionId: z.string().min(1) }),
   z.object({ type: z.literal("command"), command: Command }),
+  z.object({
+    type: z.literal("output.read"),
+    requestId: z.string().min(1),
+    streamId: z.string().min(1),
+    offset: seq,
+    limit: seq.positive().max(256 * 1024),
+  }),
+  z.object({
+    type: z.literal("items.page"),
+    requestId: z.string().min(1),
+    threadId: ThreadId,
+    before: seq.positive(),
+    limit: seq.positive().max(200),
+  }),
   z.object({ type: z.literal("ping") }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
@@ -76,6 +118,8 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  ModelsResult,
+  NotificationMessage,
   z.object({
     type: z.literal("welcome"),
     hostId: HostId,
@@ -120,6 +164,16 @@ export const ServerMessage = z.discriminatedUnion("type", [
     }),
   CommandResult.extend({ type: z.literal("commandResult") }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
+  z.object({
+    type: z.literal("output.data"),
+    requestId: z.string(),
+    streamId: z.string(),
+    offset: seq,
+    nextOffset: seq,
+    bytes: z.string(),
+    eof: z.boolean(),
+  }),
+  ItemsPage.extend({ type: z.literal("items.page"), requestId: z.string() }),
   z.object({ type: z.literal("pong") }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

@@ -59,15 +59,22 @@ export type TodoEntry = z.infer<typeof TodoEntry>;
  * Normalised view of the call, by kind. Only fields ace renders specially
  * are typed; everything else stays in `raw`.
  */
+export const OutputSummary = z.object({
+  streamId: z.string().min(1),
+  bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  tail: z.string().refine((text) => new TextEncoder().encode(text).length <= 4096),
+  truncated: z.boolean(),
+});
+export type OutputSummary = z.infer<typeof OutputSummary>;
+
 export const ToolDetail = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("shell"),
     command: z.string(),
     cwd: z.string().optional(),
     exitCode: z.number().int().nullable().optional(),
-    /** Accumulated output; long output may be truncated with `outputTruncated`. */
-    output: z.string().optional(),
-    outputTruncated: z.boolean().optional(),
+    /** Full output lives in the daemon stream store. */
+    output: OutputSummary.optional(),
   }),
   z.object({
     kind: z.literal("file.read"),
