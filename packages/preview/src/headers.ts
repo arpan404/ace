@@ -55,7 +55,9 @@ export function requestHeaders(input: IncomingHttpHeaders, port: number): Outgoi
 }
 export function rewriteLocation(value: string, port: number, origin: string): string {
   try {
-    const url = new URL(value);
+    const url = value.startsWith("//")
+      ? new URL(value, `http://localhost:${port}`)
+      : new URL(value);
     if (
       ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) &&
       Number(url.port || (url.protocol === "https:" ? 443 : 80)) === port
