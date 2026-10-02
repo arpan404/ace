@@ -9,10 +9,12 @@ export interface ScalarRange {
 }
 export function parseDocument(text: string): {
   value: unknown;
+  bytes: number;
   ranges: Map<SettingsKey, ScalarRange>;
 } {
   const ranges = new Map<SettingsKey, ScalarRange>();
-  if (Buffer.byteLength(text) > MAX_DOCUMENT_BYTES)
+  const bytes = Buffer.byteLength(text);
+  if (bytes > MAX_DOCUMENT_BYTES)
     throw new SettingsError("size", "Settings document exceeds 1 MiB");
   const objects: (Set<string> | undefined)[] = [];
   let duplicate: number | undefined;
@@ -58,5 +60,5 @@ export function parseDocument(text: string): {
     throw new SettingsError("validation", "Duplicate JSONC property", duplicate);
   guardSecrets(text);
   const raw: unknown = parse(text, [], { allowTrailingComma: true });
-  return { value: raw, ranges };
+  return { value: raw, ranges, bytes };
 }

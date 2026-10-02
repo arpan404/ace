@@ -1,5 +1,15 @@
+import { mkdir, mkdtemp, readdir, rename, rm, symlink, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { SettingsService, type FileIO, type Scheduler } from "../src/index.ts";
+import {
+  SettingsService,
+  SettingsError,
+  atomicWrite,
+  fileIO,
+  type FileIO,
+  type Scheduler,
+} from "../src/index.ts";
 
 // In-memory filesystem boundary isolates schema, queue and notification costs.
 // Production fsync/rename latency depends on the user's disk.
@@ -85,7 +95,74 @@ try {
       },
     );
   }
+  document = JSON.stringify({
+    version: 2,
+    settings: {
+      ...Object.fromEntries(
+        Array.from({ length: 10000 }, (_, index) => [`future.${index}`, index]),
+      ),
+      "notifications.sound": false,
+    },
+  });
+  await service.refresh({ kind: "global" });
+  await measure("existing scalar assignment, 10000 unrelated keys", 1000, async (index) => {
+    await service.set("notifications.sound", index % 2 === 0, { kind: "global" });
+  });
   console.log(JSON.stringify({ deliveries, peakRssKiB: process.resourceUsage().maxRSS }));
 } finally {
   await service.close();
+}
+
+// Real filesystem work includes identity validation and physical durability latency.
+const root = await mkdtemp(join(tmpdir(), "ace-settings-bench-"));
+const workspace = join(root, "repo");
+const dataDir = join(root, "data");
+const ace = join(workspace, ".ace");
+const displaced = join(workspace, "old-ace");
+const workspacePath = join(ace, "settings.json");
+let swap = false;
+await mkdir(workspace);
+const native = new SettingsService({
+  dataDir,
+  io: {
+    ...fileIO,
+    watch: async () => () => {},
+    write: (path, text, beforeCommit) =>
+      atomicWrite(path, text, async () => {
+        if (swap && path === workspacePath) {
+          await rename(ace, displaced);
+          await symlink(dataDir, ace, "dir");
+        }
+        await beforeCommit?.();
+      }),
+  },
+});
+try {
+  await native.set("notifications.sound", false, { kind: "global" });
+  await native.set("notifications.sound", false, { kind: "workspace", workspace });
+  await measure("native cached workspace read with containment", 1000, async () => {
+    await native.get("notifications.sound", { workspace });
+  });
+  await measure("native workspace scalar assignment and fsync", 100, async (index) => {
+    await native.set("notifications.sound", index % 2 === 0, { kind: "workspace", workspace });
+  });
+  swap = true;
+  await measure("native rejected directory swap and owned-temp recovery", 32, async () => {
+    let rejected = false;
+    try {
+      await native.set("notifications.sound", true, { kind: "workspace", workspace });
+    } catch (error) {
+      if (!(error instanceof SettingsError && error.code === "validation")) throw error;
+      rejected = true;
+    } finally {
+      await unlink(ace);
+      await rename(displaced, ace);
+    }
+    if (!rejected || (await readdir(ace)).some((name) => name.endsWith(".tmp")))
+      throw new Error("Rejected workspace assignment did not clean its owned temporary file");
+    await native.refresh({ kind: "workspace", workspace });
+  });
+} finally {
+  await native.close();
+  await rm(root, { recursive: true, force: true });
 }
