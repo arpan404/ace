@@ -109,7 +109,7 @@ describe("late agent linkage", () => {
     };
     const linked = Event.parse({ seq: 2, id: "linked", at: 2, threadId: thread.id, payload });
     applyEvent(view, linked);
-    expect(view.agentChildren.old).toEqual([]);
+    expect(view.agentChildren.old).toBeUndefined();
     expect(view.agentChildren.new).toEqual([agent.id]);
     expect(view.agents.child).toMatchObject({
       parentId: "new",
@@ -131,7 +131,7 @@ describe("late agent linkage", () => {
         payload: { type: "agent.updated", agentId: agent.id, parentId: null },
       }),
     );
-    expect(view.agentChildren.new).toEqual([]);
+    expect(view.agentChildren.new).toBeUndefined();
     expect(view.agents.child?.parentId).toBeNull();
   });
 });

@@ -13,8 +13,8 @@ import {
   type ThreadView,
   WorkspaceId,
 } from "@ace/protocol";
-import { McpData } from "./mcp-data.ts";
 import { applyDelivery, updateThread } from "@ace/projection";
+import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
 import { migrate } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
@@ -35,10 +35,6 @@ export class Store {
   private readonly nextId: () => string;
   private readonly now: () => number;
   private readonly mcp: McpData;
-  private readonly payloads: PayloadStore;
-  private readonly status: StatusStore;
-  private readonly nextId: () => string;
-  private readonly now: () => number;
   private statements = new Map<string, StatementSync>();
   private closed = false;
   private transactionEvents: Event[] | undefined;
@@ -254,7 +250,6 @@ export class Store {
         );
         this.statement("UPDATE host_sequence SET seq = ? WHERE id = 1").run(seq);
         this.mcp.apply(event, thread);
-        this.statement("UPDATE host_sequence SET seq = ? WHERE id = 1").run(seq);
         events.push(event);
       }
       this.transactionEvents?.push(...events);
