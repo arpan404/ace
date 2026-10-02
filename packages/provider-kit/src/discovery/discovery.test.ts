@@ -1,3 +1,5 @@
+import { createServer, type Socket } from "node:net";
+import { once } from "node:events";
 import { mkdir, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -141,24 +143,49 @@ describe("provider discovery", () => {
   }, 15_000);
   it("runs provider probes concurrently so a blocked CLI cannot gate a healthy one", async () => {
     const root = await directory();
-    const marker = join(root, "started");
-    await writeFile(
-      join(root, "codex"),
-      `#!${process.execPath}\nconst fs=require('node:fs'); let done=false; const finish=()=>{if(done)return;done=true;console.log(process.argv[2]==='--version'?'codex-cli 1.2.3':'Logged in using ChatGPT');watcher.close();};const watcher=fs.watch(${JSON.stringify(root)},()=>{if(fs.existsSync(${JSON.stringify(marker)}))finish();});if(fs.existsSync(${JSON.stringify(marker)}))finish();\n`,
-      { mode: 0o755 },
-    );
-    await writeFile(
-      join(root, "agent"),
-      `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)},'ready');console.log(process.argv[2]==='--version'?'2026.09.26-dd393fe':'Logged in as private@example.test');\n`,
-      { mode: 0o755 },
-    );
-    const result = await discoverProviders({ env: { PATH: root }, timeoutMs: 10_000 });
-    expect(result.codex).toMatchObject({
-      installed: true,
-      version: "1.2.3",
-      auth: "logged_in",
-      authDetail: "ChatGPT",
+    const waiting = new Set<Socket>();
+    let released = false;
+    const gate = createServer((socket) => {
+      socket.once("data", (data) => {
+        if (data.toString() === "release") {
+          released = true;
+          for (const blocked of waiting) blocked.end("go");
+          waiting.clear();
+          socket.end();
+        } else if (released) socket.end("go");
+        else waiting.add(socket);
+      });
+      socket.on("close", () => waiting.delete(socket));
     });
-    expect(result.cursor.auth).toBe("logged_in");
+    gate.listen(0, "127.0.0.1");
+    await once(gate, "listening");
+    const address = gate.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP address");
+    const endpoint = JSON.stringify({ port: address.port, host: "127.0.0.1" });
+    try {
+      await writeFile(
+        join(root, "codex"),
+        `#!${process.execPath}\nconst socket=require('node:net').createConnection(${endpoint},()=>socket.write('wait'));socket.once('data',()=>console.log(process.argv[2]==='--version'?'codex-cli 1.2.3':'Logged in using ChatGPT'));\n`,
+        { mode: 0o755 },
+      );
+      await writeFile(
+        join(root, "agent"),
+        `#!${process.execPath}\nconst socket=require('node:net').createConnection(${endpoint},()=>socket.end('release'));console.log(process.argv[2]==='--version'?'2026.09.26-dd393fe':'Logged in as private@example.test');\n`,
+        { mode: 0o755 },
+      );
+      const result = await discoverProviders({ env: { PATH: root }, timeoutMs: 10_000 });
+      expect(result.codex).toMatchObject({
+        installed: true,
+        version: "1.2.3",
+        auth: "logged_in",
+        authDetail: "ChatGPT",
+      });
+      expect(result.cursor.auth).toBe("logged_in");
+    } finally {
+      for (const socket of waiting) socket.destroy();
+      await new Promise<void>((resolve, reject) =>
+        gate.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
   }, 20_000);
 });
