@@ -155,7 +155,7 @@ it("does not strand resumable uploads when a client moves their parent directory
     }),
   ).toMatchObject({ type: "files.result" });
 });
-it("expires uploads whose parent was removed without preventing daemon recovery", async () => {
+it("retains expired cleanup debt without preventing daemon recovery", async () => {
   let now = 0;
   const f = await setup({ now: () => now, retentionMs: 10 });
   const client = await f.connect();
@@ -169,7 +169,7 @@ it("expires uploads whose parent was removed without preventing daemon recovery"
   await f.service.sweep();
   const next = await f.connect();
   expect(await next.request({ op: "upload.resume", uploadId: upload.uploadId })).toMatchObject({
-    code: "NOT_FOUND",
+    code: "EXPIRED",
   });
   expect(
     await next.request({ op: "create", path: "recovered", expected: null, text: "ok" }),

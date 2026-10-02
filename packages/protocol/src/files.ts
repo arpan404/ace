@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WorkspaceId } from "./ids.ts";
 
 const offset = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const path = z.string().max(4096);
@@ -57,6 +58,13 @@ export const FileOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("delete"), path, expected }),
   z.object({ op: z.literal("restore"), trashId: id, path, expected }),
   z.object({ op: z.literal("artifacts.list") }),
+  z.object({ op: z.literal("artifact.output"), streamId: id }),
+  z.object({ op: z.literal("artifact.raw"), blobRef: id }),
+  z.object({
+    op: z.literal("trash.list"),
+    after: id.optional(),
+    limit: z.number().int().min(1).max(64).default(32),
+  }),
 ]);
 export type FileOperation = z.infer<typeof FileOperation>;
 export const FilesClientMessage = z.discriminatedUnion("type", [
@@ -114,3 +122,10 @@ export const FilesServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("files.changed"), change: WorkspaceFileChange }),
 ]);
 export type FilesServerMessage = z.infer<typeof FilesServerMessage>;
+
+export const WorkspaceFilesChanged = z.object({
+  type: z.literal("workspace.files_changed"),
+  workspaceId: WorkspaceId,
+  change: WorkspaceFileChange,
+});
+export type WorkspaceFilesChanged = z.infer<typeof WorkspaceFilesChanged>;

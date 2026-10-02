@@ -1,3 +1,4 @@
+import { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { SafeRoot } from "@ace/workspace";
@@ -15,10 +16,12 @@ export class FilesService {
   private readonly options: FilesOptions;
   private readonly catalog: Catalog;
   private readonly mutations: Mutations;
+  private readonly exclusive: ExclusiveRename;
   private readonly uploads: Uploads;
   private readonly roots: Map<string, SafeRoot>;
   private readonly previews = new Map<string, Preview>();
   private readonly listeners = new Set<(change: WorkspaceFileChange) => void>();
+  private artifactBytes = 0;
   private active = 0;
   private pending = 0;
   private tail: Promise<unknown> = Promise.resolve();
@@ -28,8 +31,9 @@ export class FilesService {
     this.options = options;
     this.roots = roots;
     this.catalog = new Catalog(join(options.dataDir, "files.sqlite"));
-    this.mutations = new Mutations(safe, this.catalog, options);
-    this.uploads = new Uploads(safe, this.catalog, options);
+    this.exclusive = options.exclusiveRename ?? createExclusiveRename();
+    this.mutations = new Mutations(safe, this.catalog, options, this.exclusive);
+    this.uploads = new Uploads(safe, this.catalog, options, this.exclusive);
   }
   static async create(options: FilesOptions): Promise<FilesService> {
     await mkdir(join(options.dataDir, "trash"), { recursive: true, mode: 0o700 });
@@ -55,6 +59,25 @@ export class FilesService {
       if (!released) {
         released = true;
         this.active--;
+      }
+    };
+  }
+  /** Reserve generated artifact disk space before an export; trusted source files are independent. */
+  reserveArtifactExport(bytes: number): () => void {
+    if (this.closed) throw new FileError("CLOSED", "File service closed");
+    if (
+      !Number.isSafeInteger(bytes) ||
+      bytes < 0 ||
+      this.artifactBytes + bytes + this.catalog.total("artifact").bytes >
+        (this.options.maxArtifactBytes ?? 20 * 1024 ** 3)
+    )
+      throw new FileError("QUOTA", "Generated artifact quota exceeded");
+    this.artifactBytes += bytes;
+    let released = false;
+    return () => {
+      if (!released) {
+        released = true;
+        this.artifactBytes -= bytes;
       }
     };
   }
@@ -92,7 +115,14 @@ export class FilesService {
   async request(device: string, input: unknown, guard: () => void = () => {}): Promise<unknown> {
     guard();
     const operation = FileOperation.parse(input);
-    const reading = ["stat", "archive.preview", "artifacts.list"].includes(operation.op);
+    const reading = [
+      "stat",
+      "archive.preview",
+      "artifacts.list",
+      "trash.list",
+      "artifact.output",
+      "artifact.raw",
+    ].includes(operation.op);
     this.authorize(device, reading ? "files.read" : "files.write");
     if (operation.op === "stat") {
       const current = await observed(this.safe, operation.path);
@@ -100,6 +130,18 @@ export class FilesService {
       const { info, type } = await this.safe.metadata(operation.path);
       return { path: operation.path, version: current, size: info.size, type };
     }
+    if (operation.op === "artifact.raw") {
+      if (!this.options.exportRaw)
+        throw new FileError("UNSUPPORTED", "Raw blob producer unavailable");
+      return { artifactId: await this.options.exportRaw(device, operation.blobRef, guard) };
+    }
+    if (operation.op === "artifact.output") {
+      if (!this.options.exportOutput)
+        throw new FileError("UNSUPPORTED", "Output producer unavailable");
+      return { artifactId: await this.options.exportOutput(device, operation.streamId, guard) };
+    }
+    if (operation.op === "trash.list")
+      return this.catalog.listTrash(operation.after ?? "", this.options.now(), operation.limit);
     if (operation.op === "artifacts.list")
       return this.catalog.list("artifact").map((record) => {
         const artifact = ArtifactRecord.parse(record);
@@ -253,22 +295,39 @@ export class FilesService {
     path: string;
     name: string;
     category: ArtifactRecord["category"];
+    id?: string;
   }): Promise<string> {
     return this.serial(async () => {
       const root = this.roots.get(input.root);
       if (!root) throw new FileError("FORBIDDEN", "Unknown artifact root");
-      if (this.catalog.total("artifact").count >= 1024)
+      const identifier =
+        input.id === undefined ? newId(this.options.id) : ArtifactRecord.shape.id.parse(input.id);
+      let replacing = false;
+      try {
+        const existing = ArtifactRecord.parse(this.catalog.get(identifier));
+        if (
+          existing.root !== input.root ||
+          existing.path !== input.path ||
+          existing.category !== input.category
+        )
+          throw new FileError("CONFLICT", "Artifact identity already belongs to another producer");
+        replacing = true;
+      } catch (error) {
+        if (!(error instanceof FileError && error.code === "NOT_FOUND")) throw error;
+      }
+      if (!replacing && this.catalog.total("artifact").count >= 1024)
         throw new FileError("QUOTA", "Artifact registry is full");
       const { handle, info } = await root.file(input.path);
       await handle.close();
       const record = ArtifactRecord.parse({
         ...input,
-        id: newId(this.options.id),
+        id: identifier,
         kind: "artifact",
         expires: Number.MAX_SAFE_INTEGER,
         bytes: info.size,
       });
-      this.catalog.put(record);
+      if (replacing) this.catalog.replaceArtifact(record);
+      else this.catalog.put(record);
       return record.id;
     });
   }
@@ -281,9 +340,14 @@ export class FilesService {
   /** Called by the daemon's maintenance owner with its injected clock. */
   sweep(): Promise<void> {
     return this.serial(async () => {
-      for (const record of this.catalog.list("upload"))
-        if (record.expires <= this.options.now())
-          await this.uploads.remove(UploadRecord.parse(record));
+      await this.uploads.removeMany(
+        this.catalog
+          .list("upload")
+          .filter(
+            (record) => record.expires <= this.options.now() || UploadRecord.parse(record).cleanup,
+          )
+          .map((record) => UploadRecord.parse(record)),
+      );
       for (const record of this.catalog.list("trash"))
         if (record.expires <= this.options.now())
           await this.mutations.expire(TrashRecord.parse(record));
@@ -297,5 +361,6 @@ export class FilesService {
     this.listeners.clear();
     this.previews.clear();
     this.catalog.close();
+    await this.exclusive.close();
   }
 }

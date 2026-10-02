@@ -1,10 +1,11 @@
-import { mkdir, rename, rm } from "node:fs/promises";
+import type { ExclusiveRename } from "./exclusive-rename.ts";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { SafeRoot, GitIgnore, walkWorkspace } from "@ace/workspace";
 import type { WorkspaceFileChange, FileOperation } from "@ace/protocol";
 import { Catalog, TrashRecord } from "./catalog.ts";
 import { atomicWrite, checkedTarget, newId, observed } from "./filesystem.ts";
-import { FileError, type FilesOptions } from "./types.ts";
+import { codeOf, FileError, type FilesOptions } from "./types.ts";
 
 type Mutation = Extract<
   FileOperation,
@@ -14,10 +15,12 @@ export class Mutations {
   private readonly safe: SafeRoot;
   private readonly catalog: Catalog;
   private readonly options: FilesOptions;
-  constructor(safe: SafeRoot, catalog: Catalog, options: FilesOptions) {
+  private readonly exclusive: ExclusiveRename;
+  constructor(safe: SafeRoot, catalog: Catalog, options: FilesOptions, exclusive: ExclusiveRename) {
     this.safe = safe;
     this.catalog = catalog;
     this.options = options;
+    this.exclusive = exclusive;
   }
   async apply(operation: Mutation): Promise<WorkspaceFileChange> {
     const target = await checkedTarget(this.safe, operation.path, operation.expected);
@@ -29,12 +32,18 @@ export class Mutations {
       case "create": {
         const bytes = Buffer.from(operation.text);
         if (bytes.length > 1024 * 1024) throw new FileError("QUOTA", "Inline write exceeds 1 MiB");
-        await atomicWrite(this.safe, operation.path, operation.expected, bytes, id);
+        await atomicWrite(this.safe, operation.path, operation.expected, bytes, id, this.exclusive);
         break;
       }
       case "mkdir":
         await target.verify();
-        await mkdir(target.path);
+        try {
+          await mkdir(target.path);
+        } catch (error) {
+          if (codeOf(error) === "EEXIST")
+            throw new FileError("CONFLICT", "Directory was created concurrently");
+          throw error;
+        }
         await target.verify();
         break;
       case "rename":
@@ -55,7 +64,7 @@ export class Mutations {
         );
         await target.verify();
         await dest.verify();
-        await rename(target.path, dest.path);
+        await this.exclusive.move(target.path, dest.path);
         await target.verify();
         await dest.verify();
         destination = operation.destination;
@@ -94,7 +103,7 @@ export class Mutations {
         this.catalog.put(record);
         try {
           await target.verify();
-          await rename(target.path, join(this.options.dataDir, "trash", id));
+          await this.exclusive.move(target.path, join(this.options.dataDir, "trash", id));
         } catch (error) {
           this.catalog.delete(id);
           throw error;
@@ -115,7 +124,7 @@ export class Mutations {
             await observed(this.safe, operation.path),
           );
         await target.verify();
-        await rename(join(this.options.dataDir, "trash", record.id), target.path);
+        await this.exclusive.move(join(this.options.dataDir, "trash", record.id), target.path);
         await target.verify();
         this.catalog.delete(record.id);
         break;

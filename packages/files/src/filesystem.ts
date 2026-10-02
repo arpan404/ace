@@ -1,3 +1,4 @@
+import type { ExclusiveRename } from "./exclusive-rename.ts";
 import { constants } from "node:fs";
 import { lstat, open, rename, rm, type FileHandle } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -104,6 +105,7 @@ export async function atomicWrite(
   expected: string | null,
   bytes: Buffer,
   id: string,
+  exclusive: ExclusiveRename,
 ): Promise<void> {
   const target = await checkedTarget(safe, path, expected);
   const temp = join(dirname(target.path), `.ace-upload-${id}`);
@@ -114,7 +116,8 @@ export async function atomicWrite(
     await checkedTarget(safe, path, expected);
     await target.verify();
     if (expected !== null) await handle.chmod(await replacementMode(target.path));
-    await rename(temp, target.path);
+    if (expected === null) await exclusive.move(temp, target.path);
+    else await rename(temp, target.path);
     await target.verify();
   } finally {
     await handle.close();

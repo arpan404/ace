@@ -9,11 +9,13 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "bench": "node bench/download.ts",
-    "bench:relay": "node bench/relay.ts"
+    "bench:relay": "node bench/relay.ts",
+    "bench:artifacts": "node bench/artifacts.ts"
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",
     "@ace/workspace": "workspace:*",
+    "koffi": "3.3.2",
     "ws": "^8.18.3",
     "zod": "^4.6.5"
   },

@@ -20,12 +20,26 @@ interface Incoming {
   offset: number;
   size: number;
   busy: boolean;
+  cancelled: boolean;
+  pending?: Promise<void>;
   release(): void;
   append(
     offset: number,
     bytes: Buffer,
+    assertActive: () => void,
   ): Promise<{ uploadId: string; offset: number; size: number }>;
 }
+const readOperations = new Set([
+  "stat",
+  "download",
+  "artifact.download",
+  "archive.preview",
+  "archive.download",
+  "artifacts.list",
+  "trash.list",
+  "artifact.output",
+  "artifact.raw",
+]);
 const Upload = z.object({
   uploadId: z.string().min(1).max(128),
   offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
@@ -76,8 +90,16 @@ export function attachFilesChannel(
       outgoing.delete(id);
       await state.download.close();
     }
-    incoming.get(id)?.release();
-    incoming.delete(id);
+    const upload = incoming.get(id);
+    if (upload) {
+      upload.cancelled = true;
+      try {
+        await upload.pending;
+      } finally {
+        upload.release();
+        incoming.delete(id);
+      }
+    }
   };
   const pump = async (id: number, state: Outgoing) => {
     if (state.pumping || state.cancelled) return;
@@ -138,18 +160,7 @@ export function attachFilesChannel(
       return;
     }
     const operation = message.operation;
-    authorize(
-      [
-        "stat",
-        "download",
-        "artifact.download",
-        "archive.preview",
-        "archive.download",
-        "artifacts.list",
-      ].includes(operation.op)
-        ? "files.read"
-        : "files.write",
-    );
+    authorize(readOperations.has(operation.op) ? "files.read" : "files.write");
     if (["download", "artifact.download", "archive.download"].includes(operation.op)) {
       const id = allocate();
       let download: Download;
@@ -190,11 +201,7 @@ export function attachFilesChannel(
         release = service.reserve();
         const upload = Upload.parse(
           await service.request(device, operation, () =>
-            authorize(
-              ["stat", "archive.preview", "artifacts.list"].includes(operation.op)
-                ? "files.read"
-                : "files.write",
-            ),
+            authorize(readOperations.has(operation.op) ? "files.read" : "files.write"),
           ),
         );
         if (closed) {
@@ -204,17 +211,17 @@ export function attachFilesChannel(
         // Resuming a channel on this socket replaces its old binding.
         for (const [old, state] of incoming)
           if (state.id === upload.uploadId) {
-            state.release();
-            incoming.delete(old);
+            await stop(old);
           }
         incoming.set(id, {
           id: upload.uploadId,
           offset: upload.offset,
           size: upload.size,
           busy: false,
+          cancelled: false,
           release,
-          append: (offset, bytes) =>
-            service.append(device, upload.uploadId, offset, bytes, () => authorize("files.write")),
+          append: (offset, bytes, assertActive) =>
+            service.append(device, upload.uploadId, offset, bytes, assertActive),
         });
         send({ type: "files.upload", requestId: message.requestId, channel: id, ...upload });
       } catch (error) {
@@ -225,18 +232,15 @@ export function attachFilesChannel(
       }
       return;
     }
+    if (operation.op === "upload.cancel")
+      for (const [id, state] of incoming) if (state.id === operation.uploadId) await stop(id);
     const value = await service.request(device, operation, () =>
-      authorize(
-        ["stat", "archive.preview", "artifacts.list"].includes(operation.op)
-          ? "files.read"
-          : "files.write",
-      ),
+      authorize(readOperations.has(operation.op) ? "files.read" : "files.write"),
     );
     if (operation.op === "upload.commit" || operation.op === "upload.cancel")
       for (const [id, state] of incoming)
         if (state.id === operation.uploadId) {
-          state.release();
-          incoming.delete(id);
+          await stop(id);
         }
     send({ type: "files.result", requestId: message.requestId, value });
   };
@@ -255,8 +259,7 @@ export function attachFilesChannel(
     unsubscribe();
     stopClose?.();
     for (const id of outgoing.keys()) void stop(id);
-    for (const state of incoming.values()) state.release();
-    incoming.clear();
+    for (const id of incoming.keys()) void stop(id);
   };
   stopClose = transport.onClose(close);
   if (closed) stopClose();
@@ -273,9 +276,9 @@ export function attachFilesChannel(
           offset: upload.offset,
           size: upload.size,
           busy: false,
+          cancelled: false,
           release,
-          append: (offset, bytes) =>
-            destination.append(offset, bytes, () => authorize("files.write")),
+          append: (offset, bytes, assertActive) => destination.append(offset, bytes, assertActive),
         });
         return { channel: id, ...upload };
       } finally {
@@ -312,15 +315,19 @@ export function attachFilesChannel(
         id = decoded.channel;
         authorize("files.write");
         const state = incoming.get(id);
-        if (!state) throw new FileError("NOT_FOUND", "Unknown upload channel");
+        if (!state || state.cancelled) throw new FileError("NOT_FOUND", "Unknown upload channel");
         if (state.busy) throw new FileError("QUOTA", "Wait for an upload acknowledgement");
         if (decoded.offset + decoded.bytes.length > state.size)
           throw new FileError("QUOTA", "Upload exceeds declared size");
         if (decoded.offset !== state.offset)
           throw new FileError("OFFSET", "Resume from acknowledged offset");
         state.busy = true;
-        void state
-          .append(decoded.offset, decoded.bytes)
+        const assertActive = () => {
+          if (state.cancelled) throw new FileError("ABORTED", "Upload channel cancelled");
+          authorize("files.write");
+        };
+        state.pending = Promise.resolve()
+          .then(() => state.append(decoded.offset, decoded.bytes, assertActive))
           .then((result) => {
             const upload = Upload.parse(result);
             if (
@@ -330,9 +337,12 @@ export function attachFilesChannel(
             )
               throw new FileError("IO_ERROR", "Invalid destination acknowledgement");
             state.offset = upload.offset;
-            send({ type: "files.upload", channel: decoded.channel, ...upload });
+            if (!state.cancelled)
+              send({ type: "files.upload", channel: decoded.channel, ...upload });
           })
-          .catch((error: unknown) => failure(error, { channel: decoded.channel }))
+          .catch((error: unknown) => {
+            if (!state.cancelled) failure(error, { channel: decoded.channel });
+          })
           .finally(() => {
             state.busy = false;
           });

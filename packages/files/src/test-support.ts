@@ -122,8 +122,12 @@ export async function fixture(options: Partial<FilesOptions> = {}) {
     },
   };
 }
-export async function isolated(root: string, data: string) {
-  const child = fork(new URL("./test-server.ts", import.meta.url), [root, data], {
+export async function isolated(
+  root: string,
+  data: string,
+  serverModule: URL = new URL("./test-server.ts", import.meta.url),
+) {
+  const child = fork(serverModule, [root, data], {
     execArgv: [],
     stdio: ["ignore", "ignore", "inherit", "ipc"],
   });

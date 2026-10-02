@@ -28,7 +28,7 @@ async function openFile(
 ): Promise<Download> {
   if (isWorkspaceTransferTemporary(safe.path(path)))
     throw new FileError("INVALID_PATH", "Upload temporary files are private");
-  const { handle, info } = await safe.file(path);
+  const { handle, info, resolved } = await safe.file(path);
   let closed = false;
   const close = async () => {
     if (!closed) {
@@ -44,7 +44,6 @@ async function openFile(
       (offset > 0 && validator === undefined)
     )
       throw new FileError("CONFLICT", "Resume requires the unchanged file validator", current);
-    const resolved = await safe.resolve(path);
     async function* chunks(): AsyncGenerator<Buffer> {
       let position = offset;
       try {

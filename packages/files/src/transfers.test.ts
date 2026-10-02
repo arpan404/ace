@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { open, writeFile, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -67,7 +67,12 @@ it("streams a 200 MiB binary to a slow reader with bounded daemon RSS and no unc
   const f = await setup();
   const size = 200 * 1024 * 1024;
   const file = await open(join(f.root, "large.bin"), "w");
-  await file.truncate(size);
+  const block = randomBytes(CHUNK_SIZE);
+  const expected = createHash("sha256");
+  for (let offset = 0; offset < size; offset += block.length) {
+    await file.writeFile(block);
+    expected.update(block);
+  }
   await file.close();
   const server = await isolated(f.root, join(f.home, "isolated"));
   cleanup.push(() => server.close());
@@ -82,11 +87,28 @@ it("streams a 200 MiB binary to a slow reader with bounded daemon RSS and no unc
   client.send({ type: "test.metrics" });
   expect(await client.next()).toMatchObject({ type: "test.metrics" });
   const digest = createHash("sha256");
-  const trailer = await receive(client, ready.channel, digest, 0, size);
+  const sink = await open(join(f.home, "slow-phone.bin"), "w");
+  let position = 0;
+  try {
+    while (position < size) {
+      client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
+      const frame = decodeFileFrame(z.instanceof(Buffer).parse(await client.next()));
+      expect(frame.offset).toBe(position);
+      digest.update(frame.bytes);
+      await sink.writeFile(frame.bytes);
+      await sink.sync(); // The receiver deliberately waits for durable storage before crediting.
+      position += frame.bytes.length;
+      if (position < size && position % (32 * CHUNK_SIZE) === 0) {
+        client.send({ type: "test.metrics" });
+        expect(await client.next()).toMatchObject({ type: "test.metrics" });
+      }
+    }
+  } finally {
+    await sink.close();
+  }
+  const trailer = End.parse(await client.next());
+  expect(trailer.offset).toBe(size);
   const receivedHash = digest.digest("hex");
-  const expected = createHash("sha256");
-  const zeros = Buffer.alloc(CHUNK_SIZE);
-  for (let offset = 0; offset < size; offset += zeros.length) expected.update(zeros);
   expect(receivedHash).toBe(expected.digest("hex"));
   expect(trailer.sha256).toBe(receivedHash);
   client.send({ type: "test.metrics" });
@@ -267,4 +289,28 @@ it("preserves retained public download chunks after subsequent reads", async () 
   } finally {
     await download.close();
   }
+});
+
+it("enforces the default transfer cap across devices and releases completed slots", async () => {
+  const f = await setup();
+  await writeFile(join(f.root, "a"), "data");
+  const clients = await Promise.all(Array.from({ length: 5 }, () => f.connect()));
+  const channels = [];
+  for (const client of clients.slice(0, 4))
+    channels.push(Ready.parse(await client.request({ op: "download", path: "a", offset: 0 })));
+  const fifth = clients.at(4);
+  const first = clients.at(0);
+  const channel = channels.at(0);
+  if (!fifth || !first || !channel) throw new Error("Missing clients");
+  expect(await fifth.request({ op: "download", path: "a", offset: 0 })).toMatchObject({
+    code: "BUSY",
+  });
+  first.send({ type: "files.credit", channel: channel.channel, credits: 1 });
+  expect(decodeFileFrame(z.instanceof(Buffer).parse(await first.next())).bytes.toString()).toBe(
+    "data",
+  );
+  expect(await first.next()).toMatchObject({ type: "files.end" });
+  expect(await fifth.request({ op: "download", path: "a", offset: 0 })).toMatchObject({
+    type: "files.ready",
+  });
 });

@@ -19,17 +19,21 @@ export function checkVersion(current: string | null, expected: string | null): v
   if (current !== expected) throw new FileError("CONFLICT", "File version changed", current);
 }
 export interface FilesOptions {
+  exclusiveRename?: import("./exclusive-rename.ts").ExclusiveRename;
   workspace: string;
   dataDir: string;
   artifactRoots?: string[];
   now(): number;
   id(): string;
   authorize(device: string, capability: "files.read" | "files.write"): boolean;
+  exportRaw?(device: string, blobRef: string, assertAuthorized: () => void): Promise<string>;
+  exportOutput?(device: string, streamId: string, assertAuthorized: () => void): Promise<string>;
   onChange?(change: WorkspaceFileChange): void;
   maxTransfers?: number;
   maxUploadBytes?: number;
   maxReservedBytes?: number;
   maxTrashBytes?: number;
+  maxArtifactBytes?: number;
   retentionMs?: number;
 }
 export interface Download {

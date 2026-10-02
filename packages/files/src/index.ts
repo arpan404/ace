@@ -7,3 +7,7 @@ export { attachFilesChannel } from "./socket.ts";
 export { attachFilesRelay } from "./relay.ts";
 export type { BinaryUploadDestination, FilesTransport } from "./transport.ts";
 export type { FilesRelayChannel } from "./relay.ts";
+
+export { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
+
+export { createBlobExport } from "./blob-export.ts";

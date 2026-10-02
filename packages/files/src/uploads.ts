@@ -1,6 +1,7 @@
-import { open, rename, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { SafeRoot } from "@ace/workspace";
+import type { ExclusiveRename } from "./exclusive-rename.ts";
+import { lstat, open, rename, rm } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
+import { GitIgnore, SafeRoot, walkWorkspace } from "@ace/workspace";
 import { Catalog, UploadRecord } from "./catalog.ts";
 import {
   checkedTarget,
@@ -16,16 +17,19 @@ export class Uploads {
   private readonly safe: SafeRoot;
   private readonly catalog: Catalog;
   private readonly options: FilesOptions;
-  constructor(safe: SafeRoot, catalog: Catalog, options: FilesOptions) {
+  private readonly exclusive: ExclusiveRename;
+  constructor(safe: SafeRoot, catalog: Catalog, options: FilesOptions, exclusive: ExclusiveRename) {
     this.safe = safe;
     this.catalog = catalog;
     this.options = options;
+    this.exclusive = exclusive;
   }
   private record(id: string, device: string): UploadRecord {
     const record = UploadRecord.parse(this.catalog.get(id));
     if (record.device !== device)
       throw new FileError("FORBIDDEN", "Upload belongs to another device");
     if (record.expires <= this.options.now()) throw new FileError("EXPIRED", "Upload expired");
+    if (record.cleanup) throw new FileError("ABORTED", "Upload cleanup is pending");
     return record;
   }
   async begin(device: string, path: string, expected: string | null, size: number) {
@@ -40,9 +44,9 @@ export class Uploads {
     const id = newId(this.options.id);
     const temp = `.ace-upload-${id}`;
     const handle = await open(join(dirname(target.path), temp), "wx", 0o600);
+    let registered: UploadRecord | undefined;
     try {
       const info = await handle.stat();
-      await target.verify();
       const record: UploadRecord = {
         id,
         kind: "upload",
@@ -50,13 +54,25 @@ export class Uploads {
         temp,
         device,
         expected,
+        cleanup: false,
         bytes: size,
         identity: `${info.dev}:${info.ino}`,
         expires: this.options.now() + (this.options.retentionMs ?? 7 * 86400_000),
       };
       this.catalog.put(record);
+      registered = record;
+      await target.verify();
     } catch (error) {
-      await rm(join(dirname(target.path), temp), { force: true });
+      if (registered) await this.remove(registered);
+      else {
+        const own = await handle.stat();
+        const current = await lstat(join(dirname(target.path), temp)).catch((problem: unknown) => {
+          if (codeOf(problem) === "ENOENT") return undefined;
+          throw problem;
+        });
+        if (current?.isFile() && current.dev === own.dev && current.ino === own.ino)
+          await rm(join(dirname(target.path), temp));
+      }
       throw error;
     } finally {
       await handle.close();
@@ -107,7 +123,9 @@ export class Uploads {
       await handle.sync();
       await target.verify();
       await verify();
-      await rename(join(dirname(target.path), record.temp), target.path);
+      const temp = join(dirname(target.path), record.temp);
+      if (record.expected === null) await this.exclusive.move(temp, target.path);
+      else await rename(temp, target.path);
       await target.verify();
       this.catalog.delete(id);
       return record.path;
@@ -129,17 +147,63 @@ export class Uploads {
     }
   }
   async remove(record: UploadRecord): Promise<void> {
+    await this.removeMany([record]);
+  }
+  /** Missing/replaced files keep their durable reservation until their inode is removed. */
+  async removeMany(records: UploadRecord[]): Promise<void> {
+    for (const record of records) this.catalog.markUploadCleanup(record.id);
+    const debt = new Map(records.map((record) => [record.temp, record]));
+    const removeAt = async (record: UploadRecord, destination: string): Promise<boolean> => {
+      try {
+        const target = await this.safe.target(destination);
+        const temp = join(dirname(target.path), record.temp);
+        const info = await lstat(temp);
+        if (!info.isFile() || `${info.dev}:${info.ino}` !== record.identity) return false;
+        await target.verify();
+        // Recheck after parent verification; never unlink a replacement inode.
+        const current = await lstat(temp);
+        if (!current.isFile() || `${current.dev}:${current.ino}` !== record.identity) return false;
+        await rm(temp);
+        await target.verify();
+        this.catalog.delete(record.id);
+        return true;
+      } catch (error) {
+        if (
+          [
+            "ENOENT",
+            "NOT_FOUND",
+            "PATH_ESCAPE",
+            "PATH_CHANGED",
+            "NOT_DIRECTORY",
+            "INVALID_PATH",
+            "ENOTDIR",
+          ].includes(codeOf(error))
+        )
+          return false;
+        throw error;
+      }
+    };
+    for (const record of records) if (await removeAt(record, record.path)) debt.delete(record.temp);
+    if (!debt.size) return;
+    // One bounded traversal per cleanup batch, including ignored directories, never links.
+    const ignore = await GitIgnore.create(this.safe);
     try {
-      const target = await this.safe.target(record.path);
-      await target.verify();
-      await rm(join(dirname(target.path), record.temp), { force: true });
-      await target.verify();
+      for await (const entry of walkWorkspace(this.safe, ignore, {
+        dir: "",
+        depth: Number.MAX_SAFE_INTEGER,
+        includeIgnored: true,
+        exclude: () => false,
+      })) {
+        if (entry.type !== "file") continue;
+        const record = debt.get(basename(entry.path));
+        if (record && (await removeAt(record, join(dirname(entry.path), basename(record.path)))))
+          debt.delete(record.temp);
+        if (!debt.size) break;
+      }
     } catch (error) {
-      // Expiry must not prevent daemon startup when an agent removed or relocated
-      // a parent. Never follow that parent outside the workspace to find the temp.
-      if (!["ENOENT", "NOT_FOUND", "PATH_ESCAPE", "PATH_CHANGED"].includes(codeOf(error)))
+      // A capped or raced scan leaves debt accounted for; future sweeps can retry.
+      if (!["LIMIT_EXCEEDED", "NOT_FOUND", "PATH_CHANGED", "PATH_ESCAPE"].includes(codeOf(error)))
         throw error;
     }
-    this.catalog.delete(record.id);
   }
 }

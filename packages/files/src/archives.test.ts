@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, open, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -38,7 +38,12 @@ it("streams a folder archive with bounded RSS and excludes ignored files and sym
   await writeFile(join(f.root, "nested", "text"), "archive text");
   await symlink(f.home, join(f.root, "link"));
   const large = await open(join(f.root, "binary"), "w");
-  await large.truncate(200 * 1024 * 1024);
+  const binaryBlock = randomBytes(CHUNK_SIZE);
+  const expected = createHash("sha256");
+  for (let i = 0; i < 3200; i++) {
+    await large.writeFile(binaryBlock);
+    expected.update(binaryBlock);
+  }
   await large.close();
   const server = await isolated(f.root, join(f.home, "isolated"));
   cleanup.push(() => server.close());
@@ -102,8 +107,7 @@ it("streams a folder archive with bounded RSS and excludes ignored files and sym
   } finally {
     await handle.close();
   }
-  const expected = createHash("sha256");
-  for (let i = 0; i < 3200; i++) expected.update(Buffer.alloc(CHUNK_SIZE));
+
   expect(hash.digest("hex")).toBe(expected.digest("hex"));
 }, 120_000);
 
@@ -181,7 +185,7 @@ it("reports a changed root directory without crashing while an archive waits for
   client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
   expect(await client.next()).toMatchObject({ code: "CONFLICT" });
 });
-it("archives long UTF-8 filenames with interoperable PAX headers and previews files beyond 8 GiB", async () => {
+it("streams interoperable PAX archives with long UTF-8 names and complete files beyond 8 GiB", async () => {
   const f = await setup();
   const client = await f.connect();
   const name = "界".repeat(70);
@@ -218,6 +222,27 @@ it("archives long UTF-8 filenames with interoperable PAX headers and previews fi
   const transfer = Ready.parse(
     await client.request({ op: "archive.download", previewId: big.value.previewId }),
   );
-  client.send({ type: "files.cancel", channel: transfer.channel });
-  expect(await client.next()).toMatchObject({ type: "files.cancelled" });
-});
+  const largeArchive = join(f.home, "large.tar.gz");
+  const largeOutput = await open(largeArchive, "w");
+  const digest = createHash("sha256");
+  let offset = 0;
+  try {
+    for (;;) {
+      client.send({ type: "files.credit", channel: transfer.channel, credits: 1 });
+      const next = await client.next();
+      if (!Buffer.isBuffer(next)) {
+        expect(next).toMatchObject({ type: "files.end", offset, sha256: digest.digest("hex") });
+        break;
+      }
+      const frame = decodeFileFrame(next);
+      await largeOutput.writeFile(frame.bytes);
+      digest.update(frame.bytes);
+      offset += frame.bytes.length;
+    }
+  } finally {
+    await largeOutput.close();
+  }
+  const listing = (await run("tar", ["-tvzf", largeArchive])).stdout;
+  expect(listing).toContain(String(9 * 1024 ** 3));
+  expect(listing).toContain("huge");
+}, 600_000);
