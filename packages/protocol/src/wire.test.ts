@@ -63,3 +63,93 @@ describe("wire schemas", () => {
     ).toBe(false);
   });
 });
+
+it("decodes every own snapshot entity key without losing prototype-like identifiers", () => {
+  const thread = {
+    id: "__proto__",
+    workspaceId: "w",
+    title: "Title",
+    provider: "codex",
+    status: { state: "working", agents: 1 },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const agent = {
+    id: "__proto__",
+    threadId: "__proto__",
+    parentId: null,
+    origin: "root",
+    native: { provider: "codex" },
+    fidelity: "full",
+    cwd: "/repo",
+    status: { state: "working", activity: "starting_turn" },
+    background: false,
+    createdAt: 1,
+  };
+  const rows = {
+    agents: agent,
+    agentChildren: ["child"],
+    runs: {
+      id: "__proto__",
+      threadId: "__proto__",
+      agentId: "__proto__",
+      trigger: "user",
+      state: "active",
+      startedAt: 1,
+    },
+    items: {
+      id: "__proto__",
+      agentId: "__proto__",
+      type: "notice",
+      level: "info",
+      text: "Preserve me",
+      complete: true,
+      raw: [],
+      createdAt: 1,
+    },
+    interactions: {
+      id: "__proto__",
+      threadId: "__proto__",
+      agentId: "__proto__",
+      blocking: true,
+      request: { kind: "approval", title: "Allow?", options: [] },
+      state: "pending",
+      raw: [],
+      createdAt: 1,
+    },
+    backgroundTasks: {
+      id: "__proto__",
+      agentId: "__proto__",
+      kind: "shell",
+      title: "Build",
+      status: "running",
+      stoppable: true,
+      ambient: false,
+      raw: [],
+      startedAt: 1,
+    },
+    usage: { type: "usage.updated", agentId: "__proto__", inputTokens: 1, outputTokens: 2 },
+  };
+  const view = {
+    kind: "thread",
+    seq: 3,
+    thread,
+    ...Object.fromEntries(Object.entries(rows).map(([key, row]) => [key, { ["__proto__"]: row }])),
+    itemOrder: ["__proto__"],
+    itemsBefore: null,
+  };
+  const snapshot = { type: "snapshot", subscriptionId: "s", seq: 3, view };
+  expect(ServerMessage.parse(JSON.parse(JSON.stringify(snapshot)))).toEqual(snapshot);
+  const sidebar = {
+    type: "snapshot",
+    subscriptionId: "s",
+    seq: 3,
+    view: { kind: "threads", seq: 3, threads: { ["__proto__"]: thread } },
+  };
+  expect(ServerMessage.parse(JSON.parse(JSON.stringify(sidebar)))).toEqual(sidebar);
+  const invalid = {
+    ...snapshot,
+    view: { ...view, items: { ["__proto__"]: { ...rows.items, text: 123 } } },
+  };
+  expect(ServerMessage.safeParse(invalid).success).toBe(false);
+});

@@ -52,7 +52,7 @@ export class Store {
     this.db = options.database ?? new DatabaseSync(path);
     this.nextId = options.nextId ?? randomUUID;
     this.now = options.now ?? Date.now;
-    this.payloads = new PayloadStore(this.db, this.nextId);
+    this.payloads = new PayloadStore(this.db, this.nextId, (sql) => this.statement(sql));
     this.status = new StatusStore(this.db);
     try {
       this.db.exec(
