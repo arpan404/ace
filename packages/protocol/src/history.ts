@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContentPart } from "./items.ts";
 import { NativeRef } from "./provider.ts";
 import { ThreadId, WorkspaceId, Timestamp } from "./ids.ts";
 
@@ -53,6 +54,34 @@ export const HistoryImportResponse = z.discriminatedUnion("status", [
   }),
   z.object({
     type: z.literal("history.import"),
+    status: z.literal("unsupported"),
+    reason: z.string(),
+  }),
+]);
+
+export const HistoryScanRequest = z.object({ type: z.literal("history.scan") });
+export const HistoryScanResponse = z.object({
+  type: z.literal("history.scan"),
+  files: z.number().int().nonnegative(),
+  unsupported: z.array(z.object({ instanceId: z.string(), reason: z.string() })).max(256),
+});
+export const HistoryContinueRequest = z.object({
+  type: z.literal("history.continue"),
+  threadId: ThreadId,
+  mode: z.enum(["resume", "fork"]),
+  input: z.array(ContentPart).max(64),
+  delivery: z.enum(["steer", "queue"]).default("queue"),
+});
+export const HistoryContinueResponse = z.discriminatedUnion("status", [
+  z.object({
+    type: z.literal("history.continue"),
+    status: z.literal("continued"),
+    threadId: ThreadId,
+    instanceId: z.string(),
+    nativeSessionId: z.string(),
+  }),
+  z.object({
+    type: z.literal("history.continue"),
     status: z.literal("unsupported"),
     reason: z.string(),
   }),

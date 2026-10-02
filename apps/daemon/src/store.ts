@@ -1,3 +1,6 @@
+import { setImmediate } from "node:timers/promises";
+import type { ArchiveReader } from "@ace/history-import";
+import { installArchive, readHistoryBlob } from "./history-storage.ts";
 import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync, type StatementSync, type SQLOutputValue } from "node:sqlite";
@@ -39,6 +42,8 @@ export class Store {
   private closed = false;
   private transactionEvents: Event[] | undefined;
   private depth = 0;
+  private installingHistory = false;
+  private historyWriting = false;
   private listeners = new Set<Listener>();
   private caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
   private publications: Event[][] = [];
@@ -98,6 +103,8 @@ export class Store {
     return Number(this.statement("SELECT seq FROM host_sequence WHERE id = 1").get()?.seq);
   }
   private transaction<T>(run: () => T): T {
+    if (this.installingHistory) return run();
+    if (this.historyWriting) throw new Error("History publication in progress");
     if (this.transactionEvents) {
       const length = this.transactionEvents.length;
       const savepoint = `nested_${++this.depth}`;
@@ -168,7 +175,55 @@ export class Store {
       this.publishing = false;
     }
   }
+  setHistoryWriting(active: boolean): void {
+    if (active && this.historyWriting) throw new Error("History publication in progress");
+    this.historyWriting = active;
+    // Main-thread writes fail immediately while the worker holds the import transaction.
+    this.db.exec(active ? "PRAGMA busy_timeout=0" : "PRAGMA busy_timeout=5000");
+  }
+  installHistory(archive: ArchiveReader, at: number, cancelled: () => boolean): void {
+    if (this.transactionEvents || this.installingHistory) throw new Error("Store is busy");
+    this.db.exec("BEGIN IMMEDIATE");
+    this.installingHistory = true;
+    try {
+      installArchive(
+        this.db,
+        archive,
+        (payload) => {
+          this.appendEvents(archive.thread.id, [payload], at);
+        },
+        cancelled,
+      );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    } finally {
+      this.installingHistory = false;
+    }
+  }
+  async notifyHistory(after: number): Promise<void> {
+    const through = this.headSeq();
+    while (after < through) {
+      const events = this.readEvents({ afterSeq: after, limit: 16 });
+      if (!events.length) throw new Error("Missing committed history events");
+      this.publish(events);
+      after = events.at(-1)?.seq ?? through;
+      await setImmediate();
+    }
+  }
+  getWorkspace(id: WorkspaceId): { path: string } | undefined {
+    const row = this.statement("SELECT path FROM workspaces WHERE id=?").get(id);
+    return row ? { path: String(row.path) } : undefined;
+  }
+  importedSource(sourceId: string): Thread | undefined {
+    const row = this.statement(
+      "SELECT * FROM threads WHERE json_extract(imported,'$.sourceId')=?",
+    ).get(sourceId);
+    return row ? this.decodeThread(row) : undefined;
+  }
   createWorkspace(path: string, name: string, at = this.now()): WorkspaceId {
+    if (this.historyWriting) throw new Error("History publication in progress");
     const existing = this.statement("SELECT id FROM workspaces WHERE path = ?").get(path);
     if (existing) return WorkspaceId.parse(existing.id);
     const id = WorkspaceId.parse(this.nextId());
@@ -190,6 +245,7 @@ export class Store {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       ...(row.archived_at === null ? {} : { archivedAt: row.archived_at }),
+      ...(row.imported == null ? {} : { imported: JSON.parse(String(row.imported)) }),
       ...(row.root_agent_id === null ? {} : { rootAgentId: row.root_agent_id }),
     });
   }
@@ -211,7 +267,7 @@ export class Store {
           if (thread.id !== threadId || this.getThread(threadId))
             throw new Error("Invalid thread creation");
           this.statement(
-            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, imported) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
           ).run(
             thread.id,
             thread.workspaceId,
@@ -220,6 +276,7 @@ export class Store {
             JSON.stringify(thread.status),
             thread.createdAt,
             event.at,
+            thread.imported ? JSON.stringify(thread.imported) : null,
           );
         } else {
           const existing = this.getThread(threadId);
@@ -357,6 +414,10 @@ export class Store {
   }
   readOutput(streamId: string, offset: number, limit: number) {
     return this.payloads.readOutput(streamId, offset, limit);
+  }
+  readHistoryBlob(threadId: ThreadId, id: string, offset: number, limit: number) {
+    if (!this.getThread(threadId)) throw new Error("Unknown thread");
+    return readHistoryBlob(this.db, threadId, id, offset, limit);
   }
   deleteThread(id: ThreadId): void {
     this.transaction(() => {

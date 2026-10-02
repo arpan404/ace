@@ -1,3 +1,4 @@
+import type { DaemonHistory } from "./history.ts";
 import type { ModelCatalogApi } from "@ace/models";
 import { handleModelRequest } from "./models.ts";
 import { randomUUID } from "node:crypto";
@@ -47,6 +48,7 @@ const closeListener = (listener: Server) =>
   });
 
 export interface ServerOptions {
+  history?: Pick<DaemonHistory, "handle">;
   models?: ModelCatalogApi;
   port: number;
   remote?: RemoteListener;
@@ -146,6 +148,7 @@ export async function startServer(options: ServerOptions): Promise<{
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
     let modelRequests = 0;
+    const historyLifetime = new AbortController();
     if (cleanups.size >= 256) {
       socket.close(4009, "Connection limit");
       return;
@@ -161,6 +164,7 @@ export async function startServer(options: ServerOptions): Promise<{
       if (close) socket.close(4001, code);
     };
     const cleanup = () => {
+      historyLifetime.abort();
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -257,6 +261,34 @@ export async function startServer(options: ServerOptions): Promise<{
         return;
       }
       switch (message.type) {
+        case "history.scan":
+        case "history.list":
+        case "history.import":
+        case "history.continue": {
+          const scope = message.type === "history.list" ? "read" : "operate";
+          if (!allows(authenticated.get(socket), scope)) {
+            fail("forbidden", `${scope} scope required`);
+            break;
+          }
+          if (
+            message.type === "history.continue" &&
+            options.canReadThread?.(device, message.threadId) === false
+          ) {
+            fail("read_denied", "Thread is not readable");
+            break;
+          }
+          if (!options.history) {
+            fail("history_unavailable", "History is not configured");
+            break;
+          }
+          try {
+            send(await options.history.handle(message, historyLifetime.signal));
+          } catch {
+            fail("history_rejected", "History operation rejected");
+          }
+          break;
+        }
+
         case "models.list":
         case "models.resolve":
         case "models.refresh": {

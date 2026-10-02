@@ -68,6 +68,10 @@ const migrations = [
     json_quote(append)
   );
   CREATE TABLE text_encoding_migration (id INTEGER PRIMARY KEY);`,
+  `ALTER TABLE threads ADD COLUMN imported JSON;
+   CREATE UNIQUE INDEX imported_source ON threads(json_extract(imported,'$.sourceId')) WHERE imported IS NOT NULL;
+   CREATE TABLE history_blobs(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,size INTEGER NOT NULL);
+   CREATE TABLE history_blob_chunks(blob_id TEXT NOT NULL REFERENCES history_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));`,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");

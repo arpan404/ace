@@ -1,5 +1,15 @@
 import { z } from "zod";
 import {
+  HistoryListRequest,
+  HistoryListResponse,
+  HistoryImportRequest,
+  HistoryImportResponse,
+  HistoryScanRequest,
+  HistoryScanResponse,
+  HistoryContinueRequest,
+  HistoryContinueResponse,
+} from "./history.ts";
+import {
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -68,6 +78,10 @@ export const ItemsPage = z.object({
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  HistoryListRequest,
+  HistoryImportRequest,
+  HistoryScanRequest,
+  HistoryContinueRequest,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -118,6 +132,10 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  HistoryListResponse,
+  HistoryImportResponse,
+  HistoryScanResponse,
+  HistoryContinueResponse,
   ModelsResult,
   NotificationMessage,
   z.object({

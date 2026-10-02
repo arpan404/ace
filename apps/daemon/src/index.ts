@@ -1,3 +1,4 @@
+import { openDaemonHistory, type DaemonHistory, type DaemonHistoryOptions } from "./history.ts";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
@@ -29,6 +30,7 @@ export async function startDaemon(
   toolkits: readonly Toolkit[] = [],
   notificationChannels?: Omit<NotificationChannels, "websocket">,
   modelInstances: readonly InstanceInput[] = [],
+  historyOptions?: DaemonHistoryOptions,
 ): Promise<{
   url: string;
   tokenPath: string;
@@ -43,6 +45,7 @@ export async function startDaemon(
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
   let store: Store | undefined;
+  let history: DaemonHistory | undefined;
   let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
@@ -64,7 +67,11 @@ export async function startDaemon(
           } finally {
             try {
               try {
-                await models?.close();
+                try {
+                  await history?.close();
+                } finally {
+                  await models?.close();
+                }
               } finally {
                 store?.close();
               }
@@ -86,6 +93,7 @@ export async function startDaemon(
     store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
       log("error", "Event subscriber failed", error),
     );
+    if (historyOptions) history = await openDaemonHistory(config.dataDir, store, historyOptions);
     models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
@@ -106,6 +114,7 @@ export async function startDaemon(
       hostId,
       store,
       handler,
+      ...(history ? { history } : {}),
       models,
       notifications: notifications.service,
       log: (error) => log("error", "WebSocket failure", error),
@@ -136,3 +145,6 @@ export async function startDaemon(
     throw error;
   }
 }
+
+export { readHistoryInstances, type DaemonHistoryOptions } from "./history.ts";
+export type { HistoryAdapterPort } from "./history-continuation.ts";
