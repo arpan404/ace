@@ -2,9 +2,13 @@
   "name": "@ace/daemon",
   "private": true,
   "license": "Apache-2.0",
+  "bin": {
+    "ace": "./src/cli.ts"
+  },
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./client-access": "./src/client-access.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -13,6 +17,7 @@
   "dependencies": {
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "qrcode-generator": "2.0.4",
     "ws": "^8.18.3"
   },
   "devDependencies": {
