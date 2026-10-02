@@ -7,6 +7,8 @@ import { OpenCodeServer, type ServerOptions } from "./server.ts";
 import { OpenCodeSession } from "./session.ts";
 import { OpenCodeTranslator } from "./translator.ts";
 export { OpenCodeTranslator } from "./translator.ts";
+export type { ServerOptions } from "./server.ts";
+export type { Runtime } from "./runtime.ts";
 export { OpenCodeServer } from "./server.ts";
 export function createOpenCodeAdapter(
   options: ServerOptions = {},

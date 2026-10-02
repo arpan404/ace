@@ -1,34 +1,28 @@
-import { randomBytes } from "node:crypto";
-import { createServer } from "node:net";
-import { discoverProviders, type DiscoveryOptions } from "@ace/provider-kit/discovery";
-import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
-import { readSse } from "@ace/provider-kit/sse";
+import { type DiscoveryOptions } from "@ace/provider-kit/discovery";
+import { type SupervisedProcess } from "@ace/provider-kit/process";
+import { jsonArray } from "./json-array.ts";
+import { RecentMap } from "./cache.ts";
+import { runtime, type Runtime } from "./runtime.ts";
 import type { Frame } from "@ace/engine-api";
 import { supportedVersion } from "./capabilities.ts";
 import { object, string } from "./data.ts";
 export type ServerConsumer = {
+  accepts(data: unknown): boolean;
   receive(data: unknown): void;
   frame(dir: Frame["dir"], channel: string, data: unknown): void;
   disconnected(): void;
-  buffered(data: unknown): void;
+  buffered(data: unknown): boolean;
+  reconcile(data: unknown): void;
   recovered(): void;
   resync(): Promise<void>;
   exited(deliberate: boolean, message?: string): void;
 };
-export type ServerOptions = { discovery?: DiscoveryOptions; startupTimeoutMs?: number };
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Cannot allocate OpenCode port");
-  await new Promise<void>((resolve, reject) =>
-    server.close((error) => (error ? reject(error) : resolve())),
-  );
-  return address.port;
-}
+export type ServerOptions = {
+  discovery?: DiscoveryOptions;
+  startupTimeoutMs?: number;
+  shutdownTimeoutMs?: number;
+  runtime?: Partial<Runtime>;
+};
 /** One owner per adapter instance, shared by all thread sessions. */
 export class OpenCodeServer {
   private consumers = new Set<ServerConsumer>();
@@ -43,11 +37,16 @@ export class OpenCodeServer {
   private recovering = false;
   private buffered: unknown[] = [];
   private recovery: Promise<void> | undefined;
-  private sequences = new Map<string, number>();
+  private sequences = new RecentMap<number>(1024);
   private pendingLogs: { dir: Frame["dir"]; channel: string; data: unknown }[] = [];
   private options: ServerOptions;
+  readonly runtime: Runtime;
+  get shutdownTimeoutMs(): number {
+    return this.options.shutdownTimeoutMs ?? 1000;
+  }
   constructor(options: ServerOptions = {}) {
     this.options = options;
+    this.runtime = runtime(options.runtime);
   }
   subscribe(consumer: ServerConsumer): () => void {
     this.consumers.add(consumer);
@@ -69,15 +68,15 @@ export class OpenCodeServer {
     await this.opening;
   }
   private async start(): Promise<void> {
-    const cli = (await discoverProviders(this.options.discovery)).opencode;
+    const cli = (await this.runtime.discover(this.options.discovery)).opencode;
     if (!cli.installed || !cli.path) throw new Error(cli.error ?? "OpenCode is not installed");
     if (!supportedVersion(cli.version)) throw new Error("OpenCode >=1.18.33 and <2 is required");
     this.controller.signal.throwIfAborted();
-    const password = randomBytes(32).toString("base64url");
-    const port = await freePort();
+    const password = this.runtime.entropy(32);
+    const port = await this.runtime.port();
     this.controller.signal.throwIfAborted();
     this.authorization = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
-    const proc = spawnSupervised({
+    const proc = this.runtime.spawn({
       command: cli.path,
       args: ["serve", "--hostname", "127.0.0.1", "--port", String(port)],
       env: {
@@ -91,8 +90,10 @@ export class OpenCodeServer {
     });
     this.process = proc;
     const log = (dir: Frame["dir"], channel: string, data: unknown) => {
-      if (!this.consumers.size) this.pendingLogs.push({ dir, channel, data });
-      else for (const c of this.consumers) c.frame(dir, channel, data);
+      if (!this.consumers.size) {
+        this.pendingLogs.push({ dir, channel, data });
+        if (this.pendingLogs.length > 256) this.pendingLogs.shift();
+      } else for (const c of this.consumers) c.frame(dir, channel, data);
     };
     proc.stdout.on("line", (line) => log("recv", "stdout", line));
     proc.stderr.on("line", (line) => log("stderr", "stderr", line));
@@ -102,7 +103,7 @@ export class OpenCodeServer {
     });
     try {
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
+        const cancel = this.runtime.schedule(() => {
           cleanup();
           reject(new Error("OpenCode startup timed out"));
         }, this.options.startupTimeoutMs ?? 30_000);
@@ -118,7 +119,7 @@ export class OpenCodeServer {
           reject(new Error("OpenCode exited before listening"));
         };
         const cleanup = () => {
-          clearTimeout(timer);
+          cancel();
           proc.stdout.off("line", onLine);
           proc.signal.removeEventListener("abort", onAbort);
         };
@@ -128,7 +129,7 @@ export class OpenCodeServer {
       });
       let connected: (() => void) | undefined;
       const connection = new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
+        const cancel = this.runtime.schedule(() => {
           cleanup();
           reject(new Error("OpenCode SSE handshake timed out"));
         }, this.options.startupTimeoutMs ?? 30_000);
@@ -137,7 +138,7 @@ export class OpenCodeServer {
           reject(new Error("OpenCode exited during SSE handshake"));
         };
         const cleanup = () => {
-          clearTimeout(timer);
+          cancel();
           this.controller.signal.removeEventListener("abort", onAbort);
         };
         connected = () => {
@@ -146,7 +147,7 @@ export class OpenCodeServer {
         };
         this.controller.signal.addEventListener("abort", onAbort, { once: true });
       });
-      this.stream = readSse(new URL("/global/event", this.base), {
+      this.stream = this.runtime.stream(new URL("/global/event", this.base), {
         signal: this.controller.signal,
         headers: { authorization: this.authorization },
         onEvent: ({ data }) => {
@@ -172,7 +173,12 @@ export class OpenCodeServer {
             }
           }
           if (this.recovering) {
-            this.buffered.push(parsed);
+            if ([...this.consumers].some((c) => c.accepts(parsed))) this.buffered.push(parsed);
+            if (this.buffered.length > 4096) {
+              this.controller.abort();
+              void proc.stop({ graceMs: 0 });
+              return;
+            }
             if (p.type === "server.connected") void this.recover();
           } else for (const c of this.consumers) c.receive(parsed);
         },
@@ -205,20 +211,22 @@ export class OpenCodeServer {
   private recover(): Promise<void> {
     this.recovery ??= (async () => {
       try {
-        let changed: boolean;
-        do {
+        // A foreign project must never extend this thread's recovery. Two snapshot
+        // passes bound work even when an owned stream remains continuously active.
+        for (let pass = 0; pass < 2; pass++) {
           for (const c of this.consumers) await c.resync();
           const buffered = this.buffered.splice(0);
-          changed = buffered.some(
-            (data) =>
-              !["server.connected", "server.heartbeat"].includes(
-                string(object(object(data).payload).type),
-              ),
-          );
-          // REST snapshots include some stream deltas received during the read.
-          // Retain those frames as raw evidence, then refetch until the stream is quiet.
-          for (const data of buffered) for (const c of this.consumers) c.buffered(data);
-        } while (changed && !this.controller.signal.aborted);
+          let changed = false;
+          for (const data of buffered)
+            for (const c of this.consumers) if (c.buffered(data)) changed = true;
+          if (!changed || pass === 1) {
+            // Full settlement updates are idempotent. Deltas are raw evidence only:
+            // the snapshot may already contain them. The next live full part update
+            // reconciles content without an unbounded wait for a quiet global stream.
+            for (const data of buffered) for (const c of this.consumers) c.reconcile(data);
+            break;
+          }
+        }
         this.recovering = false;
         for (const c of this.consumers) c.recovered();
       } catch {
@@ -230,26 +238,53 @@ export class OpenCodeServer {
     })();
     return this.recovery;
   }
-  async request(
+  private async response(
     method: string,
     path: string,
     directory: string,
     body: unknown,
     frame: (dir: Frame["dir"], channel: string, data: unknown) => void,
     signal: AbortSignal,
-  ): Promise<unknown> {
+  ): Promise<Response> {
     signal.throwIfAborted();
     await this.ready();
     signal.throwIfAborted();
     const url = new URL(path, this.base);
     url.searchParams.set("directory", directory);
     frame("send", "http", { method, path, ...(body === undefined ? {} : { body }) });
-    const response = await fetch(url, {
+    const response = await this.runtime.fetch(url, {
       method,
       headers: { authorization: this.authorization, "content-type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: AbortSignal.any([signal, this.controller.signal]),
     });
+    return response;
+  }
+  async *history(
+    path: string,
+    directory: string,
+    frame: ServerConsumer["frame"],
+    signal: AbortSignal,
+  ): AsyncGenerator<unknown> {
+    const response = await this.response("GET", path, directory, undefined, frame, signal);
+    if (!response.ok || !response.body) {
+      frame("recv", "http", { method: "GET", path, status: response.status });
+      throw new Error(`OpenCode history: HTTP ${response.status}`);
+    }
+    for await (const message of jsonArray(response.body)) {
+      frame("recv", "http", { method: "GET", path, status: response.status, body: [message] });
+      yield message;
+    }
+  }
+  async request(
+    method: string,
+    path: string,
+    directory: string,
+    body: unknown,
+    frame: ServerConsumer["frame"],
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const response = await this.response(method, path, directory, body, frame, signal);
     const text = await response.text();
     let result: unknown;
     try {

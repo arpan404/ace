@@ -20,6 +20,14 @@ let questions = [];
 let counter = 0;
 let connections = 0;
 let duringMessage;
+let streamHistory = false;
+let finishHistory;
+let onMessage;
+let historyReads = 0;
+const readWaiters = [];
+let stallAbort = false;
+const abortWaiters = [];
+let aborted = false;
 const emit = (data) => {
   for (const stream of streams) stream.write(`data: ${JSON.stringify(data)}\n\n`);
 };
@@ -66,6 +74,9 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (path === "/test/state") {
+    if (body.streamHistory) streamHistory = true;
+    if (body.onMessage) onMessage = body.onMessage;
+    if (body.stallAbort) stallAbort = true;
     if (body.duringMessage) duringMessage = body.duringMessage;
     if (body.statuses) Object.assign(statuses, body.statuses);
     if (body.messages) Object.assign(messages, body.messages);
@@ -73,6 +84,21 @@ const server = createServer(async (req, res) => {
     if (body.questions) questions = body.questions;
     if (body.permissions) permissions = body.permissions;
     reply(true);
+    return;
+  }
+  if (path === "/test/finish-history") {
+    finishHistory?.();
+    reply(true);
+    return;
+  }
+  if (path === "/test/history-reads") {
+    if (historyReads >= body.count) reply(true);
+    else readWaiters.push({ count: body.count, reply });
+    return;
+  }
+  if (path === "/test/abort-entered") {
+    if (aborted) reply(true);
+    else abortWaiters.push(reply);
     return;
   }
   if (path === "/test/requests") {
@@ -123,12 +149,27 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (operation === "message") {
+      historyReads++;
+      if (onMessage) emit(onMessage);
+      for (const waiter of readWaiters.splice(0)) {
+        if (historyReads >= waiter.count) waiter.reply(true);
+        else readWaiters.push(waiter);
+      }
       if (duringMessage?.sessionID === id) {
         emit(duringMessage.event);
         messages[id] = duringMessage.messages;
         duringMessage = undefined;
       }
-      reply(messages[id] ?? []);
+      if (streamHistory) {
+        streamHistory = false;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.write(`[${JSON.stringify(messages[id][0])},`);
+        finishHistory = () => res.end(`${JSON.stringify(messages[id][1])}]`);
+        return;
+      }
+      const before = url.searchParams.get("before");
+      const limit = Number(url.searchParams.get("limit") ?? Infinity);
+      reply((messages[id] ?? []).filter((m) => !before || m.info.id < before).slice(-limit));
       return;
     }
     if (operation === "prompt_async") {
@@ -142,6 +183,9 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (operation === "abort") {
+      aborted = true;
+      for (const respond of abortWaiters.splice(0)) respond(true);
+      if (stallAbort) return;
       statuses[id] = { type: "idle" };
       event("session.error", { sessionID: id, error: { name: "MessageAbortedError" } });
       event("session.status", { sessionID: id, status: statuses[id] });

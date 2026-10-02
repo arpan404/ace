@@ -1,7 +1,9 @@
-import { randomBytes } from "node:crypto";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
+import { HistoryReader } from "./history.ts";
+import { RecentMap } from "./cache.ts";
+import { OpenCodeTranslator } from "./translator.ts";
 import { messageId, promptBody } from "./input.ts";
 import { array, object, string } from "./data.ts";
 import { OpenCodeServer, eventSession } from "./server.ts";
@@ -14,22 +16,23 @@ export class OpenCodeSession implements ProviderSession {
   private reportedExit = false;
   private resynchronizing = false;
   private disconnected = false;
-  private delivered = new Set<string>();
-  private grace = new Map<string, ReturnType<typeof setTimeout>>();
+  private graceDeadline: number | undefined;
+  private cancelGrace: (() => void) | undefined;
+  private translator: OpenCodeTranslator;
   private ctx: SessionContext;
   private server: OpenCodeServer;
   private controller = new AbortController();
   private sequence = 0;
-  private startedAt = performance.now();
+  private startedAt: number;
   private known = new Set<string>();
-  private itemOwners = new Map<string, string>();
+  private itemOwners = new RecentMap<string>(1024);
+  private history: HistoryReader;
   private promptSequence = 0;
   private parents = new Map<string, string>();
-  private busy = new Set<string>();
-  private backgrounds = new Set<string>();
+
   private questions = new Map<string, unknown>();
   private queue: Queued[] = [];
-  private pendingPrompt = false;
+
   private unsubscribe: () => void = () => {};
   private opening = true;
   private buffer: unknown[] = [];
@@ -38,7 +41,12 @@ export class OpenCodeSession implements ProviderSession {
   private pumping = false;
   private constructor(ctx: SessionContext, server: OpenCodeServer, id: string) {
     this.ctx = ctx;
+    this.startedAt = server.runtime.monotonic();
+    this.translator = new OpenCodeTranslator({ threadId: ctx.threadId, rootKey: "root" });
     this.server = server;
+    this.history = new HistoryReader(server, ctx.cwd, this.emit, this.controller.signal, (data) =>
+      this.receive(data),
+    );
     this.nativeId = id;
     this.known.add(id);
     this.abortListener = () => {
@@ -55,16 +63,38 @@ export class OpenCodeSession implements ProviderSession {
     const session = new OpenCodeSession(ctx, server, ctx.resume?.nativeSessionId ?? "");
     // Subscribe before creation so early session/child announcements cannot be lost.
     session.unsubscribe = server.subscribe({
+      accepts: (data) => session.owns(data),
       receive: (data) => session.receive(data),
       frame: session.emit,
       disconnected: () => {
         session.disconnected = true;
-        session.emit("note", "lifecycle", { type: "disconnected" });
+        session.emit("note", "lifecycle", { type: "disconnected", transport: "lost" });
       },
-      buffered: (data) => session.emit("recv", "sse.buffered", data),
+      buffered: (data) => {
+        if (!session.owns(data)) return false;
+        session.emit("recv", "sse.buffered", data);
+        return !["server.connected", "server.heartbeat"].includes(
+          string(object(object(data).payload).type),
+        );
+      },
+      reconcile: (data) => {
+        if (!session.owns(data)) return;
+        const payload = object(object(data).payload);
+        const type = string(payload.type);
+        if (
+          type === "session.status" ||
+          type === "session.error" ||
+          type === "session.created" ||
+          type.startsWith("permission.") ||
+          type.startsWith("question.") ||
+          (type === "message.part.updated" &&
+            object(object(payload.properties).part).type === "tool")
+        )
+          session.receive(data);
+      },
       recovered: () => {
         session.disconnected = false;
-        session.emit("note", "lifecycle", { type: "resynced" });
+        session.emit("note", "lifecycle", { type: "resynced", transport: "restored" });
         void session.pump();
       },
       resync: () => session.resync(),
@@ -103,14 +133,56 @@ export class OpenCodeSession implements ProviderSession {
     }
   }
   private emit = (dir: Frame["dir"], channel: string, data: unknown): void => {
-    this.ctx.onFrame({
+    const t = Math.round(this.server.runtime.monotonic() - this.startedAt);
+    const clock: Frame = {
       seq: this.sequence++,
-      t: Math.round(performance.now() - this.startedAt),
-      dir,
-      channel,
-      data,
-    });
+      t,
+      dir: "note",
+      channel: "clock",
+      data: { wallTime: this.server.runtime.wallTime() },
+    };
+    this.translator.translate(clock, t);
+    this.ctx.onFrame(clock);
+    const frame: Frame = { seq: this.sequence++, t, dir, channel, data };
+    this.translator.translate(frame, t);
+    this.ctx.onFrame(frame);
   };
+  private owns(data: unknown): boolean {
+    const envelope = object(data);
+    if (
+      typeof envelope.directory === "string" &&
+      envelope.directory !== this.ctx.cwd &&
+      envelope.directory !== "global"
+    )
+      return false;
+    const payload = object(envelope.payload);
+    const info = object(object(payload.properties).info);
+    const id = eventSession(data) || string(info.id);
+    if (payload.type === "session.created" && this.known.has(string(info.parentID))) {
+      this.known.add(string(info.id));
+      this.parents.set(string(info.id), string(info.parentID));
+    }
+    return !id || this.known.has(id);
+  }
+  private armGrace(): void {
+    const deadline = this.translator.nextGraceDeadline();
+    if (deadline === this.graceDeadline) return;
+    this.graceDeadline = deadline;
+    this.cancelGrace?.();
+    if (deadline === undefined) {
+      this.cancelGrace = undefined;
+      return;
+    }
+    this.cancelGrace = this.server.runtime.schedule(
+      () => {
+        this.cancelGrace = undefined;
+        this.emit("note", "lifecycle", { type: "background.grace.expired" });
+        this.armGrace();
+        void this.pump();
+      },
+      Math.max(0, deadline - (this.server.runtime.monotonic() - this.startedAt)),
+    );
+  }
   private request(method: string, path: string, body?: unknown): Promise<unknown> {
     return this.server
       .request(method, path, this.ctx.cwd, body, this.emit, this.controller.signal)
@@ -131,44 +203,10 @@ export class OpenCodeSession implements ProviderSession {
       this.buffer.push(data);
       return;
     }
-    const envelope = object(data);
-    const payload = object(envelope.payload);
+    if (!this.owns(data)) return;
+    const payload = object(object(data).payload);
     const p = object(payload.properties);
-    const info = object(p.info);
-    const id = eventSession(data) || string(info.id);
-    if (payload.type === "session.created" && this.known.has(string(info.parentID))) {
-      this.known.add(string(info.id));
-      this.parents.set(string(info.id), string(info.parentID));
-    }
-    if (id && !this.known.has(id)) return;
-    if (
-      typeof envelope.directory === "string" &&
-      envelope.directory !== this.ctx.cwd &&
-      envelope.directory !== "global"
-    )
-      return;
     this.emit("recv", "sse", data);
-    if (payload.type === "session.status") {
-      if (object(p.status).type === "idle") {
-        this.busy.delete(id);
-        if (this.backgrounds.has(id) && !this.grace.has(id))
-          this.grace.set(
-            id,
-            setTimeout(() => {
-              this.grace.delete(id);
-              this.backgrounds.delete(id);
-              this.emit("note", "lifecycle", { type: "background.grace.expired", task: id });
-              void this.pump();
-            }, 3_000),
-          );
-      } else {
-        const timer = this.grace.get(id);
-        if (timer) clearTimeout(timer);
-        this.grace.delete(id);
-        this.busy.add(id);
-        if (id === this.nativeSessionId) this.pendingPrompt = false;
-      }
-    }
     if (payload.type === "question.asked" || payload.type === "permission.asked")
       this.questions.set(string(p.id), p);
     if (
@@ -176,27 +214,9 @@ export class OpenCodeSession implements ProviderSession {
     )
       this.questions.delete(string(p.requestID));
     const part = object(p.part);
-    const meta = object(object(part.state).metadata);
     if (typeof part.callID === "string" && typeof part.sessionID === "string")
       this.itemOwners.set(part.callID, part.sessionID);
-    if (
-      part.tool === "task" &&
-      meta.background === true &&
-      typeof meta.sessionId === "string" &&
-      !this.delivered.has(meta.sessionId)
-    )
-      this.backgrounds.add(meta.sessionId);
-    if (part.type === "text" && part.synthetic === true) {
-      const task = /^<task id="([^"]+)" state="(completed|error)">/.exec(string(part.text));
-      if (task) {
-        this.backgrounds.delete(string(task[1]));
-        this.delivered.add(string(task[1]));
-        const timer = this.grace.get(string(task[1]));
-        if (timer) clearTimeout(timer);
-        this.grace.delete(string(task[1]));
-        if (!this.resynchronizing) this.pendingPrompt = true;
-      }
-    }
+    this.armGrace();
     void this.pump();
   }
   async send(input: ContentPart[], delivery: "steer" | "queue"): Promise<void> {
@@ -214,16 +234,12 @@ export class OpenCodeSession implements ProviderSession {
       this.resynchronizing ||
       this.pumping ||
       this.closed ||
-      this.pendingPrompt ||
-      this.busy.size ||
-      this.backgrounds.size ||
-      this.questions.size
+      !this.translator.isSettled()
     )
       return;
     const next = this.queue.shift();
     if (!next) return;
     this.pumping = true;
-    this.pendingPrompt = true;
     try {
       await this.request(
         "POST",
@@ -231,13 +247,16 @@ export class OpenCodeSession implements ProviderSession {
         promptBody(
           next.input,
           this.ctx.cwd,
-          messageId(Date.now(), ++this.promptSequence, randomBytes(7).toString("hex")),
+          messageId(
+            this.server.runtime.wallTime(),
+            ++this.promptSequence,
+            this.server.runtime.entropy(7),
+          ),
           this.ctx.model,
         ),
       );
       next.resolve();
     } catch (error) {
-      this.pendingPrompt = false;
       next.reject(error instanceof Error ? error : new Error(String(error)));
     } finally {
       this.pumping = false;
@@ -313,16 +332,7 @@ export class OpenCodeSession implements ProviderSession {
           await visit(c.id);
         }
       }
-      for (const message of array(await this.request("GET", `/session/${id}/message`))) {
-        const m = object(message);
-        this.receive({
-          payload: { type: "message.updated", properties: { sessionID: id, info: m.info } },
-        });
-        for (const part of array(m.parts))
-          this.receive({
-            payload: { type: "message.part.updated", properties: { sessionID: id, part } },
-          });
-      }
+      await this.history.read(id);
     };
     await visit(this.nativeSessionId);
     for (const path of ["/permission", "/question"])
@@ -334,7 +344,6 @@ export class OpenCodeSession implements ProviderSession {
           },
         });
     const statuses = object(await this.request("GET", "/session/status"));
-    this.pendingPrompt = false;
     for (const id of this.known)
       this.receive({
         payload: {
@@ -347,26 +356,13 @@ export class OpenCodeSession implements ProviderSession {
   }
   async close(reason: "idle" | "user" | "shutdown"): Promise<void> {
     if (this.closed) return;
-    if (
-      reason === "idle" &&
-      (this.busy.size || this.backgrounds.size || this.pendingPrompt || this.questions.size)
-    )
+    const unsettled = !this.translator.isSettled();
+    if (reason === "idle" && unsettled)
       throw new Error("Cannot idle-close an unsettled OpenCode session");
     this.closed = true;
-    if (
-      reason !== "idle" &&
-      !this.reportedExit &&
-      (this.busy.size || this.backgrounds.size || this.pendingPrompt || this.questions.size)
-    ) {
-      try {
-        await this.interrupt({ cascade: true });
-      } catch {
-        /* Process teardown still owns cancellation after transport failure. */
-      }
-    }
+    // Local cancellation cannot depend on the provider accepting an abort.
     this.controller.abort();
-    for (const timer of this.grace.values()) clearTimeout(timer);
-    this.grace.clear();
+    this.cancelGrace?.();
     this.unsubscribe();
     this.ctx.signal.removeEventListener("abort", this.abortListener);
     for (const q of this.queue.splice(0)) q.reject(new Error("OpenCode session closed"));
@@ -375,6 +371,25 @@ export class OpenCodeSession implements ProviderSession {
       this.emit("note", "lifecycle", { type: "exited", deliberate: true });
       this.ctx.onExit({ deliberate: true });
     }
-    await this.server.release();
+    const abort = new AbortController();
+    const cancel = this.server.runtime.schedule(() => abort.abort(), this.server.shutdownTimeoutMs);
+    try {
+      if (reason !== "idle" && unsettled) {
+        for (const id of [...this.known].toReversed())
+          await this.server.request(
+            "POST",
+            `/session/${id}/abort`,
+            this.ctx.cwd,
+            {},
+            () => {},
+            abort.signal,
+          );
+      }
+    } catch {
+      /* Process teardown owns cancellation if abort fails or times out. */
+    } finally {
+      cancel();
+      await this.server.release();
+    }
   }
 }
