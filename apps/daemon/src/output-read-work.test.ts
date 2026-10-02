@@ -10,6 +10,7 @@ class ByteBudgetDatabase extends DatabaseSync {
     this.function("read_budget", (value) => {
       if (!(value instanceof Uint8Array)) throw new Error("Invalid body");
       if (this.remaining !== undefined) {
+        if (this.remaining === 0) throw new Error("Fetched output at EOF");
         this.remaining -= value.byteLength;
         if (this.remaining < 0) throw new Error("Fetched more output bytes than requested");
       }
