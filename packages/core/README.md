@@ -7,11 +7,11 @@ each entity kind. The daemon adds the event envelope and schedules `tick` facts.
 
 ```ts
 import { ThreadId } from "@ace/protocol";
-import { apply, createThreadState } from "@ace/core";
+import { apply, createThreadState, nextDeadline } from "@ace/core";
 
 const state = createThreadState({
   threadId: ThreadId.parse("thread_1"),
-  config: { silenceMs: 90_000 },
+  config: { provider: "codex", silenceMs: 90_000 },
 });
 let sequence = 0;
 const events = apply(
@@ -23,19 +23,33 @@ const events = apply(
   },
   { now: 1_000, ids: { next: (kind) => `${kind}_${++sequence}` } },
 );
+const deadline = nextDeadline(state);
+// Schedule a tick at deadline, if defined. Core never schedules timers itself.
 ```
 
 `ThreadState` contains ordinary JSON data: native-key dictionaries of agents,
-items, interactions and tasks, ace-keyed runs, pending spawn links, process
-state, queued-input count and the last derived statuses. Snapshot it with JSON
+items, current interactions and tasks, archived terminal interactions and tasks,
+ace-keyed runs, process state, queued-input count and the last derived statuses.
+Serializable indexes track live tools, pending interactions, running tasks,
+children and unresolved links. Status derivation visits live work and the agent
+tree without scanning historical transcript items. Snapshot the state with JSON
 and resume with the same id source position. An optional `rootAgent` initializer
 uses the `agent.seen` fields except `type`, `origin`, `parent` and `spawnedBy`.
 Its first event is emitted on the first `apply`, which supplies time and ids.
 
 Events own their data. Later facts and mutations of returned payloads do not
 change earlier events or the stored state. Facts and raw payloads must contain
-JSON data. Native keys are unique within an entity kind in a thread, even after
-a provider reconnects. Prototype property names such as `__proto__` are valid.
+JSON data. Namespace native keys and native turn ids by provider process, since
+providers restart counters. Reopening a terminal interaction or task key creates
+a new ace id and preserves the old row; duplicate live opens are ignored.
+Prototype property names such as `__proto__` are valid.
+
+`apply` validates provider facts before changing liveness, allocating their ids
+or creating placeholders. Invalid, contradictory or unknown facts produce a
+warning notice containing the raw fact and leave existing work untouched. If no
+agent exists, core materializes the configured root or a diagnostic placeholder
+to own the notice. Non-JSON values get descriptive markers in that diagnostic.
+Bad caller configuration and context remain programmer errors.
 
 ## Adapter contract
 
@@ -65,8 +79,8 @@ a provider reconnects. Prototype property names such as `__proto__` are valid.
   `"agent"` mode checks each agent's subtree instead.
 - Emit `process.exited` only when the process died. A transport disconnect that
   may recover should stop its heartbeat and let externally scheduled ticks
-  check silence. Core has no process restart fact; a new process gets a new
-  state, or the daemon restores a snapshot from before exit and resynchronizes.
+  check silence. On restart, emit `process.started` to clear the exit marker in
+  the same state. Settled agents remain settled; subsequent turns can resume.
 
 First item upserts must form a valid protocol item after defaults. Updates are
 partial patches; nested calls and same-kind details merge, while arrays replace.
@@ -88,15 +102,19 @@ The ordered rules in the milestone brief apply with these fixture refinements:
 - Pending and awaiting-approval tools count as live, as well as running tools.
 - An agent doing its own tool work stays working while a foreground child runs.
   Without its own tool work, its spawn call blocks on the child.
-- An active responding parent with a live background child waits for background
-  work, matching Cursor's held prompt.
+- A parent streaming its own response stays working while background children
+  run. Cursor's held prompt needs synthesized run boundaries in its adapter.
 - Silence uses the latest signal anywhere in the agent's subtree. Live tools,
   descendants, non-ambient tasks, interactions and retries suppress silence
   failure in the default mode. Transport mode instead uses the latest provider
   fact or heartbeat in the thread and can mark any unsettled agent unresponsive.
   Long commands and provider backoffs are healthy while heartbeats continue.
-- Any failed agent makes the thread failed after all other work settles, matching
-  OpenCode and Cursor. This differs from the brief's root-only failure rule.
+- A thread fails when its root's latest outcome failed, or a failure occurred
+  after the root's latest success. Earlier child failures remain visible on
+  those agents and do not defeat a later successful recovery.
+- Never-started children and placeholders become unresponsive after subtree
+  silence or when their spawning tool finishes. A configured root before the
+  first run leaves the thread new, unless higher-priority waiting work exists.
 
 The explicit thread precedence counts every starting or working child, including
 background children. Thus a finished root can wait on a background task while
@@ -114,9 +132,14 @@ outage, so pending interactions and live background tasks can outrank silence.
 
 ## Verification
 
-Run `bun run check` from the repository root. Tests parse every emitted payload
-and check that schema parsing preserves all fields. Direct status tests cover
-precedence; synthetic fixture scenarios cover false completion, interrupts,
-retries, approval races, reordered frames and snapshots. The 10,000-delta test
-includes parsing and a generous five-second budget for loaded machines, with
-settled agents and historical items present to exercise thread size.
+Run `bun run check` from the repository root. After every test application, the
+shared helper parses emitted payloads, folds a client view keyed by ace id and
+compares all published entities and thread status against the engine state.
+Tests assert on that view or events. Scenarios cover false completion,
+interrupts, retries, approval races, reordered frames, restarts and snapshots.
+The 10,000-delta test leaves a child silent past its threshold and requires only
+delta events, so an unnecessary status derivation fails deterministically.
+
+Run `bun run packages/core/bench/activity.ts` or
+`node packages/core/bench/activity.ts` for a non-gating activity benchmark across
+growing transcript histories. It reports timings without a machine-load budget.
