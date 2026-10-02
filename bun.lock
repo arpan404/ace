@@ -98,6 +98,14 @@
         "zod": "^4.1.12",
       },
     },
+    "packages/orchestrator": {
+      "name": "@ace/orchestrator",
+      "dependencies": {
+        "@ace/git": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.1.12",
+      },
+    },
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
@@ -144,6 +152,8 @@
     "@ace/mcp-server": ["@ace/mcp-server@workspace:packages/mcp-server"],
 
     "@ace/notify": ["@ace/notify@workspace:packages/notify"],
+
+    "@ace/orchestrator": ["@ace/orchestrator@workspace:packages/orchestrator"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
