@@ -1,5 +1,6 @@
 import { collectLicenses } from "./licenses.ts";
 import { bundleDaemon } from "./bundle.ts";
+import { LinuxNativeInput, stageNativeFiles } from "./native-assets.ts";
 import { create } from "tar";
 import { mkdir, readFile, writeFile, cp, chmod, readdir, stat, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -15,17 +16,7 @@ const hashes = {
   "linux-arm64": "0f6d40b94c6a2eb6b4c240ffc8b9fd3ada7ab044c177dd413c06e1ef9a63f081",
   "linux-x64": "6223aad1a81f9d1e7b682c59d12e2de233f7b4c37475cd40d1c89c42b737ffa8",
 };
-const NativeInputs = z.record(
-  ReleaseTarget,
-  z
-    .object({
-      pty: z.string(),
-      ptySha256: z.string().regex(/^[a-f0-9]{64}$/),
-      helper: z.string(),
-      helperSha256: z.string().regex(/^[a-f0-9]{64}$/),
-    })
-    .optional(),
-);
+const NativeInputs = z.record(ReleaseTarget, LinuxNativeInput.optional());
 async function files(root: string, prefix = ""): Promise<string[]> {
   const result: string[] = [];
   for (const name of (await readdir(join(root, prefix))).toSorted()) {
@@ -89,22 +80,7 @@ async function main() {
   await cp(join(installedPty, "lib"), join(destination, "lib"), { recursive: true });
   await cp(join(installedPty, "package.json"), join(destination, "package.json"));
   await cp(join(installedPty, "LICENSE"), join(destination, "LICENSE"));
-  for (const name of ["pty.node", "spawn-helper"]) {
-    const input = native
-      ? name === "pty.node"
-        ? native.pty
-        : native.helper
-      : join(prebuild, name);
-    const checksum = native
-      ? name === "pty.node"
-        ? native.ptySha256
-        : native.helperSha256
-      : undefined;
-    if (checksum && (await hashFile(input)) !== checksum)
-      throw new Error("Native input checksum mismatch");
-    await cp(input, join(destination, "prebuilds", target, name));
-  }
-  await chmod(join(destination, "prebuilds", target, "spawn-helper"), 0o755);
+  await stageNativeFiles(target, prebuild, join(destination, "prebuilds", target), native);
   const inputs = await bundleDaemon(repo, root, publicKey);
   await collectLicenses(inputs, root);
   await cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE"));

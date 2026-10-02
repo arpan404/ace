@@ -21,10 +21,8 @@ await checked(runProcess, process.execPath, [
 ]);
 const directory = join(output, target);
 await mkdir(directory, { recursive: true });
-const pty = join(directory, "pty.node"),
-  helper = join(directory, "spawn-helper");
+const pty = join(directory, "pty.node");
 await cp(join(packageRoot, "build/Release/pty.node"), pty);
-await cp(join(packageRoot, "build/Release/spawn-helper"), helper);
 await writeFile(
   join(directory, "provenance.json"),
   JSON.stringify({
@@ -37,6 +35,6 @@ await writeFile(
 await writeFile(
   join(output, `${target}.json`),
   JSON.stringify({
-    [target]: { pty, helper, ptySha256: await hashFile(pty), helperSha256: await hashFile(helper) },
+    [target]: { pty, ptySha256: await hashFile(pty) },
   }) + "\n",
 );

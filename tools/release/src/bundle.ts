@@ -1,6 +1,7 @@
 import { build, type PluginBuild } from "esbuild";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+export { stageNativeFiles } from "./native-assets.ts";
 export async function bundleDaemon(repo: string, root: string, publicKey: string) {
   const options = {
     bundle: true,
