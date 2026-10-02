@@ -29,6 +29,13 @@
         "@ace/protocol": "workspace:*",
       },
     },
+    "packages/forge": {
+      "name": "@ace/forge",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
@@ -56,6 +63,8 @@
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
+
+    "@ace/forge": ["@ace/forge@workspace:packages/forge"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
