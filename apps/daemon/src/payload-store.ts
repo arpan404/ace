@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, StatementSync } from "node:sqlite";
 import {
   Event,
   Item,
@@ -40,6 +40,10 @@ const LegacyShellPayload = z.object({
 export class PayloadStore {
   private readonly db: DatabaseSync;
   private readonly items: ItemStore;
+  private blobMetadata: StatementSync | undefined;
+  private outputMetadata: StatementSync | undefined;
+  private outputPredecessor: StatementSync | undefined;
+  private outputRange: StatementSync | undefined;
   private readonly nextBlobId: () => string;
   constructor(db: DatabaseSync, nextBlobId: () => string) {
     this.db = db;
@@ -186,7 +190,39 @@ export class PayloadStore {
     const row = this.db.prepare("SELECT thread_id FROM output_streams WHERE id = ?").get(streamId);
     return row ? ThreadId.parse(row.thread_id) : undefined;
   }
+  blobInfo(blobRef: string) {
+    this.blobMetadata ??= this.db.prepare(
+      "SELECT rowid, thread_id AS threadId, length(bytes) AS size, sha256 FROM blobs WHERE id=?",
+    );
+    const row = this.blobMetadata.get(blobRef);
+    if (!row) throw new Error("Unknown blob reference");
+    return z
+      .object({
+        rowid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        threadId: ThreadId,
+        size: z.number().int().nonnegative().max(2147483647),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .parse(row);
+  }
+  outputInfo(streamId: string) {
+    this.outputMetadata ??= this.db.prepare(
+      "SELECT thread_id AS threadId, size FROM output_streams WHERE id=?",
+    );
+    const row = this.outputMetadata.get(streamId);
+    if (!row) throw new Error("Unknown output stream");
+    return z
+      .object({
+        threadId: ThreadId,
+        size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      })
+      .parse(row);
+  }
   readOutput(streamId: string, offset: number, limit: number) {
+    const result = this.readOutputBytes(streamId, offset, limit);
+    return { ...result, bytes: result.bytes.toString("base64") };
+  }
+  readOutputBytes(streamId: string, offset: number, limit: number) {
     if (
       !Number.isSafeInteger(offset) ||
       offset < 0 ||
@@ -195,33 +231,27 @@ export class PayloadStore {
       limit > 256 * 1024
     )
       throw new Error("Invalid output range");
-    const stream = this.db.prepare("SELECT size FROM output_streams WHERE id = ?").get(streamId);
-    if (!stream) throw new Error("Unknown output stream");
-    const size = Number(stream.size);
+    const size = this.outputInfo(streamId).size;
+    if (offset >= size) return { bytes: Buffer.alloc(0), nextOffset: offset, eof: true };
     const end = Math.min(size, offset + limit);
-    // Seek the predecessor using the primary key, then read only the intersecting range.
-    const predecessor = this.db
-      .prepare(
-        "SELECT offset FROM output_chunks WHERE stream_id = ? AND offset <= ? ORDER BY offset DESC LIMIT 1",
-      )
-      .get(streamId, offset);
+    // Seek only the predecessor and intersecting range; slice in SQLite before crossing into Node.
+    this.outputPredecessor ??= this.db.prepare(
+      "SELECT offset FROM output_chunks WHERE stream_id = ? AND offset <= ? ORDER BY offset DESC LIMIT 1",
+    );
+    const predecessor = this.outputPredecessor.get(streamId, offset);
     const start = predecessor ? Number(predecessor.offset) : offset;
-    const chunks = this.db
-      .prepare(
-        "SELECT offset, bytes FROM output_chunks WHERE stream_id = ? AND offset >= ? AND offset < ? ORDER BY offset",
-      )
-      .all(streamId, start, end);
+    this.outputRange ??= this.db.prepare(
+      "SELECT substr(bytes, max(1, ? - offset + 1), min(length(bytes), ? - offset) - max(0, ? - offset)) AS bytes FROM output_chunks WHERE stream_id = ? AND offset >= ? AND offset < ? ORDER BY offset",
+    );
+    const chunks = this.outputRange.all(offset, end, offset, streamId, start, end);
     const bytes = Buffer.concat(
       chunks.map((row) => {
         if (!(row.bytes instanceof Uint8Array)) throw new Error("Invalid output chunk");
-        return Buffer.from(row.bytes).subarray(
-          Math.max(0, offset - Number(row.offset)),
-          end - Number(row.offset),
-        );
+        return Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength);
       }),
     );
     return {
-      bytes: bytes.toString("base64"),
+      bytes,
       nextOffset: offset + bytes.length,
       eof: offset + bytes.length >= size,
     };

@@ -1,3 +1,5 @@
+import { startFilesRelay } from "./files-relay.ts";
+import type { KeyPair } from "@ace/secure-channel";
 import type { ModelCatalogApi } from "@ace/models";
 import { handleModelRequest } from "./models.ts";
 import { randomUUID } from "node:crypto";
@@ -48,6 +50,7 @@ const closeListener = (listener: Server) =>
   });
 
 export interface ServerOptions {
+  relay?: { url: string; keys: KeyPair };
   models?: ModelCatalogApi;
   port: number;
   remote?: RemoteListener;
@@ -79,6 +82,7 @@ export async function startServer(options: ServerOptions): Promise<{
   httpUrl: string;
   remoteUrl?: string;
   fingerprint?: string;
+  relayHostId?: string;
   close(): Promise<void>;
 }> {
   const hostId = HostId.parse(options.hostId);
@@ -473,11 +477,23 @@ export async function startServer(options: ServerOptions): Promise<{
   );
   timer.unref();
   let port: number;
+  let relay: Awaited<ReturnType<typeof startFilesRelay>> | undefined;
   try {
     port = await bind(local, "127.0.0.1", options.port);
     if (remote && options.remote) {
       const remotePort = await bind(remote, options.remote.host, options.remote.port);
       remoteOrigin = `https://${urlHost(options.remote.advertisedHost)}:${remotePort}`;
+    }
+    if (options.relay) {
+      if (!options.files) throw new Error("Relay file service unavailable");
+      relay = await startFilesRelay({
+        ...options.relay,
+        files: options.files,
+        auth,
+        devices: options.store.devices,
+        hostId,
+        headSeq: () => options.store.headSeq(),
+      });
     }
   } catch (error) {
     clearInterval(timer);
@@ -491,6 +507,7 @@ export async function startServer(options: ServerOptions): Promise<{
   return {
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
+    ...(relay ? { relayHostId: relay.hostId } : {}),
     ...(remoteOrigin && options.remote
       ? {
           remoteUrl: remoteOrigin.replace("https:", "wss:"),
@@ -516,12 +533,15 @@ export async function startServer(options: ServerOptions): Promise<{
           socket.close(1001, "Daemon shutdown");
           socket.terminate();
         }
-        void Promise.all([closeListener(local), ...(remote ? [closeListener(remote)] : [])]).then(
-          () =>
-            wss.close((error) => {
-              if (error) reject(error);
-              else resolve();
-            }),
+        void Promise.all([
+          closeListener(local),
+          ...(remote ? [closeListener(remote)] : []),
+          ...(relay ? [relay.close()] : []),
+        ]).then(() =>
+          wss.close((error) => {
+            if (error) reject(error);
+            else resolve();
+          }),
         );
       });
       return closing;

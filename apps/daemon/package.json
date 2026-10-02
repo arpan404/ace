@@ -16,7 +16,8 @@
     "bench:payloads": "node --expose-gc bench/payloads.ts",
     "bench:mcp": "node bench/mcp.ts",
     "bench:remote": "node --expose-gc src/remote.bench.ts",
-    "bench:notifications": "node bench/notifications.ts"
+    "bench:notifications": "node bench/notifications.ts",
+    "bench:files": "node bench/files.ts"
   },
   "dependencies": {
     "@ace/files": "workspace:*",
@@ -26,6 +27,8 @@
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "@ace/relay": "workspace:*",
+    "@ace/secure-channel": "workspace:*",
     "qrcode-generator": "2.0.4",
     "ws": "^8.18.3",
     "zod": "^4.6.5"

@@ -144,6 +144,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       view.thread.updatedAt = event.at;
       break;
     case "thread.updated":
+    case "workspace.files_changed":
       break;
     case "agent.created": {
       const previous = get(view.agents, p.agent.id);

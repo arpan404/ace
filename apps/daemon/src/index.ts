@@ -1,12 +1,15 @@
+import { daemonArtifacts } from "./files-artifacts.ts";
+import { loadOrCreateHostKeys } from "@ace/secure-channel/node";
+import { fingerprint as relayFingerprint } from "@ace/secure-channel";
 import { FilesService } from "@ace/files";
 import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { remoteListener } from "./network.ts";
 import { startDaemonMcp } from "./mcp.ts";
 import { loadNotificationChannels } from "./notification-config.ts";
@@ -42,12 +45,15 @@ export async function startDaemon(
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   remoteUrl?: string;
   fingerprint?: string;
+  relayHostId?: string;
+  relayFingerprint?: string;
   close(): Promise<void>;
 }> {
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
   let store: Store | undefined;
   let files: FilesService | undefined;
+  let artifacts: ReturnType<typeof daemonArtifacts> | undefined;
   let maintenance: ReturnType<typeof setInterval> | undefined;
   let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
@@ -74,7 +80,11 @@ export async function startDaemon(
                 try {
                   await files?.close();
                 } finally {
-                  await models?.close();
+                  try {
+                    await artifacts?.close();
+                  } finally {
+                    await models?.close();
+                  }
                 }
               } finally {
                 store?.close();
@@ -97,19 +107,42 @@ export async function startDaemon(
     store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
       log("error", "Event subscriber failed", error),
     );
+    if (config.relayUrl && !config.workspaceRoot)
+      throw new Error("Relay files require ACE_WORKSPACE_ROOT");
     if (config.workspaceRoot) {
-      const artifacts = join(config.dataDir, "artifacts");
-      await mkdir(artifacts, { recursive: true, mode: 0o700 });
+      const eventStore = store;
+      const workspaceRoot = await realpath(config.workspaceRoot);
+      const workspaceId = store.createWorkspace(workspaceRoot, basename(workspaceRoot));
+      const artifactsDirectory = join(config.dataDir, "artifacts");
+      await mkdir(artifactsDirectory, { recursive: true, mode: 0o700 });
+      const artifactsRoot = await realpath(artifactsDirectory);
       files = await FilesService.create({
-        workspace: config.workspaceRoot,
+        workspace: workspaceRoot,
         dataDir: join(config.dataDir, "files"),
-        artifactRoots: [artifacts],
+        artifactRoots: [artifactsRoot],
         now: Date.now,
         id: randomUUID,
         // Socket-scoped read/operate checks are enforced by the authenticated server.
         authorize: () => true,
+        onChange: (change) => eventStore.recordWorkspaceFileChange(workspaceId, change),
+        exportRaw: (_device, blobRef, assertAuthorized) => {
+          if (!artifacts) throw new Error("Artifact producer not initialized");
+          return artifacts.raw(blobRef, assertAuthorized);
+        },
+        exportOutput: (_device, streamId, assertAuthorized) => {
+          if (!artifacts) throw new Error("Artifact producer not initialized");
+          return artifacts.output(streamId, assertAuthorized);
+        },
       });
       await files.sweep();
+      artifacts = daemonArtifacts(
+        files,
+        artifactsRoot,
+        store,
+        workspaceId,
+        join(config.dataDir, "events.sqlite"),
+      );
+      await artifacts.support(hostId);
       const ownedFiles = files;
       maintenance = setInterval(() => {
         void ownedFiles
@@ -131,7 +164,11 @@ export async function startDaemon(
       configured.channels,
     );
     const remote = await remoteListener(config);
+    const relayKeys = config.relayUrl
+      ? await loadOrCreateHostKeys(join(config.dataDir, "relay"))
+      : undefined;
     server = await startServer({
+      ...(config.relayUrl && relayKeys ? { relay: { url: config.relayUrl, keys: relayKeys } } : {}),
       ...(remote ? { remote } : {}),
       port: config.port,
       token,
@@ -153,6 +190,12 @@ export async function startDaemon(
       url: server.url,
       ...(server.remoteUrl && server.fingerprint
         ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
+        : {}),
+      ...(server.relayHostId && relayKeys
+        ? {
+            relayHostId: server.relayHostId,
+            relayFingerprint: relayFingerprint(relayKeys.publicKey),
+          }
         : {}),
       tokenPath,
       store,

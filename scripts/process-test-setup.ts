@@ -21,7 +21,7 @@ export default async function setup(project: TestProject) {
     // Build once per run, never per spawn. Keep notify external so its worker
     // entry URL still resolves to the real worker-entry.ts beside worker.ts.
     // MCP's jsonc-parser uses runtime-relative UMD requires; keep them native.
-    // Main's model catalog also resolves a storage worker beside its source.
+    // Model catalogs and files also resolve I/O workers beside their sources.
     const results = await Promise.allSettled([
       execute(
         "bun",
@@ -38,6 +38,8 @@ export default async function setup(project: TestProject) {
           "@ace/mcp-server",
           "--external",
           "@ace/models",
+          "--external",
+          "@ace/files",
           "--outfile",
           daemonCli,
         ],

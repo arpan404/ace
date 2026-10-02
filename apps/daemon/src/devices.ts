@@ -1,6 +1,6 @@
 import { generateSecret, type CredentialRuntime } from "./credential-runtime.ts";
 import { createHash } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { DeviceId, Device, type DeviceScope } from "@ace/protocol";
 
 export type { Device } from "@ace/protocol";
@@ -13,9 +13,11 @@ export const allows = (device: Pick<Device, "scopes"> | undefined, scope: Scope)
 export class Devices {
   private db: DatabaseSync;
   private runtime: CredentialRuntime;
+  private readonly getDevice: StatementSync;
   constructor(db: DatabaseSync, runtime: CredentialRuntime) {
     this.db = db;
     this.runtime = runtime;
+    this.getDevice = db.prepare("SELECT * FROM devices WHERE id = ?");
   }
   create(name: string, granted: Scope[], at: number): { device: Device; token: string } {
     const token = generateSecret(this.runtime.randomBytes);
@@ -41,7 +43,7 @@ export class Devices {
     return { device, token };
   }
   get(id: string): Device | undefined {
-    const row = this.db.prepare("SELECT * FROM devices WHERE id = ?").get(id);
+    const row = this.getDevice.get(id);
     if (!row) return undefined;
     return Device.parse({
       id: row.id,
