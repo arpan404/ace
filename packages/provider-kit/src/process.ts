@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import type { Writable } from "node:stream";
-import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 export { installShutdownHandlers } from "./process-owner.ts";
 
 export type ProcessExit = {
@@ -49,13 +49,14 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
   let ended = false;
   let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let retainedStop: Promise<ProcessExit> | undefined;
   // Pipe errors are surfaced to writers through write callbacks, never unhandled events.
   child.stdin.on("error", () => {});
   const release = () => {
     if (ended) return;
     ended = true;
     if (timer) clearTimeout(timer);
-    if (pid !== undefined && (options.killGroupOnExit !== false || stopped)) {
+    if (pid !== undefined && (options.killGroupOnExit !== false || failed)) {
       killGroup(pid, "SIGKILL");
       unregisterGroup(pid);
     }
@@ -71,7 +72,7 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
       release();
       closed = true;
       if (timer) clearTimeout(timer);
-      if (pid !== undefined) unregisterGroup(pid);
+      if (pid !== undefined && (options.killGroupOnExit !== false || failed)) unregisterGroup(pid);
       resolve({
         code,
         signal,
@@ -87,6 +88,13 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
     signal: controller.signal,
     stop({ graceMs = 5_000 } = {}) {
       if (!Number.isFinite(graceMs) || graceMs < 0) throw new RangeError("Invalid graceMs");
+      if (options.killGroupOnExit === false && pid !== undefined && !failed) {
+        if (!retainedStop) {
+          stopped = true;
+          retainedStop = stopRetainedGroup(pid, graceMs).then(() => exited);
+        }
+        return retainedStop;
+      }
       if (!closed && !stopped && pid !== undefined) {
         stopped = true;
         killGroup(pid, "SIGTERM");

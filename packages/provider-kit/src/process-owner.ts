@@ -1,3 +1,5 @@
+import { setTimeout as delay } from "node:timers/promises";
+
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<number, (graceMs: number) => Promise<unknown>>();
 let shutdownInstalled = false;
@@ -10,6 +12,27 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
     // Darwin can report EPERM for groups containing only zombies before reaping.
     if (code !== "ESRCH" && !(process.platform === "darwin" && code === "EPERM")) throw error;
   }
+}
+/** A retained group's lifetime is independent of its leader and inherited pipes. */
+export async function stopRetainedGroup(pid: number, graceMs: number): Promise<void> {
+  killGroup(pid, "SIGTERM");
+  const deadline = performance.now() + graceMs;
+  while (true) {
+    try {
+      process.kill(-pid, 0);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ESRCH" || (process.platform === "darwin" && code === "EPERM")) break;
+      throw error;
+    }
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) {
+      killGroup(pid, "SIGKILL");
+      break;
+    }
+    await delay(Math.min(25, remaining));
+  }
+  unregisterGroup(pid);
 }
 function cleanup(): void {
   for (const pid of owned.keys()) killGroup(pid, "SIGKILL");
