@@ -126,10 +126,20 @@ Pure fan-out tests exercise delayed acknowledgements and latest-frame replacemen
 The capture shell accepts an injected clock. Launcher and process-spawner
 boundaries are injectable for host integration and real-process tests. Keyboard
 translation is pure and supplies validated CDP virtual key codes. Evaluation's
-256 KiB result cap counts UTF-8 bytes inside Chromium before returning data.
+256 KiB result cap counts UTF-8 bytes with primitive string operations inside
+Chromium, then validates the serialized string and parses JSON in the daemon.
+Page replacements of TextEncoder, JSON.parse or string prototype methods cannot
+bypass the bound. Renderer preflight bounds CDP transfer; the host performs the
+trusted byte check. Work is O(result size), capped at 256 KiB.
 Subscription registration rolls back when its initial state callback throws.
 Regression tests cover delayed visibility and timeout rejection, oversized DOMs,
-command saturation, sustained approval floods and per-thread cancellation.
+command saturation, sustained approval floods, cross-thread admission and slots
+retained after caller timeout/abort. Tests observe the hook's actual abort signal.
+Installer tests require a real child to create the executable before cache lookup;
+injected encoder success produces a distinct red video that decodes through ffmpeg.
+Wait tests observe a pending DOM measurement before releasing HTTP visibility.
+The adaptation clock advances once per incoming CDP frame, and assertions await
+consecutive frames at the changed JPEG quality before examining cadence.
 Capture adaptation is checked through real JPEG quantization coefficients and
 delivered frame timestamps, including recovery when pressure clears. Non-gating benchmarks measure frame
 fan-out, validation/serialization, recording writes and log ingestion, including
@@ -137,8 +147,9 @@ RSS. The owner requires tests to run once at merge: workers write behavior tests
 and list their mutation cases as "not executed (tests run at merge)". Runtime and
 performance claims on the final tree need run at merge; workers use only fast
 static checks. Earlier mutation/benchmark records remain historical evidence.
-Vitest runs one worker
-to bound real browser, CLI, TLS and notification fixture processes on shared hosts.
+Vitest uses main's unit/process projects with two workers; browser fixtures join
+the process project. Browser dependencies remain external in the cached daemon
+build so runtime-relative discovery and encoder entries keep their source paths.
 Fixture deadlock ceilings are 60 seconds, or 120 for the profile test's three
 process lifetimes; tests synchronize on events and assert behavior, without
 elapsed-time performance assertions.

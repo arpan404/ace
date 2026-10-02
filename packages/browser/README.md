@@ -34,7 +34,9 @@ threads. The installed browser's sandbox stays enabled.
 
 `execute` accepts commands defined by `BrowserCommand` in `@ace/protocol`.
 Screenshots and logs return local paths. Evaluate requires its own injected
-approval and limits the result to 256 KiB. Navigation and intercepted HTTP,
+approval and limits serialized output to 256 KiB of UTF-8. Renderer preflight
+uses primitive string operations; the daemon validates byte size and parses JSON,
+so page replacements of builtins cannot bypass the result cap. Navigation and intercepted HTTP,
 redirect and WebSocket requests allow exact loopback names, and ask the origin
 hook for every other site. The hook should store approval decisions outside this
 package. Service workers, downloads and popup pages are disabled. CDP interception
@@ -74,7 +76,7 @@ Clients send `browser.open`, `browser.subscribe`, `browser.ack`,
 `browser.close`. Requests have a `requestId` and a `threadId`, except open which
 has `options: BrowserOpen`. Input is one of mouse, key, scroll or touch. Keyboard input translates validated
 key/code pairs to CDP virtual key codes so editing and navigation work as well
-as character insertion. Unsupported codes and inconsistent named keys fail
+as character insertion, including numpad navigation and arithmetic. Unsupported codes and inconsistent named keys fail
 explicitly; clients can use `char` for text composition, delivered through CDP `Input.insertText`.
 Responses are `browser.result`, `browser.state` and `browser.frame`. See the
 exported browser schemas for field definitions.
@@ -131,7 +133,10 @@ Ubuntu hosts can need an AppArmor profile for downloaded Chromium; follow
 [Chromium's sandbox setup guidance](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md).
 
 Run `bun run --filter @ace/browser bench` for non-gating fan-out and log-ingestion
-measurements, CDP validation with shared frame serialization, and recording writes.
+measurements, CDP validation with shared frame serialization, and recording writes. The evaluation benchmark measures trusted UTF-8 decoding
+and real Chromium result guarding/CDP round trips separately. Under the owner's
+current policy these benchmarks and all runtime tests run only at merge; current
+measurements need run at merge.
 Browser/encoder and transport costs are measured separately from the pure delivery loop.
 
 ## Process boundaries
