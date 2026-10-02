@@ -9,5 +9,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "benchmark": "node benchmark.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
   }
 }

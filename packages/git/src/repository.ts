@@ -1,14 +1,23 @@
 import { realpath } from "node:fs/promises";
+import { z } from "zod";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { GitCli, textOutput } from "./cli.ts";
+import { decode, hash } from "./decode.ts";
+import { CheckpointNumbers } from "./checkpoint-numbers.ts";
 import { parseRemotes, parseStatus, parseWorktrees } from "./parse.ts";
 import { GitError, type RepositoryInfo, type Status, type Worktree } from "./types.ts";
 
 export class Repository {
   readonly cli: GitCli;
+  readonly numbers: CheckpointNumbers;
+  readonly now: () => Date | Promise<Date>;
+  readonly tempDirectory: string;
 
-  constructor(cli: GitCli) {
+  constructor(cli: GitCli, now: () => Date | Promise<Date>, tempDirectory: string) {
     this.cli = cli;
+    this.numbers = new CheckpointNumbers(cli);
+    this.now = now;
+    this.tempDirectory = tempDirectory;
   }
 
   async root(repo: string): Promise<string> {
@@ -21,7 +30,10 @@ export class Repository {
     const inside = await this.cli.call(cwd, ["rev-parse", "--is-inside-work-tree"], {
       allowFailure: true,
     });
-    if (inside.exitCode !== 0 || textOutput(inside) !== "true") {
+    if (
+      inside.exitCode !== 0 ||
+      decode(z.enum(["true", "false"]), textOutput(inside), "worktree flag") !== "true"
+    ) {
       throw new GitError("not_a_repo", `Not a Git working tree: ${repo}`);
     }
     // rev-parse has no NUL path mode. Worktree porcelain does, including for the main tree.
@@ -54,18 +66,24 @@ export class Repository {
     return (await this.state(root)).status;
   }
 
-  async state(root: string) {
+  async state(root: string, env: Record<string, string> = {}) {
     return parseStatus(
       (
-        await this.cli.call(root, [
-          "status",
-          "--porcelain=v2",
-          "-z",
-          "--branch",
-          "--untracked-files=all",
-          "--renames",
-          "--ignore-submodules=none",
-        ])
+        await this.cli.call(
+          root,
+          [
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--ahead-behind",
+            "--no-show-stash",
+            "--untracked-files=all",
+            "--renames",
+            "--ignore-submodules=none",
+          ],
+          { env },
+        )
       ).stdout,
     );
   }
@@ -91,7 +109,7 @@ export class Repository {
       { allowFailure: true },
     );
     if (result.exitCode !== 0) throw new GitError("invalid_ref", `Commit not found: ${ref}`);
-    return textOutput(result);
+    return hash(textOutput(result));
   }
 }
 

@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Repository } from "./repository.ts";
 import { serial } from "./lock.ts";
+import { statusWithoutHidingFlags } from "./temporary-index.ts";
 import { GitError, type Worktree } from "./types.ts";
 
 export interface CreateWorktreeOptions {
@@ -84,7 +85,7 @@ export async function removeWorktree(
       throw new GitError("worktree_not_found", "Removal target is not a registered worktree");
     if (main) throw new GitError("main_worktree", "The main worktree cannot be removed");
     if (!options.force) {
-      const status = await repository.status(target);
+      const status = await statusWithoutHidingFlags(repository, target);
       if (
         status.staged.length ||
         status.unstaged.length ||
