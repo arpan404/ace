@@ -158,7 +158,7 @@ must stay in accounts. Usage from other applications is outside ace's log.
 ## Validation and measurement
 
 ```sh
-bun run test packages/usage/src apps/daemon/src/usage.server.test.ts -- --maxWorkers=2
+bun run test packages/usage/src apps/daemon/src/usage.server.test.ts --maxWorkers=2
 bun run --filter @ace/usage bench
 bun run check
 ```

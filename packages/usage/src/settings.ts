@@ -55,5 +55,15 @@ export function dayFormatter(timezone: string): (at: number) => string {
     month: "2-digit",
     day: "2-digit",
   });
-  return (at) => formatter.format(at);
+  return (at) => {
+    let year = "",
+      month = "",
+      day = "";
+    for (const part of formatter.formatToParts(at)) {
+      if (part.type === "year") year = part.value;
+      else if (part.type === "month") month = part.value;
+      else if (part.type === "day") day = part.value;
+    }
+    return `${year}-${month}-${day}`;
+  };
 }
