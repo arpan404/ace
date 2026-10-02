@@ -17,6 +17,57 @@ const migrations = [
     provider TEXT NOT NULL, status JSON NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
     archived_at INTEGER, root_agent_id TEXT
   );`,
+  `CREATE TABLE IF NOT EXISTS devices (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, scopes JSON NOT NULL,
+    created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, revoked_at INTEGER
+  );`,
+  `CREATE TABLE items (
+    id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+    created_seq INTEGER NOT NULL UNIQUE, item JSON NOT NULL
+  );
+  CREATE INDEX items_thread_creation ON items(thread_id, created_seq);
+  CREATE TABLE output_streams (
+    id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+    item_id TEXT NOT NULL UNIQUE, size INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE output_chunks (
+    stream_id TEXT NOT NULL REFERENCES output_streams(id) ON DELETE CASCADE,
+    offset INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(stream_id, offset)
+  );
+  CREATE TABLE blobs (
+    id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, bytes BLOB NOT NULL,
+    thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+    UNIQUE(thread_id, sha256)
+  );
+  CREATE TABLE host_sequence (id INTEGER PRIMARY KEY CHECK(id = 1), seq INTEGER NOT NULL);
+  INSERT INTO host_sequence SELECT 1, COALESCE(MAX(seq), 0) FROM events;
+  CREATE TABLE payload_migration (id INTEGER PRIMARY KEY);`,
+  `CREATE TABLE item_heads (
+    id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    thread_id TEXT NOT NULL, created_seq INTEGER NOT NULL UNIQUE,
+    size INTEGER NOT NULL, item_type TEXT NOT NULL, text_prefix INTEGER NOT NULL
+  );
+  CREATE INDEX item_heads_thread_creation ON item_heads(thread_id, created_seq);
+  INSERT INTO item_heads SELECT id, thread_id, created_seq, length(CAST(item AS BLOB)), json_extract(item, '$.type'),
+    CASE WHEN json_extract(item, '$.type') = 'message'
+      AND COALESCE(json_extract(item, '$.parts[#-1].type'), '') != 'text'
+      THEN length('{"type":"text","text":""}') + CASE WHEN json_array_length(item, '$.parts') > 0 THEN 1 ELSE 0 END ELSE 0 END FROM items;
+  CREATE TABLE item_text_chunks (
+    item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL, field TEXT NOT NULL, append TEXT NOT NULL, PRIMARY KEY(item_id, seq)
+  );
+  CREATE TABLE view_entities (
+    thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+    collection TEXT NOT NULL, id TEXT NOT NULL, value JSON NOT NULL,
+    PRIMARY KEY(thread_id, collection, id)
+  );
+  CREATE TABLE status_migration (id INTEGER PRIMARY KEY);`,
+  `ALTER TABLE item_heads ADD COLUMN text_last_unit INTEGER NOT NULL DEFAULT -1;
+  UPDATE item_text_chunks SET append = COALESCE(
+    (SELECT payload -> '$.append' FROM events WHERE seq = item_text_chunks.seq AND type = 'item.delta'),
+    json_quote(append)
+  );
+  CREATE TABLE text_encoding_migration (id INTEGER PRIMARY KEY);`,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");

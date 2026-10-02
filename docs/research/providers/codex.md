@@ -382,3 +382,8 @@ Server requests (`common.rs:1779-1850`), each answered with a JSON-RPC response:
 - More repo paths used: `codex-rs/core/src/{config/mod.rs, tools/spec_plan.rs, tools/handlers/multi_agents*/, agent/control*.rs, agent/child_config.rs, context/subagent_notification.rs}`, `codex-rs/protocol/src/{protocol.rs, agent_path.rs}`, `codex-rs/tui/src/app/{app_server_events.rs, thread_routing.rs, loaded_threads.rs}`, `codex-rs/exec/src/{lib.rs, cli.rs, exec_events.rs, event_processor_with_jsonl_output.rs}`, `sdk/typescript/src/*`, `sdk/python/*`, `codex-rs/{rollout, history, state, thread-store, hooks, app-server-daemon, app-server-transport, features, config}`.
 - https://developers.openai.com/codex/guides/agents-sdk.md (mcp-server removal), https://developers.openai.com/codex/hooks.md, https://developers.openai.com/codex/config-advanced.md (OTel, notify), https://developers.openai.com/codex/noninteractive.md, https://developers.openai.com/codex/auth.md.
 - `/tmp/t3code` was used only as a pointer to cross-check which methods exist. Nothing here is cited from it.
+
+## ace MCP injection
+
+The exact argv, environment and read-only discovery contract is recorded in
+[ace MCP injection contracts](ace-mcp-injection.md#codex).
