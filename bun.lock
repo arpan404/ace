@@ -52,6 +52,9 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/provider-kit": {
+      "name": "@ace/provider-kit",
+    },
     "packages/secure-channel": {
       "name": "@ace/secure-channel",
       "dependencies": {
@@ -63,6 +66,7 @@
     "tools/recorder": {
       "name": "@ace/recorder",
       "dependencies": {
+        "@ace/provider-kit": "workspace:*",
         "@anthropic-ai/claude-agent-sdk": "0.3.287",
       },
     },
@@ -75,6 +79,8 @@
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
     "@ace/protocol": ["@ace/protocol@workspace:packages/protocol"],
+
+    "@ace/provider-kit": ["@ace/provider-kit@workspace:packages/provider-kit"],
 
     "@ace/recorder": ["@ace/recorder@workspace:tools/recorder"],
 
