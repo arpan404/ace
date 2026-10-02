@@ -7,6 +7,7 @@ export interface Config {
   host: "127.0.0.1";
   port: number;
   logLevel: LogLevel;
+  screenHelper?: string;
 }
 export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const port = Number(env.ACE_PORT ?? 4242);
@@ -16,6 +17,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!["debug", "info", "warn", "error", "silent"].includes(level))
     throw new Error("Invalid ACE_LOG_LEVEL");
   return {
+    ...(env.ACE_SCREEN_HELPER ? { screenHelper: resolve(env.ACE_SCREEN_HELPER) } : {}),
     dataDir: resolve(env.ACE_HOME ?? resolve(homedir(), ".ace")),
     host: "127.0.0.1",
     port,

@@ -1,4 +1,6 @@
 import { WebSocket, WebSocketServer } from "ws";
+import { randomUUID } from "node:crypto";
+import { screenConnection, Simulators, type ScreenManager } from "@ace/screen";
 import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
 import { validToken } from "./local-files.ts";
@@ -16,12 +18,14 @@ export interface ServerOptions {
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
+  screen?: ScreenManager;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
 export async function startServer(
   options: ServerOptions,
 ): Promise<{ url: string; close(): Promise<void> }> {
   const hostId = HostId.parse(options.hostId);
+  const simulators = new Simulators(process.platform);
   if (!/^[0-9a-f]{64}$/.test(options.token)) throw new Error("Invalid server token");
   const wss = new WebSocketServer({
     host: "127.0.0.1",
@@ -32,6 +36,7 @@ export async function startServer(
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket) => {
     let device: DeviceId | undefined;
+    let screen: ReturnType<typeof screenConnection> | undefined;
     let lastActivity = Date.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
@@ -41,6 +46,7 @@ export async function startServer(
       if (close) socket.close(4001, code);
     };
     const cleanup = () => {
+      screen?.close();
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -82,6 +88,30 @@ export async function startServer(
           return;
         }
         device = message.deviceId;
+        try {
+          if (options.screen)
+            screen = screenConnection(options.screen, simulators, randomUUID(), {
+              send,
+              frame: (packet) =>
+                new Promise<void>((resolve, reject) => {
+                  if (socket.readyState !== WebSocket.OPEN) {
+                    reject(new Error("Socket closed"));
+                    return;
+                  }
+                  if (socket.bufferedAmount > 8 * 1024 * 1024) {
+                    socket.close(4009, "Screen backpressure");
+                    reject(new Error("Socket backpressure"));
+                    return;
+                  }
+                  socket.send(packet, { binary: true }, (error) =>
+                    error ? reject(error) : resolve(),
+                  );
+                }),
+            });
+        } catch {
+          fail("screen_limit", "Too many screen connections", true);
+          return;
+        }
         send({
           type: "welcome",
           hostId,
@@ -91,6 +121,14 @@ export async function startServer(
         return;
       }
       switch (message.type) {
+        case "screen.request":
+          if (screen)
+            void screen.request(message).catch((error: unknown) => {
+              options.log?.(error);
+              fail("screen_failed", "Screen request failed");
+            });
+          else fail("screen_disabled", "Screen capability is not configured");
+          break;
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;

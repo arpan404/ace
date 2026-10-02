@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { localScreenManager, type ScreenManager } from "@ace/screen";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
@@ -15,6 +16,7 @@ export { readConfig } from "./config.ts";
 export async function startDaemon(
   config: Config = readConfig(),
   handler: CommandHandler = stubHandler(),
+  screen?: ScreenManager,
 ): Promise<{ url: string; tokenPath: string; store: Store; close(): Promise<void> }> {
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
@@ -26,12 +28,16 @@ export async function startDaemon(
       log("error", "Event subscriber failed", error),
     );
     const ownedStore = store;
+    screen ??= config.screenHelper
+      ? localScreenManager(config.screenHelper, join(config.dataDir, "screen-artifacts"))
+      : undefined;
     const server = await startServer({
       port: config.port,
       token,
       hostId,
       store,
       handler,
+      ...(screen ? { screen } : {}),
       log: (error) => log("error", "WebSocket failure", error),
     });
     let closing: Promise<void> | undefined;
@@ -43,6 +49,7 @@ export async function startDaemon(
         closing ??= (async () => {
           try {
             await server.close();
+            await screen?.close();
           } finally {
             try {
               ownedStore.close();

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import { Command } from "./commands.ts";
@@ -47,6 +48,7 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
 );
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  ScreenClientMessage,
   z.object({
     type: z.literal("hello"),
     protocolVersion: z.literal(1),
@@ -71,6 +73,7 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  ...ScreenServerMessage.options,
   z.object({
     type: z.literal("welcome"),
     hostId: HostId,
