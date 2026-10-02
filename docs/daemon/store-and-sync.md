@@ -1,6 +1,6 @@
 # Event store and local WebSocket API
 
-Start the daemon with `bun run --filter @ace/daemon dev`. Node 24+ executes the TypeScript directly. It prints its WebSocket URL and token-file path. Configuration comes from `ACE_HOME` (default `~/.ace`), `ACE_PORT` (default 4242, 0 selects an available port), and `ACE_LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `silent`). The listener always binds to 127.0.0.1.
+Start the daemon with `bun run --filter @ace/daemon dev`. Node 24+ executes the TypeScript directly. It prints its WebSocket URL and token-file path. Configuration comes from `ACE_HOME` (default `~/.ace`), `ACE_PORT` (default 4242, 0 selects an available port), and `ACE_LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `silent`). The local listener always binds to 127.0.0.1. [Remote access](remote-access.md) adds an opt-in TLS listener with device pairing and scoped tickets.
 
 `ACE_DEV=1` enables the development creator. On an empty database the CLI creates a workspace for its current directory and a starter thread. `thread.create` then creates threads in an existing workspace. The exported store workspace API lets development tools supply other local paths. Without this flag, creation returns `not_implemented`.
 
@@ -11,6 +11,7 @@ Start the daemon with `bun run --filter @ace/daemon dev`. Node 24+ executes the 
 - `events` stores the host-wide integer sequence, unique event id, thread id, timestamp, payload type and JSON payload. An index on `(thread_id, seq)` supports rebuilding a single thread.
 - `command_receipts` stores the command id, device id, reception timestamp and JSON result.
 - `workspaces` stores ids, unique paths, display names and creation timestamps.
+- `devices` stores paired device names, scopes, token hashes and lifecycle timestamps.
 - `threads` stores sidebar fields, archive time and the optional root agent id. `workspace_id` references `workspaces`.
 
 Appending uses one `BEGIN IMMEDIATE` transaction. It allocates sequences after the current committed head, inserts events and updates the sidebar projection together. Rolled-back appends consume no sequence. Command handlers run in that same transaction as their receipts. Nested appends use savepoints so a caught failure cannot leak a partly inserted batch. Listeners receive committed events in order; reentrant appends wait in the publication queue behind the current batch. Subscriber errors cannot reverse a commit or stop delivery to other subscribers.
@@ -19,7 +20,7 @@ Subscribed threads share an owned cache rebuilt from their stored events. Append
 
 An independent `daemon-lock.sqlite` connection holds an exclusive transaction for the daemon lifetime. It prevents a second daemon from opening `events.sqlite`, and a process crash releases the OS lock. Never delete the lock database while a daemon runs. `daemon-lock` is diagnostic owner metadata. Shutdown closes the server and sockets, then the event store, then the lock connection. Startup failures unwind the resources already acquired. SQLite's [file-locking documentation](https://www.sqlite.org/lockingv3.html) describes the underlying local-file locks.
 
-The daemon writes a random 32-byte hex token to `daemon-token`, mode 0600, and keeps a persistent `host-id`. Neither contains provider credentials. A socket must first send a version-1 `hello` with its device id and token. Invalid or missing authentication produces an error and close code 4001. Token comparison uses equal-length buffers and `timingSafeEqual`. Binary first frames, unsupported versions, missing tokens and a second hello close with 4001. Malformed input after authentication is rejected while keeping the connection open, and a command's device must match its authenticated device.
+The daemon writes a random 32-byte hex token to `daemon-token`, mode 0600, and keeps a persistent `host-id`. Neither contains provider credentials. A local socket must first send a version-1 `hello` with its device id and token. Remote sockets use a short-lived device ticket. Invalid or missing authentication produces an error and close code 4001. Token comparison uses equal-length buffers and `timingSafeEqual`. Binary first frames, unsupported versions, missing tokens and a second hello close with 4001. Malformed input after authentication is rejected while keeping the connection open, and a command's device must match its authenticated device.
 
 ## Subscribe, replay and sequence coverage
 
