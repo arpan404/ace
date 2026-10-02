@@ -152,6 +152,13 @@ Run `bun run packages/core/bench/activity.ts` or
 growing transcript histories. It reports timings without a machine-load budget.
 
 Run `node packages/core/bench/deadlines.ts` for non-gating scheduler timings
-and live-item read counts across growing active sibling trees. Deadline passes
-share live-work grouping and subtree signals, while status caches remain scoped
-to each candidate instant.
+and agent/item read counts across same-time shells, staggered shells and nested
+staggered wakes. Deadline passes share live-work grouping and memoize current
+completion relevance bottom-up. They select actual wake/silence transitions
+without deriving a descendant tree for each candidate timestamp. If a descendant
+transition can unblock ancestor silence, that descendant transition is scheduled
+first and eligibility is recomputed after its tick. Retained summaries are linear
+in the current tree and live work.
+
+The deferred pre-root diagnostic admission limit is tracked in
+[the follow-up contract](../../docs/follow-ups/diagnostic-admission.md).
