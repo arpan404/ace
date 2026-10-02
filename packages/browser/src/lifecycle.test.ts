@@ -67,7 +67,8 @@ describe.skipIf(!executablePath)("browser lifecycle and recordings", () => {
     await f.service.open({ threadId: "thread", workspaceId: "workspace", profile: "persistent" });
     await f.navigate();
     expect(await f.evaluate("localStorage.getItem('retained')")).toBe("yes");
-  }, 60_000);
+    // This exercises three real process lifetimes, including graceful shutdown.
+  }, 120_000);
 
   it("saves a timestamped frame manifest and a player and reports the recording artifact", async () => {
     const artifacts: BrowserArtifact[] = [];

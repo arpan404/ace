@@ -136,8 +136,9 @@ fan-out, validation/serialization, recording writes and log ingestion, including
 RSS. Before delivery, at least eight production mutations
 must each make a behavior test fail, then be reverted. Vitest runs one worker
 to bound real browser, CLI, TLS and notification fixture processes on shared hosts.
-Fixture deadlock ceilings are 60 seconds; tests synchronize on events and assert
-behavior, without elapsed-time performance assertions.
+Fixture deadlock ceilings are 60 seconds, or 120 for the profile test's three
+process lifetimes; tests synchronize on events and assert behavior, without
+elapsed-time performance assertions.
 
 ## Consequences
 
