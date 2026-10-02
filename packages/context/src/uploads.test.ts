@@ -91,7 +91,7 @@ describe("resumable uploads", () => {
       "text/plain",
     );
   });
-  test("a huge PNG header is rejected without attempting decompression", async () => {
+  test("a huge PNG header is rejected by its dimension limits", async () => {
     const f = await fixture();
     const bomb = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgABhqAAAYagCAQAAAACW8NDAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=",

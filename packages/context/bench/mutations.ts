@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 const run = promisify(execFile);
 const root = fileURLToPath(new URL("../../../", import.meta.url));
-const mutations = [
+export const mutations = [
   {
     name: "Bypass workspace confinement",
     file: "git-workspace.ts",
@@ -49,17 +49,17 @@ const mutations = [
   },
   {
     name: "Bypass per-thread byte quota",
-    file: "upload-store.ts",
-    before: "thread.bytes + op.bytes <= this.limits.threadBytes",
+    file: "upload-admission.ts",
+    before: "thread.bytes + op.bytes <= limits.threadBytes",
     after: "true",
     test: "uploads.test.ts",
     behavior: "thread quota counts",
   },
   {
     name: "Bypass global byte quota",
-    file: "upload-store.ts",
+    file: "upload-admission.ts",
     before:
-      "global.bytes + op.bytes <= this.limits.globalBytes &&\n            occupied.bytes + op.bytes <= this.limits.globalBytes",
+      "global.bytes + op.bytes <= limits.globalBytes &&\n      occupied.bytes + op.bytes <= limits.globalBytes",
     after: "true",
     test: "uploads.test.ts",
     behavior: "global quota reserves",
@@ -127,8 +127,8 @@ const mutations = [
   },
   {
     name: "Bypass occupied disk quota",
-    file: "upload-store.ts",
-    before: "occupied.bytes + op.bytes <= this.limits.globalBytes",
+    file: "upload-admission.ts",
+    before: "occupied.bytes + op.bytes <= limits.globalBytes",
     after: "true",
     test: "uploads.test.ts",
     behavior: "global disk quota includes",
@@ -142,46 +142,60 @@ const mutations = [
     behavior: "uploads cannot be resumed",
   },
 ];
-for (const mutation of mutations) {
-  const path = join(root, "packages/context/src", mutation.file),
-    source = await readFile(path, "utf8");
-  if (!source.includes(mutation.before))
-    throw new Error(`Mutation target missing: ${mutation.name}`);
-  let output = "",
-    failed = false;
-  try {
-    let changed = source.replace(mutation.before, mutation.after);
-    if ("extra" in mutation && mutation.extra) {
-      if (!changed.includes(mutation.extra.before))
-        throw new Error(`Additional mutation target missing: ${mutation.name}`);
-      changed = changed.replace(mutation.extra.before, mutation.extra.after);
-    }
-    await writeFile(path, changed);
+export async function checkMutations(cases: typeof mutations) {
+  for (const mutation of cases) {
+    const path = join(
+        root,
+        mutation.file.includes("/") ? mutation.file : `packages/context/src/${mutation.file}`,
+      ),
+      source = await readFile(path, "utf8");
+    if (!source.includes(mutation.before))
+      throw new Error(`Mutation target missing: ${mutation.name}`);
+    let output = "",
+      failed = false;
     try {
-      await run(
-        "bun",
-        ["run", "test", `packages/context/src/${mutation.test}`, "-t", mutation.behavior],
-        { cwd: root, maxBuffer: 2 * 1024 * 1024 },
-      );
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        "stdout" in error &&
-        typeof error.stdout === "string" &&
-        "stderr" in error &&
-        typeof error.stderr === "string"
-      ) {
-        output = error.stdout + error.stderr;
-        failed = output.includes("AssertionError");
-      } else throw error;
+      let changed = source.replace(mutation.before, mutation.after);
+      if ("extra" in mutation && mutation.extra) {
+        if (!changed.includes(mutation.extra.before))
+          throw new Error(`Additional mutation target missing: ${mutation.name}`);
+        changed = changed.replace(mutation.extra.before, mutation.extra.after);
+      }
+      await writeFile(path, changed);
+      try {
+        await run(
+          "bun",
+          [
+            "run",
+            "test",
+            mutation.test.includes("/") ? mutation.test : `packages/context/src/${mutation.test}`,
+            "-t",
+            mutation.behavior,
+          ],
+          { cwd: root, maxBuffer: 2 * 1024 * 1024 },
+        );
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          "stdout" in error &&
+          typeof error.stdout === "string" &&
+          "stderr" in error &&
+          typeof error.stderr === "string"
+        ) {
+          output = error.stdout + error.stderr;
+          failed = output.includes("AssertionError");
+        } else throw error;
+      }
+    } finally {
+      await writeFile(path, source);
     }
-  } finally {
-    await writeFile(path, source);
+    if (!failed)
+      throw new Error(
+        `Mutation survived or did not fail an assertion: ${mutation.name}\n${output}`,
+      );
+    process.stdout.write(`KILLED: ${mutation.name} -> ${mutation.behavior}\n`);
   }
-  if (!failed)
-    throw new Error(`Mutation survived or did not fail an assertion: ${mutation.name}\n${output}`);
-  process.stdout.write(`KILLED: ${mutation.name} -> ${mutation.behavior}\n`);
+  process.stdout.write(
+    `${cases.length} production mutations failed behavior assertions and were reverted.\n`,
+  );
 }
-process.stdout.write(
-  `${mutations.length} production mutations failed behavior assertions and were reverted.\n`,
-);
+if (process.argv[1] === fileURLToPath(import.meta.url)) await checkMutations(mutations);

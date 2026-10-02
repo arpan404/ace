@@ -127,11 +127,20 @@ test("the socket rejects overlapping context operations instead of buffering chu
       requestId: "second",
       operation: { op: "attachment.list", threadId: f.thread.id },
     });
-    expect(await client.next()).toMatchObject({
-      type: "context.result",
-      requestId: "second",
-      result: { kind: "error", code: "busy" },
-    });
+    client.send({ type: "ping" });
+    const messages = [];
+    while (true) {
+      const message = await client.next();
+      if (message.type === "pong") break;
+      messages.push(message);
+    }
+    expect(messages).toEqual([
+      {
+        type: "context.result",
+        requestId: "second",
+        result: { kind: "error", code: "busy", message: "Wait for the previous context result" },
+      },
+    ]);
   } finally {
     release.resolve();
   }
