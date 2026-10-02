@@ -12,8 +12,8 @@ import {
   writeFiles,
   canonical,
   schemaId,
+  jsonValidator,
 } from "./index.ts";
-import { jsonValidator } from "./examples.ts";
 import { arbitrary } from "./arbitraries.test-support.ts";
 
 const catalog = protocolCatalog();
@@ -28,6 +28,10 @@ describe("exported protocol", () => {
       const values = arbitrary(entry.schema).filter(
         (value) => entry.schema.safeParse(value).success,
       );
+      const witnesses: unknown[] = [null, true, false, 42, 0.125, "", [], {}];
+      for (const witness of witnesses)
+        if (!entry.schema.safeParse(witness).success)
+          expect(validate(witness), `${entry.name} rejects ${JSON.stringify(witness)}`).toBe(false);
       fc.assert(
         fc.property(values, (value) => {
           const wire = entry.io === "output" ? entry.schema.parse(value) : value;
@@ -38,36 +42,40 @@ describe("exported protocol", () => {
     });
   }
 });
-it("documents every union alternative with examples accepted by both validators", () => {
+it("documents every source union alternative with a validated example", () => {
   const files = renderReference(catalog.entries, catalog.tools, snapshot);
-  for (const page of [
-    "commands",
-    "requests",
-    "push",
-    "events",
-    "mcp",
-    "types",
-    "orchestration",
-    "models",
-  ]) {
-    const markdown = files.get(`${page}.md`);
-    expect(markdown).toBeDefined();
+  const examples = new Map<string, unknown[]>();
+  for (const [file, markdown] of files) {
+    if (!file.endsWith(".md") || file === "README.md") continue;
     let name = "";
     let total = 0;
-    for (const line of markdown?.split(/(?=^## |^```json\n)/m) ?? []) {
-      if (line.startsWith("## ")) name = line.split("\n")[0]?.slice(3) ?? "";
-      if (!line.startsWith("```json\n")) continue;
-      const raw = JSON.parse(line.slice(8).split("\n```")[0] ?? "");
+    for (const block of markdown.split(/(?=^## |^```json\n)/m)) {
+      if (block.startsWith("## ")) name = block.split("\n")[0]?.slice(3) ?? "";
+      if (!block.startsWith("```json\n")) continue;
+      const value: unknown = JSON.parse(block.slice(8).split("\n```")[0] ?? "");
       const entry = catalog.entries.find((item) => item.name === name);
       if (!entry) throw new Error(`No source for example ${name}`);
-      expect(entry.schema.safeParse(raw).success).toBe(true);
-      expect(validator.getSchema(schemaId(name))?.(raw)).toBe(true);
+      expect(entry.schema.safeParse(value).success, `${file}: ${name}`).toBe(true);
+      expect(validator.getSchema(schemaId(name))?.(value), `${file}: ${name}`).toBe(true);
+      const observed = examples.get(name) ?? [];
+      observed.push(value);
+      examples.set(name, observed);
       total++;
     }
-    expect(total).toBeGreaterThan(0);
+    expect(total, `${file} has validated examples`).toBeGreaterThan(0);
   }
-  expect(files.get("requests.md")).toContain("### hello");
-  expect(files.get("events.md")).toContain("### item.delta");
+  for (const entry of catalog.entries) {
+    const alternatives = entry.schema instanceof z.ZodUnion ? entry.schema.options : [entry.schema];
+    const documented = examples.get(entry.name) ?? [];
+    expect(documented.length, entry.name).toBeGreaterThanOrEqual(alternatives.length);
+    for (const [index, alternative] of alternatives.entries()) {
+      if (!(alternative instanceof z.ZodType)) throw new Error("Non-classic source alternative");
+      expect(
+        documented.some((value) => alternative.safeParse(value).success),
+        `${entry.name} alternative ${index}`,
+      ).toBe(true);
+    }
+  }
   expect(files.get("README.md")).toContain("protocolVersion");
 });
 it("keeps ids and references stable regardless of export discovery order", () => {

@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 import { canonical, type Snapshot, type ToolEntry } from "./model.ts";
 import { checkFiles } from "./files.ts";
+import { ownedOutputRoot } from "./output-boundary.ts";
 
 const hash = (value: string): string => createHash("sha256").update(value).digest("hex");
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
@@ -74,8 +75,12 @@ export function withManifest(files: Map<string, string>, input: string): Map<str
   output.set(manifestName, canonical(manifest));
   return output;
 }
-export async function checkFingerprint(root: string, input: string): Promise<string[]> {
-  const path = join(root, manifestName);
+export async function checkFingerprint(
+  root: string,
+  input: string,
+  boundary = dirname(root),
+): Promise<string[]> {
+  const path = join(await ownedOutputRoot(root, boundary), manifestName);
   let manifest: Manifest;
   try {
     if ((await stat(path)).size > 256 * 1024) return [manifestName];
@@ -84,8 +89,8 @@ export async function checkFingerprint(root: string, input: string): Promise<str
     return [manifestName];
   }
   if (manifest.input !== input) return [manifestName];
-  if (Object.keys(manifest.files).length > 2048 || manifestName in manifest.files)
+  if (Object.keys(manifest.files).length > 2048 || Object.hasOwn(manifest.files, manifestName))
     return [manifestName];
   // Reuse the file inventory and bounded byte comparator, substituting a digest checker.
-  return checkFiles(root, new Map([[manifestName, canonical(manifest)]]), manifest.files);
+  return checkFiles(root, new Map([[manifestName, canonical(manifest)]]), manifest.files, boundary);
 }

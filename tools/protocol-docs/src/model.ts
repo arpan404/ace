@@ -20,11 +20,16 @@ export interface Snapshot {
 }
 export const schemaId = (name: string, version = 1): string =>
   `https://ace.local/protocol/v${version}/${name}.json`;
+export function dictionary<T>(): Record<string, T> {
+  const result: Record<string, T> = {};
+  Object.setPrototypeOf(result, null);
+  return result;
+}
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 export function object(value: unknown): Record<string, unknown> {
-  return isObject(value) ? value : {};
+  return isObject(value) ? value : dictionary<unknown>();
 }
 export function schemaNode(value: unknown): JsonSchema {
   return value === false ? { not: {} } : object(value);

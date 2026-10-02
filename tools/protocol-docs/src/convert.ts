@@ -1,6 +1,7 @@
 /* oxlint-disable eslint/no-underscore-dangle -- Zod exposes typed checks through its _zod API. */
 import { z } from "zod";
-import { schemaId, type SchemaEntry, type Snapshot } from "./model.ts";
+import { dictionary, schemaId, type SchemaEntry, type Snapshot } from "./model.ts";
+import { hasUrlCheck, preserveUrl } from "./url-format.ts";
 
 const supportedChecks = new Set([
   "custom",
@@ -18,6 +19,8 @@ const supportedChecks = new Set([
   "overwrite",
 ]);
 
+const isUrl = (entry: object): boolean => "format" in entry && entry.format === "url";
+
 /** Conversion guards cover checks that Zod otherwise omits in JSON Schema. */
 function guard(schema: z.core.$ZodType, path: (string | number)[]): void {
   const def = schema._zod.def;
@@ -31,9 +34,31 @@ function guard(schema: z.core.$ZodType, path: (string | number)[]): void {
     throw new Error(`Unsupported ${def.type} at ${path.join(".") || "root"}`);
   if (def.type === "string" && "fn" in def)
     throw new Error(`Unsupported custom string format at ${path.join(".") || "root"}`);
-  for (const check of def.checks ?? [])
-    if (!supportedChecks.has(check._zod.def.check))
-      throw new Error(`Unsupported check ${check._zod.def.check} at ${path.join(".") || "root"}`);
+  for (const check of def.checks ?? []) {
+    const constraint = check._zod.def;
+    if (!supportedChecks.has(constraint.check))
+      throw new Error(`Unsupported check ${constraint.check} at ${path.join(".") || "root"}`);
+    if (constraint.check === "string_format" && "fn" in constraint)
+      throw new Error(`Unsupported custom string format at ${path.join(".") || "root"}`);
+  }
+  if (hasUrlCheck(schema)) {
+    const definitions = [def, ...(def.checks ?? []).map((check) => check._zod.def)];
+    if (
+      definitions.some(
+        (entry) => "hostname" in entry || "protocol" in entry || "normalize" in entry,
+      )
+    )
+      throw new Error(`Unsupported URL options at ${path.join(".") || "root"}`);
+    const checks = (def.checks ?? []).map((check) => check._zod.def);
+    if (
+      checks.some(
+        (entry) =>
+          !isUrl(entry) && !["min_length", "max_length", "length_equals"].includes(entry.check),
+      ) ||
+      (!("format" in def && def.format === "url") && checks.findIndex(isUrl) > 0)
+    )
+      throw new Error(`Unsupported URL sibling checks at ${path.join(".") || "root"}`);
+  }
   if (def.checks?.some((check) => check._zod.def.check === "overwrite"))
     throw new Error(`Unsupported overwrite at ${path.join(".") || "root"}`);
   const custom = def.checks?.some((check) => check._zod.def.check === "custom");
@@ -95,7 +120,7 @@ function protocolVersion(entries: SchemaEntry[]): number {
 export function convertSchemas(entries: SchemaEntry[]): Snapshot {
   if (entries.length > 1024) throw new Error("Schema count exceeds 1024");
   const names = new Set<string>();
-  const schemas: Snapshot["schemas"] = {};
+  const schemas = dictionary<z.core.JSONSchema.JSONSchema>();
   const version = protocolVersion(entries);
   for (const entry of entries) {
     if (!/^[A-Za-z][A-Za-z0-9_.]*$/.test(entry.name) || names.has(entry.name))
@@ -128,17 +153,24 @@ export function convertSchemas(entries: SchemaEntry[]): Snapshot {
         reused: "inline",
         cycles: "throw",
         uri: (id) => schemaId(id, version),
+        override: preserveUrl,
       });
       for (const entry of group) {
         const schema = result.schemas[entry.name];
-        if (!schema) throw new Error(`Missing conversion for ${entry.name}`);
+        if (!Object.hasOwn(result.schemas, entry.name) || !schema)
+          throw new Error(`Missing conversion for ${entry.name}`);
         schemas[entry.name] = schema;
       }
     } catch (error) {
       // Diagnose through individual conversion to name the owning export.
       for (const entry of group) {
         try {
-          z.toJSONSchema(entry.schema, { io, unrepresentable: "throw", cycles: "throw" });
+          z.toJSONSchema(entry.schema, {
+            io,
+            unrepresentable: "throw",
+            cycles: "throw",
+            override: preserveUrl,
+          });
         } catch (cause) {
           throw new Error(
             `Schema ${entry.name}: ${cause instanceof Error ? cause.message : String(cause)}`,

@@ -34,7 +34,7 @@ try {
     const sourceRoot = fileURLToPath(new URL("../../../", import.meta.url));
     const input = await sourceFingerprint(sourceRoot, snapshot, catalog.tools);
     if (args[0] === "--check") {
-      const stale = await checkFingerprint(root, input);
+      const stale = await checkFingerprint(root, input, sourceRoot);
       if (stale.length)
         throw new Error(
           `Stale protocol reference: ${stale.join(", ")}. Run bun run docs:protocol.`,
@@ -42,7 +42,7 @@ try {
       console.log("Protocol reference is current");
     } else {
       const files = withManifest(renderReference(catalog.entries, catalog.tools, snapshot), input);
-      await writeFiles(root, files);
+      await writeFiles(root, files, sourceRoot);
       console.log(`Generated ${files.size} protocol reference files`);
     }
   }

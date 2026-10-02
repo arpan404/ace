@@ -2,6 +2,7 @@ import RandExp from "randexp";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import type { z } from "zod";
+import { acceptsUrl, urlFormat, urlLength } from "./url-format.ts";
 import { nodes, object, resolve, strings, type JsonSchema, type Snapshot } from "./model.ts";
 
 export type Random = () => number;
@@ -27,7 +28,8 @@ export function candidate(
   const node = resolve(schema, schemas);
   if ((node.minItems ?? 0) > 128 || (node.minLength ?? 0) > 32768)
     throw new Error("Example exceeds item/string limits");
-  if ("const" in node) return node.const;
+  if (node.examples?.length) return pick(node.examples, random);
+  if (Object.hasOwn(node, "const")) return node.const;
   if (node.enum) return pick(node.enum, random);
   const choices = node.anyOf ?? node.oneOf;
   if (choices) return candidate(pick(choices, random), schemas, random, depth + 1);
@@ -67,7 +69,8 @@ export function candidate(
       generator.randInt = (from, to) => from + Math.floor(random() * (to - from + 1));
       return generator.gen();
     }
-    if (node.format === "uri" || node.format === "url") return "https://example.invalid/";
+    if (node.format === "uri" || node.format === "url" || node.format === urlFormat)
+      return "https://example.invalid/";
     if (node.format === "date-time") return "2026-10-02T00:00:00Z";
     if (node.format === "uuid") return "00000000-0000-4000-8000-000000000000";
     if (node.format === "email") return "client@example.invalid";
@@ -93,6 +96,18 @@ export function candidate(
 export function jsonValidator(snapshot: Snapshot): Ajv2020 {
   const validator = new Ajv2020({ strict: false, validateFormats: true, inlineRefs: false });
   addFormats.default(validator);
+  validator.addFormat(urlFormat, { type: "string", validate: acceptsUrl });
+  for (const [keyword, validate] of [
+    ["x-ace-url-minLength", (limit: number, value: string) => urlLength(value) >= limit],
+    ["x-ace-url-maxLength", (limit: number, value: string) => urlLength(value) <= limit],
+  ] as const)
+    validator.addKeyword({
+      keyword,
+      type: "string",
+      schemaType: "number",
+      metaSchema: { type: "integer", minimum: 0 },
+      validate,
+    });
   for (const schema of Object.values(snapshot.schemas)) validator.addSchema(schema);
   return validator;
 }

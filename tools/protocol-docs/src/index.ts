@@ -13,3 +13,5 @@ export {
 } from "./model.ts";
 
 export { sourceFingerprint, withManifest, checkFingerprint } from "./fingerprint.ts";
+
+export { jsonValidator } from "./examples.ts";

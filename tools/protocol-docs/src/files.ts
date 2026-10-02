@@ -2,8 +2,9 @@ import { mkdir, readdir, unlink, writeFile, open } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { type Snapshot } from "./model.ts";
+import { dictionary, type Snapshot, type JsonSchema } from "./model.ts";
 import { jsonValidator } from "./examples.ts";
+import { ownedOutputRoot } from "./output-boundary.ts";
 
 async function paths(root: string, relative = ""): Promise<string[]> {
   if (relative.split("/").length > 8) throw new Error("Generated output depth exceeds 8");
@@ -60,7 +61,9 @@ export async function checkFiles(
   root: string,
   expected: Map<string, string>,
   fingerprints: Record<string, { sha256: string; bytes: number }> = {},
+  boundary = dirname(root),
 ): Promise<string[]> {
+  root = await ownedOutputRoot(root, boundary);
   const actual = new Set(await paths(root));
   const stale: string[] = [];
   const checks = [
@@ -83,11 +86,17 @@ export async function checkFiles(
   });
   return [...stale, ...actual].toSorted();
 }
-export async function writeFiles(root: string, expected: Map<string, string>): Promise<void> {
-  const actual = await paths(root);
-  for (const [name, content] of expected) {
+export async function writeFiles(
+  root: string,
+  expected: Map<string, string>,
+  boundary = dirname(root),
+): Promise<void> {
+  root = await ownedOutputRoot(root, boundary);
+  for (const name of expected.keys())
     if (!/^(?:schema\/)?[A-Za-z][A-Za-z0-9_.]*\.(?:md|json)$/.test(name))
       throw new Error(`Invalid output path ${name}`);
+  const actual = await paths(root);
+  for (const [name, content] of expected) {
     const path = join(root, name);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content);
@@ -116,7 +125,9 @@ export function parseSnapshot(raw: unknown): Snapshot {
     if (typeof schema.$id !== "string") throw new Error("Snapshot schema must have a stable $id");
     validator.compile(schema);
   }
-  return snapshot;
+  const schemas = dictionary<JsonSchema>();
+  for (const [name, schema] of Object.entries(snapshot.schemas)) schemas[name] = schema;
+  return { ...snapshot, schemas };
 }
 export async function readSnapshot(path: string): Promise<Snapshot> {
   const handle = await open(path, "r");

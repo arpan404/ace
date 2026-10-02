@@ -54,7 +54,7 @@ function types(node: JsonSchema): string[] {
   return typeof node.type === "string" ? [node.type] : strings(node.type);
 }
 function values(node: JsonSchema): unknown[] | undefined {
-  return "const" in node ? [node.const] : node.enum;
+  return Object.hasOwn(node, "const") ? [node.const] : node.enum;
 }
 
 export function compareSnapshots(previous: Snapshot, current: Snapshot): Change[] {
@@ -149,7 +149,7 @@ export function compareSnapshots(previous: Snapshot, current: Snapshot): Change[
     const aProps = object(a.properties),
       bProps = object(b.properties);
     for (const [key, value] of Object.entries(aProps)) {
-      if (!(key in bProps))
+      if (!Object.hasOwn(bProps, key))
         found.push({
           schema: name,
           path: `${path}/${key}`,
@@ -162,7 +162,7 @@ export function compareSnapshots(previous: Snapshot, current: Snapshot): Change[
         );
     }
     for (const key of Object.keys(bProps))
-      if (!(key in aProps))
+      if (!Object.hasOwn(aProps, key))
         found.push({
           schema: name,
           path: `${path}/${key}`,
@@ -226,7 +226,7 @@ export function compareSnapshots(previous: Snapshot, current: Snapshot): Change[
   }
   for (const [name, schema] of Object.entries(previous.schemas)) {
     const next = current.schemas[name];
-    if (!next)
+    if (!Object.hasOwn(current.schemas, name) || !next)
       changes.push({
         schema: name,
         path: "$",
@@ -236,7 +236,7 @@ export function compareSnapshots(previous: Snapshot, current: Snapshot): Change[
     else changes.push(...compare(name, "$", schema, next, 0));
   }
   for (const name of Object.keys(current.schemas))
-    if (!previous.schemas[name])
+    if (!Object.hasOwn(previous.schemas, name))
       changes.push({ schema: name, path: "$", kind: "additive", reason: "Schema added" });
   return changes;
 }

@@ -14,7 +14,12 @@ export function arbitrary(root: z.ZodType): fc.Arbitrary<unknown> {
   function cached(schema: z.ZodType): fc.Arbitrary<unknown> {
     const existing = cache.get(schema);
     if (existing) return existing;
-    const value = build(schema);
+    const generated = build(schema);
+    const examples = schema.meta()?.examples;
+    const value =
+      Array.isArray(examples) && examples.length
+        ? fc.oneof(fc.constantFrom(...examples), generated)
+        : generated;
     cache.set(schema, value);
     return value;
   }
@@ -47,12 +52,22 @@ export function arbitrary(root: z.ZodType): fc.Arbitrary<unknown> {
     if (schema instanceof z.ZodUnknown || schema instanceof z.ZodAny)
       return fc.jsonValue({ maxDepth: 2 });
     if (schema instanceof z.ZodNumber) {
-      return fc
-        .integer({
-          min: Math.max(0, Math.ceil(schema.minValue ?? 0)),
-          max: Math.min(10000, Math.floor(schema.maxValue ?? 10000)),
-        })
-        .filter((value) => schema.safeParse(value).success);
+      const minimum = schema.minValue ?? -Infinity;
+      const maximum = schema.maxValue ?? Infinity;
+      const min = Number.isFinite(minimum) ? minimum : -Number.MAX_SAFE_INTEGER;
+      const max = Number.isFinite(maximum) ? maximum : Number.MAX_SAFE_INTEGER;
+      const boundaries = [min, max, 0, -1, 1, 0.125, -0.125, min + 1, max - 1].filter(
+        (value) => schema.safeParse(value).success,
+      );
+      const values = schema.isInt
+        ? fc.integer({
+            min: Math.max(-Number.MAX_SAFE_INTEGER, Math.ceil(min)),
+            max: Math.min(Number.MAX_SAFE_INTEGER, Math.floor(max)),
+          })
+        : fc.double({ min, max, noNaN: true, noDefaultInfinity: true });
+      return (boundaries.length ? fc.oneof(fc.constantFrom(...boundaries), values) : values).filter(
+        (value) => schema.safeParse(value).success,
+      );
     }
     if (schema instanceof z.ZodString || schema instanceof z.ZodStringFormat) {
       if (String(schema.meta()?.["x-ace-constraint"]).includes("IANA"))
@@ -79,7 +94,15 @@ export function arbitrary(root: z.ZodType): fc.Arbitrary<unknown> {
       if (schema.format === "url")
         return fc
           .integer({ min: 0, max: 10000 })
-          .map((id) => `https://host${id}.example.invalid/path/${id}`);
+          .chain((id) =>
+            fc.constantFrom(
+              `https://host${id}.example.invalid/path/${id}`,
+              ` https://host${id}.example.invalid/ `,
+              `mailto:client${id}@example.invalid`,
+              `https://例え.テスト/${id}`,
+              `http:host${id}.example.invalid`,
+            ),
+          );
       return fc.string({
         minLength: schema.minLength ?? 0,
         maxLength: Math.min(schema.maxLength ?? 20, Math.max(20, schema.minLength ?? 0)),
@@ -115,6 +138,7 @@ export function arbitrary(root: z.ZodType): fc.Arbitrary<unknown> {
     }
     if (schema instanceof z.ZodObject) {
       const fields: Record<string, fc.Arbitrary<unknown>> = {};
+      Object.setPrototypeOf(fields, null);
       for (const [key, child] of Object.entries(schema.shape)) {
         if (!(child instanceof z.ZodType)) throw new Error("Non-classic Zod object");
         fields[key] = cached(child);
