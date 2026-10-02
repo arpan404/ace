@@ -123,3 +123,26 @@ describe("socket pressure", () => {
     expect(result).toBe(4009);
   });
 });
+
+it("refuses a snapshot larger than the delivery byte cap before sending it", async () => {
+  const f = await fixture({ pressure: { maxQueuedBytes: 1024 } });
+  cleanups.push(() => f.close());
+  f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "x".repeat(2048) }]);
+  const client = await f.connect();
+  await client.next();
+  const closed = once(client.socket, "close").then(([code]) => code);
+  client.send({
+    type: "subscribe",
+    subscriptionId: "s",
+    scope: { kind: "thread", threadId: f.thread.id },
+  });
+  expect(
+    await Promise.race([
+      closed,
+      client.next().then(
+        () => "snapshot",
+        () => closed,
+      ),
+    ]),
+  ).toBe(4009);
+});

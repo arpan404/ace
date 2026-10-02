@@ -302,3 +302,31 @@ it("backfills an older daemon database once and keeps indexed status live after 
     { id: "root", status: { state: "idle" } },
   ]);
 });
+
+it("rejects MCP intents at capacity atomically and admits work after acknowledgement", () => {
+  const store = new Store(":memory:");
+  cleanups.push(() => store.close());
+  const { thread, scope } = seed(store);
+  const intent = McpNotificationIntent.parse({
+    ...scope,
+    type: "mcp.notify",
+    notice: { text: "bounded" },
+  });
+  for (let i = 0; i < 10000; i++) store.enqueueMcpIntent(`pending-${i}`, intent, [], 1);
+  const head = store.headSeq();
+  expect(() =>
+    store.enqueueMcpIntent(
+      "overflow",
+      intent,
+      [{ type: "thread.updated", title: "Must roll back" }],
+      2,
+    ),
+  ).toThrow("capacity");
+  expect(store.headSeq()).toBe(head);
+  expect(store.getThread(thread.id)?.title).toBe(thread.title);
+  expect(store.acknowledgeMcpIntent("pending-0")).toBe(true);
+  expect(store.acknowledgeMcpIntent("pending-0")).toBe(false);
+  store.enqueueMcpIntent("replacement", intent, [], 3);
+  expect(() => store.enqueueMcpIntent("overflow-again", intent, [], 4)).toThrow("capacity");
+  expect(store.readMcpIntents(1)[0]?.id).toBe("pending-1");
+});
