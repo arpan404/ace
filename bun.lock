@@ -15,12 +15,22 @@
     "apps/daemon": {
       "name": "@ace/daemon",
       "dependencies": {
+        "@ace/browser": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "ws": "^8.18.3",
+        "zod": "^4.6.5",
       },
       "devDependencies": {
         "@types/ws": "^8.18.1",
+      },
+    },
+    "packages/browser": {
+      "name": "@ace/browser",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "playwright-core": "^1.61.1",
+        "zod": "^4.6.5",
       },
     },
     "packages/core": {
@@ -53,6 +63,8 @@
     },
   },
   "packages": {
+    "@ace/browser": ["@ace/browser@workspace:packages/browser"],
+
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
@@ -448,6 +460,8 @@
     "picomatch": ["picomatch@4.0.7", "", {}, "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="],
 
     "pkce-challenge": ["pkce-challenge@5.0.1", "", {}, "sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ=="],
+
+    "playwright-core": ["playwright-core@1.63.0", "", { "bin": { "playwright-core": "cli.js" } }, "sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg=="],
 
     "postcss": ["postcss@8.5.28", "", { "dependencies": { "nanoid": "^3.3.18", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A=="],
 

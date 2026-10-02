@@ -45,8 +45,9 @@ Snapshots use CDP's accessibility tree and backend DOM ids. Refs include a
 document generation and backend id: an existing element keeps its ref across
 snapshots and unrelated DOM edits, while navigation invalidates old refs. Only
 the most recent bounded snapshot grants actionable refs. Resolution uses
-`DOM.resolveNode` and a Playwright element handle; refs never become selectors
-or page-provided code. Screenshots are written as artifacts rather than sent as
+`DOM.resolveNode` with short-lived CDP object handles; refs never become selectors
+or page-provided code. Accessibility output has node and byte caps; oversized
+documents fail before fetching a full AX tree. Screenshots are written as artifacts rather than sent as
 unbounded JSON. Evaluate is denied unless an injected policy explicitly allows
 it, independently of site approval.
 
@@ -67,26 +68,34 @@ one in-flight frame and one replaceable latest frame. Socket pressure prevents
 sending; newer frames replace the pending frame. CDP frames are acknowledged
 immediately even if subscribers are slow. FPS throttling and bounded JPEG
 dimensions limit work; pressure lowers capture quality and frame rate. Fan-out
-is O(subscribers), with a fixed subscription cap and no history scan.
+is O(subscribers), with a fixed subscription cap and no history scan. All viewers
+share one frame serialization, which is collected when the frame is no longer used.
 
-Recordings stream JPEGs into ffmpeg when present. Encoder backpressure drops
-frames; it never accumulates a frame queue. Otherwise the service writes JPEGs
-and timestamp entries to a streamed JSONL manifest plus an HTML player. Recording
+Recordings stream JPEGs and timestamps to disk with at most one write in flight.
+Disk backpressure drops frames. Stop asks ffmpeg, when installed, to encode the
+sequence with its original frame timing. A pipe watchdog kills the encoder if
+the daemon dies. The streamed JSONL manifest and HTML player remain a fallback
+when ffmpeg is absent or fails. The player also streams its manifest. Recording
 size is capped. Completion returns an artifact and invokes an injected artifact
 sink; the daemon appends an artifact item to the owning thread. A durable thread
 item references the recording path and MIME type, not its bytes.
+Artifact items may omit an agent owner before a thread's first provider run.
 
 ## Security and lifecycle
 
 Only authenticated daemon connections may use the bridge. Human ownership is
 bound to the connection, so another device cannot inject input or hand back its
 session. Navigation and every intercepted HTTP request, including redirects and
-subresources, pass an origin policy. Exact loopback hosts are allowed; other
+subresources, pass an origin policy. CDP Fetch interception attaches to the primary
+page and to isolated iframe and worker targets; Playwright routing alone skips
+redirect hops. Targets, outstanding policy checks and CDP commands have caps.
+Exact loopback hosts are allowed; other
 origins default to deny and use an injected approval hook. WebSockets get the
 same check. Non-HTTP navigation, personal profiles, exposed debugging ports and
 automatic downloads are excluded. Service workers are blocked to prevent them
 from bypassing request interception. Site approval results are not cached here;
-the future interaction service owns approval lifetime and revocation.
+the future interaction service owns approval lifetime and revocation. Hook calls
+have a ten-second deadline and cancel on service shutdown.
 
 Profiles, logs, screenshots and recordings may contain sensitive page data.
 They stay under the user's daemon data directory with private directories.
@@ -104,9 +113,10 @@ site policy, console/network log files, frame delivery to two clients, ownership
 recordings and process cleanup. Tests synchronize on observable events, not
 sleeps or elapsed-time assertions. They skip with an explicit reason if Chromium
 is unavailable. CI installs Playwright Chromium when running browser tests.
-Pure fan-out tests exercise delayed acknowledgements and latest-frame replacement
-with an injected clock. Non-gating benchmarks measure frame fan-out and log
-ingestion, including RSS. Before delivery, at least eight production mutations
+Pure fan-out tests exercise delayed acknowledgements and latest-frame replacement.
+The capture shell accepts an injected clock. Non-gating benchmarks measure frame
+fan-out, validation/serialization, recording writes and log ingestion, including
+RSS. Before delivery, at least eight production mutations
 must each make a behavior test fail, then be reverted.
 
 ## Consequences
