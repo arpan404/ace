@@ -72,3 +72,20 @@ jobs:
 
       - name: Tests
         run: bun run test
+
+  browser:
+    name: Real Chromium browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.x
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Install Chromium and system libraries
+        run: bun run --cwd packages/browser playwright-core install --with-deps chromium
+      - name: Browser tests
+        run: bun run test -- packages/browser apps/daemon/src/browser.test.ts
