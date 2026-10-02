@@ -71,3 +71,14 @@ export function turnError(
     message,
   };
 }
+
+const requestMethods = new Set([
+  "item/commandExecution/requestApproval",
+  "item/fileChange/requestApproval",
+  "item/permissions/requestApproval",
+  "item/tool/requestUserInput",
+  "mcpServer/elicitation/request",
+]);
+export function isInteractiveRequest(method: string): boolean {
+  return requestMethods.has(method);
+}

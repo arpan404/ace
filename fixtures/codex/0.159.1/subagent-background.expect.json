@@ -6,30 +6,30 @@
     },
     {
       "t": 9062,
-      "thread": "working",
+      "thread": "waiting",
       "agentStates": {
         "root": "blocked",
         "01a0fb29-8c7d-7d72-be0f-aa8f1d783f2f": "working"
       },
-      "note": "Core currently counts an active background child as working. Root remains blocked on its background task; never done."
+      "on": "background_task"
     },
     {
       "t": 11294,
-      "thread": "working",
-      "note": "Core currently counts an active background child as working. Root remains blocked on its background task; never done.",
-      "agentStates": {
-        "root": "blocked",
-        "01a0fb29-8c7d-7d72-be0f-aa8f1d783f2f": "working"
-      }
-    },
-    {
-      "t": 11357,
-      "thread": "working",
+      "thread": "waiting",
       "agentStates": {
         "root": "blocked",
         "01a0fb29-8c7d-7d72-be0f-aa8f1d783f2f": "working"
       },
-      "note": "Core currently counts an active background child as working. Root remains blocked on its background task; never done."
+      "on": "background_task"
+    },
+    {
+      "t": 11357,
+      "thread": "waiting",
+      "agentStates": {
+        "root": "blocked",
+        "01a0fb29-8c7d-7d72-be0f-aa8f1d783f2f": "working"
+      },
+      "on": "background_task"
     },
     {
       "t": 14153,

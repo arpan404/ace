@@ -96,9 +96,6 @@ test("user image content preserves its original URL", () => {
     },
     true,
   );
-  expect(Object.values(h.state.items).find((i) => i.type === "message")?.type === "message").toBe(
-    true,
-  );
   const message = Object.values(h.state.items).find((i) => i.type === "message");
   expect(message?.type === "message" && message.parts).toEqual([
     { type: "image", mimeType: "image/*", url: "https://example.test/image.png" },

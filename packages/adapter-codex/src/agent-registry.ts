@@ -9,7 +9,8 @@ export function createAgentRegistry(config: {
   getRoot(): string;
   getCwd(): string;
   replay(frame: Frame, now: number): Fact[];
-  takeBuffer(agent: Agent): Frame[];
+  takeBuffer(id: string): { frames: Frame[]; lost: boolean };
+  discovered(facts: Fact[]): void;
 }) {
   const { agents } = config;
   function ensure(
@@ -26,7 +27,6 @@ export function createAgentRegistry(config: {
         key: isRoot ? config.rootKey : id,
         ...(parent ? { parent } : {}),
         known,
-        buffer: [],
         hadTurn: false,
         mode: "default",
         open: new Map(),
@@ -70,6 +70,20 @@ export function createAgentRegistry(config: {
   ): Agent {
     const agent = ensure(id, true, facts, p, parent);
     agent.known = true;
+    const retained = config.takeBuffer(id);
+    const buffered = retained.frames;
+    if (retained.lost) agent.bufferLost = true;
+    if (agent.bufferLost && !Array.isArray(p["turns"]) && !agent.unknownTask) {
+      agent.unknownTask = true;
+      facts.push({
+        type: "background.started",
+        agent: config.rootKey,
+        task: `unknown:${id}`,
+        kind: "other",
+        title: "Recovering a truncated Codex thread",
+        stoppable: false,
+      });
+    }
     if (parent) {
       agent.parent = parent;
       agents.get(parent)?.children.add(id);
@@ -92,7 +106,7 @@ export function createAgentRegistry(config: {
     if (
       p["status"] &&
       (agent.bufferLost ||
-        !agent.buffer.some((frame) =>
+        !buffered.some((frame) =>
           ["turn/started", "turn/completed"].includes(str(obj(frame.data)["method"])),
         )) &&
       (!agent.hadTurn || agent.bufferLost)
@@ -128,7 +142,6 @@ export function createAgentRegistry(config: {
         });
       }
     }
-    const buffered = config.takeBuffer(agent);
     if (!agent.bufferLost || !Array.isArray(p["turns"]))
       for (const frame of buffered) facts.push(...config.replay(frame, now));
     if (agent.unknownTask && (!agent.bufferLost || Array.isArray(p["turns"]))) {
@@ -136,6 +149,7 @@ export function createAgentRegistry(config: {
       delete agent.unknownTask;
       delete agent.bufferLost;
     }
+    config.discovered(facts);
     return agent;
   }
   return { ensure, discover };

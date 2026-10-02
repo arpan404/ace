@@ -1,6 +1,7 @@
 // Offline provider boundary. This process never imports or starts a real Codex binary.
 import { createInterface } from "node:readline";
 import { list, obj, str } from "../native.ts";
+if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
 const args = process.argv.slice(2);
 if (args.join(" ") === "--version") {
   process.stdout.write("codex-cli 0.159.1\n");
@@ -53,6 +54,12 @@ for await (const line of createInterface({ input: process.stdin })) {
         platformOs: "macos",
       });
   } else if (method === "thread/start" || method === "thread/resume") {
+    if (process.env["ACE_FAKE_RESUME"] === "resume-completed") {
+      process.stdout.write(
+        `${JSON.stringify({ id, result: { thread: { id: "native", status: { type: "active" }, turns: [{ id: "resumed", status: "inProgress", items: [] }] } } })}\n${JSON.stringify({ method: "turn/completed", params: { threadId: "native", turn: { id: "resumed", status: "completed" } } })}\n`,
+      );
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "active") active.set("native", "resumed");
     const shellHistory = process.env["ACE_FAKE_RESUME"] === "shell";
     if (shellHistory)
@@ -165,6 +172,25 @@ for await (const line of createInterface({ input: process.stdin })) {
           },
           false,
         );
+    } else if (text === "overflow-read") {
+      notify("turn/started", { threadId: "overflow-child", turn: { id: "overflow-turn" } });
+      for (let i = 0; i < 70; i++)
+        notify("item/agentMessage/delta", {
+          threadId: "overflow-child",
+          itemId: "m",
+          delta: `${i}`,
+        });
+      item("native", "turn", {
+        id: "spawn-overflow",
+        type: "subAgentActivity",
+        kind: "started",
+        agentThreadId: "overflow-child",
+      });
+      notify("turn/completed", {
+        threadId: "overflow-child",
+        turn: { id: "overflow-turn", status: "completed" },
+      });
+      end();
     } else if (text === "orphan") {
       active.set("orphan", "orphan-turn");
       notify("thread/status/changed", { threadId: "orphan", status: { type: "idle" } });
@@ -214,6 +240,10 @@ for await (const line of createInterface({ input: process.stdin })) {
       nextCursor: null,
     });
   else if (method === "turn/interrupt") {
+    if (process.env["ACE_FAKE_RESUME"] === "read-completed" && p["threadId"] === "hidden") {
+      write({ id, error: { message: "stale read turn" } });
+      continue;
+    }
     respond({});
     end(str(p["threadId"]), "interrupted");
   } else if (method === "thread/backgroundTerminals/list") {
@@ -257,7 +287,37 @@ for await (const line of createInterface({ input: process.stdin })) {
       continue;
     }
     respond({ data: active.has("hidden") ? ["native", "hidden"] : ["native"], nextCursor: null });
-  } else if (method === "thread/read")
+  } else if (method === "thread/read") {
+    if (process.env["ACE_FAKE_RESUME"] === "read-completed" && p["threadId"] === "hidden") {
+      active.delete("hidden");
+      const turn = { id: "hidden-turn", status: "inProgress", items: [] };
+      process.stdout.write(
+        `${JSON.stringify({ id, result: { thread: { id: "hidden", parentThreadId: "native", status: { type: "active" }, turns: [turn] } } })}\n${JSON.stringify({ method: "turn/completed", params: { threadId: "hidden", turn: { ...turn, status: "completed" } } })}\n`,
+      );
+      continue;
+    }
+    if (p["threadId"] === "overflow-child") {
+      if (!discoveryFailed) {
+        discoveryFailed = true;
+        write({ id, error: { code: -32000, message: "read failed" } });
+        continue;
+      }
+      respond({
+        thread: {
+          id: "overflow-child",
+          parentThreadId: "native",
+          status: { type: "idle" },
+          turns: [
+            {
+              id: "overflow-turn",
+              status: "completed",
+              items: [{ id: "m", type: "agentMessage", text: "recovered" }],
+            },
+          ],
+        },
+      });
+      continue;
+    }
     respond({
       thread: {
         id: p["threadId"],
@@ -272,6 +332,6 @@ for await (const line of createInterface({ input: process.stdin })) {
         turns: [{ id: active.get(str(p["threadId"])), status: "inProgress" }],
       },
     });
-  else if (method !== "initialized")
+  } else if (method !== "initialized")
     write({ id, error: { message: `Unexpected request: ${method}` } });
 }

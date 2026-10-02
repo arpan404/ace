@@ -1,14 +1,12 @@
 import type { Fact, Key } from "@ace/core";
-import type { Frame } from "@ace/engine-api";
 import type { RunTrigger } from "@ace/protocol";
 import type { Obj } from "./native.ts";
-type OpenItem = { data: Obj; turn: string; output: number; streamStarted?: boolean };
+type OpenItem = { data: Obj; turn: string; streamStarted?: boolean };
 export type Agent = {
   key: Key;
   parent?: string;
   known: boolean;
   unknownTask?: boolean;
-  buffer: Frame[];
   bufferLost?: boolean;
   turn?: string;
   hadTurn: boolean;
@@ -30,6 +28,7 @@ export type Agent = {
 export interface TranslationContext {
   agents: Map<string, Agent>;
   tasks: Set<string>;
+  asyncOwners: Map<string, { agent: Agent; item: string }>;
   discover(
     id: string,
     p: Obj,

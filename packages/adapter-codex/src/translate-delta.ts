@@ -30,6 +30,20 @@ export function translateDelta(
   facts.push({ type: "retry.cleared", agent: agent.key });
   let open = agent.open.get(item);
   if (method === "item/plan/delta" || field === "output") {
+    const turn = str(p["turnId"], agent.turn);
+    if (!open && field === "output" && (!agent.turn || turn !== agent.turn)) {
+      facts.push({ type: "item.delta", agent: agent.key, item, field: "output", append });
+      facts.push({
+        type: "background.started",
+        agent: agent.key,
+        task: `shell:${item}`,
+        item,
+        kind: "shell",
+        title: "Command output",
+        stoppable: true,
+      });
+      return;
+    }
     if (!open && !agent.completed.has(item)) {
       open = {
         data: {
@@ -40,12 +54,11 @@ export function translateDelta(
           text: "",
         },
         turn: str(p["turnId"], agent.turn),
-        output: 0,
       };
       agent.open.set(item, open);
       agent.items.add(item);
       facts.push({
-        type: "item.upsert",
+        type: field === "output" ? "item.reconciled" : "item.upsert",
         agent: agent.key,
         item,
         draft: itemDraft(open.data, false),
@@ -74,7 +87,6 @@ export function translateDelta(
       return;
     }
     const draft = itemDraft(open.data, false);
-    open.output += append.length;
     if (draft.type !== "tool_call" || draft.call?.kind !== "shell") {
       facts.push(ctx.note(agent.key, method, frame.data));
       return;

@@ -92,12 +92,11 @@ export function translateItem(
     }
     const previous = agent.open.get(itemId);
     if (!complete) {
-      // The full start payload has already been emitted as raw. Output is tracked by offset only.
+      // Canonical core state retains the exact raw start; replay metadata excludes growing output.
       const { aggregatedOutput: _output, ...metadata } = item;
       agent.open.set(itemId, {
         data: metadata,
         turn: str(p["turnId"], agent.turn),
-        output: str(item["aggregatedOutput"]).length,
       });
     } else {
       agent.open.delete(itemId);
@@ -122,22 +121,21 @@ export function translateItem(
       else if (draft.type === "message" || draft.type === "reasoning" || draft.type === "notice")
         draft.raw = [...earlier, ...(draft.raw ?? [])];
     }
-    facts.push({ type: "item.upsert", agent: agent.key, item: itemId, draft });
-    const output = str(item["aggregatedOutput"]);
-    if (
-      output &&
-      draft.type === "tool_call" &&
-      draft.call?.kind === "shell" &&
-      output.length > (previous?.output ?? 0)
-    )
+    if (draft.type === "tool_call" && draft.call?.detail?.kind === "shell") {
+      if (typeof item["aggregatedOutput"] === "string")
+        draft.call.detail.output = item["aggregatedOutput"];
+      facts.push({ type: "item.reconciled", agent: agent.key, item: itemId, draft });
+    } else facts.push({ type: "item.upsert", agent: agent.key, item: itemId, draft });
+    if (!complete && type === "collabAgentToolCall" && item["tool"] === "wait")
       facts.push({
-        type: "item.delta",
+        type: "subagents.waiting",
         agent: agent.key,
         item: itemId,
-        field: "output",
-        append: output.slice(previous?.output ?? 0),
+        targets: list(item["receiverThreadIds"]).filter(
+          (value): value is string => typeof value === "string",
+        ),
       });
-    if (complete && tasks.has(shellKey(itemId))) {
+    if (complete && type === "commandExecution") {
       tasks.delete(shellKey(itemId));
       facts.push({
         type: "background.ended",
@@ -162,6 +160,7 @@ export function translateItem(
       !agent.async.has(itemId)
     ) {
       agent.async.add(itemId);
+      ctx.asyncOwners.set(asyncKey(itemId), { agent, item: itemId });
       facts.push({
         type: "interaction.opened",
         agent: agent.key,

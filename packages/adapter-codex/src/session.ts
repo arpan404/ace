@@ -1,3 +1,4 @@
+import { isInteractiveRequest } from "./interactions.ts";
 import { runtime, type CodexRuntime } from "./runtime.ts";
 import { hydrateControls, parentOf } from "./session-state.ts";
 import type { ProviderSession, SessionContext } from "@ace/engine-api";
@@ -43,7 +44,9 @@ export async function openCodexSession(
   let closed = false;
   let closePromise: Promise<void> | undefined;
   const active = new Map<string, string>();
-  const ended = new Set<string>();
+  const controlRequests = new Map<unknown, { method: string; thread: string }>();
+  const revisions = new Map<string, number>();
+  const readRevisions = new Map<string, number>();
   const scopedReads = new Set<unknown>();
   const parents = new Map<string, string>();
   const known = new Set<string>();
@@ -71,6 +74,34 @@ export async function openCodexSession(
       const p = obj(m["params"]);
       const method = str(m["method"]);
       const thread = str(p["threadId"]);
+      if (dir === "send" && ["thread/start", "thread/resume", "turn/start"].includes(method))
+        controlRequests.set(m["id"], { method, thread });
+      if (dir === "recv") {
+        const control = controlRequests.get(m["id"]);
+        controlRequests.delete(m["id"]);
+        const result = obj(m["result"]);
+        const snapshot = obj(result["thread"]);
+        if (control && m["error"] === undefined) {
+          if (control.method === "turn/start") {
+            const id = str(obj(result["turn"])["id"]);
+            if (id) active.set(control.thread, id);
+          } else {
+            nativeSessionId = str(snapshot["id"]);
+            if (nativeSessionId) {
+              known.add(nativeSessionId);
+              hydrateControls(snapshot, active, shells);
+            }
+          }
+        }
+        if (scopedReads.has(m["id"]) && str(snapshot["id"]))
+          readRevisions.set(str(snapshot["id"]), revisions.get(str(snapshot["id"])) ?? 0);
+        if (
+          thread &&
+          (known.has(thread) || readRevisions.has(thread)) &&
+          ["turn/started", "turn/completed", "item/started", "item/completed"].includes(method)
+        )
+          revisions.set(thread, (revisions.get(thread) ?? 0) + 1);
+      }
       if (dir === "recv" && method === "turn/completed" && thread === nativeSessionId)
         emit("note", {
           event: "discovery-start",
@@ -81,22 +112,17 @@ export async function openCodexSession(
       const scoped = dir === "recv" && scopedReads.delete(m["id"]);
       emit(dir, data, scoped ? "codex-discovery" : "stdio");
       if (dir !== "recv") return;
-      if (thread && !known.has(thread) && !timers.has(thread))
+      if (thread && !known.has(thread) && !timers.has(thread) && timers.size < 256)
         timers.set(
           thread,
           io.schedule(() => {
             timers.delete(thread);
-            if (!closed) void readThread(thread).catch(diagnostic);
+            if (!closed) void recoverThread(thread);
           }, 2_000),
         );
       if (method === "turn/started") active.set(thread, str(obj(p["turn"])["id"]));
       if (method === "turn/completed") {
         const turn = str(obj(p["turn"])["id"]);
-        ended.add(turn);
-        if (ended.size > 1024) {
-          const first = ended.values().next().value;
-          if (first) ended.delete(first);
-        }
         if (active.get(thread) === turn) active.delete(thread);
         for (const [key, entry] of pending)
           if (
@@ -153,6 +179,21 @@ export async function openCodexSession(
   });
   const request = (method: string, params: unknown, interactive = false) =>
     rpc.request(method, params, { timeoutMs: interactive ? null : 30_000, signal: ctx.signal });
+  async function recoverThread(threadId: string): Promise<void> {
+    try {
+      await readThread(threadId);
+    } catch (error) {
+      diagnostic(error);
+      if (!closed && !timers.has(threadId))
+        timers.set(
+          threadId,
+          io.schedule(() => {
+            timers.delete(threadId);
+            if (!closed) void recoverThread(threadId);
+          }, 2_000),
+        );
+    }
+  }
   async function readThread(threadId: string, ancestors = new Set<string>()): Promise<void> {
     if (ancestors.has(threadId)) throw new Error("Cyclic Codex thread ancestry");
     ancestors.add(threadId);
@@ -162,10 +203,16 @@ export async function openCodexSession(
       throw new Error("Codex thread read returned a different id");
     const parent = parentOf(thread);
     if (parent && !known.has(parent)) await readThread(parent, ancestors);
-    if (threadId !== nativeSessionId && (!parent || !known.has(parent))) return;
+    if (threadId !== nativeSessionId && (!parent || !known.has(parent))) {
+      readRevisions.delete(threadId);
+      revisions.delete(threadId);
+      return;
+    }
     known.add(threadId);
     if (parent) parents.set(threadId, parent);
-    hydrateControls(thread, active, shells);
+    const revision = readRevisions.get(threadId);
+    readRevisions.delete(threadId);
+    if (revision === (revisions.get(threadId) ?? 0)) hydrateControls(thread, active, shells);
     emit("note", { event: "thread-discovered", thread });
   }
   async function refreshQueue(threadId: string): Promise<void> {
@@ -213,11 +260,7 @@ export async function openCodexSession(
       void refreshQueue(str(obj(params)["threadId"])).catch(diagnostic);
   };
   rpc.onRequest = (serverRequest) => {
-    if (
-      !serverRequest.method.endsWith("requestApproval") &&
-      serverRequest.method !== "item/tool/requestUserInput" &&
-      serverRequest.method !== "mcpServer/elicitation/request"
-    )
+    if (!isInteractiveRequest(serverRequest.method))
       throw new MethodNotFound(`Unsupported Codex request: ${serverRequest.method}`);
     return new Promise((answer, reject) =>
       pending.set(requestKey(serverRequest.id), { request: serverRequest, answer, reject }),
@@ -234,7 +277,7 @@ export async function openCodexSession(
     pending.clear();
     rpc.close();
     ctx.signal.removeEventListener("abort", abort);
-    closePromise = proc.stop().then(() => {});
+    closePromise = proc.stop({ graceMs: io.stopGraceMs }).then(() => {});
     return closePromise;
   };
   const abort = () => {
@@ -271,7 +314,7 @@ export async function openCodexSession(
     nativeSessionId = str(obj(result["thread"])["id"]);
     if (!nativeSessionId) throw new Error("Codex did not return a thread id");
     known.add(nativeSessionId);
-    hydrateControls(obj(result["thread"]), active, shells);
+
     model = str(result["model"], model);
   } catch (error) {
     await close();
@@ -286,7 +329,6 @@ export async function openCodexSession(
     ...createSessionCommands({
       nativeSessionId,
       active,
-      ended,
       parents,
       shells,
       pending,

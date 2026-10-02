@@ -17,6 +17,7 @@ export async function sessionHarness(resume = false, mode = "") {
   const scheduled = new Map<() => void, number>();
   const adapter = createCodexAdapter({
     runtime: {
+      stopGraceMs: 0,
       now: () => now,
       userMessageId: () => "offline-message",
       schedule(callback, delay) {

@@ -3,6 +3,7 @@ import { discoverProviders } from "@ace/provider-kit/discovery";
 import { spawnSupervised } from "@ace/provider-kit/process";
 /** I/O defaults live at the adapter boundary; tests can replace each source independently. */
 export type CodexRuntime = {
+  stopGraceMs: number;
   now(): number;
   userMessageId(): string;
   spawn: typeof spawnSupervised;
@@ -10,6 +11,7 @@ export type CodexRuntime = {
   schedule(callback: () => void, delayMs: number): () => void;
 };
 export const runtime: CodexRuntime = {
+  stopGraceMs: 5000,
   now: () => performance.now(),
   userMessageId: randomUUID,
   spawn: spawnSupervised,

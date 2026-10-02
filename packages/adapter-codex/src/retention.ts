@@ -1,5 +1,4 @@
 import type { Frame } from "@ace/engine-api";
-import type { Agent } from "./translator-state.ts";
 /** Closed identifiers are replay hints, not an archive of provider history. */
 export class RecentSet extends Set<string> {
   override add(value: string): this {
@@ -12,31 +11,61 @@ export class RecentSet extends Set<string> {
     return this;
   }
 }
-/** Raw facts are emitted before buffering. Loss of replay data requires a full thread read. */
+/** Raw facts precede buffering. Eviction keeps one guard until an authoritative scan. */
 export function unknownBuffers() {
-  const retained = new Map<Frame, { agent: Agent; bytes: number }>();
+  const threads = new Map<string, { frames: Frame[]; lost: boolean }>();
+  const retained = new Map<Frame, { id: string; bytes: number }>();
   let bytes = 0;
+  let overflow = false;
   function discard(frame: Frame, lost: boolean) {
     const entry = retained.get(frame);
     if (!entry) return;
     retained.delete(frame);
     bytes -= entry.bytes;
-    const index = entry.agent.buffer.indexOf(frame);
-    if (index >= 0) entry.agent.buffer.splice(index, 1);
-    if (lost) entry.agent.bufferLost = true;
+    const thread = threads.get(entry.id);
+    if (!thread) return;
+    const index = thread.frames.indexOf(frame);
+    if (index >= 0) thread.frames.splice(index, 1);
+    if (lost) thread.lost = true;
   }
   return {
-    push(agent: Agent, frame: Frame) {
+    get pending() {
+      return threads.size;
+    },
+    get overflow() {
+      return overflow;
+    },
+    clear() {
+      threads.clear();
+      retained.clear();
+      bytes = 0;
+      overflow = false;
+    },
+    push(id: string, frame: Frame) {
+      let thread = threads.get(id);
+      if (!thread) {
+        if (threads.size >= 256) {
+          const oldest = threads.keys().next().value;
+          if (oldest !== undefined) {
+            for (const retainedFrame of threads.get(oldest)?.frames.slice() ?? [])
+              discard(retainedFrame, false);
+            threads.delete(oldest);
+            overflow = true;
+          }
+        }
+        thread = { frames: [], lost: false };
+        threads.set(id, thread);
+      }
       const size = JSON.stringify(frame).length * 2;
       if (size > 64 * 1024) {
-        agent.bufferLost = true;
+        thread.lost = true;
         return;
       }
-      agent.buffer.push(frame);
-      retained.set(frame, { agent, bytes: size });
+      thread.frames.push(frame);
+      retained.set(frame, { id, bytes: size });
       bytes += size;
-      if (agent.buffer.length > 64) {
-        const first = agent.buffer[0];
+      if (thread.frames.length > 64) {
+        const first = thread.frames[0];
         if (first) discard(first, true);
       }
       while (bytes > 512 * 1024 || retained.size > 256) {
@@ -45,10 +74,13 @@ export function unknownBuffers() {
         discard(first, true);
       }
     },
-    take(agent: Agent): Frame[] {
-      const frames = [...agent.buffer];
+    take(id: string): { frames: Frame[]; lost: boolean } {
+      const thread = threads.get(id);
+      if (!thread) return { frames: [], lost: false };
+      const frames = [...thread.frames];
       for (const frame of frames) discard(frame, false);
-      return frames;
+      threads.delete(id);
+      return { frames, lost: thread.lost };
     },
   };
 }

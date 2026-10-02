@@ -7,16 +7,8 @@ import { createAgentRegistry } from "./agent-registry.ts";
 import { completeTurn } from "./translate-turn.ts";
 import { translateItem } from "./translate-item.ts";
 import { isKnownDelta, translateDelta } from "./translate-delta.ts";
-import { openRequest, turnError } from "./interactions.ts";
-import { asyncKey, list, obj, raw, requestKey, str, type Obj } from "./native.ts";
-
-const requestMethods = new Set([
-  "item/commandExecution/requestApproval",
-  "item/fileChange/requestApproval",
-  "item/permissions/requestApproval",
-  "item/tool/requestUserInput",
-  "mcpServer/elicitation/request",
-]);
+import { isInteractiveRequest, openRequest, turnError } from "./interactions.ts";
+import { list, obj, raw, requestKey, str, type Obj } from "./native.ts";
 
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
   const agents = new Map<string, Agent>();
@@ -24,6 +16,19 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
   let recordedAnswer: string | undefined;
   const userTurns = new RecentSet();
   const buffers = unknownBuffers();
+  const asyncOwners: TranslationContext["asyncOwners"] = new Map();
+  let unknownGuard = false;
+  function finishUnknown(facts: Fact[]) {
+    if (unknownGuard && buffers.pending === 0 && !buffers.overflow) {
+      facts.push({ type: "background.ended", task: "codex:unknown-threads", status: "completed" });
+      unknownGuard = false;
+    }
+  }
+  function closeAsync(key: string) {
+    const owner = asyncOwners.get(key);
+    owner?.agent.async.delete(owner.item);
+    asyncOwners.delete(key);
+  }
 
   let root = "";
   let cwd = "";
@@ -34,10 +39,12 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     getCwd: () => cwd,
     replay: handle,
     takeBuffer: buffers.take,
+    discovered: finishUnknown,
   });
   const translation: TranslationContext = {
     agents,
     tasks: new Set(),
+    asyncOwners,
     discover,
     note: (...args) => note(...args),
   };
@@ -69,8 +76,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       }
       // Recorded fixtures explicitly annotate an answer; ambiguous annotations close nothing.
       if (message["event"] === "async-question-answered") {
-        const questions = [...agents.values()].flatMap((a) => [...a.async].map(asyncKey));
-        if (questions.length === 1) recordedAnswer = questions[0];
+        if (asyncOwners.size === 1) recordedAnswer = asyncOwners.keys().next().value;
       }
       if (message["event"] === "discovery-start")
         facts.push({
@@ -81,21 +87,22 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           title: "Discovering loaded descendants",
           stoppable: false,
         });
-      if (message["event"] === "discovery-finished")
+      if (message["event"] === "discovery-finished") {
+        buffers.clear();
+        finishUnknown(facts);
         facts.push({
           type: "background.ended",
           task: str(message["task"], "codex:discovery"),
           status: "completed",
         });
+      }
       if (message["event"] === "queue-state" && typeof message["count"] === "number")
         facts.push({ type: "queue.changed", count: message["count"] });
       if (message["event"] === "stop") deliberate = true;
       if (message["event"] === "process-exit")
         facts.push({ type: "process.exited", deliberate, message: "Codex app-server exited" });
       if (message["event"] === "interaction-resolved") {
-        for (const agent of agents.values())
-          for (const item of agent.async)
-            if (asyncKey(item) === message["interaction"]) agent.async.delete(item);
+        closeAsync(str(message["interaction"]));
         facts.push({
           type: "interaction.closed",
           interaction: str(message["interaction"]),
@@ -162,9 +169,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           interaction: pending.interaction,
           state: "resolved",
         });
-        for (const agent of agents.values())
-          for (const item of agent.async)
-            if (asyncKey(item) === pending.interaction) agent.async.delete(item);
+        closeAsync(pending.interaction);
       }
       facts.push(note(init.rootKey, "rpc.response", frame.data));
       return facts;
@@ -182,24 +187,24 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     if (!native) {
       return [note(init.rootKey, method || "unknown", frame.data)];
     }
-    const agent = ensure(native, native === root, facts);
-    facts.push({ type: "signal", agent: agent.key });
-    if (!agent.known) {
-      if (!agent.unknownTask) {
-        agent.unknownTask = true;
+    if (native !== root && !agents.get(native)?.known) {
+      facts.push(note(init.rootKey, method || "unknown", frame.data));
+      buffers.push(native, frame);
+      if (!unknownGuard) {
+        unknownGuard = true;
         facts.push({
           type: "background.started",
           agent: init.rootKey,
-          task: `unknown:${native}`,
+          task: "codex:unknown-threads",
           kind: "other",
-          title: "Discovering an unknown Codex thread",
+          title: "Discovering unknown Codex threads",
           stoppable: false,
         });
       }
-      facts.push(note(agent.key, method || "unknown", frame.data));
-      buffers.push(agent, frame);
       return facts;
     }
+    const agent = ensure(native, true, facts);
+    facts.push({ type: "signal", agent: agent.key });
     if (
       [
         "turn/started",
@@ -213,7 +218,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       ].includes(method)
     )
       facts.push(note(agent.key, method, frame.data));
-    if (requestMethods.has(method) && id !== undefined) {
+    if (isInteractiveRequest(method) && id !== undefined) {
       const key = requestKey(id);
       const item = str(p["itemId"]);
       facts.push(...openRequest(agent.key, key, method, p, agent.items.has(item)));
