@@ -52,6 +52,19 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/adapter-acp": {
+      "name": "@ace/adapter-acp",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/engine-api": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@ace/adapter-testkit": "workspace:*",
+      },
+    },
     "packages/adapter-claude": {
       "name": "@ace/adapter-claude",
       "dependencies": {
@@ -77,6 +90,20 @@
       },
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
+      },
+    },
+    "packages/adapter-opencode": {
+      "name": "@ace/adapter-opencode",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/engine-api": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@ace/adapter-testkit": "workspace:*",
+        "@ace/projection": "workspace:*",
       },
     },
     "packages/adapter-testkit": {
@@ -235,9 +262,13 @@
     },
   },
   "packages": {
+    "@ace/adapter-acp": ["@ace/adapter-acp@workspace:packages/adapter-acp"],
+
     "@ace/adapter-claude": ["@ace/adapter-claude@workspace:packages/adapter-claude"],
 
     "@ace/adapter-codex": ["@ace/adapter-codex@workspace:packages/adapter-codex"],
+
+    "@ace/adapter-opencode": ["@ace/adapter-opencode@workspace:packages/adapter-opencode"],
 
     "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],
 

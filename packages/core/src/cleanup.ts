@@ -101,6 +101,7 @@ export function exitProcess(
   // All live tools belong to this process, even after their owner ended its turn.
   for (const key of liveToolKeys(state)) cancelTool(state, key, ctx.now, events);
   for (const record of Object.values(state.agents)) {
+    delete record.disconnectedAt;
     delete record.retry;
     delete record.wakeUntil;
     if (!record.activeRun) {

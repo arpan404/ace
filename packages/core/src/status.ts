@@ -63,6 +63,7 @@ function completionRelevance(
     if (
       key === state.rootKey ||
       status.state !== "unresponsive" ||
+      record.disconnectedAt !== undefined ||
       record.activeRun ||
       record.lastRun ||
       record.retry ||
@@ -178,6 +179,8 @@ function statusResolver(state: ThreadState, now: number) {
     if (blocking.length > 0) {
       return { state: "blocked", on: "human", refs: blocking.map((interaction) => interaction.id) };
     }
+    if (record.disconnectedAt !== undefined)
+      return { state: "unresponsive", lastSignalAt: record.disconnectedAt };
     if (record.retry) return { state: "blocked", refs: [], ...record.retry };
 
     const liveChildren = Object.keys(lookup(children, agent.id) ?? {}).filter(holdsCompletion);
@@ -308,10 +311,16 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
       return { state: "waiting", on: reason };
     }
   }
+  if (runningTaskKeys(state).some((key) => lookup(state.tasks, key)?.ambient === false))
+    return { state: "waiting", on: "background_task" };
   if (
-    statuses.some((status) => status.state === "blocked" && status.on === "background_task") ||
-    runningTaskKeys(state).some((key) => !lookup(state.tasks, key)!.ambient)
-  ) {
+    records.some(
+      (record) =>
+        record.disconnectedAt !== undefined && record.agent.status.state === "unresponsive",
+    )
+  )
+    return { state: "unresponsive" };
+  if (statuses.some((status) => status.state === "blocked" && status.on === "background_task")) {
     return { state: "waiting", on: "background_task" };
   }
   if (state.queueCount > 0) return { state: "waiting", on: "queue" };

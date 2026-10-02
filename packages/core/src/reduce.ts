@@ -61,6 +61,12 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
     return events;
   }
   switch (fact.type) {
+    case "agent.disconnected":
+      ensureAgent(state, fact.agent, ctx, events).disconnectedAt = ctx.now;
+      break;
+    case "agent.reconnected":
+      delete ensureAgent(state, fact.agent, ctx, events).disconnectedAt;
+      break;
     case "agent.seen":
       seeAgent(state, fact, ctx, events);
       break;

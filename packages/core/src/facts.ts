@@ -143,6 +143,8 @@ export type Fact =
       type: "background.ended";
       task: Key;
       status: "completed" | "failed" | "stopped" | "unknown";
+      /** Unknown execution still holds completion until explicit terminal evidence. */
+      uncertain?: boolean;
     }
   | {
       type: "retry";
@@ -152,6 +154,8 @@ export type Fact =
       until?: number;
       message?: string;
     }
+  | { type: "agent.disconnected"; agent: Key }
+  | { type: "agent.reconnected"; agent: Key }
   | { type: "retry.cleared"; agent: Key }
   | { type: "wake.expected"; agent: Key; until: number }
   | {
