@@ -18,6 +18,8 @@ export type RpcOptions = {
   maxPendingRequests?: number;
   maxMessageBytes?: number;
   maxQueuedBytes?: number;
+  /** Explicit wire ids are never reused. Defaults to 4096 distinct explicit ids per peer. */
+  maxExplicitIds?: number;
   onFrame?: (direction: "send" | "recv", message: unknown) => void;
   onMalformed?: (line: string) => void;
   onError?: (error: Error) => void;
@@ -42,6 +44,8 @@ export class JsonRpcPeer {
   readonly #pending = new Map<RpcId, Pending>();
   readonly #writer: RpcWriter;
   readonly #maxPendingRequests: number;
+  readonly #maxExplicitIds: number;
+  readonly #explicitIds = new Set<RpcId>();
   #nextId = 1;
   #closed: Error | undefined;
   onNotification: (message: Notification) => void = () => {};
@@ -51,13 +55,14 @@ export class JsonRpcPeer {
 
   constructor(proc: SupervisedProcess, options: RpcOptions = {}) {
     this.#maxPendingRequests = byteLimit(options.maxPendingRequests ?? 256, "maxPendingRequests");
+    this.#maxExplicitIds = byteLimit(options.maxExplicitIds ?? 4096, "maxExplicitIds");
     this.#writer = new RpcWriter(proc.stdin, options);
     this.#process = proc;
     this.#options = options;
     proc.stdout.on("line", this.#receive);
     proc.stdin.on("error", this.#fail);
     proc.signal.addEventListener("abort", this.#end, { once: true });
-    void proc.exited.then(() => this.close(new Error("process exited")));
+    proc.stdout.once("close", this.#drained);
     if (proc.signal.aborted) this.close(new Error("process exited"));
   }
 
@@ -67,12 +72,17 @@ export class JsonRpcPeer {
     if (this.#pending.size >= this.#maxPendingRequests)
       return Promise.reject(new Error("JSON-RPC pending request limit"));
     let id = options.id;
-    if (id === undefined) {
-      while (this.#pending.has(this.#nextId)) this.#nextId++;
-      id = this.#nextId++;
+    if (id !== undefined) {
+      if (!isId(id) || (typeof id === "string" && Buffer.byteLength(id) > 1024))
+        return Promise.reject(new Error("Invalid request id"));
+      if (
+        this.#explicitIds.has(id) ||
+        (typeof id === "number" && Number.isInteger(id) && id > 0 && id < this.#nextId)
+      )
+        return Promise.reject(new Error("Request id already used"));
+      if (this.#explicitIds.size >= this.#maxExplicitIds)
+        return Promise.reject(new Error("JSON-RPC explicit id limit"));
     }
-    if (this.#pending.has(id)) return Promise.reject(new Error("Duplicate pending request id"));
-    if (!isId(id)) return Promise.reject(new Error("Invalid request id"));
     const deadline =
       options.timeoutMs !== undefined
         ? options.timeoutMs
@@ -82,6 +92,12 @@ export class JsonRpcPeer {
     if (deadline !== null && (!Number.isFinite(deadline) || deadline < 0)) {
       return Promise.reject(new RangeError("Invalid timeoutMs"));
     }
+    if (id === undefined) {
+      while (this.#explicitIds.has(this.#nextId)) this.#nextId++;
+      if (!Number.isSafeInteger(this.#nextId))
+        return Promise.reject(new Error("JSON-RPC id space exhausted"));
+      id = this.#nextId++;
+    } else this.#explicitIds.add(id);
     const requestId = id;
     return new Promise((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -126,12 +142,16 @@ export class JsonRpcPeer {
   close(error = new Error("JSON-RPC peer closed")): void {
     this.#closed ??= error;
     this.#writer.close(error);
+    this.#process.stdout.removeListener("close", this.#drained);
     this.#process.signal.removeEventListener("abort", this.#end);
     this.#process.stdout.removeListener("line", this.#receive);
     this.#process.stdin.removeListener("error", this.#fail);
     for (const id of this.#pending.keys()) this.#settle(id, error);
   }
 
+  #drained = (): void => {
+    this.close(new Error("process exited"));
+  };
   #end = (): void => {
     const error = new Error("process exited");
     this.#closed ??= error;
