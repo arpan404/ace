@@ -86,6 +86,13 @@
         "@ace/provider-kit": "workspace:*",
       },
     },
+    "packages/forge": {
+      "name": "@ace/forge",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/git": {
       "name": "@ace/git",
       "dependencies": {
@@ -188,6 +195,8 @@
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
 
     "@ace/engine-api": ["@ace/engine-api@workspace:packages/engine-api"],
+
+    "@ace/forge": ["@ace/forge@workspace:packages/forge"],
 
     "@ace/git": ["@ace/git@workspace:packages/git"],
 
