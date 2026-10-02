@@ -19,6 +19,7 @@ import {
   DeviceId,
   type ServerMessage,
   type Notification,
+  type ThreadId,
 } from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
@@ -61,6 +62,8 @@ export interface ServerOptions {
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
+  /** Local-token clients can read all threads by default. */
+  canReadThread?: (deviceId: DeviceId, threadId: ThreadId) => boolean;
   notifications?: Pick<
     NotificationWorker,
     "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
@@ -309,6 +312,13 @@ export async function startServer(options: ServerOptions): Promise<{
             fail("subscription_limit", "Too many subscriptions");
             break;
           }
+          if (
+            message.scope.kind === "thread" &&
+            options.canReadThread?.(device, message.scope.threadId) === false
+          ) {
+            fail("read_denied", "Thread is not readable");
+            break;
+          }
           try {
             const stop = subscribe(
               options.store,
@@ -321,6 +331,48 @@ export async function startServer(options: ServerOptions): Promise<{
             subscriptions.set(message.subscriptionId, stop);
           } catch {
             fail("subscribe_failed", "Unknown thread or invalid cursor");
+          }
+          break;
+        }
+        case "output.read": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
+          const threadId = options.store.outputThread(message.streamId);
+          if (!threadId || options.canReadThread?.(device, threadId) === false) {
+            fail("read_denied", "Output stream is not readable");
+            break;
+          }
+          send({
+            type: "output.data",
+            requestId: message.requestId,
+            streamId: message.streamId,
+            offset: message.offset,
+            ...options.store.readOutput(message.streamId, message.offset, message.limit),
+          });
+          break;
+        }
+        case "items.page": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
+          if (
+            !options.store.getThread(message.threadId) ||
+            options.canReadThread?.(device, message.threadId) === false
+          ) {
+            fail("read_denied", "Thread is not readable");
+            break;
+          }
+          try {
+            send({
+              type: "items.page",
+              requestId: message.requestId,
+              ...options.store.readItems(message.threadId, message.before, message.limit),
+            });
+          } catch {
+            fail("read_denied", "Invalid item cursor");
           }
           break;
         }
