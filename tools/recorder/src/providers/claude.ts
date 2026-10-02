@@ -1,5 +1,6 @@
 import { query, type CanUseTool, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { interruptOnce, probe } from "../process.ts";
+import { probe } from "@ace/provider-kit/process";
+import { interruptOnce } from "../interrupt.ts";
 import type { Scenario } from "../scenarios.ts";
 import type { Driver, RunContext } from "./types.ts";
 
