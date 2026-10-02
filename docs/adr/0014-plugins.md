@@ -25,12 +25,12 @@ A catalog at root `marketplace.json` contains named plugins with relative `sourc
 
 ### Import mapping
 
-| Input | ace normalization |
-| --- | --- |
-| `ace-plugin.json` | Strict version 1 schema; explicit component lists |
-| Agent Plugins `plugin.json` | Recognize the 1.0 schema locally; discover fixed `skills/` and `mcp.json`; preserve extension data and report unsupported namespaces |
-| Claude `.claude-plugin/plugin.json` | Discover default skills, commands, agents, `.mcp.json`, `hooks/hooks.json`; support relative custom component paths and inline MCP/command hooks |
-| Codex or Cursor compatibility manifest | Accept the same practical directory/path subset, with native Cursor hook names preserved |
+| Input                                  | ace normalization                                                                                                                                |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ace-plugin.json`                      | Strict version 1 schema; explicit component lists                                                                                                |
+| Agent Plugins `plugin.json`            | Recognize the 1.0 schema locally; discover fixed `skills/` and `mcp.json`; preserve extension data and report unsupported namespaces             |
+| Claude `.claude-plugin/plugin.json`    | Discover default skills, commands, agents, `.mcp.json`, `hooks/hooks.json`; support relative custom component paths and inline MCP/command hooks |
+| Codex or Cursor compatibility manifest | Accept the same practical directory/path subset, with native Cursor hook names preserved                                                         |
 
 Import is a supported subset, not a claim of full standard conformance. Unsafe packages are rejected as a whole. Unknown metadata and extensions are retained for inspection, never executed. Prompt hooks, LSP servers, browser extensions, mods, dependencies, and MCP bundles need separate ownership and are reported as unsupported. Files outside the plugin directory, symlinks and Git submodules are rejected.
 
@@ -40,19 +40,19 @@ The manager prepares an install or update, returning a review with plugin name, 
 
 `projectPlugins(provider, installed, {root})` returns `{env, args, files, sessionConfig, unsupported}`. Inputs are verified installed snapshots with bounded files. The root is an absolute ace-owned projection directory, not a user config directory. Adapters materialize files before starting the CLI and merge the returned overrides into their session configuration.
 
-| Provider | Injection |
-| --- | --- |
-| Claude | ace plugin directories passed through repeated `--plugin-dir`; MCP uses `--mcp-config`; rules use `--append-system-prompt` |
-| Codex | ace local marketplace selected with `-c marketplaces.*`, plugins enabled with `-c plugins.*`; MCP and hooks use TOML overrides; rules use additional developer instructions; portable agent Markdown and custom slash commands report unsupported |
-| OpenCode | `OPENCODE_CONFIG_CONTENT` supplies extra skill roots, MCP, command templates, subagent prompts and instruction file paths; hooks report unsupported |
-| Cursor | ace native directories through `--plugin-dir`, with skills, commands, rules, agents, native hooks and MCP |
-| Antigravity / generic ACP | session `mcpServers`; file capabilities and hooks report unsupported until supported override paths are confirmed |
+| Provider                  | Injection                                                                                                                                                                                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Claude                    | ace plugin directories passed through repeated `--plugin-dir`; MCP uses `--mcp-config`; rules use `--append-system-prompt`                                                                                                                                                     |
+| Codex                     | ace local marketplace selected with `-c marketplaces.*`, plugins enabled with `-c plugins.*`; MCP uses TOML overrides and hooks use the native bundled file; rules use additional developer instructions; portable agent Markdown and custom slash commands report unsupported |
+| OpenCode                  | `OPENCODE_CONFIG_CONTENT` supplies extra skill roots, MCP, command templates, subagent prompts and instruction file paths; hooks report unsupported                                                                                                                            |
+| Cursor                    | ace native directories through `--plugin-dir`, with skills, commands, rules, agents, native hooks and MCP                                                                                                                                                                      |
+| Antigravity / generic ACP | session `mcpServers`; file capabilities and hooks report unsupported until supported override paths are confirmed                                                                                                                                                              |
 
-Provider CLI versions vary. Adapters must capability-probe flags and ACP transports and display diagnostics before launch. Native hook trust remains in force; ace does not disable provider approval or trust policies. A pure projector does not send prompts or start tools.
+Provider CLI versions vary. Adapters must capability-probe flags and ACP transports and display diagnostics before launch. Native hook trust remains in force; ace does not disable provider approval or trust policies. A pure projector does not send prompts or start tools. Hook root placeholders map to native environment variables rather than literal shell text, preserving authored quoting.
 
 ### Registry, files and restarts
 
-The caller passes a per-user ace root, clock and id generator. SQLite owns the accepted install and pending review records. Files live under that root in staging and immutable version directories. Mutations hold an exclusive filesystem lock; concurrent calls fail promptly rather than queue without a bound. Promotion writes a version before committing its registry pointer. Removal drops the pointer before deleting files. Startup and successful mutations collect unreferenced staging/version directories, so a crash between those steps is recoverable. Registry rows and files are revalidated before projection; integrity mismatch rejects use.
+The caller passes a per-user ace root, clock and id generator. SQLite owns the accepted install and pending review records. Files live under that root in staging and immutable version directories. Mutations hold an exclusive SQLite file transaction lock; concurrent calls fail promptly rather than queue without a bound. Promotion writes a version before committing its registry pointer. Removal drops the pointer before deleting files. Startup and successful mutations collect unreferenced staging/version directories, so a crash between those steps is recoverable. Registry rows and files are revalidated before projection; integrity mismatch rejects use.
 
 Projection roots require an ace ownership marker and must be empty on first adoption. Writers reject symlinks and replace the generated file set, removing obsolete output. Session owners must not rewrite or delete a projection while a provider is using it. They create separate roots for concurrent sessions and remove them after shutdown.
 

@@ -29,6 +29,13 @@
         "@ace/protocol": "workspace:*",
       },
     },
+    "packages/plugins": {
+      "name": "@ace/plugins",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
@@ -56,6 +63,8 @@
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
+
+    "@ace/plugins": ["@ace/plugins@workspace:packages/plugins"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
