@@ -12,6 +12,9 @@
         "vitest": "^5.0.3",
       },
     },
+    "packages/git": {
+      "name": "@ace/git",
+    },
     "packages/protocol": {
       "name": "@ace/protocol",
       "dependencies": {
@@ -26,6 +29,8 @@
     },
   },
   "packages": {
+    "@ace/git": ["@ace/git@workspace:packages/git"],
+
     "@ace/protocol": ["@ace/protocol@workspace:packages/protocol"],
 
     "@ace/recorder": ["@ace/recorder@workspace:tools/recorder"],
