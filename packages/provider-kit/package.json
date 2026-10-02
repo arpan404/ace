@@ -14,7 +14,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "doctor": "node src/doctor.ts"
   },
-  "devDependencies": {
+  "dependencies": {
     "zod": "^4.6.5"
   },
   "engines": {

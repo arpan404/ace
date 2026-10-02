@@ -20,6 +20,7 @@ import {
   HostId,
   DeviceId,
   type ServerMessage,
+  type DiagnosticsHealth,
   type Notification,
   type ThreadId,
 } from "@ace/protocol";
@@ -66,6 +67,7 @@ export interface ServerOptions {
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
+  health?: () => Promise<DiagnosticsHealth>;
   /** Local-token clients can read all threads by default. */
   canReadThread?: (deviceId: DeviceId, threadId: ThreadId) => boolean;
   notifications?: Pick<
@@ -80,6 +82,7 @@ export async function startServer(options: ServerOptions): Promise<{
   notify(device: DeviceId, notification: Notification): boolean;
   preview?: DaemonPreview;
   httpUrl: string;
+  diagnosticsQueues(): { socketInput: number; healthRequests: number };
   remoteUrl?: string;
   fingerprint?: string;
   close(): Promise<void>;
@@ -166,6 +169,7 @@ export async function startServer(options: ServerOptions): Promise<{
       }
   });
   const input = new SocketInput();
+  let healthRequests = 0;
   const cleanups = new Map<WebSocket, () => void>();
   let disconnects = Promise.resolve();
   let disconnectError: Error | undefined;
@@ -183,6 +187,7 @@ export async function startServer(options: ServerOptions): Promise<{
     }
     const sessionId = z.string().min(1).max(200).parse(runtime.id());
     let device: DeviceId | undefined;
+    let healthPending = false;
     let hasPresence = false;
     let cleaned = false;
     let lastActivity = auth.now();
@@ -193,9 +198,15 @@ export async function startServer(options: ServerOptions): Promise<{
       send({ type: "error", code, message });
       if (close) socket.close(4001, code);
     };
+    const releaseHealth = () => {
+      if (!healthPending) return;
+      healthPending = false;
+      healthRequests--;
+    };
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
+      releaseHealth();
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -444,8 +455,9 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         }
         case "command": {
-          if (!allows(authenticated.get(socket), "operate")) {
-            fail("forbidden", "Operate scope required");
+          const scope = message.command.payload.type === "diagnostics.health" ? "read" : "operate";
+          if (!allows(authenticated.get(socket), scope)) {
+            fail("forbidden", `${scope === "read" ? "Read" : "Operate"} scope required`);
             break;
           }
           try {
@@ -458,6 +470,45 @@ export async function startServer(options: ServerOptions): Promise<{
           if (socket.readyState !== WebSocket.OPEN || !authenticated.has(socket)) break;
           if (message.command.deviceId !== device) {
             fail("device_mismatch", "Command device must match hello");
+            break;
+          }
+          if (message.command.payload.type === "diagnostics.health") {
+            if (!options.health) {
+              send({
+                type: "commandResult",
+                commandId: message.command.id,
+                ok: false,
+                error: "diagnostics_unavailable",
+              });
+              break;
+            }
+            if (healthPending) {
+              send({
+                type: "commandResult",
+                commandId: message.command.id,
+                ok: false,
+                error: "diagnostics_busy",
+              });
+              break;
+            }
+            healthPending = true;
+            healthRequests++;
+            void Promise.resolve()
+              .then(options.health)
+              .then(
+                (health) =>
+                  send({ type: "commandResult", commandId: message.command.id, ok: true, health }),
+                () =>
+                  send({
+                    type: "commandResult",
+                    commandId: message.command.id,
+                    ok: false,
+                    error: "diagnostics_failed",
+                  }),
+              )
+              .finally(() => {
+                releaseHealth();
+              });
             break;
           }
           try {
@@ -504,6 +555,7 @@ export async function startServer(options: ServerOptions): Promise<{
     ...(preview ? { preview } : {}),
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
+    diagnosticsQueues: () => ({ socketInput: input.depth(), healthRequests }),
     ...(remoteOrigin && options.remote
       ? {
           remoteUrl: remoteOrigin.replace("https:", "wss:"),

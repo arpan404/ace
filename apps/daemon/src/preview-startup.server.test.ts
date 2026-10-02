@@ -1,9 +1,11 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, request } from "node:http";
 import { once } from "node:events";
+import { Command, DeviceId } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { Client } from "./socket-test-support.ts";
 import { startDaemon, readConfig } from "./index.ts";
 
 function get(url: string, cookie = "") {
@@ -38,15 +40,20 @@ function get(url: string, cookie = "") {
   });
 }
 
-test("daemon startup with a model catalog also serves its optional preview gateway", async ({
+test("daemon startup serves health, its model catalog and an optional preview gateway together", async ({
   onTestFinished,
 }) => {
   const home = await mkdtemp(join(tmpdir(), "ace-preview-startup-"));
   const upstream = createServer((_req, res) => res.end("startup preview"));
   let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
+  let client: Client | undefined;
   onTestFinished(async () => {
     try {
-      await daemon?.close();
+      try {
+        await client?.close();
+      } finally {
+        await daemon?.close();
+      }
     } finally {
       try {
         await new Promise<void>((resolve) => {
@@ -68,6 +75,7 @@ test("daemon startup with a model catalog also serves its optional preview gatew
     [],
     undefined,
     [],
+    () => ({ activeSessions: 2, queues: { engine: 3 } }),
     { host: "127.0.0.1", wildcardHost: "preview.test" },
   );
   const paired = daemon.store.devices.create("Operator", ["operate"], 1000);
@@ -80,4 +88,26 @@ test("daemon startup with a model catalog also serves its optional preview gatew
   expect(login.status).toBe(303);
   expect((await get(origin, login.cookie)).body).toBe("startup preview");
   expect(daemon.models.list({ offset: 0, limit: 1 }).models).toEqual([]);
+  client = new Client(daemon.url);
+  await once(client.socket, "open");
+  client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("startup-health"),
+    token: await readFile(daemon.tokenPath, "utf8"),
+  });
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  client.send({
+    type: "command",
+    command: Command.parse({
+      id: "startup-health",
+      deviceId: "startup-health",
+      payload: { type: "diagnostics.health" },
+    }),
+  });
+  expect(await client.next()).toMatchObject({
+    type: "commandResult",
+    ok: true,
+    health: { activeSessions: 2, queues: { engine: 3, "daemon.healthRequests": 1 } },
+  });
 });

@@ -1,8 +1,8 @@
 # Preview verifier follow-up
 
-The owner's static-only validation rule applies. No tests, probes, benchmarks,
-mutations or CI were executed in this follow-up. Runtime assertions need run at
-merge. The earlier verifier evaluated `331c3e0`; this follow-up first merged
+The earlier verifier follow-up used the owner's static-only validation rule.
+No tests, probes, benchmarks, mutations or CI were executed in that round.
+The diagnostics integration below records the later authorized merge tests. The earlier verifier evaluated `331c3e0`; this follow-up first merged
 `origin/main` at `5494e21`, without rebasing, in `e5b1ce9`.
 
 ## Findings addressed
@@ -75,7 +75,7 @@ No claim of a full `bun run check`, concurrent stability, mutation results,
 final-tree throughput or CI success is made. Historical benchmark numbers remain
 in the PR description as pre-policy measurements; current numbers need run at merge.
 
-## Latest main integration
+## Previous main integration
 
 Merged main `fe670b0` after independent approval. Protocol subpaths retain both
 `./preview` and `./forge`. Process-test globs retain main's delivery, shutdown,
@@ -95,3 +95,49 @@ discard the injected delivery clock for preview authorization,
 All permitted static checks pass on the merged tree; the size gate covers 596
 source files. Dependency installation used `--ignore-scripts`. No tests, probes,
 benchmarks, mutations, full `bun run check` or CI were run for this merge.
+
+## Diagnostics integration after approval
+
+Merged origin/main `46eb036` (diagnostics #35). Resolved startup imports and
+parameters by retaining diagnostics' sixth workload callback and putting preview
+options seventh; model instances remain fifth. The daemon keeps structured
+logging/redaction, health collection and their shutdown alongside its model,
+notification, remote-access and preview services. The startup regression now
+asserts a real preview HTTP response, catalog reads and an authenticated health
+response containing the injected workload.
+
+Provider-kit retains the raw owner, total-output cap, line cap, AbortSignal,
+injected spawner and deadline scheduler. Probe output is bounded before readline,
+and an abort during spawning is detected after listener subscription. A new real
+child regression checks abort rejection after child shutdown. Zod is a runtime
+dependency following main's new discovery use. The lockfile was taken from main
+and regenerated with `bun install --ignore-scripts`. Protocol exports retain
+`./preview` and `./forge`; the process-project list retains both branches' suites
+and includes the real-I/O diagnostics workload test.
+
+Integration I10 remains addressed for preview by shared paired operate checks and
+revocation. Main still has no browser/plugin/screen or alternate-read dispatch
+from the named future PRs; existing read envelopes retain per-thread checks.
+Thread-status precedence is unchanged.
+
+Formatting, lint, repository typecheck and size checks pass (635 source files).
+Under the owner's final merge-conflict exception, exactly these files were run
+with `bunx vitest run`: **10 files / 46 tests passed**:
+
+- provider-kit: `process.test.ts`, `probe-cancel.test.ts`, `output-bounds.test.ts`.
+- daemon: `preview.server.test.ts`, `preview-scope.server.test.ts`,
+  `preview-startup.server.test.ts`, `diagnostics.server.test.ts`,
+  `diagnostics.workload.test.ts`.
+- preview: `launch.test.ts`, `memory.test.ts`.
+
+Additional mutation cases designed to fail these public behaviour tests:
+
+| Mutation                                       | Public behaviour assertion                                                             | Status                            |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------- |
+| Drop health wiring while preview is configured | Startup health returns injected session/queue counts alongside real preview HTTP       | not executed (tests run at merge) |
+| Ignore cancellation during injected spawn      | Probe rejects with Probe aborted after its owned child exits stopped                   | not executed (tests run at merge) |
+| Omit raw output budget when spawning a probe   | Newline-free output terminates with output-limit rather than accumulating indefinitely | not executed (tests run at merge) |
+
+No full suite, `bun run check`, CI, benchmark, mutation or flakiness run was
+executed. Other runtime assertions and final performance measurements need run
+at merge. Historical benchmark figures remain labeled in the PR description.

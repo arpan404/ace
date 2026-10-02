@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { stripVTControlCharacters } from "node:util";
 
 export type AuthStatus = {
@@ -10,8 +11,8 @@ const unknown: AuthStatus = { auth: "unknown" };
 function record(text: string): Record<string, unknown> | undefined {
   try {
     const value: unknown = JSON.parse(text);
-    if (value && typeof value === "object" && !Array.isArray(value))
-      return value as Record<string, unknown>;
+    const parsed = z.record(z.string(), z.unknown()).safeParse(value);
+    if (parsed.success) return parsed.data;
   } catch {
     /* Unknown CLI output is not evidence of being logged out. */
   }
@@ -85,12 +86,12 @@ export function parseOpenCodeAuth(text: string): AuthStatus {
 }
 
 export function parseVersion(
-  provider: "claude" | "codex" | "opencode" | "cursor",
+  provider: "claude" | "codex" | "opencode" | "cursor" | "antigravity",
   text: string,
 ): string | undefined {
   const clean = stripVTControlCharacters(text)
     .trim()
-    .replace(/^codex-cli\s+/, "");
+    .replace(/^(?:codex-cli|agy|antigravity(?: CLI)?)\s+/i, "");
   return provider === "cursor"
     ? /^(\d{4}\.\d{2}\.\d{2}-[a-f\d]+)/i.exec(clean)?.[1]
     : /^(\d+\.\d+\.\d+(?:-[\w.-]+)?)/.exec(clean)?.[1];

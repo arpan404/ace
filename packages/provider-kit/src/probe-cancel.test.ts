@@ -2,7 +2,7 @@ import { createServer, connect, type Socket } from "node:net";
 import { once } from "node:events";
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { probeOutput } from "@ace/provider-kit/process";
+import { probeOutput, spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 
 test(
   "cancelling a probe closes its real child server before the probe finishes",
@@ -85,3 +85,24 @@ test(
     after.destroy();
   },
 );
+
+test("a probe cancelled during injected spawn stops its child before rejecting", async ({
+  onTestFinished,
+}) => {
+  const controller = new AbortController();
+  let child: SupervisedProcess | undefined;
+  onTestFinished(async () => {
+    await child?.stop({ graceMs: 0 });
+  });
+  const operation = probeOutput(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    signal: controller.signal,
+    spawn(options) {
+      child = spawnSupervised(options);
+      controller.abort();
+      return child;
+    },
+  });
+  await expect(operation).rejects.toThrow("Probe aborted");
+  if (!child) throw new Error("Missing owned child");
+  expect(await child.exited).toMatchObject({ reason: "stopped" });
+});
