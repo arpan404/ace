@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, vi } from "vitest";
 
 // Contain failed real processes without imposing a performance budget on Git tests.
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: 120_000 });
 
 export const execute = promisify(execFile);
 const directories: string[] = [];
