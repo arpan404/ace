@@ -54,11 +54,12 @@ try {
   );
   const start = performance.now();
   for (let i = 0; i < 100; i++) {
+    await writeFile(join(root, "1.md"), `edited body ${i}`);
     files.invalidate(join(root, "1.md"));
     await files.flush();
   }
   process.stdout.write(
-    `incremental filesystem refresh among 100 files: ${((performance.now() - start) * 10).toFixed(2)} us/op\n`,
+    `incremental file edit and refresh among 100 files: ${((performance.now() - start) * 10).toFixed(2)} us/op\n`,
   );
   const before = files.metrics(),
     churnStart = performance.now();
