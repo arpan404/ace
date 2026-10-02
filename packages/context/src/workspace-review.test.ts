@@ -118,7 +118,7 @@ test("a transient ignore update failure recovers without another filesystem even
   const repo = await repository();
   cleanups.push(repo.close);
   await repo.write("secret.txt", "secret");
-  const failed = Promise.withResolvers<void>();
+  const scheduled = Promise.withResolvers<void>();
   const timers = new Map<number, () => Promise<void>>();
   let timerId = 0,
     failNext = true;
@@ -139,7 +139,6 @@ test("a transient ignore update failure recovers without another filesystem even
           if (failNext && paths.includes(".gitignore")) {
             failNext = false;
             watcher?.close();
-            failed.resolve();
             throw new Error("transient I/O failure");
           }
           await git.update(paths);
@@ -150,6 +149,7 @@ test("a transient ignore update failure recovers without another filesystem even
       after: (_delay, task) => {
         const id = ++timerId;
         timers.set(id, task);
+        scheduled.resolve();
         return () => {
           timers.delete(id);
         };
@@ -163,8 +163,7 @@ test("a transient ignore update failure recovers without another filesystem even
   cleanups.unshift(() => cache.close());
   expect((await cache.get(repo.root)).index.complete("secret")).toEqual(["secret.txt"]);
   await repo.write(".gitignore", "secret.txt\n");
-  await failed.promise;
-  await new Promise<void>((resolve) => setImmediate(resolve));
+  await scheduled.promise;
   const retry = timers.entries().next().value;
   if (retry) {
     timers.delete(retry[0]);
@@ -180,6 +179,7 @@ test("watcher errors recover through a single backed-off timer which close cance
   cleanups.push(repo.close);
   await repo.write("old.ts", "old");
   const timers = new Map<number, { delay: number; task: () => Promise<void> }>();
+  let scheduled = Promise.withResolvers<void>();
   let timerId = 0,
     unavailable = false;
   let watcher: FSWatcher | undefined;
@@ -205,6 +205,7 @@ test("watcher errors recover through a single backed-off timer which close cance
       after: (delay, task) => {
         const id = ++timerId;
         timers.set(id, { delay, task });
+        scheduled.resolve();
         return () => {
           timers.delete(id);
         };
@@ -219,20 +220,70 @@ test("watcher errors recover through a single backed-off timer which close cance
   await cache.get(repo.root);
   unavailable = true;
   watcher?.emit("error", new Error("lost watcher"));
-  await new Promise<void>((resolve) => setImmediate(resolve));
+  await scheduled.promise;
   watcher?.emit("change", "change", "old.ts");
-  await new Promise<void>((resolve) => setImmediate(resolve));
   for (const expectedDelay of [100, 200, 400]) {
     expect([...timers.values()].map((timer) => timer.delay)).toEqual([expectedDelay]);
     expect((await cache.get(repo.root)).index.complete("old")).toEqual(["old.ts"]);
     const next = timers.entries().next().value;
     if (!next) throw new Error("Expected recovery timer");
     timers.delete(next[0]);
+    scheduled = Promise.withResolvers<void>();
     await next[1].task();
+    await scheduled.promise;
   }
   await cache.close();
   expect([...timers]).toEqual([]);
   await expect(cache.get(repo.root)).rejects.toMatchObject({ code: "busy" });
+});
+
+test("a rearmed watcher's queued change is drained without another notification", async () => {
+  const repo = await repository();
+  cleanups.push(repo.close);
+  await repo.write("old.ts", "old");
+  const published = Promise.withResolvers<void>();
+  let recovering = false;
+  let watcher: FSWatcher | undefined;
+  const cache = new WorkspaceCache(
+    1,
+    (root) => {
+      const git = new GitWorkspace(root);
+      return {
+        root,
+        get index() {
+          return git.index;
+        },
+        initialize: async () => {
+          await git.initialize();
+          // The lost watcher is closed. This file arrives after the replacement
+          // index was built, so only the rearmed watch can add it.
+          if (recovering) await repo.write("late.ts", "late");
+        },
+        inspect: (path) => git.inspect(path),
+        read: (path, limit) => git.read(path, limit),
+        update: async (paths) => {
+          await git.update(paths);
+          if (paths.includes("late.ts")) published.resolve();
+        },
+      };
+    },
+    undefined,
+    (root) => {
+      const source = watch(root, { recursive: true });
+      watcher = source;
+      // Delivery on the next microtask models a notification queued as the
+      // replacement watcher starts, while the rebuild drain is settling.
+      if (recovering) queueMicrotask(() => source.emit("change", "rename", "late.ts"));
+      return source;
+    },
+  );
+  cleanups.unshift(() => cache.close());
+  await cache.get(repo.root);
+  recovering = true;
+  watcher?.close();
+  watcher?.emit("error", new Error("lost watcher"));
+  await published.promise;
+  expect((await cache.get(repo.root)).index.complete("late")).toEqual(["late.ts"]);
 });
 
 test("cancelling an incomplete Git listing reports cancellation after reaping", async () => {

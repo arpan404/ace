@@ -20,7 +20,7 @@ const cases = [
   {
     name: "Remove autonomous cache retry",
     file: "workspace-cache.ts",
-    before: "return flush();",
+    before: "return entry.task.then(flush);",
     after: "return Promise.resolve();",
     test: "workspace-review.test.ts",
     behavior: "transient ignore update failure",

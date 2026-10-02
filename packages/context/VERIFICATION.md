@@ -1,6 +1,6 @@
 # Context verification
 
-The repo owner's latest instruction supersedes earlier test and gate requirements. This final revision receives static checks only. Behavior tests, mutations, benchmarks and probes are **not executed (tests run at merge)** for the final revision. Runtime correctness and performance claims need run at merge. No CI, provider prompts or recorder sessions are requested or run.
+The repo owner's general rule reserves tests for merge. The review revision received static checks only; its behavior tests, mutations, benchmarks and probes were **not executed (tests run at merge)**. A later, file-specific exception authorized the watcher follow-up below. Other runtime correctness and performance claims still need run at merge. No CI, provider prompts or recorder sessions are requested or run.
 
 `bun run fmt`, `bun run lint`, `bun run check:size` and `bun run typecheck` pass. The size check covers 421 source files, all below 1,500 lines.
 
@@ -80,3 +80,11 @@ The attempted full PR gate failed with timeout-only assertions outside context a
 `deliverContext(service, command, capabilities, consume)` is the context-owned intent-worker interface. It validates the command, resolves thread-owned references, supplies original input/delivery plus native projection, returns typed diagnostics and releases in `finally`. The consumer promise settles after bytes are consumed or consumption has stopped on cancellation/failure. Initial thread creation can use `compose` after engine-assigned thread creation with the same lifetime contract.
 
 PR #15 is still open and the engine/adapters are absent from main at `5494e21`. Its session-launcher must call this interface around native provider submission and call `releaseThread` on durable thread deletion. Accounts, MCP leases, plugins, model resolution and default adapter registration belong to their respective owners. Full I7 end-to-end session launch remains pending that integration and **needs run at merge**. Core state precedence is unchanged.
+
+## Merge-time watcher follow-up
+
+The orchestrator reported an empty retry queue where the watcher-error test expected its first 100 ms timer. The unchanged `workspace-review.test.ts` reproduced that assertion failure under the owner's file-specific exception. The drain could inspect an empty queue, then receive an event before its promise chain cleared `running`. That event remained pending without a new drain.
+
+Empty drains now return immediately. The settling drain hands pending work to a new drain while preserving backoff, and a fired retry waits for the previous drain to settle. Retry tests wait for the injected scheduler to register work rather than using `setImmediate`. A new public behavior test queues a notification as the replacement watcher starts and waits for the real Git update to publish before asserting completion.
+
+`bunx vitest run packages/context/src/workspace-review.test.ts` passes all **8 tests**. No other test file, full suite, mutation run, benchmark or probe was executed for this follow-up. The new guard is designed to reject omission of the final drain handoff; that mutation is **not executed (tests run at merge)**. The existing retry mutation target follows the updated callback, without executing its runner.

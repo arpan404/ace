@@ -96,6 +96,7 @@ export class WorkspaceCache {
       // Churn queues bounded changes without bypassing failure backoff.
       if (running || entry.cancelRetry || this.closed || this.cache.get(root) !== entry)
         return entry.task;
+      if (!entry.rebuild && pending.size === 0) return entry.task;
       running = true;
       entry.task = entry.task
         .then(async () => {
@@ -125,11 +126,16 @@ export class WorkspaceCache {
           failures = Math.min(7, failures + 1);
           entry.cancelRetry = this.scheduler.after(recoveryDelay(failures), () => {
             entry.cancelRetry = undefined;
-            return flush();
+            // A timer driver may fire before the failed drain has settled.
+            return entry.task.then(flush);
           });
         })
         .finally(() => {
           running = false;
+          // Events can arrive after the loop's last check, while the promise
+          // chain is settling. Hand that work to a new drain without waiting
+          // for another notification; flush still honors retry backoff.
+          if (entry.rebuild || pending.size) void flush();
         });
       return entry.task;
     };
