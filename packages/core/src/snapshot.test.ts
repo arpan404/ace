@@ -2,7 +2,7 @@ import type { EventPayload } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
 import { type Fact, type ThreadState } from "./index.ts";
 import { applyToClient, harness } from "./test-helper.ts";
-import { createClientView, foldPayload } from "./client-view.ts";
+import { createClientView, foldPayload } from "./client-view.test-helper.ts";
 
 function restored(state: ThreadState): ThreadState {
   return JSON.parse(JSON.stringify(state)) as ThreadState;

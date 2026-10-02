@@ -31,6 +31,43 @@ describe("reducer reliability", () => {
     expect(events.map((event) => event.type)).toEqual(["item.delta"]);
   });
 
+  it("a late older-run upsert preserves the current turn's activity", () => {
+    const h = harness();
+    h.see();
+    h.start("root", "first");
+    h.send({
+      type: "item.upsert",
+      agent: "root",
+      item: "older-response",
+      draft: {
+        type: "message",
+        role: "assistant",
+        parts: [{ type: "text", text: "Earlier response" }],
+        complete: false,
+      },
+    });
+    const olderRun = h.item("older-response")?.runId;
+    h.end();
+    h.start("root", "second");
+    h.send({ type: "activity", agent: "root", activity: "thinking" });
+    const events = h.send({
+      type: "item.upsert",
+      agent: "root",
+      item: "older-response",
+      draft: {
+        type: "message",
+        parts: [{ type: "text", text: "Delayed earlier response" }],
+        complete: false,
+      },
+    });
+    expect(h.item("older-response")).toMatchObject({
+      runId: olderRun,
+      parts: [{ type: "text", text: "Delayed earlier response" }],
+    });
+    expect(h.agent("root")?.status).toEqual({ state: "working", activity: "thinking" });
+    expect(events.map((event) => event.type)).toEqual(["item.updated"]);
+  });
+
   it.each(["pending", "running", "awaiting_approval"] as const)(
     "turn end cancels a dangling %s tool",
     (status) => {

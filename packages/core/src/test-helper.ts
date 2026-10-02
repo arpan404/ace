@@ -10,7 +10,7 @@ import {
   foldPayload,
   assertClientMatchesState,
   type ClientView,
-} from "./client-view.ts";
+} from "./client-view.test-helper.ts";
 import {
   apply,
   createThreadState,
@@ -65,19 +65,16 @@ export function harness(
       if (event.type === "agent.created" && event.agent.native.nativeId !== undefined)
         keys.agents.set(event.agent.native.nativeId, event.agent.id);
     }
-    // Diagnostics have their own identities and must never replace the adapter's item.
-    if (
-      events.some(
-        (event) =>
-          event.type === "item.created" &&
-          event.item.type === "notice" &&
-          event.item.raw?.some((raw) => raw.type === "core.rejected_fact"),
-      )
-    )
-      return;
     if (typeof input !== "object" || input === null || !("type" in input)) return;
     const fact = input as Fact;
     for (const event of events) {
+      // Deferred warnings can share a batch with a valid adapter item.
+      if (
+        event.type === "item.created" &&
+        event.item.type === "notice" &&
+        event.item.raw?.some((raw) => raw.type === "core.rejected_fact")
+      )
+        continue;
       if (event.type === "item.created" && "item" in fact && typeof fact.item === "string")
         keys.items.set(fact.item, event.item.id);
       if (event.type === "interaction.opened" && fact.type === "interaction.opened")

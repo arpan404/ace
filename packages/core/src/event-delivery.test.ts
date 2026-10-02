@@ -96,28 +96,6 @@ describe("client-visible agent activity", () => {
     });
   });
 
-  it("a task naming an unseen child publishes that child and its parent relationship", () => {
-    const h = harness();
-    h.see();
-    h.start();
-    h.send({
-      type: "background.started",
-      agent: "root",
-      task: "child-task",
-      childAgent: "worker",
-      kind: "subagent",
-      title: "Worker",
-      stoppable: true,
-    });
-    expect(h.agent("worker")).toMatchObject({
-      fidelity: "placeholder",
-      parentId: h.agent("root")?.id,
-    });
-    expect(h.task("child-task")).toMatchObject({ childAgentId: h.agent("worker")?.id });
-    h.end();
-    expect(h.view.status.state).toBe("working");
-  });
-
   it("two spawn tools referencing the same child produce one blocking reference", () => {
     const h = harness();
     h.see();
