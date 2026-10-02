@@ -28,12 +28,18 @@ The current daemon stores legacy shell output in items. Until ADR 0006 stream st
 
 ## Security
 
-Credentials are requested for each connection and only sent in hello. Never persist or log tokens. Device identity is fixed for the persisted outbox; reject stored commands for another device. Storage is host/device scoped by the caller, who must not reuse it with another daemon. Validate every frame and persisted record with Zod before using it. Enforce frame size and queue caps before parsing. Treat authentication errors and close code 4001 as fatal. Secure remote transport and pairing stay with the remote-access and relay packages.
+Credentials are requested for each connection and only sent in hello. Never persist or log tokens. Device identity is fixed for the persisted outbox; reject stored commands for another device. Storage is host/device scoped by the caller, who must not reuse it with another daemon. Validate every frame and persisted record with Zod before using it. Enforce frame size and queue caps before parsing. Treat authentication errors and close codes 4001 and 4003 as fatal. Secure remote transport and pairing stay with the remote-access and relay packages.
 
 ## Performance
 
-Delta application and entity notification work is proportional to changed entities and their subscribers. LRU ordering uses Map insertion order. Persisting the outbox rewrites a bounded list only on intent transitions, outside the stream hot path. Bound live item windows and text per item; clipping text sets an explicit truncation indicator in the SDK. Benchmarks report event application, selector fan-out, throughput and RSS without gating tests on timing.
+Delta application and entity notification work is proportional to changed entities and their subscribers. LRU ordering uses Map insertion order. Persisting the outbox rewrites a bounded list only on intent transitions, outside the stream hot path. Bound live item windows and text per item; text overflow trims to half the cap and sets an explicit truncation indicator in the SDK. This amortizes tail copying across subsequent appends. Benchmarks report event application, selector fan-out, throughput and RSS without gating tests on timing.
 
 ## Verification
 
 Use a real in-process daemon on an ephemeral port, temp SQLite and a transport wrapper that drops, duplicates, reorders and disconnects frames. Assert public selected values and command effects. Inject a manual scheduler for deadlines and reconnects; synchronize socket work with observable state, never sleeps. Cover exact resume, snapshot resync, durable replay exactly once, request timeout/abort, subscription references, LRU, heartbeat and fatal auth. Apply at least eight production mutations and require the relevant behavior test to fail for each before reverting. Run the full local check before opening the PR.
+
+## Integration with remote access
+
+Remote access landed in main during implementation and was merged. Local hello uses the local token; paired devices exchange their device token over authenticated HTTP for a fresh single-use socket ticket on each attempt. The credential provider can return either form. The SDK's ticketCredential helper parses the exchange response while the caller owns HTTP and pinned TLS. Tokens and tickets never enter the outbox. New read requests require read scope, just like subscriptions. Device revocation is fatal. Daemon identity must stay the same across reconnects.
+
+The first-answer-wins integration test uses a synchronous CommandHandler with real receipt transactions and interaction events. Production arbitration still belongs to the engine from ADR 0007; the current daemon development handler does not implement interaction resolution. Large-payload storage and indexed item paging from ADR 0006 remain separate daemon work. The compatibility read handler reconstructs a legacy view and searches its order; this is bounded on the wire, but its daemon cost still grows with history. Items larger than the page byte budget fail explicitly. This is the main performance limitation pending that work.

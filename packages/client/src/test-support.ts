@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startDaemon, createDevThread, type CommandHandler } from "@ace/daemon";
@@ -168,7 +168,9 @@ export async function setup(handler?: CommandHandler) {
       }
     },
     async save(value) {
-      await writeFile(join(directory, "outbox.json"), value);
+      const temporary = join(directory, "outbox.tmp");
+      await writeFile(temporary, value);
+      await rename(temporary, join(directory, "outbox.json"));
     },
   };
   return {
@@ -178,7 +180,7 @@ export async function setup(handler?: CommandHandler) {
     make,
     storage,
     async cleanup() {
-      for (const client of clients) client.close();
+      for (const client of clients) await client.close();
       await daemon.close();
       await rm(directory, { recursive: true, force: true });
     },

@@ -49,8 +49,6 @@
       },
       "devDependencies": {
         "@ace/daemon": "workspace:*",
-        "@types/ws": "^8.18.1",
-        "ws": "^8.18.3",
       },
     },
     "packages/core": {

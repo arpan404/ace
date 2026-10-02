@@ -29,10 +29,10 @@ const stop = item.subscribe(() => render(item.getSnapshot()));
 // Keep the Selection stable between renders. Keys must include everything read.
 stop();
 thread.release();
-client.close();
+await client.close();
 ```
 
-`start()` loads the outbox and initiates connection. Observe `connectionState()` for readiness. `networkOnline(false/true)` cancels a dead connection and immediately retries after connectivity returns. Authentication rejection is fatal; create a new client after correcting credentials. `close()` is terminal for that instance, leaving durable intents available to its replacement.
+`start()` loads the outbox and initiates connection. Observe `connectionState()` for readiness. `networkOnline(false/true)` cancels a dead connection and immediately retries after connectivity returns. Authentication rejection and device revocation are fatal; create a new client after correcting credentials. `close()` cancels networking immediately and resolves after already admitted persistence writes finish. Await it before handing the storage namespace to a replacement client. Durable intents remain available to that replacement.
 
 `threads()` shares the sidebar subscription. `thread(id)` shares one subscription across views and retains inactive views in a bounded LRU. Release subscriptions and selector listeners when their UI owner unmounts. Selected objects are SDK-owned values; do not mutate them. Previously selected entities remain stable across future updates. A selector can read entities, their bounded order, cursor, history cursor and truncation flags. Selectors returning a new object should supply an equality function.
 
@@ -45,3 +45,5 @@ client.close();
 Limits cover frame bytes, outgoing bytes, outbox bytes, concurrent persistence operations, intents, requests, cached threads, items, entity counts, item text and listeners. Text trims to half its capacity on overflow to amortize copying and reports `truncated(id)`. Non-item entity limits fail explicitly rather than dropping facts needed for tree status. The SDK processes each frame synchronously and retains no receive queue. Unordered or missing coverage conservatively resyncs from a snapshot with a new subscription id. All scope cursors remain host-wide, including filtered progress.
 
 Run `bun run --filter @ace/client bench` for event application and notification fan-out measurements. Tests use real daemon sockets and SQLite; injected time controls deadlines without sleeps.
+
+Remote access uses `credential: ticketCredential(readDeviceToken, exchangeTicket)`. The injected exchange sends the token in an Authorization header to `/v1/tickets` over pinned TLS and returns the bounded JSON response. The helper validates SocketTicket, and reconnects obtain a fresh ticket. Return ClientError("offline") for transient network failures and ClientError("auth") for rejected credentials. The token string shorthand in the example is for local connections.

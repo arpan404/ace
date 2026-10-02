@@ -29,6 +29,7 @@ export class Client {
   private intents: Intents;
   private notifications: Notifications;
   private closed = false;
+  private hostId: string | undefined;
   constructor(options: ClientOptions) {
     this.options = options;
     const limits = { ...defaultLimits, ...options.limits };
@@ -44,6 +45,9 @@ export class Client {
       (message) => {
         switch (message.type) {
           case "welcome":
+            if (this.hostId && this.hostId !== message.hostId)
+              throw new ClientError("protocol", "Transport changed daemon identity");
+            this.hostId = message.hostId;
             this.subscriptions.reconnect();
             this.sidebar.reconnect();
             this.intents.replay();
@@ -118,9 +122,10 @@ export class Client {
       throw new ClientError("storage");
     }
   }
-  close(): void {
+  close(): Promise<void> {
     this.closed = true;
     this.connection.stop();
+    return this.intents.settled();
   }
   networkOnline(online: boolean): void {
     this.connection.networkOnline(online);

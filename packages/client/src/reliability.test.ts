@@ -306,3 +306,20 @@ test("updates outside the loaded item window do not reinsert old history", async
   expect(store.order).toEqual(["new"]);
   expect(store.item(itemId)).toBeUndefined();
 });
+
+test("a view mounted by the ready notification creates only one daemon subscription", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client, faults } = h.make();
+  let release: (() => void) | undefined;
+  const stop = client.connectionState().subscribe(() => {
+    if (client.state === "ready") release = client.thread(h.thread.id).release;
+  });
+  await ready(client);
+  await barrier(client, h.thread.id);
+  expect(
+    faults.sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.type === "subscribe"),
+  ).toHaveLength(1);
+  release?.();
+  stop();
+});

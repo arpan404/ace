@@ -142,6 +142,9 @@ export class Intents {
       this.acknowledging.delete(result.commandId);
     });
   }
+  settled(): Promise<void> {
+    return this.chain;
+  }
   replay(): void {
     for (const intent of this.records.values())
       if (intent.state === "pending") this.send(intent.command);

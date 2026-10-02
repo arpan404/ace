@@ -18,3 +18,5 @@ export type { ThreadReader, ThreadKey } from "./thread-store.ts";
 export type { ThreadSubscription } from "./subscriptions.ts";
 export type { Intent } from "./intents.ts";
 export type { Sidebar, SidebarReader } from "./sidebar.ts";
+export { ticketCredential } from "./credentials.ts";
+export type { Credential } from "./credentials.ts";

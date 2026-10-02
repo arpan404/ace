@@ -1,0 +1,70 @@
+import { performance } from "node:perf_hooks";
+import { Client, webSocketTransport } from "../src/index.ts";
+import { setup, ready, agentId, when } from "../src/test-support.ts";
+import { ItemId } from "@ace/protocol";
+
+const h = await setup();
+try {
+  const itemId = ItemId.parse("output-bench");
+  h.daemon.store.appendEvents(h.thread.id, [
+    {
+      type: "item.created",
+      item: {
+        type: "tool_call",
+        id: itemId,
+        agentId,
+        createdAt: 0,
+        complete: true,
+        call: {
+          id: itemId,
+          agentId,
+          kind: "shell",
+          title: "bench",
+          startedAt: 0,
+          status: "succeeded",
+          raw: [],
+          detail: { kind: "shell", command: "synthetic", output: "x".repeat(65536) },
+        },
+      },
+    },
+  ]);
+  const { client }: { client: Client } = h.make({
+    transport: () => webSocketTransport(() => new WebSocket(h.daemon.url)),
+    scheduler: {
+      set(delay, callback) {
+        const timer = setTimeout(callback, delay);
+        return () => clearTimeout(timer);
+      },
+    },
+  });
+  await ready(client);
+  const subscription = client.thread(h.thread.id);
+  await when(
+    subscription.store.select(["thread"], (store) => store.thread),
+    Boolean,
+  );
+  const count = 1000;
+  const start = performance.now();
+  for (let i = 0; i < count; i++) {
+    const result = await client.outputRead({
+      threadId: h.thread.id,
+      itemId,
+      offset: 0,
+      limit: 65536,
+    });
+    if (result.text.length !== 65536) throw new Error("Short read");
+  }
+  const seconds = (performance.now() - start) / 1000;
+  console.log(
+    JSON.stringify({
+      name: "64 KiB output.read over real daemon/socket",
+      operations: count,
+      opsPerSecond: Math.round(count / seconds),
+      microsecondsPerOperation: (seconds * 1e6) / count,
+      peakRssMiB: process.resourceUsage().maxRSS / 1024,
+    }),
+  );
+  subscription.release();
+} finally {
+  await h.cleanup();
+}

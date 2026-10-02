@@ -1,3 +1,4 @@
+import { parseCredential } from "./credentials.ts";
 import { retryDelay, disconnectDecision, networkDecision } from "./lifecycle.ts";
 import { fitsUtf8 } from "./bounds.ts";
 import { ClientMessage, ServerMessage, type ServerMessage as Message } from "@ace/protocol";
@@ -71,7 +72,11 @@ export class Connection {
     this.heartbeat = undefined;
     const transport = this.transport;
     this.transport = undefined;
-    transport?.close();
+    try {
+      transport?.close();
+    } catch {
+      /* The epoch already excludes late callbacks. */
+    }
   }
   fail(error: ClientError): void {
     this.error = error;
@@ -82,7 +87,7 @@ export class Connection {
   private lost(code: number): void {
     const decision = disconnectDecision(this.active, this.online, code);
     if (decision === "fatal") {
-      this.fail(new ClientError("auth"));
+      this.fail(new ClientError(code === 4002 ? "protocol" : code === 1009 ? "limit" : "auth"));
       return;
     }
     this.cleanup();
@@ -92,12 +97,18 @@ export class Connection {
       return;
     }
     this.setState("reconnecting");
-    const delay = retryDelay(
-      this.attempt++,
-      this.limits.retryBaseMs,
-      this.limits.retryCapMs,
-      this.options.random(),
-    );
+    let delay: number;
+    try {
+      delay = retryDelay(
+        this.attempt++,
+        this.limits.retryBaseMs,
+        this.limits.retryCapMs,
+        this.options.random(),
+      );
+    } catch {
+      this.fail(new ClientError("protocol"));
+      return;
+    }
     this.cancel = this.options.scheduler.set(delay, () => this.connect());
   }
   private connect(): void {
@@ -114,19 +125,22 @@ export class Connection {
       this.transport = transport;
       transport.open({
         open: () => {
-          void this.options
-            .credential()
-            .then((token) => {
+          if (epoch !== this.epoch) return;
+          void Promise.resolve()
+            .then(() => this.options.credential())
+            .then((credential) => {
               if (epoch === this.epoch)
                 this.send({
                   type: "hello",
                   protocolVersion: 1,
                   deviceId: this.options.deviceId,
-                  token,
+                  ...parseCredential(credential),
                 });
             })
-            .catch(() => {
-              if (epoch === this.epoch) this.fail(new ClientError("auth"));
+            .catch((error: unknown) => {
+              if (epoch !== this.epoch) return;
+              if (error instanceof ClientError && error.code === "offline") this.lost(1006);
+              else this.fail(new ClientError("auth"));
             });
         },
         close: (code) => {
@@ -147,8 +161,11 @@ export class Connection {
               this.cancel = undefined;
               this.attempt = 0;
               this.awaitingPong = false;
-              this.setState("ready");
+              this.state = "ready";
               this.tick();
+              this.received(message);
+              this.changed();
+              return;
             } else if (message.type === "welcome") throw new ClientError("protocol");
             if (message.type === "pong") this.awaitingPong = false;
             this.received(message);
@@ -162,6 +179,7 @@ export class Connection {
     }
   }
   private tick(): void {
+    if (this.state !== "ready") return;
     this.heartbeat = this.options.scheduler.set(this.limits.heartbeatMs, () => {
       if (this.awaitingPong) {
         this.lost(1006);

@@ -10,7 +10,7 @@ export function disconnectDecision(
   online: boolean,
   code: number,
 ): "fatal" | "offline" | "reconnecting" {
-  if (code === 4001) return "fatal";
+  if (code === 4001 || code === 4003 || code === 4002 || code === 1009) return "fatal";
   return active && online ? "reconnecting" : "offline";
 }
 export function networkDecision(

@@ -1,3 +1,4 @@
+import type { Credential } from "./credentials.ts";
 import type { DeviceId } from "@ace/protocol";
 
 export interface TransportEvents {
@@ -21,7 +22,7 @@ export type ConnectionState = "connecting" | "ready" | "reconnecting" | "offline
 export interface ClientOptions {
   deviceId: DeviceId;
   transport(): Transport;
-  credential(): Promise<string>;
+  credential(): Promise<Credential>;
   storage: Storage;
   scheduler: Scheduler;
   random(): number;

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { AgentId, InteractionId } from "@ace/protocol";
+import { AgentId, InteractionId, DeviceId } from "@ace/protocol";
 import type { CommandHandler } from "@ace/daemon";
 import { setup, ready, when, barrier, memoryStorage } from "./test-support.ts";
 let cleanup: (() => Promise<void>) | undefined;
@@ -160,7 +160,7 @@ test("the first interaction answer wins and a later daemon rejection becomes a f
     },
   ]);
   const one = h.make();
-  const two = h.make();
+  const two = h.make({ deviceId: DeviceId.parse("other-device") });
   await ready(one.client);
   await ready(two.client);
   const payload = {

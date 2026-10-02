@@ -240,6 +240,10 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         }
         case "request": {
+          if (!allows(authenticated.get(socket), "read")) {
+            send({ type: "response", requestId: message.requestId, ok: false, error: "forbidden" });
+            break;
+          }
           try {
             send({
               type: "response",
