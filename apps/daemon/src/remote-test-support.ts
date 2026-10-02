@@ -1,14 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, afterEach } from "vitest";
+import { afterEach } from "vitest";
 import { DeviceId, PairingResponse, SocketTicket } from "@ace/protocol";
 import { loadIdentity } from "./tls-identity.ts";
 import { accessRequest, redeemPairing } from "./client-access.ts";
 import { fixture, token } from "./socket-test-support.ts";
-const certificateHome = mkdtempSync(join(tmpdir(), "ace-tls-"));
-export const identity = loadIdentity(certificateHome);
-afterAll(() => rmSync(certificateHome, { recursive: true, force: true }));
+import { tlsFixtureHome } from "./process-test-support.ts";
+export const identity = loadIdentity(tlsFixtureHome());
 export const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
