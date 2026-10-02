@@ -23,6 +23,14 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/adapter-acp": {
+      "name": "@ace/adapter-acp",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
@@ -53,6 +61,8 @@
     },
   },
   "packages": {
+    "@ace/adapter-acp": ["@ace/adapter-acp@workspace:packages/adapter-acp"],
+
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
