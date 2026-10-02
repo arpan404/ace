@@ -24,6 +24,7 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       { ffmpeg: "/nonexistent/ffmpeg" },
     );
     const clients = [new BrowserClient(daemon.url), new BrowserClient(daemon.url)];

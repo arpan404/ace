@@ -150,6 +150,9 @@ describe("daemon lifecycle", () => {
     const first = await startDaemon(config);
     await first.close();
     const database = new DatabaseSync(join(home, "events.sqlite"));
+    const original = database.prepare("SELECT version FROM schema_version").get();
+    if (!original || typeof original.version !== "number")
+      throw new Error("Expected schema version");
     database.prepare("UPDATE schema_version SET version = 999").run();
     database.close();
     const attempt = startDaemon(config);
@@ -161,7 +164,7 @@ describe("daemon lifecycle", () => {
     );
     await expect(attempt).rejects.toThrow("newer than this daemon");
     const restored = new DatabaseSync(join(home, "events.sqlite"));
-    restored.prepare("UPDATE schema_version SET version = 1").run();
+    restored.prepare("UPDATE schema_version SET version = ?").run(original.version);
     restored.close();
     const again = await startDaemon(config);
     cleanups.push(() => again.close());

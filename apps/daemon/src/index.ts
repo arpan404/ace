@@ -1,3 +1,5 @@
+import type { ModelCatalog, InstanceInput } from "@ace/models";
+import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
@@ -14,7 +16,7 @@ import { type Config, logger, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
-export { Store } from "./store.ts";
+export { Store, type StoreOptions } from "./store.ts";
 export {
   createDevThread,
   stubHandler,
@@ -29,12 +31,14 @@ export async function startDaemon(
   handler: CommandHandler = stubHandler(),
   toolkits: readonly Toolkit[] = [],
   notificationChannels?: Omit<NotificationChannels, "websocket">,
+  modelInstances: readonly InstanceInput[] = [],
   browserOptions: Omit<BrowserServiceOptions, "dataDir" | "onArtifact"> = {},
 ): Promise<{
   url: string;
   tokenPath: string;
   store: Store;
   browser: BrowserService;
+  models: ModelCatalog;
   notifications: NotificationWorker;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   remoteUrl?: string;
@@ -45,6 +49,7 @@ export async function startDaemon(
   const log = logger(config.logLevel);
   let store: Store | undefined;
   let browser: BrowserService | undefined;
+  let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
   let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
@@ -68,7 +73,11 @@ export async function startDaemon(
             closeChannels();
           } finally {
             try {
-              store?.close();
+              try {
+                await models?.close();
+              } finally {
+                store?.close();
+              }
             } finally {
               try {
                 if (endpointPath) unlinkSync(endpointPath);
@@ -111,6 +120,7 @@ export async function startDaemon(
         ]);
       },
     });
+    models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
       ? { channels: notificationChannels, close: closeChannels }
@@ -131,6 +141,7 @@ export async function startDaemon(
       store,
       handler,
       browser,
+      models,
       notifications: notifications.service,
       log: (error) => log("error", "WebSocket failure", error),
     });
@@ -148,6 +159,7 @@ export async function startDaemon(
       tokenPath,
       store,
       browser,
+      models,
       notifications: notifications.service,
       mcp,
       close() {

@@ -1,3 +1,5 @@
+import type { ModelCatalogApi } from "@ace/models";
+import { handleModelRequest } from "./models.ts";
 import { randomUUID } from "node:crypto";
 import type { NotificationWorker } from "@ace/notify";
 import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
@@ -20,6 +22,7 @@ import {
   DeviceId,
   type ServerMessage,
   type Notification,
+  type ThreadId,
 } from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
@@ -47,6 +50,7 @@ const closeListener = (listener: Server) =>
   });
 
 export interface ServerOptions {
+  models?: ModelCatalogApi;
   port: number;
   remote?: RemoteListener;
   now?: () => number;
@@ -62,6 +66,8 @@ export interface ServerOptions {
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
+  /** Local-token clients can read all threads by default. */
+  canReadThread?: (deviceId: DeviceId, threadId: ThreadId) => boolean;
   notifications?: Pick<
     NotificationWorker,
     "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
@@ -143,6 +149,7 @@ export async function startServer(options: ServerOptions): Promise<{
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
+    let modelRequests = 0;
     if (cleanups.size >= 256) {
       socket.close(4009, "Connection limit");
       return;
@@ -286,6 +293,36 @@ export async function startServer(options: ServerOptions): Promise<{
         return;
       }
       switch (message.type) {
+        case "models.list":
+        case "models.resolve":
+        case "models.refresh": {
+          const modelFailure = (reason: string) =>
+            send({
+              type: "models.result",
+              requestId: message.requestId,
+              result: { ok: false, reason },
+            });
+          const requiredScope = message.type === "models.refresh" ? "operate" : "read";
+          if (!allows(authenticated.get(socket), requiredScope)) {
+            modelFailure(`${requiredScope} scope required`);
+            break;
+          }
+          if (!options.models) {
+            modelFailure("Model catalog is not configured");
+            break;
+          }
+          if (modelRequests >= 8) {
+            modelFailure("Too many catalog requests");
+            break;
+          }
+          modelRequests++;
+          void handleModelRequest(options.models, message)
+            .then(send, () => modelFailure("Model catalog request failed"))
+            .finally(() => {
+              modelRequests--;
+            });
+          break;
+        }
         case "presence.update":
         case "notification.register":
         case "notification.preferences":
@@ -333,6 +370,13 @@ export async function startServer(options: ServerOptions): Promise<{
             fail("subscription_limit", "Too many subscriptions");
             break;
           }
+          if (
+            message.scope.kind === "thread" &&
+            options.canReadThread?.(device, message.scope.threadId) === false
+          ) {
+            fail("read_denied", "Thread is not readable");
+            break;
+          }
           try {
             const stop = subscribe(
               options.store,
@@ -345,6 +389,48 @@ export async function startServer(options: ServerOptions): Promise<{
             subscriptions.set(message.subscriptionId, stop);
           } catch {
             fail("subscribe_failed", "Unknown thread or invalid cursor");
+          }
+          break;
+        }
+        case "output.read": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
+          const threadId = options.store.outputThread(message.streamId);
+          if (!threadId || options.canReadThread?.(device, threadId) === false) {
+            fail("read_denied", "Output stream is not readable");
+            break;
+          }
+          send({
+            type: "output.data",
+            requestId: message.requestId,
+            streamId: message.streamId,
+            offset: message.offset,
+            ...options.store.readOutput(message.streamId, message.offset, message.limit),
+          });
+          break;
+        }
+        case "items.page": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
+          if (
+            !options.store.getThread(message.threadId) ||
+            options.canReadThread?.(device, message.threadId) === false
+          ) {
+            fail("read_denied", "Thread is not readable");
+            break;
+          }
+          try {
+            send({
+              type: "items.page",
+              requestId: message.requestId,
+              ...options.store.readItems(message.threadId, message.before, message.limit),
+            });
+          } catch {
+            fail("read_denied", "Invalid item cursor");
           }
           break;
         }
