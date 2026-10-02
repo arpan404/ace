@@ -53,7 +53,21 @@ export const McpServer = z.discriminatedUnion("type", [
     command: text.min(1),
     args: z.array(text).max(128).default([]),
     env,
-    cwd: PluginPath.optional(),
+    cwd: z
+      .string()
+      .max(512)
+      .refine((value) => {
+        const placeholder = /^\$\{(?:(?:ACE|CLAUDE|CURSOR)_)?PLUGIN_ROOT\}(?:\/(.*))?$/.exec(value);
+        const relative = placeholder ? (placeholder[1] ?? "") : value;
+        return (
+          !relative.includes("${") &&
+          ((placeholder && relative === "") ||
+            relative === "." ||
+            relative === "./" ||
+            PluginPath.safeParse(relative).success)
+        );
+      }, "MCP cwd must remain within the plugin root")
+      .optional(),
   }),
   z.strictObject({
     type: z.enum(["http", "sse"]),

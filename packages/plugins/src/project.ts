@@ -28,7 +28,16 @@ function resolveServer(server: McpServer, root: string): Record<string, unknown>
     env: Object.fromEntries(
       Object.entries(server.env).map(([key, value]) => [key, expandRoot(value, root)]),
     ),
-    ...(server.cwd === undefined ? {} : { cwd: join(root, normalizePath(server.cwd)) }),
+    ...(server.cwd === undefined
+      ? {}
+      : {
+          cwd:
+            server.cwd === "." || server.cwd === "./"
+              ? root
+              : server.cwd.startsWith("${")
+                ? expandRoot(server.cwd, root)
+                : join(root, normalizePath(server.cwd)),
+        }),
   };
 }
 const cursorEvents = new Set([
@@ -120,17 +129,15 @@ export function projectPlugins(
     const base = `generated/plugins/${name}`;
     const payloadRoot = join(options.root, base, "payload");
     const isAcp = provider === "acp" || provider === "antigravity";
+    projection.files.push(...payloadFiles(plugin, base));
     if (!isAcp) {
-      projection.files.push(
-        ...payloadFiles(plugin, base),
-        ...skillFiles(plugin, base, payloadRoot),
-      );
+      projection.files.push(...skillFiles(plugin, base, payloadRoot));
       skillRoots.push(join(options.root, base, "skills"));
     }
     for (const [serverName, server] of Object.entries(plugin.manifest.mcpServers)) {
       const key = `ace-${name}__${serverName}`;
       if (mcp[key]) throw new Error("MCP namespace collision");
-      mcp[key] = resolveServer(server, isAcp ? plugin.root : payloadRoot);
+      mcp[key] = resolveServer(server, payloadRoot);
     }
     for (const skill of isAcp ? plugin.manifest.skills : [])
       projection.unsupported.push(`${name}: ${provider} cannot inject skill ${skill.name}`);
@@ -161,7 +168,19 @@ export function projectPlugins(
       else projection.unsupported.push(`${name}: ${provider} cannot inject agent ${entry.name}`);
     }
     for (const entry of plugin.manifest.rules) {
-      const content = body(expandRoot(textFile(plugin, entry.path), payloadRoot));
+      const original = expandRoot(textFile(plugin, entry.path), payloadRoot);
+      const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(original);
+      const conditional =
+        frontmatter !== null &&
+        (/^\s*globs\s*:/m.test(frontmatter[1] ?? "") ||
+          !/^alwaysApply:\s*true\s*$/m.test(frontmatter[1] ?? ""));
+      if (provider !== "cursor" && conditional) {
+        projection.unsupported.push(
+          `${name}: ${provider} cannot preserve conditional rule ${entry.name}`,
+        );
+        continue;
+      }
+      const content = body(original);
       const path = `${base}/rules/${entry.name}.md`;
       if (isAcp)
         projection.unsupported.push(`${name}: ${provider} cannot inject rule ${entry.name}`);
@@ -169,7 +188,9 @@ export function projectPlugins(
         projection.files.push(
           outputFile(
             `${base}/rules/${entry.name}.mdc`,
-            `---\ndescription: ${JSON.stringify(entry.description ?? entry.name)}\nalwaysApply: true\n---\n${content}`,
+            frontmatter
+              ? original
+              : `---\ndescription: ${JSON.stringify(entry.description ?? entry.name)}\nalwaysApply: true\n---\n${content}`,
           ),
         );
       else {

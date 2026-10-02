@@ -173,11 +173,11 @@ test.each<Provider>(["acp", "antigravity"])(
     const snapshots = await f.manager.installed();
     const root = join(f.root, provider);
     const projection = projectPlugins(provider, snapshots, { root });
-    expect(projection.files).toEqual([]);
+    expect(projection.files.length).toBeGreaterThan(0);
     expect(projection.sessionConfig.mcpServers).toContainEqual({
       name: "ace-sample__tools",
       command: "node",
-      args: [join(snapshots[0]?.root ?? "", "scripts/server.js"), 'a quote: "'],
+      args: [join(root, "generated/plugins/sample/payload/scripts/server.js"), 'a quote: "'],
       env: [{ name: "MODE", value: "local" }],
     });
     expect(projection.sessionConfig.mcpServers).toContainEqual({

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PluginName } from "@ace/protocol/plugins";
-import { Hook, McpServer, PluginManifest, limits, normalizePath, parseJson } from "./manifest.ts";
+import { PluginManifest, limits, normalizePath, parseJson } from "./manifest.ts";
+import { mcpReader, hookReader } from "./import-components.ts";
 import type { ImportedPlugin } from "./types.ts";
 
 export const agentPluginSchema = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
@@ -127,7 +128,10 @@ export function importPlugin(files: Record<string, string>): ImportedPlugin {
     for (const key of Object.keys(raw))
       if (!supported.has(key)) unsupported.push(`Unsupported native field: ${key}`);
   }
-  const skills = [...new Set(["skills", ...paths(manifest.skills, "skills")])].flatMap((root) =>
+  const isCursor = nativePath === ".cursor-plugin/plugin.json" && !isPortable;
+  const skills = [
+    ...new Set([...(isCursor ? [] : ["skills"]), ...paths(manifest.skills, "skills")]),
+  ].flatMap((root) =>
     Object.keys(files)
       .filter(
         (path) =>
@@ -178,84 +182,23 @@ export function importPlugin(files: Record<string, string>): ImportedPlugin {
       : isPortable
         ? []
         : documents(manifest.commands, "commands");
-  const mcpServers: Record<string, z.infer<typeof McpServer>> = Object.create(null);
-  function readMcp(value: unknown) {
-    if (typeof value === "string") {
-      const path = normalizePath(value);
-      const json = files[path];
-      if (json === undefined) throw new Error(`MCP file missing: ${path}`);
-      readMcp(parseJson(json));
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const entry of value) readMcp(entry);
-      return;
-    }
-    const outer = object.parse(value);
-    const servers = object.parse(outer.mcpServers ?? outer);
-    for (const [name, entry] of Object.entries(servers)) {
-      const server = object.parse(entry);
-      const type =
-        server.type === "streamable-http"
-          ? "http"
-          : (server.type ?? (server.command ? "stdio" : "http"));
-      if (typeof server.command === "string" && server.command.startsWith("./"))
-        normalizePath(server.command);
-      mcpServers[PluginName.parse(name)] = McpServer.parse({ ...server, type });
-    }
-  }
+  const { mcpServers, readMcp } = mcpReader(files, isPortable);
   const mcpFile = isPortable
     ? "mcp.json"
     : nativePath === ".cursor-plugin/plugin.json"
       ? "mcp.json"
       : ".mcp.json";
-  if (files[mcpFile] !== undefined) {
+  if (files[mcpFile] !== undefined && !(isCursor && manifest.mcpServers !== undefined)) {
     const value = parseJson(files[mcpFile]);
     if (isPortable)
       z.strictObject({ $schema: z.literal(agentMcpSchema), mcpServers: object }).parse(value);
     readMcp(value);
   }
   if (!isPortable && manifest.mcpServers !== undefined) readMcp(manifest.mcpServers);
-  const hooks: z.infer<typeof Hook>[] = [];
-  function readHooks(value: unknown) {
-    if (typeof value === "string") {
-      const path = normalizePath(value);
-      const json = files[path];
-      if (json === undefined) throw new Error(`Hook file missing: ${path}`);
-      readHooks(parseJson(json));
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const entry of value) readHooks(entry);
-      return;
-    }
-    const outer = object.parse(value);
-    const events = object.parse(outer.hooks ?? outer);
-    for (const [event, entries] of Object.entries(events)) {
-      for (const group of z.array(object).max(256).parse(entries)) {
-        const handlers =
-          group.hooks === undefined ? [group] : z.array(object).max(256).parse(group.hooks);
-        for (const handler of handlers) {
-          if (handler.type !== undefined && handler.type !== "command") {
-            unsupported.push(`Unsupported ${event} hook type: ${String(handler.type)}`);
-            continue;
-          }
-          for (const key of Object.keys(handler))
-            if (!["type", "command", "matcher"].includes(key))
-              unsupported.push(`Unsupported ${event} hook option: ${key}`);
-          hooks.push(
-            Hook.parse({
-              event,
-              command: handler.command,
-              ...(group.matcher === undefined ? {} : { matcher: group.matcher }),
-            }),
-          );
-        }
-      }
-    }
-  }
+  const { hooks, readHooks } = hookReader(files, unsupported);
   if (!isPortable) {
-    if (files["hooks/hooks.json"] !== undefined) readHooks(parseJson(files["hooks/hooks.json"]));
+    if (files["hooks/hooks.json"] !== undefined && !(isCursor && manifest.hooks !== undefined))
+      readHooks(parseJson(files["hooks/hooks.json"]));
     if (manifest.hooks !== undefined) readHooks(manifest.hooks);
   }
   return {
