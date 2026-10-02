@@ -30,13 +30,16 @@ export async function startDaemon(
       log("error", "Event subscriber failed", error),
     );
     const ownedStore = store;
-    if (!handler) engine = new Engine(store, engineOptions);
+    if (!handler) {
+      engine = new Engine(store, engineOptions);
+      handler = engine.handler;
+    }
     const server = await startServer({
       port: config.port,
       token,
       hostId,
       store,
-      handler: handler ?? engine!.handler,
+      handler,
       log: (error) => log("error", "WebSocket failure", error),
     });
     let closing: Promise<void> | undefined;

@@ -19,42 +19,73 @@ export const systemClock: EngineClock = {
 /** Frame folding never waits for provider I/O. One mailbox orders frames and ticks. */
 export class ThreadActor {
   readonly id: ThreadId;
-  translator?: Translator;
-  session?: ProviderSession;
-  lifetime?: AbortController;
+  translator: Translator | undefined;
+  session: ProviderSession | undefined;
+  lifetime: AbortController | undefined;
   generation = 0;
   poisoned = false;
   dispatched = false;
-  idleSince?: number;
+  awaitingStart = false;
+  idleSince: number | undefined;
   idleDue = false;
   private tail: Promise<void> = Promise.resolve();
-  private cancelTimer?: () => void;
+  private cancelTimer: (() => void) | undefined;
   private stopped = false;
   private repo: EngineRepository;
   private clock: EngineClock;
   private idleMs: number;
   private wake: () => void;
   private report: (error: unknown) => void;
-  constructor(id: ThreadId, repo: EngineRepository, clock: EngineClock, idleMs: number,
-    wake: () => void, report: (error: unknown) => void) {
-    this.id = id; this.repo = repo; this.clock = clock; this.idleMs = idleMs;
-    this.wake = wake; this.report = report;
+  constructor(
+    id: ThreadId,
+    repo: EngineRepository,
+    clock: EngineClock,
+    idleMs: number,
+    wake: () => void,
+    report: (error: unknown) => void,
+  ) {
+    this.id = id;
+    this.repo = repo;
+    this.clock = clock;
+    this.idleMs = idleMs;
+    this.wake = wake;
+    this.report = report;
   }
   enqueue(run: () => void): void {
-    this.tail = this.tail.then(() => {
-      if (!this.stopped && !this.poisoned) run();
-    }).catch((error: unknown) => {
-      // A translator cannot roll back. Stop this generation instead of folding more frames.
-      this.poisoned = true;
-      this.lifetime?.abort();
-      this.report(error);
-      this.wake();
-    });
+    this.tail = this.tail
+      .then(() => {
+        if (!this.stopped && !this.poisoned) run();
+      })
+      .catch((error: unknown) => {
+        // A translator cannot roll back. Stop this generation instead of folding more frames.
+        this.poisoned = true;
+        this.lifetime?.abort();
+        this.report(error);
+        this.wake();
+      });
   }
   frame(frame: Frame, generation: number): void {
     this.enqueue(() => {
       if (generation !== this.generation) return;
-      const facts = this.translator?.translate(frame, this.clock.now()) ?? [];
+      const facts = (this.translator?.translate(frame, this.clock.now()) ?? []).map((fact) => {
+        if (fact.type !== "interaction.closed" || fact.state !== "resolved") return fact;
+        const interaction = this.repo.requireState(this.id).interactions[fact.interaction];
+        const answer = interaction ? this.repo.answer(interaction.id) : undefined;
+        if (answer?.payload.type !== "interaction.resolve") return fact;
+        return Object.assign({}, fact, {
+          resolution: answer.payload.resolution,
+          resolvedBy: answer.deviceId,
+        });
+      });
+      if (
+        facts.some(
+          (fact) =>
+            fact.type === "turn.started" ||
+            fact.type === "turn.ended" ||
+            fact.type === "process.exited",
+        )
+      )
+        this.awaitingStart = false;
       this.apply(facts);
       if (facts.some((fact) => fact.type === "turn.ended" || fact.type === "process.exited"))
         this.dispatched = false;
@@ -77,21 +108,31 @@ export class ThreadActor {
       this.idleSince = undefined;
       this.idleDue = false;
     }
-    const deadlines = [nextDeadline(state),
-      this.idleSince === undefined ? undefined : this.idleSince + this.idleMs]
-      .filter((value): value is number => value !== undefined);
+    const deadlines = [
+      nextDeadline(state),
+      this.idleSince === undefined ? undefined : this.idleSince + this.idleMs,
+    ].filter((value): value is number => value !== undefined);
     if (!deadlines.length) return;
-    this.cancelTimer = this.clock.setTimer(() => this.enqueue(() => {
-      const now = this.clock.now();
-      this.apply([...(this.translator?.tick(now) ?? []), { type: "tick" }]);
-      if (this.idleSince !== undefined && now >= this.idleSince + this.idleMs) {
-        this.idleDue = true;
-        this.cancelTimer?.();
-        this.cancelTimer = undefined;
-      }
-      this.wake();
-    }), Math.max(0, Math.min(...deadlines) - this.clock.now()));
+    this.cancelTimer = this.clock.setTimer(
+      () =>
+        this.enqueue(() => {
+          const now = this.clock.now();
+          this.apply([...(this.translator?.tick(now) ?? []), { type: "tick" }]);
+          if (this.idleSince !== undefined && now >= this.idleSince + this.idleMs) {
+            this.idleDue = true;
+            this.cancelTimer?.();
+            this.cancelTimer = undefined;
+          }
+          this.wake();
+        }),
+      Math.max(0, Math.min(...deadlines) - this.clock.now()),
+    );
   }
-  async flush(): Promise<void> { await this.tail; }
-  stop(): void { this.stopped = true; this.cancelTimer?.(); }
+  async flush(): Promise<void> {
+    await this.tail;
+  }
+  stop(): void {
+    this.stopped = true;
+    this.cancelTimer?.();
+  }
 }

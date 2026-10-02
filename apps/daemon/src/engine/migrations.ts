@@ -5,7 +5,9 @@ export function migrateEngine(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS engine_schema_version (
     id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL
   )`);
-  const version = Number(db.prepare("SELECT version FROM engine_schema_version").get()?.version ?? 0);
+  const version = Number(
+    db.prepare("SELECT version FROM engine_schema_version").get()?.version ?? 0,
+  );
   if (version > 1) throw new Error("Engine schema is newer than this daemon");
   if (version === 1) return;
   db.exec(`CREATE TABLE thread_state (

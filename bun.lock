@@ -21,6 +21,7 @@
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "ws": "^8.18.3",
+        "zod": "^4.6.5",
       },
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
