@@ -1,5 +1,7 @@
 import type { SettingsService } from "@ace/settings";
 import { settingsSession } from "./settings.ts";
+import { randomUUID } from "node:crypto";
+import type { NotificationWorker } from "@ace/notify";
 import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
 import { z } from "zod";
 import { defaultTicketLimits, type TicketLimits } from "./ticket-pool.ts";
@@ -10,11 +12,18 @@ import { accessHttp } from "./access-http.ts";
 import { allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost, type RemoteListener } from "./network.ts";
-import { WebSocket, WebSocketServer } from "ws";
-import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
+import { WebSocket, WebSocketServer, type RawData } from "ws";
+import {
+  ClientMessage,
+  HostId,
+  DeviceId,
+  type ServerMessage,
+  type Notification,
+} from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
+import { SocketInput } from "./socket-input.ts";
 import { subscribe } from "./subscription.ts";
 
 const bind = (listener: Server, host: string, port: number) =>
@@ -52,10 +61,16 @@ export interface ServerOptions {
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
+  notifications?: Pick<
+    NotificationWorker,
+    "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
+  > &
+    Partial<Pick<NotificationWorker, "revoke">>;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
 export async function startServer(options: ServerOptions): Promise<{
   url: string;
+  notify(device: DeviceId, notification: Notification): boolean;
   httpUrl: string;
   remoteUrl?: string;
   fingerprint?: string;
@@ -112,6 +127,9 @@ export async function startServer(options: ServerOptions): Promise<{
   if (remote) attach(remote, false);
   const authenticated = new Map<WebSocket, Device & { revocable: boolean }>();
   const stopRevocation = auth.onRevoke((id) => {
+    void options.notifications
+      ?.revoke?.(DeviceId.parse(id))
+      .catch(() => options.log?.(new Error("Notification revocation failed")));
     for (const [socket, device] of authenticated)
       if (device.revocable && device.id === id) {
         cleanups.get(socket)?.();
@@ -119,9 +137,16 @@ export async function startServer(options: ServerOptions): Promise<{
         socket.terminate();
       }
   });
+  const input = new SocketInput();
   const cleanups = new Map<WebSocket, () => void>();
+  const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
+    if (cleanups.size >= 256) {
+      socket.close(4009, "Connection limit");
+      return;
+    }
+    const sessionId = randomUUID();
     let device: DeviceId | undefined;
     let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
@@ -142,6 +167,12 @@ export async function startServer(options: ServerOptions): Promise<{
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
+      if (device) {
+        const connections = receivers.get(device);
+        connections?.delete(socket);
+        if (!connections?.size) receivers.delete(device);
+      }
+      void options.notifications?.disconnect(sessionId).catch(() => {});
       cleanups.delete(socket);
       ticks.delete(socket);
       authenticated.delete(socket);
@@ -160,7 +191,7 @@ export async function startServer(options: ServerOptions): Promise<{
       cleanup();
       options.onDisconnect?.(device);
     });
-    socket.on("message", (data, binary) => {
+    const receive = async (data: RawData, binary: boolean) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       lastActivity = auth.now();
       let message: ClientMessage;
@@ -203,6 +234,23 @@ export async function startServer(options: ServerOptions): Promise<{
           scopes: [...actor.scopes],
           revocable: message.ticket !== undefined,
         });
+        try {
+          if (allows(authenticated.get(socket), "read"))
+            await options.notifications?.connectDevice(actor.id);
+        } catch {
+          fail("device_unavailable", "Device unavailable", true);
+          return;
+        }
+        // Authentication may finish after disconnect, revocation or daemon shutdown.
+        if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
+        if (allows(authenticated.get(socket), "read")) {
+          let connections = receivers.get(device);
+          if (!connections) {
+            connections = new Map();
+            receivers.set(device, connections);
+          }
+          connections.set(socket, send);
+        }
         send({
           type: "welcome",
           hostId,
@@ -227,6 +275,32 @@ export async function startServer(options: ServerOptions): Promise<{
           }
           settings.accept(message);
           break;
+        case "presence.update":
+        case "notification.register":
+        case "notification.preferences":
+        case "notification.snooze": {
+          const scope = message.type === "notification.snooze" ? "operate" : "read";
+          if (!allows(authenticated.get(socket), scope)) {
+            fail("forbidden", `${scope === "read" ? "Read" : "Operate"} scope required`);
+            break;
+          }
+          if (!options.notifications) {
+            fail("notifications_unavailable", "Notifications unavailable");
+            break;
+          }
+          try {
+            if (message.type === "presence.update")
+              await options.notifications.updatePresence(sessionId, device, message);
+            else if (message.type === "notification.register")
+              await options.notifications.register(device, message.device);
+            else if (message.type === "notification.preferences")
+              await options.notifications.preferences(device, message.preferences);
+            else await options.notifications.snooze(message.threadId, message.until);
+          } catch {
+            fail("notification_rejected", "Notification update rejected");
+          }
+          break;
+        }
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;
@@ -268,6 +342,14 @@ export async function startServer(options: ServerOptions): Promise<{
             fail("forbidden", "Operate scope required");
             break;
           }
+          try {
+            if (allows(authenticated.get(socket), "read"))
+              await options.notifications?.connectDevice(device);
+          } catch {
+            fail("device_unavailable", "Device unavailable", true);
+            break;
+          }
+          if (socket.readyState !== WebSocket.OPEN || !authenticated.has(socket)) break;
           if (message.command.deviceId !== device) {
             fail("device_mismatch", "Command device must match hello");
             break;
@@ -284,7 +366,8 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         }
       }
-    });
+    };
+    input.listen(socket, receive, (error) => options.log?.(error));
   });
   const timer = setInterval(
     () => {
@@ -318,6 +401,16 @@ export async function startServer(options: ServerOptions): Promise<{
           fingerprint: options.remote.identity.fingerprint,
         }
       : {}),
+    notify(device, notification) {
+      let delivered = false;
+      for (const [socket, send] of receivers.get(device) ?? []) {
+        if (socket.readyState === WebSocket.OPEN) {
+          send({ type: "notification", notification });
+          delivered = true;
+        }
+      }
+      return delivered;
+    },
     close() {
       closing ??= new Promise<void>((resolve, reject) => {
         clearInterval(timer);

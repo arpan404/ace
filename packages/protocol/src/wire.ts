@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+  PresenceUpdate,
+  NotificationRegister,
+  NotificationSettings,
+  NotificationSnooze,
+  NotificationMessage,
+} from "./notifications.ts";
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import { Command } from "./commands.ts";
@@ -59,6 +66,10 @@ export const ClientMessage = z.discriminatedUnion("type", [
   SettingsGet,
   SettingsSet,
   SettingsSubscribe,
+  PresenceUpdate,
+  NotificationRegister,
+  NotificationSettings,
+  NotificationSnooze,
   z
     .object({
       type: z.literal("hello"),
@@ -91,6 +102,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   SettingsResult,
   SettingsChanged,
   SettingsDiagnosticMessage,
+  NotificationMessage,
   z.object({
     type: z.literal("welcome"),
     hostId: HostId,
