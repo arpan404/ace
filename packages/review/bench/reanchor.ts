@@ -1,3 +1,4 @@
+import { loadavg } from "node:os";
 import { performance } from "node:perf_hooks";
 import type { DiffResult } from "@ace/git";
 import { ReviewAnchor } from "@ace/protocol";
@@ -49,15 +50,20 @@ for (const [workload, transition] of [
   for (let n = 0; n < 5; n++) reanchorComments(anchors, transition, { kind: "commit", ref: "new" });
   const iterations = 20;
   const start = performance.now();
+  const cpu = process.cpuUsage();
+  const load = loadavg()[0];
   let pending = 0;
   for (let n = 0; n < iterations; n++)
     pending = reanchorComments(anchors, transition, { kind: "commit", ref: "new" }).filter(
       (a) => a.state === "addressed-pending-review",
     ).length;
   const ms = (performance.now() - start) / iterations;
+  const usage = process.cpuUsage(cpu);
   console.log(
     JSON.stringify({
       workload,
+      loadAverage: load,
+      cpuMicrosecondsPerComment: (usage.user + usage.system) / iterations / 1000,
       comments: 1000,
       diffLines: 10_000,
       pending,

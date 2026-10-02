@@ -1,5 +1,4 @@
-import { createDaemonReview } from "./review.ts";
-import type { ReviewExecutor } from "@ace/review";
+import { createDaemonReview, type DaemonReviewOptions } from "./review.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
@@ -13,7 +12,7 @@ import { type Config, logger, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
-export { createDaemonReview, type ReviewPort } from "./review.ts";
+export { createDaemonReview, type ReviewPort, type DaemonReviewOptions } from "./review.ts";
 export { Store, type StoreOptions } from "./store.ts";
 export {
   createDevThread,
@@ -29,12 +28,13 @@ export async function startDaemon(
   handler: CommandHandler = stubHandler(),
   toolkits: readonly Toolkit[] = [],
   notificationChannels?: Omit<NotificationChannels, "websocket">,
-  reviewExecutor?: ReviewExecutor,
+  reviewOptions: DaemonReviewOptions = {},
 ): Promise<{
   url: string;
   tokenPath: string;
   store: Store;
   notifications: NotificationWorker;
+  review: ReturnType<typeof createDaemonReview>;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   remoteUrl?: string;
   fingerprint?: string;
@@ -51,8 +51,11 @@ export async function startDaemon(
   let endpointPath: string | undefined;
   const closeResources = async () => {
     try {
-      await review?.close();
-      await mcp?.close();
+      try {
+        await review?.close();
+      } finally {
+        await mcp?.close();
+      }
     } finally {
       try {
         await server?.close();
@@ -83,7 +86,7 @@ export async function startDaemon(
     store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
       log("error", "Event subscriber failed", error),
     );
-    review = createDaemonReview(config.dataDir, store, reviewExecutor);
+    review = createDaemonReview(config.dataDir, store, reviewOptions);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
       ? { channels: notificationChannels, close: closeChannels }
@@ -121,6 +124,7 @@ export async function startDaemon(
       tokenPath,
       store,
       notifications: notifications.service,
+      review,
       mcp,
       close() {
         closing ??= closeResources();

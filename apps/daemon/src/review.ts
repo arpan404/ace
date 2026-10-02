@@ -6,23 +6,26 @@ import type { Store } from "./store.ts";
 export interface ReviewPort {
   handle(command: Command): Promise<CommandResult>;
 }
+export interface DaemonReviewOptions {
+  executor?: ReviewExecutor;
+  threadWorktree?: (threadId: ThreadId) => string | undefined;
+}
 export function createDaemonReview(
   directory: string,
   store: Store,
-  executor?: ReviewExecutor,
-  threadWorktree?: (threadId: ThreadId) => string | undefined,
+  options: DaemonReviewOptions = {},
 ) {
-  const worker = new ReviewWorker(join(directory, "reviews.sqlite"), executor);
+  const worker = new ReviewWorker(join(directory, "reviews.sqlite"), options.executor);
   const worktree = (source: ReviewSource) => {
     const root = store.getWorkspacePath(source.workspaceId);
     if (!root) return undefined;
     if (!source.threadId) return root;
     const thread = store.getThread(source.threadId);
     if (thread?.workspaceId !== source.workspaceId) return undefined;
-    return threadWorktree ? threadWorktree(source.threadId) : root;
+    return options.threadWorktree ? options.threadWorktree(source.threadId) : root;
   };
   return {
-    handle(command: Command) {
+    handle(command: Command): Promise<CommandResult> {
       if (command.payload.type === "review.open") {
         const root = worktree(command.payload.source);
         if (!root)

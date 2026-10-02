@@ -14,6 +14,6 @@ Limits: 1 MiB complete diff, 1,000 comments per session, 100 replies per comment
 
 SQLite and git cannot share an atomic transaction with filesystem effects or engine acceptance. A crash after an operation starts leaves a receipt that returns `review_recovery_required` on retry. This deliberately requires inspection rather than repeating an uncertain effect. Completed receipts survive restart. Session deletion and automatic recovery are future work. Suggestions on files without a final newline may fail Git's context check; they never rewrite the file with a guessed newline.
 
-The daemon starts a worker in its private data directory. It resolves registered workspaces and validates thread ownership. `createDaemonReview` accepts a thread-worktree resolver for hosts with isolated thread worktrees. A read-scoped device can list; mutations require operate scope. Clients cannot choose filesystem paths.
+The daemon starts a worker in its private data directory. It resolves registered workspaces and validates thread ownership. `startDaemon` exposes `review.afterFix` and accepts `{ executor, threadWorktree }` as its fifth argument. `createDaemonReview` accepts the same options with a thread-worktree resolver for hosts with isolated thread worktrees. A read-scoped device can list; mutations require operate scope. Clients cannot choose filesystem paths.
 
 Run `bun run test packages/review/src --maxWorkers=2` and `bun run --filter @ace/review benchmark`. The benchmark covers 1,000 comments across a 10,000-line transition without a timing assertion.

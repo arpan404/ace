@@ -92,3 +92,69 @@ it("a read-only paired device can list reviews but cannot change their status", 
   });
   expect(await client.next()).toMatchObject({ type: "error", code: "forbidden" });
 });
+
+it("daemon review follows a thread's isolated worktree and refreshes when its fix completes", async () => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const { startDaemon, readConfig, createDevThread } = await import("./index.ts");
+  const { stubHandler } = await import("./commands.ts");
+  const directory = await mkdtemp(join(tmpdir(), "ace-review-worktree-"));
+  const root = join(directory, "repo");
+  const worktree = join(directory, "thread");
+  await mkdir(root);
+  const git = (...args: string[]) => promisify(execFile)("git", args, { cwd: root });
+  let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
+  let threadId: string | undefined;
+  try {
+    await git("init", "-q");
+    await git("config", "user.name", "Review");
+    await git("config", "user.email", "review@example.invalid");
+    await writeFile(join(root, "file.ts"), "before\noriginal\nafter\n");
+    await git("add", ".");
+    await git("commit", "-qm", "base");
+    await git("worktree", "add", "--detach", worktree, "HEAD");
+    await writeFile(join(worktree, "file.ts"), "before\nwrong\nafter\n");
+    daemon = await startDaemon(
+      readConfig({ ACE_HOME: join(directory, "daemon"), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+      stubHandler(),
+      [],
+      {},
+      { threadWorktree: (id) => (id === threadId ? worktree : undefined) },
+    );
+    const workspaceId = daemon.store.createWorkspace(root, "Review workspace");
+    threadId = createDevThread(daemon.store, workspaceId).id;
+    let serial = 0;
+    const send = (payload: unknown) => {
+      if (!daemon) throw new Error("Missing daemon");
+      return daemon.review.handle(
+        Command.parse({ id: `review-command-${++serial}`, deviceId: "engine", payload }),
+      );
+    };
+    const opened = await send({
+      type: "review.open",
+      source: {
+        workspaceId,
+        threadId,
+        from: { kind: "commit", ref: "HEAD" },
+        to: { kind: "working-tree" },
+      },
+    });
+    const sessionId = opened.review?.session?.id;
+    if (!sessionId) throw new Error("Missing review session");
+    const comment = await send({
+      type: "review.comment",
+      sessionId,
+      position: { file: "file.ts", side: "new", start: 2, end: 2 },
+      text: "Fix isolated worktree",
+    });
+    expect(comment.review?.comment?.anchor.fingerprint.lines).toEqual(["wrong"]);
+    await writeFile(join(worktree, "file.ts"), "before\nwrong fixed\nafter\n");
+    expect((await daemon.review.afterFix(sessionId, "isolated-fix")).ok).toBe(true);
+    const listed = await send({ type: "review.list", sessionId });
+    expect(listed.review?.comments?.[0]?.anchor.state).toBe("addressed-pending-review");
+  } finally {
+    await daemon?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 30_000);
