@@ -1,8 +1,8 @@
-import type { RawPayload } from "@ace/protocol";
+import type { InlineRawPayload } from "./data.ts";
 import type { ToolState } from "./state.ts";
 import { object, raw, string, type Data } from "./data.ts";
 /** Original input, interpreted fields and latest change stay live; opaque parts are assembled once. */
-export function retainToolRaw(tool: ToolState, payload: RawPayload, update: Data): void {
+export function retainToolRaw(tool: ToolState, payload: InlineRawPayload, update: Data): void {
   tool.initialRaw ??= payload;
   const value = update["rawInput"];
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {

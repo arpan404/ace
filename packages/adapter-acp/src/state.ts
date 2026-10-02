@@ -1,3 +1,4 @@
+import type { InlineRawPayload } from "./data.ts";
 import type { TranslatorIdentity } from "./identity.ts";
 import { nativeAgentKey } from "./keys.ts";
 import type { Fact } from "@ace/core";
@@ -21,8 +22,8 @@ export interface AgentState {
 }
 export interface ToolState {
   nativeId: string;
-  inputRaw?: RawPayload;
-  initialRaw?: RawPayload;
+  inputRaw?: InlineRawPayload;
+  initialRaw?: InlineRawPayload;
   originalInput?: Data;
   inputParts?: Map<string, unknown>;
   key: string;
