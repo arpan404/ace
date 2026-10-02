@@ -288,7 +288,7 @@ function checkedFact(
     }
     if (typeof input.spawnedBy === "string") {
       const item = get(state.items, input.spawnedBy);
-      const owner = item && get(state.indexes.agentKeysById, item.agentId);
+      const owner = item?.agentId && get(state.indexes.agentKeysById, item.agentId);
       if (owner !== undefined) {
         const error = relationError(state, input.agent as string, owner);
         if (error) return { error };

@@ -48,5 +48,14 @@ export const Item = z.discriminatedUnion("type", [
     tokensBefore: z.number().int().optional(),
     tokensAfter: z.number().int().optional(),
   }),
+  ItemBase.extend({
+    type: z.literal("artifact"),
+    /** Thread artifacts can exist before the first agent starts. */
+    agentId: AgentId.optional(),
+    source: z.literal("browser"),
+    path: z.string(),
+    mimeType: z.string(),
+    bytes: z.number().int().nonnegative(),
+  }),
 ]);
 export type Item = z.infer<typeof Item>;

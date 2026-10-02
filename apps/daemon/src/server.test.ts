@@ -260,6 +260,7 @@ describe("WebSocket API", () => {
       createdAt: 1,
       parts: [],
     });
+    if (item.type !== "message") throw new Error("Expected message fixture");
     f.store.appendEvents(f.thread.id, [
       { type: "item.created", item },
       {
@@ -344,6 +345,7 @@ describe("WebSocket API", () => {
       createdAt: 1,
       parts: [],
     });
+    if (item.type !== "message") throw new Error("Expected message fixture");
     f.store.appendEvents(f.thread.id, [{ type: "item.created", item }]);
     const client = await f.connect();
     await client.next();
