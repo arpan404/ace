@@ -19,10 +19,17 @@ extension Capture {
                   x >= 0, y >= 0, x < Double(width), y < Double(height) else { throw HelperError("Input outside capture bounds") }
             let bounds = target.kind == "window" ? window.frame : frame
             location = CGPoint(x: bounds.minX + x * bounds.width / Double(width), y: bounds.minY + y * bounds.height / Double(height))
-            guard let hit = candidates.first(where: { $0.frame.contains(location) }) else { throw HelperError("Input outside approved application") }
-            inputWindow = hit
+            if target.kind == "window" {
+                guard window.frame.contains(location) else { throw HelperError("Input outside captured window") }
+                guard !candidates.contains(where: { $0.windowID != window.windowID && $0.frame.contains(location) }) else { throw HelperError("Captured window overlaps another application window") }
+                inputWindow = window
+            } else {
+                guard let hit = candidates.first(where: { $0.frame.contains(location) }) else { throw HelperError("Input outside approved application") }
+                inputWindow = hit
+            }
         }
-        if target.kind == "window" { try requireFocusedWindow(window, candidates: candidates) }
+        // Pointer events carry an explicit window number. Keyboard events follow focus.
+        if target.kind == "window" && action.kind != "click" && action.kind != "scroll" { try requireFocusedWindow(window, candidates: candidates) }
         func post(_ event: CGEvent?) throws {
             guard let event else { throw HelperError("Cannot create input event") }
             if action.kind == "click" || action.kind == "scroll" {

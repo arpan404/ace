@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { once } from "node:events";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
@@ -9,7 +10,9 @@ const directory = new URL("../../../native/screen-helper/", import.meta.url).pat
 it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !== "1")(
   "macOS captures JPEG frames from a dedicated approved test window",
   async (context) => {
-    expect((await probeOutput("sh", [join(directory, "build.sh")])).code).toBe(0);
+    expect(
+      (await probeOutput("sh", [join(directory, "build.sh")], { timeoutMs: 120_000 })).code,
+    ).toBe(0);
     const received = deferred<Frame>();
     const appReceived = deferred<Frame>();
     const helper = await Helper.open({
@@ -30,10 +33,14 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
         context.skip("Screen Recording permission has not been granted");
         return;
       }
-      expect((await probeOutput("sh", [join(directory, "build-test-window.sh")])).code).toBe(0);
+      expect(
+        (await probeOutput("sh", [join(directory, "build-test-window.sh")], { timeoutMs: 120_000 }))
+          .code,
+      ).toBe(0);
       const app = spawnSupervised({
         command: join(directory, "build/ScreenTest.app/Contents/MacOS/ScreenTest"),
         name: "screen-test-window",
+        args: ["ace screen integration", "-ApplePersistenceIgnoreState", "YES"],
         env: {},
       });
       onTestFinished(async () => {
@@ -47,7 +54,9 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
             candidate.bundleId === "dev.ace.screen-test" &&
             candidate.title === "ace screen integration",
         );
-        if (!window) throw new Error("Test window is not visible to ScreenCaptureKit");
+        if (!window?.bounds)
+          throw new Error("Test window bounds are not visible to ScreenCaptureKit");
+        const windowBounds = window.bounds;
         await expect(
           helper.request({
             op: "start",
@@ -68,8 +77,75 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
         expect(frame.payload.subarray(0, 2)).toEqual(Buffer.from([0xff, 0xd8]));
         expect(frame.header.width).toBeGreaterThan(0);
         expect(frame.header.height).toBeGreaterThan(0);
+        const inspect = spawnSupervised({
+          command: join(directory, "build/inspect-jpeg"),
+          name: "jpeg-inspection",
+          env: {},
+        });
+        const pixels = once(inspect.stdout, "line");
+        inspect.stdin.end(frame.payload);
+        const colors = z
+          .object({ red: z.number(), blue: z.number(), samples: z.number().positive() })
+          .parse(JSON.parse((await pixels)[0]));
+        expect((await inspect.exited).code).toBe(0);
+        expect(colors.red / colors.samples).toBeGreaterThan(0.01);
+        expect(colors.blue / colors.samples).toBeGreaterThan(0.01);
+        if (permissions.accessibility) {
+          const overlay = spawnSupervised({
+            command: join(directory, "build/ScreenTest.app/Contents/MacOS/ScreenTest"),
+            name: "screen-overlap-fixture",
+            env: {},
+            args: ["ace overlapping window", "-ApplePersistenceIgnoreState", "YES"],
+          });
+          onTestFinished(async () => {
+            await overlay.stop({ graceMs: 0 });
+          });
+          try {
+            await once(overlay.stdout, "line");
+            await expect(
+              helper.request({
+                op: "action",
+                action: { kind: "click", x: 120, y: windowBounds.height - 46, button: "left" },
+              }),
+            ).rejects.toThrow("overlaps");
+          } finally {
+            await overlay.stop({ graceMs: 0 });
+          }
+          for (let inspection = 0; inspection < 32; inspection++) {
+            const inventory = ScreenInventory.parse(await helper.request({ op: "targets" }));
+            if (
+              !inventory.windows.some((candidate) => candidate.title === "ace overlapping window")
+            )
+              break;
+            if (inspection === 31)
+              throw new Error("Closed overlap remains visible to ScreenCaptureKit");
+          }
+          const clickedWindow = once(app.stdout, "line");
+          await helper.request({
+            op: "action",
+            action: {
+              kind: "click",
+              x: (frame.header.width * 120) / 400,
+              y: (frame.header.height * (windowBounds.height - 46)) / windowBounds.height,
+              button: "left",
+            },
+          });
+          expect((await clickedWindow)[0]).toBe("clicked");
+          const scrolledWindow = once(app.stdout, "line");
+          await helper.request({
+            op: "action",
+            action: {
+              kind: "scroll",
+              x: (frame.header.width * 280) / 400,
+              y: (frame.header.height * (windowBounds.height - 60)) / windowBounds.height,
+              deltaX: 0,
+              deltaY: -100,
+            },
+          });
+          expect((await scrolledWindow)[0]).toBe("scrolled");
+        }
+
         await helper.request({ op: "stop" });
-        const windowBounds = window.bounds;
         const display = content.displays.find(
           (candidate) =>
             candidate.bounds &&
@@ -136,7 +212,7 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
                   appFrame.header.height) /
                 display.bounds.height,
               deltaX: 0,
-              deltaY: -100,
+              deltaY: 100,
             },
           });
           expect((await scrolled)[0]).toBe("scrolled");
@@ -153,5 +229,5 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
       await helper.close();
     }
   },
-  30_000,
+  180_000,
 );

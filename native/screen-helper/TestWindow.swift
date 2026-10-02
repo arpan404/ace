@@ -4,6 +4,12 @@ final class TestButton: NSButton {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+final class TestPattern: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(deviceRed: 1, green: 0, blue: 0, alpha: 1).setFill(); NSRect(x: 20, y: 220, width: 160, height: 60).fill()
+        NSColor(deviceRed: 0, green: 0, blue: 1, alpha: 1).setFill(); NSRect(x: 220, y: 220, width: 160, height: 60).fill()
+    }
+}
 final class TestDocument: NSView { override var isFlipped: Bool { true } }
 final class TestScroll: NSScrollView {}
 @MainActor final class TestDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
@@ -12,7 +18,8 @@ final class TestScroll: NSScrollView {}
     func applicationDidFinishLaunching(_ notification: Notification) {
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         self.window = window
-        window.title = "ace screen integration"
+        window.title = String((CommandLine.arguments.dropFirst().first ?? "ace screen integration").prefix(64))
+        window.contentView = TestPattern(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         let view = NSTextField(string: "")
         view.delegate = self
         view.frame = NSRect(x: 40, y: 100, width: 300, height: 50)
@@ -28,11 +35,6 @@ final class TestScroll: NSScrollView {}
         window.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
         window.makeFirstResponder(view)
-        window.setAccessibilityElement(true)
-        window.setAccessibilityRole(.window)
-        NSApplication.shared.setAccessibilityWindows([window])
-        NSApplication.shared.setAccessibilityFocusedWindow(window)
-        NSApplication.shared.setAccessibilityMainWindow(window)
         DispatchQueue.main.async { [self] in
             window.displayIfNeeded()
             let clip = scroll.contentView

@@ -17,3 +17,5 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 PLIST
 swiftc -swift-version 5 -parse-as-library -framework AppKit TestWindow.swift -o "$app/Contents/MacOS/ScreenTest"
 codesign --force --sign - "$app"
+
+swiftc -swift-version 5 -parse-as-library -framework AppKit InspectJPEG.swift -o build/inspect-jpeg
