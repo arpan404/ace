@@ -1,5 +1,7 @@
 import { assertNoGitlinks, createCheckpoint, readCheckpoint, withIndex } from "./checkpoints.ts";
 import { nul } from "./parse.ts";
+import { restoreNested } from "./restore-nested.ts";
+import { ignoredPaths } from "./nested.ts";
 import { decode, pathSchema } from "./decode.ts";
 import { Repository } from "./repository.ts";
 import { GitError, toGitError } from "./types.ts";
@@ -18,17 +20,12 @@ export async function restoreCheckpoint(
   );
   try {
     await assertNoGitlinks(repository, root, target.tree);
-    const ignored = nul(
-      (
-        await repository.cli.call(root, [
-          "ls-files",
-          "--others",
-          "--ignored",
-          "--exclude-standard",
-          "-z",
-        ])
-      ).stdout,
-    ).map((path) => decode(pathSchema, path, "ignored path"));
+    // The flattened safety tree lets Git see ignored contents below uninitialized
+    // gitlinks, which the user's opaque gitlink index would hide.
+    const ignored = await withIndex(repository.tempDirectory, async (env) => {
+      await repository.cli.call(root, ["read-tree", safety.tree], { write: true, env });
+      return ignoredPaths(repository, root, env);
+    });
     const targetPaths = new Set(
       nul(
         (await repository.cli.call(root, ["ls-tree", "-r", "--name-only", "-z", target.tree]))
@@ -65,6 +62,7 @@ export async function restoreCheckpoint(
         { write: true, env },
       );
     });
+    await restoreNested(repository, root, target.tree);
     return { safetyCheckpointId: safety.id };
   } catch (error) {
     const failure = toGitError(error);
