@@ -1,6 +1,6 @@
 # @ace/plugins
 
-Install a capability package once and prepare provider-native session configuration. Nothing in this package starts a provider, hook or MCP server.
+Install a capability package once and prepare provider-native session configuration. Acquisition and acceptance execute no plugin code. Optional launch helpers apply the reviewed configuration to a supervised provider process.
 
 ## Manifest
 
@@ -94,11 +94,13 @@ Show `unsupported` before starting the provider. A provider may require native h
 | Cursor            | `--plugin-dir` with skills, commands, agents, unconditional rules, MCP and native command hooks                                              |
 | ACP / Antigravity | Session MCP configuration; file capabilities report unsupported                                                                              |
 
-Codex custom slash commands and portable Markdown subagent definitions report unsupported. OpenCode hooks, OpenCode MCP `cwd`, ACP MCP `cwd`, unsupported hook events and Codex SSE MCP also report unsupported. Hook event names can map across clients, but scripts must account for native input/output contracts.
+Codex commands become namespaced explicit-invocation skills, for example `$ace-team-tools-command-check`; their `agents/openai.yaml` disables implicit invocation. Portable Markdown agents become TOML role files with the authored instructions, selected through `-c agents.*.config_file`. This preserves command content using Codex's native skill invocation rather than introducing an unsupported custom slash-command mechanism. OpenCode hooks, OpenCode MCP `cwd`, ACP MCP `cwd`, unsupported hook events and Codex SSE MCP also report unsupported. Hook event names can map across clients, but scripts must account for native input/output contracts.
 
 Create one projection root per session. Do not replace or remove it while its provider is running. `materializeProjection` verifies streamed source copies before swapping the generated tree and removes obsolete output. `removeProjection(root)` deletes the generated tree after session shutdown. It retains the ownership marker and lock database so the root can be safely reused. The daemon should remove the session root when it removes the rest of that session's owned files.
 
-`PluginService.handle(unknown)` validates prepare, update, accept, cancel, remove and list requests against `@ace/protocol/plugins`. It is ready for the daemon command owner to mount. The current WebSocket dispatcher is unchanged; command receipts and authorization remain its responsibility.
+`launchPluginProcess(manager, provider, root, options, spawn?)` materializes before spawning, applies native arguments/environment, preserves existing OpenCode configuration and cleans the projection when the process exits. The daemon exposes `launchPlugins` and owns active and preparing launches through shutdown, with at most 16 sessions and exclusive projection roots. ACP adapters call `newPluginAcpSession(sessionConfig, transport, {cwd, mcpServers}, executable?)` after initialization; it sends the merged native request with absolute workspace/executable paths.
+
+`PluginService.handle(unknown)` validates prepare, update, accept, cancel, remove, list and readReview requests against `@ace/protocol/plugins`. The daemon mounts correlated authenticated `pluginRequest`/`pluginResult` envelopes. Device read scope permits list/details; admin scope permits mutations. Pending reviews are capped at 256 KiB before persistence. List returns identity/count summaries, and `readReview({id, offset})` returns complete ordered entries with a next offset. Pages target 192 KiB and allow a single entry up to 256 KiB. Existing oversized records remain discoverable, paged and cancellable after migration. Show every consent page before accepting a version.
 
 ## Bounds and verification
 
