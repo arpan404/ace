@@ -1,3 +1,4 @@
+import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "./screen-ui.ts";
 import { z } from "zod";
 
 export const ScreenId = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
@@ -57,6 +58,7 @@ export const ScreenFrameHeader = z.object({
   width: z.number().int().positive().max(3840),
   height: z.number().int().positive().max(2160),
   codec: z.literal("jpeg"),
+  scale: z.number().finite().positive().optional(),
   bytes: z
     .number()
     .int()
@@ -103,6 +105,10 @@ export const ScreenInventory = z.object({
     .max(2048),
 });
 export const ScreenOperation = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("capabilities"), sessionId: ScreenId }),
+  z.object({ op: z.literal("ui.tree"), sessionId: ScreenId, ...ScreenUITreeOptions.shape }),
+  z.object({ op: z.literal("ui.find"), sessionId: ScreenId, ...ScreenUIFindOptions.shape }),
+  z.object({ op: z.literal("ui.act"), sessionId: ScreenId, ...ScreenUIActOptions.shape }),
   z.object({ op: z.literal("enable"), enabled: z.boolean() }),
   z.object({ op: z.literal("approve"), bundleId: ScreenBundle, allowed: z.boolean() }),
   z.object({ op: z.literal("permissions") }),

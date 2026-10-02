@@ -1,4 +1,4 @@
-import { ScreenFrameHeader } from "@ace/protocol";
+import { ScreenFrameHeader, ScreenFrameHeaderV2 } from "@ace/protocol";
 export type Frame = { header: ScreenFrameHeader; payload: Buffer; packet: Buffer };
 export function framePacket(header: ScreenFrameHeader, payload: Buffer): Buffer {
   const json = Buffer.from(JSON.stringify(ScreenFrameHeader.parse(header)));
@@ -35,7 +35,16 @@ export class FrameDecoder {
         this.buffer = Buffer.allocUnsafe(length);
         this.phase = "header";
       } else if (this.phase === "header") {
-        this.header = ScreenFrameHeader.parse(JSON.parse(this.buffer.toString("utf8")));
+        const raw: unknown = JSON.parse(this.buffer.toString("utf8"));
+        const v2 = ScreenFrameHeaderV2.safeParse(raw);
+        this.header = v2.success
+          ? ScreenFrameHeader.parse({
+              ...v2.data,
+              version: 1,
+              sequence: v2.data.seq,
+              timestamp: v2.data.ts,
+            })
+          : ScreenFrameHeader.parse(raw);
         const prefix = this.buffer;
         this.packet = Buffer.allocUnsafe(4 + prefix.length + this.header.bytes);
         this.packet.writeUInt32BE(prefix.length);

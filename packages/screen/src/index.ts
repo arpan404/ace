@@ -6,4 +6,7 @@ export { Simulators, type Simulator } from "./simulator.ts";
 export { screenConnection, type ScreenPeer } from "./bridge.ts";
 export { computerUseTools, computerUseHandler } from "./tools.ts";
 
-export { localScreenManager } from "./host.ts";
+export { localScreenManager, screenHelperPath } from "./host.ts";
+
+export { windowsEndpoint } from "./transport.ts";
+export { HelperCommandError } from "./helper.ts";

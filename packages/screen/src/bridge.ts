@@ -36,6 +36,18 @@ export function screenConnection(
       try {
         let data: unknown;
         switch (operation.op) {
+          case "capabilities":
+            data = manager.capabilities(operation.sessionId);
+            break;
+          case "ui.tree":
+            data = await manager.uiTree(operation.sessionId, operation, owner);
+            break;
+          case "ui.find":
+            data = await manager.uiFind(operation.sessionId, operation, owner);
+            break;
+          case "ui.act":
+            data = await manager.uiAct(operation.sessionId, operation, owner, "human");
+            break;
           case "enable":
             await manager.enable(operation.enabled);
             break;
