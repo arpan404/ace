@@ -20,6 +20,7 @@
       "dependencies": {
         "@ace/mcp-server": "workspace:*",
         "@ace/models": "workspace:*",
+        "@ace/notify": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
@@ -30,6 +31,18 @@
       "devDependencies": {
         "@types/ws": "^8.18.1",
         "jsqr": "1.4.0",
+      },
+    },
+    "apps/relay": {
+      "name": "@ace/relay",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/secure-channel": "workspace:*",
+        "ws": "^8.18.3",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@types/ws": "^8.18.1",
       },
     },
     "packages/adapter-testkit": {
@@ -79,6 +92,14 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/notify": {
+      "name": "@ace/notify",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.1.12",
+      },
+    },
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
@@ -93,6 +114,14 @@
     },
     "packages/provider-kit": {
       "name": "@ace/provider-kit",
+    },
+    "packages/secure-channel": {
+      "name": "@ace/secure-channel",
+      "dependencies": {
+        "@noble/ciphers": "2.0.1",
+        "@noble/curves": "2.0.1",
+        "@noble/hashes": "2.0.1",
+      },
     },
     "tools/recorder": {
       "name": "@ace/recorder",
@@ -116,6 +145,8 @@
 
     "@ace/models": ["@ace/models@workspace:packages/models"],
 
+    "@ace/notify": ["@ace/notify@workspace:packages/notify"],
+
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
     "@ace/protocol": ["@ace/protocol@workspace:packages/protocol"],
@@ -123,6 +154,10 @@
     "@ace/provider-kit": ["@ace/provider-kit@workspace:packages/provider-kit"],
 
     "@ace/recorder": ["@ace/recorder@workspace:tools/recorder"],
+
+    "@ace/relay": ["@ace/relay@workspace:apps/relay"],
+
+    "@ace/secure-channel": ["@ace/secure-channel@workspace:packages/secure-channel"],
 
     "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.3.287", "", { "optionalDependencies": { "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.287", "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.287", "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.287", "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.287", "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.287", "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.287", "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.287", "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.287" }, "peerDependencies": { "@anthropic-ai/sdk": ">=0.93.0", "@modelcontextprotocol/sdk": "^1.29.0", "zod": "^4.0.0" } }, "sha512-DrYUMzmSVfL1VciNDo/9BhxiVnTsSCKVzxLHB3+NvvRiyN4pfWTKFrUzQesPnWswds9x1Ir10Gi6GRsnjT0UkA=="],
 
@@ -163,6 +198,12 @@
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.31.0", "", { "dependencies": { "@hono/node-server": "^1.19.9 || ^2.0.5", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-UvTMgnNlnIBO/22ob2RcVGDlcvOslQs8T59+FTGdA0L27a39fdGF/EDETNtDVK4DZGpwomlsYpRdA8UXcVL/pw=="],
 
     "@modelcontextprotocol/server": ["@modelcontextprotocol/server@2.2.0", "", { "dependencies": { "@modelcontextprotocol/core": "2.2.0", "zod": "^4.2.0" } }, "sha512-qFnltjus6Gk8Lx6J1w2RXmr3YPN22MNT6qD6zjAkaiWIlFIFxWClz0rXHNuJF/KSUyn5YGhkSvXkWDbQHVLFEQ=="],
+
+    "@noble/ciphers": ["@noble/ciphers@2.0.1", "", {}, "sha512-xHK3XHPUW8DTAobU+G0XT+/w+JLM7/8k1UFdB5xg/zTFPnFCobhftzw8wl4Lw2aq/Rvir5pxfZV5fEazmeCJ2g=="],
+
+    "@noble/curves": ["@noble/curves@2.0.1", "", { "dependencies": { "@noble/hashes": "2.0.1" } }, "sha512-vs1Az2OOTBiP4q0pwjW5aF0xp9n4MxVrmkFBxc6EKZc6ddYx5gaZiAsZoq0uRRXWbi3AT/sBqn05eRPtn1JCPw=="],
+
+    "@noble/hashes": ["@noble/hashes@2.0.1", "", {}, "sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.152.0", "", {}, "sha512-oM/5rLBm2tPkg0iBgkH/FOeR3PCDpY19GTgAZjMFM8h9WI9VW7cLgzp6nwtarYKmovavIQZ+Fe/RKX/8C8O/Rw=="],
 

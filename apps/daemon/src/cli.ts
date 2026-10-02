@@ -63,6 +63,7 @@ async function main(args: string[]): Promise<void> {
       config,
       stubHandler({ development }),
       [],
+      undefined,
       readModelInstances(),
     );
     try {
