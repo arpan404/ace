@@ -8,6 +8,14 @@ import {
 } from "@ace/protocol";
 import { FrameHub, type Frame, type FrameSink } from "./frames.ts";
 import { Helper, type HelperOptions } from "./helper.ts";
+import {
+  ScreenPolicy,
+  bundles,
+  takeControl,
+  authorizeInput,
+  stopping,
+  terminated,
+} from "./policy.ts";
 import { Recording, type RecordingArtifact } from "./recording.ts";
 
 export type ScreenOptions = Omit<HelperOptions, "onFrame" | "onFailure"> & {
@@ -28,29 +36,23 @@ type Session = {
   stopping: Promise<void> | undefined;
 };
 export class ScreenManager {
-  private enabled = false;
-  private readonly allowed = new Set<string>();
+  private readonly policy = new ScreenPolicy();
   private readonly sessions = new Map<string, Session>();
   private readonly listeners = new Set<(state: ScreenState) => void>();
   private readonly options: ScreenOptions;
   private reservations = 0;
-  private policyEpoch = 0;
+
   constructor(options: ScreenOptions) {
     this.options = options;
   }
   async enable(enabled: boolean): Promise<void> {
-    this.enabled = enabled;
-    this.policyEpoch++;
+    this.policy.enable(enabled);
     if (!enabled) await Promise.all([...this.sessions.keys()].map((id) => this.stop(id)));
   }
   async approve(bundleId: string, allowed: boolean): Promise<void> {
     ScreenBundle.parse(bundleId);
-    this.policyEpoch++;
-    if (allowed) {
-      if (this.allowed.size >= 64 && !this.allowed.has(bundleId)) throw new Error("Approval limit");
-      this.allowed.add(bundleId);
-    } else {
-      this.allowed.delete(bundleId);
+    this.policy.approve(bundleId, allowed);
+    if (!allowed) {
       await Promise.all(
         [...this.sessions.values()]
           .filter((session) => bundles(session.state.target).includes(bundleId))
@@ -59,15 +61,10 @@ export class ScreenManager {
     }
   }
   requireApproval(bundleId: string): void {
-    this.authorizeApplications([ScreenBundle.parse(bundleId)]);
+    this.policy.authorize([ScreenBundle.parse(bundleId)]);
   }
   private authorize(target: ScreenTarget): void {
-    this.authorizeApplications(bundles(target));
-  }
-  private authorizeApplications(bundleIds: string[]): void {
-    if (!this.enabled) throw new Error("Screen access is disabled");
-    if (!bundleIds.every((bundle) => this.allowed.has(bundle)))
-      throw new Error("Application approval required");
+    this.policy.authorize(bundles(target));
   }
   private async inspect(op: "permissions" | "targets"): Promise<unknown> {
     if (this.reservations >= 4) throw new Error("Helper inspection limit");
@@ -85,7 +82,7 @@ export class ScreenManager {
     return ScreenPermissions.parse(await this.inspect("permissions"));
   }
   async targets(): Promise<ScreenInventory> {
-    if (!this.enabled) throw new Error("Screen access is disabled");
+    if (!this.policy.enabled) throw new Error("Screen access is disabled");
     return ScreenInventory.parse(await this.inspect("targets"));
   }
   async start(input: ScreenTarget, fps = 10): Promise<ScreenState> {
@@ -94,7 +91,7 @@ export class ScreenManager {
     if (!Number.isInteger(fps) || fps < 1 || fps > 30) throw new Error("Invalid frame rate");
     if (this.sessions.size + this.reservations >= 4) throw new Error("Session limit");
     this.reservations++;
-    const epoch = this.policyEpoch;
+    const epoch = this.policy.epoch;
     let helper: Helper | undefined;
     let session: Session | undefined;
     try {
@@ -153,16 +150,16 @@ export class ScreenManager {
       if (!session.state.permissions.screenRecording)
         throw new Error("Screen Recording permission denied");
       this.authorize(target);
-      if (epoch !== this.policyEpoch) throw new Error("Screen policy changed during start");
+      if (epoch !== this.policy.epoch) throw new Error("Screen policy changed during start");
       await helper.request({
         op: "start",
         sessionId: id,
         target,
         fps,
-        allowlist: [...this.allowed],
+        allowlist: this.policy.allowlist(),
       });
       this.authorize(target);
-      if (epoch !== this.policyEpoch || session.state.lifecycle !== "starting")
+      if (epoch !== this.policy.epoch || session.state.lifecycle !== "starting")
         throw new Error("Screen start cancelled");
       session.state = { ...session.state, lifecycle: "live", indicator: true };
       this.emit(session);
@@ -204,9 +201,7 @@ export class ScreenManager {
   }
   controller(id: string, controller: ScreenState["controller"], owner = "local"): void {
     const session = this.live(id);
-    session.epoch++;
-    session.owner = controller === "none" ? undefined : owner;
-    session.state = { ...session.state, controller };
+    Object.assign(session, takeControl(session, controller, owner));
     this.emit(session);
   }
   async action(
@@ -218,9 +213,7 @@ export class ScreenManager {
     const action = ScreenAction.parse(input);
     const session = this.live(id);
     this.authorize(session.state.target);
-    if (session.state.target.kind === "display") throw new Error("Display capture is view-only");
-    if (session.state.controller !== actor || session.owner !== owner)
-      throw new Error("Controller ownership required");
+    authorizeInput(session, actor, owner);
     if (session.queuedActions >= 16) throw new Error("Input queue limit");
     session.queuedActions++;
     const epoch = session.epoch;
@@ -291,10 +284,10 @@ export class ScreenManager {
     session.epoch++;
     session.latest = undefined;
     session.hub.clear();
-    session.state = { ...session.state, lifecycle: "stopping", controller: "none" };
+    session.state = stopping(session.state);
     this.emit(session);
     await session.helper.close();
-    session.state = { ...session.state, lifecycle: "stopped", indicator: false };
+    session.state = terminated(session.state);
     this.emit(session);
     try {
       if (session.recording) await this.stopRecording(session.state.sessionId);
@@ -345,11 +338,8 @@ export class ScreenManager {
     void session.recording?.stop().catch(() => {});
     session.recording = undefined;
     void session.helper.close().then(() => {
-      session.state = { ...session.state, lifecycle: "failed", indicator: false };
+      session.state = terminated(session.state);
       this.emit(session);
     });
   }
-}
-function bundles(target: ScreenTarget): string[] {
-  return target.kind === "display" ? target.bundleIds : [target.bundleId];
 }

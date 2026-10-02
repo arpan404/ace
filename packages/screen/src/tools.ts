@@ -2,25 +2,11 @@ import { ScreenAction } from "@ace/protocol";
 import { z } from "zod";
 import type { ScreenManager } from "./manager.ts";
 const Screenshot = z.object({});
-const Click = z.object({
-  x: z.number().finite().nonnegative(),
-  y: z.number().finite().nonnegative(),
-  button: z.enum(["left", "right"]).default("left"),
-});
-const Type = z.object({ text: z.string().max(4096) });
-const Key = z.object({
-  keyCode: z.number().int().min(0).max(127),
-  modifiers: z
-    .array(z.enum(["command", "shift", "option", "control"]))
-    .max(4)
-    .default([]),
-});
-const Scroll = z.object({
-  x: z.number().finite().nonnegative(),
-  y: z.number().finite().nonnegative(),
-  deltaX: z.number().int().min(-1000).max(1000),
-  deltaY: z.number().int().min(-1000).max(1000),
-});
+const [ClickAction, TypeAction, KeyAction, ScrollAction] = ScreenAction.options;
+const Click = ClickAction.omit({ kind: true });
+const Type = TypeAction.omit({ kind: true });
+const Key = KeyAction.omit({ kind: true });
+const Scroll = ScrollAction.omit({ kind: true });
 export const computerUseTools = [
   {
     name: "screen_screenshot",
