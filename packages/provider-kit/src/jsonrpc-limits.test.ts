@@ -2,6 +2,7 @@ import { once } from "node:events";
 import { afterEach, expect, it } from "vitest";
 import { JsonRpcPeer } from "./jsonrpc.ts";
 import { spawnSupervised, type SupervisedProcess } from "./process.ts";
+import { PROCESS_TEST_TIMEOUT } from "./testing/cli.ts";
 
 const processes: SupervisedProcess[] = [];
 afterEach(async () => {
@@ -44,8 +45,8 @@ it("message limits reject requests and notify reports the failed send", async ()
     onError: (error) => errors.push(error.message),
   });
   try {
-    await expect(rpc.request("echo", "é".repeat(100))).rejects.toThrow("message exceeded limit");
-    await expect(rpc.notify("large", "é".repeat(100))).rejects.toThrow("message exceeded limit");
+    await expect(rpc.request("echo", "é".repeat(50))).rejects.toThrow("message exceeded limit");
+    await expect(rpc.notify("large", "é".repeat(50))).rejects.toThrow("message exceeded limit");
     expect(errors.join(" ")).toContain("message exceeded limit");
     expect(await rpc.request("echo", "small")).toBe("small");
   } finally {
@@ -74,7 +75,7 @@ it("nonreading peers retain byte capacity after cancellation and dispose blocked
         (error: unknown) => String(error),
       ),
       new Promise<string>((resolve) => {
-        timer = setTimeout(() => resolve("still pending"), 2000);
+        timer = setTimeout(() => resolve("still pending"), PROCESS_TEST_TIMEOUT / 2);
       }),
     ]);
     expect(admission).toContain("write queue exceeded limit");

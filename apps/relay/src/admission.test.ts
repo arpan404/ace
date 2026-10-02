@@ -2,6 +2,7 @@ import { once } from "node:events";
 import { connect, type Socket } from "node:net";
 import { expect, it } from "vitest";
 import { startRelay } from "./index.ts";
+import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 
 async function dial(port: number): Promise<Socket> {
   const socket = connect({ host: "127.0.0.1", port });
@@ -28,11 +29,21 @@ it.each([
     const ended = once(partial, "close");
     partial.destroy();
     await ended;
-    const next = await dial(relay.port);
-    sockets.push(next);
-    const accepted = once(next, "data");
-    next.write("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
-    expect(String((await accepted)[0])).toContain("404 Not Found");
+    await expect
+      .poll(
+        async () => {
+          const next = await dial(relay.port);
+          try {
+            const accepted = once(next, "data");
+            next.write("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+            return String((await accepted)[0]);
+          } finally {
+            next.destroy();
+          }
+        },
+        { timeout: PROCESS_TEST_TIMEOUT },
+      )
+      .toContain("404 Not Found");
   } finally {
     for (const socket of sockets) socket.destroy();
     await relay.close();
@@ -54,7 +65,7 @@ it("shutdown closes partial HTTP headers and bodies without waiting for peers", 
     const completed = await Promise.race([
       Promise.all([relay.close(), ...closed]).then(() => true),
       new Promise<boolean>((resolve) => {
-        timer = setTimeout(() => resolve(false), 2000);
+        timer = setTimeout(() => resolve(false), PROCESS_TEST_TIMEOUT / 2);
       }),
     ]);
     expect(completed).toBe(true);

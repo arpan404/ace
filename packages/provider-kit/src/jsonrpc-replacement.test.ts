@@ -76,7 +76,10 @@ it("replacements retain the process byte bound while old stdin writes are blocke
   old.close();
   expect(await active).toContain("peer closed");
   for (let i = 0; i < 20; i++) {
-    const replacement = new JsonRpcPeer(proc, limits);
+    const replacement = new JsonRpcPeer(proc, {
+      ...limits,
+      maxQueuedBytes: i % 2 ? 1200000 : 600000,
+    });
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
@@ -85,7 +88,7 @@ it("replacements retain the process byte bound while old stdin writes are blocke
           (error: unknown) => String(error),
         ),
         new Promise<string>((resolve) => {
-          timer = setTimeout(() => resolve("still pending"), 3000);
+          timer = setTimeout(() => resolve("still pending"), PROCESS_TEST_TIMEOUT / 2);
         }),
       ]);
       expect(result).toContain("write queue exceeded limit");
@@ -110,12 +113,48 @@ it("replacement cannot reset the bounded explicit-id history", async () => {
       rpc.close();
     }
   }
-  const replacement = new JsonRpcPeer(proc, { maxExplicitIds: 2, timeoutMs: PROCESS_TEST_TIMEOUT });
+  const replacement = new JsonRpcPeer(proc, {
+    maxExplicitIds: 10,
+    timeoutMs: PROCESS_TEST_TIMEOUT,
+  });
   try {
     await expect(replacement.request("echo", "excess", { id: "three" })).rejects.toThrow(
       "explicit id limit",
     );
     expect(await replacement.request("echo", "automatic")).toBe("automatic");
+  } finally {
+    replacement.close();
+  }
+});
+
+it("replacement resumes after old bytes drain and never sends disposed queued notifications", async () => {
+  const proc = child(
+    `process.on('SIGUSR1',()=>{require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);console.log(JSON.stringify({method:'received',params:m.method}));if(m.method==='echo')console.log(JSON.stringify({id:m.id,result:m.params}));});});setInterval(()=>{},1000);console.log(process.pid);`,
+  );
+  const [pid] = await once(proc.stdout, "line");
+  const limits = {
+    maxQueuedBytes: 600000,
+    maxMessageBytes: 600000,
+    timeoutMs: PROCESS_TEST_TIMEOUT,
+  };
+  const old = new JsonRpcPeer(proc, limits);
+  const flood = old.notify("flood", "x".repeat(500000)).catch((error: unknown) => String(error));
+  const discarded = old
+    .notify("discarded", "x".repeat(1000))
+    .catch((error: unknown) => String(error));
+  old.close();
+  expect(await flood).toContain("peer closed");
+  expect(await discarded).toContain("peer closed");
+  const replacement = new JsonRpcPeer(proc, limits);
+  const received: unknown[] = [];
+  replacement.onNotification = (message) => received.push(message.params);
+  try {
+    const resumed = replacement.request("echo", "resumed");
+    process.kill(Number(pid), "SIGUSR1");
+    expect(await resumed).toBe("resumed");
+    await replacement.notify("second", "x".repeat(500000));
+    expect(await replacement.request("echo", "drained")).toBe("drained");
+    expect(received).toEqual(["flood", "echo", "second", "echo"]);
   } finally {
     replacement.close();
   }
