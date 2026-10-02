@@ -48,8 +48,8 @@ or recorder sessions were run.
 
 ## Review regression coverage
 
-`bun run check` passes with 458 tests and four existing skips. The orchestrator
-has 72 passing tests. The initial review probes went red before production
+The prior fix round passed `bun run check` with 458 tests and four existing skips.
+It had 72 passing orchestration tests. The initial review probes went red before production
 changes: cancellation revival, ancestor cancellation phase, obsolete ancestor
 checks, deferred start bindings, and cancelled snapshots with start intents.
 Each was rerun green after its fix. Additional stop-generation and closed-run
@@ -71,12 +71,32 @@ revival probes were also run red before their fixes.
 - Pipeline tests guard stage roles rather than exact instruction wording.
 - Command routing creates observable orchestration state through the fake transactional host port. Production daemon persistence remains the engine's responsibility.
 
+## Independent verifier follow-up
+
+Merged Git-service head `fa6bade` without authoring changes to `packages/git`.
+The lockfile preserves both the orchestration workspace and Git's Zod dependency.
+Main was already current when this round began.
+
+- Before the dependency merge, public Git subprocess probes returned unknown statuses, NaN, negative/infinite counts, missing paths and incomplete numstat records. Each now rejects with `malformed_output`.
+- Checkpoint listing returned an invalid tree before the merge; the same probe now rejects malformed metadata.
+- Injected checkpoint time was ignored before the merge; now returned and persisted timestamps and commit dates match the supplied clock.
+- A missing injected temporary root was ignored before the merge; now checkpoint creation refuses it without creating a checkpoint or changing files. Successful operations clean temporary indexes.
+- Git process execution is exercised through an injected executable wrapper and real subprocesses. Git's shell still owns the actual process spawner; this round adds no replacement spawner to that dependency.
+- N13 removes the failed-child decrement on revival. The new public test fails under that mutation and passes after restoration: a failed child resumes, succeeds, and allows its planner to pass a fresh check and recover as succeeded.
+- N14 removes checkpoint equality from pending-check validation. The new public test fails under that mutation and passes after restoration: a valid check replays, but a check for another artifact checkpoint is refused.
+- Winner-application fixtures now put lane worktrees beside the target, outside its snapshot. The previous nested fixture exposed ignored embedded-repository paths to Git's stricter validation. Real comparison, winner application and safety restore still pass with unchanged assertions.
+
+`bun run check` passes: 557 tests, four existing skips, 55 passing test files,
+and one skipped file. All 177 source files satisfy the size limit. The
+orchestrator has 84 passing tests. CI is disabled by the repository owner;
+no CI commands were run this round. Local `bun run check` is the delivery gate.
+
 ## Mutation audit
 
 Run `python3 packages/orchestrator/bench/mutations.py`. Each temporary production
 edit must trigger a behavioural assertion failure and is restored in `finally`.
-The script refuses to touch `packages/git`. All 27 were caught and reverted,
-including the three review survivors at rows 19–21.
+The script refuses to touch `packages/git`. All 29 were caught and reverted,
+including the original review survivors at rows 19–21 and verifier survivors N13/N14 at rows 28–29.
 
 | #   | Mutation                             | Behaviour that failed                                 |
 | --- | ------------------------------------ | ----------------------------------------------------- |
@@ -107,19 +127,21 @@ including the three review survivors at rows 19–21.
 | 25  | Skip recovery phase compatibility    | Cancelled snapshots cannot replay starts              |
 | 26  | Keep accepted ancestor checks        | Reopened descendants force fresh ancestor checks      |
 | 27  | Suppress global row overflow flag    | Capped comparison marks dropped rows                  |
+| 28  | Omit failed-child revival decrement  | A revived successful child permits planner success    |
+| 29  | Remove check checkpoint equality     | Recovery rejects a check for another checkpoint       |
 
 ## Non-gating benchmark
 
 `bun run --filter @ace/orchestrator benchmark`, Node 26.8.1. Each fact path runs
 300,000 operations per lane count, including public schema parsing. Thread
 facts change each lane's phase every round, including counter/event updates.
-Numbers are measurements on this shared machine, not CI limits.
+Numbers below are the follow-up measurements on this shared machine under concurrent worker load, not CI limits. The earlier round measured 0.51 us per usage fact and 0.43 us per thread fact at 64 lanes; no orchestration production hot path changed in this round.
 
 | Lanes | Usage ops/s | Usage us/op | Thread ops/s | Thread us/op | Peak RSS MiB |
 | ----- | ----------- | ----------- | ------------ | ------------ | ------------ |
-| 1     | 1,922,046   | 0.52        | 2,151,925    | 0.46         | 103.3        |
-| 16    | 1,962,160   | 0.51        | 2,347,226    | 0.43         | 103.7        |
-| 64    | 1,951,774   | 0.51        | 2,329,624    | 0.43         | 103.7        |
+| 1     | 179,141     | 5.58        | 174,366      | 5.74         | 100.9        |
+| 16    | 135,726     | 7.37        | 129,516      | 7.72         | 101.3        |
+| 64    | 135,720     | 7.37        | 228,835      | 4.37         | 101.3        |
 
 The added lifecycle benchmark runs 10,000 revival/check cycles at 64 lanes.
 Unrelated lane starts remain pending; each cycle reopens a leaf, invalidates
@@ -127,8 +149,8 @@ ancestor checks and completes the fresh check chain. It retains no history.
 
 | Depth | Cycles/s | us/cycle | Peak RSS MiB |
 | ----- | -------- | -------- | ------------ |
-| 1     | 45,452   | 22.00    | 104.5        |
-| 8     | 9,809    | 101.95   | 122.3        |
+| 1     | 4,007    | 249.59   | 101.7        |
+| 8     | 1,254    | 797.42   | 105.9        |
 
 Ordinary facts update counters/lookups in O(1). Parent propagation is bounded
 by depth 8; rare lifecycle cleanup scans at most 129 current intents per lane
