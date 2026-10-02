@@ -1,0 +1,68 @@
+[
+  {
+    "mutation": "remove DOM cap",
+    "killed": true,
+    "exit": 1,
+    "assertion": "AssertionError: promise resolved \"{ nodes: [ …(15) ], truncated: false }\" instead of rejecting"
+  },
+  {
+    "mutation": "remove command cap",
+    "killed": true,
+    "exit": 1,
+    "assertion": "AssertionError: promise resolved \"{ …(2) }\" instead of rejecting"
+  },
+  {
+    "mutation": "no-op wait_for",
+    "killed": true,
+    "exit": 1,
+    "assertion": "AssertionError: promise resolved \"{ ok: true }\" instead of rejecting"
+  },
+  {
+    "mutation": "disable capture adaptation",
+    "killed": true,
+    "exit": 1,
+    "assertion": "AssertionError: expected false to be true // Object.is equality"
+  },
+  {
+    "mutation": "omit virtual key codes",
+    "killed": true,
+    "exit": 1,
+    "assertion": "AssertionError: expected 'abc' to be 'ab' // Object.is equality"
+  },
+  {
+    "mutation": "remove shared approval cap",
+    "killed": true,
+    "exit": 1,
+    "assertion": "AssertionError: expected 512 to be 32 // Object.is equality"
+  },
+  {
+    "mutation": "keep failed subscription",
+    "killed": true,
+    "exit": 1,
+    "assertion": "AssertionError: expected [Function] to not throw an error but 'Error: Browser subscriber limit' was thrown"
+  },
+  {
+    "mutation": "count UTF-16 instead of UTF-8",
+    "killed": true,
+    "exit": 1,
+    "assertion": "AssertionError: promise resolved \"'😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀…'\" instead of rejecting"
+  },
+  {
+    "mutation": "omit thread cancellation",
+    "killed": true,
+    "exit": 1,
+    "assertion": "AssertionError: expected [Function] to throw error including 'shutting down' but got 'Browser policy timed out'"
+  },
+  {
+    "mutation": "no-op delayed wait preserving timeout",
+    "killed": true,
+    "exit": 1,
+    "assertion": "AssertionError: expected 'returned before transition' to be 'still waiting' // Object.is equality"
+  },
+  {
+    "mutation": "disable only FPS adaptation",
+    "killed": true,
+    "exit": 1,
+    "assertion": "AssertionError: expected false to be true // Object.is equality"
+  }
+]

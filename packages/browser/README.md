@@ -39,7 +39,13 @@ redirect and WebSocket requests allow exact loopback names, and ask the origin
 hook for every other site. The hook should store approval decisions outside this
 package. Service workers, downloads and popup pages are disabled. CDP interception
 also attaches to isolated iframe and worker targets.
-Policy hooks have a ten-second deadline and are cancelled during service shutdown.
+One service-wide admission limit allows at most 32 unsettled approval hooks across
+navigation, HTTP/redirect/worker interception, WebSockets and evaluate. Excess
+requests fail closed without invoking the hook or allocating a timeout. Hooks
+receive a session-scoped `AbortSignal` (origin request `signal`, or evaluate's
+third argument) and have a ten-second caller deadline. Closing a thread cancels
+its calls; service shutdown cancels all calls. A hook that ignores cancellation
+keeps its admission slot until it settles, so retries cannot accumulate work.
 Future interactions should store approvals separately and let the hook return a decision.
 
 Snapshots include AX nodes, parent-child links, ignored-node markers and stable
@@ -53,7 +59,10 @@ describe the primary document; this version does not expose iframe element refs.
 
 `connectBrowser(service, { connectionId, authorize, send })` connects an already
 authenticated transport. The daemon mounts it on its existing socket after
-`hello`. `authorize` receives a thread id and, for open, a workspace id.
+`hello`. `authorize` receives a thread id, the workspace id for open, and the required
+`read` or `operate` access. The daemon applies paired-device scopes: viewing,
+acknowledgements and inspection require read; browser creation, control and
+recording require operate. Device revocation disconnects its controller.
 `send` must return false when the transport cannot accept a frame. It receives an
 optional shared serialized string so WebSocket clients don't serialize a JPEG
 separately for each viewer. Reliable result/state messages must be delivered or
@@ -63,7 +72,10 @@ Clients send `browser.open`, `browser.subscribe`, `browser.ack`,
 `browser.takeover`, `browser.input`, `browser.handback`, `browser.execute`,
 `browser.recording.start`, `browser.recording.stop`, `browser.unsubscribe` and
 `browser.close`. Requests have a `requestId` and a `threadId`, except open which
-has `options: BrowserOpen`. Input is one of mouse, key, scroll or touch.
+has `options: BrowserOpen`. Input is one of mouse, key, scroll or touch. Keyboard input translates validated
+key/code pairs to CDP virtual key codes so editing and navigation work as well
+as character insertion. Unsupported codes and inconsistent named keys fail
+explicitly; clients can use `char` for text composition, delivered through CDP `Input.insertText`.
 Responses are `browser.result`, `browser.state` and `browser.frame`. See the
 exported browser schemas for field definitions.
 
@@ -121,3 +133,14 @@ Ubuntu hosts can need an AppArmor profile for downloaded Chromium; follow
 Run `bun run --filter @ace/browser bench` for non-gating fan-out and log-ingestion
 measurements, CDP validation with shared frame serialization, and recording writes.
 Browser/encoder and transport costs are measured separately from the pure delivery loop.
+
+## Process boundaries
+
+`BrowserServiceOptions.launchContext` replaces the Playwright context launcher;
+`spawn` replaces process creation for cached-browser lookup and the encoder
+supervisor. `detectChromium({ spawn })` and `installChromium(dataDir, spawn)`
+also accept the process boundary. Defaults use Playwright and Node processes.
+These seams support host-specific launchers and tests with real child processes.
+Clock and id generation remain injectable through `now` and `id`.
+Capture detaches before context closure; shutdown does not wait for a CDP stop
+response before closing the transport that can abort it.

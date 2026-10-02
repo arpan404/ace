@@ -83,7 +83,9 @@ Artifact items may omit an agent owner before a thread's first provider run.
 
 ## Security and lifecycle
 
-Only authenticated daemon connections may use the bridge. Human ownership is
+Only authenticated daemon connections may use the bridge. Paired devices need
+read scope for frames and inspection and operate scope for browser actions.
+Pinned WSS uses the same bridge; device revocation disconnects its controller. Human ownership is
 bound to the connection, so another device cannot inject input or hand back its
 session. Navigation and every intercepted HTTP request, including redirects and
 subresources, pass an origin policy. CDP Fetch interception attaches to the primary
@@ -95,13 +97,20 @@ same check. Non-HTTP navigation, personal profiles, exposed debugging ports and
 automatic downloads are excluded. Service workers are blocked to prevent them
 from bypassing request interception. Site approval results are not cached here;
 the future interaction service owns approval lifetime and revocation. Hook calls
-have a ten-second deadline and cancel on service shutdown.
+have a ten-second caller deadline and cancel on thread close or service shutdown.
+One service-wide admission gate caps unsettled hooks at 32 across every entry
+point, including WebSocket routing and evaluate. Excess requests fail closed
+before invoking the hook or installing timers/listeners. Hooks receive the
+thread's abort signal. Uncooperative hooks retain their slot until settlement,
+even after caller cancellation, preventing retries from accumulating work.
 
 Profiles, logs, screenshots and recordings may contain sensitive page data.
 They stay under the user's daemon data directory with private directories.
 Logs omit request headers and bodies, use bounded lines, and stop at a byte cap.
 The service observes page errors and request completion without buffering bodies.
-Close releases CDP, encoders, streams, contexts and profile leases. Playwright
+Close detaches capture and closes the context before awaiting the screencast-stop
+reply, so a delayed CDP response cannot prevent process shutdown. It releases
+CDP, encoders, streams, contexts and profile leases. Playwright
 owns the process transport and kills children when its parent exits; explicit
 shutdown awaits context closure. Unexpected browser exit removes the registry
 entry and publishes closed state. Browsers cannot survive daemon restart.
@@ -114,10 +123,19 @@ recordings and process cleanup. Tests synchronize on observable events, not
 sleeps or elapsed-time assertions. They skip with an explicit reason if Chromium
 is unavailable. CI installs Playwright Chromium when running browser tests.
 Pure fan-out tests exercise delayed acknowledgements and latest-frame replacement.
-The capture shell accepts an injected clock. Non-gating benchmarks measure frame
+The capture shell accepts an injected clock. Launcher and process-spawner
+boundaries are injectable for host integration and real-process tests. Keyboard
+translation is pure and supplies validated CDP virtual key codes. Evaluation's
+256 KiB result cap counts UTF-8 bytes inside Chromium before returning data.
+Subscription registration rolls back when its initial state callback throws.
+Regression tests cover delayed visibility and timeout rejection, oversized DOMs,
+command saturation, sustained approval floods and per-thread cancellation.
+Capture adaptation is checked through real JPEG quantization coefficients and
+delivered frame timestamps, including recovery when pressure clears. Non-gating benchmarks measure frame
 fan-out, validation/serialization, recording writes and log ingestion, including
 RSS. Before delivery, at least eight production mutations
-must each make a behavior test fail, then be reverted.
+must each make a behavior test fail, then be reverted. Vitest runs at most four
+workers to bound real browser, CLI, TLS and notification fixture processes.
 
 ## Consequences
 

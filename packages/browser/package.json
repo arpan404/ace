@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "bench": "node bench/fanout.ts && node bench/pipeline.ts"
+    "bench": "node bench/fanout.ts && node bench/pipeline.ts && node bench/input-policy.ts"
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",
