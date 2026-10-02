@@ -1,3 +1,4 @@
+import { nativeAgentKey } from "./keys.ts";
 import type { Fact } from "@ace/core";
 import type { InteractionRequest, RawPayload, ToolStatus } from "@ace/protocol";
 import { raw, type Data } from "./data.ts";
@@ -12,8 +13,9 @@ export interface AgentState {
   background: boolean;
   suspended: boolean;
   segment: string;
-  stream?: { key: string; kind: string; raw: RawPayload[] };
+  stream?: { key: string; kind: string };
   cancelAt?: number;
+  planTool?: ToolState;
 }
 export interface ToolState {
   key: string;
@@ -35,18 +37,26 @@ export interface RequestState {
 }
 export class TranslationState {
   readonly agents = new Map<string, AgentState>();
+  readonly ownedTools = new Map<string, Map<string, ToolState>>();
   readonly tools = new Map<string, ToolState>();
+  readonly liveTools = new Set<ToolState>();
+  readonly backgroundTools = new Set<ToolState>();
+  readonly pendingChildren = new Map<string, AgentState>();
+  readonly childTools = new Map<string, ToolState>();
   readonly requests = new Map<string | number, RequestState>();
   readonly sent = new Map<string | number, { method: string; params: Data }>();
   readonly root: AgentState;
   readonly quirks: AcpQuirks;
+  threadId: string;
   cwd = "";
   sequence = 0;
   promptOpen = false;
   stopped = false;
   initialized = false;
-  constructor(rootKey: string, quirks: AcpQuirks) {
+  processDead = false;
+  constructor(rootKey: string, quirks: AcpQuirks, readonlyThreadId: string) {
     this.quirks = quirks;
+    this.threadId = readonlyThreadId;
     this.root = {
       key: rootKey,
       nativeId: "",
@@ -58,7 +68,19 @@ export class TranslationState {
     };
   }
   key(kind: string): string {
-    return `${this.root.key}:${kind}:${++this.sequence}`;
+    return `${this.root.key}:${this.root.nativeId || "initial"}:${kind}:${++this.sequence}`;
+  }
+  tool(owner: AgentState, id: string): ToolState | undefined {
+    return this.ownedTools.get(owner.key)?.get(id);
+  }
+  registerTool(owner: AgentState, id: string, tool: ToolState): void {
+    let owned = this.ownedTools.get(owner.key);
+    if (!owned) {
+      owned = new Map();
+      this.ownedTools.set(owner.key, owned);
+    }
+    owned.set(id, tool);
+    this.tools.set(id, tool);
   }
   ensureRoot(facts: Fact[]): void {
     if (this.initialized) return;
@@ -80,7 +102,7 @@ export class TranslationState {
     const known = this.agents.get(id);
     if (known) return known;
     const agent: AgentState = {
-      key: this.key("agent"),
+      key: nativeAgentKey(this.threadId, id),
       nativeId: id,
       parent: this.root.key,
       active: false,

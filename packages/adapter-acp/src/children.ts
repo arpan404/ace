@@ -1,10 +1,11 @@
 import type { Fact } from "@ace/core";
-import { object, string, raw, type Data } from "./data.ts";
+import { object, string, type Data } from "./data.ts";
 import { TranslationState, type AgentState, type ToolState } from "./state.ts";
 export function backgroundChild(state: TranslationState, tool: ToolState, facts: Fact[]): void {
   const child = tool.child;
   if (!child || child.terminal || object(tool.data["rawOutput"])["isBackground"] !== true) return;
   child.background = true;
+  state.backgroundTools.add(tool);
   state.start(child, facts, "spawn");
   facts.push({ type: "agent.linked", agent: child.key, background: true });
   if (tool.task) return;
@@ -18,7 +19,7 @@ export function backgroundChild(state: TranslationState, tool: ToolState, facts:
     item: tool.key,
     childAgent: child.key,
     stoppable: false,
-    raw: tool.raw,
+    raw: [...tool.raw],
   });
 }
 export function childUpdate(
@@ -31,17 +32,20 @@ export function childUpdate(
   if (!["subagent_spawned", "subagent_state_update", "subagent_update"].includes(string(type)))
     return false;
   const id = string(update["subagentSessionId"] ?? update["sessionId"]);
-  if (!id) return false;
+  if (!id || id === parent.nativeId) return false;
   const child = state.agent(id, facts);
   const meta = object(object(update["_meta"])["cursor"]);
   const nativeTool = string(meta["toolCallId"]);
-  const tool = state.tools.get(nativeTool);
+  const tool = state.tool(parent, nativeTool) ?? state.childTools.get(id);
+  if (nativeTool && !tool)
+    state.pendingChildren.set(JSON.stringify([parent.key, nativeTool]), child);
   const input = object(tool?.data["rawInput"]);
   // Draft association updates only patch metadata; null/omitted state never proves idle.
   child.parent = parent.key;
   if (tool) {
     child.spawn = tool.key;
     tool.child = child;
+    state.childTools.set(id, tool);
   }
   facts.push({
     type: "agent.seen",
@@ -70,6 +74,7 @@ export function childUpdate(
     });
     backgroundChild(state, tool, facts);
   }
+  if (type === "subagent_spawned") state.start(child, facts, "spawn");
   const snapshot = object(update["state"]);
   const status = typeof update["state"] === "string" ? update["state"] : snapshot["state"];
   if (status === "running") {
@@ -79,15 +84,23 @@ export function childUpdate(
   if (["completed", "failed", "cancelled", "idle"].includes(string(status))) {
     const stop = string(snapshot["stopReason"]);
     const cancelled = status === "cancelled" || stop === "cancelled";
-    const failed = status === "failed";
+    const classified =
+      state.quirks.classifyError(child.segment) ??
+      (stop === "refusal"
+        ? { kind: "quota" as const, message: "Subagent refused the prompt" }
+        : undefined);
+    const failed = status === "failed" || classified !== undefined;
     state.start(child, facts, "spawn");
     state.end(
       child,
       facts,
       cancelled ? "interrupted" : failed ? "failed" : "completed",
-      failed ? { kind: "provider", message: child.segment || "Subagent failed" } : undefined,
+      failed
+        ? (classified ?? { kind: "provider", message: child.segment || "Subagent failed" })
+        : undefined,
     );
     child.terminal = true;
+    if (tool) state.backgroundTools.delete(tool);
     delete child.cancelAt;
     if (parent.suspended) {
       parent.suspended = false;
@@ -119,6 +132,7 @@ export function placeholderChild(state: TranslationState, tool: ToolState, facts
     const child = state.agent(id, facts);
     child.spawn = tool.key;
     tool.child = child;
+    state.childTools.set(id, tool);
     facts.push({
       type: "agent.seen",
       agent: child.key,
@@ -164,9 +178,11 @@ export function expireChildren(state: TranslationState, now: number): Fact[] {
     state.end(child, facts, "interrupted");
     child.terminal = true;
     delete child.cancelAt;
-    for (const tool of state.tools.values())
-      if (tool.child === child && tool.task)
+    for (const tool of state.backgroundTools)
+      if (tool.child === child && tool.task) {
         facts.push({ type: "background.ended", task: tool.task, status: "unknown" });
+        state.backgroundTools.delete(tool);
+      }
     state.notice(
       facts,
       { deadline: now, nativeId: child.nativeId },

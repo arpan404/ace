@@ -1,15 +1,17 @@
+import { z } from "zod";
 import type { RawPayload } from "@ace/protocol";
 export type Data = Record<string, unknown>;
+const ObjectData = z.record(z.string(), z.unknown());
 export function object(value: unknown): Data {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Data)
-    : {};
+  const result = ObjectData.safeParse(value);
+  return result.success ? result.data : {};
 }
 export function string(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 export function list(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
+  const parsed = z.array(z.unknown()).safeParse(value);
+  return parsed.success ? parsed.data : [];
 }
 export function raw(data: unknown, type: string, name?: string): RawPayload {
   return { type, data, ...(name ? { name } : {}) };

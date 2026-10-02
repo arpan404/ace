@@ -1,7 +1,7 @@
-import { apply, createThreadState } from "@ace/core";
+import { apply, createThreadState, nextDeadline } from "@ace/core";
 import { ThreadId, Item, Agent, Interaction, BackgroundTask, Run } from "@ace/protocol";
-import type { Frame } from "./contracts.ts";
-import { createAcpTranslator } from "./translator.ts";
+import type { Frame } from "@ace/engine-api";
+import { createAcpTranslator } from "./index.ts";
 import { cursorQuirks } from "./quirks/cursor.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
 export function harness(quirks: AcpQuirks = cursorQuirks) {
@@ -25,9 +25,9 @@ export function harness(quirks: AcpQuirks = cursorQuirks) {
     );
     if (warnings.length) throw new Error(JSON.stringify(warnings));
   }
-  function replay(frame: Frame) {
-    context.now = frame.t;
-    const facts = translator.translate(frame, frame.t);
+  function replay(nativeFrame: Frame) {
+    context.now = nativeFrame.t;
+    const facts = translator.translate(nativeFrame, nativeFrame.t);
     const events = facts.flatMap((f) => apply(state, f, context));
     check();
     return events;
@@ -49,9 +49,48 @@ export function harness(quirks: AcpQuirks = cursorQuirks) {
       params: { sessionId: "root-session", prompt: [{ type: "text", text: "Synthetic input" }] },
     });
   }
-  function update(update: unknown, sessionId = "root-session", t?: number) {
-    return frame("recv", { method: "session/update", params: { sessionId, update } }, t);
+  function update(payload: unknown, sessionId = "root-session", t?: number) {
+    return frame("recv", { method: "session/update", params: { sessionId, update: payload } }, t);
   }
   const tools = () => Object.values(state.items).filter((i) => i.type === "tool_call");
-  return { state, frame, replay, tick, ready, update, tools };
+  return { state, frame, replay, tick, ready, update, tools, deadline: () => nextDeadline(state) };
+}
+
+export function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("Expected a published entity");
+  return value;
+}
+
+export function spawn(
+  h: ReturnType<typeof harness>,
+  id = "child",
+  parent = "root-session",
+  tool = "spawn",
+) {
+  h.update(
+    {
+      sessionUpdate: "subagent_spawned",
+      subagentSessionId: id,
+      name: "research",
+      _meta: { cursor: { toolCallId: tool } },
+    },
+    parent,
+  );
+}
+export function chunk(
+  h: ReturnType<typeof harness>,
+  text: string,
+  session = "root-session",
+  thought = false,
+) {
+  h.update(
+    {
+      sessionUpdate: thought ? "agent_thought_chunk" : "agent_message_chunk",
+      content: { type: "text", text },
+    },
+    session,
+  );
+}
+export function end(h: ReturnType<typeof harness>, stopReason = "end_turn") {
+  h.frame("recv", { id: 2, result: { stopReason } });
 }

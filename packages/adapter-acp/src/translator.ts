@@ -1,19 +1,21 @@
+import { decodeContent } from "./content.ts";
 import type { Fact } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
-import type { Frame, Translator } from "./contracts.ts";
+import type { Frame, Translator } from "@ace/engine-api";
 import { childUpdate, backgroundChild, placeholderChild, expireChildren } from "./children.ts";
 import { list, object, raw, rpcId, string, type Data } from "./data.ts";
-import { decodeResolution, interactionKey, interactionRequest } from "./interactions.ts";
+import { openRequest, answerRequest } from "./requests.ts";
 import { genericQuirks } from "./quirks/generic.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
-import { TranslationState, type AgentState, type ToolState } from "./state.ts";
-import { toolDetail, toolStatus } from "./tools.ts";
+import { TranslationState, type AgentState } from "./state.ts";
+import { endPrompt } from "./lifecycle.ts";
+import { toolDetail, toolStatus, todos } from "./tools.ts";
 
 export function createAcpTranslator(
   init: { threadId: ThreadId; rootKey: string },
   quirks: AcpQuirks = genericQuirks,
 ): Translator {
-  return new AcpTranslator(new TranslationState(init.rootKey, quirks));
+  return new AcpTranslator(new TranslationState(init.rootKey, quirks, init.threadId));
 }
 class AcpTranslator implements Translator {
   readonly state: TranslationState;
@@ -21,7 +23,7 @@ class AcpTranslator implements Translator {
     this.state = state;
   }
   tick(now: number): Fact[] {
-    return expireChildren(this.state, now);
+    return this.state.processDead ? [] : expireChildren(this.state, now);
   }
   translate(frame: Frame, now: number): Fact[] {
     const facts: Fact[] = [];
@@ -30,13 +32,17 @@ class AcpTranslator implements Translator {
     const data = object(frame.data);
     if (frame.dir === "note") {
       if (data["event"] === "stop") s.stopped = true;
-      if (data["event"] === "process-start") facts.push({ type: "process.started" });
+      if (data["event"] === "process-start") {
+        s.processDead = false;
+        facts.push({ type: "process.started" });
+      }
       if (data["event"] === "process-exit") {
         facts.push({
           type: "process.exited",
           deliberate: s.stopped || object(data["detail"])["deliberate"] === true,
         });
         s.requests.clear();
+        s.processDead = true;
       }
       if (data["event"] === "queue-changed" && typeof data["count"] === "number")
         facts.push({ type: "queue.changed", count: data["count"] });
@@ -52,8 +58,21 @@ class AcpTranslator implements Translator {
     const id = rpcId(data["id"]);
     if (frame.dir === "send" && method) {
       if (id !== undefined) s.sent.set(id, { method, params });
-      if (["session/new", "session/load", "session/resume"].includes(method))
+      if (["session/new", "session/load", "session/resume"].includes(method)) {
         s.cwd = string(params["cwd"]);
+        if (typeof params["sessionId"] === "string") {
+          s.root.nativeId = params["sessionId"];
+          s.agents.set(s.root.nativeId, s.root);
+          facts.push({
+            type: "agent.seen",
+            agent: s.root.key,
+            origin: "root",
+            fidelity: "full",
+            native: { provider: s.quirks.provider, nativeId: s.root.nativeId },
+            cwd: s.cwd,
+          });
+        }
+      }
       if (method === "session/prompt") {
         const agent = s.agent(string(params["sessionId"]), facts);
         agent.terminal = false;
@@ -66,10 +85,7 @@ class AcpTranslator implements Translator {
           draft: {
             type: "message",
             role: "user",
-            parts: list(params["prompt"])
-              .map(object)
-              .filter((p) => p["type"] === "text")
-              .map((p) => ({ type: "text", text: string(p["text"]) })),
+            parts: list(params["prompt"]).flatMap(decodeContent),
             complete: true,
             raw: [raw(frame.data, method)],
           },
@@ -85,16 +101,37 @@ class AcpTranslator implements Translator {
       frame.dir === "recv" &&
       method &&
       id !== undefined &&
-      this.request(id, method, params, frame.data, facts)
+      openRequest(s, id, method, params, frame.data, facts, (owner, update) =>
+        this.update(owner, update, frame.data, facts),
+      )
     )
       return facts;
     if (!method && id !== undefined) {
-      if (frame.dir === "send" && this.answer(id, object(data["result"]), frame.data, facts))
+      if (
+        frame.dir === "send" &&
+        "result" in data &&
+        answerRequest(s, id, object(data["result"]), frame.data, facts)
+      )
         return facts;
       const sent = frame.dir === "recv" ? s.sent.get(id) : undefined;
       if (sent) {
-        s.sent.delete(id);
         const result = object(data["result"]);
+        if (
+          sent.method === "session/prompt" &&
+          data["error"] === undefined &&
+          !["end_turn", "cancelled", "max_tokens", "max_turn_requests", "refusal"].includes(
+            string(result["stopReason"]),
+          )
+        ) {
+          s.notice(
+            facts,
+            frame.data,
+            "jsonrpc",
+            "Unrecognized ACP prompt response; completion unconfirmed",
+          );
+          return facts;
+        }
+        s.sent.delete(id);
         if (
           ["session/new", "session/load", "session/resume"].includes(sent.method) &&
           typeof result["sessionId"] === "string"
@@ -110,9 +147,15 @@ class AcpTranslator implements Translator {
             cwd: s.cwd,
           });
         }
+        if (
+          ["session/load", "session/resume"].includes(sent.method) &&
+          s.root.active &&
+          !s.promptOpen
+        )
+          s.end(s.root, facts, "completed");
         if (sent.method === "session/prompt") {
           const agent = s.agent(string(sent.params["sessionId"]), facts);
-          this.endPrompt(agent, string(result["stopReason"]), object(data["error"]), now, facts);
+          endPrompt(s, agent, string(result["stopReason"]), object(data["error"]), now, facts);
         }
       }
     }
@@ -126,7 +169,7 @@ class AcpTranslator implements Translator {
     if (kind === "tool_call" || kind === "tool_call_update") {
       const id = string(update["toolCallId"]);
       if (!id) return false;
-      let tool = s.tools.get(id);
+      let tool = s.tool(agent, id);
       if (!tool) {
         tool = {
           key: s.key("tool"),
@@ -136,7 +179,20 @@ class AcpTranslator implements Translator {
           raw: [],
           declined: false,
         };
-        s.tools.set(id, tool);
+        s.registerTool(agent, id, tool);
+      }
+      const pendingChild = s.pendingChildren.get(JSON.stringify([agent.key, id]));
+      if (pendingChild) {
+        tool.child = pendingChild;
+        pendingChild.spawn = tool.key;
+        s.childTools.set(pendingChild.nativeId, tool);
+        s.pendingChildren.delete(JSON.stringify([agent.key, id]));
+        facts.push({
+          type: "agent.linked",
+          agent: pendingChild.key,
+          parent: agent.key,
+          spawnedBy: tool.key,
+        });
       }
       if (!tool.task) s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
       s.finishStream(agent, facts);
@@ -150,6 +206,8 @@ class AcpTranslator implements Translator {
           string(object(tool.data["rawInput"])["_toolName"] ?? tool.data["name"]),
         ),
       );
+      if (["pending", "running", "awaiting_approval"].includes(tool.status)) s.liveTools.add(tool);
+      else s.liveTools.delete(tool);
       const detail = toolDetail(tool.data, s.quirks);
       facts.push({
         type: "item.upsert",
@@ -172,6 +230,7 @@ class AcpTranslator implements Translator {
           },
         },
       });
+      if (detail.kind === "plan") agent.planTool = tool;
       if (s.quirks.provider === "antigravity" && detail.kind === "agent.spawn")
         placeholderChild(s, tool, facts);
       backgroundChild(s, tool, facts);
@@ -197,24 +256,27 @@ class AcpTranslator implements Translator {
     if (["agent_message_chunk", "agent_thought_chunk", "user_message_chunk"].includes(kind)) {
       if (!agent.suspended && kind !== "user_message_chunk")
         s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
+      const content = object(update["content"]);
+      if (content["type"] !== "text") s.finishStream(agent, facts);
       if (agent.stream?.kind !== kind) {
         s.finishStream(agent, facts);
-        agent.stream = { key: s.key("stream"), kind, raw: [] };
+        agent.stream = { key: s.key("stream"), kind };
       }
-      const stream = agent.stream!;
-      stream.raw.push(raw(frame, "session/update"));
+      const stream = agent.stream;
+      if (!stream) return false;
+
       const thought = kind === "agent_thought_chunk";
-      const content = object(update["content"]);
       facts.push({
         type: "item.upsert",
         agent: agent.key,
         item: stream.key,
         draft: thought
-          ? { type: "reasoning", raw: [...stream.raw], complete: false }
+          ? { type: "reasoning", raw: [raw(frame, "session/update")], complete: false }
           : {
               type: "message",
               role: kind === "user_message_chunk" ? "user" : "assistant",
-              raw: [...stream.raw],
+              ...(content["type"] !== "text" ? { parts: decodeContent(content) } : {}),
+              raw: [raw(frame, "session/update")],
               complete: false,
             },
       });
@@ -233,10 +295,10 @@ class AcpTranslator implements Translator {
         agent === s.root &&
         kind === "agent_message_chunk" &&
         agent.active &&
-        [...s.tools.values()].some(
+        [...s.backgroundTools].some(
           (t) => t.owner === agent && t.child?.background && !t.child.terminal,
         ) &&
-        ![...s.tools.values()].some(
+        ![...s.liveTools].some(
           (t) =>
             t.owner === agent && ["pending", "running", "awaiting_approval"].includes(t.status),
         )
@@ -245,6 +307,20 @@ class AcpTranslator implements Translator {
         s.end(agent, facts, "completed");
         agent.suspended = true;
       }
+      return true;
+    }
+    if (kind === "plan" && agent.planTool) {
+      const tool = agent.planTool;
+      tool.raw.push(raw(frame, "session/update"));
+      facts.push({
+        type: "item.upsert",
+        agent: agent.key,
+        item: tool.key,
+        draft: {
+          type: "tool_call",
+          call: { detail: { kind: "plan", todos: todos(update["entries"]) }, raw: [...tool.raw] },
+        },
+      });
       return true;
     }
     if (kind === "usage_update") {
@@ -262,163 +338,5 @@ class AcpTranslator implements Translator {
         facts.push({ type: "usage", agent: agent.key, inputTokens: input, outputTokens: output });
     }
     return false;
-  }
-  request(
-    id: string | number,
-    method: string,
-    params: Data,
-    frame: unknown,
-    facts: Fact[],
-  ): boolean {
-    const s = this.state;
-    const request = interactionRequest(method, params, s.quirks.provider === "antigravity");
-    const nativeTool = string(params["toolCallId"] ?? object(params["toolCall"])["toolCallId"]);
-    let tool = s.tools.get(nativeTool);
-    const owner = tool?.owner ?? s.agent(string(params["sessionId"]), facts);
-    if (!request) {
-      if (method.startsWith("cursor/") && tool) {
-        tool.raw.push(raw(frame, method));
-        facts.push({
-          type: "item.upsert",
-          agent: owner.key,
-          item: tool.key,
-          draft: { type: "tool_call", call: { raw: [...tool.raw] } },
-        });
-        return true;
-      }
-      return false;
-    }
-    if (!tool && nativeTool) {
-      this.update(
-        owner,
-        {
-          ...object(params["toolCall"]),
-          toolCallId: nativeTool,
-          sessionUpdate: "tool_call",
-          kind: request.kind === "plan_review" ? "other" : "other",
-          title: string(object(params["toolCall"])["title"]) || method,
-          status: "pending",
-        },
-        frame,
-        facts,
-      );
-      tool = s.tools.get(nativeTool);
-    }
-    const key = interactionKey(id);
-    s.requests.set(id, { key, method, params, owner, request, ...(tool ? { tool } : {}) });
-    if (tool) {
-      tool.status = "awaiting_approval";
-      facts.push({
-        type: "item.upsert",
-        agent: owner.key,
-        item: tool.key,
-        draft: { type: "tool_call", call: { status: "awaiting_approval" } },
-      });
-    }
-    facts.push({
-      type: "interaction.opened",
-      agent: owner.key,
-      interaction: key,
-      blocking: true,
-      request,
-      ...(tool ? { item: tool.key } : {}),
-      raw: [raw(frame, method)],
-    });
-    return true;
-  }
-  answer(id: string | number, result: Data, frame: unknown, facts: Fact[]): boolean {
-    const s = this.state;
-    const pending = s.requests.get(id);
-    if (!pending) return false;
-    s.requests.delete(id);
-    const resolution = decodeResolution(pending.method, pending.params, result, pending.request);
-    facts.push({
-      type: "interaction.closed",
-      interaction: pending.key,
-      state: object(result["outcome"])["outcome"] === "cancelled" ? "cancelled" : "resolved",
-      ...(resolution ? { resolution } : {}),
-    });
-    if (pending.tool) {
-      const tool = pending.tool;
-      tool.declined =
-        (resolution?.kind === "plan_review" && resolution.decision === "reject") ||
-        (resolution?.kind === "approval" &&
-          pending.request.kind === "approval" &&
-          pending.request.options.some(
-            (o) => o.id === resolution.optionId && ["deny", "deny_always"].includes(o.kind),
-          ));
-      tool.status = tool.declined ? "declined" : "running";
-      tool.raw.push(raw(frame, pending.method));
-      facts.push({
-        type: "item.upsert",
-        agent: pending.owner.key,
-        item: tool.key,
-        draft: { type: "tool_call", call: { status: tool.status, raw: [...tool.raw] } },
-      });
-    }
-    return true;
-  }
-  endPrompt(agent: AgentState, reason: string, error: Data, now: number, facts: Fact[]): void {
-    const s = this.state;
-    s.promptOpen = false;
-    agent.suspended = false;
-    const cancelled = reason === "cancelled";
-    for (const tool of s.tools.values()) {
-      if (!["pending", "running", "awaiting_approval"].includes(tool.status)) continue;
-      if (tool.owner !== agent && !cancelled) continue;
-      const detail = toolDetail(tool.data, s.quirks);
-      if (detail.kind === "shell" && (cancelled || s.quirks.provider === "antigravity")) {
-        tool.task ??= s.key("background");
-        facts.push({
-          type: "background.started",
-          agent: tool.owner.key,
-          task: tool.task,
-          kind: "shell",
-          title: string(tool.data["title"]),
-          item: tool.key,
-          stoppable: false,
-          raw: tool.raw,
-        });
-        if (!cancelled) continue;
-        facts.push({ type: "background.ended", task: tool.task, status: "unknown" });
-      }
-      if (!cancelled && tool.child && !tool.child.terminal) continue;
-      tool.status = "cancelled";
-      facts.push({
-        type: "item.upsert",
-        agent: tool.owner.key,
-        item: tool.key,
-        draft: {
-          type: "tool_call",
-          complete: true,
-          call: { status: "cancelled", error: "turn ended without completion" },
-        },
-      });
-    }
-    if (cancelled)
-      for (const child of s.agents.values())
-        if (child !== s.root && !child.terminal) child.cancelAt = now + 12_000;
-    for (const [id, request] of s.requests)
-      if (cancelled || request.owner === agent) {
-        facts.push({ type: "interaction.closed", interaction: request.key, state: "cancelled" });
-        s.requests.delete(id);
-      }
-    const classified =
-      s.quirks.classifyError(agent.segment) ??
-      (reason === "refusal"
-        ? { kind: "quota" as const, message: "Provider refused the prompt" }
-        : undefined) ??
-      (Object.keys(error).length
-        ? {
-            kind: error["code"] === -32000 ? ("auth" as const) : ("provider" as const),
-            message: string(error["message"]) || "ACP prompt failed",
-          }
-        : undefined);
-    s.end(
-      agent,
-      facts,
-      cancelled ? "interrupted" : classified ? "failed" : "completed",
-      classified,
-    );
   }
 }

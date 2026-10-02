@@ -1,5 +1,5 @@
 import type { ToolDetailDraft } from "@ace/core";
-import type { ToolStatus } from "@ace/protocol";
+import { TodoEntry, type ToolStatus } from "@ace/protocol";
 import { list, object, string, type Data } from "./data.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
 export function toolStatus(update: Data, previous: ToolStatus): ToolStatus {
@@ -41,7 +41,9 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
   };
   let kind =
     quirks.toolKind(update) ??
-    (Object.hasOwn(mapping, string(update["kind"])) ? mapping[string(update["kind"])]! : "custom");
+    (Object.hasOwn(mapping, string(update["kind"]))
+      ? (mapping[string(update["kind"])] ?? "custom")
+      : "custom");
   const changes = list(update["content"])
     .map(object)
     .filter((c) => c["type"] === "diff")
@@ -108,8 +110,15 @@ export function toolDetail(update: Data, quirks: AcpQuirks): ToolDetailDraft {
     case "plan":
       return { kind, markdown: string(input["plan"]) };
     case "todo":
-      return { kind, todos: [] };
+      return { kind, todos: todos(input["todos"]) };
     default:
       return { kind };
   }
+}
+
+export function todos(value: unknown): TodoEntry[] {
+  return list(value).flatMap((entry) => {
+    const parsed = TodoEntry.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
