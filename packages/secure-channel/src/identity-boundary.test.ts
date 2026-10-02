@@ -1,7 +1,7 @@
 import { spawn, execFile } from "node:child_process";
 import { once } from "node:events";
 import { promisify } from "node:util";
-import { chmod, mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -61,15 +61,39 @@ it.each([0, 31, 33, 64 * 1024 * 1024])(
     const dir = await directory();
     const path = join(dir, "noise-static.key");
     const file = await open(path, "wx", 0o600);
+    const regions =
+      size > 64
+        ? [0, Math.floor(size / 2), size - 16].map((offset, i) => ({
+            offset,
+            bytes: new Uint8Array(16).fill(17 + i),
+          }))
+        : [{ offset: 0, bytes: new Uint8Array(size).fill(27) }];
+    let original: Awaited<ReturnType<typeof stat>>;
     try {
       await file.truncate(size);
+      for (const region of regions)
+        await file.write(region.bytes, 0, region.bytes.length, region.offset);
+      original = await file.stat();
     } finally {
       await file.close();
     }
     await expect(loadOrCreateHostKeys(dir)).rejects.toThrow("Invalid stored static key");
     const stored = await open(path, "r");
     try {
-      expect((await stored.stat()).size).toBe(size);
+      const after = await stored.stat();
+      expect({ dev: after.dev, ino: after.ino, size: after.size, mode: after.mode }).toEqual({
+        dev: original.dev,
+        ino: original.ino,
+        size: original.size,
+        mode: original.mode,
+      });
+      for (const region of regions) {
+        const bytes = new Uint8Array(region.bytes.length);
+        const { bytesRead } = await stored.read(bytes, 0, bytes.length, region.offset);
+        expect(bytesRead).toBe(bytes.length);
+        expect(bytes).toEqual(region.bytes);
+      }
+      if (size <= 64) expect(await readFile(path)).toEqual(Buffer.from(regions[0]?.bytes ?? []));
     } finally {
       await stored.close();
     }
