@@ -295,7 +295,7 @@ The thread is `done` iff all of the following hold:
 
 ### 4.5 Edge cases seen in the data
 
-- Parent `idle` with a running child: subagent-background t=9062–14153 → `waiting{background_task}`, never `done`.
+- Parent `idle` with a running child: subagent-background t=9062–14153 → thread `working` while the child is active; the parent is `blocked{background_task}`, never thread `done`. This follows the working-first thread precedence above and the owner integration rule.
 - Parent `idle` with a running shell: background-shell t=12290–23076 → `waiting{background_task}`.
 - Late `item/completed` and `subAgentActivity{completed}` with a stale `turnId` (background-shell #55, subagent-background #93). Attribute by item id or child thread, never by the turn. The item's Run is already ended.
 - An interrupted turn leaves an open `commandExecution` with no completion (interrupt #52). If it's not reconciled, the thread never reaches `done`.
