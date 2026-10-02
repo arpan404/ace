@@ -48,6 +48,7 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
       let cursor = 0;
       let closed = false;
       const received: ScriptedCommand[] = [];
+      let emission = Promise.resolve();
       function exit(value: { deliberate: boolean; message?: string }): void {
         if (closed) return;
         closed = true;
@@ -71,38 +72,62 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
         }
         if (step.exit && !closed) exit(step.exit);
       }
-      function receive(command: ScriptedCommand): void {
+      function record(command: ScriptedCommand): void {
         if (closed) throw new Error("scripted session is closed");
         received.push(structuredClone(command));
         commands.push(structuredClone(command));
-        emit(command.type);
+      }
+      function enqueue(operation: () => void): Promise<void> {
+        const pending = emission.then(operation);
+        emission = pending.catch(() => {});
+        return pending;
+      }
+      async function receive(command: ScriptedCommand): Promise<void> {
+        record(command);
+        await enqueue(() => {
+          if (closed) throw new Error("scripted session is closed");
+          emit(command.type);
+        });
       }
       const session: ScriptedSession = {
         nativeSessionId:
           ctx.resume?.nativeSessionId ?? script.nativeSessionId ?? "scripted-session",
         commands: received,
         async send(input, delivery) {
-          receive({ type: "send", input, delivery });
+          await receive({ type: "send", input, delivery });
         },
         async interrupt(target) {
-          receive({ type: "interrupt", target });
+          await receive({ type: "interrupt", target });
         },
         async resolve(interaction, resolution) {
-          receive({ type: "resolve", interaction, resolution });
+          await receive({ type: "resolve", interaction, resolution });
         },
         async stopTask(task) {
-          receive({ type: "stopTask", task });
+          await receive({ type: "stopTask", task });
         },
         async close(reason) {
           if (closed) return;
-          receive({ type: "close", reason });
-          exit({ deliberate: true });
+          record({ type: "close", reason });
+          await enqueue(() => {
+            try {
+              if (!closed) emit("close");
+            } finally {
+              exit({ deliberate: true });
+            }
+          });
         },
       };
       sessions.push(session);
       ctx.signal.addEventListener("abort", abort, { once: true });
-      emit("open");
-      return session;
+      try {
+        emit("open");
+        return session;
+      } catch (error) {
+        closed = true;
+        ctx.signal.removeEventListener("abort", abort);
+        sessions.splice(sessions.indexOf(session), 1);
+        throw error;
+      }
     },
   };
 }

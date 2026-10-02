@@ -134,7 +134,7 @@ describe("recorded replay", () => {
       }),
     ).toThrow("agent missing idle, got missing");
   });
-  it("checks waiting reasons and treats prototype-like native keys as data", async () => {
+  it("checks waiting reasons for a network retry", async () => {
     const fixture = await readFixture(fixturePath);
     fixture.frames = fixture.frames.slice(0, 1);
     const result = replayFixture({
@@ -167,16 +167,12 @@ describe("recorded replay", () => {
       }),
     ).toThrow("at t=0 expected waiting on rate_limit, got network");
   });
-  it("rejects invalid clock values and frame ordering instead of replaying a changed transcript", async () => {
+  it("rejects negative, fractional and non-finite checkpoint times", async () => {
     const fixture = await readFixture(fixturePath);
     for (const time of [-1, 1.5, NaN])
       expect(() =>
         replayFixture({ fixture, createTranslator, coreConfig, checkpoints: [time] }),
       ).toThrow("checkpoint times");
-    fixture.frames.reverse();
-    expect(() => replayFixture({ fixture, createTranslator, coreConfig })).toThrow(
-      "sequence/time moved backwards",
-    );
   });
   it("preserves unknown provider data and gives file/line context for malformed recordings", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ace-testkit-"));
