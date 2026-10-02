@@ -16,6 +16,7 @@ async function setup() {
   owners.push(server);
   const frames: Frame[] = [];
   const projection = harness();
+  const renderedText: string[] = [];
   const waiters = new Set<{ predicate(frame: Frame): boolean; resolve(frame: Frame): void }>();
   const exits: unknown[] = [];
   const controller = new AbortController();
@@ -42,7 +43,11 @@ async function setup() {
         cwd,
         model: "provider/model",
         onFrame: (frame) => {
-          (cwd === "/one" ? projection : otherProjection).feed(frame);
+          const target = cwd === "/one" ? projection : otherProjection;
+          target.feed(frame);
+          for (const item of Object.values(target.view.items))
+            if (item.type === "message")
+              for (const part of item.parts) if (part.type === "text") renderedText.push(part.text);
           onFrame(frame);
         },
         onExit: (exit) => exits.push(exit),
@@ -63,7 +68,19 @@ async function setup() {
   const session = await open("/one");
   const publish = (type: string, properties: unknown, directory = "/one") =>
     control("/test/events", [{ directory, payload: { type, properties } }]);
-  return { server, projection, session, frames, exits, controller, wait, open, control, publish };
+  return {
+    server,
+    projection,
+    renderedText,
+    session,
+    frames,
+    exits,
+    controller,
+    wait,
+    open,
+    control,
+    publish,
+  };
 }
 afterEach(async () => {
   for (const server of owners.splice(0)) await server.close();
@@ -298,13 +315,7 @@ describe("OpenCode HTTP session", () => {
     expect(Object.values(h.projection.view.items).filter((i) => i.type === "message")).toHaveLength(
       1,
     );
-    expect(
-      h.frames.some(
-        (f) =>
-          f.channel === "sse.buffered" &&
-          object(object(f.data).payload).type === "message.part.delta",
-      ),
-    ).toBe(true);
+    expect(h.renderedText).not.toContain("abb");
     await h.session.close("shutdown");
   });
   it("holds queued input through background-result delivery and the resumed parent turn", async () => {
