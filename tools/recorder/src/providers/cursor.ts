@@ -1,4 +1,4 @@
-import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
+import { MethodNotFound, type ServerRequest } from "@ace/provider-kit/jsonrpc";
 import { probe, spawnSupervised } from "@ace/provider-kit/process";
 import { createRecordedPeer } from "../stdio.ts";
 import { interruptOnce } from "../interrupt.ts";
@@ -41,7 +41,7 @@ function respond(request: ServerRequest, scenario: Scenario): unknown {
     case "cursor/generate_image":
       return {};
     default:
-      throw new Error(`recorder has no scripted answer for ${request.method}`);
+      throw new MethodNotFound(`recorder has no scripted answer for ${request.method}`);
   }
 }
 

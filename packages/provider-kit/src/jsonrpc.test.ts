@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { JsonRpcPeer } from "./jsonrpc.ts";
+import { JsonRpcPeer, MethodNotFound } from "./jsonrpc.ts";
 import { spawnSupervised, type SupervisedProcess } from "./process.ts";
 
 const processes: SupervisedProcess[] = [];
@@ -112,20 +112,51 @@ describe("JSON-RPC stdio", () => {
     await proc.exited;
     await expect(rpc.request("too-late")).rejects.toThrow("process exited");
   });
-  it("rejects pending work at the end of the process lifetime before waiting for pipe closure", async () => {
-    const { rpc, proc } = peer(`process.exit(0);`);
-    const order: string[] = [];
-    const pending = rpc.request("exit").catch(() => {
-      order.push("rejected");
+  it("rejects a request at child exit while a grandchild still holds stdout open", async () => {
+    const descendant = `console.log('pipe-held');process.send('ready');setInterval(()=>{},1000);`;
+    const proc = spawnSupervised({
+      command: process.execPath,
+      args: [
+        "-e",
+        `require('node:readline').createInterface({input:process.stdin}).once('line',()=>{const c=require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore',process.stdout,process.stderr,'ipc']});c.on('message',()=>process.exit(0));});`,
+      ],
+      env: {},
+      name: "pending-pipe",
+      killGroupOnExit: false,
     });
-    proc.signal.addEventListener(
-      "abort",
-      () => queueMicrotask(() => order.push("lifetime-ended")),
-      { once: true },
+    processes.push(proc);
+    const rpc = new JsonRpcPeer(proc, { timeoutMs: 1000 });
+    let pipesClosed = false;
+    void proc.exited.then(() => {
+      pipesClosed = true;
+    });
+    await expect(rpc.request("pending")).rejects.toThrow("process exited");
+    expect(pipesClosed).toBe(false);
+    await proc.stop({ graceMs: 0 });
+    expect(pipesClosed).toBe(true);
+  });
+  it("rejects every pending request and reports EPIPE while the peer is still alive", async () => {
+    const failures: Error[] = [];
+    const { rpc, proc } = peer(
+      `if(m.method==='pending') { require('node:fs').closeSync(0); send({method:'stdin-closed'}); setInterval(()=>{},1000); }`,
+      { timeoutMs: null, onError: (error) => failures.push(error) },
     );
-    await proc.exited;
-    await pending;
-    expect(order).toEqual(["rejected", "lifetime-ended"]);
+    const closed = new Promise<void>((resolve) => {
+      rpc.onNotification = () => resolve();
+    });
+    const pending = rpc.request("pending").then(
+      () => "resolved",
+      (error: unknown) => String(error),
+    );
+    await closed;
+    const write = rpc.request("write").then(
+      () => "resolved",
+      (error: unknown) => String(error),
+    );
+    expect(await pending).toContain("EPIPE");
+    expect(await write).toContain("EPIPE");
+    expect(failures.map((error) => error.message).join(" ")).toContain("EPIPE");
+    expect(proc.signal.aborted).toBe(false);
   });
   it("reports malformed lines and continues handling valid frames", async () => {
     const malformed: string[] = [];
@@ -136,11 +167,32 @@ describe("JSON-RPC stdio", () => {
     expect(await rpc.request("echo")).toBe("ok");
     expect(malformed).toEqual(["not-json", "null"]);
   });
-  it("returns handler failures as JSON-RPC errors without killing the transport", async () => {
+  it("returns method-not-found for explicitly unsupported requests", async () => {
     const { rpc } = peer(
       `if(m.method==='start') send({method:'missing',id:'server'}); else if(m.id==='server') send({id:1,result:m.error});`,
     );
     expect(await rpc.request("start")).toEqual({ code: -32601, message: "unhandled request" });
+  });
+  it.each(["cursor/ask_question", "cursor/create_plan"])(
+    "returns internal-error when the %s handler fails",
+    async (method) => {
+      const { rpc } = peer(
+        `if(m.method==='start') send({method:${JSON.stringify(method)},id:'server'});else if(m.id==='server')send({id:1,result:m.error});`,
+      );
+      rpc.onRequest = () => {
+        throw new Error("handler failed");
+      };
+      expect(await rpc.request("start")).toEqual({ code: -32603, message: "handler failed" });
+    },
+  );
+  it("maps an explicit MethodNotFound from a handler to method-not-found", async () => {
+    const { rpc } = peer(
+      `if(m.method==='start')send({method:'unknown',id:'server'});else if(m.id==='server')send({id:1,result:m.error});`,
+    );
+    rpc.onRequest = () => {
+      throw new MethodNotFound("unsupported extension");
+    };
+    expect(await rpc.request("start")).toEqual({ code: -32601, message: "unsupported extension" });
   });
   it("rejects provider error responses without dropping the next response", async () => {
     const { rpc } = peer(

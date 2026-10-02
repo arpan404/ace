@@ -1,5 +1,12 @@
 import type { SupervisedProcess } from "./process.ts";
 
+export class MethodNotFound extends Error {
+  constructor(message = "Method not found") {
+    super(message);
+    this.name = "MethodNotFound";
+  }
+}
+
 export type RpcId = string | number;
 export type ServerRequest = { id: RpcId; method: string; params: unknown };
 export type Notification = { method: string; params: unknown };
@@ -32,7 +39,7 @@ export class JsonRpcPeer {
   #closed: Error | undefined;
   onNotification: (message: Notification) => void = () => {};
   onRequest: (message: ServerRequest) => unknown | Promise<unknown> = () => {
-    throw new Error("unhandled request");
+    throw new MethodNotFound("unhandled request");
   };
 
   constructor(proc: SupervisedProcess, options: RpcOptions = {}) {
@@ -177,7 +184,10 @@ export class JsonRpcPeer {
       response = {
         jsonrpc: "2.0",
         id: request.id,
-        error: { code: -32601, message: asError(error).message },
+        error: {
+          code: error instanceof MethodNotFound ? -32601 : -32603,
+          message: asError(error).message,
+        },
       };
     }
     try {
