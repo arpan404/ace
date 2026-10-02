@@ -18,9 +18,10 @@ export const ExecutionResult = z.object({
 export type ExecutionResult = z.infer<typeof ExecutionResult>;
 export interface AutomationExecutor {
   /** Resolve only after the whole thread tree settles, including human waits. */
-  execute(input: ExecutionInput): Promise<ExecutionResult>;
+  /** Abort unsubscribes this observer without cancelling the engine-owned thread. */
+  execute(input: ExecutionInput, signal:AbortSignal): Promise<ExecutionResult>;
   /** Resume monitoring existing work; undefined means no thread was created. */
-  recover(idempotencyKey: string): Promise<ExecutionResult | undefined>;
+  recover(idempotencyKey: string, signal:AbortSignal): Promise<ExecutionResult | undefined>;
 }
 export interface TimerDriver {
   arm(delayMs: number, callback: () => void | Promise<void>): () => void;

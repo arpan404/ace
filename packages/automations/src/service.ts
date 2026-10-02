@@ -5,11 +5,13 @@ import {
   type AutomationResponse,
   type AutomationRun,
 } from "@ace/protocol";
-import { ExecutionResult, type Dependencies, type ExecutionInput } from "./contracts.ts";
+import { type Dependencies, type ExecutionInput } from "./contracts.ts";
 import { renderPrompt, scheduledDeadline, recoverOccurrence } from "./decisions.ts";
 import { Occurrence } from "./recurrence.ts";
 import { AutomationStore, type JobMetadata } from "./store.ts";
 import { pollGithub } from "./github.ts";
+import { ExecutionOwner } from "./execution-owner.ts";
+import { observe } from "./observation.ts";
 import { AutomationRuntime } from "./runtime.ts";
 import type { GhClient } from "./gh-process.ts";
 
@@ -21,6 +23,7 @@ export class AutomationService {
   private deps: Dependencies;
   private gh: GhClient | undefined;
   private runtime:AutomationRuntime;
+  private executions:ExecutionOwner;
   private cancelTimer: (() => void) | undefined;
   private pending = new Set<Promise<void>>();
   private polling = new Set<string>();
@@ -32,6 +35,7 @@ export class AutomationService {
     this.store = store;
     this.deps = deps;
     this.gh = gh;
+    this.executions=new ExecutionOwner(store,deps,(run)=>this.publish(run),(error)=>this.report(error));
     this.runtime=new AutomationRuntime(deps,()=>this.live,(id,event)=>{this.trigger(id,event,"file");},(error)=>this.report(error));
   }
   start(): void {
@@ -73,7 +77,7 @@ export class AutomationService {
             });
         }
       }
-      for (const { run, input } of this.store.active()) this.restore(run, input);
+      for (const { run, input } of this.store.active()) this.executions.restore(run, input);
       this.arm();
     } catch (error) {
       this.stop();
@@ -84,13 +88,15 @@ export class AutomationService {
     this.live = false;
     this.generation++;
     this.controller.abort();
+    this.executions.stop();
+    this.pending.clear();this.polling.clear();
     this.cancelTimer?.();
     this.cancelTimer = undefined;
     this.runtime.stop();
   }
   /** Tests and orderly shutdown can await already admitted work, without polling. */
   async settled(): Promise<void> {
-    while (this.pending.size) await Promise.all(this.pending);
+    while (this.pending.size || this.executions.hasWork) await Promise.all([...this.pending,this.executions.settled()]);
   }
   private report(error: unknown): void {
     try {
@@ -149,7 +155,7 @@ export class AutomationService {
     const event = AutomationEvent.parse(input);
     const admission = this.store.transaction(() => this.admit(automation, event, kind));
     if (admission.created) this.publish(admission.run);
-    if (admission.admitted && admission.input) this.launch(admission.run, admission.input);
+    if (admission.admitted && admission.input) this.executions.launch(admission.run, admission.input);
     return admission.run;
   }
   private admit(automation: Automation, event: AutomationEvent, kind: AutomationRun["trigger"]) {
@@ -178,57 +184,6 @@ export class AutomationService {
     this.pending.add(operation);
     void operation.finally(() => this.pending.delete(operation));
   }
-  private launch(run: AutomationRun, input: ExecutionInput): void {
-    this.monitor(run, () => this.deps.executor.execute(input));
-  }
-  private restore(run: AutomationRun, input: ExecutionInput): void {
-    const generation = this.generation;
-    this.monitor(run, async () => {
-      let recovered: ExecutionResult | undefined;
-      try {
-        recovered = await this.deps.executor.recover(input.idempotencyKey);
-      } catch (error) {
-        // Uncertain recovery keeps the slot occupied by potentially live work.
-        this.report(error);
-        return undefined;
-      }
-      if (!this.live || generation !== this.generation) return undefined;
-      return recovered ?? this.deps.executor.execute(input);
-    });
-  }
-  private complete(
-    id: string,
-    outcome: ExecutionResult | { status: "failed"; result: string },
-  ): void {
-    try {
-      const finished = this.store.finish(id, this.deps.now(), outcome);
-      if (finished) this.publish(finished);
-    } catch (error) {
-      this.report(error); // Persistence failure leaves the durable record active for recovery.
-    }
-  }
-  private monitor(run: AutomationRun, execute: () => Promise<ExecutionResult | undefined>): void {
-    const generation = this.generation;
-    const operation = async () => {
-      try {
-        if (!this.live || generation !== this.generation) return;
-        const result = await execute();
-        if (result === undefined) return;
-        const outcome = ExecutionResult.parse(result);
-        if (this.live && generation === this.generation) {
-          this.complete(run.id, outcome);
-        }
-      } catch (error) {
-        if (this.live && generation === this.generation) {
-          this.complete(run.id, {
-            status: "failed",
-            result: message(error),
-          });
-        }
-      }
-    };
-    this.track(operation());
-  }
   private arm(): void {
     this.cancelTimer?.();
     this.cancelTimer = undefined;
@@ -254,11 +209,11 @@ export class AutomationService {
         const job = this.nextJob();
         if (!job || job.due === null || job.due > this.deps.now()) break;
         if (job.automation.trigger.kind === "github") {
+          const generation=this.generation;
           this.polling.add(job.automation.id);
           this.track(
             this.poll(job).finally(() => {
-              this.polling.delete(job.automation.id);
-              this.arm();
+              if(generation===this.generation){this.polling.delete(job.automation.id);this.arm();}
             }),
           );
         } else this.scheduled(job);
@@ -303,7 +258,7 @@ export class AutomationService {
       return result;
     });
     if (admission.created) this.publish(admission.run);
-    if (admission.admitted && admission.input) this.launch(admission.run, admission.input);
+    if (admission.admitted && admission.input) this.executions.launch(admission.run, admission.input);
   }
   private async poll(job: JobMetadata): Promise<void> {
     const generation = this.generation;
@@ -314,7 +269,8 @@ export class AutomationService {
     this.store.advance(job.automation.id, undefined, this.deps.now() + trigger.pollIntervalMs);
     try {
       if (!this.gh) throw new Error("GitHub client is not configured");
-      const result = await pollGithub(this.gh, trigger, this.store.readState(job.automation.id), this.controller.signal);
+      const result = await observe(pollGithub(this.gh, trigger, this.store.readState(job.automation.id), this.controller.signal),this.controller.signal);
+      if(result===undefined)return;
       if (!this.live || generation !== this.generation) return;
       // An edit/removal while gh was in flight invalidates this response.
       if (this.runtime.current(job.automation.id) !== revision) return;
