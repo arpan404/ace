@@ -25,9 +25,12 @@ prompts with artifact references, runs checks, interrupts whole thread trees,
 and applies checkpoints. Engine integration and provider execution remain in
 the engine workstream. No provider CLI is invoked by this package's tests.
 
-A template defines one run: fanout starts every lane with the same prompt;
+An orchestration definition has independently persisted runs and paged run
+summaries. Rerunning a settled definition gives it a fresh run, lanes and
+budgets, preserving prior results. Events carry both orchestration and run IDs.
+A template defines each run: fanout starts every lane with the same prompt;
 race starts every lane and selects the first checked success; pipeline starts
-one stage at a time, passing the previous stage's structured artifact; and
+one stage at a time with explicit implement/review/fix instructions, passing the previous stage's structured artifact; and
 coordinator starts one planner which can request nested lanes through the
 `ace_spawn_agent` entry point. A persisted orchestration contains its run ID,
 lanes, counters, usage, winner, and pending intents. Each attempt has a fresh
@@ -77,7 +80,9 @@ usage. Large patches are truncated for display only, never applied as patches.
 
 Picking requires a checked successful lane and every other lane to settle.
 Race automatically picks its winner but waits for cancellation acknowledgements
-before declaring success. Applying a winner is a separate durable intent.
+before declaring success. Cancellation revokes pending starts/checks; the
+executor fences outstanding starts for that lane and attempt before confirming
+the stop. Applying a winner is a separate durable intent.
 The target must be clean, on the requested branch, and at the pinned base SHA.
 Use `@ace/git.restoreCheckpoint`, which creates a safety checkpoint and applies
 the winner's files without moving HEAD or the user's index. This git API has no
