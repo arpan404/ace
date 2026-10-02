@@ -278,32 +278,38 @@ test("late callbacks from a failed open cannot retire a newer session of the sam
   ).toBe("engine_capacity_exceeded");
 });
 
-test("commands owned by orchestration are declined without provider work or thread capacity", async () => {
-  const frames = scriptFrames();
-  const h = track(
-    await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
-      limits: { maxActiveThreads: 1 },
-    }),
-  );
-  const command = Command.parse({
-    id: "other-owner",
-    deviceId: "device",
-    payload: { type: "orchestration.cancel", orchestrationId: "other" },
-  });
-  expect(
-    h.store.recordCommand(command.id, command.deviceId, () =>
-      h.engine.handler.handle(command, h.store),
-    ),
-  ).toMatchObject({ ok: false, error: "not_implemented" });
-  await h.engine.flush();
-  expect(h.store.headSeq()).toBe(0);
-  expect(h.adapter.commands).toEqual([]);
-  expect(
-    h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex", input }).ok,
-  ).toBe(true);
-  await h.engine.flush();
-  expect(h.adapter.commands.filter((c) => c.type === "send")).toHaveLength(1);
-});
+test.each([
+  { owner: "orchestration", payload: { type: "orchestration.cancel", orchestrationId: "other" } },
+  { owner: "conductor", payload: { type: "conductor.cancel", runId: "other" } },
+])(
+  "commands owned by $owner are declined without provider work or thread capacity",
+  async ({ payload }) => {
+    const frames = scriptFrames();
+    const h = track(
+      await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+        limits: { maxActiveThreads: 1 },
+      }),
+    );
+    const command = Command.parse({
+      id: "other-owner",
+      deviceId: "device",
+      payload,
+    });
+    expect(
+      h.store.recordCommand(command.id, command.deviceId, () =>
+        h.engine.handler.handle(command, h.store),
+      ),
+    ).toMatchObject({ ok: false, error: "not_implemented" });
+    await h.engine.flush();
+    expect(h.store.headSeq()).toBe(0);
+    expect(h.adapter.commands).toEqual([]);
+    expect(
+      h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex", input }).ok,
+    ).toBe(true);
+    await h.engine.flush();
+    expect(h.adapter.commands.filter((c) => c.type === "send")).toHaveLength(1);
+  },
+);
 
 test("retiring an idle session cannot release capacity owned by a still-opening replacement", async () => {
   const frames = scriptFrames();
