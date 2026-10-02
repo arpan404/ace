@@ -118,11 +118,9 @@ export class OpenCodeTranslator implements Translator {
         ...this.state.metadata(type, string(object(p.info).id), frame.data),
       ];
     if (type === "session.status") {
-      this.state.graceDirty = true;
       const status = object(p.status);
       facts.push(...this.state.metadata(type, id, frame.data));
-      if (status.type === "busy" || status.type === "retry")
-        for (const bg of this.state.backgrounds.values()) if (bg.child === id) delete bg.idleAt;
+      if (status.type === "busy" || status.type === "retry") this.state.backgrounds.resumed(id);
       if (status.type === "retry") {
         s.status = "retry";
         s.retrying = true;
@@ -150,7 +148,7 @@ export class OpenCodeTranslator implements Translator {
       s.status = "idle";
       this.state.settleParts(id);
       facts.push({ type: "retry.cleared", agent });
-      for (const bg of this.state.backgrounds.values()) if (bg.child === id) bg.idleAt = now;
+      this.state.backgrounds.idle(id, now);
       if (!s.active && s.user && s.turn !== s.user && (s.error || s.abort || s.answered)) {
         const aborted = s.abort;
         const error = s.error;
@@ -170,19 +168,7 @@ export class OpenCodeTranslator implements Translator {
           !["pending", "running"].includes(string(state.status))
         )
           continue;
-        if ([...this.state.backgrounds.values()].some((bg) => bg.item === part.item)) continue;
-        const task = `survivor:${part.item}`;
-        this.state.backgrounds.set(task, { agent: id, item: part.item });
-        facts.push({
-          type: "background.started",
-          agent,
-          task,
-          kind:
-            part.data.tool === "task" ? "subagent" : part.data.tool === "bash" ? "shell" : "other",
-          title: string(state.title, string(part.data.tool)),
-          item: part.item,
-          stoppable: true,
-        });
+        facts.push(...this.state.survivor(id, part.item, part.data));
       }
       s.active = false;
       s.awaiting = false;
@@ -369,7 +355,7 @@ export class OpenCodeTranslator implements Translator {
   }
   tick(now: number): Fact[] {
     const facts: Fact[] = [];
-    for (const [task, bg] of this.state.backgrounds)
+    for (const [task, bg] of this.state.backgrounds.due(now))
       if (
         bg.child &&
         bg.idleAt !== undefined &&
@@ -378,7 +364,6 @@ export class OpenCodeTranslator implements Translator {
       ) {
         facts.push({ type: "background.ended", task, status: "completed" });
         this.state.backgrounds.delete(task);
-        this.state.graceDirty = true;
       }
     this.state.refresh();
     return facts;

@@ -53,7 +53,6 @@ export function translatePart(state: TranslationState, p: Data, envelope: unknow
         },
       );
       state.backgrounds.delete(string(task[1]));
-      state.graceDirty = true;
     }
     facts.push({
       type: "item.upsert",
@@ -166,7 +165,6 @@ export function translatePart(state: TranslationState, p: Data, envelope: unknow
         !state.backgrounds.has(child) &&
         object(object(previous?.data.state).metadata).background !== true
       ) {
-        state.graceDirty = true;
         state.backgrounds.set(child, { agent: id, child, item });
         facts.push({
           type: "background.started",
@@ -181,6 +179,10 @@ export function translatePart(state: TranslationState, p: Data, envelope: unknow
         });
       }
     }
+    // A late live tool can arrive after an idle in a partial stream. Preserve
+    // its execution as background work rather than reopening a completed run.
+    if (!s.active && s.turn && ["pending", "running"].includes(statusHint))
+      facts.push(...state.survivor(id, item, p));
     const survivor = `survivor:${item}`;
     if (
       !["pending", "running", "awaiting_approval"].includes(status) &&
@@ -192,7 +194,6 @@ export function translatePart(state: TranslationState, p: Data, envelope: unknow
         status: status === "cancelled" ? "stopped" : status === "failed" ? "failed" : "completed",
       });
       state.backgrounds.delete(survivor);
-      state.graceDirty = true;
     }
   } else if (p.type === "step-finish") {
     facts.push(...state.metadata("step-finish", item, { part: p, envelope }));

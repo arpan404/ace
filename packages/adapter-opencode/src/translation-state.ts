@@ -2,6 +2,7 @@ import type { AgentError, Fact, Key } from "@ace/core";
 import type { RunTrigger, ThreadId } from "@ace/protocol";
 import { object, raw, string, type Data } from "./data.ts";
 import { RecentMap, RecentSet } from "./cache.ts";
+import { Backgrounds } from "./backgrounds.ts";
 import type { Pending } from "./interactions.ts";
 type Session = {
   active: boolean;
@@ -21,7 +22,6 @@ type Session = {
   planMarkdown?: string;
 };
 type Part = { agent: string; data: Data; item: string };
-type Background = { agent: string; child?: string; item: string; idleAt?: number };
 
 export class TranslationState {
   rootNative?: string;
@@ -36,12 +36,11 @@ export class TranslationState {
   liveToolCount = 0;
   private dirty = new Set<string>();
   private unsettled = new Set<string>();
-  graceDirty = false;
   graceDeadline: number | undefined;
   own = new RecentSet();
   delivered = new RecentSet();
   pending = new Map<string, Pending>();
-  backgrounds = new Map<string, Background>();
+  backgrounds = new Backgrounds();
   seenEvents = new Set<string>();
   mcp = new Set<string>();
   unknown = 0;
@@ -161,18 +160,29 @@ export class TranslationState {
       else this.unsettled.delete(id);
     }
     this.dirty.clear();
-    if (this.graceDirty) {
-      this.graceDeadline = undefined;
-      for (const bg of this.backgrounds.values())
-        if (bg.idleAt !== undefined)
-          this.graceDeadline = Math.min(this.graceDeadline ?? Infinity, bg.idleAt + 3000);
-      this.graceDirty = false;
-    }
+    this.graceDeadline = this.backgrounds.nextDeadline;
   }
   settled(): boolean {
     return (
       !this.pending.size && !this.backgrounds.size && !this.liveToolCount && !this.unsettled.size
     );
+  }
+  survivor(id: string, item: string, data: Data): Fact[] {
+    if (this.backgrounds.hasItem(item)) return [];
+    const task = `survivor:${item}`;
+    const native = object(data.state);
+    this.backgrounds.set(task, { agent: id, item });
+    return [
+      {
+        type: "background.started",
+        agent: this.key(id),
+        task,
+        kind: data.tool === "task" ? "subagent" : data.tool === "bash" ? "shell" : "other",
+        title: string(native.title, string(data.tool)),
+        item,
+        stoppable: true,
+      },
+    ];
   }
   metadata(name: string, key: string, data: unknown): Fact[] {
     return [
