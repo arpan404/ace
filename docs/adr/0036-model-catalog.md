@@ -37,7 +37,8 @@ Discovery uses metadata only:
   direct provider HTTP request or credential handling is needed.
 - Cursor and generic ACP, including Antigravity: initialize, then create an
   empty session with no MCP servers, read model config options or legacy models,
-  and stop the process. Cursor parameterized picker metadata is requested. Only
+  and stop the process. Cursor parameterized picker metadata is requested,
+  with per-model options from `cursor/list_available_models` when supported. Only
   per-model options are attached to a model; current-session parameter options
   must not be generalized to every model.
 
@@ -58,7 +59,9 @@ an entire refresh, leaving the last valid catalog intact. Listings are reported
 choices, not a guarantee of account entitlement.
 
 Cache instances separately in an ace-owned SQLite file. Load once at startup;
-replace an instance atomically after validation. Default TTL is 15 minutes;
+replace an instance atomically after validation. Startup reads use SQLite
+directly; later writes run on a dedicated worker so filesystem I/O does not
+block the daemon event loop. The worker queue is capped at 128 requests. Default TTL is 15 minutes;
 stale entries return immediately and trigger one refresh. Failed refreshes keep
 stale data with a sanitized error and a short retry cooldown. Explicit refresh
 bypasses cooldown. Login revision changes delete old rows before discovery;
@@ -94,12 +97,15 @@ redacted for credential-shaped keys, then capped at 2 KiB per model with an
 explicit truncation flag. Errors are fixed codes, never provider stderr.
 
 Cap instances at 64, models at 512 per instance, metadata output at 4 MiB per
-probe and raw data at 2 KiB per model. Refuse over-limit refreshes instead of
+probe and raw data at 2 KiB per model. A normalized model row is limited to 8 KiB,
+so a 100-row wire page remains below 1 MiB. Persisted instance rows are capped
+at 4 MiB. Refuse over-limit refreshes instead of
 silently presenting incomplete results. Bound concurrent probes, pending wire
 queries and pagination. Process owners stop probes on timeout, replacement and
 shutdown. SQLite writes touch only the changed instance; prepared statements
 are reused. Cached reads use instance/provider indexes and slice only the
-requested page. Resolution scans at most the bounded filtered catalog; it is
+requested page. Resolution walks compatible rows once without constructing a full intermediate
+model list; it is
 not on stream-delta paths. Benchmark cached listing and policy resolution in
 `packages/models/bench` and report throughput and peak RSS in the PR.
 
