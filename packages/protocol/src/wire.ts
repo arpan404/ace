@@ -1,3 +1,4 @@
+import { FilesClientMessage, FilesServerMessage } from "./files.ts";
 import { z } from "zod";
 import {
   PresenceUpdate,
@@ -54,6 +55,7 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
 );
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  ...FilesClientMessage.options,
   PresenceUpdate,
   NotificationRegister,
   NotificationSettings,
@@ -87,6 +89,7 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  ...FilesServerMessage.options,
   NotificationMessage,
   z.object({
     type: z.literal("welcome"),

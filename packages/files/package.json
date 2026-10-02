@@ -8,7 +8,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "bench": "node bench/download.ts"
+    "bench": "node bench/download.ts",
+    "bench:relay": "node bench/relay.ts"
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",
@@ -17,6 +18,8 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/relay": "workspace:*",
+    "@ace/secure-channel": "workspace:*",
     "@types/ws": "^8.18.1"
   }
 }

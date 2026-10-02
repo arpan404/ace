@@ -127,8 +127,7 @@ export class SafeRoot {
   /** Mutation endpoints never follow links, including links within the workspace. */
   async target(input: string): Promise<{ path: string; verify(): Promise<void> }> {
     const path = this.path(input);
-    if (!path || path.split("/").some((part) => part === ".git" || part.startsWith(".ace-upload-")))
-      throw new WorkspaceError("INVALID_PATH", "Reserved mutation path");
+    if (!path || internal(path)) throw new WorkspaceError("INVALID_PATH", "Reserved mutation path");
     const parts = path.split("/");
     const name = parts.pop();
     if (!name) throw new WorkspaceError("INVALID_PATH", "Missing filename");
@@ -186,8 +185,11 @@ export class SafeRoot {
     }
   }
 }
+export function transferTemporary(path: string): boolean {
+  return path.split("/").some((part) => part.startsWith(".ace-upload-"));
+}
 export function internal(path: string): boolean {
-  return path.split("/").includes(".git");
+  return path.split("/").includes(".git") || transferTemporary(path);
 }
 export function transient(error: unknown): boolean {
   return (

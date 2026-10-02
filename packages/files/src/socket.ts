@@ -1,5 +1,5 @@
 import { createHash, type Hash } from "node:crypto";
-import { WebSocket } from "ws";
+import type { BinaryUploadDestination, FilesTransport } from "./transport.ts";
 import { z } from "zod";
 import { FilesClientMessage, type FilesServerMessage } from "@ace/protocol";
 import { decodeFileFrame, fillFileFrame } from "./frame.ts";
@@ -17,15 +17,25 @@ interface Outgoing {
 }
 interface Incoming {
   id: string;
+  offset: number;
+  size: number;
   busy: boolean;
   release(): void;
+  append(
+    offset: number,
+    bytes: Buffer,
+  ): Promise<{ uploadId: string; offset: number; size: number }>;
 }
-const Upload = z.object({ uploadId: z.string(), offset: z.number(), size: z.number() });
+const Upload = z.object({
+  uploadId: z.string().min(1).max(128),
+  offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+});
 
 /** Socket lifetime owns all active channels; durable upload state belongs to the service. */
-export function attachFilesSocket(
+export function attachFilesChannel(
   service: FilesService,
-  socket: WebSocket,
+  transport: FilesTransport,
   device: string,
   scopedAuthorization: (capability: "files.read" | "files.write") => boolean = () => true,
 ) {
@@ -42,12 +52,12 @@ export function attachFilesSocket(
   let closed = false;
   let pending = 0;
   const send = (message: FilesServerMessage) => {
-    if (closed || socket.readyState !== WebSocket.OPEN) return;
-    if (socket.bufferedAmount > 1024 * 1024) {
-      socket.terminate();
+    if (closed || !transport.isOpen) return;
+    if (transport.bufferedBytes > 1024 * 1024) {
+      transport.close();
       return;
     }
-    socket.send(JSON.stringify(message));
+    void transport.sendControl(message).catch(() => transport.close());
   };
   const failure = (error: unknown, fields: { requestId?: string; channel?: number }) =>
     send({
@@ -92,13 +102,7 @@ export function attachFilesSocket(
         const frame = fillFileFrame(state.frame, id, state.offset, next.value);
         state.digest.update(next.value);
         state.offset += next.value.length;
-        await new Promise<void>((resolve, reject) => {
-          if (socket.readyState !== WebSocket.OPEN) {
-            reject(new FileError("CLOSED", "Socket closed"));
-            return;
-          }
-          socket.send(frame, { binary: true }, (error) => (error ? reject(error) : resolve()));
-        });
+        await transport.sendBinary(frame);
         // A known-size file needs no extra credit to validate and send its trailer.
         if (state.download.size !== null && state.offset === state.download.size)
           state.credits = Math.max(1, state.credits);
@@ -203,7 +207,15 @@ export function attachFilesSocket(
             state.release();
             incoming.delete(old);
           }
-        incoming.set(id, { id: upload.uploadId, busy: false, release });
+        incoming.set(id, {
+          id: upload.uploadId,
+          offset: upload.offset,
+          size: upload.size,
+          busy: false,
+          release,
+          append: (offset, bytes) =>
+            service.append(device, upload.uploadId, offset, bytes, () => authorize("files.write")),
+        });
         send({ type: "files.upload", requestId: message.requestId, channel: id, ...upload });
       } catch (error) {
         release?.();
@@ -236,17 +248,40 @@ export function attachFilesSocket(
       /* revoked clients cannot receive mutation data */
     }
   });
+  let stopClose: (() => void) | undefined;
   const close = () => {
     if (closed) return;
     closed = true;
     unsubscribe();
+    stopClose?.();
     for (const id of outgoing.keys()) void stop(id);
     for (const state of incoming.values()) state.release();
     incoming.clear();
   };
-  socket.once("close", close);
+  stopClose = transport.onClose(close);
+  if (closed) stopClose();
   return {
     close,
+    bindUpload(destination: BinaryUploadDestination) {
+      authorize("files.write");
+      const upload = Upload.parse(destination);
+      const id = allocate();
+      try {
+        const release = service.reserve();
+        incoming.set(id, {
+          id: upload.uploadId,
+          offset: upload.offset,
+          size: upload.size,
+          busy: false,
+          release,
+          append: (offset, bytes) =>
+            destination.append(offset, bytes, () => authorize("files.write")),
+        });
+        return { channel: id, ...upload };
+      } finally {
+        opening.delete(id);
+      }
+    },
     accept(input: unknown) {
       if (closed) return;
       const parsed = FilesClientMessage.safeParse(input);
@@ -279,10 +314,24 @@ export function attachFilesSocket(
         const state = incoming.get(id);
         if (!state) throw new FileError("NOT_FOUND", "Unknown upload channel");
         if (state.busy) throw new FileError("QUOTA", "Wait for an upload acknowledgement");
+        if (decoded.offset + decoded.bytes.length > state.size)
+          throw new FileError("QUOTA", "Upload exceeds declared size");
+        if (decoded.offset !== state.offset)
+          throw new FileError("OFFSET", "Resume from acknowledged offset");
         state.busy = true;
-        void service
-          .append(device, state.id, decoded.offset, decoded.bytes, () => authorize("files.write"))
-          .then((upload) => send({ type: "files.upload", channel: decoded.channel, ...upload }))
+        void state
+          .append(decoded.offset, decoded.bytes)
+          .then((result) => {
+            const upload = Upload.parse(result);
+            if (
+              upload.uploadId !== state.id ||
+              upload.size !== state.size ||
+              upload.offset !== decoded.offset + decoded.bytes.length
+            )
+              throw new FileError("IO_ERROR", "Invalid destination acknowledgement");
+            state.offset = upload.offset;
+            send({ type: "files.upload", channel: decoded.channel, ...upload });
+          })
           .catch((error: unknown) => failure(error, { channel: decoded.channel }))
           .finally(() => {
             state.busy = false;

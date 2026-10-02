@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
-import { Readable } from "node:stream";
 import { createGzip } from "node:zlib";
 import { GitIgnore, SafeRoot, walkWorkspace } from "@ace/workspace";
-import { z } from "zod";
+import { readChunks } from "./readable-chunks.ts";
 import { tarHeaders } from "./tar.ts";
-import { openDownload } from "./download.ts";
+import { openBorrowedDownload } from "./download.ts";
 import { CHUNK_SIZE, FileError, version, type Download } from "./types.ts";
 
 interface Entry {
@@ -44,8 +43,6 @@ export async function previewArchive(
     includeIgnored,
   })) {
     if (entry.type !== "file" && entry.type !== "directory") continue;
-    // Reserved in-progress upload files never belong in an archive.
-    if (entry.path.split("/").some((part) => part.startsWith(".ace-upload-"))) continue;
     const { info } = await safe.metadata(entry.path);
     const item = {
       path: entry.path,
@@ -69,55 +66,65 @@ export async function previewArchive(
 }
 export function archiveDownload(safe: SafeRoot, preview: Preview): Download {
   let current: Download | undefined;
-  const gzip = createGzip({ chunkSize: 64 * 1024 });
-  async function* tar(): AsyncGenerator<Buffer> {
+  let cancelled = false;
+  const gzip = createGzip({ chunkSize: CHUNK_SIZE });
+  // Keep errors observable before the first credit and during cancellation.
+  gzip.on("error", () => {});
+  const reader = readChunks(gzip);
+  const write = (bytes: Buffer) =>
+    new Promise<void>((resolve, reject) => {
+      if (cancelled) {
+        reject(new FileError("ABORTED", "Archive cancelled"));
+        return;
+      }
+      gzip.write(bytes, (error) => (error ? reject(error) : resolve()));
+    });
+  const writing = (async () => {
     try {
       if (version((await safe.metadata(preview.path)).info) !== preview.rootVersion)
         throw new FileError("CONFLICT", "Directory changed since preview");
       for (const entry of preview.entries) {
+        if (cancelled) break;
         if (version((await safe.metadata(entry.path)).info) !== entry.version)
           throw new FileError("CONFLICT", "Archive entry changed");
-        yield* tarHeaders(entry);
+        for (const header of tarHeaders(entry)) await write(header);
         if (!entry.directory) {
-          current = await openDownload(safe, entry.path, 0, entry.version);
-          yield* current.chunks;
+          current = await openBorrowedDownload(safe, entry.path, entry.version);
+          // The gzip callback releases ownership before this buffer is refilled.
+          for await (const bytes of current.chunks) await write(bytes);
+          await current.close();
           current = undefined;
           const padding = (512 - (entry.size % 512)) % 512;
-          if (padding) yield Buffer.alloc(padding);
+          if (padding) await write(Buffer.alloc(padding));
         }
       }
-      yield Buffer.alloc(1024);
-    } finally {
-      await current?.close();
-    }
-  }
-  const source = Readable.from(tar(), { objectMode: false, highWaterMark: 64 * 1024 });
-  source.on("error", (error) => gzip.destroy(error));
-  gzip.on("error", () => {}); // Preserve the stream error for the next credited iterator read.
-  gzip.on("close", () => source.destroy());
-  source.pipe(gzip);
-  async function* chunks(): AsyncGenerator<Buffer> {
-    try {
-      for await (const chunk of gzip) {
-        const bytes = z.instanceof(Buffer).parse(chunk);
-        for (let start = 0; start < bytes.length; start += CHUNK_SIZE)
-          yield bytes.subarray(start, start + CHUNK_SIZE);
+      if (!cancelled) {
+        await write(Buffer.alloc(1024));
+        gzip.end();
       }
     } finally {
-      source.destroy();
-      gzip.destroy();
       await current?.close();
     }
-  }
-  return {
-    size: null,
-    offset: 0,
-    validator: preview.validator,
-    chunks: chunks(),
-    async close() {
-      source.destroy();
-      gzip.destroy();
-      await current?.close();
-    },
+  })().catch((error: unknown) => {
+    gzip.destroy(error instanceof Error ? error : new Error("Archive failed"));
+  });
+  const close = async () => {
+    cancelled = true;
+    gzip.destroy();
+    await writing;
   };
+  async function* chunks(): AsyncGenerator<Buffer> {
+    try {
+      for (;;) {
+        const next = await reader.next();
+        if (next.done) break;
+        for (let start = 0; start < next.value.length; start += CHUNK_SIZE)
+          yield next.value.subarray(start, start + CHUNK_SIZE);
+      }
+    } finally {
+      await close();
+      reader.dispose();
+    }
+  }
+  return { size: null, offset: 0, validator: preview.validator, chunks: chunks(), close };
 }

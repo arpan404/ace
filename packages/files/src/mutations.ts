@@ -95,11 +95,12 @@ export class Mutations {
         try {
           await target.verify();
           await rename(target.path, join(this.options.dataDir, "trash", id));
-          await target.verify();
         } catch (error) {
           this.catalog.delete(id);
           throw error;
         }
+        // After the rename, retain recovery metadata even if a parent race is detected.
+        await target.verify();
         trashId = id;
         break;
       }

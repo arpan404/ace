@@ -1,12 +1,32 @@
-import { SafeRoot } from "@ace/workspace";
+import { SafeRoot, isWorkspaceTransferTemporary } from "@ace/workspace";
 import { CHUNK_SIZE, FileError, version, type Download } from "./types.ts";
 
-export async function openDownload(
+export function openDownload(
   safe: SafeRoot,
   path: string,
   offset: number,
   validator?: string,
 ): Promise<Download> {
+  return openFile(safe, path, offset, (length) => Buffer.allocUnsafe(length), validator);
+}
+/** Input bytes remain valid until the consumer requests the next chunk. */
+export function openBorrowedDownload(
+  safe: SafeRoot,
+  path: string,
+  validator: string,
+): Promise<Download> {
+  const buffer = Buffer.allocUnsafe(CHUNK_SIZE);
+  return openFile(safe, path, 0, (length) => buffer.subarray(0, length), validator);
+}
+async function openFile(
+  safe: SafeRoot,
+  path: string,
+  offset: number,
+  allocate: (length: number) => Buffer,
+  validator?: string,
+): Promise<Download> {
+  if (isWorkspaceTransferTemporary(safe.path(path)))
+    throw new FileError("INVALID_PATH", "Upload temporary files are private");
   const { handle, info } = await safe.file(path);
   let closed = false;
   const close = async () => {
@@ -28,7 +48,7 @@ export async function openDownload(
       let position = offset;
       try {
         while (position < info.size) {
-          const bytes = Buffer.allocUnsafe(Math.min(CHUNK_SIZE, info.size - position));
+          const bytes = allocate(Math.min(CHUNK_SIZE, info.size - position));
           const read = await handle.read(bytes, 0, bytes.length, position);
           if (!read.bytesRead) throw new FileError("CONFLICT", "File was truncated while reading");
           position += read.bytesRead;

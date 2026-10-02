@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -150,4 +150,51 @@ it("does not strand resumable uploads when a client moves their parent directory
       destinationExpected: null,
     }),
   ).toMatchObject({ type: "files.result" });
+});
+it("expires uploads whose parent was removed without preventing daemon recovery", async () => {
+  let now = 0;
+  const f = await setup({ now: () => now, retentionMs: 10 });
+  const client = await f.connect();
+  await mkdir(join(f.root, "dir"));
+  const upload = Upload.parse(
+    await client.request({ op: "upload.begin", path: "dir/a", expected: null, size: 1 }),
+  );
+  await rm(join(f.root, "dir"), { recursive: true });
+  now = 11;
+  await f.restart();
+  await f.service.sweep();
+  const next = await f.connect();
+  expect(await next.request({ op: "upload.resume", uploadId: upload.uploadId })).toMatchObject({
+    code: "NOT_FOUND",
+  });
+  expect(
+    await next.request({ op: "create", path: "recovered", expected: null, text: "ok" }),
+  ).toMatchObject({ type: "files.result" });
+});
+it("keeps upload temporary bytes out of workspace listings and explicit downloads", async () => {
+  const f = await setup();
+  const client = await f.connect();
+  await client.request({ op: "upload.begin", path: "a", expected: null, size: 1 });
+  const { createWorkspace } = await import("@ace/workspace");
+  const workspace = await createWorkspace(f.root);
+  expect((await workspace.list({ dir: "", includeIgnored: true })).entries).toEqual([]);
+  const [temp] = await readdir(f.root);
+  if (!temp) throw new Error("Missing temporary file");
+  expect(await client.request({ op: "download", path: temp, offset: 0 })).toMatchObject({
+    code: "INVALID_PATH",
+  });
+});
+it("the public upload service refuses a physical offset mismatch before writing bytes", async () => {
+  const f = await setup();
+  const upload = z
+    .object({ uploadId: z.string() })
+    .parse(
+      await f.service.request("writer", { op: "upload.begin", path: "a", expected: null, size: 3 }),
+    );
+  await expect(
+    f.service.append("writer", upload.uploadId, 1, Buffer.from("x")),
+  ).rejects.toMatchObject({ code: "OFFSET" });
+  expect(
+    await f.service.request("writer", { op: "upload.resume", uploadId: upload.uploadId }),
+  ).toMatchObject({ offset: 0 });
 });

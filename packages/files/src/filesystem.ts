@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { lstat, open, rename, rm, type FileHandle } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
-import { SafeRoot, GitIgnore, walkWorkspace } from "@ace/workspace";
+import { SafeRoot, GitIgnore, walkWorkspace, isWorkspaceTransferTemporary } from "@ace/workspace";
 import { z } from "zod";
 import { CHUNK_SIZE, codeOf, FileError, version, checkVersion } from "./types.ts";
 import type { UploadRecord } from "./catalog.ts";
@@ -21,7 +21,7 @@ export async function observed(safe: SafeRoot, path: string): Promise<string | n
       includeIgnored: true,
       exclude: () => false,
     })) {
-      if (entry.path.split("/").some((part) => part.startsWith(".ace-upload-"))) continue;
+      if (isWorkspaceTransferTemporary(entry.path)) continue;
       const metadata = await safe.metadata(entry.path);
       digest.update(entry.path);
       digest.update("\0");
