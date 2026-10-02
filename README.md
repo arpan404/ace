@@ -2,7 +2,7 @@
 
 A multi-agent coding environment. ace drives the coding-agent CLIs you already have installed (Claude Code, Codex, OpenCode, Cursor, Antigravity) and gives them one interface on desktop, in the browser and on your phone.
 
-Status: early design. Nothing here is usable yet.
+Status: early development. The local daemon can store events and serve snapshots and replay over WebSocket. Provider execution and clients are still to come.
 
 ## How it fits together
 
@@ -16,6 +16,8 @@ ace never asks for or stores your provider credentials. Each agent CLI uses the 
 
 | Path                    | Purpose                                                              |
 | ----------------------- | -------------------------------------------------------------------- |
+| `apps/daemon`           | Local SQLite event store and authenticated WebSocket server          |
+| `packages/projection`   | Pure shared event folds for thread and sidebar views                 |
 | `packages/protocol`     | Canonical protocol: Zod schemas and types, no runtime logic          |
 | `packages/provider-kit` | Supervised provider processes, JSON-RPC, SSE and local CLI discovery |
 | `tools/recorder`        | Records raw provider sessions as fixtures for adapter contract tests |
@@ -29,7 +31,10 @@ Requires Node 24+ and Bun 1.3+.
 ```sh
 bun install
 bun run check   # format check, lint, typecheck, tests
+bun run --filter @ace/daemon dev
 ```
+
+The daemon prints its URL and token-file path. See [store and sync](docs/daemon/store-and-sync.md) for configuration, the development creator, the command port, and replay behavior.
 
 ## License
 
