@@ -7,7 +7,7 @@ import { expect, it } from "vitest";
 import { GitService } from "@ace/git";
 import { ThreadId } from "@ace/protocol";
 import { compare, execute, mergeWinner, type Executor } from "./index.ts";
-import { artifact, check, complete, fact, setup } from "./test-support.ts";
+import { stopFact, artifact, check, complete, fact, setup } from "./test-support.ts";
 const exec = promisify(execFile);
 async function repo() {
   const dir = await mkdtemp(join(tmpdir(), "ace-orch-"));
@@ -34,6 +34,7 @@ it("compares real lane checkpoints and applies the picked winner with a safety c
       await p.git.createWorktree({ repo: p.dir, path, baseRef: p.base, branch: `lane-${n}` });
       // Registered worktrees live beneath the test repo; exclude them from the target's untracked files.
       await writeFile(join(p.dir, ".git", "info", "exclude"), "lane-*\n");
+      r.send({ type: "thread", ...fact(lane), status: { state: "working", agents: 1 } });
       r.send({
         type: "bound",
         ...fact(lane),
@@ -139,7 +140,7 @@ it("picking a winner cancels remaining work and delays merge until stop acknowle
   const selected = r.send({ type: "pick", laneId: a.id, merge: true });
   expect(selected.intents.map((i) => i.effect.type)).toEqual(["cancel"]);
   expect(r.state.status).toBe("cancelling");
-  const stopped = r.send({ type: "stopped", ...fact(b) });
+  const stopped = r.send(stopFact(r.state, b));
   expect(stopped.intents.map((i) => i.effect)).toEqual([
     { type: "merge", ...fact(a), checkpoint: artifact.checkpoint },
   ]);

@@ -8,6 +8,8 @@ import {
   type OrchestrationCreate,
 } from "@ace/protocol";
 
+import { canExecute } from "./execution-policy.ts";
+
 export interface ExecutionRequest {
   intentId: string;
   orchestrationId: string;
@@ -38,13 +40,7 @@ export async function execute(
   const effect = persisted.effect;
   const lane = state.lanes[effect.laneId];
   if (!lane || lane.attempt !== effect.attempt) return [];
-  if (effect.type === "check" && lane.phase !== "checking") return [];
-  if (effect.type === "cancel" && lane.phase !== "cancelling") return [];
-  if (
-    effect.type === "merge" &&
-    (state.mergeStatus !== "pending" || state.winner !== lane.id || state.open !== 0)
-  )
-    return [];
+  if (!canExecute(state, lane, effect)) return [];
   const request: ExecutionRequest = {
     intentId: entry.id,
     orchestrationId: state.id,
@@ -74,7 +70,7 @@ export async function execute(
       break;
     case "cancel":
       await executor.cancel(request);
-      fact = { type: "stopped", ...identity };
+      fact = { type: "stopped", ...identity, intentId: entry.id };
       break;
     case "merge":
       fact = OrchestrationFact.parse({

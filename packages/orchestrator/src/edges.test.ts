@@ -96,9 +96,11 @@ it("work resuming in a selected lane revokes a merge that has not executed", () 
   const pending = r.send({ type: "pick", laneId: a.id, merge: true }).intents[0];
   if (!pending) throw new Error("Missing merge");
   r.send({ type: "thread", ...fact(a), status: { state: "needs_you", interactions: 1 } });
-  expect(r.state.status).toBe("waiting");
+  expect(r.state.status).toBe("cancelling");
   expect(r.state.winner).toBeUndefined();
-  expect(Object.values(r.state.intents)).toEqual([]);
+  expect(Object.values(r.state.intents).map((i) => i.effect)).toEqual([
+    { type: "cancel", ...fact(a) },
+  ]);
   r.send({ type: "merged", ...fact(a), intentId: pending.id, safetyCheckpoint: "safety" });
   expect(r.state.mergeStatus).toBe("none");
 });

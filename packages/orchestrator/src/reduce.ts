@@ -11,7 +11,7 @@ import {
   type Mutation,
   type Transition,
 } from "./state.ts";
-import { cancelAll, fail, finish, reconcile, updateStatus } from "./lifecycle.ts";
+import { cancelAll, cancelLane, fail, finish, reconcile, updateStatus } from "./lifecycle.ts";
 
 function overBudget(s: OrchestrationState, now: number) {
   const b = s.input.template.budget;
@@ -20,11 +20,11 @@ function overBudget(s: OrchestrationState, now: number) {
 function invalidate(m: Mutation, lane: OrchestrationLane) {
   lane.threadDone = false;
   delete lane.artifact;
-  delete lane.checksPassed;
   clearChecks(m, lane);
 }
 function reopen(m: Mutation, lane: OrchestrationLane) {
-  if (lane.phase !== "succeeded") return;
+  if (!terminal(lane.phase)) return;
+  const wasUnsuccessful = lane.phase !== "succeeded";
   phase(m, lane, "working");
   delete lane.endedAt;
   if (m.state.winner === lane.id) {
@@ -35,16 +35,19 @@ function reopen(m: Mutation, lane: OrchestrationLane) {
       m.state.mergeStatus = "none";
     }
     delete m.state.winner;
-    delete m.state.stopReason;
   }
   if (lane.parentId) {
     const parent = m.state.lanes[lane.parentId];
     if (parent) {
       reopen(m, parent);
       parent.children++;
-      phase(m, parent, "joining");
+      clearChecks(m, parent);
+      if (wasUnsuccessful) parent.failedChildren--;
+      if (parent.phase !== "cancelling") phase(m, parent, "joining");
     }
   }
+  if (m.state.stopReason) cancelLane(m, lane);
+  else if (overBudget(m.state, m.ctx.now)) cancelAll(m, "budget_exhausted");
 }
 /** Mutates owned state, like @ace/core. Callers commit state + events + intents atomically. */
 export function apply(state: OrchestrationState, input: unknown, ctx: Context): Transition {
@@ -142,21 +145,35 @@ export function apply(state: OrchestrationState, input: unknown, ctx: Context): 
       lane.attemptUsage = { tokens, cost };
       if ((!state.stopReason || state.stopReason === "winner") && overBudget(state, ctx.now))
         cancelAll(m, "budget_exhausted");
+    } else if (fact.type === "bound" && lane.phase !== "queued") {
+      if (
+        (lane.threadId !== undefined && lane.threadId !== fact.threadId) ||
+        (lane.worktree !== undefined && lane.worktree !== fact.worktree)
+      )
+        reject(m, "binding_conflict");
+      else {
+        lane.threadId = fact.threadId;
+        lane.worktree = fact.worktree;
+        if (lane.phase === "starting") phase(m, lane, "working");
+      }
     } else if (
-      fact.type === "bound" &&
-      (lane.phase === "starting" || lane.phase === "cancelling")
+      fact.type === "stopped" &&
+      lane.phase === "cancelling" &&
+      state.intents[fact.intentId]?.effect.type === "cancel" &&
+      state.intents[fact.intentId]?.effect.laneId === lane.id
     ) {
-      lane.threadId = fact.threadId;
-      lane.worktree = fact.worktree;
-      if (lane.phase === "starting") phase(m, lane, "working");
-    } else if (fact.type === "stopped" && lane.phase === "cancelling") {
       if (lane.children === 0) finish(m, lane, "cancelled");
       else {
         lane.threadDone = true;
       }
     } else if (fact.type === "thread") {
       const status = fact.status.state;
-      if (status !== "done" && lane.phase === "succeeded") reopen(m, lane);
+      if (
+        status !== "done" &&
+        terminal(lane.phase) &&
+        (status !== "failed" || lane.phase === "succeeded")
+      )
+        reopen(m, lane);
       if (!terminal(lane.phase) && lane.phase !== "queued" && lane.phase !== "cancelling") {
         if (status === "failed") fail(m, lane, "thread_failed");
         else if (status === "done") {

@@ -15,14 +15,18 @@ export function cancelAll(
   }
   for (const lane of Object.values(m.state.lanes)) {
     if (lane.id === except || terminal(lane.phase) || lane.phase === "cancelling") continue;
-    if (lane.phase === "queued") finish(m, lane, "cancelled");
-    else {
-      // Cancel resolves lane/attempt ownership, even if start was not yet acknowledged.
-      clearLaneIntents(m, lane);
-      lane.threadDone = false;
-      phase(m, lane, "cancelling");
-      intent(m, { type: "cancel", laneId: lane.id, attempt: lane.attempt });
-    }
+    cancelLane(m, lane);
+  }
+}
+/** Revived work gets a fresh cancellation intent; an existing cancellation keeps its receipt. */
+export function cancelLane(m: Mutation, lane: OrchestrationLane) {
+  if (lane.phase === "cancelling") return;
+  if (lane.phase === "queued") finish(m, lane, "cancelled");
+  else {
+    clearLaneIntents(m, lane);
+    lane.threadDone = false;
+    phase(m, lane, "cancelling");
+    intent(m, { type: "cancel", laneId: lane.id, attempt: lane.attempt });
   }
 }
 export function finish(
@@ -142,6 +146,8 @@ export function runStatus(state: Mutation["state"]): Mutation["state"]["status"]
   else if (state.mergeStatus === "pending") return "running";
   else if (state.mergeStatus === "failed") return "failed";
   else if (state.stopReason === "budget_exhausted") return "budget_exhausted";
+  else if (state.stopReason === "winner" && !state.winner)
+    return state.failed > 0 ? "failed" : "cancelled";
   else if (state.stopReason === "cancelled") return state.failed > 0 ? "failed" : "cancelled";
   else if (
     state.winner ||

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { ThreadId } from "@ace/protocol";
-import { check, complete, fact, setup } from "./test-support.ts";
+import { stopFact, check, complete, fact, setup } from "./test-support.ts";
 
 it.each(["tokens", "cost", "durationMs"] as const)(
   "exhausting %s cancels live lanes and settles only after stop acknowledgements",
@@ -22,7 +22,7 @@ it.each(["tokens", "cost", "durationMs"] as const)(
     expect(Object.values(r.state.intents).filter((i) => i.effect.type === "cancel")).toHaveLength(
       2,
     );
-    for (const lane of r.lanes) r.send({ type: "stopped", ...fact(lane) });
+    for (const lane of r.lanes) r.send(stopFact(r.state, lane));
     expect(r.state.status).toBe("budget_exhausted");
   },
 );
@@ -79,7 +79,7 @@ it("cancelling before start acknowledgement still stops the owned thread when it
   });
   expect(a.phase).toBe("cancelling");
   expect(r.state.status).toBe("cancelling");
-  r.send({ type: "stopped", ...fact(a) });
+  r.send(stopFact(r.state, a));
   expect(r.state.status).toBe("cancelled");
 });
 

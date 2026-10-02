@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { recover } from "./index.ts";
-import { check, complete, fact, setup } from "./test-support.ts";
+import { stopFact, check, complete, fact, setup } from "./test-support.ts";
 
 it("nested coordinator tasks obey depth limits and keep the planner waiting for a human-blocked child", () => {
   const r = setup("coordinator", 1, { maxDepth: 2 });
@@ -82,9 +82,9 @@ it("planner cancellation waits for its own stop acknowledgement and every descen
   complete(r.state, root, r.ctx);
   const cancellation = r.send({ type: "cancel" });
   expect(cancellation.intents.filter((i) => i.effect.type === "cancel")).toHaveLength(2);
-  r.send({ type: "stopped", ...fact(child) });
+  r.send(stopFact(r.state, child));
   expect(r.state.status).toBe("cancelling");
-  r.send({ type: "stopped", ...fact(root) });
+  r.send(stopFact(r.state, root));
   expect(r.state.status).toBe("cancelled");
 });
 it("a planner stopping first still waits until its nested thread tree stops", () => {
@@ -103,9 +103,9 @@ it("a planner stopping first still waits until its nested thread tree stops", ()
   const child = r.state.lanes[id];
   if (!child) throw new Error("Missing child");
   r.send({ type: "cancel" });
-  r.send({ type: "stopped", ...fact(root) });
+  r.send(stopFact(r.state, root));
   expect(r.state.status).toBe("cancelling");
-  r.send({ type: "stopped", ...fact(child) });
+  r.send(stopFact(r.state, child));
   expect(r.state.status).toBe("cancelled");
 });
 it("total lanes are bounded and non-coordinator templates cannot spawn", () => {

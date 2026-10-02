@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { apply, recover } from "./index.ts";
-import { artifact, check, complete, fact, setup } from "./test-support.ts";
+import { stopFact, artifact, check, complete, fact, setup } from "./test-support.ts";
 
 describe("orchestration lifecycle", () => {
   it("three providers fan out the same prompt and retain two successes after one fails", () => {
@@ -43,7 +43,7 @@ describe("orchestration lifecycle", () => {
     expect(r.state.status).toBe("cancelling");
     r.send({ type: "thread", ...fact(c), status: { state: "done" } });
     expect(r.state.status).toBe("cancelling");
-    r.send({ type: "stopped", ...fact(c) });
+    r.send(stopFact(r.state, c));
     expect(r.state.status).toBe("succeeded");
     expect(c.phase).toBe("cancelled");
   });
@@ -161,7 +161,7 @@ describe("orchestration lifecycle", () => {
     check(loaded.state, loadedA, r.ctx);
     const recovered = recover(JSON.parse(JSON.stringify(loaded.state)));
     expect(recovered.intents.map((i) => i.effect.type)).toEqual(["cancel"]);
-    apply(recovered.state, { type: "stopped", ...fact(b) }, r.ctx);
+    apply(recovered.state, stopFact(recovered.state, b), r.ctx);
     expect(recovered.state.status).toBe("succeeded");
     expect(recover(JSON.parse(JSON.stringify(recovered.state))).intents).toEqual([]);
   });

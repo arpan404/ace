@@ -49,6 +49,7 @@ export function intent(m: Mutation, effect: OrchestrationEffect) {
   m.result.intents.push(entry);
 }
 export function clearChecks(m: Mutation, lane: OrchestrationLane) {
+  delete lane.checksPassed;
   for (const [id, entry] of Object.entries(m.state.intents)) {
     if (entry.effect.laneId === lane.id && entry.effect.type === "check")
       delete m.state.intents[id];

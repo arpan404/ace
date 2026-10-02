@@ -87,3 +87,14 @@ export function check(
     ctx,
   );
 }
+
+export function stopFact(
+  state: OrchestrationState,
+  lane: OrchestrationLane,
+): Extract<OrchestrationFact, { type: "stopped" }> {
+  const pending = Object.values(state.intents).find(
+    (i) => i.effect.type === "cancel" && i.effect.laneId === lane.id,
+  );
+  if (!pending) throw new Error("No pending cancellation");
+  return { type: "stopped", ...fact(lane), intentId: pending.id };
+}

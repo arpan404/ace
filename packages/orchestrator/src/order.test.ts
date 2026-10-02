@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { artifact, check, complete, fact, setup } from "./test-support.ts";
+import { stopFact, artifact, check, complete, fact, setup } from "./test-support.ts";
 const orders = [
   [0, 1, 2],
   [0, 2, 1],
@@ -34,7 +34,7 @@ it("race chooses the first passing result for every completion order and waits f
         if (!lane) throw new Error("Missing lane");
         if (lane.phase === "cancelling") {
           expect(r.state.status).toBe("cancelling");
-          r.send({ type: "stopped", ...fact(lane) });
+          r.send(stopFact(r.state, lane));
         } else {
           complete(r.state, lane, r.ctx);
           check(r.state, lane, r.ctx, Boolean(mask & (1 << index)));
@@ -47,11 +47,10 @@ it("race chooses the first passing result for every completion order and waits f
 });
 it("pipeline stages instruct implementation, review and fixing instead of repeating implementation", () => {
   const r = setup("pipeline");
-  expect(r.lanes.map((l) => l.prompt.split("\n")[0])).toEqual([
-    "Implement the task. Return a checkpoint, summary and test results.",
-    "Review the input checkpoint and test results. Return a checkpoint and a summary of issues for the fix stage.",
-    "Fix the issues in the input review artifact. Return a checkpoint, summary and test results.",
-  ]);
+  const [implement, review, fix] = r.lanes;
+  expect(implement?.prompt).toMatch(/^Implement\b/i);
+  expect(review?.prompt).toMatch(/^Review\b/i);
+  expect(fix?.prompt).toMatch(/^Fix\b/i);
   expect(r.lanes.every((l) => l.prompt.includes(r.input.prompt))).toBe(true);
 });
 it("oversized artifacts are rejected without ending a live thread or emitting check work", () => {

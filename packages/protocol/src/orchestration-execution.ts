@@ -43,7 +43,7 @@ export const OrchestrationFact = z.discriminatedUnion("type", [
     reviewPassed: z.boolean().optional(),
   }),
   z.object({ type: z.literal("usage"), ...lane, usage: OrchestrationUsage }),
-  z.object({ type: z.literal("stopped"), ...lane }),
+  z.object({ type: z.literal("stopped"), ...lane, intentId: OrchestrationId }),
   z.object({
     type: z.literal("execution.failed"),
     ...lane,

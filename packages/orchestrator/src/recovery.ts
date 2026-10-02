@@ -1,4 +1,5 @@
 import { OrchestrationState, type OrchestrationLane } from "@ace/protocol";
+import { canExecute } from "./execution-policy.ts";
 import { runStatus } from "./lifecycle.ts";
 import { terminal, type Transition } from "./state.ts";
 
@@ -35,6 +36,10 @@ export function recover(input: unknown): { state: OrchestrationState } & Transit
       lane.failedChildren !== (failedChildren.get(lane.id) ?? 0)
     )
       throw new Error("Invalid child count");
+    if (state.stopReason && !terminal(lane.phase) && lane.phase !== "cancelling")
+      throw new Error("Invalid stopped lane phase");
+    if ((lane.threadId === undefined) !== (lane.worktree === undefined))
+      throw new Error("Incomplete binding");
     if (terminal(lane.phase) && lane.children > 0) throw new Error("Unfinished descendants");
     if (
       lane.phase === "succeeded" &&
@@ -52,10 +57,32 @@ export function recover(input: unknown): { state: OrchestrationState } & Transit
   if (state.status !== runStatus(state)) throw new Error("Invalid run status");
   if (state.winner && state.lanes[state.winner]?.phase !== "succeeded")
     throw new Error("Invalid winner");
+  const operations = new Set<string>();
   for (const [key, entry] of Object.entries(state.intents)) {
     const lane = state.lanes[entry.effect.laneId];
     if (key !== entry.id || !lane || lane.attempt !== entry.effect.attempt)
       throw new Error("Invalid intent ownership");
+    if (!canExecute(state, lane, entry.effect)) throw new Error("Invalid intent phase");
+    const operation = `${lane.id}:${entry.effect.type}`;
+    if (operations.has(operation)) throw new Error("Duplicate intent operation");
+    operations.add(operation);
   }
+  for (const lane of lanes) {
+    const required =
+      lane.phase === "starting"
+        ? "start"
+        : lane.phase === "checking"
+          ? "check"
+          : lane.phase === "cancelling" && !lane.threadDone
+            ? "cancel"
+            : undefined;
+    if (required && !operations.has(`${lane.id}:${required}`))
+      throw new Error("Missing lifecycle intent");
+  }
+  if (
+    state.mergeStatus === "pending" &&
+    (!state.winner || !operations.has(`${state.winner}:merge`))
+  )
+    throw new Error("Missing merge intent");
   return { state, events: [], intents: Object.values(state.intents) };
 }

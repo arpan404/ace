@@ -1,6 +1,14 @@
 import { expect, it } from "vitest";
 import { Command, ThreadId } from "@ace/protocol";
-import { commandHandler, execute, recover, type Executor, type ExecutionRequest } from "./index.ts";
+import {
+  apply,
+  create,
+  commandHandler,
+  execute,
+  recover,
+  type Executor,
+  type ExecutionRequest,
+} from "./index.ts";
 import { artifact, complete, fact, setup } from "./test-support.ts";
 
 const cmd = (payload: unknown) => Command.parse({ id: "command", deviceId: "device", payload });
@@ -102,19 +110,27 @@ it("the command port creates, picks and cancels a run through the existing daemo
   const a = r.lanes[0];
   if (!a) throw new Error("Missing lane");
   const runs = new Map([[r.state.id, r.state]]);
-  const created: string[] = [];
+
   const handler = commandHandler({
-    create(commandId, input) {
-      created.push(`${commandId}:${input.prompt}`);
+    create(_commandId, input) {
+      const created = create(input, r.ctx);
+      runs.set(created.state.id, created.state);
     },
     apply(_commandId, id, event) {
       const state = runs.get(id);
       if (!state) throw new Error("Unknown run");
-      r.send(event);
+      apply(state, event, r.ctx);
     },
   });
   expect(handler.handle(cmd({ type: "orchestration.create", input: r.input })).ok).toBe(true);
-  expect(created).toEqual([`command:${r.input.prompt}`]);
+  expect(
+    [...runs.values()]
+      .filter((state) => state.id !== r.state.id)
+      .map((state) => ({
+        status: state.status,
+        prompts: Object.values(state.lanes).map((lane) => lane.prompt),
+      })),
+  ).toEqual([{ status: "running", prompts: [r.input.prompt] }]);
   complete(r.state, a, r.ctx);
   const check = Object.values(r.state.intents).find((i) => i.effect.type === "check");
   if (!check) throw new Error("Missing check");
