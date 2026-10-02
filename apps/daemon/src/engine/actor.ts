@@ -24,8 +24,6 @@ export class ThreadActor {
   lifetime: AbortController | undefined;
   generation = 0;
   poisoned = false;
-  dispatched = false;
-  awaitingStart = false;
   idleSince: number | undefined;
   idleDue = false;
   private tail: Promise<void> = Promise.resolve();
@@ -52,9 +50,10 @@ export class ThreadActor {
     this.report = report;
   }
   enqueue(run: () => void): void {
+    if (this.stopped) return;
     this.tail = this.tail
       .then(() => {
-        if (!this.stopped && !this.poisoned) run();
+        if (!this.poisoned) run();
       })
       .catch((error: unknown) => {
         // A translator cannot roll back. Stop this generation instead of folding more frames.
@@ -68,25 +67,17 @@ export class ThreadActor {
     this.enqueue(() => {
       if (generation !== this.generation) return;
       const facts = this.translator?.translate(frame, this.clock.now()) ?? [];
-      if (
-        facts.some(
-          (fact) =>
-            fact.type === "turn.started" ||
-            fact.type === "turn.ended" ||
-            fact.type === "process.exited",
-        )
-      )
-        this.awaitingStart = false;
-      if (facts.some((fact) => fact.type === "turn.ended" || fact.type === "process.exited"))
-        this.dispatched = false;
-      this.apply([...facts, this.queueFact()]);
+      this.repo.store.atomic(() => {
+        this.apply(facts);
+        this.syncQueue();
+      });
       this.wake();
     });
   }
   private queueFact(): Extract<Fact, { type: "queue.changed" }> {
     return {
       type: "queue.changed",
-      count: this.repo.queuedCount(this.id) + (this.awaitingStart ? 1 : 0),
+      count: this.repo.queuedCount(this.id),
     };
   }
   syncQueue(): void {
@@ -103,7 +94,7 @@ export class ThreadActor {
     if (this.stopped || this.poisoned) return;
     const state = this.repo.state(this.id);
     if (!state) return;
-    if (state.status.state === "done" && this.session && !this.dispatched) {
+    if (state.status.state === "done" && this.session) {
       this.idleSince ??= this.clock.now();
     } else {
       this.idleSince = undefined;

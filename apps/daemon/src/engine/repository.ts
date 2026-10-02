@@ -11,6 +11,7 @@ export interface Intent {
   command: Command;
   status: string;
   attempts: number;
+  awaiting: boolean;
 }
 export class EngineRepository {
   readonly store: Store;
@@ -51,23 +52,38 @@ export class EngineRepository {
     });
   }
   apply(id: ThreadId, facts: Fact[], now: number): ThreadState {
-    const state = this.state(id);
-    if (!state) throw new Error("Missing engine state");
-    const events = facts.flatMap((input) => {
-      let fact = input;
-      if (fact.type === "interaction.closed" && fact.state === "resolved") {
-        const interaction = Object.hasOwn(state.interactions, fact.interaction)
-          ? state.interactions[fact.interaction]
-          : undefined;
-        const answer = interaction ? this.answer(interaction.id) : undefined;
-        if (answer?.payload.type === "interaction.resolve")
-          fact = { ...fact, resolution: answer.payload.resolution, resolvedBy: answer.deviceId };
-      }
-      return apply(state, fact, { now, ids: this.ids });
+    return this.store.atomic(() => {
+      const state = this.state(id);
+      if (!state) throw new Error("Missing engine state");
+      const events = facts.flatMap((input) => {
+        let fact = input;
+        if (fact.type === "interaction.closed" && fact.state === "resolved") {
+          const interaction = Object.hasOwn(state.interactions, fact.interaction)
+            ? state.interactions[fact.interaction]
+            : undefined;
+          const answer = interaction ? this.answer(interaction.id) : undefined;
+          if (answer?.payload.type === "interaction.resolve")
+            fact = { ...fact, resolution: answer.payload.resolution, resolvedBy: answer.deviceId };
+        }
+        return apply(state, fact, { now, ids: this.ids });
+      });
+      for (const event of events)
+        if (
+          event.type === "run.started" &&
+          event.run.agentId === state.agents[state.rootKey ?? ""]?.agent.id
+        )
+          this.store.atomic((db) =>
+            db
+              .prepare(`UPDATE intents SET awaiting=0 WHERE id=(
+          SELECT id FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
+        )`)
+              .run(id),
+          );
+      this.save(state, events, now);
+      return state;
     });
-    this.save(state, events, now);
-    return state;
   }
+
   add(command: Command, id: ThreadId, resolutionId?: string): void {
     this.store.atomic((db) =>
       db
@@ -93,12 +109,12 @@ export class EngineRepository {
         id === undefined
           ? db
               .prepare(
-                "SELECT * FROM intents WHERE status IN ('pending', 'queued', 'running') ORDER BY id",
+                "SELECT * FROM intents WHERE (status IN ('pending', 'queued', 'running') OR awaiting=1) ORDER BY id",
               )
               .all()
           : db
               .prepare(
-                "SELECT * FROM intents WHERE thread_id = ? AND status IN ('pending', 'queued', 'running') ORDER BY id",
+                "SELECT * FROM intents WHERE thread_id = ? AND (status IN ('pending', 'queued', 'running') OR awaiting=1) ORDER BY id",
               )
               .all(id);
       return rows.map((row) => ({
@@ -107,6 +123,7 @@ export class EngineRepository {
         command: Command.parse(JSON.parse(String(row.payload))),
         status: String(row.status),
         attempts: Number(row.attempts),
+        awaiting: Number(row.awaiting) === 1,
       }));
     });
   }
@@ -115,18 +132,23 @@ export class EngineRepository {
       Number(
         db
           .prepare(
-            "SELECT COUNT(*) AS count FROM intents WHERE thread_id = ? AND status = 'queued'",
+            "SELECT COUNT(*) AS count FROM intents WHERE thread_id = ? AND (status = 'queued' OR awaiting=1)",
           )
           .get(id)?.count,
       ),
     );
   }
+  beginSend(intent: Intent, awaiting: boolean): void {
+    this.store.atomic((db) =>
+      db.prepare("UPDATE intents SET awaiting=? WHERE id=?").run(awaiting ? 1 : 0, intent.id),
+    );
+  }
   mark(intent: Intent, status: string, error?: string): void {
     this.store.atomic((db) =>
       db
-        .prepare(`UPDATE intents SET status = ?, error = ?,
+        .prepare(`UPDATE intents SET status = ?, error = ?, awaiting = CASE WHEN ? = 'failed' THEN 0 ELSE awaiting END,
       attempts = attempts + ? WHERE id = ?`)
-        .run(status, error ?? null, status === "running" ? 1 : 0, intent.id),
+        .run(status, error ?? null, status, status === "running" ? 1 : 0, intent.id),
     );
   }
   workspace(id: string): string | undefined {

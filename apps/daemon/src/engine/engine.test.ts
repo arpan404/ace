@@ -3,9 +3,7 @@ import { Command, type ThreadId } from "@ace/protocol";
 import { applyEvent, createThreadView } from "@ace/projection";
 import { realpathSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { Store } from "../store.ts";
-import { Engine } from "./index.ts";
-import { EngineRepository } from "./repository.ts";
+import { Store, Engine } from "@ace/daemon";
 import { harness, scriptFrames, start, end, question, task, until } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -101,7 +99,6 @@ test("a snapshot write failure rolls back the events and client publication toge
   const frames = scriptFrames();
   const h = track(await harness([{ on: "send", frames: [frames.frame(start)] }], frames));
   const id = await h.create();
-  const repo = new EngineRepository(h.store);
   const seq = h.store.headSeq();
   let published = false;
   const stop = h.store.subscribe(() => {
@@ -111,16 +108,28 @@ test("a snapshot write failure rolls back the events and client publication toge
     db.exec(`CREATE TRIGGER reject_snapshot BEFORE UPDATE ON thread_state
     BEGIN SELECT RAISE(ABORT, 'injected snapshot failure'); END`),
   );
-  expect(() => repo.apply(id, [end], h.clock.now())).toThrow("injected snapshot failure");
+  const context = h.contexts[0];
+  if (!context) throw new Error("Missing provider context");
+  context.onFrame(frames.frame(end));
+  // The actor reports the persistence failure; observers never see its rolled-back events.
+  await h.engine.flush();
+  expect(
+    h.errors.some(
+      (error) => error instanceof Error && error.message.includes("injected snapshot failure"),
+    ),
+  ).toBe(true);
   expect(h.store.headSeq()).toBe(seq);
   expect(published).toBe(false);
   const reopened = new Store(h.path);
   expect(reopened.getThread(id)?.status.state).toBe("working");
   reopened.close();
   h.store.atomic((db) => db.exec("DROP TRIGGER reject_snapshot"));
-  repo.apply(id, [end], h.clock.now());
-  expect(h.store.getThread(id)?.status.state).toBe("done");
-  expect(published).toBe(true);
+  const recoveryStore = new Store(h.path);
+  const recovery = new Engine(recoveryStore, { registry: h.registry, clock: h.clock });
+  await recovery.flush();
+  expect(recoveryStore.getThread(id)?.status.state).toBe("failed");
+  await recovery.close();
+  recoveryStore.close();
   stop();
 });
 

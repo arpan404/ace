@@ -1,4 +1,5 @@
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
+import { validResolution } from "./resolution.ts";
 import { createThreadState } from "@ace/core";
 import { Thread, type Command, type CommandResult, type ThreadId } from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
@@ -27,6 +28,7 @@ export function engineHandler(
           let cwd: string;
           try {
             cwd = realpathSync(path);
+            if (!statSync(cwd).isDirectory()) return fail("workspace_unavailable");
           } catch {
             return fail("workspace_unavailable");
           }
@@ -82,7 +84,8 @@ export function engineHandler(
               if (!interaction) continue;
               if (interaction.state !== "pending" || repo.reserved(interaction.id))
                 return fail("already_resolved");
-              if (interaction.request.kind !== p.resolution.kind) return fail("invalid_resolution");
+              if (!validResolution(interaction.request, p.resolution))
+                return fail("invalid_resolution");
               threadId = state.threadId;
               resolutionId = interaction.id;
               break;

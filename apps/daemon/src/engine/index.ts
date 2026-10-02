@@ -30,6 +30,7 @@ export class Engine {
   private actors = new Map<ThreadId, ThreadActor>();
   private sends: IntentWorkers;
   private controls: IntentWorkers;
+  private steering: IntentWorkers;
   private closing = false;
   private closePromise?: Promise<void>;
   constructor(store: Store, options: EngineOptions = {}) {
@@ -42,6 +43,7 @@ export class Engine {
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
     this.report = options.onError ?? console.error;
     this.sends = new IntentWorkers((id) => this.work(this.actor(id)), this.report);
+    this.steering = new IntentWorkers((id) => this.steer(this.actor(id)), this.report);
     this.controls = new IntentWorkers((id) => this.control(this.actor(id)), this.report);
     const handler = engineHandler(
       this.repo,
@@ -101,6 +103,7 @@ export class Engine {
     for (const intent of this.repo.intents()) {
       if (
         intent.status === "running" ||
+        intent.awaiting ||
         (intent.status === "pending" &&
           !["thread.send", "thread.create"].includes(intent.command.payload.type))
       ) {
@@ -111,6 +114,7 @@ export class Engine {
       }
     }
     for (const state of this.repo.states()) {
+      this.actor(state.threadId).syncQueue();
       this.actor(state.threadId).schedule();
       this.wake(state.threadId);
     }
@@ -119,6 +123,7 @@ export class Engine {
     if (this.closing) return;
     this.sends.wake(id);
     this.controls.wake(id);
+    this.steering.wake(id);
   }
   private async control(actor: ThreadActor): Promise<void> {
     await actor.flush();
@@ -164,26 +169,46 @@ export class Engine {
       const p = intent.command.payload;
       const send = p.type === "thread.send" || p.type === "thread.create";
       if (!send) continue;
-      if (send) {
-        this.repo.mark(intent, "queued");
-        this.queue(actor);
-        const state = this.repo.requireState(actor.id);
-        const status = deriveThreadStatus({ ...state, queueCount: 0 });
-        const capabilities = this.registry.has(state.config.provider)
-          ? this.registry.get(state.config.provider).capabilities
-          : undefined;
-        const steer = p.type === "thread.send" && p.delivery === "steer" && capabilities?.steer;
-        if (!steer && (actor.dispatched || !["new", "done", "failed"].includes(status.state)))
-          continue;
-      }
+      if (this.isSteer(intent)) continue;
+      this.repo.mark(intent, "queued");
+      this.queue(actor);
+      const state = this.repo.requireState(actor.id);
+      const status = deriveThreadStatus({ ...state, queueCount: 0 });
+      if (
+        this.repo.intents(actor.id).some((pending) => pending.awaiting) ||
+        !["new", "done", "failed"].includes(status.state)
+      )
+        continue;
       await this.runIntent(actor, intent);
     }
     actor.schedule();
   }
+  private isSteer(intent: Intent): boolean {
+    const payload = intent.command.payload;
+    if (payload.type !== "thread.send" || payload.delivery !== "steer") return false;
+    const state = this.repo.requireState(intent.threadId);
+    return (
+      this.registry.has(state.config.provider) &&
+      this.registry.get(state.config.provider).capabilities.steer
+    );
+  }
+  private async steer(actor: ThreadActor): Promise<void> {
+    await actor.flush();
+    if (!actor.session || actor.poisoned) return;
+    for (const intent of this.repo.intents(actor.id)) {
+      if (this.closing) return;
+      if (["pending", "queued"].includes(intent.status) && this.isSteer(intent))
+        await this.runIntent(actor, intent);
+    }
+  }
   private async runIntent(actor: ThreadActor, intent: Intent): Promise<void> {
     const send = ["thread.create", "thread.send"].includes(intent.command.payload.type);
     this.repo.mark(intent, "running");
-    if (send) actor.awaitingStart = true;
+    if (send) {
+      const state = this.repo.requireState(actor.id);
+      const active = state.agents[state.rootKey ?? ""]?.activeRun;
+      this.repo.beginSend(intent, !(this.isSteer(intent) && active));
+    }
     this.queue(actor);
     try {
       await this.execute(actor, intent);
@@ -193,10 +218,6 @@ export class Engine {
     } catch (error) {
       await actor.flush();
       this.fail(intent, error instanceof Error ? error.message : String(error));
-      if (send) {
-        actor.dispatched = false;
-        actor.awaitingStart = false;
-      }
     }
     this.queue(actor);
     actor.schedule();
@@ -227,8 +248,7 @@ export class Engine {
           actor.session = undefined;
           actor.lifetime?.abort();
           actor.generation++;
-          actor.dispatched = false;
-          actor.awaitingStart = false;
+          this.expireDelivery(actor);
           actor.apply([{ type: "process.exited", ...exit }]);
           this.wake(actor.id);
         }),
@@ -249,7 +269,6 @@ export class Engine {
       const capabilities = this.registry.get(
         this.repo.requireState(actor.id).config.provider,
       ).capabilities;
-      actor.dispatched = true;
       const session = actor.session;
       if (!session) throw new Error("Provider session exited before send");
       await session.send(
@@ -320,6 +339,12 @@ export class Engine {
       this.repo.apply(intent.threadId, [fact], this.clock.now());
     });
   }
+  private expireDelivery(actor: ThreadActor): void {
+    for (const intent of this.repo.intents(actor.id))
+      if (intent.awaiting)
+        this.fail(intent, "Provider exited before turn acknowledgement; execution is uncertain");
+    this.queue(actor);
+  }
   private async closeSession(
     actor: ThreadActor,
     reason: "idle" | "user" | "shutdown",
@@ -328,14 +353,16 @@ export class Engine {
     if (!session) return;
     const lifetime = actor.lifetime;
     actor.session = undefined;
-    const generation = ++actor.generation;
+    const generation = actor.generation;
     try {
+      await actor.flush();
       await session.close(reason);
     } finally {
+      await actor.flush();
       lifetime?.abort();
       if (actor.generation === generation) {
-        actor.dispatched = false;
-        actor.awaitingStart = false;
+        actor.generation++;
+        this.expireDelivery(actor);
         actor.idleDue = false;
         this.repo.apply(
           actor.id,
@@ -350,17 +377,17 @@ export class Engine {
   async flush(): Promise<void> {
     await Promise.resolve();
     do {
-      await Promise.all([this.sends.flush(), this.controls.flush()]);
+      await Promise.all([this.sends.flush(), this.controls.flush(), this.steering.flush()]);
       await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
-    } while (this.sends.active || this.controls.active);
+    } while (this.sends.active || this.controls.active || this.steering.active);
   }
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
       this.sends.stop();
       this.controls.stop();
+      this.steering.stop();
       for (const actor of this.actors.values()) {
-        actor.stop();
         if (!actor.session) actor.lifetime?.abort();
       }
       await Promise.all(
@@ -372,7 +399,11 @@ export class Engine {
           }
         }),
       );
-      for (const actor of this.actors.values()) actor.lifetime?.abort();
+      for (const actor of this.actors.values()) {
+        await actor.flush();
+        actor.stop();
+        actor.lifetime?.abort();
+      }
       await this.flush();
     })();
     return this.closePromise;

@@ -8,9 +8,10 @@ export function migrateEngine(db: DatabaseSync): void {
   const version = Number(
     db.prepare("SELECT version FROM engine_schema_version").get()?.version ?? 0,
   );
-  if (version > 1) throw new Error("Engine schema is newer than this daemon");
-  if (version === 1) return;
-  db.exec(`CREATE TABLE thread_state (
+  if (version > 2) throw new Error("Engine schema is newer than this daemon");
+  if (version === 2) return;
+  if (version === 0) {
+    db.exec(`CREATE TABLE thread_state (
     thread_id TEXT PRIMARY KEY REFERENCES threads(id), state JSON NOT NULL, seq INTEGER NOT NULL
   );
   CREATE TABLE engine_sessions (
@@ -25,4 +26,7 @@ export function migrateEngine(db: DatabaseSync): void {
   );
   CREATE INDEX intents_pending ON intents(thread_id, status, id);
   INSERT INTO engine_schema_version VALUES (1, 1);`);
+  }
+  db.exec(`ALTER TABLE intents ADD COLUMN awaiting INTEGER NOT NULL DEFAULT 0;
+    UPDATE engine_schema_version SET version=2 WHERE id=1;`);
 }

@@ -1,8 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { type ThreadId } from "@ace/protocol";
-import { Store } from "../store.ts";
-import { Engine } from "./index.ts";
-import { EngineRepository } from "./repository.ts";
+import { Store, Engine } from "@ace/daemon";
 import { harness, scriptFrames, start, end, question, task } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -76,6 +74,16 @@ test("unsupported steering stays queued until provider work finishes", async () 
   await h.engine.flush();
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
   expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
+  const context = h.contexts[0];
+  if (!context) throw new Error("Missing provider context");
+  context.onFrame(frames.frame({ type: "background.ended", task: "shell", status: "completed" }));
+  await h.engine.flush();
+  expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(2);
+  expect(h.adapter.commands.at(-1)).toMatchObject({ delivery: "queue" });
+  // Acknowledge the queued delivery and observe the final settled state.
+  context.onFrame(frames.frame(start, end));
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("done");
 });
 
 test("shutdown gracefully closes live sessions and refuses later commands", async () => {
@@ -155,7 +163,10 @@ test("recovery uses the saved state from the same commit as the final turn event
   const frames = scriptFrames();
   const h = track(await harness([{ on: "send", frames: [frames.frame(start)] }], frames));
   const id = await h.create();
-  new EngineRepository(h.store).apply(id, [end], h.clock.now());
+  const context = h.contexts[0];
+  if (!context) throw new Error("Missing provider context");
+  context.onFrame(frames.frame(end));
+  await h.engine.flush();
   const restartedStore = new Store(h.path);
   const recovered = new Engine(restartedStore, { registry: h.registry, clock: h.clock });
   try {

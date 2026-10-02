@@ -7,10 +7,9 @@ import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
 import type { Fact } from "@ace/core";
 import type { Frame, SessionContext } from "@ace/engine-api";
 import { Command, Capabilities, type CommandPayload, type ServerMessage } from "@ace/protocol";
-import { Store } from "../store.ts";
+import { Store, Engine, AdapterRegistry, type EngineClock } from "@ace/daemon";
 import { startServer } from "../server.ts";
 import { Client, token } from "../socket-test-support.ts";
-import { Engine, AdapterRegistry, type EngineClock } from "./index.ts";
 
 export class ManualClock implements EngineClock {
   time = 1_000;
@@ -32,8 +31,8 @@ export class ManualClock implements EngineClock {
       }
   }
 }
-export const start: Fact = { type: "turn.started", agent: "root", trigger: "user" };
-export const end: Fact = { type: "turn.ended", agent: "root", outcome: "completed" };
+export const start = { type: "turn.started", agent: "root", trigger: "user" } satisfies Fact;
+export const end = { type: "turn.ended", agent: "root", outcome: "completed" } satisfies Fact;
 export const question: Fact = {
   type: "interaction.opened",
   agent: "root",
