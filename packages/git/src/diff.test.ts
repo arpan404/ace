@@ -1,8 +1,8 @@
-import { readFile, rename, rm } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GitService } from "./index.ts";
-import { git, put, repository } from "./test-repo.ts";
+import { git, put, repository, scratch } from "./test-repo.ts";
 
 const service = new GitService();
 
@@ -117,9 +117,28 @@ test("patch caps bound bytes while preserving complete per-file metadata", async
 });
 
 test("custom binary patch configuration and textconv do not inline binary bytes", async () => {
-  const repo = await repository({ "file.bin": Buffer.from([0, 1, 2, 3]) });
+  const repo = await repository({
+    "file.bin": Buffer.from([0, 1, 2, 3]),
+    ".gitattributes": "*.bin diff=custom\n",
+  });
+  const directory = await scratch();
+  const script = join(directory, "converter.cjs");
+  const converted = join(directory, "converted");
+  const external = join(directory, "external");
+  await writeFile(
+    script,
+    "require('node:fs').writeFileSync(process.argv[2], 'ran'); process.stdout.write('CONVERTED_CONTENT\\n');",
+  );
+  const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`;
+  await git(repo, "config", "diff.custom.binary", "true");
+  await git(repo, "config", "diff.custom.textconv", `${command} ${JSON.stringify(converted)}`);
+  await git(repo, "config", "diff.external", `${command} ${JSON.stringify(external)}`);
   await git(repo, "config", "diff.binary", "true");
   await put(repo, "file.bin", Buffer.from([0, 9, 8, 7]));
+  // The configured converter runs for normal Git diffs; ace must bypass it.
+  await git(repo, "diff", "--no-ext-diff");
+  expect(await readFile(converted, "utf8")).toBe("ran");
+  await rm(converted);
   const result = await service.diff({
     worktree: repo,
     from: { kind: "commit", ref: "HEAD" },
@@ -127,6 +146,9 @@ test("custom binary patch configuration and textconv do not inline binary bytes"
   });
   expect(result.entries[0]?.binary).toBe(true);
   expect(result.patch).not.toContain("GIT binary patch");
+  expect(result.patch).not.toContain("CONVERTED_CONTENT");
+  await expect(readFile(converted)).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(readFile(external)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
 test("unknown commits and non-checkpoint refs fail with typed errors", async () => {
