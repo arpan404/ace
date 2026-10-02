@@ -1,12 +1,14 @@
 # Verification
 
-Offline verification on this branch uses Vitest, the public adapter contract, core facts and projected client views. Session tests start a boundary double for the installed CLI as a real child process with a real authenticated HTTP/SSE server. They synchronize on received frames and HTTP responses, without sleeps or elapsed-time assertions. No provider prompt or recorder was run.
+The repository owner now requires static checks only during authoring. No tests, probes, benchmarks, mutations or CI are executed after that instruction. Final-head dynamic validation **needs run at merge**. The authoring gate is formatting, lint, typechecking and the 1,500-line size check. `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed after the final main merge. All 416 source files fit within 1,500 lines.
 
-The review follow-up merged `origin/main` before changes. The nine fixture expectation files remain unchanged. The package now has 78 passing tests and one skipped health-only live test. `bun run check` passed format, lint, the 1,500-line size limit, all workspace typechecks and 627 tests after the latest origin/main merge; five live tests were skipped. The first run after merging relay/notification work hit default five-second timeouts in fixture replay and daemon lifecycle; the unchanged full-check rerun passed all 627 tests. Session regressions use the exported adapter factory, real authenticated HTTP/SSE and child processes; the shutdown deadline is driven through an injected scheduler.
+Behavior tests use the public adapter contract, core facts and projected client views. Session tests start a CLI double as a real child process with authenticated HTTP/SSE and synchronize through received frames and HTTP responses. Clocks and shutdown deadlines are injected. No installed provider received a prompt and no recorder ran.
+
+This follow-up merged main and the ACP branch that supplies the shared transport facts, then merged main's model catalog at `19a7e14`. The nine fixture expectation files remain unchanged. Earlier reviews recorded passing suites and mutation campaigns before the new owner instruction; those results do not validate the final integrated head.
 
 ## Fixture timelines
 
-All nine expectation files pass through `@ace/adapter-testkit`'s `replayFixture` and `assertExpectations`, using transport liveness at 25 seconds. The testkit timeline CLI was also run for every fixture with its expectation checkpoint times.
+All nine fixture tests use `@ace/adapter-testkit`'s `replayFixture` and `assertExpectations`, with transport liveness at 25 seconds. The table records their intended checkpoints. The timeline CLI was used before the owner instruction; replay of the final integrated head needs run at merge.
 
 | Fixture             | Checkpoints and final state                                                                                                                     |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -15,7 +17,7 @@ All nine expectation files pass through `@ace/adapter-testkit`'s `replayFixture`
 | question            | Needs input at 5773, working at 5780, done at 7279; one resolved question.                                                                      |
 | plan-review         | Clarifying questions at 71873 and plan review at 113465; done at 113588; two agents and seven resolved interactions.                            |
 | subagent            | Child announced at 14528; approvals at 18103 and 23236; root still working at child completion 26694; done at 28789.                            |
-| subagent-background | Root blocked while child works at 9703; result delivery at 15621 leaves root working and child idle; done at 18399.                             |
+| subagent-background | Thread working, root blocked and child working at 9703; result delivery at 15621 leaves root working and child idle; done at 18399.             |
 | background-shell    | Healthy reasoning at 100000; approvals at 170232 and 173123; done at 187558; no provider-visible detached shell task.                           |
 | interrupt           | Working at 16649, waiting for surviving shell at 16661, done after terminal tool update at 16669; second idle at 16725 leaves root interrupted. |
 | retry-overloaded    | Upstream waits at 3378, 73739 and 104673; heartbeats maintain healthy working between retries; final remains waiting.                           |
@@ -55,7 +57,7 @@ Core's settled-root/working-child precedence makes the background-subagent threa
 
 ## Review regressions
 
-Each blocking finding was reproduced before its production fix. The first translator run failed on early authentication errors, resumed busy/retry grace, historical retry clocks, missing recognized metadata, and unbounded completed-part reconciliation. The first session run failed on foreign buffered disclosure, foreign traffic starving recovery, surviving-shell queue bypass, and local cancellation waiting for stalled abort. The failing assertions observed facts or projected views, raw frame delivery, accepted HTTP commands, and queued-promise settlement.
+Before the owner instruction, each original blocking finding was reproduced before its production fix. The first translator run failed on early authentication errors, resumed busy/retry grace, historical retry clocks, missing recognized metadata, and unbounded completed-part reconciliation. The first session run failed on foreign buffered disclosure, foreign traffic starving recovery, surviving-shell queue bypass, and local cancellation waiting for stalled abort. The failing assertions observed facts or projected views, raw frame delivery, accepted HTTP commands, and queued-promise settlement.
 
 - Early authentication failure before busy ends one failed run and clears pending wake, including a missing user announcement when the sent native message ID is known.
 - Child busy and retry both invalidate an earlier idle grace deadline.
@@ -80,9 +82,24 @@ Each blocking finding was reproduced before its production fix. The first transl
 - Injected task results settle the background job even before their user-message announcement.
 - Unknown native tool states remain pending and hold settlement until a terminal update.
 
+## Independent verifier follow-up
+
+The following public regressions were written around the verifier's failing scenarios. Their execution on the final integrated head **needs run at merge**.
+
+- B9: tool, text and reasoning parts retain `properties.unknownFuture="FUTURE_SIBLING_17"` in raw evidence. Native part data keeps its original shape; a separate envelope entry preserves sibling fields without duplicating the part body.
+- Malformed recognized parts without IDs retain the full original frame, including unknown fields.
+- N1: approval loss expires the interaction and reports unresponsive through heartbeat and busy frames. Shared `agent.disconnected` facts cover every known agent; children discovered during recovery receive the same fact. Only successful resync emits `agent.reconnected`.
+- Recovery race: an injected fetch holds the second idle status response after reading its body. Newer busy SSE is processed through the real stream before release. Assertions require working status and one accepted prompt until a later live idle releases the second prompt.
+- Idle eviction: idling one child evicts only that child's completed reasoning route. Another child's live reasoning still accepts deltas after the recent window fills.
+- I15 integration note: after its parent turn ends, an active background child keeps the thread working. Once the child idles, the undelivered background result keeps it waiting. The existing fixture also expects working at t=9703; the shared core precedence is unchanged.
+
+Snapshot receipt does not establish server generation order. Recovery tracks request-start and receipt ordinals, observes owned work synchronously, and stages idle snapshots through both bounded passes. An idle snapshot cannot close a turn if newer work arrived during its request. Replaying busy after premature turn completion cannot reopen the same native run, so staging happens before translation. Ambiguous terminal evidence waits for later live evidence or REST reconciliation.
+
+Before the owner instruction, an untouched main checkout at `709f66d` failed the local full check with 14 framework timeout errors under machine load above 250. The same main Git cases reproduced timeouts, and the previous adapter head merged with that main reproduced the background-shell fixture timeout. The integrated branch run also had framework timeouts. No unrelated test deadline was changed. Both temporary verification worktrees were clean and have been removed. No reruns are authorized now; the final suite needs run at merge.
+
 ## Performance
 
-Measured offline on darwin arm64, Node v26.8.1. Benchmarks are reproducible scripts in `benchmarks/`; they contain no gating latency or memory assertions. Emitted facts are discarded for translator retention measurements, and GC runs before heap samples. Reported translator numbers are medians of three runs after a warmup. Each message has a unique 2,000-character completed text part. The delta sample translates 50,000 one-character reasoning deltas and checks delivery settlement on every iteration.
+Historical measurements below were collected before the owner instruction on darwin arm64, Node v26.8.1. Final-head benchmark confirmation **needs run at merge**; no benchmark was rerun after the instruction. Benchmarks are reproducible scripts in `benchmarks/`; they contain no gating latency or memory assertions. Emitted facts are discarded for translator retention measurements, and GC runs before heap samples. Reported translator numbers are medians of three runs after a warmup. Each message has a unique 2,000-character completed text part. The delta sample translates 50,000 one-character reasoning deltas and checks delivery settlement on every iteration.
 
 | Completed messages | Ingest    | Retained translator heap | Delta + settlement |
 | ------------------ | --------- | ------------------------ | ------------------ |
@@ -98,11 +115,26 @@ The recovery benchmark drives the public adapter against the boundary CLI double
 | 20,000  | 1603.77 ms       | 20,000 / 157   | 522.03 ms       | 128 / 1        |
 | 40,000  | 3056.57 ms       | 40,000 / 313   | 525.16 ms       | 128 / 1        |
 
-## Mutation checks
+### Many live children
 
-All 22 review production mutations failed named behavior tests in the whole adapter suite and were reverted before the next mutation. The four review survivors are caught: 10 by the busy-child roundtrip barrier, 16 by projected usage, 18 by canonical spawn linkage, and 22 by provider-buffer reuse. The former full-part cache clone path was removed: caches now retain compact descriptors and never mutate content. The corresponding immutable-evidence fault is exercised by removing the raw boundary clone. Spawn linking now has one authority, `agent.linked.spawnedBy`, so corrupting that key can no longer be hidden by a redundant detail hint.
+`node --expose-gc packages/adapter-opencode/benchmarks/live-tree.ts` measures 1,000/10,000 simultaneously live children. Each status cycle receives busy, one reasoning part and idle, then checks settlement; deltas target a different still-live child. Three runs supply medians after warmup. Machine load was 200 to 320, so process CPU time excludes scheduler waiting and wall times are diagnostic only.
 
-| Review # | Production fault                     | Failing behavior                                                                   |
+| Scenario    | Live children | CPU / status cycle | CPU / delta + settlement |
+| ----------- | ------------- | ------------------ | ------------------------ |
+| Parts       | 1,000         | 24.75 µs           | 4.76 µs                  |
+| Parts       | 10,000        | 26.85 µs           | 4.80 µs                  |
+| Backgrounds | 1,000         | 71.96 µs           | 4.84 µs                  |
+| Backgrounds | 10,000        | 404.44 µs          | 4.27 µs                  |
+
+The former all-parts scan on idle was removed. Background status/grace transitions still scan live backgrounds to bind child completion and recompute the earliest fallback deadline. That cost depends on live jobs, never transcript history, and occurs on status/grace changes rather than deltas. The benchmark makes this remaining cost explicit; replacing grace deadline scans with an indexed scheduler is a separate optimization. No latency assertion gates tests.
+
+## Mutation plan
+
+Every case in the following tables is **not executed (tests run at merge)** for the final integrated head. The named public tests are designed to kill these faults. Historical campaigns before the owner instruction caught the original survivors 10, 16, 18 and 22; no throwaway mutation remains applied.
+
+The former full-part cache clone path is gone because caches now retain compact descriptors. Case 22 targets the raw boundary clone instead. Spawn linking has one authority, `agent.linked.spawnedBy`, so a redundant detail hint cannot hide case 18.
+
+| Review # | Production fault                     | Guarding behavior                                                                  |
 | -------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
 | 1        | rate_limit becomes upstream          | holds a rate_limit retry until a busy signal                                       |
 | 2        | network becomes upstream             | holds a network retry until a busy signal                                          |
@@ -120,23 +152,35 @@ All 22 review production mutations failed named behavior tests in the whole adap
 | 14       | cascade omitted                      | aborts known descendants and stops a background child independently                |
 | 15       | dismiss via reply                    | routes ordered answers, dismissals, plan decisions and approval replies            |
 | 16       | usage input always zero              | reports native usage and leaves returned raw evidence unchanged after later deltas |
-| 17       | native tool raw removed              | holds queued input through background-result delivery and the resumed parent turn  |
+| 17       | native tool raw removed              | renders bash with typed details and retains its native input                       |
 | 18       | spawnedBy corrupted                  | links an announced child to its later task without creating a second agent         |
 | 19       | supported version rejected           | supported 1.18.33 is accepted during session opening                               |
 | 20       | attachments ignore cwd               | resolves relative file attachments in the session workspace                        |
 | 21       | close resolves queued work           | cancels local queued work even when the abort endpoint never replies               |
 | 22       | raw evidence defensive clone removed | keeps raw nested tool input independent of later provider buffer reuse             |
 
-Four additional production faults also failed their public behavior tests and were reverted:
+Additional planned cases, each **not executed (tests run at merge)**:
 
-| #   | Production fault                              | Failing behavior                                                            |
+| #   | Production fault                              | Guarding behavior                                                           |
 | --- | --------------------------------------------- | --------------------------------------------------------------------------- |
 | 23  | ignore snapshot receipt watermark             | older buffered idle cannot overwrite a newer busy REST snapshot             |
 | 24  | do not rearm an early grace callback          | queued delivery remains held before, and proceeds at, the injected deadline |
 | 25  | recover without reconnecting a stalled stream | opens a new SSE connection before restoring heartbeat-gap recovery          |
 | 26  | ignore unfamiliar native live tool states     | holds the tool pending until a terminal update                              |
 
-After the watermark and pure resolution refactors, the buffered-delta and question-dismissal mutations were rerun and still failed.
+Verifier follow-up cases, each **not executed (tests run at merge)**:
+
+| #   | Production fault                                  | Guarding behavior                                            |
+| --- | ------------------------------------------------- | ------------------------------------------------------------ |
+| 27  | omit shared disconnect facts                      | approval loss stays unresponsive through heartbeats          |
+| 28  | omit disconnect for recovered children            | a newly discovered child stays unresponsive until resync     |
+| 29  | discard native part envelope evidence             | tool/text/reasoning sibling fields stay raw                  |
+| 30  | allow stale terminal snapshots despite newer work | the delayed idle response cannot release queued input        |
+| 31  | apply idle snapshots before final reconciliation  | the delayed idle response cannot close the active turn       |
+| 32  | take status request start at receipt              | an in-flight busy event keeps the queue held                 |
+| 33  | omit live-part owner index entries                | idling one child evicts its route without evicting another's |
+| 34  | omit shared reconnect facts                       | successful resync restores working status                    |
+| 35  | discard malformed part body                       | a recognized part without ID retains unknown fields          |
 
 ## Boundaries
 
@@ -144,6 +188,8 @@ The optional real-CLI test was not enabled in this run. It starts only the serve
 
 The adapter drives v1 routes. `session.next.*` remains raw until a separate v2 translation contract is specified. Detached shells have no native task lifecycle, so capabilities report partial background visibility. Recovery uses at most two snapshot passes and cannot wait indefinitely for global traffic to stop. Buffered deltas are never appended to snapshot content; continuously streaming content converges at the provider's later full part updates. Provider I/O stays outside the translator.
 
-A core-owner request remains for immediate transport liveness override: add `transport.lost` / `transport.restored` facts so recoverable SSE loss reports `unresponsive` immediately and throughout resync. The current contract supports silence-based detection only. This adapter emits loss/restoration lifecycle evidence, expires stale interactions and blocks queued input during recovery. It does not fake clocks or misreport recoverable outages as process exits. GitHub Actions [did not start either matrix job](https://github.com/arpan404/ace/actions/runs/37027346231) on the pushed branch because recent account payments failed or the spending limit needs to increase. Retrying the failed jobs produced the same pre-run failure. Local full checks passed; green CI requires an account billing change outside this worktree.
+The second verifier follow-up merged `origin/feat/adapter-acp` to reuse core's `agent.disconnected` / `agent.reconnected` facts from PR #14. The original core-owner request is resolved. Known and newly recovered children remain unresponsive until resync; heartbeat/busy evidence cannot clear explicit loss. Core's existing human and background-task precedence remains authoritative. No core/protocol implementation was written in this adapter branch.
 
-See [the request on PR #17](https://github.com/arpan404/ace/pull/17#issuecomment-5954715415).
+That dependency predates main's large-payload unions. Its inline raw reads now narrow the `data` variant, and its assertions accept streamed shell-output tails. These three ACP compatibility files are the only direct edits outside OpenCode in this follow-up.
+
+CI is disabled by the repository owner. This follow-up does not run, retry or watch CI. Only the permitted static checks gate authoring; tests, mutations and benchmark confirmation need run at merge.

@@ -22,9 +22,9 @@ await session.close("idle");
 
 The factory implements ADR 0007's `ProviderAdapter` and adds a daemon-wide `close()`. `adapter` and `opencodeAdapter` export a default owner for consumers that use a module directly. Each factory owns at most one server, resolves the user's installed CLI through provider-kit discovery, sets a fresh local server password, selects an ephemeral port, and waits for the SSE handshake before opening threads. All HTTP requests carry `?directory=`. The last closed thread stops the server; a later open starts a new server and can resume a native session through REST.
 
-Use `config: { provider: "opencode", liveness: "transport", silenceMs: 25_000 }` in core. Heartbeats keep the entire tree healthy during long tool calls and retries. A heartbeat gap closes and reconnects the SSE transport before resync. A disconnect expires current interactions and emits explicit `transport: "lost"` lifecycle evidence; successful recovery emits `transport: "restored"`. Reconnect reads session metadata, recursive children, messages and parts, pending permissions/questions and the status map. History is decoded value by value in pages of 128 using `limit` and `before`; later reconnects stop at the previous history head. Live and buffered events use the same directory, project and session-tree filter. Only owned events can request a second snapshot pass, and recovery has a two-pass bound. Snapshot-included deltas remain raw evidence on `sse.buffered`; full settlement updates newer than their REST receipt watermark reconcile at the end. Queued input stays held throughout recovery. Recovery failure stops the owned process and reports exit.
+Use `config: { provider: "opencode", liveness: "transport", silenceMs: 25_000 }` in core. Heartbeats keep the entire tree healthy during long tool calls and retries. A heartbeat gap closes and reconnects the SSE transport before resync. A disconnect expires current interactions and emits explicit `transport: "lost"` lifecycle evidence; successful recovery emits `transport: "restored"`. Reconnect reads session metadata, recursive children, messages and parts, pending permissions/questions and the status map. History is decoded value by value in pages of 128 using `limit` and `before`; later reconnects stop at the previous history head. Live and buffered events use the same directory, project and session-tree filter. Only owned events can request a second snapshot pass, and recovery has a two-pass bound. Snapshot-included deltas remain raw evidence on `sse.buffered`; snapshots record request-start and receipt ordinals. Idle snapshots stay staged until final reconciliation. Work received while a snapshot is in flight prevents that snapshot from prematurely closing its turn. Ambiguous terminal updates wait for subsequent live evidence or REST reconciliation. Queued input stays held throughout recovery. Recovery failure stops the owned process and reports exit.
 
-Core currently has no explicit transport-loss/restoration facts. Its 25-second silence threshold still determines `unresponsive`; recoverable disconnection cannot immediately override that status through the current fact contract. The requested core extension is documented in [verification](VERIFICATION.md).
+The translator uses core's shared `agent.disconnected` and `agent.reconnected` facts from PR #14. Disconnection immediately reports unresponsive for the affected agents, including children first discovered during recovery. Heartbeats and restored busy snapshots cannot clear that uncertainty; successful resync does. Core retains its existing human/background-task precedence.
 
 The translator creates children before task metadata arrives, then links their spawn item. Background jobs stay live until the parent receives the injected task result. A session-owned three-second timer supplies the translator's fallback tick when a child idles without delivering a result. Busy or retry cancels that deadline. Interrupted tools that remain running become background tasks before the turn ends; later terminal updates settle those tasks. Duplicate native idles do not create another run.
 
@@ -38,17 +38,20 @@ The translator keeps compact routing descriptors for live parts and a 256-entry 
 
 Sent message IDs use the native time-prefix layout so REST history retains its order. This implementation was written from the [primary identifier contract at the recorded revision](https://github.com/anomalyco/opencode/blob/51ef4be1d3c122f18fefb510dca8d778571f4f18/packages/opencode/src/id/id.ts), the [provider research](../../docs/research/providers/opencode.md), and [fixture analysis](../../docs/research/fixtures/opencode.md). No legacy implementation was used.
 
-Run `bun run check` for offline verification. The live health/SSE handshake is opt-in:
+During authoring, run only `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size`. The owner defers tests, probes, mutations and benchmarks to merge. See [verification](VERIFICATION.md) for checkpoints, regression coverage, mutation plans, historical measurements and dependency integration.
+
+At merge, the live health/SSE handshake is opt-in:
 
 ```sh
 ACE_LIVE_CLI=1 bun run test packages/adapter-opencode/src/live.test.ts
 ```
 
-It never creates a session or sends a prompt. See [verification](VERIFICATION.md) for fixture checkpoints, regressions, mutation evidence, benchmarks, and the core contract request.
+It never creates a session or sends a prompt.
 
-Offline benchmarks run only the pure translator or the boundary CLI double:
+The merge-time benchmark scripts use only the pure translator or the boundary CLI double. Do not run them during authoring:
 
 ```sh
 node --expose-gc packages/adapter-opencode/benchmarks/translator.ts
 node packages/adapter-opencode/benchmarks/recovery.ts
+node --expose-gc packages/adapter-opencode/benchmarks/live-tree.ts
 ```
