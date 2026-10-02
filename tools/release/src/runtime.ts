@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { readFile, readdir, cp, mkdir } from "node:fs/promises";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -11,6 +11,7 @@ import { openModelStorage } from "@ace/models";
 import { NotificationService } from "@ace/notify";
 import {
   BoundedLog,
+  runSupervisor,
   localService,
   runProcess,
   checked,
@@ -27,6 +28,7 @@ import {
   durableJson,
 } from "@ace/service";
 import { fileURLToPath } from "node:url";
+import { finished } from "node:stream/promises";
 // Build replaces this constant. A source checkout cannot authenticate a public release.
 export const RELEASE_PUBLIC_KEY = "__ACE_RELEASE_PUBLIC_KEY__";
 const sleep = () => new Promise<void>((r) => setTimeout(r, 1000));
@@ -187,79 +189,89 @@ export async function installArtifact(artifact: string) {
 }
 export async function supervise() {
   const root = dataDir();
-  const manifest = InstalledRelease.parse(
-    JSON.parse(readFileSync(join(root, await releasePointer(root), "release.json"), "utf8")),
-  );
   await mkdir(join(root, "logs"), { recursive: true, mode: 0o700 });
-  const stdout = new BoundedLog(join(root, "logs/output.log")),
-    stderr = new BoundedLog(join(root, "logs/error.log"));
-  const child = spawn(
-    process.execPath,
-    [fileURLToPath(new URL("./ace.mjs", import.meta.url)), "start"],
-    {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        ACE_VERSION: manifest.version,
-        ACE_MAINTENANCE: existsSync(join(root, "update.json")) ? "1" : "0",
+  const diagnostics = new BoundedLog(join(root, "logs/daemon.log"));
+  const diagnosticErrors = new BoundedLog(join(root, "logs/daemon.err.log"));
+  let saturated = false;
+  diagnostics.on("error", () => {});
+  diagnosticErrors.on("error", () => {});
+  const report = (error: unknown) => {
+    if (saturated || diagnosticErrors.destroyed) return;
+    saturated = !diagnosticErrors.write(
+      (error instanceof Error ? error.message : "Supervisor failure").slice(0, 4096) + "\n",
+    );
+    if (saturated)
+      diagnosticErrors.once("drain", () => {
+        saturated = false;
+      });
+  };
+  diagnostics.write("Supervisor starting\n");
+  try {
+    const manifest = InstalledRelease.parse(
+      JSON.parse(await readFile(join(root, await releasePointer(root), "release.json"), "utf8")),
+    );
+
+    process.exitCode = await runSupervisor({
+      output: new BoundedLog(join(root, "logs/output.log")),
+      errors: new BoundedLog(join(root, "logs/error.log")),
+      dailyUpdates: process.env.ACE_AUTO_UPDATE === "1",
+      journalPending: () => existsSync(join(root, "update.json")),
+      schedule(ms, callback) {
+        const timer = setTimeout(callback, ms);
+        return () => clearTimeout(timer);
       },
-    },
-  );
-  child.stdout?.pipe(stdout);
-  child.stderr?.pipe(stderr);
-  stdout.on("error", () => child.kill("SIGTERM"));
-  stderr.on("error", () => child.kill("SIGTERM"));
-  let updater: ReturnType<typeof spawn> | undefined;
-  const launchUpdater = (command: "apply" | "recover") => {
-    if (updater) return;
-    const args = [fileURLToPath(new URL("./ace.mjs", import.meta.url)), "update", command];
-    updater =
-      process.platform === "linux"
-        ? spawn(
-            "systemd-run",
-            [
-              "--user",
-              "--unit=ace-update",
-              "--collect",
-              "--property=RuntimeMaxSec=1800",
-              `--setenv=ACE_HOME=${root}`,
-              `--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`,
-              "--",
-              process.execPath,
-              ...args,
-            ],
-            { stdio: "ignore" },
-          )
-        : spawn(process.execPath, args, { stdio: "ignore", detached: true });
-    updater.once("error", () => {
-      updater = undefined;
+      subscribeStop(stop) {
+        process.once("SIGTERM", stop);
+        process.once("SIGINT", stop);
+        return () => {
+          process.removeListener("SIGTERM", stop);
+          process.removeListener("SIGINT", stop);
+        };
+      },
+      spawnDaemon: () =>
+        spawn(process.execPath, [fileURLToPath(new URL("./ace.mjs", import.meta.url)), "start"], {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            ACE_VERSION: manifest.version,
+            ACE_MAINTENANCE: existsSync(join(root, "update.json")) ? "1" : "0",
+          },
+        }),
+      launchUpdate(command) {
+        const args = [fileURLToPath(new URL("./ace.mjs", import.meta.url)), "update", command];
+        return process.platform === "linux"
+          ? spawn(
+              "systemd-run",
+              [
+                "--user",
+                "--wait",
+                "--unit=ace-update",
+                "--collect",
+                "--property=RuntimeMaxSec=1800",
+                `--setenv=ACE_HOME=${root}`,
+                `--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`,
+                "--",
+                process.execPath,
+                ...args,
+              ],
+              { stdio: "ignore" },
+            )
+          : spawn(process.execPath, args, { stdio: "ignore", detached: true });
+      },
+      report,
     });
-    // External updater must survive the service stop it requests.
-    updater.unref();
-    updater.once("exit", () => {
-      updater = undefined;
-    });
-  };
-  const timer = setInterval(() => {
-    if (process.env.ACE_AUTO_UPDATE === "1") launchUpdater("apply");
-  }, 86_400_000);
-  if (existsSync(join(root, "update.json"))) launchUpdater("recover");
-  const stop = () => {
-    clearInterval(timer);
-    child.kill("SIGTERM");
-  };
-  process.once("SIGTERM", stop);
-  process.once("SIGINT", stop);
-  await new Promise<void>((resolveExit, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code) => {
-      clearInterval(timer);
-      stdout.end();
-      stderr.end();
-      process.exitCode = code ?? 1;
-      resolveExit();
-    });
-  });
+  } catch (error) {
+    report(error);
+    throw error;
+  } finally {
+    await Promise.allSettled(
+      [diagnostics, diagnosticErrors].map(async (stream) => {
+        const done = finished(stream, { cleanup: true });
+        stream.end();
+        await done;
+      }),
+    );
+  }
 }
 export async function releaseCommand(args: string[]): Promise<boolean> {
   if (args[0] === "update") await updateCli(args.slice(1));

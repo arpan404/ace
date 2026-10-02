@@ -72,8 +72,8 @@ export function planService(input: ServiceConfig): ServicePlan {
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
 <key>ThrottleInterval</key><integer>15</integer>
 <key>EnvironmentVariables</key><dict>${plistEnvironment}</dict>
-<key>StandardOutPath</key><string>${xml(join(logDir, "daemon.log"))}</string>
-<key>StandardErrorPath</key><string>${xml(join(logDir, "daemon.err.log"))}</string>
+<key>StandardOutPath</key><string>/dev/null</string>
+<key>StandardErrorPath</key><string>/dev/null</string>
 </dict></plist>\n`,
     };
   return {
