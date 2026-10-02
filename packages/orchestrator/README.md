@@ -31,7 +31,8 @@ facts and persistence, drain newly committed intents, monitor thread status,
 and schedule a `tick` at the run deadline. `apply` mutates the exclusively
 owned state and returns only changes, like `@ace/core`. It never reads history.
 Use `recover` to validate a persisted snapshot and replay its original pending
-intents. Never create a second thread on recovery. Executors deduplicate
+intents. Recovery and execution share effect phase/stop rules, reject duplicate
+generations and require live lifecycle intents. Never create a second thread on recovery. Executors deduplicate
 `intentId` durably, including results whose acknowledgment was lost. If an
 operation throws or returns invalid data, `execute` leaves its intent pending;
 the engine reconciles ambiguous I/O before deciding to retry. A definitive
@@ -40,7 +41,9 @@ lane/attempt even when start has not yet bound a thread, fences outstanding
 starts for that attempt, and returns only when
 the whole thread tree has stopped. Cancelling revokes pending start/check
 intents, so restart cannot launch new work for a cancelled lane. Cancellation
-failures do not settle a lane.
+failures do not settle a lane. Stop facts include their cancellation intent ID,
+so a stale stop receipt cannot settle newly revived work. A stopped run retains
+its stop reason and recancels any revived lane and ancestor.
 
 The executor gets the pinned base SHA, workspace ID, target branch, lane
 provider/model, prompt and attempt. `start` creates a worktree/thread and sends
@@ -69,7 +72,10 @@ Templates:
   a failed descendant fails its parent. An agent cannot exceed the lane/depth
   limits or provide a parent ID in tool arguments.
 
-Facts carry lane ID and attempt. Usage counters are cumulative per attempt,
+Facts carry lane ID and attempt. Matching start bindings remain valid after
+status or completion arrives first; conflicting thread/worktree bindings are
+rejected. Descendant revival revokes both pending and accepted ancestor checks,
+so only a fresh check generation can approve the new tree. Usage counters are cumulative per attempt,
 not deltas. Replays/decreases cannot charge twice. Attempts accumulate usage,
 and counters saturate at `Number.MAX_SAFE_INTEGER`; budgets cannot exceed
 that value. Unknown monetary usage should be reported as zero and presented

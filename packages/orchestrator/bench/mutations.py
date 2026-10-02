@@ -16,9 +16,26 @@ mutations = [
     ("optional review gate", "reduce.ts", 'fact.commandPassed && (!state.input.template.checks.review || fact.reviewPassed === true)', 'fact.commandPassed', "orchestration.test.ts"),
     ("recovery intent replay", "recovery.ts", 'intents: Object.values(state.intents)', 'intents: []', "orchestration.test.ts"),
     ("target branch guard", "git.ts", 'info.branch !== state.input.targetBranch || info.head !== state.input.baseRef', 'info.head !== state.input.baseRef', "git.test.ts"),
+    ("command failure gate", "reduce.ts", 'fact.commandPassed && (!state.input.template.checks.review || fact.reviewPassed === true)', '(!state.input.template.checks.review || fact.reviewPassed === true)', "orchestration.test.ts"),
+    ("child completion accounting", "lifecycle.ts", 'parent.children--;', 'parent.children -= 0;', "coordinator.test.ts"),
+    ("untracked target safety", "git.ts", 'status.untracked.length ||', '', "git.test.ts"),
+    ("cost budget boundary", "reduce.ts", 's.usage.cost >= b.cost', 's.usage.cost > b.cost', "budgets.test.ts"),
+    ("start binding", "reduce.ts", 'lane.threadId = fact.threadId;', '', "executor.test.ts"),
+    ("artifact cap", "../../protocol/src/orchestration.ts", 'const text = z.string().max(8192);', 'const text = z.string().max(16384);', "order.test.ts"),
+    ("recovery ownership", "recovery.ts", 'if (key !== entry.id || !lane || lane.attempt !== entry.effect.attempt)\n      throw new Error("Invalid intent ownership");', '', "review-regressions.test.ts"),
+    ("ancestor reopening", "reduce.ts", 'reopen(m, parent);', '', "review-regressions.test.ts"),
+    ("summary truncation", "summary.ts", 'let truncated = lanes.some((lane) => lane.filesTruncated);', 'let truncated = false;', "review-regressions.test.ts"),
+    ("revival cancellation ownership", "reduce.ts", 'if (m.state.stopReason) cancelLane(m, lane);', '', "review-regressions.test.ts"),
+    ("obsolete ancestor checks", "reduce.ts", 'parent.children++;\n      clearChecks(m, parent);', 'parent.children++;', "review-regressions.test.ts"),
+    ("status-before-binding receipt", "reduce.ts", 'fact.type === "bound" && lane.phase !== "queued"', 'fact.type === "bound" && lane.phase === "starting"', "review-regressions.test.ts"),
+    ("recovery phase compatibility", "recovery.ts", 'if (!canExecute(state, lane, entry.effect)) throw new Error("Invalid intent phase");', '', "review-regressions.test.ts"),
+    ("accepted ancestor check invalidation", "state.ts", 'delete lane.checksPassed;', '', "review-regressions.test.ts"),
+    ("global summary overflow", "summary.ts", '          truncated = true;', '', "recovery.test.ts"),
 ]
 for name, file, original, replacement, test in mutations:
-    path = ROOT / "packages/orchestrator/src" / file
+    path = (ROOT / "packages/orchestrator/src" / file).resolve()
+    if not path.is_relative_to(ROOT) or path.is_relative_to(ROOT / "packages/git"):
+        raise RuntimeError("Mutation outside the authorized workstream")
     source = path.read_text()
     if source.count(original) != 1:
         raise RuntimeError(f"Mutation {name} needs exactly one matching edit")

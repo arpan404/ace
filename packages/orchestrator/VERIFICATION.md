@@ -46,39 +46,91 @@ or recorder sessions were run.
 - Sparse side-by-side summaries align shared paths and retain lane-specific changes.
 - Reruns keep the definition, assign fresh run/lanes/budgets and isolate prior results.
 
+## Review regression coverage
+
+`bun run check` passes with 458 tests and four existing skips. The orchestrator
+has 72 passing tests. The initial review probes went red before production
+changes: cancellation revival, ancestor cancellation phase, obsolete ancestor
+checks, deferred start bindings, and cancelled snapshots with start intents.
+Each was rerun green after its fix. Additional stop-generation and closed-run
+revival probes were also run red before their fixes.
+
+- Revived work retains cancellation ownership through persisted-state recovery.
+- Revived children preserve cancelling ancestors and their executable stop effects.
+- Reopening a settled child reopens all formerly successful ancestors.
+- Old ancestor check X cannot approve the lane while current check Y is pending.
+- Previously accepted ancestor checks are invalidated across a nested chain.
+- Deferred start receipts bind after earlier status without regressing the phase.
+- Matching receipts bind working, waiting, collecting, checking and terminal lanes.
+- Conflicting resource bindings are rejected; identical repeats preserve ownership.
+- Real Git comparison still includes lanes whose status arrived before their binding.
+- Old cancellation receipts cannot settle revived work's new cancellation generation.
+- Later aggregate failures invalidate success; expired closed-run revivals are cancelled.
+- Recovery rejects unexecutable phases, wrong keys/attempts, duplicate generations and missing required effects.
+- Side-by-side summaries expose upstream truncation and their global row cap.
+- Pipeline tests guard stage roles rather than exact instruction wording.
+- Command routing creates observable orchestration state through the fake transactional host port. Production daemon persistence remains the engine's responsibility.
+
 ## Mutation audit
 
-Run `python3 packages/orchestrator/bench/mutations.py`. The script applies one
-production change at a time, requires a behavioural assertion failure, and
-restores the file in `finally`. All 12 were killed and reverted:
+Run `python3 packages/orchestrator/bench/mutations.py`. Each temporary production
+edit must trigger a behavioural assertion failure and is restored in `finally`.
+The script refuses to touch `packages/git`. All 27 were caught and reverted,
+including the three review survivors at rows 19–21.
 
-| Mutation                                        | Behaviour that failed                          |
-| ----------------------------------------------- | ---------------------------------------------- |
-| Replace the fanout start prompt                 | All lanes must receive the user's prompt       |
-| Disable race winner selection                   | A passing race lane wins and losers cancel     |
-| Settle cancellation before its acknowledgment   | Budget cancellation must await stops           |
-| Drop the pipeline artifact input                | Review/fix must receive the previous artifact  |
-| Allow depth equal to the maximum to spawn again | Nested task past the depth cap is rejected     |
-| Change token budget `>=` to `>`                 | Exact budget exhaustion starts cancellation    |
-| Accept facts from an old attempt                | Retry ignores old completion and usage         |
-| Add cumulative usage as though it were a delta  | Replay cannot double-charge                    |
-| Ignore unfinished children when reconciling     | Planner waits for blocked descendants          |
-| Skip the optional review predicate              | Passing command without review is insufficient |
-| Return no intents on recovery                   | Persisted work must replay with original IDs   |
-| Remove the target branch predicate              | Wrong-branch winner application is refused     |
+| #   | Mutation                             | Behaviour that failed                                 |
+| --- | ------------------------------------ | ----------------------------------------------------- |
+| 1   | Wrong fanout prompt                  | Lanes receive the user's prompt                       |
+| 2   | Disable race winner                  | First passing race wins                               |
+| 3   | Immediate cancellation completion    | Budget cancellation awaits stops                      |
+| 4   | Drop pipeline artifact input         | Next stage receives the artifact                      |
+| 5   | Allow extra depth                    | Nested tasks obey depth cap                           |
+| 6   | Token `>=` to `>`                    | Exact token exhaustion cancels                        |
+| 7   | Accept old attempt                   | Stale retry facts are ignored                         |
+| 8   | Charge cumulative usage as a delta   | Usage replay cannot charge twice                      |
+| 9   | Ignore unfinished children           | Planner waits for descendants                         |
+| 10  | Skip optional review                 | Command pass still needs review                       |
+| 11  | Drop recovered intents               | Original work replays after restart                   |
+| 12  | Remove target branch guard           | Wrong-branch application is refused                   |
+| 13  | Ignore command failure               | Race cannot select a failed check                     |
+| 14  | Omit child decrement                 | Planner finishes only after children settle           |
+| 15  | Ignore untracked target dirt         | Local files are preserved                             |
+| 16  | Cost `>=` to `>`                     | Exact cost exhaustion cancels                         |
+| 17  | Disable binding                      | Start receipt preserves thread identity               |
+| 18  | Raise artifact cap                   | Oversized artifacts cannot create work                |
+| 19  | Remove recovery ownership validation | Miskeyed and mismatched-attempt receipts are rejected |
+| 20  | Disable ancestor reopening           | Nested revival keeps ancestors active                 |
+| 21  | Suppress summary truncation flag     | Incomplete file metadata is signalled                 |
+| 22  | Omit revived lane cancellation       | Revived work still needs stop acknowledgment          |
+| 23  | Keep old ancestor checks             | Obsolete X cannot approve current Y                   |
+| 24  | Bind only starting lanes             | Status-before-receipt retains binding                 |
+| 25  | Skip recovery phase compatibility    | Cancelled snapshots cannot replay starts              |
+| 26  | Keep accepted ancestor checks        | Reopened descendants force fresh ancestor checks      |
+| 27  | Suppress global row overflow flag    | Capped comparison marks dropped rows                  |
 
 ## Non-gating benchmark
 
-`bun run --filter @ace/orchestrator benchmark` uses Node 26.8.1 and 300,000 operations
-per path per lane count. Each lane changes thread phase every round, so the
-status benchmark includes event emission and counter updates. Both paths parse
-the public fact schema. Numbers are measurements on this machine, not CI limits.
+`bun run --filter @ace/orchestrator benchmark`, Node 26.8.1. Each fact path runs
+300,000 operations per lane count, including public schema parsing. Thread
+facts change each lane's phase every round, including counter/event updates.
+Numbers are measurements on this shared machine, not CI limits.
 
 | Lanes | Usage ops/s | Usage us/op | Thread ops/s | Thread us/op | Peak RSS MiB |
 | ----- | ----------- | ----------- | ------------ | ------------ | ------------ |
-| 1     | 2,339,878   | 0.43        | 1,112,479    | 0.90         | 102.6        |
-| 16    | 2,352,060   | 0.43        | 2,798,222    | 0.36         | 103.2        |
-| 64    | 2,346,952   | 0.43        | 2,709,501    | 0.37         | 103.3        |
+| 1     | 1,922,046   | 0.52        | 2,151,925    | 0.46         | 103.3        |
+| 16    | 1,962,160   | 0.51        | 2,347,226    | 0.43         | 103.7        |
+| 64    | 1,951,774   | 0.51        | 2,329,624    | 0.43         | 103.7        |
 
-Counters and lane lookups update in O(1); child propagation is bounded by depth 8. Snapshot validation, initialization, picking, cancellation and recovery
-scan the bounded active state. No output stream or event history is retained.
+The added lifecycle benchmark runs 10,000 revival/check cycles at 64 lanes.
+Unrelated lane starts remain pending; each cycle reopens a leaf, invalidates
+ancestor checks and completes the fresh check chain. It retains no history.
+
+| Depth | Cycles/s | us/cycle | Peak RSS MiB |
+| ----- | -------- | -------- | ------------ |
+| 1     | 45,452   | 22.00    | 104.5        |
+| 8     | 9,809    | 101.95   | 122.3        |
+
+Ordinary facts update counters/lookups in O(1). Parent propagation is bounded
+by depth 8; rare lifecycle cleanup scans at most 129 current intents per lane
+rather than history. Snapshot validation, pick and cancellation scan capped
+active state. No output stream or event history is retained.

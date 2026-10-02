@@ -50,7 +50,9 @@ must deduplicate by intent ID, including starts, checks, cancellations and
 merges. On restart replay pending intents with their original IDs and reconcile
 existing thread statuses. Never start an extra thread merely because a receipt
 was lost. This package provides the replay contract; SQLite ownership belongs
-to the engine. Its execution helper acknowledges successful effects only.
+to the engine. Its execution helper acknowledges successful effects only. Recovery
+uses the same executable-phase rules as the executor and rejects stopped-start
+intents, ambiguous generations, bad ownership and missing required effects.
 
 ## Protocol and wire additions
 
