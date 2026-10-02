@@ -1,6 +1,6 @@
 # Verification
 
-The repository owner requires static checks during authoring, with an explicit exception for specific test files covering merge conflicts. The latest merge used that exception as recorded below. Full-suite validation, probes, benchmarks and mutation runs still **need run at merge**. CI remains disabled. `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed after integrating main at `46eb036`. All 669 source files fit within 1,500 lines.
+The repository owner requires static checks during authoring, with an explicit exception for specific test files covering merge conflicts. The latest merge used that exception as recorded below. Full-suite validation, probes, benchmarks and mutation runs still **need run at merge**. CI remains disabled. `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed after integrating main through `4c2d6fb`. All 676 source files fit within 1,500 lines.
 
 Behavior tests use the public adapter contract, core facts and projected client views. Session tests start a CLI double as a real child process with authenticated HTTP/SSE and synchronize through received frames and HTTP responses. Clocks and shutdown deadlines are injected. No installed provider received a prompt and no recorder ran.
 
@@ -18,7 +18,7 @@ The owner's merge-conflict exception authorized this exact test selection:
 bunx vitest run packages/core/src/adapter-contracts.test.ts packages/core/src/acp-lifecycle.test.ts packages/adapter-opencode/src/verifier-translator.test.ts packages/adapter-opencode/src/background-index.test.ts packages/adapter-opencode/src/fixture.test.ts packages/adapter-opencode/src/session.test.ts
 ```
 
-Result: **6 files, 40 tests passed**. This covers queue sources and rejected invalid sources, connection uncertainty, uncertain tasks, all nine fixture expectations, background status precedence, grace deadlines and HTTP session behavior. New assertions cover the shared deadline hook, a root/child key collision and independent child stopping. No full suite, CI, probes, benchmarks or mutations were run. Other dynamic validation **needs run at merge**.
+Result: **6 files, 40 tests passed**, both after the conflict resolution and again after merging main's subsequent core audit commit `4c2d6fb`. The final run completed in 6.70 seconds. This covers queue sources and rejected invalid sources, connection uncertainty, uncertain tasks, all nine fixture expectations, background status precedence, grace deadlines and HTTP session behavior. New assertions cover the shared deadline hook, a root/child key collision and independent child stopping. No full suite, CI, probes, benchmarks or mutations were run. Other dynamic validation **needs run at merge**.
 
 Additional mutation cases designed for these public tests, all **not executed (tests run at merge)**:
 
