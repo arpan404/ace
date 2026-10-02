@@ -1,0 +1,96 @@
+{
+  "date": "2026-10-02",
+  "node": "26.8.1",
+  "platform": "Darwin arm64",
+  "note": "Shared development host with other concurrent work. Separate processes per configuration; 40 samples per query. Engine timings exclude daemon event-log/MCP writes and WebSocket/worker startup.",
+  "results": [
+    {
+      "items": 1000000,
+      "trigrams": false,
+      "threads": 10000,
+      "indexSeconds": 78.419220792,
+      "itemsPerSecond": 12751.975726109431,
+      "deltaEventsPerSecond": 10341.512953003465,
+      "streamIndexWrites": 1,
+      "latency": {
+        "diagnostic12345": {
+          "p50Ms": 0.08708399999886751,
+          "p99Ms": 0.8568340000056196
+        },
+        "variant1234": {
+          "p50Ms": 0.33654200000455603,
+          "p99Ms": 0.8452920000127051
+        },
+        "shard123": {
+          "p50Ms": 1.2990419999987353,
+          "p99Ms": 1.9008750000066357
+        },
+        "compiler": {
+          "p50Ms": 752.896207999991,
+          "p99Ms": 2060.8033330000035
+        },
+        "palette:recent": {
+          "p50Ms": 0.15899999999965075,
+          "p99Ms": 23.567167000001064
+        },
+        "palette:Comp": {
+          "p50Ms": 7.579333000001498,
+          "p99Ms": 73.47925000000396
+        }
+      },
+      "databaseBytes": 567353344,
+      "sampledPeakRssBytes": 201146368,
+      "peakRssBytes": 201146368
+    },
+    {
+      "items": 1000000,
+      "trigrams": true,
+      "threads": 10000,
+      "indexSeconds": 88.297193042,
+      "itemsPerSecond": 11325.388333968143,
+      "deltaEventsPerSecond": 24055.619035259693,
+      "streamIndexWrites": 1,
+      "latency": {
+        "diagnostic12345": {
+          "p50Ms": 0.09187499999825377,
+          "p99Ms": 0.36162500000500586
+        },
+        "variant1234": {
+          "p50Ms": 0.3330829999904381,
+          "p99Ms": 0.5822499999922002
+        },
+        "shard123": {
+          "p50Ms": 1.3073329999897396,
+          "p99Ms": 1.8289999999979045
+        },
+        "compiler": {
+          "p50Ms": 800.0792079999956,
+          "p99Ms": 3258.8023339999927
+        },
+        "substring:/src/module123.ts": {
+          "p50Ms": 102.94137499999488,
+          "p99Ms": 124.4009579999838
+        },
+        "substring:oBar": {
+          "p50Ms": 798.255416,
+          "p99Ms": 3810.5419999999867
+        },
+        "substring:\u4eac\u958b\u767a": {
+          "p50Ms": 616.2635840000003,
+          "p99Ms": 2423.052416999999
+        },
+        "palette:recent": {
+          "p50Ms": 0.12829100000089966,
+          "p99Ms": 0.31345800001872703
+        },
+        "palette:Comp": {
+          "p50Ms": 5.588749999995343,
+          "p99Ms": 6.032749999983935
+        }
+      },
+      "databaseBytes": 1037758464,
+      "sampledPeakRssBytes": 201441280,
+      "peakRssBytes": 201441280
+    }
+  ]
+}

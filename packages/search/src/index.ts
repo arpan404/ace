@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 import { setImmediate as yieldImmediate } from "node:timers/promises";
 import {
@@ -11,6 +12,8 @@ import { migrateSearch } from "./schema.ts";
 import { SearchWriter } from "./writer.ts";
 import { querySearch } from "./query.ts";
 export { FIELD_CAP, GAP } from "./text.ts";
+
+const ItemKey = z.object({ item: z.string() });
 
 export interface SearchSource {
   headSeq(): number;
@@ -87,7 +90,7 @@ export class SearchIndex {
           .get("SELECT item FROM search_stage WHERE thread=? LIMIT 128")
           .all(threadId);
         if (!rows.length) break;
-        for (const row of rows) this.writer.deleteItem(threadId, String(row.item));
+        for (const row of rows) this.writer.deleteItem(threadId, ItemKey.parse(row).item);
       }
       this.writer.sql.run("DELETE FROM search_threads WHERE id=?", threadId);
     });

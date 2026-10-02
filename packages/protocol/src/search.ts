@@ -54,6 +54,8 @@ export const SearchHit = z.object({
   workspaceId: WorkspaceId,
   provider: ProviderKind,
   status: SearchState,
+  /** Compare against canonical subscription sequence before displaying this snapshot status. */
+  statusSeq: z.number().int().nonnegative(),
   kind: SearchKind,
   createdAt: Timestamp,
   title: SearchSnippet,

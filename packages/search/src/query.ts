@@ -22,6 +22,7 @@ const Row = z.object({
   workspace: z.string(),
   provider: z.string(),
   status: z.string(),
+  statusSeq: z.number().int().nonnegative(),
   score: z.number(),
   titleSnippet: z.string(),
   bodySnippet: z.string(),
@@ -110,7 +111,7 @@ export function querySearch(
   }
   values.push(q.limit + 1);
   const rows = sql
-    .get(`SELECT d.id,d.thread,d.item,d.agent,d.kind,d.at,t.title AS threadTitle,t.workspace,t.provider,t.status,
+    .get(`SELECT d.id,d.thread,d.item,d.agent,d.kind,d.at,t.title AS threadTitle,t.workspace,t.provider,t.status,t.seq AS statusSeq,
       ${score} AS score,${title} AS titleSnippet,${body} AS bodySnippet
     FROM ${text ? `${table} JOIN search_docs d ON d.id=${table}.rowid` : "search_docs d"}
     JOIN search_threads t ON t.id=d.thread WHERE ${where.join(" AND ")}
@@ -131,6 +132,7 @@ export function querySearch(
       workspaceId: row.workspace,
       provider: row.provider,
       status: row.status,
+      statusSeq: row.statusSeq,
       kind: row.kind,
       createdAt: row.at,
       score: row.score,

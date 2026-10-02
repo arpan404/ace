@@ -368,6 +368,7 @@ test("current thread metadata wins over older backfill so active threads never a
   log.index.backfillBatch(log);
   const results = log.query("statusneedle", { filters: { status: "working" } });
   expect(results.hits[0]?.status).toBe("working");
+  expect(results.hits[0]?.statusSeq).toBe(log.headSeq() + 1);
   expect(results.hits[0]?.threadTitle).toBe("Current title");
   expect(log.query("statusneedle", { filters: { status: "done" } }).hits).toEqual([]);
 });
