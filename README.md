@@ -14,14 +14,16 @@ ace never asks for or stores your provider credentials. Each agent CLI uses the 
 
 ## Repository layout
 
-| Path                  | Purpose                                                              |
-| --------------------- | -------------------------------------------------------------------- |
-| `apps/daemon`         | Local SQLite event store and authenticated WebSocket server          |
-| `packages/projection` | Pure shared event folds for thread and sidebar views                 |
-| `packages/protocol`   | Canonical protocol: Zod schemas and types, no runtime logic          |
-| `tools/recorder`      | Records raw provider sessions as fixtures for adapter contract tests |
-| `docs/adr`            | Architecture decision records                                        |
-| `docs/research`       | Primary-source research behind the decisions                         |
+| Path                      | Purpose                                                                 |
+| ------------------------- | ----------------------------------------------------------------------- |
+| `apps/relay`              | Self-hosted WebSocket relay with encrypted outbound host/client streams |
+| `packages/secure-channel` | Portable Noise XX handshake, ordered transport and static identity      |
+| `apps/daemon`             | Local SQLite event store and authenticated WebSocket server             |
+| `packages/projection`     | Pure shared event folds for thread and sidebar views                    |
+| `packages/protocol`       | Canonical protocol: Zod schemas and types, no runtime logic             |
+| `tools/recorder`          | Records raw provider sessions as fixtures for adapter contract tests    |
+| `docs/adr`                | Architecture decision records                                           |
+| `docs/research`           | Primary-source research behind the decisions                            |
 
 ## Development
 
@@ -34,6 +36,8 @@ bun run --filter @ace/daemon dev
 ```
 
 The daemon prints its URL and token-file path. See [store and sync](docs/daemon/store-and-sync.md) for configuration, the development creator, the command port, and replay behavior.
+
+Remote access relay setup and APIs are described in [encrypted relay](docs/relay/README.md).
 
 ## License
 

@@ -1,0 +1,22 @@
+# Relay mutation verification
+
+On 2026-10-02, each change below was applied alone to production code. A focused Vitest run failed for the named behaviour, then the exact original file was restored before the next mutation. No mutation remains in the branch.
+
+| Mutation                            | Production file                         | Failing behaviour                                                                            |
+| ----------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| HKDF output order                   | `packages/secure-channel/src/crypto.ts` | official Noise XX vectors matches every cacophony handshake and bidirectional transport byte |
+| Nonce endianness                    | `packages/secure-channel/src/cipher.ts` | official Noise XX vectors matches every cacophony handshake and bidirectional transport byte |
+| Pinned identity bypass              | `packages/secure-channel/src/noise.ts`  | aborts before completing a handshake with the wrong pinned host fingerprint                  |
+| Ciphertext authentication bypass    | `packages/secure-channel/src/cipher.ts` | rejects tampered, replayed and reordered ciphertext without advancing the receive nonce      |
+| Transport nonce reuse               | `packages/secure-channel/src/cipher.ts` | rejects tampered, replayed and reordered ciphertext without advancing the receive nonce      |
+| Noise size limit bypass             | `packages/secure-channel/src/cipher.ts` | accepts maximum Noise transport size and rejects larger messages                             |
+| Rekey keeps the old key             | `packages/secure-channel/src/cipher.ts` | coordinated directional rekeys keep the nonce and replace the old key                        |
+| Relay frame-size bypass             | `apps/relay/src/server.ts`              | oversized binary frames and text frames are closed before forwarding                         |
+| IP connection limit bypass          | `apps/relay/src/limits.ts`              | per-IP concurrent connection limits reject upgrades and release slots on close               |
+| Message-rate bypass                 | `apps/relay/src/limits.ts`              | message rate limits apply across sockets from one IP and tokens recover with time            |
+| Relay backpressure disabled         | `apps/relay/src/server.ts`              | 10 MB crosses the relay under backpressure with bounded buffers and reverse traffic          |
+| Control-frame rate bypass           | `apps/relay/src/server.ts`              | WebSocket control frames cannot bypass per-IP message rate limits                            |
+| Ticket consumption bypass           | `apps/relay/src/server.ts`              | stream tickets are single-use and expire before an unauthenticated join can consume them     |
+| Host id trusts an asserted identity | `apps/relay/src/server.ts`              | registration proves possession of the static key and ignores a claimed host id               |
+
+Focused runs used `bun run test <test file> -t <behaviour pattern> --reporter=json`. The final unmutated repository is checked with `bun run check`. These are hand-applied defects, not claims of exhaustive mutation coverage.
