@@ -94,8 +94,7 @@ Each file is an independent source. A watcher event invalidates that path only;
 rename updates reconcile that subtree. Debounce uses a bounded pending set and
 falls back to a bounded root reconciliation on overflow or unnamed events.
 Missing roots are watched through their nearest existing ancestor.
-A repeated real-filesystem probe demonstrated missing native notifications,
-even with a single watcher. A round-robin recovery ring therefore checks at
+Native notifications are platform-dependent and can be missed. A round-robin recovery ring checks at
 most 32 path metadata records per 250 ms tick and queues only changed paths.
 At most 4,160 paths are retained; slot reuse preserves fairness under churn.
 Only one recovery batch can run at a time. Tests inject notification loss and
@@ -118,5 +117,8 @@ escaping, non-recursive replacement, native and expanded plans, instance/scope
 precedence, runtime replacement, fuzzy usage ranking and resource limits.
 Filesystem tests use temporary directories and event-driven watcher completion,
 without synchronization sleeps. WebSocket tests cover authenticated list and
-resolve, thread context and remote read scopes. At least eight production-code
-mutations must each fail a behavioral test before delivery.
+resolve, thread context and remote read scopes. Mutation cases identify which
+behaviors the tests are designed to guard. Under the repository owner's current
+policy, tests, mutation runs and benchmark execution happen at merge time;
+runtime validation needs run at merge. Delivery uses formatting, lint, size
+and type checks only.
