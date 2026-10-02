@@ -13,11 +13,15 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "dev": "node src/cli.ts",
+    "bench:payloads": "node --expose-gc bench/payloads.ts",
     "bench:mcp": "node bench/mcp.ts",
-    "bench:remote": "node --expose-gc src/remote.bench.ts"
+    "bench:remote": "node --expose-gc src/remote.bench.ts",
+    "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {
     "@ace/mcp-server": "workspace:*",
+    "@ace/models": "workspace:*",
+    "@ace/notify": "workspace:*",
     "@ace/plugins": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
