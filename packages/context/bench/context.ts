@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { watch, type FSWatcher } from "node:fs";
 import { performance } from "node:perf_hooks";
 import {
   GitWorkspace,
@@ -84,6 +85,53 @@ try {
     await cache.close();
   }
   cachedSamples.sort((a, b) => a - b);
+  await writeFile(join(root, "secret-context.ts"), "secret");
+  const scheduled = Promise.withResolvers<() => Promise<void>>();
+  let recoveryWatcher: FSWatcher | undefined;
+  const recoveryCache = new WorkspaceCache(
+    1,
+    (workspaceRoot) => {
+      const git = new GitWorkspace(workspaceRoot);
+      return {
+        root: workspaceRoot,
+        get index() {
+          return git.index;
+        },
+        initialize: () => git.initialize(),
+        inspect: (path) => git.inspect(path),
+        read: (path, limit) => git.read(path, limit),
+        update: async () => {
+          recoveryWatcher?.close();
+          throw new Error("transient Git I/O failure");
+        },
+      };
+    },
+    {
+      after: (_delay, task) => {
+        scheduled.resolve(task);
+        return () => {};
+      },
+    },
+    (workspaceRoot) => {
+      recoveryWatcher = watch(workspaceRoot, { recursive: true });
+      return recoveryWatcher;
+    },
+  );
+  let recoveryRebuildMs = 0;
+  try {
+    await recoveryCache.get(root);
+    await writeFile(join(root, ".gitignore"), "secret-context.ts\n");
+    const retry = await scheduled.promise;
+    // The scheduler's injected task becomes runnable after flush's finally.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    start = performance.now();
+    await retry();
+    recoveryRebuildMs = performance.now() - start;
+    if ((await recoveryCache.get(root)).index.complete("secret-context").length)
+      throw new Error("Recovery retained ignored path");
+  } finally {
+    await recoveryCache.close();
+  }
   store = await UploadStore.open({
     root: join(root, ".git", "context"),
     now: Date.now,
@@ -164,6 +212,7 @@ try {
         completionP95Us: samples[Math.floor(samples.length * 0.95)],
         updateUs,
         subtreeUpdateUs,
+        recoveryRebuildMs,
         cachedCompletionDuringUpdateMedianUs: cachedSamples[300],
         cachedCompletionDuringUpdateP95Us: cachedSamples[570],
         leaseUs,

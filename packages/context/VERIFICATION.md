@@ -1,75 +1,82 @@
 # Context verification
 
-`bun run check` passes format, lint, the 1,500-line source limit, TypeScript and Vitest: 619 passed, four existing opt-in provider tests skipped. The feature has 70 behavior tests through public APIs using real Git repositories, files, symlinks, temporary SQLite, WS and paired pinned WSS. The latest main merge includes relay and notifications. No provider prompts, recorder sessions or GitHub CI runs were used.
+The repo owner's latest instruction supersedes earlier test and gate requirements. This final revision receives static checks only. Behavior tests, mutations, benchmarks and probes are **not executed (tests run at merge)** for the final revision. Runtime correctness and performance claims need run at merge. No CI, provider prompts or recorder sessions are requested or run.
 
-An unmodified full gate passed. Later overloaded rechecks hit existing daemon, notification and core timeouts. Final validation uses `bun run check -- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000` to reduce test-worker contention and allow loaded subprocess startup with unchanged assertions and no repository timeout changes. The earlier focused daemon lifecycle rerun also passed. Tests add no gating performance budgets or synchronization sleeps.
+`bun run fmt`, `bun run lint`, `bun run check:size` and `bun run typecheck` pass. The size check covers 378 source files, all below 1,500 lines.
 
-## Review regressions
+Main at `19a7e14` was merged without rebasing in `1430295`. Conflict resolution preserves context, model-catalog and orchestration requests, both daemon-owned service lifetimes, and provider-kit's raw-stream extension with main's output limit. All work stays in the context worktree. The temporary baseline archive was removed.
 
-All three blockers were reproduced before fixing production code. A chunked 4 MiB PDF raised a V8 stack overflow during composition. A composed Codex local image disappeared after thread release and GC. A 44-byte WebP with a 1x1 canvas and 10000x10000 lossless frame committed successfully. Their behavior tests now pass, including Claude and ACP large documents, both VP8 frame encodings, atomic batch pinning during preparation, explicit consumption release, preparation-failure cleanup, lease admission caps and descriptor mutation safety.
+## Review changes and behavior coverage
 
-Real Git subtree tests reproduced ignored tracked filenames reappearing and deleted descendants remaining. An owned Node executable emits 9000 bytes, ignores SIGTERM and holds stdout open; overflow and cancellation tests assert its PID is gone after rejection. A real filesystem watcher plus an injected update barrier verifies cached completion returns the published index before the update completes.
+- A transient `.gitignore` update failure recovers without another filesystem event. Real Git supplies the index, the test closes the failed notification source, and an injected scheduler advances one retry before public completion excludes `secret.txt`.
+- Watcher errors schedule one timer with increasing delays. New notifications preserve backoff, published completion stays usable, and close cancels the timer. Recovery replaces the index and watcher; eviction and close prevent an in-flight rebuild from re-arming a disposed entry.
+- Invalid `AB==` and `AAB=` projection bytes fail for Claude and ACP, while canonical counterparts preserve bytes.
+- Reserved VP8L version bits reject upload retention, while a valid lossless frame commits.
+- An accepted `thread.send` preserves prompt, delivery mode and native context through an owned Node CLI sink. GC retains a local image while consumption waits and collects it after acknowledgement.
+- A denied command never reaches the consumer. Consumer cancellation releases its lease before later collection.
+- Cancelling an incomplete NUL-delimited Git frame reports cancellation and reaps the process instead of reporting malformed output.
 
-A failed injected storage durability barrier must leave the acknowledged offset unchanged across reopen. This tests the acknowledgement contract, not a physical power loss. An oversized PNG with invalid compressed pixels must produce the dimension diagnostic before compression failure, without decoding a large raster. Malformed WebP framing and mismatched frame/canvas tests detect omitted container validation. A pong ordering barrier detects missing socket-overlap rejection through an assertion, rather than a timeout.
+Every runtime result above **needs run at merge**. Tests use public package APIs, real repositories/files/SQLite/processes and injected scheduling or event barriers. No synchronization sleeps or wall-clock performance budgets were added.
 
-## Mutation evidence
+## Mutation cases
 
-`node packages/context/bench/review-mutations.ts` applied all **28 reviewer mutations** individually, required an **AssertionError** from the named public behavior test, and reverted each in `finally`. All 28 were killed, including all three survivors. The socket-overlap mutation now fails an assertion using a pong ordering barrier, rather than the test timeout. The original 16-case runner remains available.
+Each row is **not executed (tests run at merge)** for the final revision. `bench/verify-mutations.ts` records these 19 cases and requires assertion failures, not type errors or timeouts.
 
-1. Bypass workspace confinement.
-2. Accept Git ignored paths.
-3. Decode NUL bytes as text.
-4. Drop file-cap truncation markers.
-5. Shift inclusive line ranges.
-6. Bypass per-thread byte quota.
-7. Bypass both global byte checks.
-8. Accept sha256 mismatches.
-9. Bypass image pixel-area limit.
-10. Ignore PNG magic bytes.
-11. Bypass both GIF animation gates.
-12. Remove PNG header checksum checking.
-13. Disable Codex native image projection.
-14. Collect referenced blobs.
-15. Bypass occupied-disk quota.
-16. Allow another device to resume.
-17. Persist acknowledged offset as zero.
-18. Accept changed chunk retries.
-19. Remove chunk fsync. Killed by a durability-failure result and unchanged offset across reopen.
-20. Disable Claude native images.
-21. Break OpenCode file URLs.
-22. Disable ACP embedded resources.
-23. Remove fallback diagnostics.
-24. Remove socket overlap rejection. Killed by assertion before releasing the held request.
-25. Retain deleted indexed files.
-26. Inflate PNG before dimension rejection. Killed by dimension-error precedence over corrupt deflate data.
-27. Skip WebP container validation. Killed by conflicting frame dimensions and missing image chunks.
-28. Omit composed attachments.
+| Mutation                                    | Behavior guard                                  |
+| ------------------------------------------- | ----------------------------------------------- |
+| Accept noncanonical projection padding bits | Invalid-padding projection rejection            |
+| Accept VP8L version bits                    | Lossless WebP upload rejection                  |
+| Remove autonomous cache retry               | Ignore update recovers without another event    |
+| Ignore watcher errors                       | Watcher error recovery and timer cleanup        |
+| Bypass backoff during churn                 | New notifications preserve one retry timer      |
+| Leak timer after close                      | Cache close cancels scheduled recovery          |
+| Mask cancelled partial Git frames           | Cancellation diagnostic and process reaping     |
+| Make warm hits await watcher drain          | Published completion during unfinished update   |
+| Omit delivered message context              | Native context reaches owned CLI                |
+| Release before consumption                  | Image survives concurrent release and GC        |
+| Omit consumer failure release               | Cancelled consumer permits collection           |
+| GC ignores leases                           | Delayed consumer's image stays retained         |
+| Suppress lease release                      | Explicit consumption release permits collection |
+| Remove lease admission cap                  | Bounded admission and reuse after release       |
+| Omit preparation failure cleanup            | Failed preparation releases acquired leases     |
+| Release caller-mutated hashes               | Descriptor edits cannot redirect release        |
+| Accept mismatching WebP frames              | Frame dimensions agree with validated canvas    |
+| Omit subtree ignore filtering               | Ignored descendants leave completion            |
+| Omit subtree deletion filtering             | Deleted descendants leave completion            |
 
-## Benchmarks
+The existing 28-case review inventory also remains, including the original surviving chunk-fsync, premature-PNG-inflation and omitted-WebP-validation cases and socket-overlap rejection. Its guards cover durable acknowledged offsets, dimension-error precedence, conflicting/missing frames and a pong ordering barrier. All existing inventories need run at merge on the final revision.
 
-Non-gating runs on macOS arm64 / Node v26.8.1, with a real 50,000-file Git repo and a streamed 16 MiB upload in 64 KiB chunks:
+## Performance design and measurements
 
-| Operation                                                            |  First review-fix run |       Loaded final run |
-| -------------------------------------------------------------------- | --------------------: | ---------------------: |
-| Cold file/folder index                                               |              807.2 ms |             1,629.9 ms |
-| Completion median / p95, 600 mixed queries                           |  3,571.5 / 9,724.1 us | 4,587.7 / 146,126.3 us |
-| Cached completion during a held watcher update, median / p95         | 3,432.9 / 26,546.0 us |  3,794.5 / 77,941.6 us |
-| Incremental file update, including Git I/O                           |           32,974.8 us |           103,970.1 us |
-| Subtree reconciliation, 100 files including Git I/O                  |          167,755.7 us |           194,716.3 us |
-| Mention resolution, including Git I/O                                |           93,787.9 us |           128,640.8 us |
-| Durable direct upload with hash/commit                               |            7.35 MiB/s |             4.05 MiB/s |
-| Acquire/release one blob lease                                       |              31.87 us |              135.41 us |
-| Projection of a 4 MiB document                                       |           10,595.2 us |            68,622.2 us |
-| Projection of 64 parts                                               |              28.99 us |              133.17 us |
-| GC batch                                                             |               4.85 ms |               19.80 ms |
-| Peak RSS, index benchmark including repo setup                       |            292.11 MiB |             280.33 MiB |
-| Real loopback JSON/base64 WebSocket upload                           |            5.27 MiB/s |           not repeated |
-| Peak RSS, daemon WebSocket benchmark including MCP and notifications |            198.13 MiB |           not repeated |
+Warm completion never awaits update or retry work. Each LRU entry owns at most one retry timer and 4096 pending paths. Recovery delays start at 100 ms and cap at 5 s. Churn does not bypass backoff. Filename validation reuses one immutable schema. Subtree updates visit descendants; a failure rebuild is proportional to the capped index rather than notification history.
 
-The final run overlapped many other worktrees' Vitest workers on the shared machine. Both runs are reported because scheduling affects throughput and latency tails substantially. The held-update benchmark measures completion while a real watcher update is deliberately blocked, rather than waiting for it to drain.
+Uploads stream bounded chunks and hashes. Native delivery does work proportional to its message context, pins at most 64 references in one batch, and releases after consumption. Existing admission caps active leases at 128. Projection remains pure; the delivery function is an I/O shell around preparation and an injected consumer. No provider-specific document/resource content is flattened into canonical ContentPart.
 
-Commands: `bun run --filter @ace/context bench` and `bun run --filter @ace/daemon bench:context`. Earlier shared-load runs varied; these are measurements, not timing gates or cellular-throughput guarantees. Upload hashing streams; no complete upload is buffered. Inline provider bytes are necessarily materialized under a separate cap.
+Historical measurements below came from the first review-fix round before the owner changed execution policy. They are not measurements of this final revision.
 
-Uploads do work proportional to chunk bytes, with durability before acknowledgement. Commit hashes one streamed pass and walks bounded metadata blocks without raster decode. Composition holds at most 128 leases of 64 references, and inline preparation has a separate aggregate cap. GC excludes leases using an indexed temporary table and keeps occupied storage charged until files are removed. The lease's internal hash snapshot cannot be changed by caller edits to returned descriptors.
+| Operation                                                  | Earlier measured value |
+| ---------------------------------------------------------- | ---------------------: |
+| Real repository size                                       |           50,000 files |
+| Cold index                                                 |               807.2 ms |
+| Completion median / p95                                    |     3571.5 / 9724.1 us |
+| Cached completion during held watcher update, median / p95 |    3432.9 / 26546.0 us |
+| Durable direct upload                                      |             7.35 MiB/s |
+| Loopback WebSocket upload                                  |             5.27 MiB/s |
+| Projection, 64 parts                                       |               28.99 us |
+| Projection, 4 MiB document                                 |             10595.2 us |
+| Acquire/release one lease                                  |               31.87 us |
+| Peak RSS, index / daemon upload                            |    292.11 / 198.13 MiB |
 
-The cache serves its current index during updates, with four LRU entries and 4096 pending paths per entry. Changed subtrees enumerate only their descendants and apply ignore/deletion filters. Git process ownership supplies bounded pipes, cancellation, deadlines and group reaping. Completion retains bounded top results from the smallest character posting; it does no filesystem I/O.
+The final 50,000-file benchmark adds recovery-rebuild cost. `bench/delivery.ts` adds 64-reference native delivery latency, throughput and peak RSS. Both **need run at merge**. No completed measurements are claimed for these additions. Before the policy change, an attempted recovery benchmark failed with `Incomplete Git listing`; the shell now preserves interruption diagnostics for partial frames. Whether load or interruption caused that attempt needs run at merge.
+
+## Earlier load diagnostics
+
+Before the owner prohibited execution, isolated `origin/main` with its own dependencies reproduced the same core delta, daemon restart/crash, pairing-budget, remote CLI startup, Tailscale status/guidance, notification-spool and MCP shutdown timeouts seen on the PR. Machine load averages exceeded 300. No upstream assertion or deadline was changed.
+
+The attempted full PR gate failed with timeout-only assertions outside context and a terminated Git worker. The baseline full gate also failed and had terminated workers; neither is a successful gate. A targeted baseline checkpoint restore passed, so it does not prove the full Git checkpoint/nested failures are load-only. Those cases and the final full suite **need run at merge**. The final revision has no claim of an unmodified `bun run check` pass, and no execution follows the owner's new rule.
+
+## Integration rehearsal I7
+
+`deliverContext(service, command, capabilities, consume)` is the context-owned intent-worker interface. It validates the command, resolves thread-owned references, supplies original input/delivery plus native projection, returns typed diagnostics and releases in `finally`. The consumer promise settles after bytes are consumed or consumption has stopped on cancellation/failure. Initial thread creation can use `compose` after engine-assigned thread creation with the same lifetime contract.
+
+PR #15 is still open and the engine/adapters are absent from main at `19a7e14`. Its session-launcher must call this interface around native provider submission and call `releaseThread` on durable thread deletion. Accounts, MCP leases, plugins, model resolution and default adapter registration belong to their respective owners. Full I7 end-to-end session launch remains pending that integration and **needs run at merge**. Core state precedence is unchanged.
