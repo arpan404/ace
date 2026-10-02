@@ -1,16 +1,15 @@
 import { DatabaseSync } from "node:sqlite";
-import { spawn } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { connect as connectTcp } from "node:net";
 import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { DeviceId } from "@ace/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { startDaemon } from "./index.ts";
 import { readConfig } from "./config.ts";
+import { launchDaemon } from "./process-test-support.ts";
 import { Client } from "./socket-test-support.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -23,40 +22,18 @@ function tempHome(): string {
   return home;
 }
 function launch(home: string) {
-  const child = spawn(process.execPath, ["src/cli.ts"], {
-    cwd: fileURLToPath(new URL("../", import.meta.url)),
-    env: { ...process.env, ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent", ACE_DEV: "1" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const exited = once(child, "close");
-  let output = "";
-  let errors = "";
-  child.stderr.on("data", (chunk) => {
-    errors += String(chunk);
-  });
-  const ready = new Promise<string>((resolve) => {
-    child.stdout.on("data", (chunk) => {
-      output += String(chunk);
-      const match = /ace daemon: (ws:\/\/127\.0\.0\.1:\d+)\n/.exec(output);
-      if (match?.[1]) resolve(match[1]);
-    });
-  });
-  cleanups.push(async () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    await exited;
-  });
+  const launched = launchDaemon(
+    { ...process.env, ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent", ACE_DEV: "1" },
+    /ace daemon: ws:\/\/127\.0\.0\.1:\d+\n/,
+    cleanups,
+  );
   return {
-    child,
-    exited,
-    get errors() {
-      return errors;
-    },
-    ready: Promise.race([
-      ready,
-      exited.then(() => {
-        throw new Error(`Daemon exited before ready: ${errors}`);
-      }),
-    ]),
+    ...launched,
+    ready: launched.ready.then((output) => {
+      const url = /ace daemon: (ws:\/\/127\.0\.0\.1:\d+)\n/.exec(output)?.[1];
+      if (!url) throw new Error("Missing daemon URL");
+      return url;
+    }),
   };
 }
 async function connect(url: string, home: string): Promise<Client> {
@@ -71,7 +48,7 @@ async function connect(url: string, home: string): Promise<Client> {
   });
   return client;
 }
-describe("daemon lifecycle", { timeout: 30000 }, () => {
+describe("daemon lifecycle", () => {
   it("starts from config, keeps its token private and permits a graceful reopen", async () => {
     const home = tempHome();
     const config = readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" });
@@ -223,7 +200,7 @@ it("keeps the daemon alive when an excess upgrade includes an oversized frame", 
     await Promise.race([
       client.next(),
       daemon.exited.then(() => {
-        throw new Error(daemon.errors);
+        throw new Error("Daemon exited after excess upgrade");
       }),
     ]),
   ).toMatchObject({ type: "welcome" });
