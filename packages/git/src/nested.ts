@@ -9,6 +9,26 @@ import { serial } from "./lock.ts";
 import { removeIndexSubtrees } from "./temporary-index.ts";
 import { GitError } from "./types.ts";
 
+export interface NestedWorktree {
+  path: string;
+  root: string;
+  children: NestedWorktree[];
+}
+
+// A restore records each root only after acquiring its lock. Capture and
+// checkout both use these exact children instead of rediscovering ownership.
+export type SnapshotOwnership = ReadonlyMap<string, readonly NestedWorktree[]>;
+
+export function ownedChildren(
+  ownership: SnapshotOwnership,
+  root: string,
+): readonly NestedWorktree[] {
+  const children = ownership.get(root);
+  if (!children)
+    throw new GitError("unsupported_repository", "Snapshot root is outside restore ownership");
+  return children;
+}
+
 export async function nestedPaths(
   repository: Repository,
   root: string,
@@ -102,7 +122,7 @@ export async function flattenNested(
   paths: string[],
   env: Record<string, string>,
   snapshot: (repository: Repository, root: string) => Promise<string>,
-  heldRoots: ReadonlySet<string>,
+  heldRoots: SnapshotOwnership,
 ): Promise<void> {
   await removeIndexSubtrees(repository, root, paths, env);
   for (const path of paths) {
@@ -131,6 +151,7 @@ export async function ignoredPaths(
   repository: Repository,
   root: string,
   env: Record<string, string> = {},
+  ownership?: SnapshotOwnership,
 ): Promise<string[]> {
   const ignored = nul(
     (
@@ -141,13 +162,17 @@ export async function ignoredPaths(
       )
     ).stdout,
   ).map((p) => decode(pathSchema, p, "ignored path"));
-  const tracked = parseIndex(
-    (await repository.cli.call(root, ["ls-files", "--stage", "-z"])).stdout,
-  );
-  for (const path of await nestedPaths(repository, root, tracked)) {
+  const nested = ownership
+    ? ownedChildren(ownership, root).map((child) => child.path)
+    : await nestedPaths(
+        repository,
+        root,
+        parseIndex((await repository.cli.call(root, ["ls-files", "--stage", "-z"])).stdout),
+      );
+  for (const path of nested) {
     // Administrative data is excluded from snapshots and must never be replaced.
     ignored.push(`${path}/.git`);
-    for (const child of await ignoredPaths(repository, join(root, path)))
+    for (const child of await ignoredPaths(repository, join(root, path), {}, ownership))
       ignored.push(`${path}/${child}`);
   }
   return ignored;

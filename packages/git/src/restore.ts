@@ -12,13 +12,13 @@ export async function restoreCheckpoint(
   id: string,
 ): Promise<{ safetyCheckpointId: string }> {
   const target = await readCheckpoint(repository, root, id);
-  return withNestedWorktrees(repository, root, async (children, heldRoots) => {
+  return withNestedWorktrees(repository, root, async (children, ownership) => {
     const safety = await createCheckpoint(
       repository,
       root,
       target.threadId,
       `Before restore of ${id}`,
-      heldRoots,
+      ownership,
     );
     try {
       await assertNoGitlinks(repository, root, target.tree);
@@ -26,7 +26,7 @@ export async function restoreCheckpoint(
       // gitlinks, which the user's opaque gitlink index would hide.
       const ignored = await withIndex(repository.tempDirectory, async (env) => {
         await repository.cli.call(root, ["read-tree", safety.tree], { write: true, env });
-        return ignoredPaths(repository, root, env);
+        return ignoredPaths(repository, root, env, ownership);
       });
       const targetPaths = new Set(
         nul(

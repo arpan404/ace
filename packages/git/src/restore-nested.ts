@@ -1,41 +1,35 @@
-import { nestedPaths, nestedRoot } from "./nested.ts";
-import { parseIndex, parseTree } from "./parse-index.ts";
+import { nestedPaths, nestedRoot, type NestedWorktree, type SnapshotOwnership } from "./nested.ts";
+import { parseTree } from "./parse-index.ts";
 import { transferTree } from "./object-transfer.ts";
 import { serial } from "./lock.ts";
 import { removeIndexSubtrees, withIndex } from "./temporary-index.ts";
 import { hash, malformed } from "./decode.ts";
 import { textOutput } from "./cli.ts";
 import type { Repository } from "./repository.ts";
-
-interface NestedWorktree {
-  path: string;
-  root: string;
-  children: NestedWorktree[];
-}
+import { withSnapshotIndex } from "./snapshot-index.ts";
 
 // The caller holds the outer root. Acquire descendants in hierarchy order and
 // retain every lock through safety capture and all filesystem changes.
 export async function withNestedWorktrees<T>(
   repository: Repository,
   root: string,
-  operation: (children: NestedWorktree[], heldRoots: ReadonlySet<string>) => Promise<T>,
+  operation: (children: NestedWorktree[], ownership: SnapshotOwnership) => Promise<T>,
 ): Promise<T> {
-  const heldRoots = new Set([root]);
+  const ownership = new Map<string, readonly NestedWorktree[]>();
   const discover = async (
     parent: string,
     complete: (children: NestedWorktree[]) => Promise<T>,
   ): Promise<T> => {
-    const tracked = parseIndex(
-      (await repository.cli.call(parent, ["ls-files", "--stage", "-z"])).stdout,
+    const paths = await withSnapshotIndex(repository, parent, (env, tracked) =>
+      nestedPaths(repository, parent, tracked, env),
     );
-    const paths = await nestedPaths(repository, parent, tracked);
     const children: NestedWorktree[] = [];
+    ownership.set(parent, children);
     const acquire = async (index: number): Promise<T> => {
       const path = paths[index];
       if (path === undefined) return complete(children);
       const child = await nestedRoot(repository, parent, path);
       return serial(child, async () => {
-        heldRoots.add(child);
         return discover(child, async (descendants) => {
           children.push({ path, root: child, children: descendants });
           return acquire(index + 1);
@@ -44,7 +38,7 @@ export async function withNestedWorktrees<T>(
     };
     return acquire(0);
   };
-  return discover(root, (children) => operation(children, heldRoots));
+  return discover(root, (children) => operation(children, ownership));
 }
 
 // Materialize only this repository's files. Children own their filters and
