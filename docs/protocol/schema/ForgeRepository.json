@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeRepository.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "forge": {
+      "enum": [
+        "github",
+        "gitlab"
+      ],
+      "type": "string"
+    },
+    "host": {
+      "maxLength": 253,
+      "pattern": "^[a-zA-Z0-9.-]+$",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 100,
+      "pattern": "^[\\w.-]+$",
+      "type": "string"
+    },
+    "owner": {
+      "maxLength": 512,
+      "not": {
+        "pattern": "(?:^|/)\\.{1,2}(?:/|$)"
+      },
+      "pattern": "^[\\w.-]+(?:\\/[\\w.-]+)*$",
+      "type": "string",
+      "x-ace-constraint": "Every owner path segment must differ from . and .."
+    }
+  },
+  "required": [
+    "forge",
+    "host",
+    "owner",
+    "name"
+  ],
+  "type": "object"
+}

@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import { canonical, type Snapshot, type ToolEntry } from "./model.ts";
 import { checkFiles } from "./files.ts";
+import { validateProtocolEntries } from "./entry-points.ts";
 import { ownedOutputRoot } from "./output-boundary.ts";
 
 const hash = (value: string): string => createHash("sha256").update(value).digest("hex");
@@ -32,8 +33,10 @@ export async function sourceFingerprint(
   snapshot: Snapshot,
   tools: ToolEntry[],
 ): Promise<string> {
+  await validateProtocolEntries(root);
   const files = [
     "bun.lock",
+    "packages/protocol/package.json",
     "tools/protocol-docs/package.json",
     "packages/mcp-server/src/catalog.ts",
   ];

@@ -1,0 +1,55 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeCreatePrInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "base": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "branch": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "draft": {
+      "default": false,
+      "type": "boolean"
+    },
+    "summary": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "template": {
+      "properties": {
+        "body": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "body"
+      ],
+      "type": "object"
+    },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "branch",
+    "base",
+    "title",
+    "summary",
+    "template"
+  ],
+  "type": "object"
+}

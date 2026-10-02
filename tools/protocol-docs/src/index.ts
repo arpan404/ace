@@ -15,3 +15,5 @@ export {
 export { sourceFingerprint, withManifest, checkFingerprint } from "./fingerprint.ts";
 
 export { jsonValidator } from "./examples.ts";
+
+export { validateProtocolEntries } from "./entry-points.ts";

@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { validateProtocolEntries } from "./entry-points.ts";
 import { sourceFingerprint, withManifest, checkFingerprint } from "./fingerprint.ts";
 import {
   protocolCatalog,
@@ -20,6 +21,8 @@ const argumentsSchema = z.union([
 ]);
 try {
   const args = argumentsSchema.parse(process.argv.slice(2));
+  const sourceRoot = fileURLToPath(new URL("../../../", import.meta.url));
+  await validateProtocolEntries(sourceRoot);
   const catalog = protocolCatalog();
   const snapshot = convertSchemas(catalog.entries);
   if (args[0] === "--snapshot") {
@@ -31,7 +34,6 @@ try {
     if (changes.some((change) => change.kind !== "additive")) process.exitCode = 1;
   } else {
     const root = fileURLToPath(new URL("../../../docs/protocol/", import.meta.url));
-    const sourceRoot = fileURLToPath(new URL("../../../", import.meta.url));
     const input = await sourceFingerprint(sourceRoot, snapshot, catalog.tools);
     if (args[0] === "--check") {
       const stale = await checkFingerprint(root, input, sourceRoot);

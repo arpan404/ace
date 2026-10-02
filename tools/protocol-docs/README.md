@@ -1,6 +1,6 @@
 # Protocol documentation tooling
 
-`@ace/protocol-docs` discovers public Zod exports and converts them with Zod 4's native Draft 2020-12 conversion. MCP registration and docs share `builtinToolCatalog` from `@ace/mcp-server`. No daemon or provider process runs.
+`@ace/protocol-docs` discovers public Zod exports from the root and Forge entry points and converts them with Zod 4's native Draft 2020-12 conversion. MCP registration and docs share `builtinToolCatalog` from `@ace/mcp-server`. No daemon or provider process runs.
 
 ```sh
 bun run docs:protocol
@@ -14,7 +14,7 @@ The compatibility command prints a JSON array of additive, breaking and review c
 
 Capture the snapshot from the released checkout, publish it with release artifacts, and pass that immutable file into the next release check. No release baseline exists yet. Store snapshots outside `docs/protocol`, which the generator owns and cleans. The parser limits inputs to 8 MiB, 1024 schemas and depth 64.
 
-Add a schema export to the protocol public entry point and regenerate. Stable ids use the handshake's protocol version and exported name, so renaming an export is a compatibility change. Input mode preserves omission of defaulted fields. MCP structured result definitions use output mode. Every top-level union alternative gets a source-validated example. The property tests walk Zod independently and then validate accepted JSON values against Ajv.
+Add a schema export to a supported protocol public entry point and regenerate. A new entry point must be added to the catalog; export-manifest validation fails explicitly until it is covered, including during release snapshot capture. Stable ids use the handshake's protocol version and exported name, so renaming an export is a compatibility change. Input mode preserves omission of defaulted fields. MCP structured result definitions use output mode. Every top-level union alternative gets a source-validated example. The property tests walk Zod independently and then validate accepted JSON values against Ajv.
 
 URL fields use `ace-whatwg-url`, not the RFC URI format. Use the public `jsonValidator(snapshot)` API for an Ajv validator with this format installed, or implement the declared rule in your client. It trims whitespace before WHATWG URL parsing. `x-ace-url-minLength` and `x-ace-url-maxLength` measure UTF-16 code units after trimming and removing ASCII tab, CR and LF characters, matching the wire parser. Unsupported URL options and check ordering fail with the owning schema name.
 

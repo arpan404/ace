@@ -45,6 +45,7 @@ it("source changes, schema changes and toolkit metadata invalidate the generated
   const root = await mkdtemp(join(tmpdir(), "ace-protocol-sources-"));
   const sources = [
     "bun.lock",
+    "packages/protocol/package.json",
     "tools/protocol-docs/package.json",
     "tools/protocol-docs/src/render.ts",
     "packages/protocol/src/wire.ts",
@@ -53,7 +54,12 @@ it("source changes, schema changes and toolkit metadata invalidate the generated
   try {
     for (const name of sources) {
       await mkdir(dirname(join(root, name)), { recursive: true });
-      await writeFile(join(root, name), "source\n");
+      await writeFile(
+        join(root, name),
+        name === "packages/protocol/package.json"
+          ? JSON.stringify({ exports: { ".": "./src/index.ts", "./forge": "./src/forge.ts" } })
+          : "source\n",
+      );
     }
     const snapshot = convertSchemas([{ name: "Example", schema: z.string() }]);
     const original = await sourceFingerprint(root, snapshot, []);
@@ -92,6 +98,28 @@ it("fingerprints exact artifact bytes, including malformed UTF-8 of the same len
     expect(await checkFingerprint(root, input)).toEqual([]);
     await writeFile(join(root, "README.md"), Buffer.from([0xf0, 0x9f, 0x98]));
     expect(await checkFingerprint(root, input)).toEqual(["README.md"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses undocumented public protocol entry points before accepting a fingerprint", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-protocol-entries-"));
+  try {
+    await mkdir(join(root, "packages/protocol"), { recursive: true });
+    await writeFile(
+      join(root, "packages/protocol/package.json"),
+      JSON.stringify({
+        exports: {
+          ".": "./src/index.ts",
+          "./forge": "./src/forge.ts",
+          "./future": "./src/future.ts",
+        },
+      }),
+    );
+    await expect(sourceFingerprint(root, convertSchemas([]), [])).rejects.toThrow(
+      /Undocumented protocol entry point .\/future/,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

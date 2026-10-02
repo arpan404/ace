@@ -1,0 +1,58 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeEvent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "type": {
+          "const": "forge.pr.linked",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "status": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrStatus.json"
+        },
+        "type": {
+          "const": "forge.pr.updated",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link",
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "intent": {
+          "$ref": "https://ace.local/protocol/v1/ForgeAutoFixIntent.json"
+        },
+        "type": {
+          "const": "forge.auto-fix.queued",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "intent"
+      ],
+      "type": "object"
+    }
+  ]
+}

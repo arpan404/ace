@@ -1,12 +1,28 @@
 import * as protocol from "@ace/protocol";
+import * as forge from "@ace/protocol/forge";
 import { builtinToolCatalog } from "@ace/mcp-server";
 import { z } from "zod";
 import type { SchemaEntry, ToolEntry } from "./model.ts";
 
+export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> = new Map<
+  string,
+  Record<string, unknown>
+>([
+  [".", protocol],
+  ["./forge", forge],
+]);
+
 export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] } {
-  const entries: SchemaEntry[] = Object.entries(protocol).flatMap(([name, schema]) =>
-    schema instanceof z.ZodType ? [{ name, schema }] : [],
-  );
+  const exported = new Map<string, z.ZodType>();
+  for (const namespace of protocolEntryPoints.values())
+    for (const [name, schema] of Object.entries(namespace)) {
+      if (!(schema instanceof z.ZodType)) continue;
+      const existing = exported.get(name);
+      if (existing && existing !== schema)
+        throw new Error(`Schema ${name}: ambiguous public export`);
+      exported.set(name, schema);
+    }
+  const entries: SchemaEntry[] = [...exported].map(([name, schema]) => ({ name, schema }));
   const tools = builtinToolCatalog.map((tool): ToolEntry => {
     const input = `${tool.name}.input`;
     const output = `${tool.name}.output`;

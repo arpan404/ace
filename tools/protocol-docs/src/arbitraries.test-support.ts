@@ -8,6 +8,47 @@ function classic(schema: z.core.$ZodType): z.ZodType {
   return schema;
 }
 
+function numericPaths(value: unknown, path: string[] = []): string[][] {
+  if (path.length > 32) throw new Error("Example hint exceeds depth 32");
+  if (typeof value === "number") return [path];
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, child]) => numericPaths(child, [...path, key]));
+}
+function replaceNumber(value: unknown, path: string[], replacement: number): unknown {
+  const [key, ...rest] = path;
+  if (key === undefined) return replacement;
+  if (Array.isArray(value))
+    return value.map((child, index) =>
+      String(index) === key ? replaceNumber(child, rest, replacement) : child,
+    );
+  if (typeof value !== "object" || value === null) throw new Error("Invalid example hint path");
+  return Object.fromEntries(
+    Object.entries(value).map(([name, child]) => [
+      name,
+      name === key ? replaceNumber(child, rest, replacement) : child,
+    ]),
+  );
+}
+function hintedValues(examples: unknown[]): fc.Arbitrary<unknown> {
+  return fc.constantFrom(...examples).chain((example) => {
+    const paths = numericPaths(example);
+    if (!paths.length) return fc.constant(example);
+    return fc.oneof(
+      fc.constant(example),
+      fc
+        .tuple(
+          fc.constantFrom(...paths),
+          fc.oneof(
+            fc.integer({ min: -1000, max: 1000 }),
+            fc.double({ min: -10000, max: 10000, noNaN: true, noDefaultInfinity: true }),
+            fc.constantFrom(0, 0.125, Number.MIN_VALUE, Number.MAX_SAFE_INTEGER),
+          ),
+        )
+        .map(([path, value]) => replaceNumber(example, path, value)),
+    );
+  });
+}
+
 /** Independent Zod traversal: never consult the generated JSON Schema. */
 export function arbitrary(root: z.ZodType): fc.Arbitrary<unknown> {
   const cache = new Map<z.ZodType, fc.Arbitrary<unknown>>();
@@ -18,7 +59,7 @@ export function arbitrary(root: z.ZodType): fc.Arbitrary<unknown> {
     const examples = schema.meta()?.examples;
     const value =
       Array.isArray(examples) && examples.length
-        ? fc.oneof(fc.constantFrom(...examples), generated)
+        ? fc.oneof(hintedValues(examples), generated)
         : generated;
     cache.set(schema, value);
     return value;
