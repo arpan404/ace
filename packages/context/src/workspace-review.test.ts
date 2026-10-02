@@ -1,3 +1,4 @@
+import { watch, type FSWatcher } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -109,6 +110,156 @@ test("cancellation rejects and reaps a Git process holding its output open", asy
     },
   });
   await expect(workspace.inspect("probe.cjs")).rejects.toMatchObject({ code: "busy" });
+  const pid = Number(await readFile(pidFile, "utf8"));
+  expect(() => process.kill(pid, 0)).toThrow();
+});
+
+test("a transient ignore update failure recovers without another filesystem event", async () => {
+  const repo = await repository();
+  cleanups.push(repo.close);
+  await repo.write("secret.txt", "secret");
+  const failed = Promise.withResolvers<void>();
+  const timers = new Map<number, () => Promise<void>>();
+  let timerId = 0,
+    failNext = true;
+  let watcher: FSWatcher | undefined;
+  const cache = new WorkspaceCache(
+    4,
+    (root) => {
+      const git = new GitWorkspace(root);
+      return {
+        root,
+        get index() {
+          return git.index;
+        },
+        initialize: () => git.initialize(),
+        inspect: (path) => git.inspect(path),
+        read: (path, limit) => git.read(path, limit),
+        update: async (paths) => {
+          if (failNext && paths.includes(".gitignore")) {
+            failNext = false;
+            watcher?.close();
+            failed.resolve();
+            throw new Error("transient I/O failure");
+          }
+          await git.update(paths);
+        },
+      };
+    },
+    {
+      after: (_delay, task) => {
+        const id = ++timerId;
+        timers.set(id, task);
+        return () => {
+          timers.delete(id);
+        };
+      },
+    },
+    (root) => {
+      watcher = watch(root, { recursive: true });
+      return watcher;
+    },
+  );
+  cleanups.unshift(() => cache.close());
+  expect((await cache.get(repo.root)).index.complete("secret")).toEqual(["secret.txt"]);
+  await repo.write(".gitignore", "secret.txt\n");
+  await failed.promise;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const retry = timers.entries().next().value;
+  if (retry) {
+    timers.delete(retry[0]);
+    await retry[1]();
+  }
+  // Advance injected retry time, then inspect public completion. No new change
+  // notification or wall-clock budget is needed to observe recovery.
+  expect((await cache.get(repo.root)).index.complete("secret")).toEqual([]);
+});
+
+test("watcher errors recover through a single backed-off timer which close cancels", async () => {
+  const repo = await repository();
+  cleanups.push(repo.close);
+  await repo.write("old.ts", "old");
+  const timers = new Map<number, { delay: number; task: () => Promise<void> }>();
+  let timerId = 0,
+    unavailable = false;
+  let watcher: FSWatcher | undefined;
+  const cache = new WorkspaceCache(
+    1,
+    (root) => {
+      const git = new GitWorkspace(root);
+      return {
+        root,
+        get index() {
+          return git.index;
+        },
+        initialize: async () => {
+          if (unavailable) throw new Error("Git temporarily unavailable");
+          await git.initialize();
+        },
+        inspect: (path) => git.inspect(path),
+        read: (path, limit) => git.read(path, limit),
+        update: (paths) => git.update(paths),
+      };
+    },
+    {
+      after: (delay, task) => {
+        const id = ++timerId;
+        timers.set(id, { delay, task });
+        return () => {
+          timers.delete(id);
+        };
+      },
+    },
+    (root) => {
+      watcher = watch(root, { recursive: true });
+      return watcher;
+    },
+  );
+  cleanups.unshift(() => cache.close());
+  await cache.get(repo.root);
+  unavailable = true;
+  watcher?.emit("error", new Error("lost watcher"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  watcher?.emit("change", "change", "old.ts");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  for (const expectedDelay of [100, 200, 400]) {
+    expect([...timers.values()].map((timer) => timer.delay)).toEqual([expectedDelay]);
+    expect((await cache.get(repo.root)).index.complete("old")).toEqual(["old.ts"]);
+    const next = timers.entries().next().value;
+    if (!next) throw new Error("Expected recovery timer");
+    timers.delete(next[0]);
+    await next[1].task();
+  }
+  await cache.close();
+  expect([...timers]).toEqual([]);
+  await expect(cache.get(repo.root)).rejects.toMatchObject({ code: "busy" });
+});
+
+test("cancelling an incomplete Git listing reports cancellation after reaping", async () => {
+  const repo = await repository();
+  cleanups.push(repo.close);
+  const pidFile = join(repo.root, "pid");
+  await repo.write(
+    "probe.cjs",
+    `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); process.on('SIGTERM',()=>{}); process.stdout.write('incomplete'); setInterval(()=>{},1000);`,
+  );
+  const controller = new AbortController();
+  const workspace = new GitWorkspace(repo.root, 100000, {
+    signal: controller.signal,
+    spawn: (options) => {
+      const child = spawnSupervisedStream({
+        ...options,
+        command: process.execPath,
+        args: [join(repo.root, "probe.cjs")],
+      });
+      child.stdout.once("data", () => controller.abort());
+      return child;
+    },
+  });
+  await expect(workspace.initialize()).rejects.toMatchObject({
+    code: "busy",
+    message: "Git operation cancelled",
+  });
   const pid = Number(await readFile(pidFile, "utf8"));
   expect(() => process.kill(pid, 0)).toThrow();
 });

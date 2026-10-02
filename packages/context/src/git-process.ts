@@ -41,6 +41,10 @@ export async function withGit<T>(
     const exit = await child.exited;
     if (failure) throw failure;
     return { code: exit.code ?? -1, value };
+  } catch (error) {
+    // Cancellation can interrupt a NUL frame. Preserve its cause rather than
+    // misreporting the truncated frame as malformed Git output.
+    throw failure ?? error;
   } finally {
     clearTimeout(timer);
     options.signal?.removeEventListener("abort", cancel);
