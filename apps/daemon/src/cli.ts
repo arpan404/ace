@@ -4,6 +4,7 @@ import { PairingResponse } from "@ace/protocol";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import createQr from "qrcode-generator";
+import { readModelInstances } from "./models.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread, stubHandler } from "./commands.ts";
 import { accessRequest } from "./client-access.ts";
@@ -58,7 +59,13 @@ async function main(args: string[]): Promise<void> {
     if (args.length > 1) throw new Error("Usage: ace start");
     const { startDaemon } = await import("./index.ts");
     const development = process.env.ACE_DEV === "1";
-    const daemon = await startDaemon(config, stubHandler({ development }));
+    const daemon = await startDaemon(
+      config,
+      stubHandler({ development }),
+      [],
+      undefined,
+      readModelInstances(),
+    );
     try {
       if (development && daemon.store.listThreads().length === 0)
         createDevThread(daemon.store, daemon.store.createWorkspace(process.cwd(), "Development"));

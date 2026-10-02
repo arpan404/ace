@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { UsageSummary, UsageSeries, UsageMessage } from "./usage.ts";
 import {
+  ModelsListRequest,
+  ModelsRefreshRequest,
+  ModelsResolveRequest,
+  ModelsResult,
+} from "./models.ts";
+import {
   PresenceUpdate,
   NotificationRegister,
   NotificationSettings,
@@ -65,6 +71,9 @@ export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
   UsageSummary,
   UsageSeries,
+  ModelsListRequest,
+  ModelsRefreshRequest,
+  ModelsResolveRequest,
   PresenceUpdate,
   NotificationRegister,
   NotificationSettings,
@@ -113,6 +122,7 @@ export const CommandResult = z.object({
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
   UsageMessage,
+  ModelsResult,
   NotificationMessage,
   z.object({
     type: z.literal("welcome"),

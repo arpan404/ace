@@ -1,3 +1,5 @@
+import type { ModelCatalogApi } from "@ace/models";
+import { handleModelRequest } from "./models.ts";
 import { randomUUID } from "node:crypto";
 import type { UsageCommands } from "./usage.ts";
 import type { NotificationWorker } from "@ace/notify";
@@ -47,6 +49,7 @@ const closeListener = (listener: Server) =>
 
 export interface ServerOptions {
   usage?: UsageCommands;
+  models?: ModelCatalogApi;
   port: number;
   remote?: RemoteListener;
   now?: () => number;
@@ -144,6 +147,7 @@ export async function startServer(options: ServerOptions): Promise<{
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
+    let modelRequests = 0;
     if (cleanups.size >= 256) {
       socket.close(4009, "Connection limit");
       return;
@@ -273,6 +277,36 @@ export async function startServer(options: ServerOptions): Promise<{
           } catch {
             fail("usage_failed", "Usage query rejected");
           }
+          break;
+        }
+        case "models.list":
+        case "models.resolve":
+        case "models.refresh": {
+          const modelFailure = (reason: string) =>
+            send({
+              type: "models.result",
+              requestId: message.requestId,
+              result: { ok: false, reason },
+            });
+          const requiredScope = message.type === "models.refresh" ? "operate" : "read";
+          if (!allows(authenticated.get(socket), requiredScope)) {
+            modelFailure(`${requiredScope} scope required`);
+            break;
+          }
+          if (!options.models) {
+            modelFailure("Model catalog is not configured");
+            break;
+          }
+          if (modelRequests >= 8) {
+            modelFailure("Too many catalog requests");
+            break;
+          }
+          modelRequests++;
+          void handleModelRequest(options.models, message)
+            .then(send, () => modelFailure("Model catalog request failed"))
+            .finally(() => {
+              modelRequests--;
+            });
           break;
         }
         case "presence.update":
