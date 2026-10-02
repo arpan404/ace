@@ -53,7 +53,9 @@ test("interrupt keeps a surviving command waiting until its stale-turn completio
     (i) => i.type === "tool_call" && i.call.kind === "shell",
   );
   expect(
-    call?.type === "tool_call" && call.call.detail.kind === "shell" && call.call.detail.output,
+    call?.type === "tool_call" &&
+      call.call.detail.kind === "shell" &&
+      call.call.detail.output?.tail,
   ).toBe("still running\nfinished\n");
   expect(Object.values(h.state.tasks).map((t) => t.status)).toEqual(["completed"]);
 });
@@ -282,7 +284,9 @@ test("unknown items, frames and malformed data survive as raw payloads", () => {
     Object.values(h.state.items).some(
       (i) =>
         i.type === "tool_call" &&
-        i.call.raw.some((r) => JSON.stringify(r.data) === JSON.stringify(future)),
+        i.call.raw.some(
+          (r) => ("data" in r ? JSON.stringify(r.data) : undefined) === JSON.stringify(future),
+        ),
     ),
   ).toBe(true);
   expect(

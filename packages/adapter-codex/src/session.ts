@@ -50,6 +50,8 @@ export async function openCodexSession(
   const scopedReads = new Set<unknown>();
   const parents = new Map<string, string>();
   const known = new Set<string>();
+  // Confirmed ancestry does not prove that retained history is complete.
+  const recovered = new Set<string>();
   const shells = new Map<string, string>();
   const completedShells = new Set<string>();
   const pending = new Map<string, Pending>();
@@ -89,6 +91,7 @@ export async function openCodexSession(
             nativeSessionId = str(snapshot["id"]);
             if (nativeSessionId) {
               known.add(nativeSessionId);
+              if (Array.isArray(snapshot["turns"])) recovered.add(nativeSessionId);
               hydrateControls(snapshot, active, shells);
             }
           }
@@ -113,13 +116,7 @@ export async function openCodexSession(
       emit(dir, data, scoped ? "codex-discovery" : "stdio");
       if (dir !== "recv") return;
       if (thread && !known.has(thread) && !timers.has(thread) && timers.size < 256)
-        timers.set(
-          thread,
-          io.schedule(() => {
-            timers.delete(thread);
-            if (!closed) void recoverThread(thread);
-          }, 2_000),
-        );
+        scheduleRecovery(thread);
       if (method === "turn/started") active.set(thread, str(obj(p["turn"])["id"]));
       if (method === "turn/completed") {
         const turn = str(obj(p["turn"])["id"]);
@@ -150,12 +147,16 @@ export async function openCodexSession(
             if (child) {
               known.add(child);
               parents.set(child, thread);
+              if (!recovered.has(child)) scheduleRecovery(child);
             }
           }
         if (item["type"] === "subAgentActivity" && item["kind"] === "started") {
           const child = str(item["agentThreadId"]);
-          known.add(child);
-          parents.set(child, thread);
+          if (child) {
+            known.add(child);
+            parents.set(child, thread);
+            if (!recovered.has(child)) scheduleRecovery(child);
+          }
         }
         if (item["type"] === "commandExecution") {
           if (method === "item/started") shells.set(id, thread);
@@ -179,19 +180,22 @@ export async function openCodexSession(
   });
   const request = (method: string, params: unknown, interactive = false) =>
     rpc.request(method, params, { timeoutMs: interactive ? null : 30_000, signal: ctx.signal });
+  function scheduleRecovery(threadId: string): void {
+    if (closed || timers.has(threadId)) return;
+    timers.set(
+      threadId,
+      io.schedule(() => {
+        timers.delete(threadId);
+        if (!closed) void recoverThread(threadId);
+      }, 2_000),
+    );
+  }
   async function recoverThread(threadId: string): Promise<void> {
     try {
       await readThread(threadId);
     } catch (error) {
       diagnostic(error);
-      if (!closed && !timers.has(threadId))
-        timers.set(
-          threadId,
-          io.schedule(() => {
-            timers.delete(threadId);
-            if (!closed) void recoverThread(threadId);
-          }, 2_000),
-        );
+      scheduleRecovery(threadId);
     }
   }
   async function readThread(threadId: string, ancestors = new Set<string>()): Promise<void> {
@@ -208,7 +212,11 @@ export async function openCodexSession(
       revisions.delete(threadId);
       return;
     }
+    if (!Array.isArray(thread["turns"])) throw new Error("Codex read omitted turn history");
     known.add(threadId);
+    recovered.add(threadId);
+    timers.get(threadId)?.();
+    timers.delete(threadId);
     if (parent) parents.set(threadId, parent);
     const revision = readRevisions.get(threadId);
     readRevisions.delete(threadId);
@@ -237,7 +245,7 @@ export async function openCodexSession(
       do {
         const result = obj(await request("thread/loaded/list", cursor ? { cursor } : {}));
         for (const entry of list(result["data"]))
-          if (typeof entry === "string" && !known.has(entry)) await readThread(entry);
+          if (typeof entry === "string" && !recovered.has(entry)) await readThread(entry);
         cursor = result["nextCursor"];
       } while (cursor);
       if (!closed) emit("note", { event: "discovery-finished", threadId: nativeSessionId, task });

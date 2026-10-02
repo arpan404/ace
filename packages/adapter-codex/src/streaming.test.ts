@@ -60,7 +60,9 @@ test("overflowed unknown streams retain raw frames and hold completion until aut
   expect(h.state.status.state).not.toBe("done");
   expect(
     Object.values(h.state.items).some(
-      (i) => i.type === "notice" && i.raw.some((r) => JSON.stringify(r.data).includes("chunk-0")),
+      (i) =>
+        i.type === "notice" &&
+        i.raw.some((r) => "data" in r && JSON.stringify(r.data).includes("chunk-0")),
     ),
   ).toBe(true);
   h.feed({

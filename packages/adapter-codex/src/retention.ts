@@ -76,7 +76,8 @@ export function unknownBuffers() {
     },
     take(id: string): { frames: Frame[]; lost: boolean } {
       const thread = threads.get(id);
-      if (!thread) return { frames: [], lost: false };
+      // Whole-thread eviction has no per-id tombstones; conservatively require a read.
+      if (!thread) return { frames: [], lost: overflow };
       const frames = [...thread.frames];
       for (const frame of frames) discard(frame, false);
       threads.delete(id);

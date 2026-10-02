@@ -19,7 +19,7 @@ test("late output preserves completion after more than a thousand newer completi
   });
   expect(output(h).complete).toBe(true);
   expect(output(h).call.status).toBe("succeeded");
-  expect(output(h).call.detail).toMatchObject({ output: "finallate" });
+  expect(output(h).call.detail).toMatchObject({ output: { tail: "finallate" } });
   expect(h.state.status.state).toBe("done");
 });
 test("repeated completion aggregates append no duplicate output and preserve later chunks", () => {
@@ -29,14 +29,14 @@ test("repeated completion aggregates append no duplicate output and preserve lat
   h.item(completed, true);
   h.end();
   h.item(completed, true);
-  expect(output(h).call.detail).toMatchObject({ output: "final" });
+  expect(output(h).call.detail).toMatchObject({ output: { tail: "final" } });
   h.recv("item/commandExecution/outputDelta", {
     threadId: "native",
     itemId: "exec",
     delta: "late",
   });
   h.item(completed, true);
-  expect(output(h).call.detail).toMatchObject({ output: "finallate" });
+  expect(output(h).call.detail).toMatchObject({ output: { tail: "finallate" } });
 });
 test("completion keeps the exact initial shell raw payload in the current item", () => {
   const h = setup();
@@ -44,9 +44,11 @@ test("completion keeps the exact initial shell raw payload in the current item",
   const initial = { ...shell, aggregatedOutput: "prefix", vendor: "original" };
   h.item(initial);
   h.item({ ...shell, status: "completed", aggregatedOutput: "prefixfinal" }, true);
-  expect(output(h).call.raw.some((r) => JSON.stringify(r.data) === JSON.stringify(initial))).toBe(
-    true,
-  );
+  expect(
+    output(h).call.raw.some(
+      (r) => ("data" in r ? JSON.stringify(r.data) : undefined) === JSON.stringify(initial),
+    ),
+  ).toBe(true);
 });
 test("unknown thread noise stays raw until ancestry is confirmed and holds completion", () => {
   const h = setup();
@@ -60,7 +62,7 @@ test("unknown thread noise stays raw until ancestry is confirmed and holds compl
     Object.values(h.state.items).flatMap((i) =>
       i.type === "notice"
         ? i.raw.flatMap((r) => {
-            const value = r.data;
+            const value = "data" in r ? r.data : undefined;
             if (typeof value !== "object" || value === null || !("params" in value)) return [];
             const params = value.params;
             return typeof params === "object" && params !== null && "threadId" in params
@@ -137,7 +139,7 @@ test("an output-only command first seen after turn completion remains a stoppabl
   );
   h.item({ ...shell, status: "completed", aggregatedOutput: "late" }, true);
   expect(h.state.status.state).toBe("done");
-  expect(output(h).call.detail).toMatchObject({ output: "late" });
+  expect(output(h).call.detail).toMatchObject({ output: { tail: "late" } });
 });
 test("a native wait keeps the parent blocked on its live children without changing tool kind", () => {
   const h = setup();
@@ -161,7 +163,9 @@ test("a native wait keeps the parent blocked on its live children without changi
   expect(item?.type === "tool_call" && item.call.kind).toBe("agent.message");
   expect(
     item?.type === "tool_call" &&
-      item.call.raw.some((r) => JSON.stringify(r.data) === JSON.stringify(wait)),
+      item.call.raw.some(
+        (r) => ("data" in r ? JSON.stringify(r.data) : undefined) === JSON.stringify(wait),
+      ),
   ).toBe(true);
   h.item({ ...wait, status: "completed" }, true);
   expect(h.state.agents["root"]?.agent.status.state).toBe("working");
@@ -175,5 +179,98 @@ test("a replayed native start cannot reopen a completed shell during a newer tur
   h.item(shell, false, "native", "turn");
   expect(output(h).complete).toBe(true);
   expect(output(h).call.status).toBe("succeeded");
-  expect(output(h).call.detail).toMatchObject({ output: "final" });
+  expect(output(h).call.detail).toMatchObject({ output: { tail: "final" } });
+});
+
+test("sequential recorded async answers resolve each question without retaining earlier owners", () => {
+  const h = setup();
+  h.start();
+  for (let i = 0; i < 3; i++) {
+    h.item({
+      id: `question-${i}`,
+      type: "agentMessage",
+      delivery: "async",
+      questions: [{ title: "Continue?", options: ["Yes", "No"] }],
+    });
+    h.feed({
+      seq: 100 + i * 3,
+      t: 100,
+      dir: "note",
+      channel: "stdio",
+      data: { event: "async-question-answered" },
+    });
+    h.send(
+      "turn/steer",
+      { threadId: "native", expectedTurnId: "turn", input: [{ type: "text", text: "Yes" }] },
+      90 + i,
+    );
+    expect(Object.values(h.state.interactions).filter((q) => q.state === "pending")).toHaveLength(
+      1,
+    );
+    h.feed({
+      seq: 102 + i * 3,
+      t: 100,
+      dir: "recv",
+      channel: "stdio",
+      data: { id: 90 + i, result: { turnId: "turn" } },
+    });
+    expect(Object.values(h.state.interactions).filter((q) => q.state === "pending")).toHaveLength(
+      0,
+    );
+    expect(Object.values(h.state.interactions).filter((q) => q.state === "resolved")).toHaveLength(
+      i + 1,
+    );
+  }
+});
+
+test("fully evicted child history stays pending through later turns until an authoritative read", () => {
+  const h = setup();
+  h.start();
+  h.start("child", "old");
+  h.item({ id: "old-message", type: "agentMessage", text: "lost history" }, true, "child", "old");
+  h.end("completed", "child", "old");
+  for (let i = 0; i < 300; i++)
+    h.recv("thread/status/changed", { threadId: `noise-${i}`, status: { type: "idle" } });
+  h.item({ id: "spawn", type: "subAgentActivity", kind: "started", agentThreadId: "child" }, true);
+  h.start("child", "next");
+  h.end("completed", "child", "next");
+  h.end();
+  h.feed({
+    seq: 1000,
+    t: 1000,
+    dir: "note",
+    channel: "stdio",
+    data: { event: "discovery-finished", task: "discovery:scan" },
+  });
+  expect(h.state.status.state).not.toBe("done");
+  h.feed({
+    seq: 1001,
+    t: 1001,
+    dir: "note",
+    channel: "stdio",
+    data: {
+      event: "thread-discovered",
+      thread: {
+        id: "child",
+        parentThreadId: "native",
+        status: { type: "idle" },
+        turns: [
+          {
+            id: "old",
+            status: "completed",
+            items: [{ id: "old-message", type: "agentMessage", text: "recovered lost history" }],
+          },
+          { id: "next", status: "completed", items: [] },
+        ],
+      },
+    },
+  });
+  expect(
+    Object.values(h.state.items).some(
+      (i) =>
+        i.type === "message" &&
+        i.parts.some((p) => p.type === "text" && p.text === "recovered lost history"),
+    ),
+  ).toBe(true);
+  expect(h.state.status.state).toBe("done");
 });

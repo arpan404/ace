@@ -47,7 +47,9 @@ test("completion preserves the original tool name and input alongside changed re
     true,
   );
   const tool = Object.values(h.state.items).find(
-    (i) => i.type === "tool_call" && i.call.raw.some((r) => obj(r.data)["vendorField"] === 9),
+    (i) =>
+      i.type === "tool_call" &&
+      i.call.raw.some((r) => obj("data" in r ? r.data : undefined)["vendorField"] === 9),
   );
   expect(tool?.type === "tool_call" && tool.call.raw[0]).toMatchObject({
     name: "future_name",

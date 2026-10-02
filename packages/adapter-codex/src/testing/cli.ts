@@ -94,6 +94,10 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (process.env["ACE_FAKE_RESUME"] === "reply-before-start" && active.has("native")) {
+      write({ id, error: { message: "active turn must be steered" } });
+      continue;
+    }
     pendingKind = text;
     if (text === "same-chunk") {
       process.stdout.write(
@@ -103,7 +107,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
     respond({ turn: { id: "turn" } });
     active.set("native", "turn");
-    notify("turn/started", { threadId: "native", turn: { id: "turn" } });
+    if (process.env["ACE_FAKE_RESUME"] !== "reply-before-start")
+      notify("turn/started", { threadId: "native", turn: { id: "turn" } });
     if (text === "two-questions") {
       for (const questionId of ["q", "q2"])
         item("native", "turn", {
@@ -172,6 +177,28 @@ for await (const line of createInterface({ input: process.stdin })) {
           },
           false,
         );
+    } else if (text === "evicted-child" || text === "evicted-child-live") {
+      for (let i = 0; i < 256; i++)
+        notify("thread/status/changed", { threadId: `unrelated-${i}`, status: { type: "idle" } });
+      notify("turn/started", { threadId: "lost-child", turn: { id: "lost-turn" } });
+      item("lost-child", "lost-turn", {
+        id: "lost-message",
+        type: "agentMessage",
+        text: "early completed history",
+      });
+      notify("turn/completed", {
+        threadId: "lost-child",
+        turn: { id: "lost-turn", status: "completed" },
+      });
+      for (let i = 0; i < 300; i++)
+        notify("thread/status/changed", { threadId: `noise-${i}`, status: { type: "idle" } });
+      item("native", "turn", {
+        id: "spawn-lost",
+        type: "subAgentActivity",
+        kind: "started",
+        agentThreadId: "lost-child",
+      });
+      if (text === "evicted-child") end();
     } else if (text === "overflow-read") {
       notify("turn/started", { threadId: "overflow-child", turn: { id: "overflow-turn" } });
       for (let i = 0; i < 70; i++)
@@ -286,6 +313,10 @@ for await (const line of createInterface({ input: process.stdin })) {
       respond({ data: ["unrelated"], nextCursor: null });
       continue;
     }
+    if (pendingKind.startsWith("evicted-child")) {
+      respond({ data: ["native", "lost-child"], nextCursor: null });
+      continue;
+    }
     respond({ data: active.has("hidden") ? ["native", "hidden"] : ["native"], nextCursor: null });
   } else if (method === "thread/read") {
     if (process.env["ACE_FAKE_RESUME"] === "read-completed" && p["threadId"] === "hidden") {
@@ -294,6 +325,31 @@ for await (const line of createInterface({ input: process.stdin })) {
       process.stdout.write(
         `${JSON.stringify({ id, result: { thread: { id: "hidden", parentThreadId: "native", status: { type: "active" }, turns: [turn] } } })}\n${JSON.stringify({ method: "turn/completed", params: { threadId: "hidden", turn: { ...turn, status: "completed" } } })}\n`,
       );
+      continue;
+    }
+    if (/^(?:unrelated-|noise-)/.test(str(p["threadId"]))) {
+      respond({
+        thread: { id: p["threadId"], parentThreadId: null, status: { type: "idle" }, turns: [] },
+      });
+      continue;
+    }
+    if (p["threadId"] === "lost-child") {
+      respond({
+        thread: {
+          id: "lost-child",
+          parentThreadId: "native",
+          status: { type: "idle" },
+          turns: [
+            {
+              id: "lost-turn",
+              status: "completed",
+              items: [
+                { id: "lost-message", type: "agentMessage", text: "recovered completed history" },
+              ],
+            },
+          ],
+        },
+      });
       continue;
     }
     if (p["threadId"] === "overflow-child") {

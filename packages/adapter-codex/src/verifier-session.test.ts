@@ -60,3 +60,62 @@ test("a read snapshot cannot resurrect a child completed in the reply chunk", as
     await h.dispose();
   }
 });
+
+test("a fully evicted child recovers completed history despite saturated unknown timers", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send(text("evicted-child"), "steer");
+    await h.wait(note("discovery-finished"));
+    const messages = Object.values(h.replay.state.items).flatMap((i) =>
+      i.type === "message" ? i.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])) : [],
+    );
+    expect(messages).toContain("recovered completed history");
+    expect(h.replay.state.status.state).toBe("done");
+    h.runTimers();
+    // The next provider round trip is a barrier for every scheduled recovery request.
+    const barrier = h.frames.at(-1)?.seq ?? 0;
+    await h.session.send(text("finish"), "steer");
+    await h.wait((f) => f.seq > barrier && note("discovery-finished")(f));
+    expect(h.replay.state.status.state).toBe("done");
+  } finally {
+    await h.dispose();
+  }
+});
+test("an acknowledged turn steers input before its start notification arrives", async () => {
+  const h = await sessionHarness(false, "reply-before-start");
+  try {
+    await h.session.send(text("running"), "steer");
+    await h.session.send(text("correction"), "steer");
+    await h.wait((f) => JSON.stringify(f.data).includes("steered: correction"));
+    const messages = Object.values(h.replay.state.items).flatMap((i) =>
+      i.type === "message" ? i.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])) : [],
+    );
+    expect(messages).toContain("steered: correction");
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("admission schedules evicted child recovery despite saturated timers before root completion", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send(text("evicted-child-live"), "steer");
+    await h.wait((f) => JSON.stringify(f.data).includes("spawn-lost"));
+    h.runTimers();
+    await h.session.send(text("barrier"), "steer");
+    await h.wait((f) => JSON.stringify(f.data).includes("steered: barrier"));
+    expect(
+      Object.values(h.replay.state.items).some(
+        (i) =>
+          i.type === "message" &&
+          i.parts.some((p) => p.type === "text" && p.text === "recovered completed history"),
+      ),
+    ).toBe(true);
+    expect(h.replay.state.status.state).toBe("working");
+    await h.session.interrupt({ agent: "root", cascade: false });
+    await h.wait(note("discovery-finished"));
+    expect(h.replay.state.status.state).toBe("done");
+  } finally {
+    await h.dispose();
+  }
+});

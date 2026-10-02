@@ -47,7 +47,9 @@ test("started aggregate and streamed suffix appear exactly once and late output 
   );
   expect(call?.complete).toBe(true);
   expect(
-    call?.type === "tool_call" && call.call.detail.kind === "shell" && call.call.detail.output,
+    call?.type === "tool_call" &&
+      call.call.detail.kind === "shell" &&
+      call.call.detail.output?.tail,
   ).toBe("prefixsuffixlate");
   expect(h.state.status.state).toBe("done");
 });
@@ -72,7 +74,10 @@ test.each([
   expect(
     Object.values(h.state.items).some(
       (i) =>
-        i.type === "notice" && i.raw.some((r) => JSON.stringify(r.data) === JSON.stringify(item)),
+        i.type === "notice" &&
+        i.raw.some(
+          (r) => ("data" in r ? JSON.stringify(r.data) : undefined) === JSON.stringify(item),
+        ),
     ),
   ).toBe(true);
 });
@@ -82,7 +87,10 @@ test.each([null, [], "bad", 42])("malformed primitive retains its raw value: %j"
   expect(
     Object.values(h.state.items).some(
       (i) =>
-        i.type === "notice" && i.raw.some((r) => JSON.stringify(r.data) === JSON.stringify(data)),
+        i.type === "notice" &&
+        i.raw.some(
+          (r) => ("data" in r ? JSON.stringify(r.data) : undefined) === JSON.stringify(data),
+        ),
     ),
   ).toBe(true);
 });
