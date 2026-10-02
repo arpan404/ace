@@ -168,6 +168,90 @@ it("retries unacknowledged legacy delivery with the original executor identity a
   }
 });
 
+it.each([
+  { change: "file", file: "src/other.ts", line: comment.line },
+  { change: "line", file: comment.path, line: 29 },
+  { change: "file and line", file: "src/other.ts", line: 29 },
+])(
+  "replaces a legacy pending review after a $change edit with only current context",
+  async ({ file, line }) => {
+    const fixtures = standard();
+    fixtures[`repos/octo/ace/commits/${sha}/check-runs?per_page=100&filter=latest`] = [
+      { body: { check_runs: [] } },
+    ];
+    fixtures.graphql = [{ body: threads() }];
+    fixtures["repos/octo/ace/pulls/7/comments?per_page=100"] = [
+      { body: [{ ...comment, path: file, line }] },
+    ];
+    const fake = await fakeGh(fixtures);
+    const path = join(fake.dir, "pending-review-upgrade.sqlite");
+    const legacy = new DatabaseSync(path);
+    legacy.exec(
+      await readFile(
+        new URL("./testing/legacy-review-pending-ledger.sql", import.meta.url),
+        "utf8",
+      ),
+    );
+    legacy.close();
+    const db = new DatabaseSync(path);
+    try {
+      const store = new ForgeStore(db);
+      const oldKey =
+        "forge:5182cd66016cd28ef7b4f1286499e1ccca7d05077e1df95498ae687cb444de0b:comment:inline:13:48292f9b86d5cca5501054de226fbe0e59f9314abd4d6dfa0395abc14b0024fb";
+      const pending = store.pending("upgrade");
+      expect(pending.map((intent) => intent.key)).toEqual([oldKey]);
+      expect(pending.map((intent) => intent.context)).toEqual([
+        {
+          type: "review",
+          comment: {
+            kind: "inline",
+            id: comment.id,
+            body: comment.body,
+            author: comment.user.login,
+            file: comment.path,
+            line: comment.line,
+            updatedAt: comment.updated_at,
+            replyTo: null,
+          },
+        },
+      ]);
+      const accepted: ForgeAutoFixIntent[] = [];
+      const loop = new ReviewLoop({
+        forge: fake.forge,
+        store,
+        executor: {
+          async enqueue(intent) {
+            accepted.push(intent);
+          },
+        },
+      });
+      await loop.poll("upgrade", new AbortController().signal);
+      expect(accepted.map((intent) => intent.context)).toEqual([
+        {
+          type: "review",
+          comment: {
+            kind: "inline",
+            id: comment.id,
+            body: comment.body,
+            author: comment.user.login,
+            file,
+            line,
+            updatedAt: comment.updated_at,
+            replyTo: null,
+          },
+        },
+      ]);
+      expect(accepted[0]?.key).not.toBe(oldKey);
+      expect(store.pending("upgrade")).toEqual([]);
+      await loop.poll("upgrade", new AbortController().signal);
+      expect(accepted).toHaveLength(1);
+    } finally {
+      db.close();
+      await fake.cleanup();
+    }
+  },
+);
+
 it.each(["acknowledged", "pending"])(
   "adopts legacy acceptance when a %s modern identity already exists",
   async (state) => {
