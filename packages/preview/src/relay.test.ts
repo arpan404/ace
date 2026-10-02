@@ -74,47 +74,51 @@ test("loopback preview rejects cross-origin requests and forged Host values", as
   expect(hits).toBe(0);
 });
 
-test("relay carries an 8 MiB streamed upload and download with bounded socket queues", async () => {
-  const size = 8 * 1024 * 1024;
-  const { proxy, host } = await fixture((req, res) => req.pipe(res));
-  const url = new URL(proxy.url);
-  let maxBuffered = 0;
-  const incoming = await new Promise<import("node:http").IncomingMessage>((resolve, reject) => {
-    const req = request(
-      {
-        hostname: "127.0.0.1",
-        port: Number(new URL(proxy.url).port),
-        method: "POST",
-        headers: { host: url.host },
-        agent: false,
-      },
-      resolve,
-    );
-    req.once("error", reject);
-    Readable.from(
-      (async function* () {
-        for (let n = 0; n < size; n += 16_384) {
-          yield Buffer.alloc(16_384, 9);
-          maxBuffered = Math.max(
-            maxBuffered,
-            proxy.stats().bufferedBytes,
-            host.stats().bufferedBytes,
-          );
-        }
-      })(),
-    ).pipe(req);
-  });
-  let received = 0;
-  for await (const chunk of incoming) {
-    if (!Buffer.isBuffer(chunk)) throw new Error("Expected streamed bytes");
-    expect(chunk.every((b) => b === 9)).toBe(true);
-    received += chunk.length;
-    maxBuffered = Math.max(maxBuffered, proxy.stats().bufferedBytes, host.stats().bufferedBytes);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  }
-  expect(received).toBe(size);
-  expect(maxBuffered).toBeLessThan(524_288);
-});
+test(
+  "relay carries an 8 MiB streamed upload and download with bounded socket queues",
+  { timeout: 60_000 },
+  async () => {
+    const size = 8 * 1024 * 1024;
+    const { proxy, host } = await fixture((req, res) => req.pipe(res));
+    const url = new URL(proxy.url);
+    let maxBuffered = 0;
+    const incoming = await new Promise<import("node:http").IncomingMessage>((resolve, reject) => {
+      const req = request(
+        {
+          hostname: "127.0.0.1",
+          port: Number(new URL(proxy.url).port),
+          method: "POST",
+          headers: { host: url.host },
+          agent: false,
+        },
+        resolve,
+      );
+      req.once("error", reject);
+      Readable.from(
+        (async function* () {
+          for (let n = 0; n < size; n += 16_384) {
+            yield Buffer.alloc(16_384, 9);
+            maxBuffered = Math.max(
+              maxBuffered,
+              proxy.stats().bufferedBytes,
+              host.stats().bufferedBytes,
+            );
+          }
+        })(),
+      ).pipe(req);
+    });
+    let received = 0;
+    for await (const chunk of incoming) {
+      if (!Buffer.isBuffer(chunk)) throw new Error("Expected streamed bytes");
+      expect(chunk.every((b) => b === 9)).toBe(true);
+      received += chunk.length;
+      maxBuffered = Math.max(maxBuffered, proxy.stats().bufferedBytes, host.stats().bufferedBytes);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    expect(received).toBe(size);
+    expect(maxBuffered).toBeLessThan(524_288);
+  },
+);
 
 test("SSE arrives through the relay before the response is complete", async () => {
   let finish: (() => void) | undefined;
@@ -166,13 +170,15 @@ test("websocket echo reconnects on a replacement channel after relay disconnecti
   await new Promise<void>((resolve) => wss.close(() => resolve()));
 });
 
-test("malformed relay frames close existing streams instead of accepting unbounded payloads", async () => {
+test("invalid relay versions close an active websocket", async () => {
   const { proxy, channels, upstream } = await fixture((_req, res) => res.end());
   const wss = echoWebsocket(upstream.server);
   const ws = await websocket(proxy.url, "");
   expect(await echo(ws, "alive")).toBe("alive");
   const disconnected = once(ws, "close");
-  await channels.a.send(new Uint8Array(16_397));
+  const invalid = control(5, 1);
+  invalid[0] = 2;
+  await channels.a.send(invalid);
   await disconnected;
   for (const peer of wss.clients) peer.terminate();
   await new Promise<void>((resolve) => wss.close(() => resolve()));

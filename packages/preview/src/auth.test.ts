@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { afterEach, expect, test } from "vitest";
 import { CookieJar } from "tough-cookie";
 import { http, serve, gateway, websocket } from "./test-support.ts";
@@ -207,4 +208,35 @@ test("HTTPS links set a host-only Secure cookie and forward through a real TLS l
   jar.setCookieSync(setCookie, origin);
   expect((await get(origin, jar.getCookieStringSync(origin))).body).toBe("secure app");
   expect(jar.getCookieStringSync(origin.replace("https:", "http:"))).toBe("");
+});
+
+test("valid-length wrong signatures and tampered signed claims cannot access a preview", async () => {
+  let hits = 0;
+  const upstream = await serve((_req, res) => {
+    hits++;
+    res.end("signed app");
+  });
+  cleanup.push(upstream.close);
+  const g = await gateway({ now: () => 10_000 });
+  cleanup.push(g.close);
+  const origin = g.register({ port: upstream.port });
+  const { cookie } = await g.login(upstream.port);
+  const [name = "", token = ""] = cookie.split("=");
+  const [payload = "", signature = ""] = token.split(".");
+  const incorrect = Buffer.from(signature, "base64url");
+  expect(incorrect.length).toBe(32);
+  incorrect[0] = (incorrect[0] ?? 0) ^ 128;
+  const forged = `${name}=${payload}.${incorrect.toString("base64url")}`;
+  expect((await http(origin, { cookie: forged })).status).toBe(401);
+  for (const replacement of [{ device: "never-issued-device" }, { expires: 100_000_000 }]) {
+    const claims = z
+      .record(z.string(), z.unknown())
+      .parse(JSON.parse(Buffer.from(payload, "base64url").toString()));
+    const tampered = Buffer.from(JSON.stringify({ ...claims, ...replacement })).toString(
+      "base64url",
+    );
+    expect((await http(origin, { cookie: `${name}=${tampered}.${signature}` })).status).toBe(401);
+  }
+  expect(hits).toBe(0);
+  expect((await http(origin, { cookie })).body).toBe("signed app");
 });
