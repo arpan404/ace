@@ -29,7 +29,7 @@ test("worker reads committed WAL snapshots and validates changed cursor generati
     expect((await queries.query({ text: "freshword" })).hits[0]?.itemId).toBe(latest.id);
     expect((await queries.query({ text: "work", scope: "threads" })).hits).toEqual([]);
   } finally {
-    queries.close();
+    await queries.close();
     log.close();
     rmSync(directory, { recursive: true, force: true });
   }
@@ -50,13 +50,13 @@ test("query admission is bounded and closing rejects outstanding work", async ()
     await expect(queries.query({ text: "Compiler", scope: "threads" })).rejects.toThrow(
       "search_failed",
     );
-    queries.close();
+    await queries.close();
     expect((await completed).every((result) => result.status === "rejected")).toBe(true);
     await expect(queries.query({ text: "Compiler", scope: "threads" })).rejects.toThrow(
       "search_failed",
     );
   } finally {
-    queries.close();
+    await queries.close();
     log.close();
     rmSync(directory, { recursive: true, force: true });
   }
@@ -77,7 +77,7 @@ test("palette requests remain available when transcript query admission is full"
     expect(palette.hits.map((hit) => hit.threadId)).toEqual([thread.id]);
     expect((await transcripts).every((result) => result.status === "fulfilled")).toBe(true);
   } finally {
-    queries.close();
+    await queries.close();
     log.close();
     rmSync(directory, { recursive: true, force: true });
   }

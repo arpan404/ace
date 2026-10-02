@@ -1,6 +1,9 @@
 import { once } from "node:events";
+import { DatabaseSync } from "node:sqlite";
+import { join } from "node:path";
 import { Item } from "@ace/protocol";
-import { afterEach, expect, test, vi } from "vitest";
+import { applyDelivery } from "@ace/projection";
+import { afterEach, expect, test } from "vitest";
 import { fixture } from "./socket-test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -57,6 +60,12 @@ test("authenticated wire queries see committed appends and progress without writ
     ready: true,
   });
   expect(f.store.headSeq()).toBe(2);
+  const receipts = new DatabaseSync(join(f.home, "events.sqlite"), { readOnly: true });
+  try {
+    expect(receipts.prepare("SELECT count(*) AS count FROM command_receipts").get()?.count).toBe(0);
+  } finally {
+    receipts.close();
+  }
   client.send({
     type: "search.query",
     requestId: "short",
@@ -96,9 +105,28 @@ test("an item deletion removes search hits and the subscribed transcript togethe
     parts: [{ type: "text", text: "deleteme" }],
   });
   f.store.appendEvents(f.thread.id, [{ type: "item.created", item }]);
-  const view = f.store.snapshotThread(f.thread.id);
+  const client = await f.connect();
+  await client.next();
+  client.send({
+    type: "subscribe",
+    subscriptionId: "deleted",
+    scope: { kind: "thread", threadId: f.thread.id },
+  });
+  const snapshot = await client.next();
+  if (snapshot.type !== "snapshot" || snapshot.view.kind !== "thread")
+    throw new Error("Expected thread snapshot");
+  const view = snapshot.view;
   expect(view.items[item.id]).toBeDefined();
   f.store.appendEvents(f.thread.id, [{ type: "item.deleted", itemId: item.id }]);
+  const delivery = await client.next();
+  expect(delivery).toMatchObject({
+    type: "events",
+    events: [{ payload: { type: "item.deleted", itemId: item.id } }],
+  });
+  if (delivery.type !== "events") throw new Error("Expected deletion events");
+  expect(applyDelivery(view, delivery).kind).toBe("applied");
+  expect(view.items[item.id]).toBeUndefined();
+  expect(view.itemOrder).not.toContain(item.id);
   const deleted = f.store.snapshotThread(f.thread.id);
   expect(deleted.items[item.id]).toBeUndefined();
   expect(deleted.itemOrder).not.toContain(item.id);
@@ -106,9 +134,16 @@ test("an item deletion removes search hits and the subscribed transcript togethe
 });
 
 test("daemon timer coalesces independent stream appends and flushes without waiting for completion", async () => {
-  vi.useFakeTimers();
   const { Store } = await import("./store.ts");
-  const store = new Store(":memory:");
+  let tick: (() => void) | undefined;
+  const store = new Store(":memory:", () => {}, {
+    searchScheduler: (flush) => {
+      tick = flush;
+      return () => {
+        tick = undefined;
+      };
+    },
+  });
   try {
     const workspaceId = store.createWorkspace("/timer", "Timer", 1);
     const { Thread } = await import("@ace/protocol");
@@ -140,12 +175,13 @@ test("daemon timer coalesces independent stream appends and flushes without wait
       ]);
     const writes = store.search.status(store.headSeq()).indexWrites;
     expect(store.search.query({ text: "timerword" }).hits).toEqual([]);
-    await vi.advanceTimersByTimeAsync(100);
+    if (!tick) throw new Error("Missing scheduled flush");
+    tick();
     expect(store.search.query({ text: "timerword" }).hits[0]?.itemId).toBe(item.id);
     expect(store.search.status(store.headSeq()).indexWrites).toBe(writes + 1);
   } finally {
-    store.close();
-    vi.useRealTimers();
+    await store.close();
+    expect(tick).toBeUndefined();
   }
 });
 
@@ -170,9 +206,7 @@ test("startup backfill shows current working status even before replay reaches i
   f.store.appendEvents(f.thread.id, [
     { type: "thread.updated", title: "Current title", status: { state: "working", agents: 1 } },
   ]);
-  f.store.close();
-  const { DatabaseSync } = await import("node:sqlite");
-  const { join } = await import("node:path");
+  await f.store.close();
   const path = join(f.home, "events.sqlite");
   const db = new DatabaseSync(path);
   try {
@@ -191,10 +225,14 @@ test("startup backfill shows current working status even before replay reaches i
     const results = reopened.search.query({ text: "startupword", filters: { status: "working" } });
     expect(results.hits).toHaveLength(30);
     expect(results.hits[0]?.threadTitle).toBe("Current title");
+    expect(reopened.search.query({ text: "Curr", scope: "threads" }).hits[0]?.threadId).toBe(
+      f.thread.id,
+    );
+    expect(reopened.search.query({ text: "Dev", scope: "threads" }).hits).toEqual([]);
     expect(
       reopened.search.query({ text: "startupword", filters: { status: "done" } }).hits,
     ).toEqual([]);
   } finally {
-    reopened.close();
+    await reopened.close();
   }
 });

@@ -20,13 +20,16 @@ import { migrate } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
 import { PayloadStore } from "./payload-store.ts";
 
-import { SearchIndex, SearchQueries } from "@ace/search";
+import { SearchIndex, SearchQueries, type SearchWorkerFactory } from "@ace/search";
+import { scheduleSearch, type SearchScheduler } from "./search-runtime.ts";
 
 export interface StoreOptions extends Partial<CredentialRuntime> {
   /** Store owns and closes this SQLite connection when supplied. */
   database?: DatabaseSync;
   nextId?: () => string;
   now?: () => number;
+  searchScheduler?: SearchScheduler;
+  searchWorkerFactory?: SearchWorkerFactory;
 }
 type Listener = (events: Event[]) => void;
 export class Store {
@@ -35,14 +38,14 @@ export class Store {
   readonly search: SearchIndex;
   readonly searchQueries: SearchQueries;
   private readonly searchAbort = new AbortController();
-  private readonly searchTimer: ReturnType<typeof setInterval>;
+  private readonly stopSearchTimer: () => void;
+  private closing: Promise<void> | undefined;
   private readonly payloads: PayloadStore;
   private readonly status: StatusStore;
   private readonly nextId: () => string;
   private readonly now: () => number;
   private readonly mcp: McpData;
   private statements = new Map<string, StatementSync>();
-  private closed = false;
   private transactionEvents: Event[] | undefined;
   private depth = 0;
   private listeners = new Set<Listener>();
@@ -78,32 +81,46 @@ export class Store {
           return this.payloads.readOutputBytes(streamId, offset, limit).bytes;
         },
       });
-      this.searchQueries = new SearchQueries(path);
+      this.searchQueries = new SearchQueries(path, options.searchWorkerFactory);
+      this.stopSearchTimer = (options.searchScheduler ?? scheduleSearch)(() => {
+        try {
+          this.search.flush();
+        } catch (error) {
+          this.onError(error);
+        }
+      });
     } catch (error) {
       this.db.close();
       throw error;
     }
-    this.searchTimer = setInterval(() => {
-      try {
-        this.search.flush();
-      } catch (error) {
-        this.onError(error);
-      }
-    }, 100);
-    this.searchTimer.unref();
     void this.search.backfill(this, { signal: this.searchAbort.signal }).catch(this.onError);
   }
   private onError: (error: unknown) => void;
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
+  close(): Promise<void> {
+    if (this.closing) return this.closing;
+    const finished = Promise.withResolvers<void>();
+    this.closing = finished.promise;
     this.searchAbort.abort();
-    this.searchQueries.close();
-    clearInterval(this.searchTimer);
+    const workers = this.searchQueries.close();
+    let failure: unknown;
+    try {
+      this.stopSearchTimer();
+    } catch (error) {
+      failure = error;
+    }
     this.statements.clear();
     this.listeners.clear();
     this.caches.clear();
-    this.db.close();
+    try {
+      this.db.close();
+    } catch (error) {
+      failure ??= error;
+    }
+    void workers.then(() => {
+      if (failure !== undefined) finished.reject(failure);
+      else finished.resolve();
+    }, finished.reject);
+    return this.closing;
   }
   private statement(sql: string): StatementSync {
     let statement = this.statements.get(sql);

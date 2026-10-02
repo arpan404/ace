@@ -51,7 +51,7 @@ test("shell completion, restart and rebuild preserve output heads and tails with
     expect(store.search.query({ text: "middleneedle" }).hits).toEqual([]);
   };
   verify(f.store);
-  f.store.close();
+  await f.store.close();
   const reopened = new Store(join(f.home, "events.sqlite"));
   try {
     verify(reopened);
@@ -63,6 +63,6 @@ test("shell completion, restart and rebuild preserve output heads and tails with
     expect(reopened.search.status(reopened.headSeq()).ready).toBe(true);
     expect(reopened.search.query({ text: "tailneedle" }).hits).toEqual([]);
   } finally {
-    reopened.close();
+    await reopened.close();
   }
 });

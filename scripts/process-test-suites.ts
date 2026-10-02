@@ -14,4 +14,6 @@ export const processTestSuites = [
   // Main advanced during this audit; these match after the model catalog merges.
   "apps/daemon/src/models.server.test.ts",
   "packages/models/src/{catalog,discover,review,storage,streaming}.test.ts",
+  "apps/daemon/src/search.{server,remote,outputs}.test.ts",
+  "packages/search/src/query-service.test.ts",
 ];

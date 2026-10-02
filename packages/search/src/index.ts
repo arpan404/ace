@@ -158,3 +158,4 @@ export class SearchIndex {
 }
 
 export { SearchQueries } from "./query-service.ts";
+export type { SearchWorker, SearchWorkerFactory } from "./worker-runtime.ts";

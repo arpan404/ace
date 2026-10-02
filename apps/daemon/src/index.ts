@@ -14,6 +14,7 @@ import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
 export { Store, type StoreOptions } from "./store.ts";
+export type { SearchScheduler } from "./search-runtime.ts";
 export {
   createDevThread,
   stubHandler,
@@ -66,7 +67,7 @@ export async function startDaemon(
               try {
                 await models?.close();
               } finally {
-                store?.close();
+                await store?.close();
               }
             } finally {
               try {
