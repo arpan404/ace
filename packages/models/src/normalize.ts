@@ -110,14 +110,28 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
         native: option,
       }));
   if (rows.length > 512) throw new Error("Too many models");
-  return rows.map((row) => {
+  const sessionConfigs = session.configOptions ?? [];
+  const sessionExtensions = sessionConfigs.filter((config) => !isSelectConfig(config));
+  const representative = Math.max(
+    0,
+    rows.findIndex((row) => row.modelId === current),
+  );
+  return rows.map((row, index) => {
     const model = base(instance, row.modelId, row.name, row.native);
     model.isDefault = row.modelId === current;
     const perModel = z
       .object({ configOptions: z.array(ConfigOption).max(64).optional() })
       .parse(row.native).configOptions;
-    const configs = perModel ?? (model.isDefault ? (session.configOptions ?? []) : []);
-    model.raw = rawPayload({ ...row.native, configOptions: configs });
+    const configs = perModel ?? (model.isDefault ? sessionConfigs : []);
+    // Metadata association does not imply model support. Preserve session extensions once,
+    // even when per-model configs override semantics or no listed model is current.
+    model.raw = rawPayload({
+      ...row.native,
+      configOptions: configs,
+      ...(index === representative && configs !== sessionConfigs && sessionExtensions.length
+        ? { sessionConfigOptions: sessionExtensions }
+        : {}),
+    });
     return applyConfig(model, configs);
   });
 }

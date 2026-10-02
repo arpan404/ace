@@ -86,6 +86,119 @@ test("per-model unknown options do not affect known select effort choices", () =
   expect(rows[0]?.raw.json).toContain('"currentValue":3');
 });
 
+const sessionExtension = {
+  id: "session-future",
+  type: "boolean",
+  currentValue: true,
+  metadata: { description: "session extension", apiKey: "private-value" },
+};
+const sessionEffort = {
+  id: "reasoning_effort",
+  type: "select",
+  currentValue: "high",
+  options: [{ value: "high", name: "High" }],
+};
+
+test("empty per-model configs preserve session extensions without inheriting session semantics", () => {
+  const perModel = { id: "model-future", type: "range", currentValue: 3 };
+  const rows = normalizeAcp(
+    {
+      configOptions: [
+        {
+          ...model,
+          options: [
+            { value: "a", name: "A", configOptions: [] },
+            { value: "b", name: "B", configOptions: [perModel] },
+          ],
+        },
+        sessionExtension,
+        sessionEffort,
+      ],
+    },
+    instance("acp"),
+  );
+  expect(rows.map((row) => [row.id, row.isDefault])).toEqual([
+    ["a", true],
+    ["b", false],
+  ]);
+  for (const row of rows) {
+    expect(row.reasoningEfforts).toEqual([]);
+    expect(row.defaultEffort).toBeUndefined();
+    expect(row.raw.truncated).toBe(false);
+  }
+  expect(JSON.parse(rows[0]?.raw.json ?? "null")).toMatchObject({
+    configOptions: [],
+    sessionConfigOptions: [
+      { ...sessionExtension, metadata: { description: "session extension", apiKey: "[redacted]" } },
+    ],
+  });
+  expect(JSON.parse(rows[1]?.raw.json ?? "null")).toMatchObject({ configOptions: [perModel] });
+  expect(rows[1]?.raw.json).not.toContain("session extension");
+});
+
+test("session extensions have a deterministic representative when the current model is absent", () => {
+  const perModel = { id: "model-future", type: "range", currentValue: 3 };
+  const rows = normalizeAcp(
+    {
+      configOptions: [
+        {
+          ...model,
+          currentValue: "missing",
+          options: [
+            { value: "a", name: "A", configOptions: [perModel] },
+            { value: "b", name: "B" },
+          ],
+        },
+        sessionExtension,
+        sessionEffort,
+      ],
+    },
+    instance("acp"),
+  );
+  expect(rows.map((row) => [row.id, row.isDefault])).toEqual([
+    ["a", false],
+    ["b", false],
+  ]);
+  expect(JSON.parse(rows[0]?.raw.json ?? "null")).toMatchObject({
+    configOptions: [perModel],
+    sessionConfigOptions: [
+      { id: "session-future", currentValue: true, metadata: { apiKey: "[redacted]" } },
+    ],
+  });
+  expect(rows[1]?.raw.json).not.toContain("session extension");
+  for (const row of rows) {
+    expect(row.reasoningEfforts).toEqual([]);
+    expect(row.defaultEffort).toBeUndefined();
+  }
+});
+
+test("session extensions choose the current row even when it is not the first model", () => {
+  const rows = normalizeAcp(
+    {
+      configOptions: [
+        {
+          ...model,
+          currentValue: "b",
+          options: [
+            { value: "a", name: "A", configOptions: [] },
+            { value: "b", name: "B", configOptions: [] },
+          ],
+        },
+        sessionExtension,
+      ],
+    },
+    instance("acp"),
+  );
+  expect(rows.map((row) => [row.id, row.isDefault])).toEqual([
+    ["a", false],
+    ["b", true],
+  ]);
+  expect(rows[0]?.raw.json).not.toContain("session extension");
+  expect(JSON.parse(rows[1]?.raw.json ?? "null")).toMatchObject({
+    sessionConfigOptions: [{ id: "session-future", currentValue: true }],
+  });
+});
+
 test.each([
   { id: "future", type: "select", currentValue: true },
   { id: "reasoning_effort", type: "select", options: [true] },
