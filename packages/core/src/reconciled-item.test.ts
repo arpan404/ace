@@ -17,7 +17,7 @@ const shell = (h: ReturnType<typeof harness>) => {
     throw new Error("Shell missing");
   return item;
 };
-test("native snapshots replace aggregates once and keep the first exact input", () => {
+test("native snapshots append aggregate suffixes once and keep the first exact input", () => {
   const h = harness();
   h.see();
   h.start();
@@ -30,25 +30,31 @@ test("native snapshots replace aggregates once and keep the first exact input", 
   h.end();
   h.send({ type: "item.delta", agent: "root", item: "shell", field: "output", append: "late" });
   reconcile(snapshot("alphabeta", true, { aggregatedOutput: "alphabeta" }));
-  expect(shell(h).call.detail).toMatchObject({ output: "alphabetalate" });
-  expect(shell(h).call.raw[0]?.data).toEqual(initial);
+  expect(shell(h).call.detail).toMatchObject({ output: { tail: "alphabetalate" } });
+  const first = shell(h).call.raw[0];
+  expect(first && "data" in first ? first.data : undefined).toEqual(initial);
+  expect(
+    h.history
+      .flatMap((e) => (e.type === "item.delta" && e.field === "output" ? [e.append] : []))
+      .join(""),
+  ).toBe("alphabetalate");
   reconcile(snapshot("", false, {}));
   expect(shell(h).complete).toBe(true);
   expect(shell(h).call.status).toBe("succeeded");
   expect(h.view.status.state).toBe("done");
 });
-test("a changed native aggregate replaces earlier output rather than concatenating it", () => {
+test("a growing native aggregate appends only its missing suffix", () => {
   const h = harness();
   h.see();
   h.start();
-  for (const output of ["partial", "corrected"])
+  for (const output of ["partial", "partialmore"])
     h.send({
       type: "item.reconciled",
       agent: "root",
       item: "shell",
-      draft: snapshot(output, output === "corrected", {}),
+      draft: snapshot(output, output === "partialmore", {}),
     });
-  expect(shell(h).call.detail).toMatchObject({ output: "corrected" });
+  expect(shell(h).call.detail).toMatchObject({ output: { tail: "partialmore" } });
 });
 test("late output cannot attach a live shell task to a completed item", () => {
   const h = harness();
@@ -80,7 +86,7 @@ test("output for a missing shell after turn end creates live work until completi
     draft: snapshot("late", true, {}),
   });
   h.send({ type: "background.ended", task: "task", status: "completed" });
-  expect(shell(h).call.detail).toMatchObject({ output: "late" });
+  expect(shell(h).call.detail).toMatchObject({ output: { tail: "late" } });
   expect(h.view.status.state).toBe("done");
 });
 test("reconciliation rejects foreign owners and malformed native drafts without corrupting items", () => {
@@ -106,9 +112,63 @@ test("reconciliation rejects foreign owners and malformed native drafts without 
     item: "shell",
     draft: { type: "tool_call", call: { kind: "shell", detail: { kind: "shell", output: 1 } } },
   });
-  expect(shell(h).call.detail).toMatchObject({ output: "original" });
+  expect(shell(h).call.detail).toMatchObject({ output: { tail: "original" } });
   const rejected = Object.values(h.view.items).filter(
     (i) => i.type === "notice" && i.raw.some((r) => r.type === "core.rejected_fact"),
   );
   expect(rejected).toHaveLength(2);
+});
+
+test("large Unicode snapshots preserve streamed bytes across repeated completions and late output", () => {
+  const h = harness();
+  h.see();
+  h.start();
+  const aggregate = "🙂".repeat(3000);
+  const reconcile = () =>
+    h.send({
+      type: "item.reconciled",
+      agent: "root",
+      item: "shell",
+      draft: snapshot(aggregate, true, {}),
+    });
+  reconcile();
+  h.end();
+  h.send({ type: "item.delta", agent: "root", item: "shell", field: "output", append: "late" });
+  reconcile();
+  reconcile();
+  const chunks = h.history.flatMap((e) =>
+    e.type === "item.delta" && e.field === "output" ? [e.append] : [],
+  );
+  expect(chunks.join("")).toBe(aggregate + "late");
+  expect(
+    chunks.every((chunk) => Buffer.byteLength(chunk) <= 4096 && !chunk.includes("\uFFFD")),
+  ).toBe(true);
+  expect(shell(h).call.detail).toMatchObject({ output: { bytes: 12004, truncated: true } });
+  expect(h.view.status.state).toBe("done");
+});
+
+test("a nonextending completion preserves observed output and retains the authoritative aggregate as raw", () => {
+  const h = harness();
+  h.see();
+  h.start();
+  h.send({ type: "item.delta", agent: "root", item: "shell", field: "output", append: "beta" });
+  const native = { aggregatedOutput: "alphabeta", status: "completed" };
+  h.send({
+    type: "item.reconciled",
+    agent: "root",
+    item: "shell",
+    draft: snapshot("alphabeta", true, native),
+  });
+  h.end();
+  expect(shell(h).complete).toBe(true);
+  expect(shell(h).call.detail).toMatchObject({ output: { tail: "beta", bytes: 4 } });
+  expect(
+    shell(h).call.raw.some((r) => "data" in r && JSON.stringify(r.data) === JSON.stringify(native)),
+  ).toBe(true);
+  expect(
+    h.history
+      .flatMap((e) => (e.type === "item.delta" && e.field === "output" ? [e.append] : []))
+      .join(""),
+  ).toBe("beta");
+  expect(h.view.status.state).toBe("done");
 });

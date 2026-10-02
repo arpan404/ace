@@ -3,6 +3,7 @@ import type { ApplyContext, ThreadState } from "./state.ts";
 import type { EventPayload, Item } from "@ace/protocol";
 import { get } from "./emit.ts";
 import { upsertItem } from "./items.ts";
+import { extendsOutput } from "./output-snapshot.ts";
 /** Native snapshots reconcile against canonical state, never against evictable adapter hints. */
 export function reconcileItem(
   state: ThreadState,
@@ -19,13 +20,18 @@ export function reconcileItem(
   const first = previous.call.raw[0];
   const call = { ...draft.call };
   if (first && call.raw?.length) call.raw = [first, ...call.raw.slice(-1)];
-  const incoming = call.detail;
-  const prior = previous.call.detail;
-  if (incoming?.kind === "shell" && prior.kind === "shell" && incoming.output !== undefined) {
-    const current = prior.output ?? "";
-    const aggregate = incoming.output;
-    // A replayed prefix cannot erase output that arrived after the original completion.
-    call.detail = { ...incoming, output: current.startsWith(aggregate) ? current : aggregate };
+  const detail = call.detail;
+  if (
+    detail?.kind === "shell" &&
+    previous.call.detail.kind === "shell" &&
+    typeof detail.output === "string" &&
+    !extendsOutput(previous.call.detail.output, detail.output)
+  ) {
+    // Missing native chunks cannot be inserted into an append-only stream. Keep the complete
+    // aggregate in raw while preserving verified output, including chunks after completion.
+    const { output: _output, ...metadata } = detail;
+    call.detail = metadata;
   }
+  // The core stream writer appends only aggregate bytes beyond its bounded summary.
   return upsertItem(state, agent, key, { ...draft, call }, ctx, events);
 }

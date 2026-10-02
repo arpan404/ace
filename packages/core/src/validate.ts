@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { extendsOutput } from "./output-snapshot.ts";
 import {
   Agent,
   AgentActivity,
@@ -155,14 +156,9 @@ function itemError(state: ThreadState, fact: Fields, now: number): string | unde
     previous?.type === "tool_call" &&
     previous.call.detail.kind === "shell"
   ) {
-    const bytes = new TextEncoder().encode(detail.output);
-    const prior = previous.call.detail.output;
-    const size = prior?.bytes ?? 0;
-    const tail = prior?.tail ?? "";
-    const tailSize = new TextEncoder().encode(tail).length;
     if (
-      bytes.length < size ||
-      new TextDecoder().decode(bytes.subarray(size - tailSize, size)) !== tail
+      fact.type !== "item.reconciled" &&
+      !extendsOutput(previous.call.detail.output, detail.output)
     )
       return "legacy output must extend the existing stream";
   }
