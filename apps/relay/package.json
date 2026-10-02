@@ -1,0 +1,21 @@
+{
+  "name": "@ace/relay",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "start": "node src/cli.ts"
+  },
+  "dependencies": {
+    "@ace/protocol": "workspace:*",
+    "@ace/secure-channel": "workspace:*",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

@@ -23,6 +23,17 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "apps/relay": {
+      "name": "@ace/relay",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/secure-channel": "workspace:*",
+        "ws": "^8.18.3",
+      },
+      "devDependencies": {
+        "@types/ws": "^8.18.1",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
@@ -66,6 +77,8 @@
     "@ace/protocol": ["@ace/protocol@workspace:packages/protocol"],
 
     "@ace/recorder": ["@ace/recorder@workspace:tools/recorder"],
+
+    "@ace/relay": ["@ace/relay@workspace:apps/relay"],
 
     "@ace/secure-channel": ["@ace/secure-channel@workspace:packages/secure-channel"],
 
