@@ -2,46 +2,80 @@
   {
     "mutation": "login disabled",
     "test": "LaunchAgent starts",
-    "killed": true
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "restart throttle removed",
     "test": "LaunchAgent starts",
-    "killed": true
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "crash restart disabled",
     "test": "user systemd unit",
-    "killed": true
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "signature verification bypassed",
     "test": "a bad signature",
-    "killed": true
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "checksum verification bypassed",
     "test": "a bad checksum",
-    "killed": true
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "active-tree barrier bypassed",
     "test": "active trees block",
-    "killed": true
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "rollback points at candidate",
     "test": "failed candidate health",
-    "killed": true
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "migration dry-run omitted",
     "test": "a failed migration",
-    "killed": true
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "command admission left open",
     "test": "maintenance closes websocket",
-    "killed": true
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "prepared journal restored as complete snapshot",
+    "test": "an interrupted snapshot restarts the old generation",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "snapshot validation moved after live database deletion",
+    "test": "missing or corrupt rollback snapshots never delete live databases",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "journal written only after service stop",
+    "test": "a failed stop leaves recoverable intent",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "Linux packaging requires the macOS-only spawn helper",
+    "test": "staging packages the checked PTY without requiring a macOS spawn helper",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "native input checksum verification bypassed",
+    "test": "a corrupt Linux native input cannot enter the artifact",
+    "status": "not executed (tests run at merge)"
   }
 ]
