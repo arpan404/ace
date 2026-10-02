@@ -9,7 +9,7 @@ describe("fixture ordering and liveness edges", () => {
     h.see("child", "root", true);
     h.end();
     expect(h.agent("child")?.status).toEqual({ state: "starting" });
-    expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+    expect(h.view.status.state).toBe("working");
     h.start("child");
     h.end("child");
     expect(h.view.status).toEqual({ state: "done" });

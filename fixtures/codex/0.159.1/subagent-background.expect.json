@@ -6,30 +6,30 @@
     },
     {
       "t": 9062,
-      "thread": "waiting",
+      "thread": "working",
       "agentStates": {
         "root": "blocked",
         "01a0fb29-8c7d-7d72-be0f-aa8f1d783f2f": "working"
       },
-      "on": "background_task"
+      "note": "Owner integration rule: an active background child keeps the thread working; root remains blocked on background_task."
     },
     {
       "t": 11294,
-      "thread": "waiting",
+      "thread": "working",
       "agentStates": {
         "root": "blocked",
         "01a0fb29-8c7d-7d72-be0f-aa8f1d783f2f": "working"
       },
-      "on": "background_task"
+      "note": "Owner integration rule: an active background child keeps the thread working; root remains blocked on background_task."
     },
     {
       "t": 11357,
-      "thread": "waiting",
+      "thread": "working",
       "agentStates": {
         "root": "blocked",
         "01a0fb29-8c7d-7d72-be0f-aa8f1d783f2f": "working"
       },
-      "on": "background_task"
+      "note": "Owner integration rule: an active background child keeps the thread working; root remains blocked on background_task."
     },
     {
       "t": 14153,

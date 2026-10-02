@@ -105,13 +105,17 @@ test("unknown thread noise stays raw until ancestry is confirmed and holds compl
   });
   expect(h.state.status.state).toBe("done");
 });
-test("background children keep the thread waiting while the child keeps working", () => {
+test("an active background child keeps the thread working after its parent completes", () => {
   const h = setup();
   h.start();
   h.item({ id: "spawn", type: "subAgentActivity", kind: "started", agentThreadId: "child" }, true);
   h.start("child", "child-turn");
   h.end();
-  expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.state.status).toEqual({ state: "working", agents: 1 });
+  expect(h.state.agents["root"]?.agent.status).toMatchObject({
+    state: "blocked",
+    on: "background_task",
+  });
   expect(h.state.agents["child"]?.agent.status.state).toBe("working");
   h.end("completed", "child", "child-turn");
   expect(h.state.status.state).toBe("done");

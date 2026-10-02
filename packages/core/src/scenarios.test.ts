@@ -20,7 +20,7 @@ describe("recorded provider false-done traps", () => {
         stoppable: true,
       });
       h.end();
-      expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+      expect(h.view.status.state).toBe("working");
       h.end("child");
       expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
       // Claude announces an expected self-start before releasing the final live task.

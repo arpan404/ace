@@ -233,10 +233,10 @@ const cases = [
     test: "verifier-translator.test.ts",
   },
   {
-    name: "count working background children as foreground",
+    name: "hide active background children from thread working status",
     file: "../../core/src/status.ts",
-    before: "if (inBackground(record)) return false;",
-    after: "// Count background children as working",
+    before: 'status.state === "working" ||',
+    after: '(status.state === "working" && !record.agent.background) ||',
     test: "verifier-translator.test.ts",
   },
   {

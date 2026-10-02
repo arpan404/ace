@@ -290,21 +290,7 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
     .map((key) => lookup(state.interactions, key)!)
     .filter((interaction) => isActionableInteraction(interaction, byId.get(interaction.agentId)));
   if (pending.length > 0) return { state: "needs_you", interactions: pending.length };
-  const recordById = new Map(records.map((record) => [record.agent.id, record]));
-  const background = new Map<string, boolean>();
-  function inBackground(record: AgentRecord, visiting = new Set<string>()): boolean {
-    const id = record.agent.id;
-    const cached = background.get(id);
-    if (cached !== undefined) return cached;
-    if (visiting.has(id)) return false;
-    visiting.add(id);
-    const parent = record.agent.parentId ? recordById.get(record.agent.parentId) : undefined;
-    const result = record.agent.background || (parent ? inBackground(parent, visiting) : false);
-    background.set(id, result);
-    return result;
-  }
   const working = records.filter((record) => {
-    if (inBackground(record)) return false;
     const status = record.agent.status;
     return (
       (status.state === "starting" &&
