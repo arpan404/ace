@@ -1,4 +1,5 @@
-import { RpcWriter } from "./rpc-writer.ts";
+import { rpcOwner } from "./rpc-owner.ts";
+import { isRpcId as isId, type RpcId } from "./rpc-ids.ts";
 import { byteLimit } from "./output-budget.ts";
 import type { SupervisedProcess } from "./process.ts";
 
@@ -9,7 +10,7 @@ export class MethodNotFound extends Error {
   }
 }
 
-export type RpcId = string | number;
+export type { RpcId } from "./rpc-ids.ts";
 export type ServerRequest = { id: RpcId; method: string; params: unknown };
 export type Notification = { method: string; params: unknown };
 export type RpcOptions = {
@@ -18,7 +19,7 @@ export type RpcOptions = {
   maxPendingRequests?: number;
   maxMessageBytes?: number;
   maxQueuedBytes?: number;
-  /** Explicit wire ids are never reused. Defaults to 4096 distinct explicit ids per peer. */
+  /** First peer configures the pipe's lifetime reservation cap. Defaults to 4096. */
   maxExplicitIds?: number;
   onFrame?: (direction: "send" | "recv", message: unknown) => void;
   onMalformed?: (line: string) => void;
@@ -30,9 +31,6 @@ type Pending = {
   reject: (error: Error) => void;
   cleanup: () => void;
 };
-function isId(value: unknown): value is RpcId {
-  return typeof value === "string" || (typeof value === "number" && Number.isFinite(value));
-}
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -42,11 +40,10 @@ export class JsonRpcPeer {
   readonly #process: SupervisedProcess;
   readonly #options: RpcOptions;
   readonly #pending = new Map<RpcId, Pending>();
-  readonly #writer: RpcWriter;
+  readonly #owner: ReturnType<typeof rpcOwner>;
+  readonly #outgoing = new AbortController();
+  readonly #maxMessageBytes: number;
   readonly #maxPendingRequests: number;
-  readonly #maxExplicitIds: number;
-  readonly #explicitIds = new Set<RpcId>();
-  #nextId = 1;
   #closed: Error | undefined;
   onNotification: (message: Notification) => void = () => {};
   onRequest: (message: ServerRequest) => unknown | Promise<unknown> = () => {
@@ -55,8 +52,13 @@ export class JsonRpcPeer {
 
   constructor(proc: SupervisedProcess, options: RpcOptions = {}) {
     this.#maxPendingRequests = byteLimit(options.maxPendingRequests ?? 256, "maxPendingRequests");
-    this.#maxExplicitIds = byteLimit(options.maxExplicitIds ?? 4096, "maxExplicitIds");
-    this.#writer = new RpcWriter(proc.stdin, options);
+    this.#maxMessageBytes = byteLimit(
+      options.maxMessageBytes ?? 16 * 1024 * 1024,
+      "maxMessageBytes",
+    );
+    byteLimit(options.maxExplicitIds ?? 4096, "maxExplicitIds");
+    byteLimit(options.maxQueuedBytes ?? 32 * 1024 * 1024, "maxQueuedBytes");
+    this.#owner = rpcOwner(proc.stdin, options);
     this.#process = proc;
     this.#options = options;
     proc.stdout.on("line", this.#receive);
@@ -71,18 +73,6 @@ export class JsonRpcPeer {
     if (options.signal?.aborted) return Promise.reject(asError(options.signal.reason));
     if (this.#pending.size >= this.#maxPendingRequests)
       return Promise.reject(new Error("JSON-RPC pending request limit"));
-    let id = options.id;
-    if (id !== undefined) {
-      if (!isId(id) || (typeof id === "string" && Buffer.byteLength(id) > 1024))
-        return Promise.reject(new Error("Invalid request id"));
-      if (
-        this.#explicitIds.has(id) ||
-        (typeof id === "number" && Number.isInteger(id) && id > 0 && id < this.#nextId)
-      )
-        return Promise.reject(new Error("Request id already used"));
-      if (this.#explicitIds.size >= this.#maxExplicitIds)
-        return Promise.reject(new Error("JSON-RPC explicit id limit"));
-    }
     const deadline =
       options.timeoutMs !== undefined
         ? options.timeoutMs
@@ -92,13 +82,12 @@ export class JsonRpcPeer {
     if (deadline !== null && (!Number.isFinite(deadline) || deadline < 0)) {
       return Promise.reject(new RangeError("Invalid timeoutMs"));
     }
-    if (id === undefined) {
-      while (this.#explicitIds.has(this.#nextId)) this.#nextId++;
-      if (!Number.isSafeInteger(this.#nextId))
-        return Promise.reject(new Error("JSON-RPC id space exhausted"));
-      id = this.#nextId++;
-    } else this.#explicitIds.add(id);
-    const requestId = id;
+    let requestId: RpcId;
+    try {
+      requestId = this.#owner.ids.reserve(options.id);
+    } catch (error) {
+      return Promise.reject(asError(error));
+    }
     return new Promise((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const writeAbort = new AbortController();
@@ -141,7 +130,7 @@ export class JsonRpcPeer {
   /** Dispose the peer without stopping its owning process. */
   close(error = new Error("JSON-RPC peer closed")): void {
     this.#closed ??= error;
-    this.#writer.close(error);
+    this.#outgoing.abort(error);
     this.#process.stdout.removeListener("close", this.#drained);
     this.#process.signal.removeEventListener("abort", this.#end);
     this.#process.stdout.removeListener("line", this.#receive);
@@ -155,7 +144,7 @@ export class JsonRpcPeer {
   #end = (): void => {
     const error = new Error("process exited");
     this.#closed ??= error;
-    this.#writer.close(error);
+    this.#outgoing.abort(error);
     // Keep observing final stdout frames until close, but reject work at exit.
     for (const id of this.#pending.keys()) this.#settle(id, error);
   };
@@ -178,8 +167,13 @@ export class JsonRpcPeer {
     if (this.#closed || this.#process.signal.aborted)
       throw this.#closed ?? new Error("process exited");
     const line = `${JSON.stringify(message)}\n`;
+    if (Buffer.byteLength(line) > this.#maxMessageBytes)
+      throw new Error("JSON-RPC message exceeded limit");
     this.#options.onFrame?.("send", message);
-    await this.#writer.send(line, signal);
+    await this.#owner.writer.send(
+      line,
+      signal ? AbortSignal.any([signal, this.#outgoing.signal]) : this.#outgoing.signal,
+    );
   }
   #receive = (line: string): void => {
     let raw: unknown;

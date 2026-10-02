@@ -12,7 +12,6 @@ type Write = {
 /** A bounded FIFO; only one write is handed to stdin until callback and drain. */
 export class RpcWriter {
   readonly #stream: Writable;
-  readonly #maxMessageBytes: number;
   readonly #maxQueuedBytes: number;
   readonly #queue = new Map<number, Write>();
   #next = 0;
@@ -21,41 +20,43 @@ export class RpcWriter {
   #blocked = false;
   #closed: Error | undefined;
 
-  constructor(stream: Writable, limits: { maxMessageBytes?: number; maxQueuedBytes?: number }) {
+  constructor(stream: Writable, maxQueuedBytes: number) {
     this.#stream = stream;
-    this.#maxMessageBytes = byteLimit(
-      limits.maxMessageBytes ?? 16 * 1024 * 1024,
-      "maxMessageBytes",
-    );
-    this.#maxQueuedBytes = byteLimit(limits.maxQueuedBytes ?? 32 * 1024 * 1024, "maxQueuedBytes");
+    this.#maxQueuedBytes = byteLimit(maxQueuedBytes, "maxQueuedBytes");
     stream.on("drain", this.#drain);
+    stream.once("close", this.#ended);
+    stream.once("error", this.#failed);
   }
 
   send(line: string, signal?: AbortSignal): Promise<void> {
     if (this.#closed) return Promise.reject(this.#closed);
     if (signal?.aborted) return Promise.reject(new Error("JSON-RPC write cancelled"));
     const bytes = Buffer.byteLength(line);
-    if (bytes > this.#maxMessageBytes)
-      return Promise.reject(new Error("JSON-RPC message exceeded limit"));
     if (this.#bytes + bytes > this.#maxQueuedBytes)
       return Promise.reject(new Error("JSON-RPC write queue exceeded limit"));
     return new Promise<void>((resolve, reject) => {
       const id = this.#next++;
       const abort = () => {
-        const write = this.#queue.get(id);
-        if (!write) return; // In-flight bytes remain charged until the write callback.
-        this.#queue.delete(id);
-        this.#bytes -= write.bytes;
+        if (this.#queue.delete(id)) this.#bytes -= write.bytes;
+        // Active bytes remain charged until the callback, even after peer disposal.
         write.cleanup();
-        reject(new Error("JSON-RPC write cancelled"));
+        write.reject(
+          signal?.reason instanceof Error ? signal.reason : new Error("JSON-RPC write cancelled"),
+        );
+        write.resolve = () => {};
+        write.reject = () => {};
       };
-      this.#queue.set(id, {
+      const write: Write = {
         line,
         bytes,
         resolve,
         reject,
-        cleanup: () => signal?.removeEventListener("abort", abort),
-      });
+        cleanup: () => {
+          signal?.removeEventListener("abort", abort);
+          write.cleanup = () => {};
+        },
+      };
+      this.#queue.set(id, write);
       this.#bytes += bytes;
       signal?.addEventListener("abort", abort, { once: true });
       this.#pump();
@@ -66,17 +67,28 @@ export class RpcWriter {
     if (this.#closed) return;
     this.#closed = error;
     this.#stream.removeListener("drain", this.#drain);
+    this.#stream.removeListener("close", this.#ended);
+    this.#stream.removeListener("error", this.#failed);
     if (this.#active) {
       this.#active.cleanup();
       this.#active.reject(error);
-      this.#active = undefined;
+      this.#active.resolve = () => {};
+      this.#active.reject = () => {};
     }
     for (const write of this.#queue.values()) {
       write.cleanup();
       write.reject(error);
+      this.#bytes -= write.bytes;
     }
     this.#queue.clear();
   }
+
+  #ended = (): void => {
+    this.close(new Error("JSON-RPC stdin closed"));
+  };
+  #failed = (error: Error): void => {
+    this.close(error);
+  };
 
   #drain = (): void => {
     this.#blocked = false;
@@ -88,10 +100,10 @@ export class RpcWriter {
     if (entry.done) return;
     const [id, write] = entry.value;
     this.#queue.delete(id);
-    write.cleanup();
     this.#active = write;
     try {
       this.#blocked = !this.#stream.write(write.line, (error) => {
+        write.cleanup();
         this.#bytes -= write.bytes;
         this.#active = undefined;
         if (error) write.reject(error);
@@ -99,6 +111,7 @@ export class RpcWriter {
         this.#pump();
       });
     } catch (error) {
+      write.cleanup();
       this.#bytes -= write.bytes;
       this.#active = undefined;
       write.reject(error instanceof Error ? error : new Error(String(error)));
