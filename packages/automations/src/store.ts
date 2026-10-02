@@ -10,7 +10,7 @@ const JobMetadata = z.object({
   due: z.number().nullable(),
 });
 export type JobMetadata = z.infer<typeof JobMetadata>;
-const Job=JobMetadata.extend({state:z.unknown()});
+const Job = JobMetadata.extend({ state: z.unknown() });
 export type Job = z.infer<typeof Job>;
 const Input = z.object({
   idempotencyKey: z.string(),
@@ -28,11 +28,17 @@ export class AutomationStore {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;
       CREATE TABLE IF NOT EXISTS automation_jobs(id TEXT PRIMARY KEY, body TEXT NOT NULL, nominal INTEGER, due INTEGER, state TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS automation_state(id TEXT PRIMARY KEY, state TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS automation_due ON automation_jobs(due,id) WHERE due IS NOT NULL;
       CREATE INDEX IF NOT EXISTS automation_schedule_due ON automation_jobs(due,id) WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule';
       CREATE TABLE IF NOT EXISTS automation_runs(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, automation_id TEXT NOT NULL, event_key TEXT NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL, input TEXT, UNIQUE(automation_id,event_key));
       CREATE INDEX IF NOT EXISTS automation_active ON automation_runs(automation_id) WHERE status='running';
       CREATE INDEX IF NOT EXISTS automation_status ON automation_runs(status,seq);`);
+    // Migrate inline snapshots once; leave the legacy column empty for compatibility.
+    this.transaction(() => {
+      this.db.exec(`INSERT OR IGNORE INTO automation_state SELECT id,state FROM automation_jobs;
+        UPDATE automation_jobs SET state='{}' WHERE state<>'{}';`);
+    });
   }
   close(): void {
     this.statements.clear();
@@ -69,18 +75,22 @@ export class AutomationStore {
       Number(this.sql("SELECT COUNT(*) AS n FROM automation_jobs").get()?.n) >= 1000
     )
       throw new Error("Automation limit reached");
-    this.sql(
-      "INSERT INTO automation_jobs VALUES(?,?,?,?, ?) ON CONFLICT(id) DO UPDATE SET body=excluded.body, nominal=excluded.nominal, due=excluded.due, state=excluded.state",
-    ).run(
-      automation.id,
-      JSON.stringify(automation),
-      nominal ?? null,
-      due ?? null,
-      JSON.stringify(state),
-    );
+    const body = JSON.stringify(automation);
+    const snapshot = JSON.stringify(state);
+    this.transaction(() => {
+      this.sql(
+        "INSERT INTO automation_jobs VALUES(?,?,?,?, ?) ON CONFLICT(id) DO UPDATE SET body=excluded.body, nominal=excluded.nominal, due=excluded.due, state=excluded.state",
+      ).run(automation.id, body, nominal ?? null, due ?? null, "{}");
+      this.sql(
+        "INSERT INTO automation_state VALUES(?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",
+      ).run(automation.id, snapshot);
+    });
   }
   remove(id: string): void {
-    this.sql("DELETE FROM automation_jobs WHERE id=?").run(id);
+    this.transaction(() => {
+      this.sql("DELETE FROM automation_state WHERE id=?").run(id);
+      this.sql("DELETE FROM automation_jobs WHERE id=?").run(id);
+    });
   }
   get(id: string): Job | undefined {
     const row = this.sql("SELECT * FROM automation_jobs WHERE id=?").get(id);
@@ -89,41 +99,58 @@ export class AutomationStore {
           automation: JSON.parse(String(row.body)),
           nominal: row.nominal,
           due: row.due,
-          state: JSON.parse(String(row.state)),
+          state: this.readState(id),
         })
       : undefined;
   }
-  definition(id:string):Automation|undefined {
-    const row=this.sql("SELECT body FROM automation_jobs WHERE id=?").get(id);
-    return row?Automation.parse(JSON.parse(String(row.body))):undefined;
+  definition(id: string): Automation | undefined {
+    const row = this.sql("SELECT body FROM automation_jobs WHERE id=?").get(id);
+    return row ? Automation.parse(JSON.parse(String(row.body))) : undefined;
   }
-  metadata(id:string):JobMetadata|undefined {
-    const row=this.sql("SELECT body,nominal,due FROM automation_jobs WHERE id=?").get(id);
-    return row?JobMetadata.parse({automation:JSON.parse(String(row.body)),nominal:row.nominal,due:row.due}):undefined;
+  metadata(id: string): JobMetadata | undefined {
+    const row = this.sql("SELECT body,nominal,due FROM automation_jobs WHERE id=?").get(id);
+    return row
+      ? JobMetadata.parse({
+          automation: JSON.parse(String(row.body)),
+          nominal: row.nominal,
+          due: row.due,
+        })
+      : undefined;
   }
-  readState(id:string):unknown {
-    const row=this.sql("SELECT state FROM automation_jobs WHERE id=?").get(id);
-    if(!row)throw new Error("Automation is missing");
-    const state:unknown=JSON.parse(String(row.state));
+  readState(id: string): unknown {
+    const row = this.sql("SELECT state FROM automation_state WHERE id=?").get(id);
+    if (!row) throw new Error("Automation is missing");
+    const state: unknown = JSON.parse(String(row.state));
     return state;
   }
-  *jobs():Iterable<JobMetadata> {
-    let count=0;
-    for(const row of this.sql("SELECT body,nominal,due FROM automation_jobs ORDER BY id LIMIT 1001").iterate()) {
-      if(++count>1000)throw new Error("Automation limit exceeded");
-      yield JobMetadata.parse({automation:JSON.parse(String(row.body)),nominal:row.nominal,due:row.due});
+  *jobs(): Iterable<JobMetadata> {
+    let count = 0;
+    for (const row of this.sql(
+      "SELECT body,nominal,due FROM automation_jobs ORDER BY id LIMIT 1001",
+    ).iterate()) {
+      if (++count > 1000) throw new Error("Automation limit exceeded");
+      yield JobMetadata.parse({
+        automation: JSON.parse(String(row.body)),
+        nominal: row.nominal,
+        due: row.due,
+      });
     }
   }
-  list():JobMetadata[] {return [...this.jobs()];}
-  next(excluded:readonly string[]=[]):JobMetadata|undefined {
-    if(excluded.length>4)throw new Error("Too many excluded polls");
-    const row=this.sql("SELECT id FROM automation_jobs WHERE due IS NOT NULL AND id NOT IN(?,?,?,?) ORDER BY due,id LIMIT 1")
-      .get(excluded[0]??"",excluded[1]??"",excluded[2]??"",excluded[3]??"");
-    return row?this.metadata(String(row.id)):undefined;
+  list(): JobMetadata[] {
+    return [...this.jobs()];
   }
-  nextScheduled():JobMetadata|undefined {
-    const row=this.sql("SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1").get();
-    return row?this.metadata(String(row.id)):undefined;
+  next(excluded: readonly string[] = []): JobMetadata | undefined {
+    if (excluded.length > 4) throw new Error("Too many excluded polls");
+    const row = this.sql(
+      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND id NOT IN(?,?,?,?) ORDER BY due,id LIMIT 1",
+    ).get(excluded[0] ?? "", excluded[1] ?? "", excluded[2] ?? "", excluded[3] ?? "");
+    return row ? this.metadata(String(row.id)) : undefined;
+  }
+  nextScheduled(): JobMetadata | undefined {
+    const row = this.sql(
+      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1",
+    ).get();
+    return row ? this.metadata(String(row.id)) : undefined;
   }
   advance(id: string, nominal: number | undefined, due: number | undefined): void {
     this.sql("UPDATE automation_jobs SET nominal=?,due=? WHERE id=?").run(
@@ -133,7 +160,7 @@ export class AutomationStore {
     );
   }
   savePoll(id: string, state: unknown): void {
-    this.sql("UPDATE automation_jobs SET state=? WHERE id=?").run(JSON.stringify(state), id);
+    this.sql("UPDATE automation_state SET state=? WHERE id=?").run(JSON.stringify(state), id);
   }
   claim(
     automation: Automation,
