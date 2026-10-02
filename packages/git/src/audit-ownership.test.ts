@@ -94,6 +94,7 @@ test.each(["compatible", "incompatible"])(
           return child;
         }
       };
+      process.once('SIGTERM', () => process.exit(143));
       process.on('exit', () => {
         for (const child of running) if (child.pid) {
           try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
@@ -103,7 +104,7 @@ test.each(["compatible", "incompatible"])(
       try {
         await Promise.race([ready.promise, restore.then(() => { throw new Error('restore completed before child checkout barrier'); })]);
         let checkpointSettled = false;
-        const checkpoint = new GitService().createCheckpoint({worktree:${JSON.stringify(child)},threadId:'during-checkout',label:'during checkout'});
+        const checkpoint = new GitService({processRuntime}).createCheckpoint({worktree:${JSON.stringify(child)},threadId:'during-checkout',label:'during checkout'});
         checkpoint.then(() => { checkpointSettled = true; }, () => { checkpointSettled = true; });
         const idle = Promise.withResolvers();
         process.once('beforeExit', () => {
