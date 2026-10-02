@@ -185,3 +185,44 @@ test("restore protects ignored files inside an uninitialized gitlink", async () 
   });
   expect(await readFile(join(repo, "child/file.txt"), "utf8")).toBe("private ignored contents\n");
 });
+
+test.each(["none", "assume-unchanged", "skip-worktree"])(
+  "restore refuses replacing a nested repository with a file and preserves its administrative data under %s",
+  async (flag) => {
+    const repo = await repository({ child: "original file\n" });
+    const saved = await service.createCheckpoint({
+      worktree: repo,
+      threadId: "nested-root",
+      label: "file",
+    });
+    await rm(join(repo, "child"));
+    const source = await repository();
+    await git(repo, "clone", "--", source, join(repo, "child"));
+    await put(repo, "child/tracked.txt", "stashed\n");
+    await git(
+      join(repo, "child"),
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "-c",
+      "commit.gpgSign=false",
+      "stash",
+      "push",
+    );
+    if (flag !== "none") await git(repo, "update-index", `--${flag}`, "child");
+    const index = await readFile(join(repo, ".git", "index"));
+    const head = await scalar(repo, "rev-parse", "HEAD");
+    const before = await userState(join(repo, "child"));
+    await expect(
+      service.restoreCheckpoint({ worktree: repo, checkpoint: saved.id }),
+    ).rejects.toMatchObject({
+      code: "restore_collision",
+      details: { safetyCheckpointId: expect.any(String) },
+    });
+    expect(await userState(join(repo, "child"))).toEqual(before);
+    expect(await readFile(join(repo, ".git", "index"))).toEqual(index);
+    expect(await scalar(repo, "rev-parse", "HEAD")).toBe(head);
+    expect(await readFile(join(repo, "child", "tracked.txt"), "utf8")).toBe("original\n");
+  },
+);

@@ -14,7 +14,7 @@ import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
 export { createDaemonReview, type ReviewPort } from "./review.ts";
-export { Store } from "./store.ts";
+export { Store, type StoreOptions } from "./store.ts";
 export {
   createDevThread,
   stubHandler,

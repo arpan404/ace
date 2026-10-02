@@ -103,3 +103,8 @@ export function fieldsAndPath(
   }
   return { fields, path: decode(pathSchema, record.slice(offset), "path") };
 }
+
+export function pathAncestors(path: string): string[] {
+  const parts = path.split("/");
+  return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+}

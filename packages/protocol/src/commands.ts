@@ -13,9 +13,17 @@ import { ContentPart } from "./items.ts";
 import { ProviderKind } from "./provider.ts";
 
 import { ReviewCommands } from "./review.ts";
+import {
+  OrchestrationCreateCommand,
+  OrchestrationCancelCommand,
+  OrchestrationPickCommand,
+} from "./orchestration-execution.ts";
 
 export const CommandPayload = z.discriminatedUnion("type", [
   ...ReviewCommands,
+  OrchestrationCreateCommand,
+  OrchestrationCancelCommand,
+  OrchestrationPickCommand,
   z.object({
     type: z.literal("thread.create"),
     workspaceId: WorkspaceId,
