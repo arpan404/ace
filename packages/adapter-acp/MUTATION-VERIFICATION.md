@@ -65,3 +65,34 @@ All 13 probes below were applied individually to production code, ran the releva
 | M21   | Discard malformed text                         | keeps unknown and malformed frames as raw without rejecting later traffic                |
 
 The five verifier issues were also reproduced together before their fixes: linked-tool reassociation rejected canonical facts, delayed input disappeared, a second prompt escaped shell uncertainty, resumed terminal evidence left the original task unknown, and a disconnected child overrode a live background shell. Each failed a public API behavior assertion, then passed after its fix. A further reassociation probe reproduced an original-parent background task remaining running after child completion; it now passes too.
+
+## Second independent verifier follow-up
+
+D1, all three D2 variants, unknown initial snapshot metadata, and D3 byte growth failed public translator/core behavior assertions before their fixes. A separate reproduction also showed completed MCP arguments losing earlier input fields, including input introduced by a permission placeholder. Each now passes. The existing linked-tool test checks cleared canonical ownership and a JSON/schema round-trip of the nullable clear event, rather than only parent and tool ownership.
+
+The new settled-ID behavior passes normally and fails under exact F15, removal of `s.settleShell(tool)`: the original completed tool is overwritten after a same-session process restart. The test also asserts original command/status preservation and distinct canonical IDs.
+
+These 18 mutations were applied individually, failed the named public behavior tests and restored exact original bytes after each. Malformed cases have explicit null/array/number labels.
+
+| Probe | Broken behavior                                              | Detecting behavior test                                                                           |
+| ----- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| F15   | Reuse settled shell identity after same-session restart      | a settled shell ID creates a new tool after restarting the same native session                    |
+| D1a   | Keep a conflicting canonical spawn link after reparent       | reparents a child linked to a former parent's tool without rejecting or moving that tool          |
+| D1b   | Drop nullable spawn clearing at the wire boundary            | reparents a child linked to a former parent's tool without rejecting or moving that tool          |
+| D2a   | Overwrite valid interpreted input with malformed values      | keeps valid input and native name after malformed input null                                      |
+| D2b   | Replace valid Antigravity native name with malformed name    | a malformed native name null cannot replace the last valid Antigravity tool name                  |
+| D2c   | Lose delayed original input during later partial refreshes   | preserves delayed actual native input and name in the completed tool snapshot                     |
+| D2d   | Discard unknown initial tool metadata on later snapshots     | keeps unknown initial tool metadata in later live and completed snapshots                         |
+| D3a   | Accumulate and republish opaque input through interpretation | partial input changes scale linearly while final snapshots preserve every input field             |
+| D3b   | Serialize accumulated input during every partial refresh     | partial input changes scale linearly while final snapshots preserve every input field             |
+| D3c   | Lose collected partial fields from terminal snapshots        | partial input changes scale linearly while final snapshots preserve every input field             |
+| D3d   | Keep only original input in the completed raw snapshot       | partial input changes scale linearly while final snapshots preserve every input field             |
+| D3e   | Lose collected native arguments from completed MCP details   | completed MCP details include all streamed top-level native arguments                             |
+| D3f   | Ignore input decoded from a permission placeholder           | MCP permission placeholders retain their original arguments through streamed input and completion |
+| N15   | Discard original input on refresh                            | emits a bounded raw change for each tool refresh while retaining its initial input                |
+| M5    | Expire child grace after 1 ms                                | exposes the child cancellation grace to the engine deadline scheduler                             |
+| M13   | Skip protocol validation                                     | rejects ACP v2 before creating a native session                                                   |
+| M14   | Ignore process start                                         | restarts work after an unexpected exit without retaining the old active turn                      |
+| M21   | Discard malformed stdio text                                 | keeps unknown and malformed frames as raw without rejecting later traffic                         |
+
+This round rechecks F15, N15 and M5/M13/M14/M21. The partial-input byte test catches both accumulating opaque fields in interpretation and assembling them into raw on every change. Removing terminal collection or assembly also fails the preservation assertions, so the scaling assertion cannot pass by dropping input. Benchmark CPU/wall numbers are informational; the byte assertion is deterministic.
