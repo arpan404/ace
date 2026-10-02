@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AgentId, DeviceId, InteractionId, ItemId, ThreadId, Timestamp } from "./ids.ts";
 import { RawPayload } from "./provider.ts";
+import { TodoEntry } from "./tools.ts";
 
 export const ApprovalOption = z.object({
   id: z.string(),
@@ -32,8 +33,11 @@ export const InteractionRequest = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("question"), questions: z.array(Question) }),
   z.object({
     kind: z.literal("plan_review"),
+    title: z.string().optional(),
+    summary: z.string().optional(),
     markdown: z.string(),
     planPath: z.string().optional(),
+    todos: z.array(TodoEntry).optional(),
   }),
   z.object({
     kind: z.literal("elicitation"),
@@ -51,10 +55,12 @@ export const InteractionResolution = z.discriminatedUnion("kind", [
     kind: z.literal("question"),
     /** Question id → selected option ids, or free text for `allowOther`. */
     answers: z.record(z.string(), z.array(z.string())),
+    /** The user declined to answer; the agent continues without answers. */
+    dismissed: z.boolean().optional(),
   }),
   z.object({
     kind: z.literal("plan_review"),
-    decision: z.enum(["approve", "reject"]),
+    decision: z.enum(["approve", "reject", "cancel"]),
     feedback: z.string().optional(),
   }),
   z.object({
@@ -79,8 +85,16 @@ export const Interaction = z.object({
   id: InteractionId,
   threadId: ThreadId,
   agentId: AgentId,
+  /**
+   * Item that prompted this interaction. Adapters create a tool-call item
+   * when the provider sends an interaction with no backing item.
+   */
   toolCallId: ItemId.optional(),
-  /** False for questions the agent asks without stopping (e.g. Codex async questions). */
+  /**
+   * False for questions the agent asks without a protocol-level request
+   * (e.g. Codex async questions, answered with steering input). Pending
+   * non-blocking interactions still make the thread `needs_you`.
+   */
   blocking: z.boolean(),
   request: InteractionRequest,
   state: InteractionState,

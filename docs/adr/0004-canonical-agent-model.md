@@ -22,3 +22,16 @@ Provider research ([overview](../research/providers/README.md)) found that no pr
 
 - Adapters stay thin: translate native frames into facts, nothing more. Tree building, status derivation, error-text classification and liveness timers are shared daemon modules.
 - Adapter correctness is checked against recorded fixtures (ADR 0005).
+
+## Amendment, 2026-10-02
+
+The first recorded fixtures ([summary](../research/fixtures/README.md)) confirmed the model and added these details:
+
+- the `spawn` and `parent_agent` run triggers;
+- the `upstream` blocked reason;
+- ambient background tasks;
+- `Capabilities.backgroundVisibility`;
+- late linking of spawned agents;
+- dismissed and cancelled interactions.
+
+They also settled one rule: an interrupt only makes an agent `interrupted` once nothing it started is still running. Anything still running becomes a background task.

@@ -105,7 +105,11 @@ export const ToolDetail = z.discriminatedUnion("kind", [
     message: z.string().optional(),
   }),
   z.object({ kind: z.literal("todo"), todos: z.array(TodoEntry) }),
-  z.object({ kind: z.literal("plan"), markdown: z.string().optional() }),
+  z.object({
+    kind: z.literal("plan"),
+    markdown: z.string().optional(),
+    todos: z.array(TodoEntry).optional(),
+  }),
   z.object({ kind: z.literal("ask_user") }),
   z.object({ kind: z.enum(["browser", "image", "notebook", "custom"]) }),
 ]);

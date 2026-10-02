@@ -82,7 +82,7 @@ export const SCENARIOS: readonly Scenario[] = [
   {
     id: "interrupt",
     prompt:
-      "Run the shell command `sleep 60 && echo done` and wait for it to finish, then tell me.",
+      "Run this shell command in the foreground and wait for it to finish, then tell me the last line it printed: `for i in $(seq 1 60); do echo tick $i; sleep 1; done`",
     interruptAfterToolStartMs: 8_000,
     quietMs: 8_000,
     maxMs: 180_000,

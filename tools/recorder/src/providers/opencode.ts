@@ -123,6 +123,8 @@ export const opencode: Driver = {
 
       let rootId = "";
       let rootBusy = false;
+      /** Tool name per call id, so questions can be traced to the tool that asked. */
+      const toolByCall = new Map<string, string>();
       const triggerInterrupt = interruptOnce(scenario.interruptAfterToolStartMs, () => {
         rec.note("interrupt-sent");
         void http("POST", `/session/${rootId}/abort`);
@@ -152,6 +154,9 @@ export const opencode: Driver = {
         if (type === "message.part.updated") {
           const part = (props["part"] ?? {}) as Params;
           const state = (part["state"] ?? {}) as Params;
+          if (part["type"] === "tool" && typeof part["callID"] === "string") {
+            toolByCall.set(part["callID"], String(part["tool"]));
+          }
           if (
             part["sessionID"] === rootId &&
             part["type"] === "tool" &&
@@ -173,7 +178,9 @@ export const opencode: Driver = {
           ctx.interactions.open();
           try {
             const id = String(props["id"]);
-            if (scenario.planMode && scenario.planDecision === "reject") {
+            const callID = ((props["tool"] ?? {}) as Params)["callID"];
+            const askedBy = typeof callID === "string" ? toolByCall.get(callID) : undefined;
+            if (askedBy === "plan_exit" && scenario.planDecision === "reject") {
               await http("POST", `/question/${id}/reject`);
             } else {
               const questions = (props["questions"] ?? []) as Array<{

@@ -11,6 +11,10 @@ export type ProviderKind = z.infer<typeof ProviderKind>;
 export const NativeRef = z.object({
   provider: ProviderKind,
   nativeId: z.string().optional(),
+  /** Hierarchical name when the provider has one (Codex `agent_path`, e.g. `/root/explorer`). */
+  path: z.string().optional(),
+  /** Other native ids that refer to the same entity (e.g. a resumed subagent's new session id). */
+  aliases: z.array(z.string()).optional(),
 });
 export type NativeRef = z.infer<typeof NativeRef>;
 
@@ -42,6 +46,12 @@ export const Capabilities = z.object({
   subagentTranscripts: z.boolean(),
   /** Background tasks can be listed and stopped individually. */
   backgroundTaskControl: z.boolean(),
+  /**
+   * How much the provider tells us about work that outlives a turn.
+   * `full`: start and end events; `partial`: start only, or end only;
+   * `none`: invisible (ace must use a side channel or show a warning).
+   */
+  backgroundVisibility: z.enum(["full", "partial", "none"]),
   planMode: z.boolean(),
   tokenUsage: z.boolean(),
   imageInput: z.boolean(),

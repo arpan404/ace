@@ -14,7 +14,7 @@ import {
 } from "./ids.ts";
 import { Interaction, InteractionResolution, InteractionState } from "./interactions.ts";
 import { Item } from "./items.ts";
-import { Run, Thread, ThreadStatus } from "./thread.ts";
+import { Run, RunTrigger, Thread, ThreadStatus } from "./thread.ts";
 
 export const EventPayload = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread.created"), thread: Thread }),
@@ -31,6 +31,9 @@ export const EventPayload = z.discriminatedUnion("type", [
     agentId: AgentId,
     name: z.string().optional(),
     model: z.string().optional(),
+    /** Linked late: some providers announce the child before the spawning call. */
+    spawnedBy: ItemId.optional(),
+    background: z.boolean().optional(),
     endedAt: Timestamp.optional(),
   }),
   z.object({ type: z.literal("run.started"), run: Run }),
@@ -38,8 +41,14 @@ export const EventPayload = z.discriminatedUnion("type", [
     type: z.literal("run.ended"),
     runId: RunId,
     state: z.enum(["completed", "interrupted", "failed"]),
+    /** Corrected trigger, when the provider only reveals it at the end. */
+    trigger: RunTrigger.optional(),
     endedAt: Timestamp,
   }),
+  /**
+   * Items may arrive after their run ended (background shells and subagents
+   * report under the finished turn). Consumers must not assume run order.
+   */
   z.object({ type: z.literal("item.created"), item: Item }),
   /** Streaming append. Clients concatenate; the next `item.updated` is authoritative. */
   z.object({

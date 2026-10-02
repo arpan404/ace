@@ -23,6 +23,8 @@ export const BlockedReason = z.enum([
   "background_task",
   "rate_limit",
   "network",
+  /** Provider backend overloaded or unavailable; it is retrying on its own. */
+  "upstream",
 ]);
 export type BlockedReason = z.infer<typeof BlockedReason>;
 
@@ -33,16 +35,23 @@ export const AgentStatus = z.discriminatedUnion("state", [
     activity: AgentActivity,
     /** Tool call currently running, when `activity` is `tool`. */
     itemId: ItemId.optional(),
+    /** Short provider-supplied description of the current step, if any. */
+    detail: z.string().optional(),
   }),
   z.object({
     state: z.literal("blocked"),
     on: BlockedReason,
     /** Ids of the interactions, agents or background tasks it waits on. */
     refs: z.array(z.string()).default([]),
-    /** For rate limits: when the provider expects to retry. */
+    /** For rate limits and retries: when the provider expects to try again. */
     until: Timestamp.optional(),
+    /** Retry attempt number, when the provider reports one. */
+    attempt: z.number().int().positive().optional(),
+    /** Provider's own explanation, verbatim. */
+    message: z.string().optional(),
   }),
   z.object({ state: z.literal("idle") }),
+  /** Stopped by the user. Settled: counts as finished for thread "done". */
   z.object({ state: z.literal("interrupted") }),
   z.object({
     state: z.literal("failed"),

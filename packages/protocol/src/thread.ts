@@ -5,6 +5,10 @@ import { ProviderKind } from "./provider.ts";
 /** What started a run. Agents can start runs without anyone asking. */
 export const RunTrigger = z.enum([
   "user",
+  /** First run of a newly spawned subagent. */
+  "spawn",
+  /** A parent agent sent this agent more work (follow-up, message). */
+  "parent_agent",
   "background_completion",
   "subagent_result",
   "goal",
@@ -19,7 +23,14 @@ export const Run = z.object({
   id: RunId,
   threadId: ThreadId,
   agentId: AgentId,
+  /**
+   * Some providers only reveal why a run started when it ends (Claude puts
+   * the origin on the final result). Adapters start with `unknown` and
+   * correct it in `run.ended`.
+   */
   trigger: RunTrigger,
+  /** Provider's turn id, when it has one. */
+  nativeId: z.string().optional(),
   state: z.enum(["active", "completed", "interrupted", "failed"]),
   startedAt: Timestamp,
   endedAt: Timestamp.optional(),
@@ -35,7 +46,7 @@ export const ThreadStatus = z.discriminatedUnion("state", [
   z.object({ state: z.literal("working"), agents: z.number().int().positive() }),
   z.object({
     state: z.literal("waiting"),
-    on: z.enum(["background_task", "rate_limit", "network", "queue"]),
+    on: z.enum(["background_task", "rate_limit", "network", "upstream", "queue"]),
   }),
   z.object({ state: z.literal("failed") }),
   z.object({ state: z.literal("unresponsive") }),
