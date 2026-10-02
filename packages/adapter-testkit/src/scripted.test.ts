@@ -80,7 +80,9 @@ describe("scripted sessions", () => {
     const h = setup(steps);
     initial.data = "caller changed script after construction";
     const first = await h.adapter.openSession(h.ctx);
-    h.frames[0]!.data = "listener modified frame";
+    const received = h.frames[0];
+    if (!received) throw new Error("open step did not emit its frame");
+    received.data = "listener modified frame";
     await first.send([], "queue");
     const second = await h.adapter.openSession({
       ...h.ctx,
