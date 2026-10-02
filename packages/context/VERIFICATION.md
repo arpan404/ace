@@ -79,7 +79,7 @@ The attempted full PR gate failed with timeout-only assertions outside context a
 
 `deliverContext(service, command, capabilities, consume)` is the context-owned intent-worker interface. It validates the command, resolves thread-owned references, supplies original input/delivery plus native projection, returns typed diagnostics and releases in `finally`. The consumer promise settles after bytes are consumed or consumption has stopped on cancellation/failure. Initial thread creation can use `compose` after engine-assigned thread creation with the same lifetime contract.
 
-PR #15 is still open and its engine launcher is absent from main at `fe670b0`. Claude adapter PR #18 has landed, but `SessionContext` still has no native context submission hook. Its session-launcher must call this interface around native provider submission and call `releaseThread` on durable thread deletion. Accounts, MCP leases, plugins, model resolution and default adapter registration belong to their respective owners. Full I7 end-to-end session launch remains pending that integration and **needs run at merge**. Core state precedence is unchanged.
+PR #15 is still open and its engine launcher is absent from main at `4701bfa`. Claude adapter PR #18 has landed, but `SessionContext` still has no native context submission hook. Its session-launcher must call this interface around native provider submission and call `releaseThread` on durable thread deletion. Accounts, MCP leases, plugins, model resolution and default adapter registration belong to their respective owners. Full I7 end-to-end session launch remains pending that integration and **needs run at merge**. Core state precedence is unchanged.
 
 ## Merge-time watcher follow-up
 
@@ -98,3 +98,5 @@ Workspace PR #26 is now merged. The narrow `WorkspaceFiles` implementation remai
 Under the owner's merge-conflict exception, the following files passed: daemon `server.test.ts`, `context.server.test.ts`, `context.remote.test.ts`, `models.server.test.ts`, `remote.server.test.ts`, `delivery-runtime.test.ts`, `notification-shutdown.test.ts`, `presence-pressure.test.ts`, and context `workspace-review.test.ts`. Total: **9 files, 55 tests**. These cover local/remote context access, model requests, server commands/subscriptions, injected identities/time, admission during pending presence removal, shutdown acknowledgement and watcher recovery.
 
 Formatting, lint, typecheck and size checks pass. No full suite, CI, benchmark, mutation runner, provider prompt or recorder was run. Full integration and final performance measurements still **need run at merge**.
+
+Payload audit PR #54 landed during delivery. Main at `4701bfa` was merged without conflicts, preserving its payload/window fixes and context store option. Static checks were repeated; no additional tests were run for this conflict-free follow-up. The focused results above are from the `fe670b0` merge.
