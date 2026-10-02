@@ -23,6 +23,14 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/adapter-opencode": {
+      "name": "@ace/adapter-opencode",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
@@ -53,6 +61,8 @@
     },
   },
   "packages": {
+    "@ace/adapter-opencode": ["@ace/adapter-opencode@workspace:packages/adapter-opencode"],
+
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
