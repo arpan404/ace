@@ -4,6 +4,7 @@ import { Command, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
 import { capFact, readRawBlob } from "./raw.ts";
+import { PayloadStore } from "../payload-store.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 
@@ -14,17 +15,20 @@ export interface Intent {
   status: string;
   attempts: number;
   awaiting: boolean;
+  ackTarget: number | undefined;
 }
 export class EngineRepository {
   readonly store: Store;
   private ids: IdSource;
   private capacity: number;
+  private payloads: PayloadStore;
   private snapshots = new Map<ThreadId, Snapshot>();
   constructor(store: Store, ids: IdSource = { next: () => randomUUID() }, capacity = 64) {
     this.capacity = capacity;
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    this.payloads = store.atomic((db) => new PayloadStore(db, () => this.ids.next("item")));
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
   }
   state(id: ThreadId): ThreadState | undefined {
@@ -89,7 +93,7 @@ export class EngineRepository {
         if (!state) throw new Error("Missing engine state");
         this.snapshots.get(id)?.begin();
         const events = facts.flatMap((input) => {
-          let fact = this.store.atomic((db) => capFact(db, input));
+          let fact = capFact((raw) => this.payloads.capRaw(raw, id), input);
           if (fact.type === "interaction.closed" && fact.state === "resolved") {
             const interaction = Object.hasOwn(state.interactions, fact.interaction)
               ? state.interactions[fact.interaction]
@@ -102,10 +106,17 @@ export class EngineRepository {
                 resolvedBy: answer.deviceId,
               };
           }
-          const emitted = apply(state, fact, { now, ids: this.ids });
-          if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
-            this.snapshots.get(id)?.delta(fact);
-          return emitted;
+          const snapshot = this.snapshots.get(id);
+          const finish = snapshot?.prepare(fact) ?? (() => {});
+          try {
+            const emitted = apply(state, fact, { now, ids: this.ids });
+            if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
+              snapshot?.delta(fact);
+            snapshot?.remember(fact, emitted);
+            return emitted;
+          } finally {
+            finish();
+          }
         });
         for (const event of events)
           if (
@@ -115,10 +126,10 @@ export class EngineRepository {
           )
             this.store.atomic((db) =>
               db
-                .prepare(`UPDATE intents SET awaiting=0 WHERE id=(
-          SELECT id FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
+                .prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND awaiting=1 AND ack_target=(
+          SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
         )`)
-                .run(id),
+                .run(id, id),
             );
         this.save(state, events, now);
         return state;
@@ -189,6 +200,7 @@ export class EngineRepository {
         status: String(row.status),
         attempts: Number(row.attempts),
         awaiting: Number(row.awaiting) === 1,
+        ackTarget: row.ack_target == null ? undefined : Number(row.ack_target),
       }));
     });
   }
@@ -197,15 +209,17 @@ export class EngineRepository {
       Number(
         db
           .prepare(
-            "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND status='queued') + (SELECT COUNT(*) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') AS count",
+            "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND status='queued') + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') AS count",
           )
           .get(id, id)?.count,
       ),
     );
   }
-  beginSend(intent: Intent, awaiting: boolean): void {
+  beginSend(intent: Intent, target: number | undefined): void {
     this.store.atomic((db) =>
-      db.prepare("UPDATE intents SET awaiting=? WHERE id=?").run(awaiting ? 1 : 0, intent.id),
+      db
+        .prepare("UPDATE intents SET awaiting=?, ack_target=? WHERE id=?")
+        .run(target === undefined ? 0 : 1, target ?? null, intent.id),
     );
   }
   mark(intent: Intent, status: string, error?: string): void {

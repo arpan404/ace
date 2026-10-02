@@ -16,8 +16,7 @@ function track<T extends Awaited<ReturnType<typeof harness>>>(h: T): T {
   return h;
 }
 function view(store: Store, id: ThreadId) {
-  const result = store.acquireThread(id);
-  store.releaseThread(id);
+  const result = store.snapshotThread(id);
   return result;
 }
 

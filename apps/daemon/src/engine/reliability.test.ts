@@ -13,8 +13,7 @@ function track<T extends Awaited<ReturnType<typeof harness>>>(h: T): T {
 }
 const input = [{ type: "text" as const, text: "next" }];
 function transcript(store: Store, id: ThreadId) {
-  const view = store.acquireThread(id);
-  store.releaseThread(id);
+  const view = store.snapshotThread(id);
   return view;
 }
 

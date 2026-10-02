@@ -284,7 +284,13 @@ export class Engine {
     if (send) {
       const state = this.repo.requireState(actor.id);
       const active = state.agents[state.rootKey ?? ""]?.activeRun;
-      this.repo.beginSend(intent, !(this.isSteer(intent) && active));
+      const outstanding = this.repo.intents(actor.id).find((pending) => pending.awaiting);
+      const target = this.isSteer(intent)
+        ? active
+          ? undefined
+          : (outstanding?.ackTarget ?? intent.id)
+        : intent.id;
+      this.repo.beginSend(intent, target);
     }
     this.queue(actor);
     try {

@@ -8,6 +8,7 @@ export class Records<T> {
   readonly values: Record<string, T>;
   private cache = new Map<string, { value: T; json: string; bytes: number }>();
   private tracking = false;
+  private appendValue: { key: string; value: T } | undefined;
   private replaced = new Set<string>();
   private appended = new Set<string>();
   private touched = new Map<string, T | undefined>();
@@ -73,6 +74,10 @@ export class Records<T> {
     this.touched.set(key, decorated);
   }
   private read(key: string): T | undefined {
+    if (this.appendValue?.key === key) {
+      if (this.tracking) this.touched.set(key, this.appendValue.value);
+      return this.appendValue.value;
+    }
     if (this.touched.has(key)) return this.touched.get(key);
     let entry = this.cache.get(key);
     if (!entry) {
@@ -116,13 +121,27 @@ export class Records<T> {
     }
     return Object.keys(Object.fromEntries([...keys].map((key) => [key, true])));
   }
+  hasReplacement(key: string): boolean {
+    return this.replaced.has(key);
+  }
+  useAppendValue(key: string, value: T): () => void {
+    this.appendValue = { key, value };
+    return () => {
+      this.appendValue = undefined;
+      if (this.appended.has(key)) {
+        // The full cached value predates this chunk. Materialize it only for a full read.
+        this.cache.delete(key);
+        this.touched.delete(key);
+      } else if (!this.replaced.has(key)) this.touched.delete(key);
+    };
+  }
   append(key: string, patch: Append): void {
     const entry = this.cache.get(key);
-    if (!entry || !entry.json || this.replaced.has(key)) return;
+    if (this.replaced.has(key) || (!entry?.json && this.appendValue?.key !== key)) return;
     this.db
       .prepare("INSERT INTO engine_state_appends (thread_id,section,key,patch) VALUES (?, ?, ?, ?)")
       .run(this.thread, this.group, key, JSON.stringify(patch));
-    entry.bytes += Buffer.byteLength(patch.text);
+    if (entry) entry.bytes += Buffer.byteLength(patch.text);
     this.appended.add(key);
   }
   begin(): void {

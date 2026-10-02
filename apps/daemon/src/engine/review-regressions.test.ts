@@ -16,10 +16,9 @@ function track<T extends Awaited<ReturnType<typeof harness>>>(h: T): T {
 const discovery = { installed: true, auth: "logged_in" as const, loginHint: "unused" };
 function transcript(
   h: Awaited<ReturnType<typeof harness>>,
-  id: Parameters<Store["acquireThread"]>[0],
+  id: Parameters<Store["snapshotThread"]>[0],
 ) {
-  const view = h.store.acquireThread(id);
-  h.store.releaseThread(id);
+  const view = h.store.snapshotThread(id);
   return view;
 }
 
@@ -138,8 +137,7 @@ test("restart reports an unacknowledged delivered send and clears its durable qu
   const engine = new Engine(store, { registry: h.registry, clock: h.clock });
   try {
     await engine.flush();
-    const view = store.acquireThread(id);
-    store.releaseThread(id);
+    const view = store.snapshotThread(id);
     expect(
       Object.values(view.items).some(
         (item) => item.type === "notice" && item.text.includes("uncertain"),
@@ -320,8 +318,7 @@ test("legacy untracked queue uncertainty is reported and reconciled on startup",
   const engine = new Engine(store, { registry: h.registry, clock: h.clock });
   try {
     await engine.flush();
-    const result = store.acquireThread(id);
-    store.releaseThread(id);
+    const result = store.snapshotThread(id);
     expect(store.getThread(id)?.status.state).toBe("done");
     expect(
       Object.values(result.items).some(

@@ -11,9 +11,8 @@ function track<T extends Awaited<ReturnType<typeof harness>>>(h: T): T {
   cleanups.push(h.close);
   return h;
 }
-function view(store: Store, id: Parameters<Store["acquireThread"]>[0]) {
-  const result = store.acquireThread(id);
-  store.releaseThread(id);
+function view(store: Store, id: Parameters<Store["snapshotThread"]>[0]) {
+  const result = store.snapshotThread(id);
   return result;
 }
 

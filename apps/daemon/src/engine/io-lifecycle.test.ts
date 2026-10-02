@@ -72,8 +72,7 @@ test("a control intent without a live session becomes a visible failure notice",
   await h.engine.flush();
   h.command({ type: "thread.interrupt", threadId: id, cascade: false });
   await h.engine.flush();
-  const view = h.store.acquireThread(id);
-  h.store.releaseThread(id);
+  const view = h.store.snapshotThread(id);
   expect(
     Object.values(view.items).some(
       (item) => item.type === "notice" && item.text.includes("Provider session is not live"),

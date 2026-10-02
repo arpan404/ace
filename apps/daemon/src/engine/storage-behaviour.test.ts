@@ -14,9 +14,8 @@ function track<T extends Awaited<ReturnType<typeof harness>>>(h: T): T {
   cleanups.push(h.close);
   return h;
 }
-function view(store: Store, id: Parameters<Store["acquireThread"]>[0]) {
-  const result = store.acquireThread(id);
-  store.releaseThread(id);
+function view(store: Store, id: Parameters<Store["snapshotThread"]>[0]) {
+  const result = store.snapshotThread(id);
   return result;
 }
 
@@ -109,14 +108,16 @@ test("delta frames only change their snapshot record and recover text beyond the
     );
     await engine.flush();
     expect(
-      Object.values(view(restarted, id).items).some(
-        (item) =>
-          item.type === "message" &&
-          item.parts.some(
-            (part) =>
-              part.type === "text" && part.text === "history 0 first second third recovered",
-          ),
-      ),
+      restarted
+        .readItems(id, restarted.readItems(id, restarted.headSeq() + 1, 200).itemsBefore ?? 1, 200)
+        .items.some(
+          (item) =>
+            item.type === "message" &&
+            item.parts.some(
+              (part) =>
+                part.type === "text" && part.text === "history 0 first second third recovered",
+            ),
+        ),
     ).toBe(true);
   } finally {
     await engine.close();
@@ -230,13 +231,11 @@ test("oversized unknown raw data is capped in snapshots and events while its ori
   const id = await h.create();
   const notice = Object.values(view(h.store, id).items).find((item) => item.type === "notice");
   if (!notice || notice.type !== "notice") throw new Error("Missing raw notice");
-  const envelopeSchema = z.object({
-    aceRawBlob: z.object({ id: z.string(), size: z.number(), preview: z.string() }),
-  });
-  expect(envelopeSchema.safeParse(notice.raw[0]?.data).success).toBe(true);
-  const envelope = envelopeSchema.parse(notice.raw[0]?.data);
-  expect(envelope.aceRawBlob.size).toBeGreaterThan(1024 * 1024);
-  const bytes = h.engine.readRawBlob(envelope.aceRawBlob.id);
+  const blob = z
+    .object({ blobRef: z.string(), size: z.number(), preview: z.string() })
+    .parse(notice.raw[0]);
+  expect(blob.size).toBeGreaterThan(1024 * 1024);
+  const bytes = h.engine.readRawBlob(blob.blobRef);
   expect(bytes).toBeDefined();
   expect(JSON.parse(Buffer.from(bytes ?? []).toString())).toEqual(data);
   const snapshotBytes = h.store.atomic((db) =>

@@ -3,12 +3,14 @@ import type { AgentRecord, ThreadState, Fact } from "@ace/core";
 import { RunId, type Item, type EventPayload } from "@ace/protocol";
 import { z } from "zod";
 import { recordSchemas } from "./snapshot.ts";
+import { itemMetadata } from "./item-metadata.ts";
 import { Records } from "./records.ts";
 
 /** A complete core snapshot is a small header plus native-keyed entity records. */
 export class Snapshot {
   readonly state: ThreadState;
   private items: Records<Item>;
+  private metadata: Records<Item>;
   private sections: { flush(): void; begin(): void }[] = [];
   constructor(db: DatabaseSync, state: ThreadState) {
     const segment = <T>(section: string, schema: z.ZodType<T>, initial: Record<string, T>) => {
@@ -50,6 +52,8 @@ export class Snapshot {
     this.items = new Records(db, state.threadId, "items", recordSchemas.items, state.items);
     this.sections.push(this.items);
     state.items = this.items.values;
+    this.metadata = new Records(db, state.threadId, "itemMetadata", recordSchemas.items, {});
+    this.sections.push(this.metadata);
     state.runs = segment("runs", recordSchemas.runs, state.runs);
     state.interactions = segment("interactions", recordSchemas.interactions, state.interactions);
     state.tasks = segment("tasks", recordSchemas.tasks, state.tasks);
@@ -86,6 +90,35 @@ export class Snapshot {
     );
     this.state = state;
   }
+  prepare(fact: Fact): () => void {
+    if (
+      fact.type !== "item.delta" ||
+      fact.field === "output" ||
+      this.items.hasReplacement(fact.item)
+    )
+      return () => {};
+    let metadata = this.metadata.values[fact.item];
+    if (!metadata) {
+      const item = this.state.items[fact.item];
+      if (!item) return () => {};
+      metadata = itemMetadata(item);
+    }
+    return this.items.useAppendValue(fact.item, structuredClone(metadata));
+  }
+  remember(fact: Fact, events: EventPayload[]): void {
+    if (fact.type !== "item.upsert" && fact.type !== "item.delta") return;
+    const item = this.state.items[fact.item];
+    if (
+      item &&
+      events.some(
+        (event) =>
+          ((event.type === "item.created" || event.type === "item.updated") &&
+            event.item.id === item.id) ||
+          (event.type === "item.delta" && event.itemId === item.id),
+      )
+    )
+      this.metadata.values[fact.item] = itemMetadata(item);
+  }
   delta(fact: Extract<Fact, { type: "item.delta" }>): void {
     const item = this.state.items[fact.item];
     if (!item) return;
@@ -97,8 +130,6 @@ export class Snapshot {
       });
     else if (item.type === "reasoning" || item.type === "notice")
       this.items.append(fact.item, { path: ["text"], text: fact.append });
-    else if (item.type === "tool_call")
-      this.items.append(fact.item, { path: ["call", "detail", "output"], text: fact.append });
   }
   header(): string {
     return JSON.stringify({
@@ -129,7 +160,11 @@ export class Snapshot {
   retainChanges(events: EventPayload[]): void {
     const changed = new Set(
       events.flatMap((event) =>
-        event.type === "item.updated" || event.type === "item.created" ? [event.item.id] : [],
+        event.type === "item.updated" || event.type === "item.created"
+          ? [event.item.id]
+          : event.type === "item.delta" && event.field === "output"
+            ? [event.itemId]
+            : [],
       ),
     );
     this.items.retainChanges((item) => changed.has(item.id));

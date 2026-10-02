@@ -59,8 +59,7 @@ test.each(invalid)(
     );
     cleanups.push(h.close);
     const threadId = await h.create();
-    const view = h.store.acquireThread(threadId);
-    h.store.releaseThread(threadId);
+    const view = h.store.snapshotThread(threadId);
     const interactionId = Object.values(view.interactions)[0]?.id;
     if (!interactionId) throw new Error("Missing question");
     expect(h.command({ type: "interaction.resolve", interactionId, resolution }).error).toBe(
@@ -88,8 +87,7 @@ test("a dismissed question is delivered without answers", async () => {
   );
   cleanups.push(h.close);
   const threadId = await h.create();
-  const view = h.store.acquireThread(threadId);
-  h.store.releaseThread(threadId);
+  const view = h.store.snapshotThread(threadId);
   const interactionId = Object.values(view.interactions)[0]?.id;
   if (!interactionId) throw new Error("Missing question");
   const resolution = { kind: "question" as const, answers: {}, dismissed: true };

@@ -106,36 +106,39 @@ export class PayloadStore {
       throw error;
     }
   }
+  capRaw(raw: RawPayload[], threadId: ThreadId): RawPayload[] {
+    return raw.map((value) => {
+      if (!("data" in value)) return value;
+      const serialized = JSON.stringify(value.data);
+      if (serialized === undefined) return value;
+      const bytes = Buffer.from(serialized);
+      if (bytes.length <= 64 * 1024) return value;
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const existing = this.db
+        .prepare("SELECT id FROM blobs WHERE thread_id = ? AND sha256 = ?")
+        .get(threadId, sha256);
+      const id = String(existing?.id ?? this.nextBlobId());
+      if (!existing)
+        this.db.prepare("INSERT INTO blobs VALUES (?, ?, ?, ?)").run(id, sha256, bytes, threadId);
+      return {
+        type: value.type,
+        ...(value.name === undefined ? {} : { name: value.name }),
+        blobRef: id,
+        size: bytes.length,
+        preview: utf8Slice(serialized, 2048),
+      };
+    });
+  }
   cap(payload: EventPayload, threadId: ThreadId): EventPayload {
     const copy = structuredClone(payload);
-    const capRaw = (raw: RawPayload[]): RawPayload[] =>
-      raw.map((value) => {
-        if (!("data" in value)) return value;
-        const serialized = JSON.stringify(value.data);
-        if (serialized === undefined) return value;
-        const bytes = Buffer.from(serialized);
-        if (bytes.length <= 64 * 1024) return value;
-        const sha256 = createHash("sha256").update(bytes).digest("hex");
-        const existing = this.db
-          .prepare("SELECT id FROM blobs WHERE thread_id = ? AND sha256 = ?")
-          .get(threadId, sha256);
-        const id = String(existing?.id ?? this.nextBlobId());
-        if (!existing)
-          this.db.prepare("INSERT INTO blobs VALUES (?, ?, ?, ?)").run(id, sha256, bytes, threadId);
-        return {
-          type: value.type,
-          ...(value.name === undefined ? {} : { name: value.name }),
-          blobRef: id,
-          size: bytes.length,
-          preview: utf8Slice(serialized, 2048),
-        };
-      });
     if (copy.type === "item.created" || copy.type === "item.updated") {
-      if (copy.item.type === "tool_call") copy.item.call.raw = capRaw(copy.item.call.raw);
-      else if ("raw" in copy.item) copy.item.raw = capRaw(copy.item.raw);
+      if (copy.item.type === "tool_call")
+        copy.item.call.raw = this.capRaw(copy.item.call.raw, threadId);
+      else if ("raw" in copy.item) copy.item.raw = this.capRaw(copy.item.raw, threadId);
     } else if (copy.type === "interaction.opened")
-      copy.interaction.raw = capRaw(copy.interaction.raw);
-    else if (copy.type === "background_task.started") copy.task.raw = capRaw(copy.task.raw);
+      copy.interaction.raw = this.capRaw(copy.interaction.raw, threadId);
+    else if (copy.type === "background_task.started")
+      copy.task.raw = this.capRaw(copy.task.raw, threadId);
     return copy;
   }
   persist(event: Event): void {
