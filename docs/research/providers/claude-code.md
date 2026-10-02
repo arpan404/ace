@@ -383,3 +383,8 @@ Always keep the raw `name`, `input`, `tool_use_id`, `tool_use_result` and `paren
 - https://code.claude.com/docs/en/authentication
 - https://code.claude.com/docs/en/monitoring-usage
 - Local transcripts `~/.claude/projects/-Users-arpanbhandari-Code-ace/*.jsonl` and `…/<session>/subagents/agent-*.jsonl`/`.meta.json`. Read-only, structure only.
+
+## ace MCP injection
+
+The Agent SDK `mcpServers` HTTP shape and read-only discovery contract is recorded
+in [ace MCP injection contracts](ace-mcp-injection.md#claude).
