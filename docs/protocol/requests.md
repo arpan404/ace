@@ -23,8 +23,7 @@ Example:
 ```json
 {
   "options": {
-    "instance": "example",
-    "limit": 7,
+    "offset": 6,
     "provider": "cursor"
   },
   "requestId": "example",
@@ -63,9 +62,8 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "effort": "example",
-    "instance": "example",
-    "role": "example"
+    "role": "example",
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -83,7 +81,7 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 9,
+  "inputAgeMs": 6,
   "threadId": "example",
   "type": "presence.update"
 }
@@ -119,7 +117,9 @@ Example:
 
 ```json
 {
-  "preferences": {},
+  "preferences": {
+    "quietHours": null
+  },
   "type": "notification.preferences"
 }
 ```
@@ -138,7 +138,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 9
+  "until": 2
 }
 ```
 
@@ -160,7 +160,7 @@ Example:
 {
   "deviceId": "example",
   "protocolVersion": 1,
-  "token": "example",
+  "ticket": "example",
   "type": "hello"
 }
 ```
@@ -178,7 +178,7 @@ Example:
 
 ```json
 {
-  "afterSeq": 3,
+  "afterSeq": 1,
   "scope": {
     "kind": "thread",
     "threadId": "example"
@@ -219,15 +219,8 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "delivery": "steer",
-      "input": [
-        {
-          "path": "example",
-          "type": "file"
-        }
-      ],
       "threadId": "example",
-      "type": "thread.send"
+      "type": "thread.interrupt"
     }
   },
   "type": "command"
@@ -248,8 +241,8 @@ Example:
 
 ```json
 {
-  "limit": 4,
-  "offset": 5,
+  "limit": 10,
+  "offset": 1,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -270,8 +263,8 @@ Example:
 
 ```json
 {
-  "before": 7,
-  "limit": 7,
+  "before": 2,
+  "limit": 4,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"

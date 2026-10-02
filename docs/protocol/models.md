@@ -36,20 +36,20 @@ Example:
 
 ```json
 {
+  "contextWindow": 1,
   "defaultEffort": "example",
-  "deprecated": false,
+  "deprecated": true,
   "displayName": "example",
-  "hidden": true,
+  "hidden": false,
   "id": "example",
   "inputModalities": [],
   "instance": "example",
-  "isDefault": false,
+  "isDefault": true,
   "nativeModelId": "example",
-  "nativeProviderId": "example",
-  "provider": "antigravity",
+  "provider": "acp",
   "raw": {
     "json": "example",
-    "truncated": true
+    "truncated": false
   },
   "reasoningEfforts": [],
   "serviceTiers": []
@@ -91,7 +91,7 @@ Example:
 ```json
 {
   "instance": "example",
-  "provider": "opencode",
+  "provider": "antigravity",
   "refreshing": true,
   "stale": false
 }
@@ -129,8 +129,7 @@ Example:
 ```json
 {
   "instances": [],
-  "models": [],
-  "nextOffset": 7
+  "models": []
 }
 ```
 
@@ -154,27 +153,32 @@ Example:
 ```json
 {
   "model": {
-    "defaultEffort": "example",
-    "defaultTier": "example",
+    "contextWindow": 8,
     "deprecated": true,
     "displayName": "example",
     "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
-    "isDefault": true,
+    "isDefault": false,
     "nativeModelId": "example",
+    "nativeProviderId": "example",
     "provider": "codex",
     "raw": {
       "json": "example",
-      "truncated": true
+      "truncated": false
     },
     "reasoningEfforts": [],
+    "resolvedModelId": "example",
     "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": true
+  "stale": false,
+  "tier": {
+    "id": "example",
+    "name": "example"
+  }
 }
 ```
 
@@ -214,6 +218,9 @@ Example:
 
 ```json
 {
+  "instance": "example",
+  "model": "example",
+  "preferenceOrder": [],
   "role": "example"
 }
 ```
@@ -251,9 +258,6 @@ Example:
 
 ```json
 {
-  "filter": {
-    "instance": "example"
-  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -275,9 +279,10 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "model": "example",
+    "effort": "example",
     "preferenceOrder": [],
-    "role": "example"
+    "role": "example",
+    "selection": "default"
   },
   "type": "models.resolve"
 }

@@ -46,7 +46,7 @@ function text(value: unknown): string {
 function typeLabel(schema: Record<string, unknown>): string {
   if (typeof schema.$ref === "string")
     return `[${schema.$ref.split("/").at(-1)}](schema/${schema.$ref.split("/").at(-1)})`;
-  if ("const" in schema) return `\`${JSON.stringify(schema.const)}\``;
+  if (Object.hasOwn(schema, "const")) return `\`${JSON.stringify(schema.const)}\``;
   if (schema.enum) return text(JSON.stringify(schema.enum));
   if (schema.anyOf || schema.oneOf) return "union";
   if (schema.allOf) return "intersection";
@@ -62,7 +62,8 @@ export function renderReference(
   const random = seededRandom(42);
   function section(entry: SchemaEntry): string {
     const schema = snapshot.schemas[entry.name];
-    if (!schema) throw new Error(`Missing schema ${entry.name}`);
+    if (!Object.hasOwn(snapshot.schemas, entry.name) || !schema)
+      throw new Error(`Missing schema ${entry.name}`);
     let result = `## ${entry.name}\n\n[JSON Schema](schema/${entry.name}.json), ${entry.io ?? "input"} validation.\n`;
     for (const [index, variant] of variants(schema, snapshot).entries()) {
       const node = resolve(variant, snapshot.schemas);
@@ -106,7 +107,23 @@ export function renderReference(
     intro:
       "See [ADR 0036](../adr/0036-model-catalog.md). Model queries are correlated by requestId and answered with models.result. They query local provider metadata without running inference. Listings may be stale; explicit refresh requires operate scope, while list and resolve require read scope. Model ids and capabilities belong to the reported provider instance.",
   };
-  const pages = [...families, orchestration, models];
+  const automations = {
+    file: "automations",
+    title: "Automations",
+    names: entries
+      .filter((entry) => /^(Automation|TriggerVariables)/.test(entry.name))
+      .map((entry) => entry.name),
+    intro:
+      "See [ADR 0015](../adr/0015-automations.md). Schedule and trigger contracts belong to the local automation service. Their request and response envelopes are exported separately from the current daemon wire union; clients must use an implemented authenticated route before sending them.",
+  };
+  const conductor = {
+    file: "conductor",
+    title: "Conductor",
+    names: entries.filter((entry) => entry.name.startsWith("Conductor")).map((entry) => entry.name),
+    intro:
+      "See [ADR 0017](../adr/0017-conductor.md). Conductor commands use the authenticated command envelope and existing command receipts. Plans and reviews require structural and semantic validation. Command acceptance does not mean integration or whole-tree completion.",
+  };
+  const pages = [...families, orchestration, models, automations, conductor];
   const assigned = new Set(pages.flatMap((family) => family.names));
   for (const family of pages) {
     files.set(
@@ -139,7 +156,7 @@ export function renderReference(
   );
   files.set(
     "README.md",
-    `# Daemon protocol reference\n\n${notice}\nProtocol version: **${snapshot.protocolVersion}**. Exchange UTF-8 JSON objects over the daemon WebSocket. This describes schemas accepted on the wire, so defaulted fields may be omitted. MCP result schemas describe populated outputs.\n\n- [Commands, requests, results and errors](commands.md)\n- [Client requests](requests.md)\n- [Server results and push messages](push.md)\n- [Canonical events](events.md)\n- [MCP tools](mcp.md)\n- [Orchestration](orchestration.md)\n- [Model catalog](models.md)\n- [Supporting types](types.md)\n\n## Version and compatibility\n\nClients negotiate protocolVersion in hello/welcome. Version ${snapshot.protocolVersion} permits additive optional fields, wider types and new messages when readers tolerate unknown fields and message variants. Never infer whole-tree completion from provider turn completion. Removing or renaming fields, narrowing types or adding required fields breaks existing clients and requires a new negotiated version. JSON Schema ids use the versioned namespace https://ace.local/protocol/v${snapshot.protocolVersion}/; these are identifiers, not network endpoints. Resolve them through the local schema directory.\n\nRelease tooling captures a baseline with \`bun run docs:protocol:snapshot --output release.json\` and compares it using \`bun run docs:protocol:compat --baseline release.json\`. Commit each released snapshot with its release artifacts. No release has been declared by this generator. Compatibility checks conservatively reject unfamiliar validation changes and changed semantic constraints.\n\n## Example\n\n\`\`\`json\n{"type":"ping"}\n\`\`\`\n\nExamples on every page are synthetic and checked against Zod and exported JSON Schema at generation time. Replace example credentials and ids with your own authenticated values. Regenerate with \`bun run docs:protocol\`; \`bun run docs:protocol --check\` detects stale, missing and unexpected output.\n`,
+    `# Daemon protocol reference\n\n${notice}\nProtocol version: **${snapshot.protocolVersion}**. Exchange UTF-8 JSON objects over the daemon WebSocket. This describes schemas accepted on the wire, so defaulted fields may be omitted. MCP result schemas describe populated outputs.\n\n- [Commands, requests, results and errors](commands.md)\n- [Client requests](requests.md)\n- [Server results and push messages](push.md)\n- [Canonical events](events.md)\n- [MCP tools](mcp.md)\n- [Orchestration](orchestration.md)\n- [Model catalog](models.md)\n- [Automations](automations.md)\n- [Conductor](conductor.md)\n- [Supporting types](types.md)\n\n## Version and compatibility\n\nClients negotiate protocolVersion in hello/welcome. Version ${snapshot.protocolVersion} permits additive optional fields, wider types and new messages when readers tolerate unknown fields and message variants. Never infer whole-tree completion from provider turn completion. Removing or renaming fields, narrowing types or adding required fields breaks existing clients and requires a new negotiated version. JSON Schema ids use the versioned namespace https://ace.local/protocol/v${snapshot.protocolVersion}/; these are identifiers, not network endpoints. Resolve them through the local schema directory.\n\nRelease tooling captures a baseline with \`bun run docs:protocol:snapshot --output release.json\` and compares it using \`bun run docs:protocol:compat --baseline release.json\`. Commit each released snapshot with its release artifacts. No release has been declared by this generator. Compatibility checks conservatively reject unfamiliar validation changes and changed semantic constraints.\n\n## Example\n\n\`\`\`json\n{"type":"ping"}\n\`\`\`\n\nExamples on every page are synthetic and checked against Zod and exported JSON Schema at generation time. Replace example credentials and ids with your own authenticated values. Regenerate with \`bun run docs:protocol\`; \`bun run docs:protocol --check\` detects stale, missing and unexpected output.\n`,
   );
   const ping = entries.find((entry) => entry.name === "ClientMessage");
   if (

@@ -3,6 +3,99 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "properties": {
+        "runId": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+          "type": "string"
+        },
+        "spec": {
+          "$ref": "https://ace.local/protocol/v1/ConductorSpec.json"
+        },
+        "type": {
+          "const": "conductor.start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "runId",
+        "spec"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "approval": {
+          "$ref": "https://ace.local/protocol/v1/ConductorApproval.json"
+        },
+        "runId": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "conductor.approve",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "runId",
+        "approval"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "runId": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "conductor.pause",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "runId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "runId": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "conductor.resume",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "runId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "runId": {
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "conductor.cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "runId"
+      ],
+      "type": "object"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/OrchestrationCreateCommand.json"
     },
     {

@@ -30,24 +30,24 @@ Example:
 
 ```json
 {
-  "background": true,
-  "createdAt": 6,
+  "createdAt": 9,
   "cwd": "example",
   "fidelity": "full",
   "id": "example",
   "model": "example",
+  "name": "example",
   "native": {
+    "aliases": [],
     "provider": "claude"
   },
   "origin": "provider_subagent",
-  "parentId": null,
-  "role": "example",
-  "spawnedBy": "example",
+  "parentId": "example",
   "status": {
-    "on": "rate_limit",
-    "refs": [],
-    "state": "blocked",
-    "until": 1
+    "error": {
+      "kind": "provider",
+      "message": "example"
+    },
+    "state": "failed"
   },
   "threadId": "example"
 }
@@ -62,7 +62,7 @@ Type: ["thinking","responding","tool","compacting","retrying","starting_turn"]. 
 Example:
 
 ```json
-"compacting"
+"starting_turn"
 ```
 
 ## AgentFidelity
@@ -98,7 +98,7 @@ Type: ["root","provider_subagent","ace"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"provider_subagent"
+"root"
 ```
 
 ## AgentStatus
@@ -132,7 +132,8 @@ Example:
 
 ```json
 {
-  "activity": "tool",
+  "activity": "responding",
+  "itemId": "example",
   "state": "working"
 }
 ```
@@ -152,11 +153,8 @@ Example:
 
 ```json
 {
-  "message": "example",
-  "on": "background_task",
-  "refs": [],
-  "state": "blocked",
-  "until": 0
+  "on": "human",
+  "state": "blocked"
 }
 ```
 
@@ -200,7 +198,7 @@ Example:
 ```json
 {
   "error": {
-    "kind": "unknown",
+    "kind": "quota",
     "message": "example"
   },
   "state": "failed"
@@ -218,7 +216,7 @@ Example:
 
 ```json
 {
-  "lastSignalAt": 7,
+  "lastSignalAt": 3,
   "state": "unresponsive"
 }
 ```
@@ -238,7 +236,7 @@ Example:
 ```json
 {
   "id": "example",
-  "kind": "deny",
+  "kind": "cancel",
   "label": "example"
 }
 ```
@@ -268,12 +266,12 @@ Example:
 ```json
 {
   "agentId": "example",
-  "childAgentId": "example",
   "id": "example",
-  "kind": "subagent",
-  "startedAt": 4,
-  "status": "running",
-  "stoppable": false,
+  "kind": "other",
+  "outputPath": "example",
+  "startedAt": 1,
+  "status": "unknown",
+  "stoppable": true,
   "title": "example"
 }
 ```
@@ -299,7 +297,7 @@ Type: ["human","subagents","background_task","rate_limit","network","upstream"].
 Example:
 
 ```json
-"background_task"
+"subagents"
 ```
 
 ## Capabilities
@@ -325,16 +323,16 @@ Example:
 ```json
 {
   "backgroundTaskControl": false,
-  "backgroundVisibility": "partial",
-  "fork": true,
+  "backgroundVisibility": "none",
+  "fork": false,
   "imageInput": true,
-  "interruptCascades": false,
-  "planMode": true,
+  "interruptCascades": true,
+  "planMode": false,
   "resume": true,
-  "rewindFiles": true,
-  "steer": true,
+  "rewindFiles": false,
+  "steer": false,
   "subagentTranscripts": false,
-  "tokenUsage": false
+  "tokenUsage": true
 }
 ```
 
@@ -400,7 +398,6 @@ Example:
 
 ```json
 {
-  "mimeType": "example",
   "path": "example",
   "type": "file"
 }
@@ -423,11 +420,11 @@ Example:
 
 ```json
 {
-  "createdAt": 6,
+  "createdAt": 9,
   "id": "example",
   "lastSeenAt": 6,
   "name": "example",
-  "revokedAt": 4,
+  "revokedAt": null,
   "scopes": [
     "admin"
   ]
@@ -448,16 +445,16 @@ Example:
 ```json
 {
   "device": {
-    "createdAt": 1,
+    "createdAt": 7,
     "id": "example",
     "lastSeenAt": 2,
     "name": "example",
-    "revokedAt": null,
+    "revokedAt": 1,
     "scopes": [
       "read"
     ]
   },
-  "token": "394f08b327f846c8cf43bc9b1b8fe74671062a44b3ad5f5b21c6aa5122c3dd66"
+  "token": "545e193c3b3ef042c3f81b637e739edb19ba6f83ca957f0dd14bd7ce7942c145"
 }
 ```
 
@@ -482,7 +479,7 @@ Type: ["read","operate","admin"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"read"
+"admin"
 ```
 
 ## EventId
@@ -514,7 +511,10 @@ Example:
 
 ```json
 {
+  "diff": "example",
   "kind": "move",
+  "movePath": "example",
+  "oldText": null,
   "path": "example"
 }
 ```
@@ -546,6 +546,7 @@ Example:
 ```json
 {
   "data": null,
+  "name": "example",
   "type": "example"
 }
 ```
@@ -575,18 +576,17 @@ Example:
 {
   "agentId": "example",
   "blocking": false,
-  "createdAt": 5,
+  "closedAt": 6,
+  "createdAt": 9,
   "id": "example",
+  "raw": [],
   "request": {
-    "kind": "approval",
-    "options": [],
-    "title": "example"
+    "kind": "elicitation",
+    "message": "example",
+    "schema": null,
+    "server": "example"
   },
-  "resolution": {
-    "action": "cancel",
-    "kind": "elicitation"
-  },
-  "state": "expired",
+  "state": "pending",
   "threadId": "example"
 }
 ```
@@ -680,7 +680,6 @@ Example:
 {
   "kind": "elicitation",
   "message": "example",
-  "schema": null,
   "server": "example"
 }
 ```
@@ -719,6 +718,7 @@ Example:
 ```json
 {
   "answers": {},
+  "dismissed": false,
   "kind": "question"
 }
 ```
@@ -735,7 +735,7 @@ Example:
 
 ```json
 {
-  "decision": "cancel",
+  "decision": "approve",
   "kind": "plan_review"
 }
 ```
@@ -752,7 +752,8 @@ Example:
 
 ```json
 {
-  "action": "accept",
+  "action": "cancel",
+  "content": null,
   "kind": "elicitation"
 }
 ```
@@ -766,7 +767,7 @@ Type: ["pending","resolved","cancelled","expired"]. See JSON Schema for constrai
 Example:
 
 ```json
-"pending"
+"expired"
 ```
 
 ## Item
@@ -793,13 +794,11 @@ Example:
 ```json
 {
   "agentId": "example",
-  "complete": false,
-  "createdAt": 2,
+  "complete": true,
+  "createdAt": 8,
   "id": "example",
   "parts": [],
-  "raw": [],
-  "role": "assistant",
-  "synthetic": true,
+  "role": "user",
   "type": "message"
 }
 ```
@@ -824,9 +823,8 @@ Example:
 {
   "agentId": "example",
   "complete": true,
-  "createdAt": 9,
+  "createdAt": 2,
   "id": "example",
-  "runId": "example",
   "text": "example",
   "type": "reasoning"
 }
@@ -851,18 +849,19 @@ Example:
   "agentId": "example",
   "call": {
     "agentId": "example",
+    "backgroundTaskId": "example",
     "detail": {
       "kind": "ask_user"
     },
     "id": "example",
-    "kind": "file.read",
+    "kind": "file.write",
     "raw": [],
-    "startedAt": 4,
-    "status": "succeeded",
+    "startedAt": 6,
+    "status": "running",
     "title": "example"
   },
-  "complete": false,
-  "createdAt": 8,
+  "complete": true,
+  "createdAt": 6,
   "id": "example",
   "runId": "example",
   "type": "tool_call"
@@ -889,9 +888,9 @@ Example:
 {
   "agentId": "example",
   "complete": true,
-  "createdAt": 0,
+  "createdAt": 9,
   "id": "example",
-  "level": "warning",
+  "level": "error",
   "text": "example",
   "type": "notice"
 }
@@ -915,10 +914,10 @@ Example:
 ```json
 {
   "agentId": "example",
-  "complete": true,
-  "createdAt": 5,
+  "complete": false,
+  "createdAt": 4,
   "id": "example",
-  "tokensBefore": 7,
+  "tokensBefore": 1,
   "type": "compaction"
 }
 ```
@@ -984,7 +983,7 @@ Type: ["browser","preview","terminal","notify","agents","forge"]. See JSON Schem
 Example:
 
 ```json
-"notify"
+"browser"
 ```
 
 ## McpIntent
@@ -1031,8 +1030,6 @@ Example:
 {
   "agentId": "example",
   "input": {
-    "name": "example",
-    "provider": "antigravity",
     "task": "example"
   },
   "sessionId": "example",
@@ -1054,7 +1051,7 @@ Example:
 
 ```json
 {
-  "level": "error",
+  "level": "warning",
   "text": "example"
 }
 ```
@@ -1121,6 +1118,7 @@ Example:
 
 ```json
 {
+  "provider": "codex",
   "task": "example"
 }
 ```
@@ -1143,6 +1141,8 @@ Example:
 {
   "agentId": "example",
   "input": {
+    "name": "example",
+    "provider": "acp",
     "task": "example"
   },
   "sessionId": "example",
@@ -1166,10 +1166,7 @@ Example:
 
 ```json
 {
-  "aliases": [],
-  "nativeId": "example",
-  "path": "example",
-  "provider": "antigravity"
+  "provider": "codex"
 }
 ```
 
@@ -1193,9 +1190,11 @@ Example:
 ```json
 {
   "actions": [],
-  "backgroundCount": 8,
+  "backgroundCount": 5,
   "id": "example",
-  "status": "background_done",
+  "interactionId": "example",
+  "preview": "example",
+  "status": "done",
   "threadId": "example",
   "title": "example"
 }
@@ -1234,11 +1233,11 @@ Example:
 ```json
 {
   "channel": "webpush",
-  "platform": "phone",
+  "platform": "web",
   "subscription": {
-    "auth": "1KQG_d8eYS1qlNFUzB3Uuw",
+    "auth": "kakfYFLNGaWrZ-MqXoQPlh",
     "endpoint": "https://example.invalid/",
-    "p256dh": "taWgDVncuSSDWeXTeq7TEtpMb2dPdA8GowpaloYS4LWVUiXIF3ucbmreqc6LxsTI6HSkeltzmNS5SkpRdc14y9o"
+    "p256dh": "7Gs0RJUlstLYWR71laJPqbL0_A-8fs3uCJ50HrrM7kea782UOSyeeMQzNZK_mdLpU0cttyp9s1vABHPMsb857oj"
   }
 }
 ```
@@ -1257,7 +1256,7 @@ Example:
 {
   "channel": "apns",
   "platform": "phone",
-  "token": "43FB4C545Bfafd30D6fD3a88369aa7f316E9D3Fccd3a2f5CCdd9bc3FC2d4f3ce"
+  "token": "90Dfd3e5d95AfCEce3CAf5ff365DaC49fEd7c650469F5aF0FEE1f3809F75b6Db"
 }
 ```
 
@@ -1294,8 +1293,9 @@ Example:
 ```json
 {
   "address": {
-    "channel": "websocket",
-    "platform": "desktop"
+    "channel": "apns",
+    "platform": "phone",
+    "token": "26b07CEbc10Ca1c5Ef7A97cBda8facb2c00CA07bbc4B42aa061924e4F8b2dace"
   },
   "id": "example",
   "preferences": {
@@ -1319,11 +1319,11 @@ Example:
 {
   "notification": {
     "actions": [],
-    "backgroundCount": 7,
+    "backgroundCount": 3,
     "id": "example",
     "interactionId": "example",
     "preview": "example",
-    "status": "failed",
+    "status": "needs_you",
     "threadId": "example",
     "title": "example"
   },
@@ -1343,9 +1343,7 @@ Example:
 Example:
 
 ```json
-{
-  "includePreview": true
-}
+{}
 ```
 
 ## NotificationRegister
@@ -1362,13 +1360,9 @@ Example:
 ```json
 {
   "device": {
-    "channel": "webpush",
+    "channel": "apns",
     "platform": "phone",
-    "subscription": {
-      "auth": "E_5I_m8FMQfPystOY5_GT0",
-      "endpoint": "https://example.invalid/",
-      "p256dh": "0vNb1Ye4DdsNOA-XhWWQ_oppZgo0CxKr1G2oKpERkg3r0PQDBx_x-qmM9Tw6Rxl_uC_krN-JEvos_ryGdvCflg2"
-    }
+    "token": "1DEBFa1fC30733F16da6f84f21a85BaF03ff4AC9ED5E2a63BE4cE5EeEE0297c2"
   },
   "type": "notification.register"
 }
@@ -1387,7 +1381,9 @@ Example:
 
 ```json
 {
-  "preferences": {},
+  "preferences": {
+    "includePreview": false
+  },
   "type": "notification.preferences"
 }
 ```
@@ -1408,7 +1404,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 9
+  "until": 0
 }
 ```
 
@@ -1421,7 +1417,7 @@ Type: ["needs_you","done","failed","unresponsive","background_done"]. See JSON S
 Example:
 
 ```json
-"unresponsive"
+"needs_you"
 ```
 
 ## OutputSummary
@@ -1439,7 +1435,7 @@ Example:
 
 ```json
 {
-  "bytes": 7,
+  "bytes": 1,
   "streamId": "example",
   "tail": "example",
   "truncated": false
@@ -1475,7 +1471,11 @@ Example:
 Example:
 
 ```json
-{}
+{
+  "scopes": [
+    "operate"
+  ]
+}
 ```
 
 ## PairingResponse
@@ -1484,14 +1484,14 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| url | yes | string | {"format":"uri"} |
+| url | yes | string | {"format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
 | expiresAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
 ```json
 {
-  "expiresAt": 2,
+  "expiresAt": 4,
   "url": "https://example.invalid/"
 }
 ```
@@ -1512,12 +1512,12 @@ Example:
   "id": "example",
   "intent": {
     "agentId": "example",
-    "notice": {
-      "text": "example"
+    "input": {
+      "task": "example"
     },
     "sessionId": "example",
     "threadId": "example",
-    "type": "mcp.notify"
+    "type": "mcp.spawn"
   }
 }
 ```
@@ -1536,8 +1536,8 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 3,
-  "threadId": "example",
+  "inputAgeMs": 1,
+  "threadId": null,
   "type": "presence.update"
 }
 ```
@@ -1551,7 +1551,7 @@ Type: ["claude","codex","opencode","cursor","antigravity","acp"]. See JSON Schem
 Example:
 
 ```json
-"cursor"
+"claude"
 ```
 
 ## Question
@@ -1571,6 +1571,7 @@ Example:
 
 ```json
 {
+  "allowOther": true,
   "id": "example",
   "options": [],
   "text": "example"
@@ -1591,8 +1592,8 @@ Example:
 
 ```json
 {
-  "endMinute": 1,
-  "startMinute": 9,
+  "endMinute": 6,
+  "startMinute": 5,
   "timeZone": "UTC"
 }
 ```
@@ -1614,7 +1615,6 @@ Example:
 ```json
 {
   "data": null,
-  "name": "example",
   "type": "example"
 }
 ```
@@ -1635,7 +1635,7 @@ Example:
 {
   "blobRef": "example",
   "preview": "example",
-  "size": 3,
+  "size": 0,
   "type": "example"
 }
 ```
@@ -1661,10 +1661,10 @@ Example:
 {
   "agentId": "example",
   "id": "example",
-  "startedAt": 9,
+  "startedAt": 8,
   "state": "active",
   "threadId": "example",
-  "trigger": "schedule"
+  "trigger": "subagent_result"
 }
 ```
 
@@ -1689,7 +1689,7 @@ Type: ["user","spawn","parent_agent","background_completion","subagent_result","
 Example:
 
 ```json
-"parent_agent"
+"user"
 ```
 
 ## SnapshotView
@@ -1723,19 +1723,18 @@ Example:
   "interactions": {},
   "itemOrder": [],
   "items": {},
-  "itemsBefore": 2,
   "kind": "thread",
   "runs": {},
-  "seq": 3,
+  "seq": 4,
   "thread": {
     "createdAt": 0,
     "id": "example",
-    "provider": "opencode",
+    "provider": "claude",
     "status": {
       "state": "failed"
     },
     "title": "example",
-    "updatedAt": 6,
+    "updatedAt": 0,
     "workspaceId": "example"
   },
   "usage": {}
@@ -1755,7 +1754,7 @@ Example:
 ```json
 {
   "kind": "threads",
-  "seq": 1,
+  "seq": 9,
   "threads": {}
 }
 ```
@@ -1773,8 +1772,8 @@ Example:
 
 ```json
 {
-  "expiresAt": 3,
-  "ticket": "3a1fbb8a8038a6c7b8250e18a52919564b572dcd765cabaf3cc17fd68120d362"
+  "expiresAt": 0,
+  "ticket": "f162fea56de3b9e5edc60f2544c0281d7512e9cd87a1626422c41329dc97d242"
 }
 ```
 
@@ -1832,17 +1831,15 @@ Example:
 
 ```json
 {
-  "archivedAt": 1,
-  "createdAt": 0,
+  "createdAt": 8,
   "id": "example",
-  "provider": "antigravity",
-  "rootAgentId": "example",
+  "provider": "codex",
   "status": {
-    "interactions": 2,
-    "state": "needs_you"
+    "agents": 5,
+    "state": "working"
   },
   "title": "example",
-  "updatedAt": 1,
+  "updatedAt": 9,
   "workspaceId": "example"
 }
 ```
@@ -1878,15 +1875,16 @@ Example:
 
 ```json
 {
-  "archivedAt": 2,
-  "createdAt": 2,
+  "archivedAt": 7,
+  "createdAt": 9,
   "id": "example",
-  "provider": "claude",
+  "provider": "codex",
   "status": {
-    "state": "failed"
+    "agents": 8,
+    "state": "working"
   },
   "title": "example",
-  "updatedAt": 4,
+  "updatedAt": 5,
   "workspaceId": "example"
 }
 ```
@@ -1906,7 +1904,7 @@ Example:
 ```json
 {
   "kind": "threads",
-  "seq": 0,
+  "seq": 4,
   "threads": {}
 }
 ```
@@ -1926,7 +1924,7 @@ Example:
 
 ```json
 {
-  "interactions": 6,
+  "interactions": 3,
   "state": "needs_you"
 }
 ```
@@ -1942,7 +1940,7 @@ Example:
 
 ```json
 {
-  "agents": 2,
+  "agents": 5,
   "state": "working"
 }
 ```
@@ -1958,7 +1956,7 @@ Example:
 
 ```json
 {
-  "on": "queue",
+  "on": "upstream",
   "state": "waiting"
 }
 ```
@@ -2050,17 +2048,18 @@ Example:
   "items": {},
   "kind": "thread",
   "runs": {},
-  "seq": 0,
+  "seq": 3,
   "thread": {
-    "archivedAt": 5,
-    "createdAt": 2,
+    "archivedAt": 9,
+    "createdAt": 6,
     "id": "example",
-    "provider": "antigravity",
+    "provider": "cursor",
     "status": {
-      "state": "failed"
+      "agents": 2,
+      "state": "working"
     },
     "title": "example",
-    "updatedAt": 6,
+    "updatedAt": 9,
     "workspaceId": "example"
   },
   "usage": {}
@@ -2076,7 +2075,7 @@ Type: integer. See JSON Schema for constraints.
 Example:
 
 ```json
-3
+8
 ```
 
 ## TodoEntry
@@ -2095,7 +2094,7 @@ Example:
 {
   "content": "example",
   "id": "example",
-  "status": "in_progress"
+  "status": "completed"
 }
 ```
 
@@ -2122,13 +2121,15 @@ Example:
 ```json
 {
   "agentId": "example",
+  "backgroundTaskId": "example",
   "detail": {
-    "kind": "ask_user"
+    "command": "example",
+    "kind": "shell"
   },
   "id": "example",
-  "kind": "agent.message",
+  "kind": "file.edit",
   "raw": [],
-  "startedAt": 8,
+  "startedAt": 4,
   "status": "declined",
   "title": "example"
 }
@@ -2153,8 +2154,6 @@ Example:
 ```json
 {
   "command": "example",
-  "cwd": "example",
-  "exitCode": null,
   "kind": "shell"
 }
 ```
@@ -2172,7 +2171,11 @@ Example:
 ```json
 {
   "kind": "file.read",
-  "path": "example"
+  "path": "example",
+  "range": {
+    "end": 2,
+    "start": 1
+  }
 }
 ```
 
@@ -2256,6 +2259,7 @@ Example:
 
 ```json
 {
+  "arguments": null,
   "kind": "mcp",
   "server": "example",
   "tool": "example"
@@ -2276,9 +2280,9 @@ Example:
 
 ```json
 {
+  "childAgentId": "example",
   "description": "example",
-  "kind": "agent.spawn",
-  "prompt": "example"
+  "kind": "agent.spawn"
 }
 ```
 
@@ -2294,7 +2298,8 @@ Example:
 
 ```json
 {
-  "kind": "agent.message"
+  "kind": "agent.message",
+  "targetAgentId": "example"
 }
 ```
 
@@ -2326,7 +2331,8 @@ Example:
 
 ```json
 {
-  "kind": "plan"
+  "kind": "plan",
+  "markdown": "example"
 }
 ```
 
@@ -2354,7 +2360,7 @@ Example:
 
 ```json
 {
-  "kind": "image"
+  "kind": "browser"
 }
 ```
 
@@ -2367,7 +2373,7 @@ Type: ["shell","file.read","file.edit","file.write","file.delete","file.move","s
 Example:
 
 ```json
-"todo"
+"search"
 ```
 
 ## ToolStatus
@@ -2379,7 +2385,7 @@ Type: ["pending","awaiting_approval","running","succeeded","failed","declined","
 Example:
 
 ```json
-"awaiting_approval"
+"cancelled"
 ```
 
 ## UsageUpdated
@@ -2401,9 +2407,9 @@ Example:
 ```json
 {
   "agentId": "example",
-  "contextWindow": 9,
+  "cachedInputTokens": 1,
   "inputTokens": 0,
-  "outputTokens": 4,
+  "outputTokens": 7,
   "type": "usage.updated"
 }
 ```
@@ -2414,7 +2420,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| endpoint | yes | string | {"maxLength":2048,"format":"uri"} |
+| endpoint | yes | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
 | p256dh | yes | string | {"pattern":"^[A-Za-z0-9_-]{87}$"} |
 | auth | yes | string | {"pattern":"^[A-Za-z0-9_-]{22}$"} |
 
@@ -2422,9 +2428,9 @@ Example:
 
 ```json
 {
-  "auth": "Iuh75lcS5BJcDQ9t8NlLeA",
+  "auth": "4A0flyVFi5CNh4QFoMM3C4",
   "endpoint": "https://example.invalid/",
-  "p256dh": "Jr1AXVsXHs72s_pOuxZ2vrQE9LH8rE_T5j3zExddPck4tsTHIrH0uBeO4ktGiAHr15vJFuBTPsYi9cq-T4jup7w"
+  "p256dh": "mqWGctUrFwctkNq1dEsbK2IBI9RsPH44DRGi-GZfdFzbtmO2rrh3KWY3YghSONm_NMr2yjeOeqodBoYEeQ6kB7E"
 }
 ```
 

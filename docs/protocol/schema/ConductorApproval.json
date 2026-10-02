@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/ConductorApproval.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "budget": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "deadline": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "decision": {
+      "enum": [
+        "approve",
+        "reject"
+      ],
+      "type": "string"
+    },
+    "gateId": {
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "plan": {
+      "$ref": "https://ace.local/protocol/v1/ConductorPlan.json"
+    }
+  },
+  "required": [
+    "gateId",
+    "decision"
+  ],
+  "type": "object"
+}
