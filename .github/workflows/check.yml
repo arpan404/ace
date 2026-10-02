@@ -72,3 +72,9 @@ jobs:
 
       - name: Tests
         run: bun run test
+
+      - name: Build relay image and verify encrypted traffic on Node 24
+        if: runner.os == 'Linux'
+        run: |
+          docker build -f apps/relay/Dockerfile -t ace-relay:test .
+          node apps/relay/bench/docker-smoke.ts

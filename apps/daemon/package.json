@@ -14,9 +14,13 @@
     "typecheck": "tsc -p tsconfig.json",
     "dev": "node src/cli.ts",
     "bench:payloads": "node --expose-gc bench/payloads.ts",
-    "bench:remote": "node --expose-gc src/remote.bench.ts"
+    "bench:mcp": "node bench/mcp.ts",
+    "bench:remote": "node --expose-gc src/remote.bench.ts",
+    "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {
+    "@ace/mcp-server": "workspace:*",
+    "@ace/notify": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",

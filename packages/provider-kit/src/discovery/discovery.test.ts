@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { probeOutput } from "../process.ts";
 import { discoverProviders, findExecutable } from "./index.ts";
-import { binary, cleanupDirectories, directory, fixture } from "./testing/cli.ts";
+import { binary, cleanupDirectories, directory, fixture, nodeBinary } from "./testing/cli.ts";
 
 afterEach(cleanupDirectories);
 const healthy = {
@@ -15,22 +15,6 @@ const healthy = {
 };
 
 describe("provider discovery", () => {
-  it("discovers CommonJS stand-ins when the temporary directory inherits an ESM package", async () => {
-    const parent = await directory();
-    await writeFile(join(parent, "package.json"), JSON.stringify({ type: "module" }));
-    const root = await directory(parent);
-    await writeFile(
-      join(root, "codex"),
-      `#!${process.execPath}\nrequire('node:fs'); console.log(process.argv[2]==='--version'?'codex-cli 1.2.3':'Logged in using ChatGPT');\n`,
-      { mode: 0o755 },
-    );
-    expect((await discoverProviders({ env: { PATH: root } })).codex).toMatchObject({
-      installed: true,
-      version: "1.2.3",
-      auth: "logged_in",
-      authDetail: "ChatGPT",
-    });
-  });
   it("reports missing binaries independently without probing installed CLIs", async () => {
     const root = await directory();
     expect(await discoverProviders({ env: { PATH: root } })).toEqual({
@@ -49,6 +33,24 @@ describe("provider discovery", () => {
       version: "2.3.4",
       auth: "logged_out",
       loginHint: "claude, then /login",
+    });
+  });
+  it("discovers a Node CLI when its temporary root is inside an ESM package", async () => {
+    const parent = await directory();
+    await writeFile(join(parent, "package.json"), '{"type":"module"}');
+    const root = await directory(parent);
+    const path = await nodeBinary(
+      root,
+      "codex",
+      `const process = require('node:process'); console.log(process.argv[2] === '--version' ? 'codex-cli 4.5.6' : 'Logged in using ChatGPT');`,
+    );
+    expect((await discoverProviders({ env: { PATH: root } })).codex).toEqual({
+      installed: true,
+      path,
+      version: "4.5.6",
+      auth: "logged_in",
+      authDetail: "ChatGPT",
+      loginHint: "codex login",
     });
   });
   it("prefers explicit overrides and does not fall back when an override is missing", async () => {
@@ -158,9 +160,9 @@ describe("provider discovery", () => {
       expect(table.stdout).toContain(text);
   }, 15_000);
   it("runs provider probes concurrently so a blocked CLI cannot gate a healthy one", async () => {
-    const root = await directory();
-    // Stand-ins must also execute under an enclosing ESM package (e.g. repo-local TMPDIR).
-    await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }));
+    const parent = await directory();
+    await writeFile(join(parent, "package.json"), JSON.stringify({ type: "module" }));
+    const root = await directory(parent);
     const waiting = new Set<Socket>();
     let released = false;
     const gate = createServer((socket) => {
@@ -181,15 +183,15 @@ describe("provider discovery", () => {
     if (!address || typeof address === "string") throw new Error("Expected TCP address");
     const endpoint = JSON.stringify({ port: address.port, host: "127.0.0.1" });
     try {
-      await writeFile(
-        join(root, "codex"),
-        `#!${process.execPath}\nimport {createConnection} from 'node:net';const socket=createConnection(${endpoint},()=>socket.write('wait'));socket.once('data',()=>console.log(process.argv[2]==='--version'?'codex-cli 1.2.3':'Logged in using ChatGPT'));\n`,
-        { mode: 0o755 },
+      await nodeBinary(
+        root,
+        "codex",
+        `const socket=require('node:net').createConnection(${endpoint},()=>socket.write('wait'));socket.once('data',()=>console.log(process.argv[2]==='--version'?'codex-cli 1.2.3':'Logged in using ChatGPT'));`,
       );
-      await writeFile(
-        join(root, "agent"),
-        `#!${process.execPath}\nimport {createConnection} from 'node:net';const socket=createConnection(${endpoint},()=>socket.end('release'));console.log(process.argv[2]==='--version'?'2026.09.26-dd393fe':'Logged in as private@example.test');\n`,
-        { mode: 0o755 },
+      await nodeBinary(
+        root,
+        "agent",
+        `const socket=require('node:net').createConnection(${endpoint},()=>socket.end('release'));console.log(process.argv[2]==='--version'?'2026.09.26-dd393fe':'Logged in as private@example.test');`,
       );
       const result = await discoverProviders({ env: { PATH: root }, timeoutMs: 10_000 });
       expect(result.codex).toMatchObject({

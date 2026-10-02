@@ -301,3 +301,8 @@ Capabilities advertised: `loadSession`, `sessionCapabilities.{list,resume}`, `pr
 - ACP spec: https://agentclientprotocol.com/protocol/schema
 - Gemini CLI 0.43.0: local `gemini --help` (`--acp`, `--approval-mode default|auto_edit|yolo|plan`).
 - Pointer only, not an authority: t3code's `apps/server/src/provider/acp/Antigravity*.ts` and `antigravityRelease.ts` directed this research to the registry entry, `GEMINI_HOME` and the `interaction_` and `start_subagent` conventions. Every fact above was re-checked against the primary sources.
+
+## ace MCP injection
+
+The ACP HTTP `mcpServers` shape and read-only discovery contract is recorded in
+[ace MCP injection contracts](ace-mcp-injection.md#cursor-and-antigravity-via-acp).
