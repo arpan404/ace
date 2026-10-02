@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import type { Writable } from "node:stream";
+import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+export { installShutdownHandlers } from "./process-owner.ts";
 
 export type ProcessExit = {
   code: number | null;
@@ -22,49 +24,9 @@ export type SpawnOptions = {
   cwd?: string;
   env: NodeJS.ProcessEnv;
   name: string;
+  /** Natural exit kills descendants by default, including agent-started dev servers. */
+  killGroupOnExit?: boolean;
 };
-
-const groups = new Set<number>();
-function killGroup(pid: number, signal: NodeJS.Signals): void {
-  try {
-    process.kill(-pid, signal);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    // Darwin reports EPERM for groups containing only zombies before Node reaps
-    // the leader. Its exit hook retries cleanup for any surviving descendants.
-    if (code !== "ESRCH" && !(process.platform === "darwin" && code === "EPERM")) throw error;
-  }
-}
-function cleanup(): void {
-  for (const pid of groups) killGroup(pid, "SIGKILL");
-}
-function terminated(signal: NodeJS.Signals): void {
-  cleanup();
-  // Preserve the normal signal exit code, and let other application handlers run.
-  if (process.listenerCount(signal) === 1) {
-    process.removeListener("SIGINT", onInt);
-    process.removeListener("SIGTERM", onTerm);
-    process.kill(process.pid, signal);
-  }
-}
-const onInt = () => terminated("SIGINT");
-const onTerm = () => terminated("SIGTERM");
-function register(pid: number): void {
-  if (groups.size === 0) {
-    process.on("exit", cleanup);
-    process.on("SIGINT", onInt);
-    process.on("SIGTERM", onTerm);
-  }
-  groups.add(pid);
-}
-function unregister(pid: number): void {
-  groups.delete(pid);
-  if (groups.size === 0) {
-    process.removeListener("exit", cleanup);
-    process.removeListener("SIGINT", onInt);
-    process.removeListener("SIGTERM", onTerm);
-  }
-}
 
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
 export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
@@ -81,10 +43,11 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
   const stdout = createInterface({ input: child.stdout, crlfDelay: Infinity });
   const stderr = createInterface({ input: child.stderr, crlfDelay: Infinity });
   const pid = child.pid;
-  if (pid !== undefined) register(pid);
+
   let stopped = false;
   let failed = false;
   let ended = false;
+  let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   // Pipe errors are surfaced to writers through write callbacks, never unhandled events.
   child.stdin.on("error", () => {});
@@ -92,9 +55,9 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
     if (ended) return;
     ended = true;
     if (timer) clearTimeout(timer);
-    if (pid !== undefined) {
+    if (pid !== undefined && (options.killGroupOnExit !== false || stopped)) {
       killGroup(pid, "SIGKILL");
-      unregister(pid);
+      unregisterGroup(pid);
     }
     controller.abort();
   };
@@ -106,6 +69,9 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
   const exited = new Promise<ProcessExit>((resolve) => {
     child.once("close", (code, signal) => {
       release();
+      closed = true;
+      if (timer) clearTimeout(timer);
+      if (pid !== undefined) unregisterGroup(pid);
       resolve({
         code,
         signal,
@@ -113,7 +79,7 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
       });
     });
   });
-  return {
+  const handle: SupervisedProcess = {
     stdin: child.stdin,
     stdout,
     stderr,
@@ -121,7 +87,7 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
     signal: controller.signal,
     stop({ graceMs = 5_000 } = {}) {
       if (!Number.isFinite(graceMs) || graceMs < 0) throw new RangeError("Invalid graceMs");
-      if (!ended && !stopped && pid !== undefined) {
+      if (!closed && !stopped && pid !== undefined) {
         stopped = true;
         killGroup(pid, "SIGTERM");
         timer = setTimeout(() => killGroup(pid, "SIGKILL"), graceMs);
@@ -129,6 +95,8 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
       return exited;
     },
   };
+  if (pid !== undefined) registerGroup(pid, (graceMs) => handle.stop({ graceMs }));
+  return handle;
 }
 
 /** Bounded, read-only CLI probe. Raw output is returned only to the caller. */
