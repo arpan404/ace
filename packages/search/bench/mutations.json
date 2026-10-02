@@ -32,7 +32,8 @@
   {
     "mutation": "remove title rank weight",
     "test": "title matches rank above",
-    "status": "not executed (tests run at merge)"
+    "status": "not executed (tests run at merge)",
+    "change": "title weight 8 to 1, body inserted before title"
   },
   {
     "mutation": "accept stale pagination",
@@ -82,6 +83,76 @@
   {
     "mutation": "join attachment paths with streamed text",
     "test": "text streamed after an attachment",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "commit staging when an append batch fails",
+    "test": "a failed standalone append",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "bypass search query read authorization",
+    "test": "search over pinned WSS",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "bypass search status read authorization",
+    "test": "search over pinned WSS",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "ignore thread retention",
+    "test": "thread retention removes transcript",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "skip rebuild recovery",
+    "test": "rebuild repairs lost FTS postings",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "ignore cursor fingerprint",
+    "test": "pagination keeps tied",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "erase highlight offsets",
+    "test": "Unicode, diacritics, CJK substrings",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "accept older metadata at thread creation",
+    "test": "partial backfill publishes only",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "accept older metadata at thread update",
+    "test": "current thread metadata wins",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "stage the historical creation title",
+    "test": "partial backfill publishes only",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "stage the historical update title",
+    "test": "partial backfill publishes only",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "split a thread title at its response cap",
+    "test": "thread titles and snippets stop",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "split a snippet at its response cap",
+    "test": "thread titles and snippets stop",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "resolve close before worker termination",
+    "test": "closing waits for both reader workers",
     "status": "not executed (tests run at merge)"
   }
 ]
