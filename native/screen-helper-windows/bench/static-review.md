@@ -30,10 +30,18 @@ Written behaviour coverage, not executed:
 - Semantic tools change observable fake control values; ownership changes reject actions and delayed UI reads.
 - Crash recovery clears frames and controller state and starts a replacement helper explicitly.
 - Paired read/operate devices cannot observe screen state or grant approvals; the local admin can list sessions.
-- An ignored interactive Windows test checks cached edit values and writable/read-only action availability. Its exact invocation is in the manual plan.
+- Interactive Windows tests check actual Value mutation, readonly denial and input fallback from an unsupported UIA Invoke pattern. They are ignored on unattended machines; exact invocations are in the manual plan.
+- Native mailbox retirement and daemon generation checks discard old pending/in-flight packets across backpressured restarts and pause/resume.
+- Stop waits for native cessation before publication and preserves both failures; shutdown awaits actual helper exit after rejected publication.
+- Recording auto-caps and failed viewers release capture demand through public ScreenManager APIs.
+- The real daemon HTTP MCP endpoint lists exact screen tools, serves image content above 256 KiB and denies missing capability, another thread with the same agent ID and human takeover.
+- Public MCP registry tests reject malformed/oversized content and late results after credential revocation.
+- POSIX helper output is bounded before readline, spawn failure removes the actual socket directory, and snapshot deadlines use an injected scheduler.
+- Public UI tree/find tests reject over-cap or invalid replies; screenshots assert exact payload bytes.
+- Event wake policy retains the final event until its deadline without resubmission; scale-only changes invalidate metadata and duplicate events respect pacing.
 
-See `mutations.json` for eighteen intended mutations. Each is marked **not executed (tests run at merge)**. Performance sources are present, but all throughput, latency, CPU and RSS numbers remain pending in `results.md`. No runtime claims follow from static compilation.
+See `mutations.json` for 44 intended mutations. Each is marked **not executed (tests run at merge)**. Performance sources are present, but all throughput, latency, CPU and RSS numbers remain pending in `results.md`. No runtime claims follow from static compilation.
 
 Real Windows behaviour is untested. The helper README gives the exact Windows 10/11, x64/ARM64 manual plan for WGC, D3D11 scaling, DPI, Unicode, secure desktops/UIPI, UIA patterns, owner-only DACLs, backpressure and resource measurements.
 
-Scope limits: the existing macOS helper remains v1 and Linux helpers are outside this Windows change. Windows supports one active window or explicitly approved view-only monitor; app aggregation is unsupported. Signing/install packaging is documented rather than executed. Exported screen tool definitions and their host-scoped handler remain the MCP integration seam; the merged MCP registry currently requires `ace_*` names and structured JSON results, so registering exact `screen_*` names and image results there needs a separate integration decision.
+Scope limits: the existing macOS helper remains v1 and Linux helpers are outside this Windows change. Windows supports one active window or explicitly approved view-only monitor; app aggregation is unsupported. Signing/install packaging is documented rather than executed. All eight exact screen tools now register automatically with a configured daemon screen manager. MCP credentials require the screen capability and delegation bound to both thread and agent IDs. Rich MCP content has an independent validated 12 MiB cap; existing structured tools keep their 256 KiB cap.

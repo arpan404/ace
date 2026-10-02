@@ -106,5 +106,161 @@
     "mutation": "Allow read/operate devices to create a screen bridge or grant approvals",
     "test": "paired devices cannot observe screen state or grant screen approvals",
     "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "codec.rs",
+    "mutation": "Mismatch frame payload length",
+    "test": "frame_packets_delimit_exact_jpeg_bytes_and_preserve_scale",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "tree.rs",
+    "mutation": "Split a UTF-16 surrogate pair when truncating strings",
+    "test": "tree_strings_respect_utf16_caps_without_splitting_surrogate_pairs",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "mailbox.rs",
+    "mutation": "Retain pending packets or accept retired producers after capture retirement",
+    "test": "retirement_discards_pending_and_in_flight_generations_without_truncating_packets",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/session-capture.ts",
+    "mutation": "Fail the new session on an old in-flight session packet",
+    "test": "a backpressured old packet cannot fail a replacement session",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/session-capture.ts",
+    "mutation": "Accept a retired generation as a fresh resumed screenshot",
+    "test": "a paused packet cannot satisfy a post-resume snapshot",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/session-stop.ts",
+    "mutation": "Publish recording or turn off indicator before native cessation",
+    "test": "native capture stops before a deferred recording publisher can turn off the indicator",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/manager.ts",
+    "mutation": "Skip helper shutdown when publication rejects",
+    "test": "publication rejection cannot leak the host helper during shutdown",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/session-stop.ts",
+    "mutation": "Mask native stop error with publication error",
+    "test": "native stop and publication failures both remain observable after actual helper exit",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/session-recording.ts",
+    "mutation": "Retain completed recording demand or block the next recording after a cap",
+    "test": "recording completion at its cap releases capture demand and permits another recording",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "apps/daemon/src/index.ts",
+    "mutation": "Omit automatic screen toolkit registration",
+    "test": "a configured daemon exposes scoped screen tools and returns screenshot images over MCP",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/mcp-server/src/content-tools.ts",
+    "mutation": "Coerce image results to text or retain the structured 256 KiB image limit",
+    "test": "rich results preserve image bytes while structured tools retain their smaller budget",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/agent-binding.ts",
+    "mutation": "Bind delegation by agent ID only, ignoring credential thread ID",
+    "test": "a configured daemon exposes scoped screen tools and returns screenshot images over MCP",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/mcp-server/src/registry.ts",
+    "mutation": "Expose screen tools without screen capability",
+    "test": "a configured daemon exposes scoped screen tools and returns screenshot images over MCP",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/mcp-server/src/content-tools.ts",
+    "mutation": "Omit rich result schema or size validation",
+    "test": "rich result validation rejects malformed and oversized content before exposing it",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/mcp-server/src/registry.ts",
+    "mutation": "Return late image content after credential revocation",
+    "test": "screen names require screen authority and revoked callers cannot receive a late image",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/provider-kit/src/line-reader.ts",
+    "mutation": "Remove pre-readline unterminated line bounds",
+    "test": "an unterminated oversized POSIX helper reply kills the process before readline grows further",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/frames.ts",
+    "mutation": "Remove rejected subscriber without releasing viewer demand",
+    "test": "a failed frame subscriber releases the last capture viewer",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "stream.rs",
+    "mutation": "Suppress scale-only coordinate metadata changes",
+    "test": "unchanged_pixels_still_emit_changed_coordinate_metadata",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "stream.rs",
+    "mutation": "Hash duplicate frame events without pacing them",
+    "test": "duplicate_events_are_paced_without_losing_the_next_change",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "capture_wait.rs",
+    "mutation": "Consume the last event before its pacing deadline",
+    "test": "the_final_capture_event_keeps_a_deadline_without_resubmitting_the_frame",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/session.ts",
+    "mutation": "Ignore injected snapshot deadline or retain demand after timeout",
+    "test": "the injected snapshot deadline rejects a missing frame and releases capture demand",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/transport.ts",
+    "mutation": "Leave the private Unix socket directory after spawn failure",
+    "test": "spawn failure removes the private Unix frame socket directory",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/tools.ts",
+    "mutation": "Return stale or arbitrary screenshot bytes",
+    "test": "one host helper serves inspections, restarts and semantic tools with controller checks",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "src/windows/uia.rs",
+    "mutation": "Allow readonly Value mutation or fallback typing",
+    "test": "cached_edit_values_offer_set_value_only_when_writable (interactive Windows)",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "src/windows/uia.rs",
+    "mutation": "Drop the reported input fallback for an actual unsupported Invoke pattern",
+    "test": "unsupported_invoke_on_an_edit_uses_a_reported_input_fallback (interactive Windows)",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/ui-results.ts",
+    "mutation": "Accept replies exceeding requested depth/node/find caps or invalid states",
+    "test": "public ScreenManager ui-results regressions",
+    "status": "not executed (tests run at merge)"
   }
 ]

@@ -12,6 +12,9 @@ The final revision has static checks only. The repo owner's updated rule prohibi
 | Reference retention and eviction                     | `core` Rust benchmark                                         | Not executed, needs run at merge |
 | 720p JPEG packet construction                        | `core` Rust benchmark                                         | Not executed, needs run at merge |
 | Fragmented v2 frame decoding and UI reply validation | `v2.ts` TypeScript benchmark                                  | Not executed, needs run at merge |
+| Capture mailbox replacement and retirement           | `core` Rust benchmark                                         | Not executed, needs run at merge |
+| Rich MCP 1 MiB image validation                      | `packages/screen/bench/content.ts`                            | Not executed, needs run at merge |
+| Bounded line-reader throughput                       | `packages/screen/bench/content.ts`                            | Not executed, needs run at merge |
 | Steady and peak host RSS                             | Run benchmark executables under platform resource measurement | Not executed, needs run at merge |
 | Windows idle CPU and frame count                     | Unchanging window for 60 seconds, then suspended capture      | Untested on real Windows         |
 | Windows CPU at 10 fps and RSS                        | Changing 720p and 4K windows for 60 seconds                   | Untested on real Windows         |
