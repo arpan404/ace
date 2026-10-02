@@ -11,7 +11,7 @@ fixture and initializes one empty Git repository in parallel. Each daemon gets
 private TLS files; each Git test copies the empty repository and creates its own
 real commit. Restart and crash tests still spawn separate Node daemon processes.
 The remote restart test still generates and persists an identity through the
-production path. MCP, notify and the model catalog remain external to the bundle because MCP
+production path. MCP, notify, files and the model catalog remain external to the bundle because MCP
 has runtime-relative UMD requires and the other two resolve workers relative
 to their modules. The temporary fixtures are removed at teardown and on setup failure.
 
@@ -177,3 +177,7 @@ establish runtime success; that needs run at merge.
 [Vitest worker limits](https://vitest.dev/config/maxworkers) and
 [project group order](https://vitest.dev/config/sequence#sequence-grouporder)
 make the concurrency cap independent of the host's advertised CPU count.
+
+## File transfer review additions
+
+The inventory now includes daemon `files*.test.ts`, all `packages/files` suites and all `packages/workspace` suites. These own real WebSockets, Noise relay endpoints, native rename/blob workers, Git commands and search workers. The CLI bundle keeps `@ace/files` external so its worker URLs resolve beside its source. The new regression cases and this composed bundle need run at merge; no tests or runtime probes were executed under the owner's static-only policy.
