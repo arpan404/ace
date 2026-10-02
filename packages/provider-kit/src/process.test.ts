@@ -10,6 +10,7 @@ import { PROCESS_TEST_TIMEOUT } from "./testing/cli.ts";
 import { probeOutput, spawnSupervised, type SupervisedProcess } from "./process.ts";
 
 const owned: SupervisedProcess[] = [];
+const noop = () => {};
 function cleanupGroup(pgid: number) {
   try {
     process.kill(-pgid, "SIGKILL");
@@ -315,10 +316,17 @@ describe("supervised processes", () => {
     expect(JSON.parse(String(line))).toEqual(["override", process.env["PATH"]]);
     await proc.exited;
   });
-  it("bounds hanging probes by a timeout", async () => {
-    await expect(
-      probeOutput(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { timeoutMs: 50 }),
-    ).rejects.toThrow("Probe timed out");
+  it("advancing the probe deadline stops a hanging child", async () => {
+    let deadline = noop;
+    const result = probeOutput(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      schedule(callback) {
+        deadline = callback;
+        return () => {};
+      },
+    });
+    const rejected = expect(result).rejects.toThrow("Probe timed out");
+    deadline();
+    await rejected;
   });
   it("rejects probe output beyond the capture byte budget", async () => {
     await expect(
@@ -338,4 +346,23 @@ it("an aborted read-only probe stops its real child and rejects without waiting 
   });
   controller.abort();
   await expect(result).rejects.toThrow("Probe aborted");
+});
+
+it("newline-free probe output is stopped by its byte budget before a line can accumulate", async () => {
+  let exited: Promise<unknown> = Promise.resolve();
+  const result = probeOutput(
+    process.execPath,
+    ["-e", "process.stdout.write('x'.repeat(100000)); setInterval(() => {}, 1000)"],
+    {
+      maxBytes: 100,
+      schedule: () => () => {},
+      spawn(options) {
+        const proc = spawnSupervised(options);
+        exited = proc.exited;
+        return proc;
+      },
+    },
+  );
+  await expect(result).rejects.toThrow("Probe output exceeded limit");
+  expect(await exited).toMatchObject({ reason: "output-limit" });
 });

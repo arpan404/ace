@@ -168,6 +168,7 @@ export async function probeOutput(
     maxBytes?: number;
     signal?: AbortSignal;
     spawn?: typeof spawnSupervised;
+    schedule?: (callback: () => void, milliseconds: number) => () => void;
   } = {},
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   if (options.signal?.aborted) throw new Error("Probe aborted");
@@ -176,6 +177,7 @@ export async function probeOutput(
     args,
     env: options.env ?? {},
     name: "cli-probe",
+    maxOutputBytes: options.maxBytes ?? 1_048_576,
   });
   let stdout = "";
   let stderr = "";
@@ -198,17 +200,24 @@ export async function probeOutput(
     void proc.stop({ graceMs: 0 });
   };
   options.signal?.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(() => {
+  const schedule =
+    options.schedule ??
+    ((callback: () => void, ms: number) => {
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    });
+  const cancel = schedule(() => {
     failure ??= new Error("Probe timed out");
     void proc.stop({ graceMs: 0 });
   }, options.timeoutMs ?? 30_000);
   try {
     const exit = await proc.exited;
     if (failure) throw failure;
+    if (exit.reason === "output-limit") throw new Error("Probe output exceeded limit");
     if (exit.reason === "spawn-error") throw new Error("Probe failed to start");
     return { stdout: stdout.trim(), stderr: stderr.trim(), code: exit.code };
   } finally {
-    clearTimeout(timer);
+    cancel();
     options.signal?.removeEventListener("abort", abort);
   }
 }
