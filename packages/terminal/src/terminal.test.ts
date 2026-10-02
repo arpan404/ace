@@ -39,9 +39,19 @@ test("stty size reports the resized PTY dimensions", async () => {
 
 test("ctrl-C interrupts a foreground sleep and returns control to the shell", async () => {
   const { terminal, attachment } = await open();
-  terminal.write(`sh -c ${quote("echo RUNNING; exec sleep 1000")}; printf 'STATUS:%s\\n' $?\r`);
-  await until(attachment, "RUNNING\r\n");
+  terminal.write(`sh -c ${quote("printf 'RUNNING:%s:READY\\n' $$; exec sleep 1000")}\r`);
+  const output = await until(attachment, ":READY\r\n");
+  const pid = Number(output.match(/RUNNING:(\d+)/)?.[1]);
+  expect(pid).toBeGreaterThan(0);
+  // Confirm exec reached sleep before sending the terminal's interrupt character.
+  for (;;) {
+    const { stdout } = await promisify(execFile)("ps", ["-p", String(pid), "-o", "comm="]);
+    if (stdout.trim().split("/").at(-1) === "sleep") break;
+    await setImmediate();
+  }
   terminal.write("\x03");
+  // Bash 5 abandons the interrupted command line, so query on the next line.
+  terminal.write("printf 'STATUS:%s\\n' $?\r");
   expect(await until(attachment, "STATUS:130\r\n")).toContain("STATUS:130");
 });
 

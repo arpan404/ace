@@ -21,25 +21,28 @@ const terminal = manager.openTerminal({
 });
 
 const attachment = terminal.attach({ fromOffset: 0 });
-for await (const event of attachment) {
-  if (event.type === "data") {
-    // Send event.data to the terminal renderer. Save event.endOffset as the cursor.
-  } else if (event.type === "resync") {
-    // Clear the renderer and attach again from event.oldestOffset.
-  } else {
-    // event.status is { code, signal }. All retained output preceded this event.
+const watching = (async () => {
+  for await (const event of attachment) {
+    if (event.type === "data") {
+      // Send event.data to the terminal renderer. Save event.endOffset as the cursor.
+    } else if (event.type === "resync") {
+      // Clear the renderer and attach again from event.oldestOffset.
+    } else {
+      // event.status is { code, signal }. All retained output preceded this event.
+    }
   }
-}
+})();
 
 terminal.write("echo hello\r");
 terminal.resize(120, 40);
 await terminal.kill("SIGTERM");
+await manager.closeAll(); // Escalates if the interactive shell ignores SIGTERM.
 const status = await terminal.exited;
+await watching;
 const snapshot = terminal.snapshot();
-await manager.closeAll();
 ```
 
-The iteration above is a separate consumer task in a real integration. Call `attachment.detach()` to cancel a pending read, or break from its `for await` loop. Neither operation affects the PTY or another watcher. Permit only one outstanding `next()` per attachment.
+Start one consumer task per attachment. Call `attachment.detach()` to cancel a pending read, or break from its `for await` loop. Neither operation affects the PTY or another watcher. Permit only one outstanding `next()` per attachment.
 
 `name` is a display label. The terminal type is always `xterm-256color`; `COLORTERM` is always `truecolor`, even if `env` overrides them. Other environment values override the daemon's environment; `undefined` removes an inherited value. Environment values are not included in snapshots.
 
@@ -98,7 +101,7 @@ node packages/terminal/scripts/mutations.ts
 bun run --filter @ace/terminal bench 100
 ```
 
-Tests use real PTYs, isolated startup files and shell/output barriers. There are no elapsed-time assertions or sleeps for synchronization. The 20 MiB case checks retained bytes, heap and buffer allocations, resync and successful shell completion. Test-runner timeouts only prevent hangs.
+Tests use real PTYs, isolated shell and Readline startup files and shell/output barriers. There are no elapsed-time assertions or sleeps for synchronization. The 20 MiB case checks retained bytes, heap and buffer allocations, resync and successful shell completion. Test-runner timeouts only prevent hangs.
 
 The mutation audit sequentially edits production code, runs each guarding real-PTY test, and restores the original file in `finally`. Do not run it concurrently with edits or tests in the same worktree. Eleven mutations were killed, including retaining all output strings outside the ring.
 

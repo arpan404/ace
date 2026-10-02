@@ -19,11 +19,15 @@ export async function fixture(options: TerminalManagerOptions = {}) {
     join(home, ".bash_profile"),
     "PS1=''; unset PROMPT_COMMAND; stty -echo; printf '__READY__\\n'\n",
   );
+  await writeFile(
+    join(home, ".inputrc"),
+    "set enable-bracketed-paste off\nset enable-meta-key off\n",
+  );
   const manager = new TerminalManager({ graceMs: 0, ...options });
   const terminal = manager.openTerminal({
     cwd: home,
     shell: "/bin/bash",
-    env: { HOME: home, BASH_SILENCE_DEPRECATION_WARNING: "1" },
+    env: { HOME: home, INPUTRC: join(home, ".inputrc"), BASH_SILENCE_DEPRECATION_WARNING: "1" },
     cols: 80,
     rows: 24,
     name: "test",
