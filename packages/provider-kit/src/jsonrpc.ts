@@ -1,3 +1,5 @@
+import { RpcWriter } from "./rpc-writer.ts";
+import { byteLimit } from "./output-budget.ts";
 import type { SupervisedProcess } from "./process.ts";
 
 export class MethodNotFound extends Error {
@@ -13,6 +15,9 @@ export type Notification = { method: string; params: unknown };
 export type RpcOptions = {
   /** null disables the default deadline for interactive requests. */
   timeoutMs?: number | null;
+  maxPendingRequests?: number;
+  maxMessageBytes?: number;
+  maxQueuedBytes?: number;
   onFrame?: (direction: "send" | "recv", message: unknown) => void;
   onMalformed?: (line: string) => void;
   onError?: (error: Error) => void;
@@ -35,6 +40,8 @@ export class JsonRpcPeer {
   readonly #process: SupervisedProcess;
   readonly #options: RpcOptions;
   readonly #pending = new Map<RpcId, Pending>();
+  readonly #writer: RpcWriter;
+  readonly #maxPendingRequests: number;
   #nextId = 1;
   #closed: Error | undefined;
   onNotification: (message: Notification) => void = () => {};
@@ -43,6 +50,8 @@ export class JsonRpcPeer {
   };
 
   constructor(proc: SupervisedProcess, options: RpcOptions = {}) {
+    this.#maxPendingRequests = byteLimit(options.maxPendingRequests ?? 256, "maxPendingRequests");
+    this.#writer = new RpcWriter(proc.stdin, options);
     this.#process = proc;
     this.#options = options;
     proc.stdout.on("line", this.#receive);
@@ -55,6 +64,8 @@ export class JsonRpcPeer {
   request(method: string, params?: unknown, options: RequestOptions = {}): Promise<unknown> {
     if (this.#closed) return Promise.reject(this.#closed);
     if (options.signal?.aborted) return Promise.reject(asError(options.signal.reason));
+    if (this.#pending.size >= this.#maxPendingRequests)
+      return Promise.reject(new Error("JSON-RPC pending request limit"));
     let id = options.id;
     if (id === undefined) {
       while (this.#pending.has(this.#nextId)) this.#nextId++;
@@ -74,8 +85,10 @@ export class JsonRpcPeer {
     const requestId = id;
     return new Promise((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const writeAbort = new AbortController();
       const abort = () => this.#settle(requestId, asError(options.signal?.reason));
       const cleanup = () => {
+        writeAbort.abort();
         if (timer !== undefined) clearTimeout(timer);
         options.signal?.removeEventListener("abort", abort);
       };
@@ -87,24 +100,32 @@ export class JsonRpcPeer {
           deadline,
         );
       }
-      void this.#send({
-        jsonrpc: "2.0",
-        id: requestId,
-        method,
-        ...(params === undefined ? {} : { params }),
-      }).catch((error: unknown) => this.#settle(requestId, asError(error)));
+      void this.#send(
+        {
+          jsonrpc: "2.0",
+          id: requestId,
+          method,
+          ...(params === undefined ? {} : { params }),
+        },
+        writeAbort.signal,
+      ).catch((error: unknown) => this.#settle(requestId, asError(error)));
     });
   }
 
-  notify(method: string, params?: unknown): void {
-    void this.#send({ jsonrpc: "2.0", method, ...(params === undefined ? {} : { params }) }).catch(
-      (error: unknown) => this.#report(asError(error)),
-    );
+  notify(method: string, params?: unknown): Promise<void> {
+    const sent = this.#send({
+      jsonrpc: "2.0",
+      method,
+      ...(params === undefined ? {} : { params }),
+    });
+    void sent.catch((error: unknown) => this.#report(asError(error)));
+    return sent;
   }
 
   /** Dispose the peer without stopping its owning process. */
   close(error = new Error("JSON-RPC peer closed")): void {
     this.#closed ??= error;
+    this.#writer.close(error);
     this.#process.signal.removeEventListener("abort", this.#end);
     this.#process.stdout.removeListener("line", this.#receive);
     this.#process.stdin.removeListener("error", this.#fail);
@@ -114,6 +135,7 @@ export class JsonRpcPeer {
   #end = (): void => {
     const error = new Error("process exited");
     this.#closed ??= error;
+    this.#writer.close(error);
     // Keep observing final stdout frames until close, but reject work at exit.
     for (const id of this.#pending.keys()) this.#settle(id, error);
   };
@@ -132,14 +154,12 @@ export class JsonRpcPeer {
     if (error) pending.reject(error);
     else pending.resolve(result);
   }
-  async #send(message: object): Promise<void> {
+  async #send(message: object, signal?: AbortSignal): Promise<void> {
     if (this.#closed || this.#process.signal.aborted)
       throw this.#closed ?? new Error("process exited");
     const line = `${JSON.stringify(message)}\n`;
     this.#options.onFrame?.("send", message);
-    await new Promise<void>((resolve, reject) => {
-      this.#process.stdin.write(line, (error) => (error ? reject(error) : resolve()));
-    });
+    await this.#writer.send(line, signal);
   }
   #receive = (line: string): void => {
     let raw: unknown;
