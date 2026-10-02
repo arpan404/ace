@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+  PresenceUpdate,
+  NotificationRegister,
+  NotificationSettings,
+  NotificationSnooze,
+  NotificationMessage,
+} from "./notifications.ts";
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import { Command } from "./commands.ts";
@@ -47,12 +54,21 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
 );
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ClientMessage = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("hello"),
-    protocolVersion: z.literal(1),
-    deviceId: DeviceId,
-    token: z.string(),
-  }),
+  PresenceUpdate,
+  NotificationRegister,
+  NotificationSettings,
+  NotificationSnooze,
+  z
+    .object({
+      type: z.literal("hello"),
+      protocolVersion: z.literal(1),
+      deviceId: DeviceId,
+      token: z.string().optional(),
+      ticket: z.string().optional(),
+    })
+    .refine((hello) => (hello.token !== undefined) !== (hello.ticket !== undefined), {
+      message: "Exactly one credential is required",
+    }),
   z.object({
     type: z.literal("subscribe"),
     subscriptionId: z.string().min(1),
@@ -71,6 +87,7 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  NotificationMessage,
   z.object({
     type: z.literal("welcome"),
     hostId: HostId,
