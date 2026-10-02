@@ -19,6 +19,7 @@
       },
       "dependencies": {
         "@ace/mcp-server": "workspace:*",
+        "@ace/notify": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
@@ -70,6 +71,14 @@
         "@modelcontextprotocol/sdk": "1.31.0",
       },
     },
+    "packages/notify": {
+      "name": "@ace/notify",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.1.12",
+      },
+    },
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
@@ -104,6 +113,8 @@
     "@ace/engine-api": ["@ace/engine-api@workspace:packages/engine-api"],
 
     "@ace/mcp-server": ["@ace/mcp-server@workspace:packages/mcp-server"],
+
+    "@ace/notify": ["@ace/notify@workspace:packages/notify"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
