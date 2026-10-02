@@ -1,3 +1,4 @@
+import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -114,7 +115,7 @@ test.each(["darwin", "win32"] as const)(
         }
         if (exists) {
           const state = await execute("ps", ["-o", "stat=", "-p", String(pids.descendant)], {
-            timeout: 30_000,
+            timeout: PROCESS_TEST_TIMEOUT,
           }).catch((error) => {
             expect(error).toMatchObject({ code: 1, stdout: "" });
             return { stdout: "" };
