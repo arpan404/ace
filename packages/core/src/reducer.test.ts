@@ -153,7 +153,11 @@ describe("reducer reliability", () => {
       call: {
         title: "Actual command",
         status: "running",
-        detail: { command: "loop", output: "first\n", exitCode: 0 },
+        detail: {
+          command: "loop",
+          output: { bytes: 6, tail: "first\n", truncated: false },
+          exitCode: 0,
+        },
       },
     });
   });
@@ -202,7 +206,7 @@ describe("reducer reliability", () => {
     expect(h.item("reasoning")).toMatchObject({ type: "reasoning", text: "Why" });
     expect(h.item("output")).toMatchObject({
       type: "tool_call",
-      call: { detail: { output: "Output" } },
+      call: { detail: { output: { bytes: 6, tail: "Output", truncated: false } } },
     });
   });
 
@@ -272,14 +276,21 @@ describe("reducer reliability", () => {
         complete: true,
         call: {
           status: "cancelled",
-          detail: { kind: "shell", exitCode: null, output: "User aborted the command" },
+          detail: { kind: "shell", exitCode: null },
         },
       },
+    });
+    h.send({
+      type: "item.delta",
+      agent: "root",
+      item: "shell",
+      field: "output",
+      append: "User aborted the command",
     });
     const events = h.end("root", "interrupted");
     expect(events.filter((event) => event.type === "run.ended")).toHaveLength(0);
     expect(h.item("shell")).toMatchObject({
-      call: { status: "cancelled", detail: { output: "User aborted the command" } },
+      call: { status: "cancelled", detail: { output: { tail: "User aborted the command" } } },
     });
     expect(h.view.status).toEqual({ state: "done" });
   });
