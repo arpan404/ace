@@ -84,9 +84,10 @@ export function replayFixture(options: ReplayOptions): ReplayResult {
     }
   }
   for (const t of times) {
-    while (fixture.frames[frameIndex]?.t === t) {
-      const frame = fixture.frames[frameIndex++]!;
+    let frame = fixture.frames[frameIndex];
+    while (frame?.t === t) {
       fold(translator.translate(structuredClone(frame), t), t);
+      frame = fixture.frames[++frameIndex];
     }
     fold(translator.tick(t), t);
     fold([{ type: "tick" }], t);
@@ -94,10 +95,11 @@ export function replayFixture(options: ReplayOptions): ReplayResult {
       t,
       thread: structuredClone(view.thread.status),
       agents: Object.fromEntries(
-        Object.entries(state.agents).map(([key, record]) => [
-          key,
-          structuredClone(view.agents[record.agent.id]!.status),
-        ]),
+        Object.entries(state.agents).map(([key, record]) => {
+          const agent = view.agents[record.agent.id];
+          if (!agent) throw new Error(`projection is missing agent ${record.agent.id}`);
+          return [key, structuredClone(agent.status)];
+        }),
       ),
     });
   }
