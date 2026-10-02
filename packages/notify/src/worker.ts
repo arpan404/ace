@@ -16,13 +16,19 @@ export class NotificationWorker {
   private sequence = 0;
   private pending = new Map<
     number,
-    { resolve(value: number | undefined): void; reject(error: Error): void; bytes: number }
+    {
+      resolve(value: number | undefined): void;
+      reject(error: Error): void;
+      bytes: number;
+      disconnect: boolean;
+    }
   >();
   private flights = new Map<number, AbortController>();
   private transport: NotificationTransport;
   private closing: Promise<void> | undefined;
   private failed: Error | undefined;
   private pendingBytes = 0;
+  private pendingDisconnects = 0;
   constructor(options: {
     path: string;
     windowMs?: number;
@@ -50,6 +56,7 @@ export class NotificationWorker {
         const waiter = this.pending.get(message.id);
         this.pending.delete(message.id);
         this.pendingBytes -= waiter?.bytes ?? 0;
+        if (waiter?.disconnect) this.pendingDisconnects--;
         if (message.ok) waiter?.resolve(message.value);
         else waiter?.reject(new Error("Notification operation rejected"));
       } else if (message.type === "cancel") this.flights.get(message.id)?.abort();
@@ -76,26 +83,40 @@ export class NotificationWorker {
     for (const waiter of this.pending.values()) waiter.reject(error);
     this.pending.clear();
     this.pendingBytes = 0;
+    this.pendingDisconnects = 0;
     for (const flight of this.flights.values()) flight.abort();
     this.flights.clear();
   }
   private call(call: WorkerCall): Promise<number | undefined> {
     if (this.failed) return Promise.reject(this.failed);
-    if (this.pending.size >= 64)
+    if (this.closing && call.method !== "close")
+      return Promise.reject(new Error("Notification worker closing"));
+    const disconnect = call.method === "disconnect";
+    // Cleanup has a separate bounded lane, so unrelated RPC pressure cannot lose presence.
+    if (disconnect && this.pendingDisconnects >= 256)
+      return Promise.reject(new Error("Notification cleanup backpressure"));
+    if (call.method !== "close" && !disconnect && this.pending.size >= 64)
       return Promise.reject(new Error("Notification worker backpressure"));
     const id = ++this.sequence;
     const message = ToWorker.parse({ type: "call", id, call });
     const bytes = Buffer.byteLength(JSON.stringify(message));
-    if (bytes > 128 * 1024 || this.pendingBytes + bytes > 8 * 1024 * 1024)
+    if (
+      (disconnect && bytes > 2048) ||
+      (call.method !== "close" &&
+        !disconnect &&
+        (bytes > 128 * 1024 || this.pendingBytes + bytes > 8 * 1024 * 1024))
+    )
       return Promise.reject(new Error("Notification worker byte backpressure"));
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, bytes });
+      this.pending.set(id, { resolve, reject, bytes, disconnect });
+      if (disconnect) this.pendingDisconnects++;
       this.pendingBytes += bytes;
       try {
         this.worker.postMessage(message, []);
       } catch (error) {
         this.pending.delete(id);
         this.pendingBytes -= bytes;
+        if (disconnect) this.pendingDisconnects--;
         reject(error);
       }
     });
