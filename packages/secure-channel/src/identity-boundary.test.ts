@@ -40,7 +40,7 @@ it("a FIFO identity fails without waiting for a writer", async () => {
   child.stderr.on("data", (chunk: Buffer) => {
     error += chunk.toString();
   });
-  const exited = once(child, "exit");
+  const exited = once(child, "close");
   const timeout = setTimeout(() => child.kill(), 10000);
   try {
     const [code, signal] = await exited;

@@ -23,6 +23,7 @@ it("malformed upgrade targets are rejected without killing the relay or occupyin
     stderr += chunk.toString();
   });
   const exited = once(child, "exit");
+  const timeout = setTimeout(() => child.kill(), 10000);
   let socket: ReturnType<typeof connect> | undefined;
   let host: Awaited<ReturnType<typeof register>> | undefined;
   try {
@@ -34,8 +35,16 @@ it("malformed upgrade targets are rejected without killing the relay or occupyin
     ]);
     socket = connect({ host: "127.0.0.1", port: announced.port });
     await once(socket, "connect");
-    const response = once(socket, "data");
     const closed = once(socket, "close");
+    const response = Promise.race([
+      once(socket, "data"),
+      closed.then(() => {
+        throw new Error("Relay closed without an HTTP rejection");
+      }),
+      exited.then(() => {
+        throw new Error(`Relay exited during upgrade: ${stderr}`);
+      }),
+    ]);
     socket.write(
       "GET //% HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
         "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
@@ -46,6 +55,7 @@ it("malformed upgrade targets are rejected without killing the relay or occupyin
     host = await register(`ws://127.0.0.1:${announced.port}`);
     expect(host.hostId).toMatch(/^[A-Z2-7]{52}$/);
   } finally {
+    clearTimeout(timeout);
     host?.close();
     host?.transport.destroy();
     socket?.destroy();
