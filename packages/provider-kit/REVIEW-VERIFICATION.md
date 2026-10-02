@@ -55,3 +55,22 @@ Live Cursor: initialize; stopped
    Start at  07:46:50
    Duration  11.79s (tests 100%)
 ```
+
+## Independent-verification follow-up
+
+After merging main, three findings were fixed and the optional grace-period guard was added:
+
+- Retained groups remain owned after natural leader exit and pipe closure. Explicit stop uses a group grace deadline independently of the closed leader, then releases ownership after termination. Owner exit retains its safety net. A descendant with ignored stdio is reachable after the leader's `exited` promise resolves, then unreachable after stop. A separate owner-process test verifies the same closed-pipe descendant dies on owner exit. The stop regression failed against the earlier implementation because the group still existed after its cleanup deadline.
+- Owner-exit tests wait for the actual process group to disappear before probing the socket, with a ten-second deadline and event-loop yields. macOS zombie-only EPERM is treated consistently with the supervisor's documented behavior. Socket refusal is retried across transient reset/close races. No sleeps synchronize tests.
+- OpenCode zero credentials returns `logged_out` without configured-credential evidence. The corrected public parser assertion failed before this fix and passes afterward.
+- The asynchronous TERM-grace test writes a transcript marker after a 100 ms shutdown task and asserts a clean stop plus marker contents. Applying M04, setting the escalation timer to zero, makes this test fail with SIGKILL. Restoring the timer makes it pass. The mutation was reverted.
+
+`bun run check` passes on the merged branch: 152 tests pass across 19 files, with four opt-in live tests skipped. Live tests were not rerun in this follow-up.
+
+Three batches of four independent full `bun run test` invocations ran concurrently. All twelve exited 0, with 152 passed and four skipped in each. No load-related SIGKILL occurred.
+
+| Batch | Copy 1 | Copy 2 | Copy 3 | Copy 4 |
+| ----- | ------ | ------ | ------ | ------ |
+| 1     | 6.11 s | 7.63 s | 7.30 s | 7.02 s |
+| 2     | 6.52 s | 5.52 s | 6.13 s | 7.42 s |
+| 3     | 7.46 s | 6.09 s | 7.10 s | 5.38 s |
