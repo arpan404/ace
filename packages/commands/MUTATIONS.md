@@ -1,24 +1,52 @@
 # Mutation cases
 
-All cases below are **not executed (tests run at merge)**. Each describes a
-production mutation and the public behavior test designed to kill it. The
-final implementation, filesystem notifications and benchmark measurements
-need run at merge.
+Every case is **not executed (tests run at merge)**. These are intended kills,
+not observed results. Runtime confirmation and final benchmark measurements
+**need run at merge**. The first 25 rows cover every case listed in the review.
 
-| Production mutation                                               | Behavior test                                                                              |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Remove required-argument validation                               | applies typed defaults, escaping and required validation without expanding inserted values |
-| Disable argument type validation                                  | applies typed defaults, escaping and required validation without expanding inserted values |
-| Expand escaped placeholders                                       | applies typed defaults, escaping and required validation without expanding inserted values |
-| Allow provider mismatches                                         | preserves Claude metadata and leaves native context injection to Claude                    |
-| Drop Codex `$ARGUMENTS` expansion                                 | expands Codex named and positional placeholders once and preserves escaped dollars         |
-| Reverse workspace/user precedence                                 | merges multiple homes with workspace precedence without crossing accounts                  |
-| Disable account filtering in list and resolve                     | merges multiple homes with workspace precedence without crossing accounts                  |
-| Ignore usage ranking                                              | keeps the best fuzzy matches across heap replacements and returns them in rank order       |
-| Remove runtime metadata bounds                                    | rejects oversized runtime metadata without replacing the current session catalog           |
-| Suppress metadata recovery invalidations                          | repairs missed body edits in bounded batches without scanning all sources                  |
-| Remove the 32-record recovery batch cap                           | repairs missed body edits in bounded batches without scanning all sources                  |
-| Stop tracking absent roots                                        | recovers creation of a missing root without native notifications                           |
-| Keep a cached definition for a nonregular entry                   | removes a cached snippet when its file becomes a nonregular filesystem entry               |
-| Keep a cached config when it becomes a directory                  | removes cached OpenCode commands when their config file becomes a directory                |
-| Complete a flush without draining changes queued during its batch | drains invalidations queued during a flush before the batch completes                      |
+Tests use the package public API or the daemon's authenticated/local integration
+APIs. Paths in the table are relative to `packages/commands/src/` unless prefixed
+with `apps/daemon`.
+
+| Production mutation                                                               | Behavior test                                                                                                                                                         |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Accept malformed YAML                                                             | formats.test.ts: returns diagnostics for malformed YAML, duplicate keys and mistyped defaults                                                                         |
+| Skip required argument validation                                                 | formats.test.ts: applies typed defaults, escaping and required validation without expanding inserted values                                                           |
+| Skip argument type checking                                                       | formats.test.ts: applies typed defaults, escaping and required validation without expanding inserted values                                                           |
+| Expand escaped placeholders                                                       | formats.test.ts: applies typed defaults, escaping and required validation without expanding inserted values                                                           |
+| Recursively expand inserted values                                                | formats.test.ts: applies typed defaults, escaping and required validation without expanding inserted values                                                           |
+| Allow provider mismatch                                                           | formats.test.ts: preserves Claude metadata and leaves native context injection to Claude                                                                              |
+| Expand Claude commands locally                                                    | formats.test.ts: preserves Claude metadata and leaves native context injection to Claude                                                                              |
+| Route Codex prompts natively                                                      | formats.test.ts: expands Codex named and positional placeholders once and preserves escaped dollars                                                                   |
+| Remove `$ARGUMENTS` replacement                                                   | formats.test.ts: expands Codex named and positional placeholders once and preserves escaped dollars                                                                   |
+| Drop OpenCode native metadata                                                     | formats.test.ts: keeps OpenCode JSONC agent/model/subtask and unknown metadata on native plans                                                                        |
+| Reverse project precedence                                                        | commands.test.ts: merges multiple homes with workspace precedence without crossing accounts                                                                           |
+| Remove account filtering                                                          | commands.test.ts: merges multiple homes with workspace precedence without crossing accounts                                                                           |
+| Remove session filtering                                                          | commands.test.ts: uses runtime replacements per session and passes ACP commands only to their provider                                                                |
+| Ignore usage ranking                                                              | commands.test.ts: keeps the best fuzzy matches across heap replacements and returns them in rank order                                                                |
+| Remove runtime metadata cap                                                       | commands.test.ts: rejects oversized runtime metadata without replacing the current session catalog                                                                    |
+| Remove expansion size cap                                                         | formats.test.ts: rejects undeclared template variables, positional library arguments and oversized expansion                                                          |
+| Follow preexisting configuration symlinks                                         | files.test.ts: does not discover project prompts through a symlinked configuration directory                                                                          |
+| Ignore oversized file rejection                                                   | files.test.ts: rejects symlink files, oversized bodies and ignores nested Codex prompts                                                                               |
+| Suppress recovery invalidations                                                   | recovery.test.ts: repairs missed body edits in bounded batches without scanning all sources                                                                           |
+| Remove recovery batch cap                                                         | recovery.test.ts: repairs missed body edits in bounded batches without scanning all sources                                                                           |
+| Stop tracking missing roots                                                       | recovery.test.ts: recovers creation of a missing root without native notifications                                                                                    |
+| Keep nonregular cached files                                                      | recovery.test.ts: removes a cached snippet when its file becomes a nonregular filesystem entry                                                                        |
+| Stop draining concurrent invalidations                                            | recovery.test.ts: drains invalidations queued during a flush before the batch completes                                                                               |
+| Remove read-scope enforcement                                                     | apps/daemon/src/command-library.server.test.ts: allows read-scoped remote previews and rejects devices without read scope                                             |
+| Ignore thread access policy                                                       | apps/daemon/src/command-library.server.test.ts: denies list and resolution when the thread access policy rejects the device                                           |
+| Allow a cleared pending update to repin its context                               | session-lifecycle.test.ts: clearing a queued runtime update removes commands and releases its context for eviction                                                    |
+| Overwrite the recovery disposer on repeated startup                               | lifecycle.test.ts: repeated concurrent startup disposes every watcher and recovery timer                                                                              |
+| Retain a watcher acquired after closure                                           | lifecycle.test.ts: closing during watcher acquisition cannot leave a lease or recovery timer alive                                                                    |
+| Dispose before suspended directory I/O settles                                    | lifecycle.test.ts: shutdown drains suspended directory I/O and releases its newly acquired cursor                                                                     |
+| Replace descriptor-relative leaf opening with pathname opening                    | containment.test.ts: never imports outside bytes when a pinned parent is replaced by a symlink before leaf open                                                       |
+| Reread surviving children on a directory addition                                 | containment.test.ts: directory additions do not reread surviving snippets and recovery limits enumeration per batch                                                   |
+| Drain an entire directory during one recovery turn                                | containment.test.ts: directory additions do not reread surviving snippets and recovery limits enumeration per batch                                                   |
+| Reread unaffected files on a named invalidation                                   | files.test.ts: reads only invalidated paths and preserves cached results for all other files                                                                          |
+| Advertise non-invocable skills or ignore declared skill names                     | formats.test.ts: advertises user-invocable skills under their declared name                                                                                           |
+| Reject replacement of an existing source at capacity                              | commands.test.ts: refuses additional sources at the cap and permits replacing or reclaiming a slot                                                                    |
+| Remove recency from ranking while retaining frequency                             | commands.test.ts: ranks subsequences and boosts frequency and recency with a bounded result count                                                                     |
+| Keep cached config when it becomes a directory                                    | recovery.test.ts: removes cached OpenCode commands when their config file becomes a directory                                                                         |
+| Ignore the daemon account selector, runtime feeds, clearing or execution receipts | apps/daemon/src/command-events.test.ts: local engine events select the thread account, feed runtime commands, record completed usage and clear queued session updates |
+| Drop a scan continuation after a duplicate directory invalidation                 | lifecycle.test.ts: duplicate directory invalidations preserve a suspended scan until every new snippet is discovered                                                  |
+| Route an unnamed nested notification to the root directory only                   | lifecycle.test.ts: unnamed nested directory notifications discover new snippets in that directory                                                                     |

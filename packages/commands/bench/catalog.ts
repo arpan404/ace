@@ -43,7 +43,7 @@ for (let i = 0; i < 100; i++) await writeFile(join(root, `${i}.md`), "body");
 const files = new CommandFiles(
   new CommandCatalog(Date.now),
   [{ path: root, format: "library", scope: "user" }],
-  { schedule: () => () => {} },
+  { watch: () => () => {}, schedule: () => () => {} },
 );
 try {
   await files.start();
@@ -59,6 +59,18 @@ try {
   }
   process.stdout.write(
     `incremental filesystem refresh among 100 files: ${((performance.now() - start) * 10).toFixed(2)} us/op\n`,
+  );
+  const before = files.metrics(),
+    churnStart = performance.now();
+  for (let i = 0; i < 25; i++) {
+    await writeFile(join(root, `added-${i}.md`), "added");
+    files.invalidate(root);
+    await files.flush();
+  }
+  const elapsed = performance.now() - churnStart,
+    after = files.metrics();
+  process.stdout.write(
+    `directory churn (25 additions among 100 existing files): ${((elapsed * 1000) / 25).toFixed(2)} us/op, ${(25000 / elapsed).toFixed(0)} ops/s; ${after.fileReads - before.fileReads} file reads, ${after.readBytes - before.readBytes} body bytes, ${after.directoryEntries - before.directoryEntries} enumerated entries\n`,
   );
 } finally {
   await files.close();
