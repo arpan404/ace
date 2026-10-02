@@ -29,3 +29,19 @@ it("mixed-case authorization is removed while ordinary arrays and permitted reco
   expect(result.email).toBe("recorder@ace.invalid");
   expect(result.privateEmail).toBe("<EMAIL>");
 });
+
+it("JSON-string wrappers cannot hide structural secrets and preserve ordinary encoded content", () => {
+  const secret = "OPAQUE_WRAPPED_REFRESH";
+  let wrapped = JSON.stringify({ refreshToken: [secret], values: [1, "visible"] });
+  for (let depth = 0; depth < 3; depth++) {
+    wrapped = JSON.stringify(wrapped);
+    const clean = createRedactor({})(JSON.stringify({ payload: wrapped }));
+    expect(clean).not.toContain(secret);
+    let decoded: unknown = JSON.parse(clean).payload;
+    for (let layer = 0; layer <= depth + 1; layer++) {
+      if (typeof decoded !== "string") throw new Error("Expected encoded JSON string");
+      decoded = JSON.parse(decoded);
+    }
+    expect(decoded).toEqual({ refreshToken: "<SECRET>", values: [1, "visible"] });
+  }
+});

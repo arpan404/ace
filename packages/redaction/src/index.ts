@@ -93,7 +93,7 @@ export function createRedactor(ctx: RedactionContext): (line: string) => string 
       if (--remaining < 0 || depth > 32) return "<OMITTED>";
       if (typeof value === "string") {
         const text = value.trimStart();
-        if (text.startsWith("{") || text.startsWith("[")) {
+        if (text.startsWith("{") || text.startsWith("[") || text.startsWith('"')) {
           try {
             const embedded: unknown = JSON.parse(value);
             return JSON.stringify(clean(embedded, depth + 1));
