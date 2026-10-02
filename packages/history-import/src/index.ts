@@ -1,5 +1,5 @@
 /* oxlint-disable unicorn/require-post-message-target-origin -- Node worker_threads has no targetOrigin. */
-import { Worker } from "node:worker_threads";
+import { Worker, type WorkerOptions } from "node:worker_threads";
 import { Agent, ThreadId } from "@ace/protocol";
 import {
   ArchiveCommand,
@@ -28,8 +28,12 @@ export type { HistorySession } from "@ace/protocol/history";
 
 const Iteration = z.object({ done: z.boolean(), values: z.array(Packet).max(16) });
 /** One service owns one worker. Concurrent operations reject instead of growing a queue. */
-export async function openHistory(options: HistoryOptions): Promise<HistoryService> {
-  const worker = new Worker(new URL("./worker.ts", import.meta.url), {
+export async function openHistory(
+  options: HistoryOptions,
+  spawnWorker: (url: URL, options: WorkerOptions) => Worker = (url, workerOptions) =>
+    new Worker(url, workerOptions),
+): Promise<HistoryService> {
+  const worker = spawnWorker(new URL("./worker.ts", import.meta.url), {
     workerData: Options.parse(options),
   });
   const service = new HistoryService(worker);
@@ -48,8 +52,10 @@ export class HistoryService {
     | { id: number; resolve: (value: unknown) => void; reject: (error: Error) => void }
     | undefined;
   private closed = false;
+  private closing: Promise<void> | undefined;
+  private requestDone: Promise<unknown> | undefined;
   private importing = false;
-  private onProgress: ((files: number) => void) | undefined;
+  private onProgress: ((files: number) => void | Promise<void>) | undefined;
   readonly ready: Promise<unknown>;
   constructor(worker: Worker) {
     this.worker = worker;
@@ -57,9 +63,14 @@ export class HistoryService {
       this.pending = { id: 0, resolve, reject };
     });
     worker.on("message", (value: unknown) => {
-      const progress = z.object({ progress: z.number().int().nonnegative() }).safeParse(value).data;
+      const progress = z
+        .object({ progress: z.number().int().nonnegative(), progressId: z.number().int() })
+        .safeParse(value).data;
       if (progress) {
-        this.onProgress?.(progress.progress);
+        void Promise.resolve()
+          .then(() => this.onProgress?.(progress.progress))
+          .finally(() => this.worker.postMessage({ progressAck: progress.progressId }))
+          .catch(() => this.worker.postMessage("cancel"));
         return;
       }
       const reply = Reply.parse(value);
@@ -81,23 +92,27 @@ export class HistoryService {
   }
   private async request(request: z.infer<typeof Request>, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
-    if (this.closed) throw new Error("History service is closed");
+    if (this.closed || (this.closing && request.op !== "close"))
+      throw new Error("History service is closed");
     if (this.pending) throw new Error("History operation already in progress");
     const id = ++this.seq;
     const cancel = () => this.worker.postMessage("cancel");
     signal?.addEventListener("abort", cancel, { once: true });
     try {
-      const result = await new Promise<unknown>((resolve, reject) => {
+      const response = new Promise<unknown>((resolve, reject) => {
         this.pending = { id, resolve, reject };
         this.worker.postMessage({ id, request });
       });
+      this.requestDone = response;
+      const result = await response;
       signal?.throwIfAborted();
       return result;
     } finally {
+      this.requestDone = undefined;
       signal?.removeEventListener("abort", cancel);
     }
   }
-  async scan(signal?: AbortSignal, onProgress?: (files: number) => void) {
+  async scan(signal?: AbortSignal, onProgress?: (files: number) => void | Promise<void>) {
     if (this.importing) throw new Error("Import in progress");
     if (this.pending) throw new Error("History operation already in progress");
     this.onProgress = onProgress;
@@ -122,6 +137,7 @@ export class HistoryService {
   }
   archiveSink(): ImportSink {
     const write = async (command: z.infer<typeof ArchiveCommand>) => {
+      if (command.type === "rollback" && (this.closed || this.closing)) return;
       await this.request({ op: "archive.write", command });
     };
     return {
@@ -135,9 +151,17 @@ export class HistoryService {
       rollback: () => write({ type: "rollback" }),
     };
   }
+  async findImported(sourceId: string) {
+    this.requireIdle();
+    return ArchiveThread.parse(await this.request({ op: "archive.source", id: sourceId }));
+  }
   async importedThread(id: ThreadId) {
     this.requireIdle();
     return ArchiveThread.parse(await this.request({ op: "archive.thread", id }));
+  }
+  async deleteImported(id: ThreadId) {
+    this.requireIdle();
+    await this.request({ op: "archive.delete", id });
   }
   async importedAgents(id: ThreadId) {
     this.requireIdle();
@@ -239,10 +263,20 @@ export class HistoryService {
     return z
       .string()
       .min(1)
+      .max(1024)
       .parse(await fork({ instanceId, nativeSessionId }));
   }
   async close(): Promise<void> {
-    this.closed = true;
-    await this.worker.terminate();
+    this.closing ??= (async () => {
+      this.worker.postMessage("cancel");
+      await this.requestDone?.catch(() => undefined);
+      if (!this.closed) await this.request({ op: "close" });
+      this.closed = true;
+      await this.worker.terminate();
+    })();
+    await this.closing;
   }
 }
+
+export { openArchiveReader, type ArchiveReader } from "./archive-reader.ts";
+export { ProviderHome as ProviderHomeSchema } from "./contracts.ts";

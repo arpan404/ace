@@ -19,6 +19,8 @@
     "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {
+    "@ace/engine-api": "workspace:*",
+    "@ace/history-import": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",

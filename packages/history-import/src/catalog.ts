@@ -1,3 +1,5 @@
+import { contains } from "@ace/native-session";
+import type { ProviderHome } from "./contracts.ts";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { StatementSync } from "node:sqlite";
@@ -34,6 +36,25 @@ export class Catalog {
       this.statements.set(sql, stmt);
     }
     return stmt;
+  }
+  reconcile(instances: ProviderHome[]): void {
+    this.db.exec("CREATE TEMP TABLE registered_instances(id TEXT PRIMARY KEY)");
+    const insert = this.db.prepare("INSERT INTO registered_instances VALUES (?)");
+    const registered = new Map(instances.map((instance) => [instance.id, instance]));
+    for (const instance of instances) insert.run(instance.id);
+    this.db.exec(
+      "DELETE FROM sources WHERE instance NOT IN (SELECT id FROM registered_instances); DELETE FROM scans WHERE instance NOT IN (SELECT id FROM registered_instances)",
+    );
+    const remove = this.db.prepare("DELETE FROM sources WHERE id=?");
+    for (const row of this.db
+      .prepare(
+        "SELECT id,instance,path,json_extract(summary,'$.provider') AS provider FROM sources",
+      )
+      .iterate()) {
+      const home = registered.get(String(row.instance));
+      if (!home || row.provider !== home.provider || !contains(home.homeDir, String(row.path)))
+        remove.run(z.string().parse(row.id));
+    }
   }
   start(instance: string): number {
     this.statement(
@@ -114,10 +135,10 @@ export class Catalog {
     const { cwd, limit, before } = HistoryListRequest.parse(input);
     const rows = before
       ? this.statement(
-          "SELECT summary FROM sources WHERE cwd=? AND parent IS NULL AND (activity<? OR (activity=? AND id<?)) ORDER BY activity DESC,id DESC LIMIT ?",
+          "SELECT summary FROM sources WHERE cwd=? AND parent IS NULL AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl')) AND (activity<? OR (activity=? AND id<?)) ORDER BY activity DESC,id DESC LIMIT ?",
         ).all(cwd, before.lastActivity, before.lastActivity, before.id, limit + 1)
       : this.statement(
-          "SELECT summary FROM sources WHERE cwd=? AND parent IS NULL ORDER BY activity DESC,id DESC LIMIT ?",
+          "SELECT summary FROM sources WHERE cwd=? AND parent IS NULL AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl')) ORDER BY activity DESC,id DESC LIMIT ?",
         ).all(cwd, limit + 1);
     const sessions = rows
       .slice(0, limit)
@@ -134,13 +155,6 @@ export class Catalog {
       .all(instance, native)
       .map((r) => this.get(String(r.id)))
       .filter((s): s is Source => s !== undefined);
-  }
-  hasNative(instance: string, native: string): boolean {
-    return Boolean(
-      this.statement(
-        "SELECT id FROM sources WHERE instance=? AND native=? AND kind='jsonl' LIMIT 1",
-      ).get(instance, native),
-    );
   }
   close(): void {
     this.db.close();

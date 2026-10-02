@@ -177,6 +177,7 @@ test("fixture-derived OpenCode parts retain observed text and tool results", asy
   const { start, home, db } = await database();
   const statements = db.prepare("INSERT OR REPLACE INTO part VALUES(?,?,?)");
   const expected: string[] = [];
+  const outputs = new Set<string>();
   const fixtures = new URL("../../../fixtures", import.meta.url).pathname;
   const path = join(fixtures, "opencode/1.18.33/tool-read.jsonl");
   for await (const record of readJsonLines(fixtures, path)) {
@@ -185,6 +186,8 @@ test("fixture-derived OpenCode parts retain observed text and tool results", asy
     const part = object(object(payload.properties).part);
     if (payload.type !== "message.part.updated" || typeof part.id !== "string") continue;
     statements.run(part.id, "m2", JSON.stringify(part));
+    const output = object(part.state).output;
+    if (typeof output === "string" && output.length) outputs.add(output);
     if (part.type === "text" && typeof part.text === "string") expected.push(part.text);
   }
   db.close();
@@ -196,8 +199,16 @@ test("fixture-derived OpenCode parts retain observed text and tool results", asy
   );
   if (!s) throw new Error("missing");
   await service.importSession(init(s.id));
-  const content = text((await service.itemsPage({ threadId: init(s.id).threadId })).items);
+  const items = (await service.itemsPage({ threadId: init(s.id).threadId })).items;
+  const content = text(items);
   expect(content).toContain(expected.at(-1));
+  expect(outputs.size).toBeGreaterThan(0);
+  for (const output of outputs)
+    expect(
+      items.some(
+        (i) => i.type === "notice" && i.toolCallId && i.text.includes(output.slice(0, 4096)),
+      ),
+    ).toBe(true);
 });
 test("fixture-derived Codex response items retain assistant text", async () => {
   const env = await environment();
@@ -284,7 +295,7 @@ test("malformed SQLite records survive in a raw blob without hiding other messag
   const items = (await service.itemsPage({ threadId: init(s.id).threadId })).items;
   expect(text(items)).toContain("OpenCode answer");
   const entry = items.find((i) => i.type === "notice" && i.text.includes("incomplete JSON"));
-  const raw = entry?.type === "notice" ? object(entry.raw[0]?.data) : {};
+  const raw = entry?.type === "notice" ? object(entry.raw[0]) : {};
   expect(
     Buffer.from(
       (await service.readBlob({ id: String(raw.blobRef), offset: 0, limit: 100 })).bytes,

@@ -1,8 +1,9 @@
+import { z } from "zod";
 import { parentPort, workerData } from "node:worker_threads";
-import { mkdir, chmod, realpath, open, lstat } from "node:fs/promises";
+import { mkdir, chmod, open, lstat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { setImmediate } from "node:timers/promises";
-import { contains } from "@ace/native-session";
+import { validateIndexPath } from "./index-path.ts";
 import { Archive } from "./archive.ts";
 import { Catalog } from "./catalog.ts";
 import { Envelope, Options, type Packet, type ImportInit } from "./contracts.ts";
@@ -10,17 +11,8 @@ import { scan } from "./scan.ts";
 import { importHistory } from "./import-history.ts";
 
 const options = Options.parse(workerData);
+await validateIndexPath(options.indexPath, options.instances);
 await mkdir(dirname(options.indexPath), { recursive: true, mode: 0o700 });
-const indexParent = await realpath(dirname(options.indexPath));
-for (const instance of options.instances) {
-  let home = instance.homeDir;
-  try {
-    home = await realpath(home);
-  } catch {
-    /* missing homes list empty */
-  }
-  if (contains(home, indexParent)) throw new Error("ace index must be outside provider homes");
-}
 try {
   const info = await lstat(options.indexPath);
   if (!info.isFile() || info.isSymbolicLink()) throw new Error("ace index must be a regular file");
@@ -31,15 +23,26 @@ const file = await open(options.indexPath, "a", 0o600);
 await file.close();
 await chmod(options.indexPath, 0o600);
 const catalog = new Catalog(options.indexPath);
+catalog.reconcile(options.instances);
 const archive = new Archive(catalog.db);
 let controller = new AbortController();
 let iterator: AsyncGenerator<Packet> | undefined;
 let busy = false;
+let progressId = 0;
+const progressWaiters = new Map<number, () => void>();
 const port = parentPort;
 if (!port) throw new Error("History worker needs a parent port");
 port.on("message", async (value: unknown) => {
   if (value === "cancel") {
     controller.abort();
+    for (const resolve of progressWaiters.values()) resolve();
+    progressWaiters.clear();
+    return;
+  }
+  const ack = z.object({ progressAck: z.number().int() }).safeParse(value).data;
+  if (ack) {
+    progressWaiters.get(ack.progressAck)?.();
+    progressWaiters.delete(ack.progressAck);
     return;
   }
   const parsed = Envelope.safeParse(value);
@@ -52,17 +55,36 @@ port.on("message", async (value: unknown) => {
   busy = true;
   try {
     let result: unknown;
-    if (request.op === "archive.write") {
+    if (request.op === "close") {
+      controller.abort();
+      if (iterator) await iterator.return(undefined);
+      iterator = undefined;
+      archive.write({ type: "rollback" });
+      catalog.close();
+      result = null;
+    } else if (request.op === "archive.write") {
       archive.write(request.command);
       result = null;
-    } else if (request.op === "archive.thread") result = archive.get(request.id);
+    } else if (request.op === "archive.delete") {
+      archive.delete(request.id);
+      result = null;
+    } else if (request.op === "archive.source") result = archive.find(request.id);
+    else if (request.op === "archive.thread") result = archive.get(request.id);
     else if (request.op === "archive.agents") result = archive.agents(request.id);
     else if (request.op === "archive.page") result = archive.page(request.request);
     else if (request.op === "archive.blob") result = archive.readBlob(request.request);
     else if (request.op === "scan") {
       controller = new AbortController();
-      result = await scan(catalog, options.instances, controller.signal, (files) =>
-        port.postMessage({ progress: files }),
+      result = await scan(
+        catalog,
+        options.instances,
+        controller.signal,
+        (files) =>
+          new Promise<void>((resolve) => {
+            const nextProgressId = ++progressId;
+            progressWaiters.set(nextProgressId, resolve);
+            port.postMessage({ progress: files, progressId: nextProgressId });
+          }),
       );
     } else if (request.op === "list") result = catalog.list(request.request);
     else if (request.op === "get") result = catalog.get(request.id)?.summary ?? null;
@@ -100,6 +122,7 @@ port.on("message", async (value: unknown) => {
           transfers.push(packet.bytes.buffer);
     }
     port.postMessage({ id, value: result }, transfers);
+    if (request.op === "close") port.close();
   } catch (error) {
     if (iterator) {
       await iterator.return(undefined);

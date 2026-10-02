@@ -18,6 +18,8 @@
         "ace": "./src/cli.ts",
       },
       "dependencies": {
+        "@ace/engine-api": "workspace:*",
+        "@ace/history-import": "workspace:*",
         "@ace/mcp-server": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/notify": "workspace:*",
@@ -79,6 +81,7 @@
     "packages/history-import": {
       "name": "@ace/history-import",
       "dependencies": {
+        "@ace/projection": "workspace:*",
         "@ace/native-session": "workspace:*",
         "@ace/protocol": "workspace:*",
         "zod": "^4.6.5",

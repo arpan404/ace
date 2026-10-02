@@ -9,6 +9,7 @@ export type MappingContext = {
   idPrefix: string;
   at: number;
   raw: RawPayload;
+  resultCall?: (id: string) => ItemId | undefined;
 };
 export type Mapped = { item: Item; message: boolean };
 /** File transcripts differ from live notifications. Preserve unsupported blocks as notices. */
@@ -20,6 +21,13 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
     string(message.role) ?? (p.type === "user" || p.type === "assistant" ? p.type : undefined);
   const at = timestamp(r.timestamp) ?? timestamp(object(p.time).created) ?? ctx.at;
   let seq = 0;
+  let linkedCall: ItemId | undefined;
+  let rawTaken = false;
+  const raw = () => {
+    if (rawTaken) return [];
+    rawTaken = true;
+    return [ctx.raw];
+  };
   const base = () => ({
     id: ItemId.parse(`${ctx.idPrefix}:${seq++}`),
     agentId: ctx.agentId,
@@ -31,8 +39,9 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
       ...base(),
       type: "notice",
       level: "info",
+      ...(linkedCall ? { toolCallId: linkedCall } : {}),
       text: text.slice(0, 4096),
-      raw: [ctx.raw],
+      raw: raw(),
     }),
     message: false,
   });
@@ -52,11 +61,18 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
                 type,
                 role: role === "user" ? "user" : "assistant",
                 parts: [{ type: "text", text: chunk }],
-                raw: [ctx.raw],
+                raw: raw(),
               }
             : type === "notice"
-              ? { ...base(), type, level: "info", text: chunk, raw: [ctx.raw] }
-              : { ...base(), type, text: chunk, raw: [ctx.raw] },
+              ? {
+                  ...base(),
+                  type,
+                  level: "info",
+                  text: chunk,
+                  raw: raw(),
+                  ...(linkedCall ? { toolCallId: linkedCall } : {}),
+                }
+              : { ...base(), type, text: chunk, raw: raw() },
         ),
         message: isMessage && offset === 0,
       };
@@ -86,7 +102,7 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
           status,
           detail,
           startedAt: at,
-          raw: [ctx.raw],
+          raw: raw(),
         },
       }),
       message: false,
@@ -98,6 +114,8 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
       return;
     }
     if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
+      const nativeId = string(p.call_id);
+      linkedCall = nativeId ? ctx.resultCall?.(nativeId) : undefined;
       const output = string(p.output);
       if (output) yield* texts("notice", output, false);
       else yield notice("Native tool result");
@@ -118,7 +136,9 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
     }
   }
   if (ctx.provider === "opencode" && p.type === "tool") {
-    yield tool(p);
+    const call = tool(p);
+    yield call;
+    linkedCall = call.item.id;
     const output = string(object(p.state).output);
     if (output) yield* texts("notice", output, false);
     return;
@@ -158,6 +178,8 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
           yield* texts("reasoning", string(block.thinking) ?? "", false);
         else if (block.type === "tool_use") yield tool(block);
         else if (block.type === "tool_result") {
+          const nativeId = string(block.tool_use_id);
+          linkedCall = nativeId ? ctx.resultCall?.(nativeId) : undefined;
           const result = string(block.content);
           if (result) yield* texts("notice", result, false);
           else yield notice("Native tool result");

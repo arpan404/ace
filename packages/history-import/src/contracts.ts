@@ -24,9 +24,9 @@ export const Options = z.object({
 export type HistoryOptions = z.input<typeof Options>;
 export const ImportInit = z.object({
   sourceId: z.string().min(1),
-  threadId: ThreadId,
-  workspaceId: WorkspaceId,
-  agentId: z.string().min(1),
+  threadId: ThreadId.refine((id) => id.length <= 256),
+  workspaceId: WorkspaceId.refine((id) => id.length <= 256),
+  agentId: z.string().min(1).max(256),
   at: z.number().int().nonnegative(),
 });
 export type ImportInit = z.infer<typeof ImportInit>;
@@ -72,6 +72,8 @@ import { ArchiveCommand, PageRequest, BlobRequest } from "./archive-contracts.ts
 export const Request = z.discriminatedUnion("op", [
   z.object({ op: z.literal("archive.write"), command: ArchiveCommand }),
   z.object({ op: z.literal("archive.thread"), id: ThreadId }),
+  z.object({ op: z.literal("archive.source"), id: z.string() }),
+  z.object({ op: z.literal("archive.delete"), id: ThreadId }),
   z.object({ op: z.literal("archive.agents"), id: ThreadId }),
   z.object({ op: z.literal("archive.page"), request: PageRequest }),
   z.object({ op: z.literal("archive.blob"), request: BlobRequest }),
@@ -82,6 +84,7 @@ export const Request = z.discriminatedUnion("op", [
   z.object({ op: z.literal("import.persist"), init: ImportInit }),
   z.object({ op: z.literal("next") }),
   z.object({ op: z.literal("return") }),
+  z.object({ op: z.literal("close") }),
 ]);
 export const Envelope = z.object({ id: z.number().int(), request: Request });
 export const Reply = z.object({

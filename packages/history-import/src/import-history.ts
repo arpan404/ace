@@ -4,6 +4,9 @@ import { fingerprint, object, string } from "@ace/native-session";
 import type { Catalog, Source } from "./catalog.ts";
 import type { ImportInit, Packet, ProviderHome } from "./contracts.ts";
 import { sourceRecords } from "./source-records.ts";
+import { completeHistoryTool } from "./complete-history-tool.ts";
+import { prepareHistory } from "./history-plan.ts";
+import { nativeCallId } from "./native-tools.ts";
 import { mapHistory } from "./map-history.ts";
 import { databaseFingerprint, storageFingerprint } from "./fingerprints.ts";
 
@@ -83,51 +86,83 @@ export async function* importHistory(
         createdAt: init.at,
       }),
     };
-    let seq = 0;
-    for await (const record of sourceRecords(instance, source, signal, catalog.scratchRoot)) {
-      signal.throwIfAborted();
-      const prefix = `${init.threadId}:${s.id}:${seq++}`;
-      let raw: RawPayload;
-      const r = "value" in record ? object(record.value) : {};
-      if (record.bytes > 64 * 1024 || "opaque" in record) {
-        const id = `${prefix}:raw`;
-        yield { type: "blob.start", id, bytes: record.bytes };
-        for await (const bytes of record.chunks()) yield { type: "blob.chunk", id, bytes };
-        yield { type: "blob.end", id };
-        // ADR 0006's native blob RawPayload union is pending on a parallel branch.
-        // This bounded marker is inside data until that schema lands.
-        raw = { type: string(r.type) ?? "history.raw", data: { blobRef: id, size: record.bytes } };
-      } else
-        raw = {
-          type: string(r.type) ?? "history.raw",
-          data: "value" in record ? record.value : null,
-        };
-      if ("opaque" in record) {
-        if (parentId === null) countAccuracy = "sampled";
-        yield {
-          type: "item",
-          item: Item.parse({
-            id: ItemId.parse(prefix),
+    const plan = await prepareHistory(instance, source, catalog.scratchRoot, signal);
+    try {
+      let seq = 0;
+      let ordinal = 0;
+      for await (const record of sourceRecords(instance, source, signal, catalog.scratchRoot)) {
+        signal.throwIfAborted();
+        if (!plan.includes(++ordinal)) continue;
+        const prefix = `${init.threadId}:${s.id}:${seq++}`;
+        let raw: RawPayload;
+        const r = "value" in record ? object(record.value) : {};
+        if (record.bytes > 60 * 1024 || "opaque" in record) {
+          const id = `${prefix}:raw`;
+          yield { type: "blob.start", id, bytes: record.bytes };
+          for await (const bytes of record.chunks()) yield { type: "blob.chunk", id, bytes };
+          yield { type: "blob.end", id };
+          raw = {
+            type: (string(r.type) ?? "history.raw").slice(0, 256),
+            blobRef: id,
+            size: record.bytes,
+            preview: "",
+          };
+        } else
+          raw = {
+            type: (string(r.type) ?? "history.raw").slice(0, 256),
+            data: "value" in record ? record.value : null,
+          };
+        const p = s.provider === "codex" ? object(r.payload) : r;
+        const blocks = s.provider === "claude" ? object(r.message).content : [p];
+        const nativeCalls = (function* () {
+          if (!Array.isArray(blocks)) return;
+          for (const block of blocks) {
+            const b = object(block);
+            if (["tool_use", "function_call", "custom_tool_call"].includes(String(b.type)))
+              yield nativeCallId(b);
+          }
+        })();
+        if ("opaque" in record) {
+          if (parentId === null) countAccuracy = "sampled";
+          yield {
+            type: "item",
+            item: Item.parse({
+              id: ItemId.parse(prefix),
+              agentId,
+              createdAt: init.at,
+              complete: true,
+              type: "notice",
+              level: "warning",
+              text: "Native record retained in a blob; oversized or incomplete JSON",
+              raw: [raw],
+            }),
+          };
+        } else
+          for (const mapped of mapHistory(record.value, {
+            provider: s.provider,
             agentId,
-            createdAt: init.at,
-            complete: true,
-            type: "notice",
-            level: "warning",
-            text: "Native record retained in a blob; oversized or incomplete JSON",
-            raw: [raw],
-          }),
-        };
-      } else
-        for (const mapped of mapHistory(record.value, {
-          provider: s.provider,
-          agentId,
-          idPrefix: prefix,
-          at: init.at,
-          raw,
-        })) {
-          if (parentId === null && mapped.message) rootCount++;
-          yield { type: "item", item: mapped.item };
-        }
+            idPrefix: prefix,
+            at: init.at,
+            raw,
+            resultCall: (id) => {
+              const item = plan.callItem(id);
+              return item ? ItemId.parse(item) : undefined;
+            },
+          })) {
+            if (mapped.item.type === "tool_call") {
+              const nativeId = nativeCalls.next().value;
+              if (nativeId) {
+                plan.recordCall(nativeId, mapped.item.id);
+                const completion = plan.completion(nativeId);
+                if (completion) mapped.item = yield* completeHistoryTool(mapped.item, completion);
+              }
+            }
+            if (parentId === null && mapped.message) rootCount++;
+            yield { type: "item", item: mapped.item };
+          }
+      }
+    } finally {
+      await plan.close();
     }
   }
   yield { type: "barrier" };

@@ -21,6 +21,12 @@ export const CodexSessionMeta = z
       .passthrough(),
   })
   .passthrough();
+export const ClaudeSessionMeta = z
+  .object({
+    type: z.enum(["user", "assistant", "system"]),
+    sessionId: z.string().min(1).max(1024),
+  })
+  .passthrough();
 export function codexParents(meta: z.infer<typeof CodexSessionMeta>["payload"]): string[] {
   return [
     ...new Set(

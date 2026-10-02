@@ -86,26 +86,28 @@ export async function readHeadTail(home: string, path: string, signal?: AbortSig
         ? [Buffer.concat([head, tail])]
         : [head, tail.subarray(Math.max(0, tail.indexOf(10) + 1))];
     const records: unknown[] = [];
+    let decodeFailed = false;
     for (const bytes of windows) {
       for (const line of bytes.toString("utf8").split("\n")) {
         if (!line.trim()) continue;
         try {
           records.push(JSON.parse(line));
         } catch {
-          /* partial window or live tail */
+          decodeFailed = true;
         }
       }
     }
     if (records.length === 0 && size <= 128 * 1024) {
       try {
         records.push(JSON.parse(Buffer.concat([head, tail]).toString("utf8")));
+        decodeFailed = false;
       } catch {
         /* malformed source */
       }
     }
     return {
       records,
-      exact: size <= 128 * 1024,
+      exact: size <= 128 * 1024 && !decodeFailed,
       bytes: head.length + tail.length,
       fingerprint: fingerprint(before),
       mtime: Math.floor(before.mtimeMs),

@@ -40,6 +40,8 @@ export const Item = z.discriminatedUnion("type", [
   ItemBase.extend({
     type: z.literal("notice"),
     level: z.enum(["info", "warning", "error"]),
+    /** Native history output linked to its canonical call. */
+    toolCallId: ItemId.optional(),
     text: z.string(),
     raw: z.array(RawPayload).default([]),
   }),

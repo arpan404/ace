@@ -1,5 +1,11 @@
 import { basename } from "node:path";
-import { CodexSessionMeta, object, string, timestamp } from "@ace/native-session";
+import {
+  ClaudeSessionMeta,
+  CodexSessionMeta,
+  object,
+  string,
+  timestamp,
+} from "@ace/native-session";
 import { HistorySession } from "@ace/protocol/history";
 import type { ProviderHome } from "./contracts.ts";
 import { createHash } from "node:crypto";
@@ -39,7 +45,10 @@ export function summary(
         )
           reason = "Paginated Codex history requires provider-owned materialization";
       }
-    } else nativeId = string(r.sessionId) ?? string(r.session_id) ?? string(r.id) ?? nativeId;
+    } else if (instance.provider === "claude") {
+      const meta = ClaudeSessionMeta.safeParse(r).data;
+      if (meta) nativeId = meta.sessionId;
+    }
     if (r.type === "ai-title") title = string(r.aiTitle) ?? string(r.title) ?? title;
     if (typeof r.customTitle === "string") title = r.customTitle;
     if (r.type === "summary") title = string(r.summary) ?? title;

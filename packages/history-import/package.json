@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ace/native-session": "workspace:*",
+    "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "zod": "^4.6.5"
   }

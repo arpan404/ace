@@ -174,7 +174,9 @@ test("unknown native records survive as canonical raw notices", async () => {
     sink.items.some(
       (i) =>
         i.type === "notice" &&
-        i.raw.some((r) => JSON.stringify(r.data) === JSON.stringify(unknown)),
+        i.raw.some(
+          (r) => JSON.stringify("data" in r ? r.data : undefined) === JSON.stringify(unknown),
+        ),
     ),
   ).toBe(true);
 });
@@ -308,7 +310,7 @@ test("oversized records stream losslessly into bounded blob chunks and pages", a
   expect(maxChunk).toBeLessThanOrEqual(64 * 1024);
   const page = await service.itemsPage({ threadId: init(source.id).threadId });
   const entry = page.items.find((i) => i.type === "notice" && i.text.includes("oversized"));
-  const raw = entry && entry.type === "notice" ? object(entry.raw[0]?.data) : {};
+  const raw = entry && entry.type === "notice" ? object(entry.raw[0]) : {};
   const id = String(raw.blobRef);
   const digest = createHash("sha256");
   let offset = 0;

@@ -260,7 +260,7 @@ test("large tool inputs remain lossless blobs while their display items fit a pa
   const tool = page.items.find((i) => i.type === "tool_call");
   if (!tool || tool.type !== "tool_call") throw new Error("missing tool");
   expect(tool.call.detail).toMatchObject({ kind: "shell", command: "x".repeat(4096) });
-  const raw = tool.call.raw[0]?.data;
+  const raw = tool.call.raw[0];
   const id = String((await import("@ace/native-session")).object(raw).blobRef);
   expect((await service.readBlob({ id, offset: 0, limit: 256 * 1024 })).size).toBeGreaterThan(
     900000,

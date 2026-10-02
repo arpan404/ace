@@ -21,7 +21,7 @@ export async function scan(
   catalog: Catalog,
   instances: ProviderHome[],
   signal: AbortSignal,
-  progress: (files: number) => void = () => undefined,
+  progress: (files: number) => void | Promise<void> = () => undefined,
 ) {
   const result = {
     files: 0,
@@ -65,7 +65,7 @@ export async function scan(
         }
         result.files++;
         if (result.files % 64 === 0) {
-          progress(result.files);
+          await progress(result.files);
           await setImmediate();
           signal.throwIfAborted();
         }
@@ -145,12 +145,10 @@ export async function scan(
             if (++rows > 100000)
               throw new Error("Provider database session inventory limit exceeded");
             if (rows % 64 === 0) {
-              progress(result.files);
+              await progress(result.files);
               await setImmediate();
             }
             signal.throwIfAborted();
-            if (instance.provider === "codex" && catalog.hasNative(instance.id, s.nativeId))
-              continue;
             catalog.put(
               { summary: s, path, fingerprint: fp, kind: "database", instanceId: instance.id },
               epoch,
