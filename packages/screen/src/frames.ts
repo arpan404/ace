@@ -1,7 +1,7 @@
-import { ScreenFrameHeader } from "@ace/protocol";
-export type Frame = { header: ScreenFrameHeader; payload: Buffer; packet: Buffer };
-export function framePacket(header: ScreenFrameHeader, payload: Buffer): Buffer {
-  const json = Buffer.from(JSON.stringify(ScreenFrameHeader.parse(header)));
+import { ScreenTransportFrameHeader } from "@ace/protocol";
+export type Frame = { header: ScreenTransportFrameHeader; payload: Buffer; packet: Buffer };
+export function framePacket(header: ScreenTransportFrameHeader, payload: Buffer): Buffer {
+  const json = Buffer.from(JSON.stringify(ScreenTransportFrameHeader.parse(header)));
   if (payload.length !== header.bytes || json.length > 4096) throw new Error("Invalid frame size");
   const packet = Buffer.allocUnsafe(4 + json.length + payload.length);
   packet.writeUInt32BE(json.length);
@@ -14,7 +14,7 @@ export class FrameDecoder {
   private buffer: Buffer = Buffer.alloc(4);
   private offset = 0;
   private phase: "length" | "header" | "payload" = "length";
-  private header: ScreenFrameHeader | undefined;
+  private header: ScreenTransportFrameHeader | undefined;
   private packet: Buffer | undefined;
   private readonly emit: (frame: Frame) => void;
   constructor(emit: (frame: Frame) => void) {
@@ -35,7 +35,7 @@ export class FrameDecoder {
         this.buffer = Buffer.allocUnsafe(length);
         this.phase = "header";
       } else if (this.phase === "header") {
-        this.header = ScreenFrameHeader.parse(JSON.parse(this.buffer.toString("utf8")));
+        this.header = ScreenTransportFrameHeader.parse(JSON.parse(this.buffer.toString("utf8")));
         const prefix = this.buffer;
         this.packet = Buffer.allocUnsafe(4 + prefix.length + this.header.bytes);
         this.packet.writeUInt32BE(prefix.length);

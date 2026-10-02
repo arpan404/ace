@@ -7,11 +7,19 @@ import {
   type SpawnOptions,
   type SupervisedProcess,
 } from "@ace/provider-kit/process";
-import { ScreenHelperReply, ScreenHelperRequest } from "@ace/protocol";
+import {
+  ScreenHelperReply,
+  ScreenHelperRequest,
+  ScreenHelperReplyV2,
+  ScreenHelperRequestV2,
+  ScreenCapabilities,
+} from "@ace/protocol";
 import { FrameDecoder, type Frame } from "./frames.ts";
 
 export type HelperOptions = {
   command: string;
+  protocolVersion?: 1 | 2;
+  expectedPlatform?: ScreenCapabilities["platform"];
   args?: readonly string[];
   env?: NodeJS.ProcessEnv;
   spawn?: (options: SpawnOptions) => SupervisedProcess;
@@ -35,6 +43,7 @@ export class Helper {
   private readonly proc: SupervisedProcess;
   private readonly cleanup: () => Promise<void>;
   private readonly options: HelperOptions;
+  capabilities: ScreenCapabilities | undefined;
   private closing: Promise<void> | undefined;
   private constructor(
     proc: SupervisedProcess,
@@ -47,7 +56,11 @@ export class Helper {
     proc.stdout.on("line", (line: string) => {
       try {
         if (Buffer.byteLength(line) > 64 * 1024) throw new Error("Helper reply exceeds limit");
-        const reply = ScreenHelperReply.parse(JSON.parse(line));
+        const value: unknown = JSON.parse(line);
+        const reply =
+          this.options.protocolVersion === 2
+            ? ScreenHelperReplyV2.parse(value)
+            : ScreenHelperReply.parse(value);
         this.recent.push(reply);
         if (this.recent.length > 16) this.recent.shift();
         const pending = this.pending.get(reply.id);
@@ -55,7 +68,14 @@ export class Helper {
         this.pending.delete(reply.id);
         clearTimeout(pending.timer);
         if (reply.ok) pending.resolve(reply.data);
-        else pending.reject(new Error(reply.error ?? "Helper rejected command"));
+        else
+          pending.reject(
+            new Error(
+              typeof reply.error === "string"
+                ? reply.error
+                : (reply.error?.message ?? "Helper rejected command"),
+            ),
+          );
       } catch (error) {
         this.fail(error instanceof Error ? error : new Error("Invalid helper reply"));
       }
@@ -91,9 +111,13 @@ export class Helper {
         server.once("error", reject);
         server.listen(path, resolve);
       });
+      await chmod(path, 0o600);
       const proc = (options.spawn ?? spawnSupervised)({
         command: options.command,
-        args: [...(options.args ?? []), "--socket", path],
+        args: [
+          ...(options.args ?? []),
+          ...(options.protocolVersion === 2 ? ["--endpoint", `unix:${path}`] : ["--socket", path]),
+        ],
         env: options.env ?? {},
         name: "screen-helper",
       });
@@ -106,6 +130,19 @@ export class Helper {
         },
         options,
       );
+      if (options.protocolVersion === 2) {
+        try {
+          const capabilities = ScreenCapabilities.parse(await helper.request({ op: "hello" }));
+          if (options.expectedPlatform && capabilities.platform !== options.expectedPlatform)
+            throw new Error("Helper display backend differs from selected backend");
+          if (!capabilities.codecs.includes("jpeg"))
+            throw new Error("Helper has no supported JPEG codec");
+          helper.capabilities = capabilities;
+        } catch (error) {
+          await helper.close();
+          throw error;
+        }
+      }
       return helper;
     } catch (error) {
       server.close();
@@ -113,22 +150,29 @@ export class Helper {
       throw error;
     }
   }
-  request(command: WithoutEnvelope<ScreenHelperRequest>): Promise<unknown> {
+  request(command: WithoutEnvelope<ScreenHelperRequest | ScreenHelperRequestV2>): Promise<unknown> {
     if (this.closed) return Promise.reject(new Error("Helper is closed"));
     if (this.pending.size >= 32) return Promise.reject(new Error("Helper request limit"));
-    const request = ScreenHelperRequest.parse({
+    const schema = this.options.protocolVersion === 2 ? ScreenHelperRequestV2 : ScreenHelperRequest;
+    const request = schema.parse({
       ...command,
-      version: 1,
+      version: this.options.protocolVersion ?? 1,
       id: this.options.nextId(),
     });
+    const line = `${JSON.stringify(request)}\n`;
+    if (Buffer.byteLength(line) > 64 * 1024)
+      return Promise.reject(new Error("Helper command exceeds limit"));
     if (this.pending.has(request.id)) return Promise.reject(new Error("Duplicate request id"));
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
         () => this.fail(new Error("Helper command timed out")),
-        this.options.timeoutMs ?? 10_000,
+        this.options.timeoutMs ??
+          (request.op === "start" && this.capabilities?.platform === "linux-wayland"
+            ? 130_000
+            : 10_000),
       );
       this.pending.set(request.id, { resolve, reject, timer });
-      this.proc.stdin.write(`${JSON.stringify(request)}\n`, (error) => {
+      this.proc.stdin.write(line, (error) => {
         if (error) this.fail(error);
       });
     });

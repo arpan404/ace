@@ -11,3 +11,4 @@ export * from "./tools.ts";
 export * from "./wire.ts";
 
 export * from "./screen.ts";
+export * from "./screen-v2.ts";

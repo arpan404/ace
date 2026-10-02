@@ -7,3 +7,4 @@ export { screenConnection, type ScreenPeer } from "./bridge.ts";
 export { computerUseTools, computerUseHandler } from "./tools.ts";
 
 export { localScreenManager } from "./host.ts";
+export { linuxBackend, installedLinuxHelper, type LinuxBackend } from "./linux.ts";

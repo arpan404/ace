@@ -1,9 +1,20 @@
+import { runControl } from "./control.ts";
+import { z } from "zod";
 import {
   ScreenAction,
   ScreenBundle,
   ScreenInventory,
   ScreenPermissions,
   ScreenTarget,
+  ScreenCapabilities,
+  ScreenUITreeInput,
+  ScreenUIFindInput,
+  ScreenUIActInput,
+  ScreenUITreeResult,
+  ScreenUIFindResult,
+  ScreenUIActResult,
+  ScreenNamedKey,
+  type ScreenHelperRequestV2,
   type ScreenState,
 } from "@ace/protocol";
 import { FrameHub, type Frame, type FrameSink } from "./frames.ts";
@@ -27,6 +38,9 @@ type Session = {
   recordingStarting: boolean;
 };
 export class ScreenManager {
+  private shared: Promise<Helper> | undefined;
+  private sharedFrame: ((frame: Frame) => void) | undefined;
+  private sharedFailure: ((error: Error) => void) | undefined;
   private enabled = false;
   private readonly allowed = new Set<string>();
   private readonly sessions = new Map<string, Session>();
@@ -68,17 +82,45 @@ export class ScreenManager {
     if (!bundleIds.every((bundle) => this.allowed.has(bundle)))
       throw new Error("Application approval required");
   }
+  private hostHelper(): Promise<Helper> {
+    this.shared ??= Helper.open({
+      ...this.options,
+      onFrame: (frame) => this.sharedFrame?.(frame),
+      onFailure: (error) => {
+        this.shared = undefined;
+        this.sharedFailure?.(error);
+      },
+    }).catch((error: unknown) => {
+      this.shared = undefined;
+      throw error;
+    });
+    return this.shared;
+  }
+  private async openCapture(options: HelperOptions): Promise<Helper> {
+    if (this.options.protocolVersion !== 2) return Helper.open(options);
+    const helper = await this.hostHelper();
+    this.sharedFrame = options.onFrame;
+    this.sharedFailure = options.onFailure;
+    return helper;
+  }
   private async inspect(op: "permissions" | "targets"): Promise<unknown> {
     if (this.reservations >= 4) throw new Error("Helper inspection limit");
     this.reservations++;
     let helper: Helper | undefined;
     try {
-      helper = await Helper.open({ ...this.options, onFrame: () => {}, onFailure: () => {} });
+      helper =
+        this.options.protocolVersion === 2
+          ? await this.hostHelper()
+          : await Helper.open({ ...this.options, onFrame: () => {}, onFailure: () => {} });
       return await helper.request({ op });
     } finally {
       this.reservations--;
-      await helper?.close();
+      if (this.options.protocolVersion !== 2) await helper?.close();
     }
+  }
+  async capabilities(): Promise<ScreenCapabilities | undefined> {
+    if (this.options.protocolVersion !== 2) return undefined;
+    return (await this.hostHelper()).capabilities;
   }
   async permissions(): Promise<ScreenPermissions> {
     return ScreenPermissions.parse(await this.inspect("permissions"));
@@ -91,7 +133,8 @@ export class ScreenManager {
     const target = ScreenTarget.parse(input);
     this.authorize(target);
     if (!Number.isInteger(fps) || fps < 1 || fps > 30) throw new Error("Invalid frame rate");
-    if (this.sessions.size + this.reservations >= 4) throw new Error("Session limit");
+    if (this.sessions.size + this.reservations >= (this.options.protocolVersion === 2 ? 1 : 4))
+      throw new Error("Session limit");
     this.reservations++;
     const epoch = this.policyEpoch;
     let helper: Helper | undefined;
@@ -99,7 +142,7 @@ export class ScreenManager {
     try {
       const id = this.options.nextId();
       if (this.sessions.has(id)) throw new Error("Duplicate session id");
-      helper = await Helper.open({
+      helper = await this.openCapture({
         ...this.options,
         onFrame: (frame) => {
           if (
@@ -107,6 +150,7 @@ export class ScreenManager {
             (session.state.lifecycle !== "live" && session.state.lifecycle !== "starting")
           )
             return;
+          if (this.options.protocolVersion === 2 && frame.header.sessionId !== id) return;
           if (
             frame.header.sessionId !== id ||
             frame.header.sequence <= (session.latest?.header.sequence ?? -1)
@@ -125,6 +169,15 @@ export class ScreenManager {
           if (session) this.fail(session, error);
         },
       });
+      const capabilities = helper.capabilities;
+      if (capabilities) {
+        if (capabilities.permissions.screen === "denied")
+          throw new Error("Screen permission denied");
+        if (
+          target.kind === "display" ? !capabilities.capture.displays : !capabilities.capture.windows
+        )
+          throw new Error("Helper does not support this capture target");
+      }
       session = {
         helper,
         hub: new FrameHub(),
@@ -152,13 +205,17 @@ export class ScreenManager {
         throw new Error("Screen Recording permission denied");
       this.authorize(target);
       if (epoch !== this.policyEpoch) throw new Error("Screen policy changed during start");
-      await helper.request({
+      const started: unknown = await helper.request({
         op: "start",
         sessionId: id,
         target,
         fps,
         allowlist: [...this.allowed],
       });
+      if (capabilities) {
+        const result = z.object({ capabilities: ScreenCapabilities }).parse(started);
+        helper.capabilities = result.capabilities;
+      }
       this.authorize(target);
       if (epoch !== this.policyEpoch || session.state.lifecycle !== "starting")
         throw new Error("Screen start cancelled");
@@ -171,6 +228,7 @@ export class ScreenManager {
         this.sessions.delete(session.state.sessionId);
       }
       await helper?.close();
+      if (this.options.protocolVersion === 2) this.shared = undefined;
       throw error;
     } finally {
       this.reservations--;
@@ -214,40 +272,94 @@ export class ScreenManager {
     owner = "local",
   ): Promise<void> {
     const action = ScreenAction.parse(input);
+    return this.control(id, actor, owner, async (helper) => {
+      const caps = helper.capabilities;
+      if (!caps) {
+        await helper.request({ op: "action", action });
+        return;
+      }
+      const header = this.live(id).latest?.header;
+      const scale = header?.version === 2 ? header.scale : 1;
+      switch (action.kind) {
+        case "click":
+          if (!caps.input.pointer) throw new Error("Helper has no pointer support");
+          await helper.request({
+            op: "pointer.click",
+            x: action.x / scale,
+            y: action.y / scale,
+            button: action.button,
+          });
+          break;
+        case "type":
+          if (!caps.input.text) throw new Error("Helper has no text support");
+          await helper.request({ op: "text.type", text: action.text });
+          break;
+        case "scroll":
+          if (!caps.input.scroll) throw new Error("Helper has no scroll support");
+          await helper.request({ op: "pointer.move", x: action.x / scale, y: action.y / scale });
+          await helper.request({ op: "scroll", dx: action.deltaX, dy: action.deltaY });
+          break;
+        case "key":
+          throw new Error("Use a named key on protocol v2 helpers");
+      }
+    });
+  }
+  private async control(
+    id: string,
+    actor: "human" | "agent",
+    owner: string,
+    run: (helper: Helper) => Promise<void>,
+  ): Promise<void> {
+    const session = this.live(id);
+    return runControl(
+      session,
+      actor,
+      owner,
+      {
+        authorize: () => this.authorize(session.state.target),
+        emit: () => this.emit(session),
+        fail: (error) => this.fail(session, error),
+      },
+      run,
+    );
+  }
+
+  async ui(
+    id: string,
+    input: Omit<
+      Extract<ScreenHelperRequestV2, { op: "ui.tree" | "ui.find" | "ui.act" }>,
+      "id" | "version"
+    >,
+    actor: "human" | "agent" = "agent",
+    owner = "local",
+  ): Promise<unknown> {
     const session = this.live(id);
     this.authorize(session.state.target);
-    if (session.state.target.kind === "display") throw new Error("Display capture is view-only");
-    if (session.state.controller !== actor || session.owner !== owner)
-      throw new Error("Controller ownership required");
-    if (session.queuedActions >= 16) throw new Error("Input queue limit");
-    session.queuedActions++;
-    const epoch = session.epoch;
-    const execute = session.actionTail
-      .then(async () => {
-        if (session.epoch !== epoch) throw new Error("Controller changed");
-        const permissions = ScreenPermissions.parse(
-          await session.helper.request({ op: "permissions" }),
-        );
-        session.state.permissions = permissions;
-        this.emit(session);
-        if (!permissions.screenRecording)
-          this.fail(session, new Error("Screen Recording permission revoked"));
-        if (!permissions.accessibility || !permissions.screenRecording)
-          throw new Error("macOS permission denied");
-        this.authorize(session.state.target);
-        if (
-          session.epoch !== epoch ||
-          session.state.controller !== actor ||
-          session.state.lifecycle !== "live"
-        )
-          throw new Error("Controller changed");
-        await session.helper.request({ op: "action", action });
-      })
-      .finally(() => {
-        session.queuedActions--;
-      });
-    session.actionTail = execute.catch(() => {});
-    return execute;
+    const caps = session.helper.capabilities;
+    if (!caps?.uiTree) throw new Error("Helper has no UI tree support");
+    if (input.op === "ui.tree")
+      return ScreenUITreeResult.parse(
+        await session.helper.request({ op: "ui.tree", ...ScreenUITreeInput.parse(input) }),
+      );
+    if (input.op === "ui.find")
+      return ScreenUIFindResult.parse(
+        await session.helper.request({ op: "ui.find", ...ScreenUIFindInput.parse(input) }),
+      );
+    const action = ScreenUIActInput.parse(input);
+    if (!caps.semanticActions.includes(action.action))
+      throw new Error("Helper does not support this semantic action");
+    let result: unknown;
+    await this.control(id, actor, owner, async (helper) => {
+      result = ScreenUIActResult.parse(await helper.request({ op: "ui.act", ...action }));
+    });
+    return result;
+  }
+  async namedKey(id: string, input: z.infer<typeof ScreenNamedKey>, owner: string): Promise<void> {
+    const key = ScreenNamedKey.parse(input);
+    await this.control(id, "agent", owner, async (helper) => {
+      if (!helper.capabilities?.input.keyboard) throw new Error("Helper has no named-key support");
+      await helper.request({ op: "key.press", ...key });
+    });
   }
   releaseController(owner: string): void {
     for (const session of this.sessions.values())
@@ -282,6 +394,7 @@ export class ScreenManager {
   }
   async stop(id: string): Promise<void> {
     const session = this.get(id);
+    const wasFailed = session.state.lifecycle === "failed";
     session.epoch++;
     session.latest = undefined;
     session.hub.clear();
@@ -295,12 +408,18 @@ export class ScreenManager {
     try {
       if (session.recording) await this.stopRecording(id);
     } finally {
-      await session.helper.close();
+      if (this.options.protocolVersion === 2) {
+        this.sharedFrame = undefined;
+        this.sharedFailure = undefined;
+        if (!wasFailed) await session.helper.request({ op: "stop" });
+      } else await session.helper.close();
       this.sessions.delete(id);
     }
   }
   async close(): Promise<void> {
     await this.enable(false);
+    await (await this.shared)?.close();
+    this.shared = undefined;
     this.listeners.clear();
   }
   private get(id: string): Session {
