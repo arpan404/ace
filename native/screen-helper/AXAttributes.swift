@@ -6,8 +6,8 @@ struct UIBounds: Codable { let x: Double; let y: Double; let w: Double; let h: D
 }
 struct UINode: Codable {
     let ref: String; let role: String; let name: String
-    let value: String?; let description: String?; let bounds: UIBounds
-    let states: [String]; let actions: [String]; var children: [UINode]
+    var value: String?; let description: String?; let bounds: UIBounds
+    let states: [String]; var actions: [String]; var children: [UINode]
 }
 struct UITree: Codable { let nodes: [UINode]; let truncated: Bool }
 func axAttribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -41,20 +41,42 @@ func axActionNames(_ element: AXUIElement) -> [String] {
     guard AXUIElementCopyActionNames(element, &names) == .success else { return [] }
     return (names as? [String] ?? []).prefix(32).map { $0 }
 }
-func axNode(_ element: AXUIElement, ref: String) -> UINode {
-    let names = [kAXRoleAttribute, kAXTitleAttribute, kAXValueAttribute, kAXDescriptionAttribute, kAXPositionAttribute, kAXSizeAttribute, kAXFocusedAttribute, kAXSelectedAttribute, kAXEnabledAttribute, "AXExpanded", "AXVisible"]
+struct AXSnapshot { var node: UINode; let secure: Bool; var truncated: Bool }
+func axMetadata(_ element: AXUIElement, ref: String) -> AXSnapshot {
+    // Never request the unbounded AXValue of an editor/document in the batch.
+    let names = [kAXRoleAttribute, kAXTitleAttribute, kAXSubroleAttribute, kAXDescriptionAttribute, kAXPositionAttribute, kAXSizeAttribute, kAXFocusedAttribute, kAXSelectedAttribute, kAXEnabledAttribute, "AXExpanded", "AXVisible"]
     var copied: CFArray?
     _ = AXUIElementCopyMultipleAttributeValues(element, names as CFArray, [], &copied)
     let values = copied as? [CFTypeRef] ?? []
     func value(_ index: Int) -> CFTypeRef? { index < values.count ? values[index] : nil }
     let role = axText(value(0), cap: 128) ?? "AXUnknown"
-    let secure = role == "AXSecureTextField" || (axAttribute(element, kAXSubroleAttribute) as? String) == "AXSecureTextField"
+    let secure = role == "AXSecureTextField" || axText(value(2), cap: 128) == "AXSecureTextField"
     let bounds = axBounds(value(4), value(5))
     var states: [String] = []
     for (index, name) in [(6, "focused"), (7, "selected"), (9, "expanded")] { if (value(index) as? Bool) == true { states.append(name) } }
     if (value(8) as? Bool) == false { states.append("disabled") }
     if (value(10) as? Bool) == false || bounds.w == 0 || bounds.h == 0 { states.append("offscreen") }
-    if ["AXCheckBox", "AXRadioButton"].contains(role), (value(2) as? NSNumber)?.intValue == 1 { states.append("checked") }
+    let numeric = ["AXCheckBox", "AXRadioButton", "AXSlider", "AXProgressIndicator"].contains(role) ? axAttribute(element, kAXValueAttribute) as? NSNumber : nil
+    if ["AXCheckBox", "AXRadioButton"].contains(role), numeric?.intValue == 1 { states.append("checked") }
+    let rawTitle = axText(value(1), cap: 128)
+    let title = rawTitle?.isEmpty == false ? rawTitle ?? "" : axText(value(3), cap: 128) ?? ""
+    let clipped = ((value(1) as? String)?.prefix(129).count ?? 0) > 128 || ((value(3) as? String)?.prefix(129).count ?? 0) > 128
+    return AXSnapshot(node: UINode(ref: ref, role: role, name: title, value: secure ? nil : numeric?.stringValue, description: axText(value(3), cap: 128), bounds: bounds, states: states, actions: [], children: []), secure: secure, truncated: clipped)
+}
+func axSnapshot(_ element: AXUIElement, ref: String) -> AXSnapshot {
+    var snapshot = axMetadata(element, ref: ref)
+    guard !snapshot.secure, ["AXTextField", "AXTextArea", "AXComboBox", "AXStaticText"].contains(snapshot.node.role),
+          let count = axAttribute(element, kAXNumberOfCharactersAttribute) as? NSNumber, count.intValue >= 0 else { return snapshot }
+    var range = CFRange(location: 0, length: min(256, count.intValue))
+    guard let parameter = AXValueCreate(.cfRange, &range) else { return snapshot }
+    var text: CFTypeRef?
+    if AXUIElementCopyParameterizedAttributeValue(element, kAXStringForRangeParameterizedAttribute as CFString, parameter, &text) == .success {
+        snapshot.node.value = axText(text, cap: 256)
+    }
+    snapshot.truncated = snapshot.truncated || count.intValue > 256
+    return snapshot
+}
+func axActions(_ element: AXUIElement, secure: Bool) -> [String] {
     let native = axActionNames(element)
     var actions: [String] = []
     if native.contains(kAXPressAction) { actions.append("press") }
@@ -63,5 +85,5 @@ func axNode(_ element: AXUIElement, ref: String) -> UINode {
         if AXUIElementIsAttributeSettable(element, attribute as CFString, &writable) == .success, writable.boolValue, !(secure && action == "setValue") { actions.append(action) }
     }
     if native.contains("AXScrollDownByPage") || native.contains("AXScrollUpByPage") { actions.append("scroll") }
-    return UINode(ref: ref, role: role, name: axText(value(1), cap: 128) ?? axText(value(3), cap: 128) ?? "", value: secure ? nil : axText(value(2), cap: 256), description: axText(value(3), cap: 128), bounds: bounds, states: states, actions: actions, children: [])
+    return actions
 }

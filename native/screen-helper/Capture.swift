@@ -24,13 +24,18 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate {
         guard type == .screen, sample.isValid, let image = sample.imageBuffer else { return }
         guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let status = attachments.first?[.status] as? Int, status == SCFrameStatus.complete.rawValue else { return }
-        let damage = attachments.first?[.dirtyRects] as? [CGRect]
+        let info = attachments.first ?? [:]
+        let damage = (info[.dirtyRects] as? [CGRect]) ?? (info[.dirtyRects] as? [NSValue])?.map { $0.rectValue }
+        let density = (info[.scaleFactor] as? NSNumber)?.doubleValue
+        let contentScale = (info[.contentScale] as? NSNumber)?.doubleValue
+        let measured = density.flatMap { density in contentScale.map { density * $0 } }
+        let currentScale = measured.flatMap { $0.isFinite && $0 > 0 && $0 <= 8 ? $0 : nil } ?? scale
         let seq = nextSequence
         lock.lock(); let first = initial; lock.unlock()
         var nextChanges = changes
         guard nextChanges.changed(initial: first, dirtyRects: damage, fingerprint: { pixelFingerprint(image) }) else { return }
         let started = DispatchTime.now().uptimeNanoseconds
-        guard let packet = encoder.packet(image: image, sessionId: sessionId, sequence: seq, timestamp: Date().timeIntervalSince1970 * 1000, version: version, scale: scale, dirtyRects: damage) else { return }
+        guard let packet = encoder.packet(image: image, sessionId: sessionId, sequence: seq, timestamp: Date().timeIntervalSince1970 * 1000, version: version, scale: currentScale, dirtyRects: damage) else { return }
         changes = nextChanges
         lock.lock(); sequence += 1; initial = false; encodeNanos += DispatchTime.now().uptimeNanoseconds - started; lock.unlock()
         writer.publish(packet)

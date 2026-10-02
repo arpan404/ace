@@ -8,7 +8,11 @@ struct Target: Codable, Equatable {
     let displayId: UInt32?
     let windowId: UInt32?
 }
+enum InputCoordinates { case pixels, windowPoints }
 struct Action: Decodable {
+    // This trusted routing field is intentionally excluded from the JSON decoder.
+    var coordinates: InputCoordinates = .pixels
+    enum CodingKeys: String, CodingKey { case kind, x, y, button, text, keyCode, windowId, modifiers, deltaX, deltaY }
     var kind: String
     var x: Double? = nil
     var y: Double? = nil

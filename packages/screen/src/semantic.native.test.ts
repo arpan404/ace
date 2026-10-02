@@ -6,6 +6,7 @@ import { expect, it, onTestFinished } from "vitest";
 import { probeOutput, spawnSupervised } from "@ace/provider-kit/process";
 import {
   ScreenCapabilities,
+  ScreenInventory,
   ScreenUIFindResult,
   ScreenUITreeResult,
   ScreenUIActResult,
@@ -14,7 +15,7 @@ import { Helper } from "./index.ts";
 import { fakeCommand, ids } from "./testing/support.ts";
 
 it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !== "1")(
-  "native accessibility refs remain stable, caps prune real windows, and pressing a ref changes the app",
+  "native AX refs and bounded text survive capture stop and resized windows receive semantic and point input",
   async (context) => {
     const directory = new URL("../../../native/screen-helper/", import.meta.url).pathname;
     expect(
@@ -41,7 +42,7 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
     }
     const app = spawnSupervised({
       command: join(directory, "build/ScreenTest.app/Contents/MacOS/ScreenTest"),
-      args: ["ace semantic test", "-ApplePersistenceIgnoreState", "YES"],
+      args: ["ace semantic test", "--large-text", "-ApplePersistenceIgnoreState", "YES"],
       env: {},
       name: "semantic-fixture",
     });
@@ -98,6 +99,72 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
     await expect(
       helper.request({ op: "ui.act", ...scope, allowlist: [], ref, action: "press" }),
     ).rejects.toMatchObject({ code: "permission_denied" });
+    const document = ScreenUIFindResult.parse(
+      await helper.request({
+        op: "ui.find",
+        ...scope,
+        query: { name: "Large text test" },
+        limit: 1,
+      }),
+    );
+    expect(document.nodes).toHaveLength(1);
+    expect(document.nodes[0]?.value).toBe("Q".repeat(256));
+    expect(document.truncated).toBe(true);
+    const inventory = ScreenInventory.parse(await helper.request({ op: "targets" }));
+    const window = inventory.windows.find((entry) => entry.bundleId === "dev.ace.screen-test");
+    if (!window) throw new Error("Fixture window was not found");
+    const windowScope = {
+      target: {
+        kind: "window",
+        bundleId: "dev.ace.screen-test",
+        windowId: window.windowId,
+      } as const,
+      allowlist: scope.allowlist,
+    };
+    await helper.request({
+      op: "start",
+      ...windowScope,
+      sessionId: "resize",
+      fps: 10,
+      capture: false,
+    });
+    const resize = ScreenUIFindResult.parse(
+      await helper.request({
+        op: "ui.find",
+        ...windowScope,
+        query: { name: "Resize test" },
+        limit: 1,
+      }),
+    ).nodes[0];
+    if (!resize) throw new Error("Fixture resize button was not found");
+    const resized = once(app.stdout, "line");
+    await helper.request({ op: "ui.act", ...windowScope, ref: resize.ref, action: "press" });
+    expect((await resized)[0]).toBe("resized");
+    const root = ScreenUITreeResult.parse(
+      await helper.request({ op: "ui.tree", ...windowScope, maxDepth: 0, maxNodes: 1 }),
+    ).nodes[0];
+    const button = ScreenUIFindResult.parse(
+      await helper.request({
+        op: "ui.find",
+        ...windowScope,
+        query: { name: "Click test", role: "AXButton" },
+        limit: 1,
+      }),
+    ).nodes[0];
+    if (!root || !button) throw new Error("Resized fixture geometry was not found");
+    const x = button.bounds.x + button.bounds.w / 2 - root.bounds.x;
+    const y = button.bounds.y + button.bounds.h / 2 - root.bounds.y;
+    if (!window.bounds) throw new Error("Initial fixture geometry was not found");
+    expect(y).toBeGreaterThan(window.bounds.height);
+    const resizedClick = once(app.stdout, "line");
+    await helper.request({ op: "input", input: { kind: "pointer.click", x, y, button: "left" } });
+    expect((await resizedClick)[0]).toBe("clicked");
+    const resizedKey = once(app.stdout, "line");
+    await helper.request({
+      op: "input",
+      input: { kind: "key.press", key: "enter", modifiers: [] },
+    });
+    expect((await resizedKey)[0]).toBe("clicked");
     await app.stop({ graceMs: 0 });
     await expect(
       helper.request({ op: "ui.act", ...scope, ref, action: "press" }),

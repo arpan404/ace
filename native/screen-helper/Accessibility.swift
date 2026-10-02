@@ -101,7 +101,9 @@ import AppKit
             guard remaining > 0, bytes > 512, clock() - now < 250_000_000 else { truncated = true; return nil }
             let ref = try reference(element)
             guard visited.insert(ref).inserted else { return nil }
-            var node = axNode(element, ref: ref)
+            let snapshot = axSnapshot(element, ref: ref)
+            var node = snapshot.node; node.actions = axActions(element, secure: snapshot.secure)
+            truncated = truncated || snapshot.truncated
             let size = try JSONEncoder().encode(node).count
             guard size <= bytes else { truncated = true; return nil }
             bytes -= size; remaining -= 1
@@ -120,15 +122,29 @@ import AppKit
         let limit = request.limit ?? 16
         guard (1...64).contains(limit) else { throw HelperError("Search limit out of bounds", code: "bounds") }
         let started = clock()
+        if let cached, started - cached.at < 250_000_000 {
+            var stack = Array(cached.tree.nodes.reversed()), matches: [UINode] = []
+            while let node = stack.popLast() {
+                func contains(_ value: String, _ term: String?) -> Bool { term.map { value.localizedCaseInsensitiveContains($0) } ?? true }
+                if contains(node.role, query.role), contains(node.name, query.name), contains([node.name, node.value ?? "", node.description ?? ""].joined(separator: " "), query.text) {
+                    var result = node; result.children = []; matches.append(result)
+                    if matches.count == limit { return UITree(nodes: matches, truncated: true) }
+                }
+                stack.append(contentsOf: node.children.reversed())
+            }
+            if !cached.tree.truncated { return UITree(nodes: matches, truncated: false) }
+        }
         var stack: [(AXUIElement, Int)] = [(root, 0)], nodes: [UINode] = [], visited = Set<String>(), truncated = false
         var bytes = 56 * 1024
         while let (element, depth) = stack.popLast() {
             if visited.count >= 512 || clock() - started >= 250_000_000 { truncated = true; break }
             let ref = try reference(element)
             if !visited.insert(ref).inserted { continue }
-            let node = axNode(element, ref: ref)
+            let snapshot = axSnapshot(element, ref: ref)
+            var node = snapshot.node; truncated = truncated || snapshot.truncated
             func contains(_ candidate: String, _ term: String?) -> Bool { term.map { candidate.localizedCaseInsensitiveContains($0) } ?? true }
             if contains(node.role, query.role), contains(node.name, query.name), contains([node.name, node.value ?? "", node.description ?? ""].joined(separator: " "), query.text) {
+                node.actions = axActions(element, secure: snapshot.secure)
                 let size = try JSONEncoder().encode(node).count
                 guard size <= bytes else { truncated = true; break }
                 bytes -= size; nodes.append(node); if nodes.count == limit { truncated = true; break }
@@ -148,9 +164,10 @@ import AppKit
             guard let window = axAttribute(entry.element, kAXWindowAttribute), CFGetTypeID(window) == AXUIElementGetTypeID(), CFEqual(window, root) else { throw HelperError("Element left the selected window", code: "target_gone") }
         }
         guard let action = request.semanticAction, ["press", "focus", "setValue", "scroll", "expand", "select"].contains(action), (request.value?.utf16.count ?? 0) <= 4096 else { throw HelperError("Unsupported semantic action", code: "not_supported") }
-        let node = axNode(entry.element, ref: ref)
+        let snapshot = axMetadata(entry.element, ref: ref)
+        let node = snapshot.node
         if node.states.contains("disabled") { throw HelperError("Element is disabled", code: "bounds") }
-        if node.role == "AXSecureTextField" || (axAttribute(entry.element, kAXSubroleAttribute) as? String) == "AXSecureTextField" { throw HelperError("Secure fields refuse semantic input", code: "permission_denied") }
+        if snapshot.secure { throw HelperError("Secure fields refuse semantic input", code: "permission_denied") }
         if (action == "focus" && node.states.contains("focused")) || (action == "select" && node.states.contains("selected")) || (action == "expand" && node.states.contains("expanded")) { return false }
         if action == "setValue" && request.value == nil { throw HelperError("setValue requires a value", code: "bounds") }
         let result: AXError

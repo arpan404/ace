@@ -12,15 +12,19 @@ extension Capture {
         if target.kind == "window" { window = candidates.first { $0.windowID == target.windowId } }
         else { window = candidates.first }
         guard let window, window.owningApplication != nil else { throw HelperError("Target no longer available", code: "target_gone") }
+        guard candidates.count <= 128 else { throw HelperError("Input window limit reached; use semantic actions", code: "busy") }
         var location = CGPoint.zero
         var inputWindow = window
         if ["click", "scroll", "move", "down", "drag", "up"].contains(action.kind) {
-            guard let x = action.x, let y = action.y, x.isFinite, y.isFinite,
-                  x >= 0, y >= 0, x < Double(width), y < Double(height) else { throw HelperError("Input outside capture bounds", code: "bounds") }
-            let bounds = target.kind == "window" ? window.frame : frame
-            location = CGPoint(x: bounds.minX + x * bounds.width / Double(width), y: bounds.minY + y * bounds.height / Double(height))
+            let bounds = target.kind == "window" ? try currentWindowBounds(window) : frame
+            let pointCoordinates = action.coordinates == .windowPoints && target.kind == "window"
+            let x = action.x ?? (pointCoordinates && action.kind == "scroll" ? bounds.width / 2 : -1)
+            let y = action.y ?? (pointCoordinates && action.kind == "scroll" ? bounds.height / 2 : -1)
+            let limitX = pointCoordinates ? bounds.width : Double(width), limitY = pointCoordinates ? bounds.height : Double(height)
+            guard x.isFinite, y.isFinite, x >= 0, y >= 0, x < limitX, y < limitY else { throw HelperError("Input outside capture bounds", code: "bounds") }
+            location = CGPoint(x: bounds.minX + x * bounds.width / limitX, y: bounds.minY + y * bounds.height / limitY)
             if target.kind == "window" {
-                guard window.frame.contains(location) else { throw HelperError("Input outside captured window", code: "bounds") }
+                guard bounds.contains(location) else { throw HelperError("Input outside captured window", code: "bounds") }
                 guard !candidates.contains(where: { $0.windowID != window.windowID && $0.frame.contains(location) }) else { throw HelperError("Captured window overlaps another application window", code: "bounds") }
                 inputWindow = window
             } else {
@@ -38,13 +42,14 @@ extension Capture {
                 event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(inputWindow.windowID))
                 if action.kind == "click" { event.setIntegerValueField(.mouseEventClickState, value: 1) }
             }
-            guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess(), let pid = inputWindow.owningApplication?.processID else { throw HelperError("macOS permission denied or target unavailable", code: "permission_denied") }
+            guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess(), let pid = inputWindow.owningApplication?.processID, NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == bundle else { throw HelperError("macOS permission denied or target unavailable", code: "permission_denied") }
             event.postToPid(pid)
         }
         func pointer(_ type: NSEvent.EventType) throws -> CGEvent {
             // NSEvent cannot look up this foreign NSWindow. Compensate for its screen-to-window Y conversion.
-            let local = CGPoint(x: location.x - inputWindow.frame.minX, y: inputWindow.frame.maxY - location.y)
-            let point = CGPoint(x: local.x, y: local.y + CGDisplayBounds(CGMainDisplayID()).height - inputWindow.frame.height)
+            let current = try currentWindowBounds(inputWindow)
+            let local = CGPoint(x: location.x - current.minX, y: current.maxY - location.y)
+            let point = CGPoint(x: local.x, y: local.y + CGDisplayBounds(CGMainDisplayID()).height - current.height)
             guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: Int(inputWindow.windowID), context: nil, eventNumber: 0, clickCount: 1, pressure: 1)?.cgEvent else { throw HelperError("Cannot create targeted pointer event") }
             return event
         }

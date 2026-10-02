@@ -57,7 +57,7 @@ import Darwin
                         let sequence = try await capture.setCapturing(enabled); reply(request, data: ["afterSeq": sequence])
                     case "input":
                         guard request.version == 2, let input = request.input else { throw HelperError("Missing v2 input", code: "bounds") }
-                        try await capture.injectV2(input); reply(request)
+                        try await capture.injectV2(input); accessibility.invalidate(); reply(request)
                     case "ui.tree": try reply(request, encoded: accessibility.tree(request))
                     case "ui.find": try reply(request, encoded: accessibility.find(request))
                     case "ui.act":
@@ -68,7 +68,7 @@ import Darwin
                         reply(request, data: ["fallback": fallback])
                     case "action":
                         guard let action = request.action else { throw HelperError("Missing action") }
-                        try await capture.inject(action); reply(request)
+                        try await capture.inject(action); accessibility.invalidate(); reply(request)
                     default: throw HelperError("Unsupported command", code: "not_supported")
                     }
                 } catch { reply(request, error: error) }

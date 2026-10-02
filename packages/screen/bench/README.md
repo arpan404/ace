@@ -32,5 +32,9 @@ V2 mutation cases are also **not executed (tests run at merge)**:
 - Rebuild/re-sign unchanged executable bytes (`semantic.native.test.ts`, executable inode/mtime/hash).
 - Overwrite a stable installed executable or ignore its manifest hash (`install.test.ts`).
 - Retain capture after recording quota while artifact publication stalls (`recording.test.ts`).
+- Expose an unbounded editor value or fail to flag pruned text (`semantic.native.test.ts`, one-MiB document returns 256 characters).
+- Keep startup geometry for v2 pointer input or keyboard focus after window resize (`semantic.native.test.ts`, actual resized-window click and Enter effects).
+- Delay paired-device revocation cleanup or accept read-only screen commands (`screen.remote.test.ts`).
+- Apply the provider line cap only after readline accumulation (`process.test.ts`, bounded raw output and owned process termination).
 
 `native-runtime.ts` is instrumentation for merge-time measurement. It reports idle CPU, CPU at 10 fps, delivered/encoded frame counts, mean encoding latency, cold/cached Finder `ui.tree` median/p95, and peak RSS. It never builds a helper or launches a process per action. All v2 numbers **need run at merge**; historical v1 archives are not a Codex comparison.

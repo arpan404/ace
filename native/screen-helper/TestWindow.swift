@@ -33,8 +33,17 @@ final class TestScroll: NSScrollView {}
         secure.setAccessibilityLabel("Secret test")
         secure.frame = NSRect(x: 40, y: 165, width: 200, height: 32)
         window.contentView?.addSubview(secure)
+        if CommandLine.arguments.contains("--large-text") {
+            let document = NSTextView(frame: NSRect(x: 40, y: 205, width: 160, height: 12))
+            document.string = String(repeating: "Q", count: 1024 * 1024)
+            document.setAccessibilityLabel("Large text test")
+            window.contentView?.addSubview(document)
+        }
         let button = TestButton(title: "Click test", target: self, action: #selector(clicked(_:)))
         button.frame = NSRect(x: 40, y: 30, width: 160, height: 32)
+        let resize = TestButton(title: "Resize test", target: self, action: #selector(resized(_:)))
+        resize.frame = NSRect(x: 220, y: 165, width: 160, height: 32)
+        window.contentView?.addSubview(resize)
         button.keyEquivalent = "\r"
         window.contentView?.addSubview(button)
         let scroll = TestScroll(frame: NSRect(x: 220, y: 30, width: 140, height: 80))
@@ -55,6 +64,7 @@ final class TestScroll: NSScrollView {}
             print("ready"); fflush(stdout)
         }
     }
+    @objc func resized(_ sender: NSButton) { window?.setContentSize(NSSize(width: 800, height: 600)); print("resized"); fflush(stdout) }
     @objc func clicked(_ sender: NSButton) { print("clicked"); fflush(stdout) }
     func controlTextDidChange(_ notification: Notification) {
         guard let field = notification.object as? NSTextField else { return }
