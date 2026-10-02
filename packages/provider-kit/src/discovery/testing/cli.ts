@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+export { nodeBinary } from "../../testing/cli.ts";
+
 export type Output = { stdout: string; stderr: string; code: number };
 export type Capture = { version: Output; auth: Output };
 const empty = { stdout: "", stderr: "", code: 0 };
@@ -9,8 +11,6 @@ const directories: string[] = [];
 export async function directory(base = tmpdir()) {
   const path = await mkdtemp(join(base, "provider-kit-discovery-"));
   directories.push(path);
-  // Extensionless Node stand-ins must not inherit the checkout's ESM package scope.
-  await writeFile(join(path, "package.json"), JSON.stringify({ type: "commonjs" }));
   return path;
 }
 export async function cleanupDirectories() {
