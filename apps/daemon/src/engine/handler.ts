@@ -18,6 +18,17 @@ export function engineHandler(
     handle(command: Command): CommandResult {
       const p = command.payload;
       const fail = (error: string): CommandResult => ({ commandId: command.id, ok: false, error });
+      if (
+        ![
+          "thread.create",
+          "thread.send",
+          "thread.interrupt",
+          "thread.archive",
+          "interaction.resolve",
+          "background_task.stop",
+        ].includes(p.type)
+      )
+        return fail("not_implemented");
       return repo.store.atomic(() => {
         let threadId: ThreadId | undefined;
         let resolutionId: string | undefined;
@@ -59,15 +70,13 @@ export function engineHandler(
           repo.createSession(threadId, cwd, p.model);
         } else if ("threadId" in p) {
           threadId = p.threadId;
-          if (!repo.state(threadId)) return fail("thread_not_found");
           if (p.type === "thread.archive") {
-            repo.store.appendEvents(
-              threadId,
-              [{ type: "thread.updated", archivedAt: now() }],
-              now(),
-            );
+            if (!repo.store.getThread(threadId)) return fail("thread_not_found");
+            const at = now();
+            repo.store.appendEvents(threadId, [{ type: "thread.updated", archivedAt: at }], at);
             return { commandId: command.id, ok: true };
           }
+          if (!repo.state(threadId)) return fail("thread_not_found");
           if (
             p.type === "thread.interrupt" &&
             p.agentId !== undefined &&

@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "vitest";
+import { stubHandler } from "@ace/daemon";
 import { AgentId, InteractionId, DeviceId } from "@ace/protocol";
 import { setup, ready, when, barrier, memoryStorage } from "./test-support.ts";
 let cleanup: (() => Promise<void>) | undefined;
@@ -119,7 +120,8 @@ test("stored credentials for another device are rejected before connecting", asy
 
 test("the first interaction answer wins and a later daemon rejection becomes a failed intent", async () => {
   const interactionId = InteractionId.parse("approval");
-  const h = await setup();
+  // This client receipt test seeds Store events directly, so use the event-only handler.
+  const h = await setup(stubHandler());
   cleanup = h.cleanup;
   h.daemon.store.appendEvents(h.thread.id, [
     {
