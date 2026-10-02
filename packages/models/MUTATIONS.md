@@ -29,3 +29,44 @@ scope checks for the catalog queries.
 
 After integrating the MCP server from `origin/main`, the final gate passed with
 496 tests passing and four existing tests skipped.
+
+## PR 32 review follow-up
+
+The review separately mutated hidden and deprecated filtering, stderr accounting,
+and provider-default selection. All four survived the older tests. The flags now
+have independent behavior tests, stderr flooding precedes an otherwise valid
+reply, and defaults appear after a non-default model.
+
+Applied the following nine mutations individually, required an assertion failure
+from the named public behavior, and restored the production file in a finally
+block. All nine were killed. None relied on typecheck or lint failures.
+
+| Mutation                                      | Behavior that failed                                                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Ignore hidden only, review mutation 7         | automatic policies skip hidden choices even if preferred                                                                 |
+| Ignore deprecated only, review mutation 8     | automatic policies skip deprecated choices even if preferred                                                             |
+| Remove stderr accounting, review mutation 21  | stderr flood rejects otherwise valid metadata and reaps the CLI                                                          |
+| Ignore provider defaults, review mutation 23  | default role preserves the provider default effort and tier; strength without a policy order states the default fallback |
+| Overwrite the first duplicate preference rank | duplicate policy preferences preserve the first occurrence's priority                                                    |
+| Remove the explanation length cap             | maximum-length policy fields produce a schema-valid concrete resolution                                                  |
+| Forget failed deletions                       | failed durable removal is reported and retried before shutdown and restart                                               |
+| Skip discovery cleanup during close           | close reaps an owned hung app-server with synchronous storage                                                            |
+| Accept an incomplete final OpenCode object    | OpenCode rejects an incomplete final object after complete earlier models                                                |
+
+Before fixing production code, the four blocker reproductions failed through
+public APIs: removal resolved instead of rejecting, the maximum-length resolution
+failed its output schema, duplicate preferences selected b instead of a, and
+close returned before the real child was reaped. All four pass after the fixes.
+The socket suite also verifies maximum-length replies and cached list/resolve
+requests on the same connection while its refresh remains pending.
+
+The merged main includes notifications and encrypted relay support. Local checks
+use the full gate, with VITEST_MAX_WORKERS=4 and 30-second test/hook runner
+watchdogs when the shared machine is busy. Default five-second process-startup
+tests timed out even with one worker. No assertion or skip is changed, and
+production deadlines remain unchanged.
+
+Final follow-up gate: 606 tests passed, four existing skips; format, lint,
+typecheck and the 1,500-line check passed for all 255 source files. Command:
+`VITEST_MAX_WORKERS=4 bun run check --testTimeout=30000 --hookTimeout=30000`.
+No CI was run or watched.

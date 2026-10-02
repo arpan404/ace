@@ -66,14 +66,21 @@ stale entries return immediately and trigger one refresh. Failed refreshes keep
 stale data with a sanitized error and a short retry cooldown. Explicit refresh
 bypasses cooldown. Login revision changes delete old rows before discovery;
 late responses from the previous generation cannot repopulate the cache.
-Requests for the same generation share one flight. Discovery has a deadline
+Requests for the same generation share one flight. Removal hides choices in memory immediately, but durable removal is confirmed
+only when its awaitable result succeeds. It reports persistence failures. Failed deletions remain in a bounded queue until
+an explicit retry, a refresh for the same instance, or shutdown succeeds.
+Shutdown rejects if deletion still fails and keeps storage open for retry. Discovery has a deadline
 and abort signal. A hung instance never delays reads of any other instance.
+Shutdown waits for discovery resource cleanup as well as cancellation responses.
+Injected discoverers must settle after abort once their owned resources are gone.
 
 `list({ provider?, instance?, offset?, limit? })` returns a bounded page plus
 per-instance freshness, error and refresh status. `resolve(roleSpec)` selects a
 concrete model and compatible effort/tier, reports freshness and explains the
 choice. Explicit IDs never silently fall back. Strongest uses the policy's
-ordered model preferences; there is no defensible universal quality score in
+ordered model preferences, with duplicate IDs keeping their first rank.
+Resolution explanations are capped at the wire schema's 1,024 characters while
+the concrete selection fields remain complete. There is no defensible universal quality score in
 provider metadata. Without an order, use the provider's default and state this
 fallback in the reason. Deprecated and hidden models are excluded from automatic
 selection. Unsupported required effort, tier or image input produces an error.
@@ -105,7 +112,9 @@ so a 100-row wire page remains below 1 MiB. Persisted instance rows are capped
 at 4 MiB. Refuse over-limit refreshes instead of silently presenting incomplete
 results. Bound concurrent probes, pending wire
 queries and pagination. Process owners stop probes on timeout, replacement and
-shutdown. SQLite writes touch only the changed instance; prepared statements
+shutdown. Retain at most 64 unsettled discovery cleanup promises and 128
+pending deletions. OpenCode output is parsed incrementally, retaining only the
+current native object and validated normalized rows. SQLite writes touch only the changed instance; prepared statements
 are reused. Cached reads use instance/provider indexes and slice only the
 requested page. Resolution walks compatible rows once without constructing a
 full intermediate model list; it is not on stream-delta paths. Benchmark cached listing and policy resolution in
