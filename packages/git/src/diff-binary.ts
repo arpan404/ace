@@ -31,21 +31,35 @@ export async function classifyBinaries(
     }
   }
 }
-export async function textTree(
+export async function textTrees(
   repository: Repository,
   root: string,
-  ref: string,
-  excluded: string[],
-): Promise<string> {
-  return withIndex(repository.tempDirectory, async (env) => {
-    await repository.cli.call(root, ["read-tree", ref], { write: true, env });
-    await repository.cli.call(root, ["update-index", "--force-remove", "-z", "--stdin"], {
-      write: true,
-      env,
-      input: excluded.join("\0") + "\0",
+  files: DiffFile[],
+): Promise<[string, string]> {
+  const oldEntries = new Map<string, string>();
+  const newEntries = new Map<string, string>();
+  for (const file of files) {
+    if (file.entry.binary) continue;
+    if (file.oldMode !== "000000") {
+      const path = file.entry.oldPath ?? file.entry.path;
+      oldEntries.set(path, `${file.oldMode} ${file.oldSha} 0\t${path}\0`);
+    }
+    if (file.newMode !== "000000")
+      newEntries.set(file.entry.path, `${file.newMode} ${file.newSha} 0\t${file.entry.path}\0`);
+  }
+  const write = (entries: Map<string, string>) =>
+    withIndex(repository.tempDirectory, async (env) => {
+      await repository.cli.call(root, ["read-tree", "--empty"], { write: true, env });
+      await repository.cli.call(root, ["update-index", "-z", "--index-info"], {
+        write: true,
+        env,
+        input: [...entries.values()].join(""),
+      });
+      return hash(
+        textOutput(await repository.cli.call(root, ["write-tree"], { write: true, env })),
+      );
     });
-    return hash(textOutput(await repository.cli.call(root, ["write-tree"], { write: true, env })));
-  });
+  return [await write(oldEntries), await write(newEntries)];
 }
 export function binaryNotices(files: DiffFile[]): string {
   return files
