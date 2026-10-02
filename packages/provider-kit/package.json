@@ -1,0 +1,17 @@
+{
+  "name": "@ace/provider-kit",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./process": "./src/process.ts",
+    "./jsonrpc": "./src/jsonrpc.ts",
+    "./sse": "./src/sse.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

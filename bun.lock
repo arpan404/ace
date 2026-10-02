@@ -18,6 +18,9 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/provider-kit": {
+      "name": "@ace/provider-kit",
+    },
     "tools/recorder": {
       "name": "@ace/recorder",
       "dependencies": {
@@ -27,6 +30,8 @@
   },
   "packages": {
     "@ace/protocol": ["@ace/protocol@workspace:packages/protocol"],
+
+    "@ace/provider-kit": ["@ace/provider-kit@workspace:packages/provider-kit"],
 
     "@ace/recorder": ["@ace/recorder@workspace:tools/recorder"],
 
