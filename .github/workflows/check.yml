@@ -75,6 +75,12 @@ jobs:
         # Set up before tests because runner images can include Chromium already.
         run: node packages/browser/ci/sandbox.ts && bun run test
 
+      - name: Build relay image and verify encrypted traffic on Node 24
+        if: runner.os == 'Linux'
+        run: |
+          docker build -f apps/relay/Dockerfile -t ace-relay:test .
+          node apps/relay/bench/docker-smoke.ts
+
   browser:
     name: Real Chromium browser tests
     runs-on: ubuntu-latest
@@ -90,4 +96,4 @@ jobs:
       - name: Install Chromium and system libraries
         run: bun run --cwd packages/browser playwright-core install --with-deps chromium
       - name: Browser tests
-        run: node packages/browser/ci/sandbox.ts && bun run test -- packages/browser apps/daemon/src/browser.test.ts
+        run: node packages/browser/ci/sandbox.ts && bun run test -- packages/browser apps/daemon/src/browser.test.ts apps/daemon/src/browser-remote.test.ts

@@ -23,6 +23,7 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
       readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
       undefined,
       undefined,
+      undefined,
       { ffmpeg: "/nonexistent/ffmpeg" },
     );
     const clients = [new BrowserClient(daemon.url), new BrowserClient(daemon.url)];
