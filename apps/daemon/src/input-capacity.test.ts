@@ -100,5 +100,4 @@ it.each(["socket", "global"] as const)(
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   },
-  30000,
 );

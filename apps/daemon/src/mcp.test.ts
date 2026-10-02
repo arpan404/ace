@@ -329,4 +329,4 @@ it("rejects MCP intents at capacity atomically and admits work after acknowledge
   store.enqueueMcpIntent("replacement", intent, [], 3);
   expect(() => store.enqueueMcpIntent("overflow-again", intent, [], 4)).toThrow("capacity");
   expect(store.readMcpIntents(1)[0]?.id).toBe("pending-1");
-}, 30000);
+});

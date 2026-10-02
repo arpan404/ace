@@ -228,4 +228,4 @@ it("keeps the daemon alive when an excess upgrade includes an oversized frame", 
   expect(status).toBe(503);
   daemon.child.kill("SIGTERM");
   expect((await daemon.exited)[0]).toBe(0);
-}, 30000);
+});

@@ -27,7 +27,7 @@ it("gracefully shuts down more than 64 unauthenticated connections", async () =>
     await daemon.close().catch(() => {});
     rmSync(home, { recursive: true, force: true });
   }
-}, 30000);
+});
 
 it("drains registered presence once per session without flooding notification RPC", async () => {
   const active = new Set<string>();
@@ -68,7 +68,7 @@ it("drains registered presence once per session without flooding notification RP
   } finally {
     await f.close();
   }
-}, 30000);
+});
 
 it("refuses connection churn until stalled presence removals are acknowledged", async () => {
   let release: (() => void) | undefined;
