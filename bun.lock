@@ -20,6 +20,7 @@
       "dependencies": {
         "@ace/files": "workspace:*",
         "@ace/mcp-server": "workspace:*",
+        "@ace/models": "workspace:*",
         "@ace/notify": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
@@ -105,6 +106,14 @@
         "@modelcontextprotocol/sdk": "1.31.0",
       },
     },
+    "packages/models": {
+      "name": "@ace/models",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/notify": {
       "name": "@ace/notify",
       "dependencies": {
@@ -173,6 +182,8 @@
     "@ace/git": ["@ace/git@workspace:packages/git"],
 
     "@ace/mcp-server": ["@ace/mcp-server@workspace:packages/mcp-server"],
+
+    "@ace/models": ["@ace/models@workspace:packages/models"],
 
     "@ace/notify": ["@ace/notify@workspace:packages/notify"],
 

@@ -10,6 +10,7 @@ export * from "./thread.ts";
 export * from "./tools.ts";
 export * from "./wire.ts";
 export * from "./files.ts";
+export * from "./models.ts";
 export * from "./orchestration.ts";
 export * from "./orchestration-execution.ts";
 export * from "./orchestration-state.ts";

@@ -1,6 +1,8 @@
 import { FilesService } from "@ace/files";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
+import type { ModelCatalog, InstanceInput } from "@ace/models";
+import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
@@ -29,11 +31,13 @@ export async function startDaemon(
   handler: CommandHandler = stubHandler(),
   toolkits: readonly Toolkit[] = [],
   notificationChannels?: Omit<NotificationChannels, "websocket">,
+  modelInstances: readonly InstanceInput[] = [],
 ): Promise<{
   url: string;
   tokenPath: string;
   store: Store;
   files?: FilesService;
+  models: ModelCatalog;
   notifications: NotificationWorker;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   remoteUrl?: string;
@@ -45,6 +49,7 @@ export async function startDaemon(
   let store: Store | undefined;
   let files: FilesService | undefined;
   let maintenance: ReturnType<typeof setInterval> | undefined;
+  let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
   let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
@@ -66,7 +71,11 @@ export async function startDaemon(
             try {
               if (maintenance) clearInterval(maintenance);
               try {
-                await files?.close();
+                try {
+                  await files?.close();
+                } finally {
+                  await models?.close();
+                }
               } finally {
                 store?.close();
               }
@@ -109,6 +118,7 @@ export async function startDaemon(
       }, 60_000);
       maintenance.unref();
     }
+    models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
       ? { channels: notificationChannels, close: closeChannels }
@@ -129,6 +139,7 @@ export async function startDaemon(
       store,
       handler,
       ...(files ? { files } : {}),
+      models,
       notifications: notifications.service,
       log: (error) => log("error", "WebSocket failure", error),
     });
@@ -146,6 +157,7 @@ export async function startDaemon(
       tokenPath,
       store,
       ...(files ? { files } : {}),
+      models,
       notifications: notifications.service,
       mcp,
       close() {
