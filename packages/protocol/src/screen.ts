@@ -59,6 +59,7 @@ export const ScreenFrameHeader = z.object({
   height: z.number().int().positive().max(2160),
   codec: z.literal("jpeg"),
   scale: z.number().finite().positive().optional(),
+  captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   bytes: z
     .number()
     .int()
@@ -68,7 +69,7 @@ export const ScreenFrameHeader = z.object({
 export type ScreenFrameHeader = z.infer<typeof ScreenFrameHeader>;
 export const ScreenState = z.object({
   sessionId: ScreenId,
-  lifecycle: z.enum(["starting", "live", "stopped", "failed"]),
+  lifecycle: z.enum(["starting", "live", "stopping", "stopped", "failed"]),
   controller: z.enum(["agent", "human", "none"]),
   indicator: z.boolean(),
   target: ScreenTarget,
@@ -125,6 +126,7 @@ export const ScreenOperation = z.discriminatedUnion("op", [
     sessionId: ScreenId,
     controller: z.enum(["agent", "human", "none"]),
     agentId: ScreenId.optional(),
+    threadId: ScreenId.optional(),
   }),
   z.object({ op: z.literal("action"), sessionId: ScreenId, action: ScreenAction }),
   z.object({ op: z.literal("subscribe"), sessionId: ScreenId }),

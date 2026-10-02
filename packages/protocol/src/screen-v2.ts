@@ -49,6 +49,7 @@ export const ScreenFrameHeaderV2 = z.object({
   width: z.number().int().min(1).max(3840),
   height: z.number().int().min(1).max(2160),
   scale: z.number().finite().positive(),
+  captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   codec: z.literal("jpeg"),
   bytes: z
     .number()
@@ -66,12 +67,17 @@ export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   Envelope.extend({
     op: z.literal("start"),
     sessionId: ScreenId,
+    captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     target: ScreenTarget,
     allowlist: z.array(z.string().min(1).max(256)).max(64),
     fps: z.number().int().min(1).max(30),
   }),
   Envelope.extend({ op: z.literal("action"), action: ScreenAction }),
-  Envelope.extend({ op: z.literal("watch"), active: z.boolean() }),
+  Envelope.extend({
+    op: z.literal("watch"),
+    active: z.boolean(),
+    captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  }),
   Envelope.extend({ op: z.literal("ui.tree"), target: ScreenTarget, ...ScreenUITreeOptions.shape }),
   Envelope.extend({ op: z.literal("ui.find"), ...ScreenUIFindOptions.shape }),
   Envelope.extend({ op: z.literal("ui.act"), ...ScreenUIActOptions.shape }),

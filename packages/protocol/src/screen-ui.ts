@@ -57,3 +57,9 @@ export const ScreenUIActResult = z.object({
   method: z.literal("input").optional(),
   boundsCentre: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
 });
+
+export const ScreenAgentScope = z.object({
+  threadId: z.string().min(1).max(256),
+  agentId: z.string().min(1).max(256),
+});
+export type ScreenAgentScope = z.infer<typeof ScreenAgentScope>;

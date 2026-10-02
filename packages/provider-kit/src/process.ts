@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { lineReader } from "./line-reader.ts";
+export { lineReader } from "./line-reader.ts";
 import { createInterface, type Interface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
@@ -36,6 +38,8 @@ export type SpawnOptions = {
   killGroupOnExit?: boolean;
   /** Stop before readline can accumulate unbounded metadata from a probe. */
   maxOutputBytes?: number;
+  /** Cap every line before readline; does not limit total lifetime output. */
+  maxLineBytes?: number;
 };
 
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
@@ -151,11 +155,13 @@ export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess 
 /** Line-oriented facade over the same process-group owner. */
 export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
   const raw = spawnRawSupervised(options);
-  return {
-    ...raw,
-    stdout: createInterface({ input: raw.stdout, crlfDelay: Infinity }),
-    stderr: createInterface({ input: raw.stderr, crlfDelay: Infinity }),
-  };
+  const lines = (input: Readable) =>
+    options.maxLineBytes === undefined
+      ? createInterface({ input, crlfDelay: Infinity })
+      : lineReader(input, options.maxLineBytes, () => {
+          void raw.stop({ graceMs: 0 });
+        });
+  return { ...raw, stdout: lines(raw.stdout), stderr: lines(raw.stderr) };
 }
 
 /** Bounded, read-only CLI probe. Raw output is returned only to the caller. */
