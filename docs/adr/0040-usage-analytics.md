@@ -41,7 +41,8 @@ A normalized increment ledger also records timestamps, enabling exact quota
 window boundaries without pretending a daily bucket represents a five-hour
 window. Accounts supplies read-only windows with unit, start/end, remaining
 and optional limit through `QuotaReader`. Usage returns observed units/hour
-and projected exhaustion. Percent-only provider quotas cannot be converted
+and projected exhaustion. Dollar burn uses reported amounts only; an API
+estimate never debits a quota. Percent-only provider quotas cannot be converted
 to tokens and are not fabricated. Quotas remain accounts' responsibility.
 
 ## Counter and adapter contract
@@ -75,11 +76,14 @@ The bundled JSON has a version, source URLs, and exact model ids with USD per
 million input, cache-read, 5-minute/1-hour cache-write and output tokens.
 Unknown models remain unpriced; there is no fuzzy model match. The initial
 Anthropic rates come from [official pricing](https://platform.claude.com/docs/en/about-claude/pricing).
+OpenAI rates come from [the model page](https://developers.openai.com/api/docs/models/gpt-5.3-codex).
 Codex counter shape is documented by [the app server](https://learn.chatgpt.com/docs/app-server)
 and the recorded fixtures. Unsupported rates are omitted instead of guessed.
 Settings can override exact model entries. Queries identify the table version
 and separate provider-reported dollars, estimated dollars, unpriced tokens,
-and subscription tokens. Subscription consumption never creates billed
+and subscription tokens. Reported and estimated dollars are alternatives,
+never additive. The estimate covers API tokens even when the provider reported
+a cost, so users can compare table prices with provider amounts. Subscription consumption never creates billed
 USD, even when a CLI supplies API-equivalent dollars. Optional equivalent API
 cost uses the table and is labeled separately. Unknown billing mode exposes
 reported values as provider-reported, but does not invent an estimated bill.
@@ -123,8 +127,9 @@ accepts compact pages, excludes raw data, and validates responses. SQL uses
 prepared statements, indexed counters and one batched daily upsert per
 transaction. Ingestion is O(change), with O(1) counter/metadata lookups per
 event; no scans of event history. SQLite indexes and bounded result limits
-serve queries. Subtree queries visit the selected tree; grouping all inclusive
-agent totals costs tree depth times rollup rows and is deliberately opt-in.
+serve queries. Subtree queries visit the selected tree; groups within that subtree remain
+direct and additive. Relationship changes walk ancestors to reject cycles;
+usage facts do not walk the tree.
 Disk history grows with usage facts and distinct scopes; process memory stays
 bounded by one replay batch and one query result. Backfill yields between
 batches and tolerates events arriving while replay runs.

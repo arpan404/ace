@@ -23,6 +23,7 @@
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "@ace/usage": "workspace:*",
     "qrcode-generator": "2.0.4",
     "ws": "^8.18.3",
     "zod": "^4.6.5"

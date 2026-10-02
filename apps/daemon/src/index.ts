@@ -11,7 +11,9 @@ import { type Config, logger, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
+import { createDaemonUsage, loadUsageSettings } from "./usage.ts";
 export { Store } from "./store.ts";
+export { createDaemonUsage, loadUsageSettings, type UsageCommands } from "./usage.ts";
 export {
   createDevThread,
   stubHandler,
@@ -38,6 +40,7 @@ export async function startDaemon(
 }> {
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
+  let usage: ReturnType<typeof createDaemonUsage> | undefined;
   let store: Store | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
@@ -58,7 +61,11 @@ export async function startDaemon(
             closeChannels();
           } finally {
             try {
-              store?.close();
+              try {
+                await usage?.close();
+              } finally {
+                store?.close();
+              }
             } finally {
               try {
                 if (endpointPath) unlinkSync(endpointPath);
@@ -77,6 +84,10 @@ export async function startDaemon(
     store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
       log("error", "Event subscriber failed", error),
     );
+    usage = createDaemonUsage(config.dataDir, store, await loadUsageSettings(config.dataDir), () =>
+      log("error", "Usage analytics failure"),
+    );
+    await usage.start();
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
       ? { channels: notificationChannels, close: closeChannels }
@@ -97,6 +108,7 @@ export async function startDaemon(
       store,
       handler,
       notifications: notifications.service,
+      usage,
       log: (error) => log("error", "WebSocket failure", error),
     });
     notifications.setSender(server.notify);

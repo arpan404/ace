@@ -263,6 +263,36 @@ export class Store {
       }),
     );
   }
+  /** Usage replay skips transcript/output payloads while advancing host coverage. */
+  readUsagePage(options: { afterSeq: number; limit: number }): {
+    throughSeq: number;
+    events: Event[];
+  } {
+    if (
+      !Number.isSafeInteger(options.afterSeq) ||
+      options.afterSeq < 0 ||
+      !Number.isInteger(options.limit) ||
+      options.limit < 1 ||
+      options.limit > 256
+    )
+      throw new Error("Invalid usage replay page");
+    const throughSeq = Math.min(this.headSeq(), options.afterSeq + options.limit);
+    const rows = this.statement(`SELECT * FROM events WHERE seq > ? AND seq <= ?
+      AND type IN ('thread.created', 'agent.created', 'agent.updated', 'run.started', 'usage.updated')
+      ORDER BY seq`).all(options.afterSeq, throughSeq);
+    return {
+      throughSeq,
+      events: rows.map((row) =>
+        Event.parse({
+          seq: row.seq,
+          id: row.id,
+          threadId: row.thread_id,
+          at: row.at,
+          payload: JSON.parse(String(row.payload)),
+        }),
+      ),
+    };
+  }
   recordCommand(commandId: CommandId, deviceId: DeviceId, run: () => CommandResult): CommandResult {
     return this.transaction(() => {
       const receipt = this.statement(

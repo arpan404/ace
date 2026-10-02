@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { UsageCommands } from "./usage.ts";
 import type { NotificationWorker } from "@ace/notify";
 import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
 import { z } from "zod";
@@ -44,6 +45,7 @@ const closeListener = (listener: Server) =>
   });
 
 export interface ServerOptions {
+  usage?: UsageCommands;
   port: number;
   remote?: RemoteListener;
   now?: () => number;
@@ -250,6 +252,26 @@ export async function startServer(options: ServerOptions): Promise<{
         return;
       }
       switch (message.type) {
+        case "usage.summary":
+        case "usage.series": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
+          if (!options.usage) {
+            fail("usage_unavailable", "Usage analytics unavailable");
+            break;
+          }
+          try {
+            const kind = message.type === "usage.summary" ? "summary" : "series";
+            const result = await options.usage[kind](message.query);
+            if (socket.readyState === WebSocket.OPEN && authenticated.has(socket))
+              send({ type: "usage.result", requestId: message.requestId, kind, result });
+          } catch {
+            fail("usage_failed", "Usage query rejected");
+          }
+          break;
+        }
         case "presence.update":
         case "notification.register":
         case "notification.preferences":
