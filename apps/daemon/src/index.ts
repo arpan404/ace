@@ -3,6 +3,8 @@ import { ContextService } from "@ace/context";
 import { ThreadId } from "@ace/protocol";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { remoteListener } from "./network.ts";
+import { startDaemonMcp } from "./mcp.ts";
+import type { Toolkit } from "@ace/mcp-server";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
@@ -20,11 +22,13 @@ export { readConfig } from "./config.ts";
 export async function startDaemon(
   config: Config = readConfig(),
   handler: CommandHandler = stubHandler(),
+  toolkits: readonly Toolkit[] = [],
 ): Promise<{
   url: string;
   tokenPath: string;
   store: Store;
   context: ContextService;
+  mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   remoteUrl?: string;
   fingerprint?: string;
   close(): Promise<void>;
@@ -33,6 +37,8 @@ export async function startDaemon(
   const log = logger(config.logLevel);
   let store: Store | undefined;
   let context: ContextService | undefined;
+  let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
+  let server: Awaited<ReturnType<typeof startServer>> | undefined;
   try {
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
@@ -51,8 +57,10 @@ export async function startDaemon(
       },
     });
     const ownedContext = context;
+    mcp = await startDaemonMcp(store, toolkits);
+    const ownedMcp = mcp;
     const remote = await remoteListener(config);
-    const server = await startServer({
+    server = await startServer({
       context,
       ...(remote ? { remote } : {}),
       port: config.port,
@@ -62,13 +70,9 @@ export async function startDaemon(
       handler,
       log: (error) => log("error", "WebSocket failure", error),
     });
+    const ownedServer = server;
     const endpointPath = join(config.dataDir, "daemon-endpoint");
-    try {
-      writeFileSync(endpointPath, server.httpUrl, { mode: 0o600 });
-    } catch (error) {
-      await server.close();
-      throw error;
-    }
+    writeFileSync(endpointPath, server.httpUrl, { mode: 0o600 });
     let maintaining = false;
     const maintain = () => {
       if (maintaining) return;
@@ -92,20 +96,28 @@ export async function startDaemon(
       tokenPath,
       store,
       context: ownedContext,
+      mcp: ownedMcp,
       close() {
         closing ??= (async () => {
+          clearInterval(maintenance);
           try {
-            clearInterval(maintenance);
-            await server.close();
+            await ownedMcp.close();
           } finally {
             try {
-              await ownedContext.close();
-              ownedStore.close();
+              await ownedServer.close();
             } finally {
               try {
-                unlinkSync(endpointPath);
+                await ownedContext.close();
               } finally {
-                unlock();
+                try {
+                  ownedStore.close();
+                } finally {
+                  try {
+                    unlinkSync(endpointPath);
+                  } finally {
+                    unlock();
+                  }
+                }
               }
             }
           }
@@ -115,10 +127,21 @@ export async function startDaemon(
     };
   } catch (error) {
     try {
-      await context?.close();
-      store?.close();
+      await mcp?.close();
     } finally {
-      unlock();
+      try {
+        await server?.close();
+      } finally {
+        try {
+          await context?.close();
+        } finally {
+          try {
+            store?.close();
+          } finally {
+            unlock();
+          }
+        }
+      }
     }
     throw error;
   }
