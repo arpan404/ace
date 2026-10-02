@@ -1,44 +1,62 @@
 # Verification
 
-The committed reference contains 132 schemas and 142 artifacts after merging origin/main at `19a7e14`. This includes payload paging, orchestration, model catalogs and the existing remote access and encrypted relay work.
+Merged origin/main through `50c725f`. The artifact build, `bun run docs:protocol`, produced 150 schemas and 162 files, including automation and Conductor contracts. Generation performs the required validation of synthetic examples before writing the output. This build is separate from verification tests and probes.
 
-The repo owner’s updated policy permits static checks only during this workstream. Tests, mutations, generator execution, drift execution, compatibility execution and benchmarks need run at merge. Earlier execution observations are not used as the final verification gate. The interrupted test runner has been stopped. `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed.
+The owner's current policy permits static verification only. Tests, mutations, drift/compatibility execution, races, large-input verification and benchmarks need run at merge. No execution or flakiness conclusion is claimed for the regression tests below. CI is disabled and was not run. `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed. The size check covered 452 source files.
 
-## Behavior coverage awaiting execution
+## Review fixes and behavior coverage
 
-The property tests generate random Zod-accepted JSON values for every export and validate them against independent Ajv validators. Other cases cover documented union examples, stable references and ids, input/output defaults, declared semantic constraints, unsupported constructs and protocol version negotiation.
+- Output access validates a caller-owned boundary before inventory or mutation. The CLI supplies the repository as its boundary. Real-directory regressions reject root and intermediate symlinks, preserve target sentinels and existing reference files, and reject escaping roots or invalid output names before writing.
+- Compatibility checks use own-property membership. Converted and loaded snapshot dictionaries have no prototype. Public cases remove optional fields and released exports named `toString`, `constructor` and `hasOwnProperty`; a field named `__proto__` is also covered.
+- URL export uses the explicit `ace-whatwg-url` format instead of URI validation. Its validator accepts WHATWG URLs after trimming, including Unicode hosts, opaque schemes and parser-normalized forms. Normalized UTF-16 length checks use `x-ace-url-minLength` and `x-ace-url-maxLength`. Regressions cover whitespace, embedded tabs/newlines, malformed URLs, attached built-in checks and normalized length limits. Unsupported URL options or check ordering fail with the owning schema name.
+- Both standalone and attached function-backed string formats fail with the owning schema name. The exact attached email predicate from the review has a regression.
+- Documentation tests independently enumerate source union alternatives and require an example accepted by each alternative, as well as validation of every emitted example. Omitting a variant cannot pass merely because another example exists on the page.
+- Property tests include rejection witnesses for structural invalidity. The independent numeric arbitrary includes signed integers, doubles, fractions and actual bounds. Explicit cases preserve fractional orchestration/Conductor costs and positive subnormals, and reject invalid bounds and fractional integer fields. Declared semantic rules remain application requirements; they are not mistaken for JSON Schema structural validation.
+- Newly merged automation and Conductor refinements have source-owned annotations. Exact record limits, schedule multiples and distinct acceptance criteria also have standard JSON Schema constraints. Conductor's correlated examples live in source metadata and are validated during generation.
 
-Compatibility cases cover additive changes, removed fields and schemas, newly required fields, narrowed types and enums, renames, changed reference targets, array constraints, union siblings, description-only edits and malformed snapshots. Real temporary-directory cases cover stale, missing and unexpected files and repair through regeneration. Fingerprint cases cover source changes, semantic changes, tool definitions and exact artifact bytes, including malformed UTF-8.
+These tests are written, not executed. Their behavior and mutation sensitivity need run at merge. Existing cases still cover defaults, handshake versions, invalid examples, additive/breaking/rename compatibility, reference targets and siblings, unknown validation changes, malformed snapshots and explicit deep/oversized snapshot refusals, stale/missing/extra artifact repair, source fingerprints and exact bytes. No wall-clock assertion gates tests.
 
-All behavior claims above need run at merge. No wall-clock assertions gate these tests.
+## Mutation cases
 
-## Planned mutations
+Every case is not executed (tests run at merge). The first fifteen retain all cases listed by the review; later cases cover its blockers and test-quality findings.
 
-These cases identify the production changes the behavior tests are designed to reject. The current required mutation verification is not executed (tests run at merge).
+| Production mutation                         | Intended behavior test                                    | Status                            |
+| ------------------------------------------- | --------------------------------------------------------- | --------------------------------- |
+| accept removed fields                       | reports a removed field even when optional                | not executed (tests run at merge) |
+| ignore newly required fields                | reports required additions and requiredness changes       | not executed (tests run at merge) |
+| accept narrowed types                       | rejects unknown to string and number to integer           | not executed (tests run at merge) |
+| accept enum removal                         | rejects enum removal                                      | not executed (tests run at merge) |
+| accept tighter bounds                       | rejects higher minima and lower maxima                    | not executed (tests run at merge) |
+| accept narrowed union variants              | rejects narrowed or removed alternatives                  | not executed (tests run at merge) |
+| resolve current refs against old schemas    | detects changed reference targets                         | not executed (tests run at merge) |
+| ignore schema deletion                      | reports schema rename and deletion                        | not executed (tests run at merge) |
+| ignore unfamiliar validation changes        | requires review for uniqueItems and semantic-rule changes | not executed (tests run at merge) |
+| accept unannotated refinements              | reports unsupported Refinement                            | not executed (tests run at merge) |
+| use input mode for output defaults          | distinguishes omitted inputs from populated outputs       | not executed (tests run at merge) |
+| ignore handshake version mismatch           | rejects inconsistent hello/welcome versions               | not executed (tests run at merge) |
+| skip invalid-example validation             | refuses an impossible source refinement                   | not executed (tests run at merge) |
+| ignore source fingerprint mismatch          | rejects changed input fingerprints                        | not executed (tests run at merge) |
+| ignore artifact digest mismatch             | rejects changed bytes, including malformed UTF-8          | not executed (tests run at merge) |
+| skip output-root guard                      | rejects root symlinks and preserves target files          | not executed (tests run at merge) |
+| trust intermediate output symlinks          | rejects symlinks beneath the supplied boundary            | not executed (tests run at merge) |
+| use inherited membership for fields/exports | rejects reserved-name field/export removal                | not executed (tests run at merge) |
+| restore URI format for URL inputs           | accepts whitespace, Unicode and WHATWG forms              | not executed (tests run at merge) |
+| apply URL lengths to raw input              | applies length limits after wire normalization            | not executed (tests run at merge) |
+| allow attached custom predicates            | identifies AttachedFormat as unsupported                  | not executed (tests run at merge) |
+| omit a documented union alternative         | requires a validated example for every source alternative | not executed (tests run at merge) |
+| relax an exported structural schema to {}   | rejects source-invalid primitive/container witnesses      | not executed (tests run at merge) |
+| export fractional costs as integers         | accepts explicit 0.125 cost values                        | not executed (tests run at merge) |
 
-| Mutation                               | Behavior designed to reject it             | Status                            |
-| -------------------------------------- | ------------------------------------------ | --------------------------------- |
-| removed fields accepted                | reports a removed field                    | not executed (tests run at merge) |
-| new required fields ignored            | reports required additions                 | not executed (tests run at merge) |
-| narrowed types accepted                | rejects unknown to string                  | not executed (tests run at merge) |
-| enum removals accepted                 | rejects enum removal                       | not executed (tests run at merge) |
-| new reference target ignored           | detects a changed target                   | not executed (tests run at merge) |
-| missing/stale file comparison bypassed | detects missing and stale files            | not executed (tests run at merge) |
-| unannotated refinement accepted        | reports unsupported Refinement             | not executed (tests run at merge) |
-| output defaults exported as input      | distinguishes accepted input defaults      | not executed (tests run at merge) |
-| source fingerprint mismatch ignored    | fast drift checks reject changed inputs    | not executed (tests run at merge) |
-| artifact digest mismatch ignored       | fast drift checks reject changed artifacts | not executed (tests run at merge) |
+## Performance
 
-## Performance verification awaiting execution
+No benchmark ran during these review fixes. The non-gating `bench/generation.ts` measures native conversion, rendering, file comparison, fast drift throughput and peak RSS. Current numbers and the cold under-two-second drift target need run at merge.
 
-The non-gating benchmark in `bench/generation.ts` measures native conversion, full rendering, file comparison, fast drift checks and peak RSS. Throughput, memory measurements and the cold drift check’s under-two-second target need run at merge; no benchmark is executed under the current policy.
+Historical measurements recorded before the owner's policy changed, at `e037844` with 132 schemas: 4.79 fast checks/s, 208.68 ms/check, 1665.20 ms/full generation and verification, and 256.06 MiB peak RSS. A separate cold drift check took 1.63 seconds. These numbers predate the review fixes and expanded catalog and do not verify the current revision.
 
-Static review confirms the fast check converts schemas and applies construct guards, fingerprints converted schemas/tool definitions/production sources/the lockfile, and checks artifact byte lengths and SHA-256 digests. Generation validates examples before writing the manifest. File comparisons have at most eight concurrent operations and bounded reads. No daemon hot path is added.
+Static review confirms no daemon hot path is added. File comparisons have at most eight concurrent operations and bounded reads. Schema/snapshot counts, recursion and example attempts have caps. Output-root inspection touches only components beneath the supplied boundary. Generation is deterministic and checks examples; the fast drift command uses source and artifact hashes without recompiling example validators.
 
-## Limits and decisions
+## Limits and release decisions
 
-Standard JSON Schema cannot fully express sibling-cursor equality, UTF-8 byte bounds or runtime time-zone validity. Source metadata declares those semantic rules as `x-ace-constraint`. Equivalent applications must enforce them in addition to structural JSON Schema validation. Unannotated refinements fail generation. Record entry caps and reserved identifier exclusions also have native JSON Schema constraints in their source metadata.
+Standard JSON Schema cannot fully express sibling-cursor equality, UTF-8 byte bounds or runtime time-zone validity. Source metadata declares these rules as `x-ace-constraint`. URL consumers must install `jsonValidator(snapshot)` from the public package API or implement the documented format and length extensions. Equivalent applications must enforce all declared semantic rules in addition to structural validation.
 
-No released snapshot exists yet; release tooling must capture and retain one using the snapshot command. Dynamic MCP toolkits are host-specific; this reference documents the built-ins from the shared public catalog. No protocol version or wire behavior changes were introduced here.
-
-The only daemon-file change removes the foreground CLI test’s fixed 15-second override so it honors the configured runner timeout. Its assertions remain intact. Execution of this integration case and the full repository gate needs run at merge. CI is disabled and was not run.
+No released snapshot exists yet. Release tooling must capture and retain the actual released snapshot outside the generated directory. Dynamic MCP toolkits depend on host adapters; this reference documents the shared built-in catalog. Source metadata additions do not change protocol version or parsing behavior. After the main merge, this PR has no daemon-file diff.

@@ -12,6 +12,7 @@ import {
   schemaId,
   jsonValidator,
   parseSnapshot,
+  readSnapshot,
   checkFingerprint,
   type Snapshot,
 } from "./index.ts";
@@ -216,6 +217,20 @@ it("rejects escaping roots and unsafe output names before touching existing file
       /owned boundary/,
     );
     expect(await readFile(join(root, "README.md"), "utf8")).toBe("keep reference");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("rejects deep or oversized released snapshots before using their schemas", async () => {
+  let nested: unknown = null;
+  for (let depth = 0; depth < 70; depth++) nested = { child: nested };
+  expect(() => parseSnapshot(nested)).toThrow(/node\/depth limits/);
+  const directory = await mkdtemp(join(tmpdir(), "ace-docs-snapshot-"));
+  try {
+    const path = join(directory, "release.json");
+    await writeFile(path, " ".repeat(8 * 1024 * 1024 + 1));
+    await expect(readSnapshot(path)).rejects.toThrow(/8 MiB/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
