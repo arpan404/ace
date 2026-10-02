@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { GitError, type GitOptions } from "./types.ts";
+import { stat } from "node:fs/promises";
+import { z } from "zod";
+import { count, decode } from "./decode.ts";
+import { GitError, toGitError, type GitOptions } from "./types.ts";
 
 interface CallOptions {
   write?: boolean;
@@ -8,6 +11,7 @@ interface CallOptions {
   input?: Buffer | string;
   allowFailure?: boolean;
   captureBytes?: number;
+  consume?: (chunk: Buffer) => void;
 }
 
 export interface Output {
@@ -51,11 +55,18 @@ export class GitCli {
 
   private async verify(cwd: string): Promise<void> {
     const result = await this.execute(cwd, ["--version"], {});
-    const version = /^git version (\d+)\.(\d+)\.(\d+)/.exec(result.stdout.toString());
+    const version = /^git version (\d+)\.(\d+)\.(\d+)/.exec(textOutput(result));
+    const [major, minor] = version
+      ? decode(z.tuple([z.string(), z.string(), z.string()]), version.slice(1), "version").map(
+          count,
+        )
+      : [0, 0];
     if (
       !version ||
-      Number(version[1]) < 2 ||
-      (Number(version[1]) === 2 && Number(version[2]) < 40)
+      major === undefined ||
+      minor === undefined ||
+      major < 2 ||
+      (major === 2 && minor < 40)
     ) {
       throw new GitError("git_too_old", "ace requires Git 2.40 or newer", {
         binary: this.binary,
@@ -90,6 +101,7 @@ export class GitCli {
       let errorBytes = 0;
       let truncated = false;
       let failure: GitError | undefined;
+      let spawnFailure: Promise<GitError> | undefined;
       const kill = () => {
         if (child.pid && process.platform !== "win32") {
           try {
@@ -106,6 +118,15 @@ export class GitCli {
         kill();
       }, this.timeoutMs);
       child.stdout.on("data", (chunk: Buffer) => {
+        if (options.consume) {
+          try {
+            options.consume(chunk);
+          } catch (error) {
+            failure = toGitError(error);
+            kill();
+          }
+          return;
+        }
         const remaining = Math.max(0, limit - captured);
         if (remaining > 0) chunks.push(chunk.subarray(0, remaining));
         captured += Math.min(remaining, chunk.length);
@@ -123,14 +144,11 @@ export class GitCli {
         errorBytes += keep;
       });
       child.on("error", (error: NodeJS.ErrnoException) => {
-        failure = new GitError(
-          error.code === "ENOENT" ? "git_missing" : "git_failed",
-          error.code === "ENOENT" ? `Git binary not found: ${this.binary}` : error.message,
-          { binary: this.binary },
-        );
+        spawnFailure = classifySpawn(error, cwd, this.binary);
       });
-      child.on("close", (code) => {
+      child.on("close", async (code) => {
         clearTimeout(timer);
+        if (spawnFailure) failure = await spawnFailure;
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
         if (code !== 0 && !options.allowFailure) {
@@ -138,16 +156,38 @@ export class GitCli {
         }
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
       });
-      // Git can exit before consuming stdin, for example when validating a ref.
       child.stdin.on("error", () => {});
       child.stdin.end(options.input);
     });
   }
 }
 
+async function classifySpawn(
+  error: NodeJS.ErrnoException,
+  cwd: string,
+  binary: string,
+): Promise<GitError> {
+  if (error.code === "ENOENT") {
+    try {
+      await stat(cwd);
+    } catch {
+      return new GitError("not_a_repo", `Git working directory no longer exists: ${cwd}`);
+    }
+  }
+  return new GitError(
+    error.code === "ENOENT" ? "git_missing" : "git_failed",
+    error.code === "ENOENT" ? `Git binary not found: ${binary}` : error.message,
+    { binary },
+  );
+}
+
 export function textOutput(output: Output): string {
   // Scalar plumbing output ends with one newline; paths are parsed only from -z formats.
-  return output.stdout.toString("utf8").replace(/\n$/, "");
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(output.stdout).replace(/\n$/, "");
+  } catch {
+    throw new GitError("malformed_output", "Malformed Git UTF-8 scalar");
+  }
 }
 
 export function patchOutput(output: Output): string {

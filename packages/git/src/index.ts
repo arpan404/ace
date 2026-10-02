@@ -1,10 +1,6 @@
 import { GitCli } from "./cli.ts";
-import {
-  checkpointRefs,
-  createCheckpoint,
-  deleteCheckpoints,
-  readCheckpoint,
-} from "./checkpoints.ts";
+import { tmpdir } from "node:os";
+import { createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
 import { diff } from "./diff.ts";
 import { serial } from "./lock.ts";
 import { Repository } from "./repository.ts";
@@ -21,7 +17,11 @@ export class GitService {
   private readonly maxPatchBytes: number;
 
   constructor(options: GitOptions = {}) {
-    this.repository = new Repository(new GitCli(options));
+    this.repository = new Repository(
+      new GitCli(options),
+      options.now ?? (() => new Date()),
+      options.tempDirectory ?? tmpdir(),
+    );
     this.maxPatchBytes = options.maxPatchBytes ?? 1024 * 1024;
   }
 
@@ -68,13 +68,7 @@ export class GitService {
 
   async listCheckpoints(options: { repo: string; threadId: string }): Promise<Checkpoint[]> {
     const root = await this.repository.root(options.repo);
-    return serial(root, async () => {
-      const refs = await checkpointRefs(this.repository, root, options.threadId);
-      const checkpoints: Checkpoint[] = [];
-      for (const ref of refs)
-        checkpoints.push(await readCheckpoint(this.repository, root, ref.id, ref.sha));
-      return checkpoints;
-    });
+    return serial(root, () => listCheckpoints(this.repository, root, options.threadId));
   }
 
   async deleteCheckpoints(options: { repo: string; threadId: string }) {

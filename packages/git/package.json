@@ -8,6 +8,10 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "benchmark": "node benchmark.ts"
+    "benchmark": "node benchmark.ts",
+    "benchmark:history": "node benchmark-history.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
   }
 }

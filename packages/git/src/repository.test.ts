@@ -135,13 +135,17 @@ test("configured Git binaries enforce the version floor and kill hung calls", as
   await expect(
     new GitService({ gitBinary: binary }).repositoryInfo(directory),
   ).rejects.toMatchObject({ code: "git_too_old" });
+  const pidFile = join(directory, "hung.pid");
   await writeFile(
     binary,
-    `#!${process.execPath}\nif(process.argv.includes('--version')) process.stdout.write('git version 2.40.0\\n'); else setInterval(() => {}, 1000);\n`,
+    `#!${process.execPath}\nif(process.argv.includes('--version')) process.stdout.write('git version 2.40.0\\n'); else { require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000); }\n`,
   );
   await expect(
-    new GitService({ gitBinary: binary, timeoutMs: 1_000 }).repositoryInfo(directory),
+    new GitService({ gitBinary: binary, timeoutMs: 2_000 }).repositoryInfo(directory),
   ).rejects.toMatchObject({ code: "git_timeout" });
+  const pid = Number(await readFile(pidFile, "utf8"));
+  expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+  expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
   expect(() => new GitService({ timeoutMs: 0 })).toThrow(
     expect.objectContaining({ code: "invalid_argument" }),
   );
@@ -224,4 +228,25 @@ test("inherited repository and index selectors cannot redirect checkpoint writes
     if (oldIndex === undefined) delete process.env.GIT_INDEX_FILE;
     else process.env.GIT_INDEX_FILE = oldIndex;
   }
+});
+
+test("status display config does not inject stash headers or suppress divergence", async () => {
+  const repo = await repository();
+  await put(repo, "tracked.txt", "stash content\n");
+  await git(repo, "stash", "push", "-m", "Keep stash");
+  await git(repo, "remote", "add", "origin", "https://example.invalid/repo.git");
+  await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
+  await git(repo, "branch", "--set-upstream-to=origin/main", "main");
+  await put(repo, "tracked.txt", "new commit\n");
+  await git(repo, "commit", "-am", "Local");
+  await git(repo, "config", "status.showStash", "true");
+  await git(repo, "config", "status.aheadBehind", "false");
+  expect(await service.repositoryInfo(repo)).toMatchObject({ ahead: 1, behind: 0 });
+  expect(await service.status(repo)).toEqual({
+    staged: [],
+    unstaged: [],
+    untracked: [],
+    conflicted: [],
+  });
+  expect(await scalar(repo, "stash", "list", "--format=%s")).toContain("Keep stash");
 });

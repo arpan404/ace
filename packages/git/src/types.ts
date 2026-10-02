@@ -2,6 +2,8 @@ export interface GitOptions {
   gitBinary?: string;
   timeoutMs?: number;
   maxPatchBytes?: number;
+  now?: () => Date | Promise<Date>;
+  tempDirectory?: string;
 }
 
 export type GitErrorCode =
@@ -9,6 +11,7 @@ export type GitErrorCode =
   | "git_too_old"
   | "git_failed"
   | "git_timeout"
+  | "malformed_output"
   | "filesystem_error"
   | "output_too_large"
   | "not_a_repo"

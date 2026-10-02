@@ -1,5 +1,6 @@
 import { assertNoGitlinks, createCheckpoint, readCheckpoint, withIndex } from "./checkpoints.ts";
 import { nul } from "./parse.ts";
+import { decode, pathSchema } from "./decode.ts";
 import { Repository } from "./repository.ts";
 import { GitError, toGitError } from "./types.ts";
 
@@ -27,12 +28,12 @@ export async function restoreCheckpoint(
           "-z",
         ])
       ).stdout,
-    );
+    ).map((path) => decode(pathSchema, path, "ignored path"));
     const targetPaths = new Set(
       nul(
         (await repository.cli.call(root, ["ls-tree", "-r", "--name-only", "-z", target.tree]))
           .stdout,
-      ),
+      ).map((path) => decode(pathSchema, path, "restore path")),
     );
     const targetAncestors = new Set<string>();
     for (const path of targetPaths) {
@@ -56,7 +57,7 @@ export async function restoreCheckpoint(
       }
     }
     // read-tree refuses to follow symlink directories and owns all path operations.
-    await withIndex(async (env) => {
+    await withIndex(repository.tempDirectory, async (env) => {
       await repository.cli.call(root, ["read-tree", safety.tree], { write: true, env });
       await repository.cli.call(
         root,

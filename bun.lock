@@ -49,6 +49,9 @@
     },
     "packages/git": {
       "name": "@ace/git",
+      "dependencies": {
+        "zod": "^4.6.5",
+      },
     },
     "packages/orchestrator": {
       "name": "@ace/orchestrator",

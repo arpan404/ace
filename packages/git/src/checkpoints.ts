@@ -1,118 +1,73 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { z } from "zod";
 import { textOutput } from "./cli.ts";
-import { nul } from "./parse.ts";
+import { decode, hash, malformed } from "./decode.ts";
+import {
+  checkpoint,
+  checkpointIdentity,
+  checkpointPrefix,
+  parseCommits,
+  type ParsedCommit,
+} from "./checkpoint-metadata.ts";
+import { checkpointRefs, counterRef } from "./checkpoint-numbers.ts";
+import { parseIndex, parseTree } from "./parse-index.ts";
 import { Repository } from "./repository.ts";
+import { withIndex } from "./temporary-index.ts";
 import { GitError, type Checkpoint } from "./types.ts";
 
-export function checkpointPrefix(threadId: string): string {
-  if (!/^[A-Za-z0-9_-]+$/.test(threadId)) {
-    throw new GitError(
-      "invalid_argument",
-      "threadId must contain only letters, digits, underscores or hyphens",
-    );
-  }
-  return `refs/ace/checkpoints/${threadId}/`;
-}
-
-export function checkpointIdentity(id: string): { threadId: string; sequence: number } {
-  const match = /^refs\/ace\/checkpoints\/([A-Za-z0-9_-]+)\/([1-9]\d*)$/.exec(id);
-  if (!match || !Number.isSafeInteger(Number(match[2]))) {
-    throw new GitError("checkpoint_not_found", `Invalid checkpoint id: ${id}`);
-  }
-  return { threadId: match[1]!, sequence: Number(match[2]) };
-}
-
-export async function withIndex<T>(
-  operation: (env: Record<string, string>) => Promise<T>,
-): Promise<T> {
-  const directory = await mkdtemp(join(tmpdir(), "ace-git-index-"));
-  try {
-    return await operation({ GIT_INDEX_FILE: join(directory, "index") });
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-}
+export { withIndex } from "./temporary-index.ts";
 
 export async function snapshot(repository: Repository, root: string): Promise<string> {
   const { cli } = repository;
-  return withIndex(async (env) => {
+  const sparse = await cli.call(root, ["config", "--type=bool", "--get", "core.sparseCheckout"], {
+    allowFailure: true,
+  });
+  if (sparse.exitCode !== 0 && sparse.exitCode !== 1)
+    throw new GitError("git_failed", sparse.stderr);
+  if (
+    sparse.exitCode === 0 &&
+    decode(z.enum(["true", "false"]), textOutput(sparse), "sparse checkout config") === "true"
+  ) {
+    throw new GitError(
+      "unsupported_repository",
+      "Full working-tree snapshots do not support sparse checkout",
+    );
+  }
+  return withIndex(repository.tempDirectory, async (env) => {
     const head = await cli.call(root, ["rev-parse", "--verify", "HEAD^{tree}"], {
       allowFailure: true,
     });
     await cli.call(
       root,
-      ["read-tree", ...(head.exitCode === 0 ? [textOutput(head)] : ["--empty"])],
+      ["read-tree", ...(head.exitCode === 0 ? [hash(textOutput(head))] : ["--empty"])],
       { write: true, env },
     );
-    // Seed tracked additions from the real index, including force-added ignored files.
-    // HEAD entries stay seeded even when the user staged their deletion.
-    // --stage omits assume-unchanged/skip-worktree flags and handles unresolved merges.
-    const tracked = await cli.call(root, ["ls-files", "--stage", "-z"]);
-    const seed = nul(tracked.stdout).map((entry) => {
-      const tab = entry.indexOf("\t");
-      return entry.slice(0, tab).replace(/ [123]$/, " 0") + entry.slice(tab);
-    });
-    await cli.call(root, ["update-index", "-z", "--index-info"], {
-      write: true,
-      env,
-      input: seed.length ? seed.join("\0") + "\0" : "",
-    });
-    await cli.call(root, ["-c", "core.sparseCheckout=false", "add", "--all", "--", "."], {
-      write: true,
-      env,
-    });
-    const tree = textOutput(await cli.call(root, ["write-tree"], { write: true, env }));
-    await assertNoGitlinks(repository, root, tree);
-    return tree;
+    const tracked = parseIndex((await cli.call(root, ["ls-files", "--stage", "-z"])).stdout);
+    const seed = tracked.map((entry) => `${entry.mode} ${entry.sha} 0\t${entry.path}\0`).join("");
+    await cli.call(root, ["update-index", "-z", "--index-info"], { write: true, env, input: seed });
+    await cli.call(root, ["add", "--all", "--", "."], { write: true, env });
+    const current = parseIndex(
+      (await cli.call(root, ["ls-files", "--stage", "-z"], { env })).stdout,
+    );
+    if (current.some((entry) => entry.mode === "160000")) unsupportedGitlinks();
+    return hash(textOutput(await cli.call(root, ["write-tree"], { write: true, env })));
   });
 }
-
+function unsupportedGitlinks(): never {
+  throw new GitError(
+    "unsupported_repository",
+    "Full working-tree snapshots cannot include submodules or embedded repositories",
+  );
+}
 export async function assertNoGitlinks(
   repository: Repository,
   root: string,
   tree: string,
 ): Promise<void> {
-  const entries = nul((await repository.cli.call(root, ["ls-tree", "-r", "-z", tree])).stdout);
-  if (entries.some((entry) => entry.startsWith("160000 "))) {
-    throw new GitError(
-      "unsupported_repository",
-      "Full working-tree snapshots cannot include submodules or embedded repositories",
-    );
-  }
-}
-
-interface Ref {
-  id: string;
-  sha: string;
-  sequence: number;
-}
-
-export async function checkpointRefs(
-  repository: Repository,
-  root: string,
-  threadId: string,
-): Promise<Ref[]> {
-  const prefix = checkpointPrefix(threadId);
-  const output = textOutput(
-    await repository.cli.call(root, [
-      "for-each-ref",
-      "--format=%(refname)%00%(objectname)",
-      prefix,
-    ]),
+  const entries = parseTree(
+    (await repository.cli.call(root, ["ls-tree", "-r", "-z", tree])).stdout,
   );
-  if (!output) return [];
-  return output
-    .split("\n")
-    .map((record) => {
-      const [id, sha] = record.split("\0");
-      const { sequence } = checkpointIdentity(id!);
-      return { id: id!, sha: sha!, sequence };
-    })
-    .toSorted((a, b) => a.sequence - b.sequence);
+  if (entries.some((entry) => entry.mode === "160000")) unsupportedGitlinks();
 }
-
 export async function createCheckpoint(
   repository: Repository,
   root: string,
@@ -121,101 +76,118 @@ export async function createCheckpoint(
 ): Promise<Checkpoint> {
   const prefix = checkpointPrefix(threadId);
   const tree = await snapshot(repository, root);
-  const createdAt = new Date().toISOString();
-  const metadata = JSON.stringify({ format: "ace-checkpoint-v1", threadId, label, createdAt });
-  // Fixed local identity makes checkpoints work without user.name/email or signing setup.
-  const sha = textOutput(
-    await repository.cli.call(root, ["-c", "commit.gpgSign=false", "commit-tree", tree], {
-      write: true,
-      input: `${metadata}\n`,
-      env: {
-        GIT_AUTHOR_NAME: "ace",
-        GIT_AUTHOR_EMAIL: "checkpoints@ace.local",
-        GIT_COMMITTER_NAME: "ace",
-        GIT_COMMITTER_EMAIL: "checkpoints@ace.local",
-      },
-    }),
-  );
+  const createdAt = (await repository.now()).toISOString();
   for (let attempt = 0; attempt < 20; attempt++) {
-    const refs = await checkpointRefs(repository, root, threadId);
-    const sequence = (refs.at(-1)?.sequence ?? 0) + 1;
+    const previous = await repository.numbers.get(root, threadId);
+    const sequence = previous.sequence + 1;
     if (!Number.isSafeInteger(sequence))
       throw new GitError("git_failed", "Checkpoint sequence exhausted");
-    const id = `${prefix}${sequence}`;
-    const result = await repository.cli.call(
-      root,
-      ["update-ref", id, sha, "0".repeat(sha.length)],
-      { write: true, allowFailure: true },
-    );
-    if (result.exitCode === 0) return { id, sha, tree, threadId, sequence, label, createdAt };
-    const collision = await repository.cli.call(root, ["show-ref", "--verify", "--quiet", id], {
-      allowFailure: true,
+    const message = JSON.stringify({
+      format: "ace-checkpoint-v1",
+      threadId,
+      label,
+      createdAt,
+      sequence,
     });
-    if (collision.exitCode !== 0) throw new GitError("git_failed", result.stderr);
+    const sha = hash(
+      textOutput(
+        await repository.cli.call(root, ["-c", "commit.gpgSign=false", "commit-tree", tree], {
+          write: true,
+          input: `${message}\n`,
+          env: {
+            GIT_AUTHOR_NAME: "ace",
+            GIT_AUTHOR_EMAIL: "checkpoints@ace.local",
+            GIT_COMMITTER_NAME: "ace",
+            GIT_COMMITTER_EMAIL: "checkpoints@ace.local",
+            GIT_AUTHOR_DATE: createdAt,
+            GIT_COMMITTER_DATE: createdAt,
+          },
+        }),
+      ),
+    );
+    const id = `${prefix}${sequence}`;
+    const input = `start\ncreate ${id} ${sha}\nupdate ${counterRef(threadId)} ${sha} ${previous.sha ?? "0".repeat(sha.length)}\nprepare\ncommit\n`;
+    const result = await repository.cli.call(root, ["update-ref", "--stdin"], {
+      write: true,
+      allowFailure: true,
+      input,
+    });
+    if (result.exitCode === 0) {
+      repository.numbers.remember(root, threadId, { sha, sequence });
+      return { id, sha, tree, threadId, sequence, label, createdAt };
+    }
+    const current = await repository.numbers.refresh(root, threadId);
+    if (current.sha === previous.sha) throw new GitError("git_failed", result.stderr);
   }
   throw new GitError("git_failed", "Checkpoint refs changed repeatedly; retry the operation");
 }
-
+const format = "--format=%H%x00%T%x00%B";
 export async function readCheckpoint(
   repository: Repository,
   root: string,
   id: string,
-  pinnedSha?: string,
 ): Promise<Checkpoint> {
-  const { threadId, sequence } = checkpointIdentity(id);
-  const commit = await repository.cli.call(
+  checkpointIdentity(id);
+  const output = await repository.cli.call(
     root,
-    ["rev-parse", "--verify", "--end-of-options", `${pinnedSha ?? id}^{commit}`],
+    ["log", "--no-color", "--no-show-signature", "--no-walk=unsorted", "-z", format, id, "--"],
     { allowFailure: true },
   );
-  if (commit.exitCode !== 0)
+  if (output.exitCode !== 0)
     throw new GitError("checkpoint_not_found", `Checkpoint not found: ${id}`);
-  const sha = textOutput(commit);
-  const output = await repository.cli.call(root, [
-    "show",
-    "--no-show-signature",
-    "-s",
-    "--format=%T%x00%B",
-    sha,
-  ]);
-  const [tree, message] = nul(output.stdout);
-  let data: unknown;
-  try {
-    data = JSON.parse(message ?? "");
-  } catch {
-    data = null;
-  }
-  if (
-    !data ||
-    typeof data !== "object" ||
-    !("format" in data) ||
-    data.format !== "ace-checkpoint-v1" ||
-    !("threadId" in data) ||
-    data.threadId !== threadId ||
-    !("label" in data) ||
-    typeof data.label !== "string" ||
-    !("createdAt" in data) ||
-    typeof data.createdAt !== "string"
-  ) {
-    throw new GitError("checkpoint_not_found", `Ref does not contain an ace checkpoint: ${id}`);
-  }
-  return { id, sha, tree: tree!, threadId, sequence, label: data.label, createdAt: data.createdAt };
+  const commits = parseCommits(output.stdout);
+  const commit = [...commits.values()][0];
+  if (commits.size !== 1 || !commit) throw malformed("checkpoint commit arity");
+  return checkpoint(id, commit);
 }
-
+export async function listCheckpoints(
+  repository: Repository,
+  root: string,
+  threadId: string,
+): Promise<Checkpoint[]> {
+  const refs = await checkpointRefs(repository.cli, root, threadId);
+  const unique = [...new Set(refs.map((ref) => ref.sha))];
+  const commits = new Map<string, ParsedCommit>();
+  for (let start = 0; start < unique.length; start += 500) {
+    const batch = unique.slice(start, start + 500);
+    const output = await repository.cli.call(root, [
+      "log",
+      "--no-color",
+      "--no-show-signature",
+      "--no-walk=unsorted",
+      "-z",
+      format,
+      ...batch,
+      "--",
+    ]);
+    const decoded = parseCommits(output.stdout);
+    if (decoded.size !== batch.length || [...decoded.keys()].some((sha) => !batch.includes(sha)))
+      throw malformed("checkpoint batch correspondence");
+    for (const [sha, data] of decoded) commits.set(sha, data);
+  }
+  return refs.map((ref) => {
+    const commit = commits.get(ref.sha);
+    if (!commit) throw malformed("missing checkpoint commit");
+    return checkpoint(ref.id, commit);
+  });
+}
 export async function deleteCheckpoints(
   repository: Repository,
   root: string,
   threadId: string,
 ): Promise<{ deleted: number }> {
-  const refs = await checkpointRefs(repository, root, threadId);
-  if (!refs.length) return { deleted: 0 };
+  const refs = await checkpointRefs(repository.cli, root, threadId);
+  const current = await repository.numbers.refresh(root, threadId);
   const input = [
     "start",
     ...refs.map((ref) => `delete ${ref.id} ${ref.sha}`),
+    ...(current.sha ? [`delete ${counterRef(threadId)} ${current.sha}`] : []),
     "prepare",
     "commit",
     "",
   ].join("\n");
-  await repository.cli.call(root, ["update-ref", "--stdin"], { write: true, input });
+  if (refs.length || current.sha)
+    await repository.cli.call(root, ["update-ref", "--stdin"], { write: true, input });
+  repository.numbers.forget(root, threadId);
   return { deleted: refs.length };
 }
