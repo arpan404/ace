@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentId, ThreadId, type ServerMessage } from "@ace/protocol";
+import { Agent, AgentId, ThreadId, type ServerMessage } from "@ace/protocol";
 import { applyDelivery, createThreadView } from "@ace/projection";
 import { fixture } from "./socket-test-support.ts";
 import { subscribe, type SubscriptionStore } from "./subscription.ts";
@@ -155,6 +155,54 @@ describe("subscription bootstrap", () => {
       afterSeq: 1,
       throughSeq: 2,
       events: [{ seq: 2 }],
+    });
+  });
+  it("snapshots include committed work queued behind the current publication", async () => {
+    const f = await setup();
+    f.store.acquireThread(f.thread.id);
+    cleanups.push(() => f.store.releaseThread(f.thread.id));
+    const agent = Agent.parse({
+      id: "new-work",
+      threadId: f.thread.id,
+      parentId: null,
+      origin: "root",
+      fidelity: "full",
+      native: { provider: "codex" },
+      cwd: "/repo",
+      status: { state: "working", activity: "tool" },
+      createdAt: 1,
+    });
+    const messages: ServerMessage[] = [];
+    cleanups.push(
+      f.store.subscribe((events) => {
+        if (events[0]?.seq === 2)
+          f.store.appendEvents(f.thread.id, [
+            { type: "agent.created", agent },
+            { type: "thread.updated", status: { state: "working", agents: 1 } },
+          ]);
+      }),
+    );
+    cleanups.push(
+      f.store.subscribe((events) => {
+        if (events[0]?.seq === 2)
+          cleanups.push(
+            subscribe(
+              f.store,
+              "s",
+              { kind: "thread", threadId: f.thread.id },
+              undefined,
+              5000,
+              (message) => messages.push(message),
+            ),
+          );
+      }),
+    );
+    f.store.appendEvents(f.thread.id, [{ type: "thread.updated", status: { state: "done" } }]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      type: "snapshot",
+      seq: 4,
+      view: { agents: { [agent.id]: agent }, thread: { status: { state: "working", agents: 1 } } },
     });
   });
   it("replays at the gap limit and snapshots only beyond it", async () => {

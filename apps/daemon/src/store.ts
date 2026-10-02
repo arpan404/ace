@@ -262,26 +262,33 @@ export class Store {
   acquireThread(id: ThreadId): ThreadView {
     const cached = this.caches.get(id);
     if (cached) {
+      this.catchUp(cached.view, id);
       cached.refs++;
       return cached.view;
     }
     const thread = this.getThread(id);
     if (!thread) throw new Error("Unknown thread");
     const view = createThreadView(thread);
-    let afterSeq = 0;
-    for (;;) {
-      const events = this.readEvents({ afterSeq, threadId: id, limit: 1000 });
+    this.catchUp(view, id);
+    this.caches.set(id, { view, refs: 1 });
+    return view;
+  }
+  private catchUp(view: ThreadView, id: ThreadId): void {
+    const head = this.headSeq();
+    let afterSeq = view.seq;
+    while (afterSeq < head) {
+      const events = this.readEvents({ afterSeq, threadId: id, limit: 1000 }).filter(
+        (event) => event.seq <= head,
+      );
       if (!events.length) break;
       for (const event of events) {
-        // Scoped database replay has intentional holes in the host-wide sequence.
+        // Scoped replay has intentional holes in the host-wide sequence.
         view.seq = event.seq - 1;
         applyEvent(view, event);
         afterSeq = event.seq;
       }
     }
-    view.seq = this.headSeq();
-    this.caches.set(id, { view, refs: 1 });
-    return view;
+    view.seq = head;
   }
   snapshotThread(id: ThreadId): ThreadView {
     const full = this.acquireThread(id);
