@@ -1,3 +1,4 @@
+import { benchmarkCreditExhaustedCloses } from "./relay-close.ts";
 import { DeviceId } from "@ace/protocol";
 import { keyPair } from "@ace/secure-channel";
 import { startRelay, connectHostToRelay, connectClientViaRelay } from "@ace/relay";
@@ -111,6 +112,11 @@ async function main() {
     await g.close();
     await upstream.close();
   }
+
+  baseline = process.memoryUsage().rss;
+  start = performance.now();
+  const closePeak = await benchmarkCreditExhaustedCloses(1000);
+  report("relay credit-exhausted closes/s, native I/O edge", 1000, start, closePeak, baseline);
 
   const size = 50 * 1024 * 1024;
   const large = await serve((_req, res) =>

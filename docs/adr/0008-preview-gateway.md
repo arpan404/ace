@@ -1,6 +1,6 @@
 # 0008: Authenticated dev-server previews
 
-Date: 2026-10-02. Status: accepted for the backend library. Daemon and client wiring follows remote-access and relay delivery.
+Date: 2026-10-02. Status: accepted. Paired daemon link issuance and the encrypted relay adapter are implemented; client UI/native bridge wiring remains client work.
 
 ## Context
 
@@ -48,3 +48,13 @@ The daemon accepts an opt-in preview listener configuration through its backend 
 ## Integration after relay landed
 
 `@ace/relay` now exposes additive binary send/receive methods sharing its existing Noise transport, send queue and rekey counters. Encrypted plaintext tag `2` identifies one binary record, while tags `0`/`1` retain JSON fragmentation. Preview runs on a dedicated connection after the existing hello has been authenticated and the host channel authorized. The host attaches its preview endpoint before sending a JSON switch acknowledgement; the client receives it before opening its proxy. `previewRelayChannel` then owns the sole binary reader and forwards frames without JSON or Base64. A malformed preview record closes the channel and its client loopback listeners. Forwarded-port grants and revocation remain bound to the authenticated device by the host's `allowPort` boundary.
+
+## Review corrections
+
+Resolve scheme-relative redirect authorities against the upstream origin before matching loopback ports. Preserve ordinary relative redirects and external destinations. Polling owns a copy of each scanner snapshot before invoking callbacks. File reads use nonblocking open and validate the opened descriptor as regular before reading; close on every exit. Do not use the reported file size to skip reads, since proc tables report zero.
+
+Socket close releases relay capacity immediately and cancels both credit and channel-admission waits. Graceful TCP EOF remains a separate transition that sends END only after preceding DATA. Admit at most one native chunk per paused socket, no larger than the 256 KiB window. Keep payload/frame byte counters incrementally, and expose transport queue counters through the encrypted adapter. A blocked writer retains its encoded frame, rather than the original socket chunk's backing buffer.
+
+Regression tests exercise scheme-relative redirects through both gateway and loopback proxy, closed real TCP sockets without credit and with blocked writer admission, four simultaneous FIFO configurations, same-length wrong HMAC signatures and altered signed claims, oversized otherwise-valid DATA to a ready real TCP server, mutable scanner Sets, and cancellable supervised probes. Resource-heavy tests use correctness timeouts suitable for concurrent runs, without throughput assertions; the outer memory test aborts and reaps its child on timeout/cancellation.
+
+Per the repository owner, review validation is static only. The regression tests, mutation cases and final benchmark results need run at merge; no test, probe or benchmark is part of this delivery gate.
