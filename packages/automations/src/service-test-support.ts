@@ -93,6 +93,7 @@ export function harness(gh?: import("./index.ts").GhClient) {
       };
     },
   };
+  const arrivals = new Map<number, ReturnType<typeof deferred<ExecutionInput>>>();
   const recoveries = new Map<string, Promise<ExecutionResult | undefined>>();
   const deps = {
     now: () => now,
@@ -111,6 +112,8 @@ export function harness(gh?: import("./index.ts").GhClient) {
         inputs.push(input);
         const completion = deferred<ExecutionResult>();
         completions.push(completion);
+        arrivals.get(inputs.length - 1)?.resolve(input);
+        arrivals.delete(inputs.length - 1);
         return completion.promise;
       },
       recover(key: string) {
@@ -133,7 +136,7 @@ export function harness(gh?: import("./index.ts").GhClient) {
       return store;
     },
     deps,
-    storePath:join(dir,"auto.sqlite"),
+    storePath: join(dir, "auto.sqlite"),
     timer,
     inputs,
     completions,
@@ -153,6 +156,13 @@ export function harness(gh?: import("./index.ts").GhClient) {
       store = new AutomationStore(join(dir, "auto.sqlite"));
       service = new AutomationService(store, deps, gh);
       service.start();
+    },
+    nextExecution(index: number): Promise<ExecutionInput> {
+      const existing = inputs[index];
+      if (existing) return Promise.resolve(existing);
+      const arrival = deferred<ExecutionInput>();
+      arrivals.set(index, arrival);
+      return arrival.promise;
     },
     async finish(index = 0, status: ExecutionResult["status"] = "succeeded") {
       completions[index]?.resolve({

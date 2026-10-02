@@ -172,9 +172,11 @@ it("advances counted recurrence from a supplied cursor with the same result as f
   expect(recurrence.seek(at("2024-01-07T00:00:00Z"), next)).toBeUndefined();
 });
 it("expands BYMINUTE within the hourly interval anchored at the civil hour", () => {
-  const s=schedule("FREQ=HOURLY;INTERVAL=2;BYMINUTE=0,30", "rrule", "2026-01-01T09:30:00Z");
+  const s = schedule("FREQ=HOURLY;INTERVAL=2;BYMINUTE=0,30", "rrule", "2026-01-01T09:30:00Z");
   expect(dates(s, "2026-01-01T09:30:00Z", 4)).toEqual([
-    "2026-01-01T11:00:00.000Z", "2026-01-01T11:30:00.000Z",
-    "2026-01-01T13:00:00.000Z", "2026-01-01T13:30:00.000Z",
+    "2026-01-01T11:00:00.000Z",
+    "2026-01-01T11:30:00.000Z",
+    "2026-01-01T13:00:00.000Z",
+    "2026-01-01T13:30:00.000Z",
   ]);
 });

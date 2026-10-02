@@ -234,7 +234,7 @@ it("rejects untrusted endpoints, header injection and oversized process output",
   const bounded = createGhClient({ binary: join(gh.dir, "gh.mjs"), maxBytes: 1024 });
   await expect(bounded.get(pulls)).rejects.toThrow("byte limit");
 });
-it("rejects malformed resource data without committing a cursor", async () => {
+it("rejects malformed resource data", async () => {
   const gh = fakeGh();
   gh.respond({ [pulls]: { etag: '"bad"', data: [{ id: "not an ID" }] } });
   await expect(pollGithub(gh.client, trigger("pr_changed"), {})).rejects.toThrow();

@@ -182,9 +182,7 @@ it("retries creation with the same idempotency key when a crash preceded thread 
   h.service.put(definition());
   const run = h.service.trigger("triage", { key: "crash", variables: { subject: "issues" } });
   h.restart();
-  // Drain the recovery boundary without time-based synchronization.
-  await Promise.resolve();
-  await Promise.resolve();
+  await h.nextExecution(1);
   expect(h.inputs.map((i) => i.idempotencyKey)).toEqual([run.id, run.id]);
   await h.finish(1);
   h.completions[0]?.resolve({ threadId: "old", status: "succeeded", result: "old" });
