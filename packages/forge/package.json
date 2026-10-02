@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "bench": "node bench/forge.ts"
+    "bench": "node bench/forge.ts && node bench/status.ts"
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",

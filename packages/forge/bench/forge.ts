@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { performance } from "node:perf_hooks";
-import { ForgeStore, LogTail, mapCheck, reviewCandidates } from "../src/index.ts";
+import { ForgeStore, LogTail, mapCheck, ReviewIndex } from "../src/index.ts";
 import type { ForgePrStatus } from "@ace/protocol/forge";
 
 const repository = { forge: "github", host: "github.com", owner: "octo", name: "ace" } as const;
@@ -56,8 +56,38 @@ function measure(name: string, count: number, action: (index: number) => void): 
 measure("check mapping", 100_000, () => {
   checksum += mapCheck(check).name.length;
 });
-measure("review candidate diff, 2 records", 100_000, () => {
-  checksum += reviewCandidates(link, status, ignored).length;
+const reviewIndex = new ReviewIndex({ link, generation: 1 }, ignored);
+reviewIndex.update(status);
+for (const candidate of reviewIndex.pending()) reviewIndex.observe(candidate.key);
+measure("unchanged review index, 2 records", 1_000_000, () => {
+  reviewIndex.update(status);
+  checksum++;
+});
+const large = {
+  ...status,
+  checks: [],
+  comments: Array.from({ length: 2_000 }, (_, index) => ({
+    ...status.comments[0],
+    kind: "issue" as const,
+    id: index + 1,
+    body: `Review ${index}`,
+    author: "alice",
+    file: null,
+    line: null,
+    updatedAt: "now",
+    replyTo: null,
+  })),
+};
+const largeIndex = new ReviewIndex({ link, generation: 1 }, ignored);
+largeIndex.update(large);
+for (const candidate of largeIndex.pending()) largeIndex.observe(candidate.key);
+measure("unchanged review index, 2000 records", 1_000_000, () => {
+  largeIndex.update(large);
+  checksum++;
+});
+measure("metadata-only revision, 2000 unchanged records", 100_000, (index) => {
+  largeIndex.update({ ...large, title: String(index) });
+  checksum++;
 });
 const chunk = Buffer.from("compiler diagnostic line\n".repeat(2_000));
 const tail = new LogTail();
@@ -72,6 +102,7 @@ measure("SQLite intent admission and acknowledgement", 10_000, (index) => {
   const intent = {
     type: "auto-fix",
     key: String(index),
+    linkGeneration: 1,
     link,
     headSha: status.headSha,
     context: { type: "review", comment: status.comments[0] },
