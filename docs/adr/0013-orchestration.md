@@ -40,7 +40,12 @@ Lane completion needs an aggregate thread `done`, an artifact, successful
 command checks, and successful optional agent review. A parent also waits for
 its descendants. Cancellation is an intent, not proof of termination. A run
 stays cancelling until every started lane acknowledges that its entire thread
-has stopped. Failures retry within a template limit; usage accumulates across
+has stopped. Stop receipts carry the cancellation intent ID. A revived lane
+under a stop reason gets fresh cancellation ownership, and cancelling ancestors
+keep their phase. Descendant revival invalidates pending and accepted ancestor
+checks. Matching start receipts bind independently of earlier status facts,
+without regressing phase; conflicting bindings are rejected.
+Failures retry within a template limit; usage accumulates across
 attempts. Budgets cover elapsed time, tokens, reported monetary cost, total
 lanes, retries, and coordinator depth. Missing provider cost remains unknown;
 monetary limits apply to reported usage, not estimated subscription charges.
