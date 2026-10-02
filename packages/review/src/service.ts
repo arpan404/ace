@@ -39,19 +39,54 @@ export class ReviewService {
   }
   handle(input: unknown, worktree?: string): Promise<CommandResult> {
     const command = Command.parse(input);
+    if (
+      command.payload.type === "review.list" &&
+      this.store.receipt(command.id, command.deviceId)?.error !== "review_recovery_required"
+    ) {
+      return this.admit(command, () => this.executeCommand(command, worktree));
+    }
+    return this.submit(command, () => this.executeCommand(command, worktree));
+  }
+  /** Inspect a pending host receipt without ever starting a new effect. */
+  recover(input: unknown): Promise<CommandResult> {
+    const command = Command.parse(input);
+    return this.submit(
+      command,
+      () =>
+        this.store.receipt(command.id, command.deviceId) ?? {
+          commandId: command.id,
+          ok: false,
+          error: "review_recovery_required",
+        },
+    );
+  }
+  private submit(
+    command: Command,
+    run: () => CommandResult | Promise<CommandResult>,
+  ): Promise<CommandResult> {
+    return this.admit(command, () => {
+      const result = this.tail.then(run);
+      this.tail = result.then(
+        () => {},
+        () => {},
+      );
+      return result;
+    });
+  }
+  private admit(command: Command, run: () => Promise<CommandResult>): Promise<CommandResult> {
     if (this.admitted >= 16)
       return Promise.resolve({ commandId: command.id, ok: false, error: "review_busy" });
     this.admitted++;
-    const result = this.tail.then(() => this.executeCommand(command, worktree));
-    this.tail = result
-      .then(
-        () => {},
-        () => {},
-      )
-      .finally(() => {
-        this.admitted--;
-      });
-    return result;
+    let result: Promise<CommandResult>;
+    try {
+      result = run();
+    } catch (error) {
+      this.admitted--;
+      return Promise.reject(error);
+    }
+    return result.finally(() => {
+      this.admitted--;
+    });
   }
   private async executeCommand(input: unknown, worktree?: string): Promise<CommandResult> {
     const command = Command.parse(input);

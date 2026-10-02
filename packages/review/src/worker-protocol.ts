@@ -8,6 +8,7 @@ import {
 } from "@ace/protocol";
 const key = z.number().int().positive();
 export const WorkerInput = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("receipt"), key, command: Command }),
   z.object({
     type: z.literal("command"),
     key,

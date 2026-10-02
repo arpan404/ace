@@ -156,3 +156,75 @@ it("the engine completion port marks touched findings pending review", async () 
     await repo.close();
   }
 });
+
+it("reviews remain readable while a reviewer is waiting and excess work gets backpressure", async () => {
+  const repo = await repository();
+  let started: (() => void) | undefined;
+  let finish: ((value: unknown) => void) | undefined;
+  const entered = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const output = new Promise<unknown>((resolve) => {
+    finish = resolve;
+  });
+  const worker = new ReviewWorker(repo.directory + "/worker.sqlite", {
+    async fix() {},
+    async review() {
+      started?.();
+      return output;
+    },
+  });
+  try {
+    const opened = await worker.handle(
+      repo.command({ type: "review.open", source: repo.session.source }),
+      repo.root,
+    );
+    const sessionId = opened.review?.session?.id;
+    const reviewing = worker.handle(
+      repo.command({ type: "review.askReviewer", sessionId, threadId: "thread" }),
+    );
+    await entered;
+    expect(
+      (await worker.handle(repo.command({ type: "review.list", sessionId }))).review?.comments,
+    ).toEqual([]);
+    const queued = Array.from({ length: 15 }, () =>
+      worker.handle(repo.command({ type: "review.status", sessionId, status: "open" })),
+    );
+    expect(await worker.handle(repo.command({ type: "review.list", sessionId }))).toMatchObject({
+      ok: false,
+      error: "review_busy",
+    });
+    finish?.({ comments: [] });
+    expect((await reviewing).ok).toBe(true);
+    expect((await Promise.all(queued)).every((result) => result.ok)).toBe(true);
+  } finally {
+    finish?.({ comments: [] });
+    await worker.close();
+    await repo.close();
+  }
+});
+it("receipt recovery never starts an unknown effect and returns completed work", async () => {
+  const repo = await repository();
+  const worker = new ReviewWorker(repo.directory + "/worker.sqlite");
+  try {
+    const command = repo.command(
+      { type: "review.open", source: repo.session.source },
+      "recover-open",
+    );
+    expect(await worker.recover(command)).toMatchObject({
+      ok: false,
+      error: "review_recovery_required",
+    });
+    expect((await worker.handle(repo.command({ type: "review.list" }))).review?.sessions).toEqual(
+      [],
+    );
+    const completed = await worker.handle(command, repo.root);
+    expect(await worker.recover(command)).toEqual(completed);
+    expect(
+      (await worker.handle(repo.command({ type: "review.list" }))).review?.sessions,
+    ).toHaveLength(1);
+  } finally {
+    await worker.close();
+    await repo.close();
+  }
+});

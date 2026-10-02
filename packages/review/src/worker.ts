@@ -34,8 +34,6 @@ const service = new ReviewService({
       }
     : {}),
 });
-let tail = Promise.resolve();
-let admitted = 0;
 port.on("message", (input: unknown) => {
   const message = WorkerInput.parse(input);
   if (message.type === "execution") {
@@ -45,26 +43,14 @@ port.on("message", (input: unknown) => {
     execution = undefined;
     return;
   }
-  if (admitted >= 16) {
-    port.postMessage({
-      type: "result",
-      key: message.key,
-      result: { commandId: message.command.id, ok: false, error: "review_busy" },
-    });
-    return;
-  }
-  admitted++;
-  tail = tail
-    .then(async () => {
-      let result;
-      try {
-        result = await service.handle(message.command, message.worktree);
-      } catch {
-        result = { commandId: message.command.id, ok: false, error: "review_rejected" };
-      }
-      port.postMessage({ type: "result", key: message.key, result });
-    })
-    .finally(() => {
-      admitted--;
-    });
+  const run = async () => {
+    try {
+      return message.type === "receipt"
+        ? await service.recover(message.command)
+        : await service.handle(message.command, message.worktree);
+    } catch {
+      return { commandId: message.command.id, ok: false, error: "review_rejected" };
+    }
+  };
+  void run().then((result) => port.postMessage({ type: "result", key: message.key, result }));
 });

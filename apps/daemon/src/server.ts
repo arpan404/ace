@@ -1,4 +1,4 @@
-import type { ReviewPort } from "./review.ts";
+import { dispatchReviewCommand, type ReviewPort } from "./review.ts";
 import type { ModelCatalogApi } from "@ace/models";
 import { handleModelRequest } from "./models.ts";
 import { randomUUID } from "node:crypto";
@@ -424,7 +424,11 @@ export async function startServer(options: ServerOptions): Promise<{
                 fail("reviews_unavailable", "Reviews unavailable");
                 break;
               }
-              const result = await options.review.handle(message.command);
+              const result = await dispatchReviewCommand(
+                options.review,
+                options.store,
+                message.command,
+              );
               if (socket.readyState === WebSocket.OPEN && authenticated.has(socket))
                 send({ type: "commandResult", ...result });
               break;

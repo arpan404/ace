@@ -26,11 +26,18 @@ it("routes authenticated review reads through the worker and rejects unregistere
       type: "command",
       command: Command.parse({ id: "list", deviceId: "device", payload: { type: "review.list" } }),
     });
-    expect(await client.next()).toMatchObject({
-      type: "commandResult",
-      ok: true,
-      review: { sessions: [] },
+    const listed = await client.next();
+    expect(listed).toMatchObject({ type: "commandResult", ok: true, review: { sessions: [] } });
+    client.send({
+      type: "command",
+      command: Command.parse({
+        id: "list",
+        deviceId: "device",
+        payload: { type: "thread.archive", threadId: f.thread.id },
+      }),
     });
+    expect(await client.next()).toEqual(listed);
+    expect(f.store.getThread(f.thread.id)?.archivedAt).toBeUndefined();
     client.send({
       type: "command",
       command: Command.parse({
@@ -159,3 +166,52 @@ it("daemon review follows a thread's isolated worktree and refreshes when its fi
     await rm(directory, { recursive: true, force: true });
   }
 }, 30_000);
+
+it("a pending daemon receipt recovers its durable worker result without replaying an effect", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ace-review-receipt-"));
+  let review: ReturnType<typeof createDaemonReview> | undefined;
+  const f = await fixture({
+    review: {
+      handle: (command) => {
+        if (!review) throw new Error("Missing review");
+        return review.handle(command);
+      },
+      recover: (command) => {
+        if (!review) throw new Error("Missing review");
+        return review.recover(command);
+      },
+    },
+  });
+  review = createDaemonReview(directory, f.store);
+  try {
+    const command = Command.parse({
+      id: "recover",
+      deviceId: "device",
+      payload: { type: "review.list" },
+    });
+    const completed = await review.handle(command);
+    f.store.recordCommand(command.id, command.deviceId, () => ({
+      commandId: command.id,
+      ok: false,
+      error: "review_pending",
+    }));
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "command", command });
+    expect(await client.next()).toEqual({ type: "commandResult", ...completed });
+    client.send({
+      type: "command",
+      command: Command.parse({
+        id: "recover",
+        deviceId: "device",
+        payload: { type: "thread.archive", threadId: f.thread.id },
+      }),
+    });
+    expect(await client.next()).toEqual({ type: "commandResult", ...completed });
+    expect(f.store.getThread(f.thread.id)?.archivedAt).toBeUndefined();
+  } finally {
+    await review.close();
+    await f.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

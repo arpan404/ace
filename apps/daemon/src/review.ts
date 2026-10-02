@@ -5,6 +5,7 @@ import type { Store } from "./store.ts";
 
 export interface ReviewPort {
   handle(command: Command): Promise<CommandResult>;
+  recover?(command: Command): Promise<CommandResult>;
 }
 export interface DaemonReviewOptions {
   executor?: ReviewExecutor;
@@ -44,7 +45,28 @@ export function createDaemonReview(
         return Promise.resolve({ commandId: command.id, ok: false, error: "thread_not_found" });
       return worker.handle(command);
     },
+    recover: (command: Command) => worker.recover(command),
     afterFix: (sessionId: string, requestId: string) => worker.afterFix(sessionId, requestId),
     close: () => worker.close(),
   };
+}
+
+/** Reserve one host-wide command id before leaving the synchronous receipt boundary. */
+export async function dispatchReviewCommand(
+  port: ReviewPort,
+  store: Store,
+  command: Command,
+): Promise<CommandResult> {
+  let reserved = false;
+  const previous = store.recordCommand(command.id, command.deviceId, () => {
+    reserved = true;
+    return { commandId: command.id, ok: false, error: "review_pending" };
+  });
+  if (!reserved && previous.error !== "review_pending") return previous;
+  const result = reserved
+    ? await port.handle(command)
+    : port.recover
+      ? await port.recover(command)
+      : previous;
+  return store.completeReviewCommand(command.id, command.deviceId, result);
 }

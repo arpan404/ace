@@ -61,6 +61,16 @@ export class ReviewWorker {
     });
   }
   handle(input: unknown, worktree?: string): Promise<CommandResult> {
+    return this.request("command", input, worktree);
+  }
+  recover(input: unknown): Promise<CommandResult> {
+    return this.request("receipt", input);
+  }
+  private request(
+    type: "command" | "receipt",
+    input: unknown,
+    worktree?: string,
+  ): Promise<CommandResult> {
     if (this.closed) return Promise.reject(new Error("Review worker closed"));
     const command = Command.parse(input);
     if (this.pending.size >= 16)
@@ -68,7 +78,7 @@ export class ReviewWorker {
     const key = ++this.key;
     return new Promise((resolve, reject) => {
       this.pending.set(key, { resolve, reject });
-      this.worker.postMessage({ type: "command", key, command, ...(worktree ? { worktree } : {}) });
+      this.worker.postMessage({ type, key, command, ...(worktree ? { worktree } : {}) });
     });
   }
   /** The engine calls this only after the fixing agent's whole tree settles. */

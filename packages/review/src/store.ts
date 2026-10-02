@@ -126,14 +126,17 @@ export class ReviewStore {
       .map((r) => ReviewSession.parse(JSON.parse(String(r.data))));
     return { sessions, nextCursor: sessions.at(-1)?.id ?? "" };
   }
-  begin(id: CommandId, device: string): CommandResult | undefined {
+  receipt(id: CommandId, device: string): CommandResult | undefined {
     const row = this.statements.receipt.get(id);
-    if (row) {
-      if (row.device !== device) throw new Error("review_receipt_device_mismatch");
-      return row.result === null
-        ? { commandId: id, ok: false, error: "review_recovery_required" }
-        : CommandResult.parse(JSON.parse(String(row.result)));
-    }
+    if (!row) return undefined;
+    if (row.device !== device) throw new Error("review_receipt_device_mismatch");
+    return row.result === null
+      ? { commandId: id, ok: false, error: "review_recovery_required" }
+      : CommandResult.parse(JSON.parse(String(row.result)));
+  }
+  begin(id: CommandId, device: string): CommandResult | undefined {
+    const receipt = this.receipt(id, device);
+    if (receipt) return receipt;
     this.statements.begin.run(id, device);
     return undefined;
   }
