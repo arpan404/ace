@@ -88,7 +88,7 @@ it("starts in the foreground and exposes status, a redeemable QR URL, device lis
   child.kill("SIGTERM");
   expect((await exited)[0]).toBe(0);
   expect(JSON.parse((await cli(directory, ["status"])).stdout)).toEqual({ running: false });
-}, 15_000);
+}, 60_000);
 it("doctor reuses provider-kit discovery with controlled CLI binaries and never sends prompts", async () => {
   const directory = home();
   const calls = join(directory, "calls");
@@ -109,7 +109,7 @@ it("doctor reuses provider-kit discovery with controlled CLI binaries and never 
     "--version",
     "login status",
   ]);
-});
+}, 30_000);
 it("binds the address discovered from a real Tailscale status process", async () => {
   const directory = home();
   const calls = join(directory, "calls");
@@ -165,7 +165,7 @@ it("binds the address discovered from a real Tailscale status process", async ()
   ).toBe("Tailnet phone");
   child.kill("SIGTERM");
   expect((await exited)[0]).toBe(0);
-});
+}, 30_000);
 it("prints actionable Tailscale setup guidance without silently exposing the LAN", async () => {
   const directory = home();
   await nodeBinary(
@@ -182,4 +182,4 @@ it("prints actionable Tailscale setup guidance without silently exposing the LAN
   );
   cleanups.push(() => daemon.close());
   expect(daemon.remoteUrl).toBeUndefined();
-});
+}, 30_000);

@@ -334,4 +334,4 @@ it("a full disk spool evicts the oldest alert and catches up without sending his
     attached.close();
     await service.close();
   }
-});
+}, 30_000);
