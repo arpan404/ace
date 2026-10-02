@@ -111,7 +111,7 @@ export class AccountService {
     try {
       const session = await adapter.openSession({
         ...context,
-        env: instanceEnv(chosen, this.env),
+        env: instanceEnv(chosen, { ...this.env, ...context.env }),
         onFrame: (frame) => {
           const envelope = object(frame.data);
           const body = object(envelope["params"] ?? envelope);

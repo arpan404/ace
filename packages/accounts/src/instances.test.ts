@@ -1,3 +1,4 @@
+import { nodeBinary } from "@ace/provider-kit/testing";
 import { afterEach, expect, test } from "vitest";
 import { mkdir, writeFile, readFile, lstat } from "node:fs/promises";
 import { join } from "node:path";
@@ -16,10 +17,10 @@ const instance = (provider: "codex" | "claude" | "opencode" | "cursor") =>
 
 async function fakeClis(root: string) {
   for (const command of ["codex", "claude", "opencode", "agent"]) {
-    await writeFile(
-      join(root, command),
-      `#!${process.execPath}\nimport fs from 'node:fs';\nimport path from 'node:path';\nconst command = path.basename(process.argv[1]);\nconst args = process.argv.slice(2);\nconst home = command === 'codex' ? process.env.CODEX_HOME : command === 'claude' ? process.env.CLAUDE_CONFIG_DIR : command === 'agent' ? (process.env.AGENT_CLI_CREDENTIAL_STORE === 'file' && process.env.HOME?.startsWith(${JSON.stringify(root)}) ? path.join(process.env.HOME,'.cursor') : path.join(${JSON.stringify(root)},'global-cursor')) : path.join(process.env.XDG_DATA_HOME, 'opencode');\nif (args[0] === '--version') {console.log(command === 'agent' ? '2026.09.26-dd393fe' : '2.1.286');}\nelse if (args.includes('login') && !args.includes('status')) {fs.mkdirSync(home,{recursive:true});fs.writeFileSync(path.join(home,'logged-in'),JSON.stringify(args));}\nelse {const yes = fs.existsSync(path.join(home,'logged-in'));console.log(command === 'claude' ? JSON.stringify({loggedIn:yes}) : command === 'opencode' ? (yes ? '1 credential' : '0 credentials') : (yes ? 'Logged in using ChatGPT' : 'Not logged in'));}\n`,
-      { mode: 0o755 },
+    await nodeBinary(
+      root,
+      command,
+      `const fs = require('node:fs');\nconst path = require('node:path');\nconst command = path.basename(process.argv[1]);\nconst args = process.argv.slice(2);\nconst home = command === 'codex' ? process.env.CODEX_HOME : command === 'claude' ? process.env.CLAUDE_CONFIG_DIR : command === 'agent' ? (process.env.AGENT_CLI_CREDENTIAL_STORE === 'file' && process.env.HOME?.startsWith(${JSON.stringify(root)}) ? path.join(process.env.HOME,'.cursor') : path.join(${JSON.stringify(root)},'global-cursor')) : path.join(process.env.XDG_DATA_HOME, 'opencode');\nif (args[0] === '--version') {console.log(command === 'agent' ? '2026.09.26-dd393fe' : '2.1.286');}\nelse if (args.includes('login') && !args.includes('status')) {fs.mkdirSync(home,{recursive:true});fs.writeFileSync(path.join(home,'logged-in'),JSON.stringify(args));}\nelse {const yes = fs.existsSync(path.join(home,'logged-in'));console.log(command === 'claude' ? JSON.stringify({loggedIn:yes}) : command === 'opencode' ? (yes ? '1 credential' : '0 credentials') : (yes ? 'Logged in using ChatGPT' : 'Not logged in'));}\n`,
     );
   }
 }
@@ -220,7 +221,7 @@ test("checking one account does not execute unrelated provider programs", async 
   for (const command of ["claude", "opencode", "agent"])
     await writeFile(
       join(root, command),
-      `#!${process.execPath}\nimport fs from 'node:fs';fs.writeFileSync(${JSON.stringify(sentinel)},'unrelated provider ran');`,
+      `#!${process.execPath}\nconst fs = require('node:fs');fs.writeFileSync(${JSON.stringify(sentinel)},'unrelated provider ran');`,
       { mode: 0o755 },
     );
   const account = createInstance({

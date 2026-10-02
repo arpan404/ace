@@ -61,8 +61,8 @@ async function main(args: string[]): Promise<void> {
   const command = args[0] ?? "start";
   if (command === "start") {
     if (args.length > 1) throw new Error("Usage: ace start");
-    const development = process.env.ACE_DEV === "1";
     const { startDaemon } = await import("./index.ts");
+    const development = process.env.ACE_DEV === "1";
     const daemon = await startDaemon(config, stubHandler({ development }));
     try {
       if (development && daemon.store.listThreads().length === 0)

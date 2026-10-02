@@ -39,7 +39,7 @@ test("adapter launches use the assigned home and update only that account quota"
         command: process.execPath,
         args: [
           "-e",
-          "console.log(process.env.CODEX_HOME+'|'+(process.env.OPENAI_API_KEY??''));process.stdin.resume()",
+          "console.log(process.env.CODEX_HOME+'|'+(process.env.OPENAI_API_KEY??'')+'|'+process.env.ACE_SESSION_LABEL);process.stdin.resume()",
         ],
         env: ctx.env ?? {},
         name: "fake-account-adapter",
@@ -67,13 +67,17 @@ test("adapter launches use the assigned home and update only that account quota"
     },
   };
   try {
-    const opened = await service.openSession(adapter, context, {
-      instanceId: request.from.id,
-      role: "worker",
-      estimatedLoad: 1,
-    });
+    const opened = await service.openSession(
+      adapter,
+      { ...context, env: { ACE_SESSION_LABEL: "session-only", CODEX_HOME: "/wrong/session" } },
+      {
+        instanceId: request.from.id,
+        role: "worker",
+        estimatedLoad: 1,
+      },
+    );
     try {
-      expect(await ready).toBe(`${await realpath(request.from.homeDir)}|`);
+      expect(await ready).toBe(`${await realpath(request.from.homeDir)}||session-only`);
       expect(registry.summaries(1000).find((a) => a.id === request.from.id)?.availability).toBe(
         "exhausted",
       );
