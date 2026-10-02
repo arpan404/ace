@@ -151,3 +151,37 @@ CI was executed. The full repository runtime gate still needs run at merge.
 | Drop model handlers from server routing    | Authenticated correlated model requests resolve   | not executed (tests run at merge) |
 | Drop settings handlers from server routing | Authenticated settings requests assign and stream | not executed (tests run at merge) |
 | Drop shared device-scope checks            | Read-only/operate-only settings permissions hold  | not executed (tests run at merge) |
+
+## Diagnostics and payload/model audit integration
+
+Merged main `46eb036` without rebasing. All seven conflicts retain both sides:
+NOTICE paragraphs, daemon dependencies, settings/diagnostics imports and service
+ownership, protocol exports, process-suite lists and the regenerated lockfile.
+The lockfile started from main, then `bun install` restored the settings entries
+and completed the workspace native build. Main's logger, redaction, health
+monitor, model catalog, notification worker, MCP and remote services remain wired
+alongside settings. Server cleanup cancels settings and releases pending health
+after the shared idempotence guard. No local authorization stand-in was needed;
+settings keeps using the main device-scope API. No integration rehearsal findings
+comment was present in either issue comments or review bodies.
+
+Added a public socket regression proving that a pending health measurement does
+not block settings reads, and shutdown frees both health accounting and an
+actual settings subscription admission slot. It uses real files and WebSockets,
+injected health completion and the existing 1,024-subscription limit, without
+sleeps or elapsed-time assertions.
+
+Under the merge-conflict exception, nine daemon files ran: settings.server,
+settings.remote, diagnostics.server, lifecycle, models.server,
+notification-shutdown, server, pressure and outbox-work. All **9 files / 56 tests
+passed**, including the new combined-service regression. Formatting, lint,
+workspace typechecks and file-size checks pass across **618** source files.
+Full-suite/aggregate-check execution, CI, Docker, benchmarks and mutation runs
+remain deferred; the complete runtime gate needs run at merge.
+
+| Integration mutation case                             | Public guarding behavior                                        | Status                            |
+| ----------------------------------------------------- | --------------------------------------------------------------- | --------------------------------- |
+| Omit pending health release on cleanup                | Joint settings/health shutdown leaves no pending health request | not executed (tests run at merge) |
+| Omit settings subscription disposal on socket cleanup | Joint shutdown restores a settings service admission slot       | not executed (tests run at merge) |
+| Block socket processing on the health promise         | Settings read completes while health is still pending           | not executed (tests run at merge) |
+| Drop settings or health wire handlers                 | Joint authenticated socket accepts both request families        | not executed (tests run at merge) |

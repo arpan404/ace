@@ -19,12 +19,14 @@
     "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {
+    "@ace/diagnostics": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "@ace/redaction": "workspace:*",
     "@ace/settings": "workspace:*",
     "qrcode-generator": "2.0.4",
     "ws": "^8.18.3",
