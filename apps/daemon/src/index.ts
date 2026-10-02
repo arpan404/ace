@@ -1,3 +1,5 @@
+import type { ModelCatalog, InstanceInput } from "@ace/models";
+import { openDaemonModels } from "./models.ts";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
@@ -15,10 +17,18 @@ export { readConfig } from "./config.ts";
 export async function startDaemon(
   config: Config = readConfig(),
   handler: CommandHandler = stubHandler(),
-): Promise<{ url: string; tokenPath: string; store: Store; close(): Promise<void> }> {
+  modelInstances: readonly InstanceInput[] = [],
+): Promise<{
+  url: string;
+  tokenPath: string;
+  store: Store;
+  models: ModelCatalog;
+  close(): Promise<void>;
+}> {
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
   let store: Store | undefined;
+  let models: ModelCatalog | undefined;
   try {
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
@@ -26,12 +36,15 @@ export async function startDaemon(
       log("error", "Event subscriber failed", error),
     );
     const ownedStore = store;
+    models = openDaemonModels(config.dataDir, modelInstances);
+    const ownedModels = models;
     const server = await startServer({
       port: config.port,
       token,
       hostId,
       store,
       handler,
+      models,
       log: (error) => log("error", "WebSocket failure", error),
     });
     let closing: Promise<void> | undefined;
@@ -39,13 +52,18 @@ export async function startDaemon(
       url: server.url,
       tokenPath,
       store,
+      models,
       close() {
         closing ??= (async () => {
           try {
             await server.close();
           } finally {
             try {
-              ownedStore.close();
+              try {
+                await ownedModels.close();
+              } finally {
+                ownedStore.close();
+              }
             } finally {
               unlock();
             }
@@ -56,7 +74,11 @@ export async function startDaemon(
     };
   } catch (error) {
     try {
-      store?.close();
+      try {
+        await models?.close();
+      } finally {
+        store?.close();
+      }
     } finally {
       unlock();
     }

@@ -1,10 +1,11 @@
+import { readModelInstances } from "./models.ts";
 import { readConfig } from "./config.ts";
 import { startDaemon } from "./index.ts";
 import { createDevThread, stubHandler } from "./commands.ts";
 
 const config = readConfig();
 const development = process.env.ACE_DEV === "1";
-const daemon = await startDaemon(config, stubHandler({ development }));
+const daemon = await startDaemon(config, stubHandler({ development }), readModelInstances());
 try {
   if (development && daemon.store.listThreads().length === 0) {
     const workspace = daemon.store.createWorkspace(process.cwd(), "Development");

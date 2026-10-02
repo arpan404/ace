@@ -11,9 +11,11 @@
     "dev": "node src/cli.ts"
   },
   "dependencies": {
+    "@ace/models": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1"

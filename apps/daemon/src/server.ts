@@ -1,3 +1,5 @@
+import type { ModelCatalogApi } from "@ace/models";
+import { handleModelRequest } from "./models.ts";
 import { WebSocket, WebSocketServer } from "ws";
 import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
@@ -7,6 +9,7 @@ import type { Store } from "./store.ts";
 import { subscribe } from "./subscription.ts";
 
 export interface ServerOptions {
+  models?: ModelCatalogApi;
   port: number;
   token: string;
   hostId: string;
@@ -31,6 +34,7 @@ export async function startServer(
   const cleanups = new Map<WebSocket, () => void>();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket) => {
+    let modelRequests = 0;
     let device: DeviceId | undefined;
     let lastActivity = Date.now();
     const subscriptions = new Map<string, () => void>();
@@ -91,6 +95,31 @@ export async function startServer(
         return;
       }
       switch (message.type) {
+        case "models.list":
+        case "models.resolve":
+        case "models.refresh": {
+          const modelFailure = (reason: string) =>
+            send({
+              type: "models.result",
+              requestId: message.requestId,
+              result: { ok: false, reason },
+            });
+          if (!options.models) {
+            modelFailure("Model catalog is not configured");
+            break;
+          }
+          if (modelRequests >= 8) {
+            modelFailure("Too many catalog requests");
+            break;
+          }
+          modelRequests++;
+          void handleModelRequest(options.models, message)
+            .then(send, () => modelFailure("Model catalog request failed"))
+            .finally(() => {
+              modelRequests--;
+            });
+          break;
+        }
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;
