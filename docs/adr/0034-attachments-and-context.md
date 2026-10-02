@@ -42,10 +42,18 @@ Public API tests use real Git repositories, symlinks, temporary SQLite databases
 
 ## Implementation notes
 
-Remote access PR #13 was merged into this branch. Read operations require the paired device's read scope; upload/release operations require operate. Pending upload work rechecks the transport access callback before writing. Relay and workspace-service work have not landed, so the narrow interfaces remain.
+Remote access PR #13 was merged into this branch. Read operations require the paired device's read scope; upload/release operations require operate. Pending upload work rechecks the transport access callback before writing. The latest main merge also includes relay and notifications. The additive context messages use the same daemon transport contract. Workspace-service work has not landed, so its narrow interface remains.
 
 Image-size 2.0.2 is accepted under MIT for bounded header parsing, with attribution in NOTICE. Metadata walks additionally validate PNG/GIF/WebP framing and PNG IHDR CRC. Animated images are rejected to keep the pixel cap meaningful across the whole image. Raster validity is left to the provider decoder; ace never inflates pixels. Long JPEG metadata, non-Git workspaces and all symlink mentions fail conservatively. Line selections operate on the bounded file prefix and report unavailable ranges.
 
 Folder reference counts and child indexes make normal watcher changes proportional to changed paths and subtree enumeration proportional to its descendants. Completion includes folder chips as well as files. Upload GC preserves the renamed blob of a pending commit until recovery or expiry. A released reference cannot be revived by replaying an old completed commit.
 
 The current daemon's command port is synchronous and provider execution has not landed. The additive message context field is preserved for the future intent worker; `startDaemon().context.compose()` is the tested asynchronous preparation hook. Thread deletion must call `releaseThread()` before its owner removes the thread. These lifecycle hooks are explicit rather than introducing another engine in the context package.
+
+## Review corrections
+
+Composition now atomically acquires a bounded process-local lease for every attachment before any preparation I/O. It returns `release()` for the intent worker to call after provider consumption, including failure or cancellation. Preparation errors release automatically. GC excludes leased hashes through an indexed temporary SQLite table; thread release does not invalidate an active provider path. Leases end at daemon shutdown and are not a durable provider-session mechanism. Admission caps active leases at 128, each with at most 64 references.
+
+Base64 validation checks characters and canonical padding in one linear pass with constant auxiliary memory. WebP container validation checks VP8 and VP8L frame headers against the previously bounded canvas. Subtree updates remove deleted and ignored tracked descendants before publishing. Cached completion uses the current index during watcher churn. Git byte streams reuse provider-kit's process-group owner, with injected spawning, cancellation, bounded output and deadlines; rejection awaits reaping.
+
+Durability fault injection verifies that a failed chunk sync cannot advance an acknowledged offset across reopen. A PNG with oversized dimensions and corrupt compressed data verifies dimension rejection takes precedence over inflation failure. These tests do not claim to simulate power loss or prove raster validity. Socket overlap tests use a ping response as an ordering barrier and fail an assertion when the busy response is missing.

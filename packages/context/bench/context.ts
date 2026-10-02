@@ -5,7 +5,13 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { GitWorkspace, UploadStore, resolveMentions, projectAttachments } from "../src/index.ts";
+import {
+  GitWorkspace,
+  WorkspaceCache,
+  UploadStore,
+  resolveMentions,
+  projectAttachments,
+} from "../src/index.ts";
 
 const run = promisify(execFile);
 const root = await realpath(await mkdtemp(join(tmpdir(), "ace-context-bench-")));
@@ -44,6 +50,40 @@ try {
   for (let i = 0; i < 20; i++)
     await resolveMentions(workspace, [{ path: "package-1/component-100.ts" }]);
   const mentionUs = ((performance.now() - start) * 1000) / 20;
+  start = performance.now();
+  for (let i = 0; i < 20; i++) await workspace.update([`package-${i}`]);
+  const subtreeUpdateUs = ((performance.now() - start) * 1000) / 20;
+  const entered = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  const cache = new WorkspaceCache(4, (workspaceRoot) => ({
+    root: workspaceRoot,
+    get index() {
+      return workspace.index;
+    },
+    initialize: () => workspace.initialize(),
+    inspect: (path) => workspace.inspect(path),
+    read: (path, limit) => workspace.read(path, limit),
+    update: async (paths) => {
+      entered.resolve();
+      await release.promise;
+      await workspace.update(paths);
+    },
+  }));
+  const cachedSamples: number[] = [];
+  try {
+    await cache.get(root);
+    await writeFile(join(root, "package-0", "changed.ts"), "change");
+    await entered.promise;
+    for (let i = 0; i < 600; i++) {
+      start = performance.now();
+      (await cache.get(root)).index.complete(queries[i % queries.length] ?? "", 20);
+      cachedSamples.push((performance.now() - start) * 1000);
+    }
+  } finally {
+    release.resolve();
+    await cache.close();
+  }
+  cachedSamples.sort((a, b) => a - b);
   store = await UploadStore.open({
     root: join(root, ".git", "context"),
     now: Date.now,
@@ -69,6 +109,28 @@ try {
     await store.handle("device", { op: "upload.chunk", uploadId: begin.uploadId, offset, data });
   await store.handle("device", { op: "upload.commit", uploadId: begin.uploadId });
   const uploadMiBs = 16 / ((performance.now() - start) / 1000);
+  start = performance.now();
+  for (let i = 0; i < 1000; i++) {
+    const lease = await store.acquire("device", "thread", [sha256]);
+    lease.release();
+  }
+  const leaseUs = ((performance.now() - start) * 1000) / 1000;
+  const document = {
+    path: "/repo/large.pdf",
+    name: "large.pdf",
+    mimeType: "application/pdf",
+    base64: Buffer.alloc(4 * 1024 * 1024).toString("base64"),
+  };
+  start = performance.now();
+  for (let i = 0; i < 20; i++)
+    projectAttachments([document], {
+      provider: "claude",
+      images: [],
+      documents: ["application/pdf"],
+      embeddedContext: false,
+      maxInlineBytes: 4 * 1024 * 1024,
+    });
+  const projection4MiBUs = ((performance.now() - start) * 1000) / 20;
   const prepared = Array.from({ length: 64 }, () => ({
     path: "/repo/a.png",
     name: "a.png",
@@ -101,6 +163,11 @@ try {
         completionMedianUs: samples[Math.floor(samples.length / 2)],
         completionP95Us: samples[Math.floor(samples.length * 0.95)],
         updateUs,
+        subtreeUpdateUs,
+        cachedCompletionDuringUpdateMedianUs: cachedSamples[300],
+        cachedCompletionDuringUpdateP95Us: cachedSamples[570],
+        leaseUs,
+        projection4MiBUs,
         mentionUs,
         uploadMiBs,
         projection64Us: projectionUs,
