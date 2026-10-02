@@ -1,5 +1,11 @@
 import { z } from "zod";
 import {
+  ModelsListRequest,
+  ModelsRefreshRequest,
+  ModelsResolveRequest,
+  ModelsResult,
+} from "./models.ts";
+import {
   PresenceUpdate,
   NotificationRegister,
   NotificationSettings,
@@ -64,6 +70,9 @@ export const ItemsPage = z.object({
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  ModelsListRequest,
+  ModelsRefreshRequest,
+  ModelsResolveRequest,
   PresenceUpdate,
   NotificationRegister,
   NotificationSettings,
@@ -112,6 +121,7 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  ModelsResult,
   NotificationMessage,
   z.object({
     type: z.literal("welcome"),
