@@ -21,6 +21,8 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
     host: "127.0.0.1",
     port: 0,
     logLevel: "silent",
+    listen: "local",
+    remotePort: 0,
   } satisfies Parameters<typeof startDaemon>[0];
   let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
   let socket: WebSocket | undefined;

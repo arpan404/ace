@@ -8,7 +8,8 @@
     "./jsonrpc": "./src/jsonrpc.ts",
     "./sse": "./src/sse.ts",
     "./discovery": "./src/discovery/index.ts",
-    "./process-bytes": "./src/process-bytes.ts"
+    "./process-bytes": "./src/process-bytes.ts",
+    "./testing": "./src/testing/cli.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
