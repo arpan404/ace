@@ -37,7 +37,9 @@ export async function nestedPaths(
 ): Promise<string[]> {
   const paths = new Set(tracked.filter((e) => e.mode === "160000").map((e) => e.path));
   for (const entry of tracked) {
-    for (const ancestor of pathAncestors(entry.path).slice(0, -1)) paths.add(ancestor);
+    // A tracked file can now be a repository directory. Check the path itself
+    // without asking Git to run parent clean filters via --modified.
+    for (const ancestor of pathAncestors(entry.path)) paths.add(ancestor);
   }
   const untracked = nul(
     (await repository.cli.call(root, ["ls-files", "--others", "--exclude-standard", "-z"], { env }))
