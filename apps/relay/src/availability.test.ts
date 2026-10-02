@@ -83,13 +83,14 @@ it("a full host evicts its oldest unauthenticated channel so a paired device can
   const host = await connectHostToRelay({
     relayUrl: relay.url,
     hostKeys: keyPair(),
+    limits: { maxClientChannels: 2 },
     onClientChannel() {
       arrived.shift()?.resolve();
     },
   });
   cleanup.push(() => host.close());
   const squatters = [];
-  for (let i = 0; i < 64; i++) {
+  for (let i = 0; i < 2; i++) {
     const ready = deferred<void>();
     arrived.push(ready);
     const squatter = await openPeer(address(relay.url, "/client", { hostId: host.hostId }));
@@ -244,4 +245,20 @@ it("a newer daemon registration stops the old owner from reconnecting over it", 
   cleanup.push(() => newer.close());
   await rejected;
   expect(newer.generation).toBe(1);
+});
+it("the default IP quota admits a host control connection plus 64 outbound joins and clients", async () => {
+  const relay = await startRelay();
+  cleanup.push(() => relay.close());
+  const host = await register(relay.url);
+  cleanup.push(() => host.close());
+  for (let i = 0; i < 64; i++) {
+    const client = await openPeer(address(relay.url, "/client", { hostId: host.hostId }));
+    cleanup.push(() => client.close());
+    const offer = Offer.parse(json(host.transport.receive.decrypt(await host.next())));
+    const join = await openPeer(address(relay.url, "/join", { ticket: offer.ticket }));
+    cleanup.push(() => join.close());
+    expect(await client.next()).toEqual(Buffer.from([1]));
+    await client.send(new Uint8Array([i]));
+    expect(await join.next()).toEqual(Buffer.from([i]));
+  }
 });

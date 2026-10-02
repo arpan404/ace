@@ -19,7 +19,9 @@ const payload = "x".repeat(input.MESSAGE_MIB * 1024 * 1024);
 const accepted = Promise.withResolvers<HostChannel>();
 const relay = await startRelay({
   limits:
-    process.env["UNLIMITED"] === "1" ? { messagesPerSecond: 100000, messageBurst: 100000 } : {},
+    process.env["UNLIMITED"] === "1"
+      ? { messagesPerSecond: 100000, messageBurst: 100000 }
+      : { messagesPerSecond: input.MESSAGES_PER_SECOND, messageBurst: input.MESSAGE_BURST },
 });
 const host = await connectHostToRelay({
   relayUrl: relay.url,
