@@ -127,7 +127,14 @@ export class Faults {
 export async function setup(handler?: CommandHandler) {
   const directory = await mkdtemp(join(tmpdir(), "ace-client-"));
   const daemon = await startDaemon(
-    { dataDir: directory, host: "127.0.0.1", port: 0, logLevel: "silent" },
+    {
+      dataDir: directory,
+      host: "127.0.0.1",
+      port: 0,
+      listen: "local",
+      remotePort: 0,
+      logLevel: "silent",
+    },
     handler,
   );
   const token = (await readFile(daemon.tokenPath, "utf8")).trim();
