@@ -74,3 +74,15 @@ Three batches of four independent full `bun run test` invocations ran concurrent
 | 1     | 6.11 s | 7.63 s | 7.30 s | 7.02 s |
 | 2     | 6.52 s | 5.52 s | 6.13 s | 7.42 s |
 | 3     | 7.46 s | 6.09 s | 7.10 s | 5.38 s |
+
+### Node 24 CI follow-up
+
+The first pushed revision passed Ubuntu CI, but macOS CI exposed the older EPIPE fake peer's stdin-close assumption. Reproducing locally with a temporary, checksum-verified Node 24.21.0 binary failed the EPIPE test at its five-second deadline; the default local Node was 26.8.1. The peer now reads its first request in `/bin/sh`, closes the OS stdin descriptor explicitly, reports that closure, and execs an idle Node process. This keeps a real peer alive without leaving Node's input handle attached to the read endpoint. The same public request/error assertions pass on Node 24. Removing the stdin-error listener still makes them fail, confirming J12 remains caught. No runtime dependencies or system installation changed.
+
+`bun run check` passes on Node 24.21.0. After the EPIPE change, all three four-way full-suite batches were repeated on Node 24 and passed 12/12, again with 152 passed and four live tests skipped in each:
+
+| Batch | Copy 1 | Copy 2 | Copy 3 | Copy 4 |
+| ----- | ------ | ------ | ------ | ------ |
+| 1     | 5.67 s | 7.12 s | 6.42 s | 7.68 s |
+| 2     | 7.47 s | 5.94 s | 6.90 s | 5.18 s |
+| 3     | 7.21 s | 5.41 s | 6.45 s | 7.57 s |
