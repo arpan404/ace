@@ -190,6 +190,9 @@ export async function startServer(options: ServerOptions): Promise<{
       options,
       socket,
       sessionId,
+      onPresence: () => {
+        hasPresence = true;
+      },
       subscriptions,
       tasks: serviceTasks,
       maintenance,
@@ -311,33 +314,6 @@ export async function startServer(options: ServerOptions): Promise<{
       }
       for (const service of sessions) if (await service.handle?.(message, device)) return;
       switch (message.type) {
-        case "presence.update":
-        case "notification.register":
-        case "notification.preferences":
-        case "notification.snooze": {
-          const scope = message.type === "notification.snooze" ? "operate" : "read";
-          if (!allows(authenticated.get(socket), scope)) {
-            fail("forbidden", `${scope === "read" ? "Read" : "Operate"} scope required`);
-            break;
-          }
-          if (!options.notifications) {
-            fail("notifications_unavailable", "Notifications unavailable");
-            break;
-          }
-          try {
-            if (message.type === "presence.update") {
-              hasPresence = true;
-              await options.notifications.updatePresence(sessionId, device, message);
-            } else if (message.type === "notification.register")
-              await options.notifications.register(device, message.device);
-            else if (message.type === "notification.preferences")
-              await options.notifications.preferences(device, message.preferences);
-            else await options.notifications.snooze(message.threadId, message.until);
-          } catch {
-            fail("notification_rejected", "Notification update rejected");
-          }
-          break;
-        }
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;

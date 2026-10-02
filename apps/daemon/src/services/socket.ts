@@ -26,6 +26,7 @@ export interface SocketContext {
   options: ServerOptions;
   socket: WebSocket;
   sessionId: string;
+  onPresence(): void;
   subscriptions: Map<string, () => void>;
   tasks: Set<Promise<void>>;
   maintenance: MaintenanceGate;
