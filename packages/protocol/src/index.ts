@@ -7,6 +7,7 @@ export * from "./interactions.ts";
 export * from "./items.ts";
 export * from "./provider.ts";
 export * from "./thread.ts";
+export * from "./terminal.ts";
 export * from "./tools.ts";
 export * from "./wire.ts";
 export * from "./diagnostics.ts";
