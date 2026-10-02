@@ -9,7 +9,7 @@ export function byteLimit(value: number, name: string): number {
 
 /** Check raw bytes before readline or UTF-8 decoding can retain them. */
 export function outputGate(
-  maxLineBytes: number,
+  maxLineBytes: number | undefined,
   admit: (bytes: number) => boolean,
   fail: (error: Error) => void,
 ): Transform {
@@ -27,15 +27,16 @@ export function outputGate(
         done();
         return;
       }
-      for (const byte of chunk) {
-        if (byte === 10 || byte === 13) lineBytes = 0;
-        else if (++lineBytes > maxLineBytes) {
-          exceeded = true;
-          fail(new OutputLimitError("Process output line exceeded limit"));
-          done();
-          return;
+      if (maxLineBytes !== undefined)
+        for (const byte of chunk) {
+          if (byte === 10 || byte === 13) lineBytes = 0;
+          else if (++lineBytes > maxLineBytes) {
+            exceeded = true;
+            fail(new OutputLimitError("Process output line exceeded limit"));
+            done();
+            return;
+          }
         }
-      }
       done(null, chunk);
     },
   });

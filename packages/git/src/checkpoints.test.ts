@@ -1,3 +1,4 @@
+import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 import { readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { watch } from "node:fs";
 import { join } from "node:path";
@@ -227,7 +228,7 @@ describe("checkpoints", () => {
       process.stdout.write(JSON.stringify(checkpoint));
     `;
     const output = await execute(process.execPath, ["--input-type=module", "--eval", script], {
-      timeout: 30_000,
+      timeout: PROCESS_TEST_TIMEOUT,
     });
     const checkpoint = z
       .object({ tree: z.string(), sha: z.string() })
@@ -239,7 +240,7 @@ describe("checkpoints", () => {
         .split("\0")
         .filter(Boolean),
     ).toHaveLength(5_000);
-  }, 30_000);
+  });
 });
 
 describe("restore", () => {

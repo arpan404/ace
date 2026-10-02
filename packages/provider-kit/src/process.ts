@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
-import type { Writable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import { byteLimit, outputGate, OutputLimitError } from "./output-budget.ts";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 export { installShutdownHandlers } from "./process-owner.ts";
@@ -9,6 +9,14 @@ export type ProcessExit = {
   code: number | null;
   signal: NodeJS.Signals | null;
   reason: "exit" | "signal" | "stopped" | "spawn-error" | "output-limit";
+};
+export type RawSupervisedProcess = {
+  stdin: Writable;
+  stdout: Readable;
+  stderr: Readable;
+  exited: Promise<ProcessExit>;
+  signal: AbortSignal;
+  stop(options?: { graceMs?: number }): Promise<ProcessExit>;
 };
 export type SupervisedProcess = {
   stdin: Writable;
@@ -34,11 +42,10 @@ export type SpawnOptions = {
 };
 
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
-export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
+function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): RawSupervisedProcess {
   if (process.platform === "win32") {
     throw new Error("Process-group supervision requires POSIX; Windows needs a Job Object owner");
   }
-  const maxLineBytes = byteLimit(options.maxLineBytes ?? 16 * 1024 * 1024, "maxLineBytes");
   const maxOutputBytes =
     options.maxOutputBytes === undefined
       ? undefined
@@ -63,14 +70,8 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
     controller.abort(error);
     if (pid !== undefined) killGroup(pid, "SIGKILL");
   };
-  const stdout = createInterface({
-    input: child.stdout.pipe(outputGate(maxLineBytes, admit, failOutput)),
-    crlfDelay: Infinity,
-  });
-  const stderr = createInterface({
-    input: child.stderr.pipe(outputGate(maxLineBytes, admit, failOutput)),
-    crlfDelay: Infinity,
-  });
+  const stdout = child.stdout.pipe(outputGate(maxLineBytes, admit, failOutput));
+  const stderr = child.stderr.pipe(outputGate(maxLineBytes, admit, failOutput));
 
   let stopped = false;
   let failed = false;
@@ -116,7 +117,7 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
       });
     });
   });
-  const handle: SupervisedProcess = {
+  const handle: RawSupervisedProcess = {
     stdin: child.stdin,
     stdout,
     stderr,
@@ -141,6 +142,22 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
   };
   if (pid !== undefined) registerGroup(pid, (graceMs) => handle.stop({ graceMs }));
   return handle;
+}
+
+/** Raw bytes share the aggregate budget without imposing line framing on binary data. */
+export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess {
+  return spawnOwned(options, undefined);
+}
+
+/** Line-oriented facade over the same process-group owner. */
+export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
+  const maxLineBytes = byteLimit(options.maxLineBytes ?? 16 * 1024 * 1024, "maxLineBytes");
+  const raw = spawnOwned(options, maxLineBytes);
+  return {
+    ...raw,
+    stdout: createInterface({ input: raw.stdout, crlfDelay: Infinity }),
+    stderr: createInterface({ input: raw.stderr, crlfDelay: Infinity }),
+  };
 }
 
 /** Bounded, read-only CLI probe. Raw output is returned only to the caller. */
