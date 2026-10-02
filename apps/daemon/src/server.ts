@@ -150,6 +150,7 @@ export async function startServer(options: ServerOptions): Promise<{
   const input = new SocketInput();
   const cleanups = new Map<WebSocket, () => void>();
   let disconnects = Promise.resolve();
+  let disconnectError: Error | undefined;
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
@@ -185,11 +186,19 @@ export async function startServer(options: ServerOptions): Promise<{
         connections?.delete(socket);
         if (!connections?.size) receivers.delete(device);
       }
-      if (hasPresence)
+      if (hasPresence) {
+        // Retain this socket's admission slot until removal is acknowledged. Active
+        // sockets plus queued removals therefore remain bounded at 256 under churn.
         disconnects = disconnects
           .then(() => options.notifications?.disconnect(sessionId))
-          .catch((error: unknown) => options.log?.(error));
-      cleanups.delete(socket);
+          .then(() => {
+            cleanups.delete(socket);
+          })
+          .catch((error: unknown) => {
+            disconnectError = error instanceof Error ? error : new Error("Presence cleanup failed");
+            options.log?.(disconnectError);
+          });
+      } else cleanups.delete(socket);
       ticks.delete(socket);
       authenticated.delete(socket);
     };
@@ -501,7 +510,11 @@ export async function startServer(options: ServerOptions): Promise<{
           () =>
             wss.close((error) => {
               if (error) reject(error);
-              else disconnects.then(resolve, reject);
+              else
+                disconnects.then(() => {
+                  if (disconnectError) reject(disconnectError);
+                  else resolve();
+                }, reject);
             }),
         );
       });

@@ -171,3 +171,25 @@ it("closes gracefully with all 64 RPC slots occupied and settles admitted calls"
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+it("bounds cleanup admission independently of ordinary calls and recovers after acknowledgement", async () => {
+  const worker = new NotificationWorker({
+    path: ":memory:",
+    transport: {
+      async send() {
+        return "accepted";
+      },
+    },
+  });
+  try {
+    const ordinary = Array.from({ length: 64 }, () => worker.cursor());
+    const removals = Array.from({ length: 256 }, (_, i) => worker.disconnect(`session-${i}`));
+    const settled = Promise.allSettled([...ordinary, ...removals]);
+    await expect(worker.disconnect("overflow")).rejects.toThrow("cleanup backpressure");
+    expect((await settled).every((result) => result.status === "fulfilled")).toBe(true);
+    await expect(worker.disconnect("after-drain")).resolves.toBeUndefined();
+    await expect(worker.close()).resolves.toBeUndefined();
+  } finally {
+    await worker.close();
+  }
+});

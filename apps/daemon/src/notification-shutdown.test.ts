@@ -1,3 +1,4 @@
+import { request as httpRequest } from "node:http";
 import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -68,3 +69,106 @@ it("drains registered presence once per session without flooding notification RP
     await f.close();
   }
 }, 30000);
+
+it("refuses connection churn until stalled presence removals are acknowledged", async () => {
+  let release: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let started: (() => void) | undefined;
+  const ready = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const active = new Set<string>();
+  let removed: (() => void) | undefined;
+  const drained = new Promise<void>((resolve) => {
+    removed = resolve;
+  });
+  const f = await fixture({
+    notifications: {
+      async connectDevice() {},
+      async register() {},
+      async preferences() {},
+      async snooze() {},
+      async updatePresence(session) {
+        active.add(session);
+      },
+      async disconnect(session) {
+        started?.();
+        await gate;
+        active.delete(session);
+        if (!active.size) removed?.();
+      },
+    },
+  });
+  try {
+    const clients = [];
+    for (let i = 0; i < 256; i++) {
+      const client = await f.connect();
+      await client.next();
+      client.send({ type: "presence.update", threadId: f.thread.id, inputAgeMs: 0 });
+      client.send({ type: "ping" });
+      expect(await client.next()).toEqual({ type: "pong" });
+      clients.push(client);
+    }
+    await Promise.all(clients.map((client) => client.close()));
+    await ready;
+    const status = await new Promise<number>((resolve, reject) => {
+      const request = httpRequest(f.server.httpUrl, {
+        headers: {
+          Connection: "Upgrade",
+          Upgrade: "websocket",
+          "Sec-WebSocket-Version": "13",
+          "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+        },
+      });
+      request.on("response", (reply) => {
+        reply.resume();
+        resolve(reply.statusCode ?? 0);
+      });
+      request.on("upgrade", (_reply, socket) => {
+        socket.destroy();
+        resolve(101);
+      });
+      request.on("error", reject);
+      request.end();
+    });
+    expect(status).toBe(503);
+    release?.();
+    await drained;
+    const recovered = await f.connect();
+    expect(await recovered.next()).toMatchObject({ type: "welcome" });
+    // Shutdown is an acknowledgement barrier for all queued removals.
+    await expect(f.server.close()).resolves.toBeUndefined();
+  } finally {
+    release?.();
+    await f.close();
+  }
+});
+
+it("reports unacknowledged presence removal as a shutdown failure", async () => {
+  const f = await fixture({
+    notifications: {
+      async connectDevice() {},
+      async register() {},
+      async preferences() {},
+      async snooze() {},
+      async updatePresence() {},
+      async disconnect() {
+        throw new Error("Removal unavailable");
+      },
+    },
+  });
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "presence.update", threadId: f.thread.id, inputAgeMs: 0 });
+    client.send({ type: "ping" });
+    expect(await client.next()).toEqual({ type: "pong" });
+    await expect(f.server.close()).rejects.toThrow("Removal unavailable");
+  } finally {
+    await f.close().catch(() => {});
+    f.store.close();
+    rmSync(f.home, { recursive: true, force: true });
+  }
+});
