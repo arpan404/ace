@@ -114,8 +114,8 @@ measures 30 one-character deltas at each size. It also measures active messages 
 1 MiB + 1 byte and 4 MiB. Detail items load through real WebSocket pages before timing so
 client projection applies every delta even when the item is outside the snapshot window. The
 PR distinguishes historical measurements from final-head verification deferred to merge.
-The header remains about 542 bytes at every history size; untouched entities are not decoded
-or serialized on the frame path. SQLite intent queries index only outstanding statuses and
+The header contains configuration, queue sources and live indexes; historical entity
+dictionaries remain separate. Untouched entities are not decoded or serialized on the frame path. SQLite intent queries index only outstanding statuses and
 acknowledgements. Core status traversal still depends on the agent tree and live work.
 
 A versioned snapshot/record codec exported by core would remove the engine-owned validator.
