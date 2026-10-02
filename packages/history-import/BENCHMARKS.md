@@ -11,6 +11,7 @@ bunx --package node@24 node packages/history-import/bench/scan.ts
 bunx --package node@24 node packages/history-import/bench/native-stores.ts
 bunx --package node@24 node packages/history-import/bench/tools.ts
 bunx --package node@24 node apps/daemon/bench/history.ts
+bunx --package node@24 node apps/daemon/bench/history-live.ts
 ```
 
 | Path                                                                    |       Time |          Throughput |  Peak RSS |
@@ -30,3 +31,5 @@ In the historical runs, both warm scans opened zero unchanged content readers an
 Bounds enforced by the implementation include 16 concurrent file samples, 128 KiB of samples per file, 1 MiB per decoded record, 64 KiB blob chunks, 16 packets per external pull, 512 agents, 32 path components, 100,000 inventory entries, 200 items or 1 MiB per item page, and 256 KiB per blob read. Legacy message sorting uses a private SQLite file rather than an in-memory transcript array. Small part inventories sort at most 16 paths before spilling to disk. SQLite scalar records above the decoder limit are refused before loading them.
 
 New correlation and publication paths have benchmark scripts, but no revised throughput or RSS measurements. `bench/tools.ts` covers 2,000 native calls with 4-KiB results and streamed output. `apps/daemon/bench/history.ts` covers 20,000 selected Claude ancestry records and publication through an authenticated socket. Cold/warm scans, bounded import memory, tool correlation and daemon publication all need run at merge.
+
+The verifier fix adds no history scan on a live callback: current-native identity requires one indexed root-agent lookup per new continuation, and publication pauses/resumes ingress once per import. `apps/daemon/bench/history-live.ts` measures authenticated publication overlapped with 2,000 synthetic live frames and an exit, reporting frames/s, microseconds/frame and peak RSS. The transport produces one callback at a time under backpressure. No current numbers are claimed; this benchmark needs run at merge.

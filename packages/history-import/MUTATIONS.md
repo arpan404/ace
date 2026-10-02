@@ -33,3 +33,18 @@ Additional review regressions are designed to reject these mutations. Each case 
 - Invoke a native fork before rejecting an active continuation.
 - Cache a session which exits during open, or abort it when its client disconnects.
 - Slice output tails through UTF-8 characters or exceed the JSON-escaped tail budget.
+
+Verifier regressions, all **not executed (tests run at merge)**:
+
+| Production mutation                                                        | Public behaviour regression                                                                 | Result                            |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------- |
+| Fork the original import ID after a newer native branch exits              | a second fork after exit starts from the persisted native conversation                      | not executed (tests run at merge) |
+| Forget the newer native ID across daemon restart                           | a second fork after restart starts from the persisted native conversation                   | not executed (tests run at merge) |
+| Take the Store lease without waiting for provider persistence backpressure | every live item and exit survives publication of another imported thread                    | not executed (tests run at merge) |
+| Resume native callbacks before releasing the Store write lease             | every live item and exit survives publication of another imported thread                    | not executed (tests run at merge) |
+| Accept publication with an active adapter lacking the pause port           | an active adapter without publication backpressure keeps persisting after import is refused | not executed (tests run at merge) |
+| Leave callback ingress paused after request cancellation                   | cancelling an import at the persistence barrier resumes live callbacks and permits retry    | not executed (tests run at merge) |
+| Reread unchanged JSONL through readFile without incrementing counters      | warm cached scans perform no actual FileHandle transcript reads even across restarts        | not executed (tests run at merge) |
+| Reread unchanged JSONL through streams without incrementing counters       | warm cached scans perform no actual FileHandle transcript reads even across restarts        | not executed (tests run at merge) |
+
+The warm-cache preload observes FileHandle.read/readFile/createReadStream, fs.promises.readFile, callback fs.readFile and fs.createReadStream. The merge-time runner includes readFile and stream reread cases. The two observed APIs added by the verifier note still need execution coverage at merge; no new mutation kill is claimed.
