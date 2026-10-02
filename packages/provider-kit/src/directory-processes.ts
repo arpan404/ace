@@ -1,23 +1,30 @@
 import { execFile } from "node:child_process";
 import { opendir, readlink } from "node:fs/promises";
+import { isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
 
 const execute = promisify(execFile);
 const pidSchema = z.coerce.number().int().positive();
+function withinLease(cwd: string, roots: readonly string[]): boolean {
+  return roots.some((root) => {
+    const path = relative(root, cwd);
+    return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
+  });
+}
 /** Only for an exclusive, private operation directory, never a user workspace. */
 async function directoryPids(
   directories: readonly string[],
   selected?: readonly number[],
 ): Promise<number[]> {
-  const roots = new Set(directories);
+  const roots = directories.map((directory) => resolvePath(directory));
   if (process.platform === "linux") {
     const result: number[] = [];
     let count = 0;
     if (selected) {
       for (const pid of selected) {
         const cwd = await readlink(`/proc/${pid}/cwd`).catch(() => undefined);
-        if (cwd && roots.has(cwd)) result.push(pid);
+        if (cwd && withinLease(cwd, roots)) result.push(pid);
       }
       return result;
     }
@@ -26,7 +33,7 @@ async function directoryPids(
       if (!/^\d+$/.test(entry.name)) continue;
       if (++count > 16384) throw new Error("Process inspection exceeds limit");
       const cwd = await readlink(`/proc/${entry.name}/cwd`).catch(() => undefined);
-      if (cwd && roots.has(cwd)) result.push(pidSchema.parse(entry.name));
+      if (cwd && withinLease(cwd, roots)) result.push(pidSchema.parse(entry.name));
       if (result.length === 64) break;
     }
     return result;
@@ -48,7 +55,7 @@ async function directoryPids(
     if (field.startsWith("p")) {
       if (++count > 16384) throw new Error("Process inspection exceeds limit");
       pid = pidSchema.parse(field.slice(1));
-    } else if (field.startsWith("n") && pid !== undefined && roots.has(field.slice(1))) {
+    } else if (field.startsWith("n") && pid !== undefined && withinLease(field.slice(1), roots)) {
       pids.push(pid);
       if (pids.length === 64) break;
     }

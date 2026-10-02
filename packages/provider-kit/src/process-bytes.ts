@@ -31,7 +31,6 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   });
   const pid = child.pid;
   let cleanup: Promise<void> | undefined;
-  let leaderExited = false;
   let closed = false;
   let cancelDrain: (() => void) | undefined;
   const terminate = () => {
@@ -58,8 +57,9 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
       reject(error);
     });
     const drain = () => {
-      if (!leaderExited || !child.stdout.readableEnded || closed || cancelDrain) return;
-      // Buffered stdout keeps its backpressure; bound stderr holders after stdout EOF.
+      if (closed || cancelDrain) return;
+      // Start at leader exit even when a detached helper holds stdout open. Terminating
+      // the private lease closes those writers; preserve buffered stdout and backpressure.
       cancelDrain = schedule(() => {
         void terminate().then(
           () => child.stderr.destroy(),
@@ -70,9 +70,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
         );
       }, 100);
     };
-    child.stdout.once("end", drain);
     child.once("exit", () => {
-      leaderExited = true;
       if (pid !== undefined) killGroup(pid, "SIGKILL");
       drain();
     });

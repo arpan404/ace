@@ -35,7 +35,7 @@ export function gitRuntime(): GitRuntime {
     command: "git",
     env: { PATH: process.env.PATH },
     async release(root) {
-      await terminateDirectoryProcesses([root, join(root, "repository.git")]);
+      await terminateDirectoryProcesses([root]);
     },
     schedule: (callback, milliseconds) => {
       const timer = setTimeout(callback, milliseconds);
