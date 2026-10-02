@@ -13,6 +13,7 @@ export function daemonArtifacts(
   store: Store,
   workspace: WorkspaceId,
   database: string,
+  writeBundle?: (temporary: string) => Promise<void>,
 ) {
   let active: Promise<unknown> | undefined;
   let closed = false;
@@ -36,6 +37,7 @@ export function daemonArtifacts(
     size: number,
     name: string,
     display: string,
+    category: "output" | "support",
     write: (temporary: string) => Promise<void>,
     assertAuthorized: () => void,
   ) => {
@@ -50,7 +52,7 @@ export function daemonArtifacts(
         root,
         path: name,
         name: display.slice(0, 256),
-        category: "output",
+        category,
       });
       published = true;
       return id;
@@ -92,6 +94,21 @@ export function daemonArtifacts(
         await rm(temporary, { force: true });
       }
     },
+    bundle(assertAuthorized: () => void) {
+      return run(async () => {
+        assertAuthorized();
+        if (!writeBundle) throw new FileError("UNSUPPORTED", "Support producer unavailable");
+        // Reserve both the capped staged input and its compressed export until publication.
+        return publish(
+          36 * 1024 ** 2,
+          `support-${randomUUID()}.tar.gz`,
+          "ace-support.tar.gz",
+          "support",
+          writeBundle,
+          assertAuthorized,
+        );
+      });
+    },
     output(streamId: string, assertAuthorized: () => void) {
       return run(async () => {
         assertAuthorized();
@@ -101,6 +118,7 @@ export function daemonArtifacts(
           info.size,
           `output-${randomUUID()}.bin`,
           `${streamId}.bin`,
+          "output",
           async (temporary) => {
             const file = await open(temporary, "wx", 0o600);
             try {
@@ -140,6 +158,7 @@ export function daemonArtifacts(
           info.size,
           `raw-${randomUUID()}.bin`,
           `${blobRef}.json`,
+          "output",
           (temporary) =>
             blobs.export({
               database,

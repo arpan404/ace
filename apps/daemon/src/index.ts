@@ -1,3 +1,4 @@
+import { supportBundleWriter } from "./files-support.ts";
 import { daemonArtifacts } from "./files-artifacts.ts";
 import { loadOrCreateHostKeys } from "@ace/secure-channel/node";
 import { fingerprint as relayFingerprint } from "@ace/secure-channel";
@@ -176,6 +177,10 @@ export async function startDaemon(
         // Socket-scoped read/operate checks are enforced by the authenticated server.
         authorize: () => true,
         onChange: (change) => eventStore.recordWorkspaceFileChange(workspaceId, change),
+        exportSupport: (_device, assertAuthorized) => {
+          if (!artifacts) throw new Error("Artifact producer not initialized");
+          return artifacts.bundle(assertAuthorized);
+        },
         exportRaw: (_device, blobRef, assertAuthorized) => {
           if (!artifacts) throw new Error("Artifact producer not initialized");
           return artifacts.raw(blobRef, assertAuthorized);
@@ -192,6 +197,12 @@ export async function startDaemon(
         store,
         workspaceId,
         join(config.dataDir, "events.sqlite"),
+        supportBundleWriter(
+          config.dataDir,
+          artifactsRoot,
+          { ...context, workspace: workspaceRoot },
+          Date.now,
+        ),
       );
       await artifacts.support(hostId);
       const ownedFiles = files;

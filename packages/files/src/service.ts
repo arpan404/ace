@@ -122,6 +122,7 @@ export class FilesService {
       "trash.list",
       "artifact.output",
       "artifact.raw",
+      "artifact.support",
     ].includes(operation.op);
     this.authorize(device, reading ? "files.read" : "files.write");
     if (operation.op === "stat") {
@@ -129,6 +130,11 @@ export class FilesService {
       if (current === null) return { path: operation.path, version: null };
       const { info, type } = await this.safe.metadata(operation.path);
       return { path: operation.path, version: current, size: info.size, type };
+    }
+    if (operation.op === "artifact.support") {
+      if (!this.options.exportSupport)
+        throw new FileError("UNSUPPORTED", "Support producer unavailable");
+      return { artifactId: await this.options.exportSupport(device, guard) };
     }
     if (operation.op === "artifact.raw") {
       if (!this.options.exportRaw)

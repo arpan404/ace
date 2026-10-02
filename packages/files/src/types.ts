@@ -26,6 +26,7 @@ export interface FilesOptions {
   now(): number;
   id(): string;
   authorize(device: string, capability: "files.read" | "files.write"): boolean;
+  exportSupport?(device: string, assertAuthorized: () => void): Promise<string>;
   exportRaw?(device: string, blobRef: string, assertAuthorized: () => void): Promise<string>;
   exportOutput?(device: string, streamId: string, assertAuthorized: () => void): Promise<string>;
   onChange?(change: WorkspaceFileChange): void;

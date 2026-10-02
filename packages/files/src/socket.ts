@@ -39,6 +39,7 @@ const readOperations = new Set([
   "trash.list",
   "artifact.output",
   "artifact.raw",
+  "artifact.support",
 ]);
 const Upload = z.object({
   uploadId: z.string().min(1).max(128),

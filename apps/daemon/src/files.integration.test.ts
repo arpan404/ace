@@ -2,6 +2,7 @@ import { once } from "node:events";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import { WebSocket } from "ws";
 import { z } from "zod";
@@ -277,4 +278,21 @@ it("hosts authenticated encrypted file transfers from normal daemon startup and 
     token: (await readFile(f.daemon.tokenPath, "utf8")).trim(),
   });
   await expect(admin.receive()).rejects.toThrow();
+});
+
+it("exports a redacted diagnostics support bundle for a read-only remote client", async () => {
+  const f = await setup();
+  const token = (await readFile(f.daemon.tokenPath, "utf8")).trim();
+  await writeFile(
+    join(f.home, "data", "logs", "ace.999.jsonl"),
+    JSON.stringify({ token, message: "retained diagnostic" }) + "\n",
+  );
+  const client = await f.connect(f.daemon.store.devices.create("Reader", ["read"], 1));
+  const exported = z
+    .object({ value: z.object({ artifactId: z.string() }) })
+    .parse(await client.request({ op: "artifact.support" }));
+  const bundle = gunzipSync(await artifact(client, exported.value.artifactId)).toString();
+  expect(bundle).toContain("retained diagnostic");
+  expect(bundle).not.toContain(token);
+  expect(bundle).toContain('"providerProbesRun":false');
 });
