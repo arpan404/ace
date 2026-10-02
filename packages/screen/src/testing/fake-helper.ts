@@ -29,6 +29,7 @@ function frame() {
   socket.write(packet.subarray(2, 9));
   socket.write(packet.subarray(9));
 }
+let held: string | undefined;
 const lines = createInterface({ input: process.stdin });
 lines.on("line", (line) => {
   const request = ScreenHelperRequest.parse(JSON.parse(line));
@@ -58,7 +59,16 @@ lines.on("line", (line) => {
     frame();
     data = { action: request.action };
   }
-  console.log(JSON.stringify({ version: 1, id: request.id, ok: true, data }));
+  const reply = JSON.stringify({ version: 1, id: request.id, ok: true, data });
+  if (process.env.REVERSE_REPLIES === "1" && request.op === "permissions") {
+    held = reply;
+    return;
+  }
+  console.log(reply);
+  if (held) {
+    console.log(held);
+    held = undefined;
+  }
 });
 lines.on("close", () => {
   socket.end();

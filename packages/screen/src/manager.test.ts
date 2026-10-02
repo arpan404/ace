@@ -112,13 +112,14 @@ it("a crashed helper clears cached frames and controller state and can be explic
   expect(restarted.controller).toBe("none");
   expect(restarted.sessionId).not.toBe(id);
 });
-it("human takeover invalidates an agent action waiting for permission inspection", async () => {
-  const screen = await setup();
+it("human takeover cancels queued input before it can update permission state", async () => {
+  const screen = await setup({ REVOKE_ACCESS: "1" });
   const state = await ready(screen);
   screen.controller(state.sessionId, "agent");
   const action = screen.action(state.sessionId, "agent", { kind: "type", text: "hello" });
   screen.controller(state.sessionId, "human");
   await expect(action).rejects.toThrow("Controller changed");
+  expect(screen.state(state.sessionId).permissions.accessibility).toBe(true);
 });
 it("session limits are bounded and disabling stops every capture", async () => {
   const screen = await setup();
@@ -136,4 +137,26 @@ it("frames delivered during startup remain available after the session becomes l
   screen.subscribe(state.sessionId, async (value) => first.resolve(value));
   expect((await first.promise).payload.toString()).toBe("jpeg-0");
   expect(screen.screenshot(state.sessionId).payload.toString()).toBe("jpeg-0");
+});
+it("takeover while permission inspection completes prevents the pending input effect", async () => {
+  const screen = await setup();
+  const state = await ready(screen);
+  screen.controller(state.sessionId, "agent", "agent");
+  const inspected = deferred<void>();
+  const unwatch = screen.watch((value) => {
+    if (value.sessionId === state.sessionId && value.controller === "agent") {
+      screen.controller(state.sessionId, "human", "human");
+      inspected.resolve();
+    }
+  });
+  try {
+    await expect(
+      screen.action(state.sessionId, "agent", { kind: "type", text: "denied" }, "agent"),
+    ).rejects.toThrow("Controller changed");
+    await inspected.promise;
+    expect(screen.state(state.sessionId).controller).toBe("human");
+    expect(() => screen.screenshot(state.sessionId)).toThrow("No captured frame");
+  } finally {
+    unwatch();
+  }
 });

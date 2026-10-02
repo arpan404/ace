@@ -71,6 +71,10 @@ it("unsubscribe discards queued frames and a failed subscriber does not block ot
   });
   hub.publish(frame(3));
   await delivered.promise;
+  // Drain the queued promise chain, then offer another frame to expose retained viewers.
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  hub.publish(frame(4));
+  await new Promise<void>((resolve) => setImmediate(resolve));
   expect(received).toEqual([1]);
 });
 

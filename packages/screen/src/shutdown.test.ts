@@ -46,10 +46,10 @@ it("the visible indicator remains on until helper termination is confirmed", asy
         const child = spawnSupervised(options);
         return {
           ...child,
-          stop: async (options) => {
+          stop: async (stopOptions) => {
             stopping.resolve();
             await release.promise;
-            return child.stop(options);
+            return child.stop(stopOptions);
           },
         };
       },
