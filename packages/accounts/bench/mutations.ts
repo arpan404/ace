@@ -173,6 +173,13 @@ const mutations = [
       'const { discoverProviders } = await import("@ace/provider-kit/discovery"); await discoverProviders({ ...options, env: instanceEnv(instance, options.env ?? process.env) }); const result = await discoverProvider(instance.provider, {',
     test: "instances.test.ts",
   },
+  {
+    name: "freeze the adapter native session ID",
+    file: "service.ts",
+    before: "get nativeSessionId() {\n            return session.nativeSessionId;\n          },",
+    after: "nativeSessionId: session.nativeSessionId,",
+    test: "service.test.ts",
+  },
 ];
 for (const mutation of mutations) {
   const path = new URL(`../src/${mutation.file}`, import.meta.url);

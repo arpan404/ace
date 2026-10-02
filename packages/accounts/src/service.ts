@@ -132,7 +132,9 @@ export class AccountService {
       return {
         instanceId: chosen.id,
         session: {
-          nativeSessionId: session.nativeSessionId,
+          get nativeSessionId() {
+            return session.nativeSessionId;
+          },
           send: (input, delivery) => session.send(input, delivery),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),

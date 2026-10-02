@@ -14,7 +14,7 @@ const context: SessionContext = {
   onFrame: () => {},
   onExit: () => {},
 };
-test("adapter launches use the assigned home and update only that account quota", async () => {
+test("adapter sessions preserve live native IDs, assigned environments and isolated quota", async () => {
   const request = await homes("codex");
   const registry = await openRegistry(join(request.to.homeDir, "accounts.sqlite"));
   await registry.register(request.from);
@@ -35,6 +35,7 @@ test("adapter launches use the assigned home and update only that account quota"
       throw new Error("unused");
     },
     openSession: async (ctx) => {
+      let nativeSessionId = "initializing";
       const proc = spawnSupervised({
         command: process.execPath,
         args: [
@@ -45,6 +46,7 @@ test("adapter launches use the assigned home and update only that account quota"
         name: "fake-account-adapter",
       });
       proc.stdout.on("line", (line) => {
+        nativeSessionId = request.nativeSessionId;
         ctx.onFrame({
           seq: 1,
           t: 0,
@@ -55,7 +57,9 @@ test("adapter launches use the assigned home and update only that account quota"
         report(line);
       });
       return {
-        nativeSessionId: request.nativeSessionId,
+        get nativeSessionId() {
+          return nativeSessionId;
+        },
         send: async () => {},
         interrupt: async () => {},
         resolve: async () => {},
@@ -78,6 +82,7 @@ test("adapter launches use the assigned home and update only that account quota"
     );
     try {
       expect(await ready).toBe(`${await realpath(request.from.homeDir)}||session-only`);
+      expect(opened.session.nativeSessionId).toBe(request.nativeSessionId);
       expect(registry.summaries(1000).find((a) => a.id === request.from.id)?.availability).toBe(
         "exhausted",
       );
