@@ -34,3 +34,7 @@ Tests originally exposed expensive construction of fast-check's general URL arbi
 Standard JSON Schema cannot fully express sibling-cursor equality, UTF-8 byte bounds or runtime time-zone validity. Source metadata declares those semantic rules as `x-ace-constraint`. Equivalent applications must enforce them in addition to structural JSON Schema validation. Unannotated refinements fail generation. Record entry caps and reserved identifier exclusions also have native JSON Schema constraints in their source metadata.
 
 No released snapshot exists yet; release tooling must capture and retain one using the snapshot command. Dynamic MCP toolkits are host-specific; this reference documents the built-ins from the shared public catalog rather than advertising absent backends. No protocol version or wire behavior changes were introduced here.
+
+## Shared-machine runner
+
+The full gate uses `bun run check --maxWorkers=2 --testTimeout=60000 --hookTimeout=60000`. The existing notification spool test exceeded the default five-second deadline in both the full run and isolation, then passed unchanged with the runner allowance. The existing foreground CLI test hardcoded a 15-second deadline and timed out in isolation too. Its override is removed so it honors the configured runner allowance; every CLI, pairing, QR, device and restart assertion remains intact. This is the only daemon-file change introduced by this work.
