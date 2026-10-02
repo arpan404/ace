@@ -1,9 +1,10 @@
-import { spawn } from "node:child_process";
+import { z } from "zod";
+import { withGit, type GitProcessOptions } from "./git-process.ts";
 import { StringDecoder } from "node:string_decoder";
 import { constants } from "node:fs";
 import { lstat, open, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { ContextError, requireContext } from "./errors.ts";
+import { requireContext } from "./errors.ts";
 import { PathIndex } from "./path-index.ts";
 
 export interface WorkspaceFiles {
@@ -14,66 +15,62 @@ export interface WorkspaceFiles {
   inspect(path: string): Promise<"file" | "folder">;
   read(path: string, limit: number): Promise<{ bytes: Buffer; more: boolean }>;
 }
-async function git(
-  root: string,
-  args: string[],
-  input?: string,
-): Promise<{ code: number; output: string }> {
-  const child = spawn("git", ["-C", root, ...args], { stdio: ["pipe", "pipe", "pipe"] });
-  let output = "";
-  child.stderr.resume();
-  const done = new Promise<number>((accept, reject) => {
-    child.once("error", reject);
-    child.once("close", (code) => accept(code ?? -1));
-  });
-  child.stdin.on("error", () => {});
-  child.stdin.end(input);
-  for await (const chunk of child.stdout) {
-    output += String(chunk);
-    if (output.length > 8192) {
-      child.kill();
-      throw new ContextError("quota", "Git response exceeded limit");
-    }
-  }
-  return { code: await done, output };
-}
 export class GitWorkspace implements WorkspaceFiles {
   readonly root: string;
   index: PathIndex;
   private cap: number;
-  constructor(root: string, cap = 100_000) {
+  private options: GitProcessOptions;
+  constructor(root: string, cap = 100_000, options: GitProcessOptions = {}) {
+    this.options = options;
     this.root = resolve(root);
     this.cap = cap;
     this.index = new PathIndex(cap);
   }
   private async listing(args: string[], visit: (path: string) => void): Promise<void> {
-    const child = spawn("git", ["-C", this.root, "ls-files", "-z", ...args], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    child.stderr.resume();
-    const done = new Promise<number>((accept, reject) => {
-      child.once("error", reject);
-      child.once("close", (code) => accept(code ?? -1));
-    });
-    const decoder = new StringDecoder("utf8");
-    let pending = "";
-    try {
-      for await (const chunk of child.stdout) {
-        pending += decoder.write(chunk);
-        let end: number;
-        while ((end = pending.indexOf("\0")) >= 0) {
-          const path = pending.slice(0, end);
-          pending = pending.slice(end + 1);
-          if (path) visit(path);
+    const result = await withGit(
+      this.root,
+      ["ls-files", "-z", ...args],
+      this.options,
+      async (child) => {
+        child.stdin.end();
+        const decoder = new StringDecoder("utf8");
+        let pending = "";
+        for await (const chunk of child.stdout) {
+          const data = z.instanceof(Buffer).parse(chunk);
+          pending += decoder.write(data);
+          let end: number;
+          while ((end = pending.indexOf("\0")) >= 0) {
+            const path = pending.slice(0, end);
+            pending = pending.slice(end + 1);
+            if (path) visit(path);
+          }
+          requireContext(pending.length <= 1024, "quota", "Path exceeds index limit");
         }
-        requireContext(pending.length <= 1024, "quota", "Path exceeds index limit");
+        requireContext(
+          pending.length === 0 && decoder.end().length === 0,
+          "invalid_request",
+          "Incomplete Git listing",
+        );
+      },
+    );
+    requireContext(result.code === 0, "invalid_request", "Workspace must be a Git repository");
+  }
+  private async git(args: string[]): Promise<{ code: number; output: string }> {
+    const result = await withGit(this.root, args, this.options, async (child) => {
+      child.stdin.end();
+      let output = "";
+      for await (const chunk of child.stdout) {
+        const data = z.instanceof(Buffer).parse(chunk);
+        requireContext(
+          Buffer.byteLength(output) + data.length <= 8192,
+          "quota",
+          "Git response exceeded limit",
+        );
+        output += data.toString();
       }
-      requireContext((await done) === 0, "invalid_request", "Workspace must be a Git repository");
-    } catch (error) {
-      child.kill();
-      await done;
-      throw error;
-    }
+      return output;
+    });
+    return { code: result.code, output: result.value };
   }
   async initialize(): Promise<void> {
     requireContext(
@@ -88,6 +85,7 @@ export class GitWorkspace implements WorkspaceFiles {
     await this.listing(["--cached", "--ignored", "--exclude-standard"], (path) =>
       next.update(path, false),
     );
+    await this.listing(["--deleted"], (path) => next.update(path, false));
     this.index = next;
   }
 
@@ -115,13 +113,7 @@ export class GitWorkspace implements WorkspaceFiles {
       "outside_workspace",
       "Path redirected outside workspace",
     );
-    const ignored = await git(this.root, [
-      "check-ignore",
-      "--no-index",
-      "--quiet",
-      "--",
-      local || ".",
-    ]);
+    const ignored = await this.git(["check-ignore", "--no-index", "--quiet", "--", local || "."]);
     requireContext(
       ignored.code === 0 || ignored.code === 1,
       "invalid_request",
@@ -177,10 +169,20 @@ export class GitWorkspace implements WorkspaceFiles {
       try {
         const kind = await this.inspect(path);
         if (kind === "file") this.index.update(path, true);
-        else
+        else {
+          // Reconcile only this subtree. Tracked ignored and deleted paths are
+          // explicitly filtered, since ls-files --cached includes both.
+          const next = new PathIndex(this.cap);
           await this.listing(["--cached", "--others", "--exclude-standard", "--", path], (child) =>
-            this.index.update(child, true),
+            next.update(child, true),
           );
+          await this.listing(["--cached", "--ignored", "--exclude-standard", "--", path], (child) =>
+            next.update(child, false),
+          );
+          await this.listing(["--deleted", "--", path], (child) => next.update(child, false));
+          for (const child of this.index.under(path)) this.index.update(child, false);
+          for (const child of next.under(path)) this.index.update(child, true);
+        }
       } catch {
         this.index.update(path, false);
         for (const child of this.index.under(path)) this.index.update(child, false);

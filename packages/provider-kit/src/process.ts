@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
-import type { Writable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 export { installShutdownHandlers } from "./process-owner.ts";
 
@@ -28,8 +28,12 @@ export type SpawnOptions = {
   killGroupOnExit?: boolean;
 };
 
-/** Own a POSIX process group, including grandchildren that keep its pipes open. */
-export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
+export type SupervisedStream = Omit<SupervisedProcess, "stdout" | "stderr"> & {
+  stdout: Readable;
+  stderr: Readable;
+};
+/** Own raw byte streams with the same process-group lifecycle as line streams. */
+export function spawnSupervisedStream(options: SpawnOptions): SupervisedStream {
   if (process.platform === "win32") {
     throw new Error("Process-group supervision requires POSIX; Windows needs a Job Object owner");
   }
@@ -40,8 +44,8 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const controller = new AbortController();
-  const stdout = createInterface({ input: child.stdout, crlfDelay: Infinity });
-  const stderr = createInterface({ input: child.stderr, crlfDelay: Infinity });
+  const stdout = child.stdout;
+  const stderr = child.stderr;
   const pid = child.pid;
 
   let stopped = false;
@@ -80,7 +84,7 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
       });
     });
   });
-  const handle: SupervisedProcess = {
+  const handle: SupervisedStream = {
     stdin: child.stdin,
     stdout,
     stderr,
@@ -105,6 +109,16 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
   };
   if (pid !== undefined) registerGroup(pid, (graceMs) => handle.stop({ graceMs }));
   return handle;
+}
+
+/** Own a POSIX process group, including grandchildren that keep its pipes open. */
+export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
+  const process = spawnSupervisedStream(options);
+  return {
+    ...process,
+    stdout: createInterface({ input: process.stdout, crlfDelay: Infinity }),
+    stderr: createInterface({ input: process.stderr, crlfDelay: Infinity }),
+  };
 }
 
 /** Bounded, read-only CLI probe. Raw output is returned only to the caller. */

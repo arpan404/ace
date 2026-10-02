@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "image-size": "^2.0.2",
     "zod": "^4.1.12"
   }

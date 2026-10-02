@@ -10,6 +10,7 @@ interface Cached {
   pending: Set<string>;
   rebuild: boolean;
   task: Promise<void>;
+  ready: boolean;
 }
 /** Client requests and watch events share the same workspace index. LRU eviction closes watchers. */
 export class WorkspaceCache {
@@ -18,7 +19,12 @@ export class WorkspaceCache {
   private closed = false;
   private tail: Promise<unknown> = Promise.resolve();
   private queued = 0;
-  constructor(cap = 4) {
+  private create: (root: string) => WorkspaceFiles;
+  constructor(
+    cap = 4,
+    create: (root: string) => WorkspaceFiles = (root) => new GitWorkspace(root),
+  ) {
+    this.create = create;
     requireContext(
       Number.isInteger(cap) && cap > 0 && cap <= 16,
       "invalid_request",
@@ -27,7 +33,14 @@ export class WorkspaceCache {
     this.cap = cap;
   }
   async get(root: string): Promise<WorkspaceFiles> {
-    requireContext(!this.closed && this.queued < 32, "busy", "Workspace cache busy");
+    requireContext(!this.closed, "busy", "Workspace cache closed");
+    const cached = this.cache.get(resolve(root));
+    if (cached?.ready) {
+      this.cache.delete(resolve(root));
+      this.cache.set(resolve(root), cached);
+      return cached.workspace;
+    }
+    requireContext(this.queued < 32, "busy", "Workspace cache busy");
     this.queued++;
     const result = this.tail
       .then(() => this.load(root))
@@ -43,33 +56,32 @@ export class WorkspaceCache {
     if (cached) {
       this.cache.delete(root);
       this.cache.set(root, cached);
-      await cached.task;
-      if (cached.rebuild) {
-        await cached.workspace.initialize();
-        cached.rebuild = false;
-      }
       return cached.workspace;
     }
     if (this.cache.size >= this.cap) {
       const first = this.cache.entries().next().value;
       if (first) {
         first[1].watcher.close();
-        await first[1].task;
         this.cache.delete(first[0]);
+        await first[1].task;
       }
     }
-    const workspace = new GitWorkspace(root);
+    const workspace = this.create(root);
     const pending = new Set<string>();
     const watcher = watch(root, { recursive: true });
-    cached = { workspace, watcher, pending, rebuild: false, task: Promise.resolve() };
+    cached = { workspace, watcher, pending, rebuild: false, task: Promise.resolve(), ready: false };
     const entry = cached;
     let running = false;
     const flush = () => {
-      if (running || this.closed) return;
+      if (running || this.closed || this.cache.get(root) !== entry) return;
       running = true;
       entry.task = entry.task
         .then(async () => {
-          while (entry.rebuild || pending.size) {
+          while (
+            !this.closed &&
+            this.cache.get(root) === entry &&
+            (entry.rebuild || pending.size)
+          ) {
             const rebuild = entry.rebuild;
             entry.rebuild = false;
             const paths = [...pending];
@@ -103,6 +115,7 @@ export class WorkspaceCache {
     this.cache.set(root, entry);
     try {
       await entry.task;
+      entry.ready = true;
       flush();
       return workspace;
     } catch (error) {
