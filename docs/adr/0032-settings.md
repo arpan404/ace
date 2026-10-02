@@ -1,0 +1,37 @@
+# 0032: Layered settings shared by the daemon and clients
+
+Date: 2026-10-02. Status: accepted.
+
+## Context
+
+The supplied competitor inventories describe t3code scopes, themes and keybindings, Claude's project launch configuration, and Codex's local environments and automation settings. They do not establish a common cross-client contract for per-key provenance, invalid-edit recovery or preserving newer settings. ace needs that contract before its clients arrive. These inventories inform requirements only. No competitor implementation is reused.
+
+## Decision
+
+`@ace/settings` owns resolution and file I/O. `@ace/protocol` owns schemas only. Settings are flat dotted keys inside `{ "version": 2, "settings": { ... } }`. Keys describe provider/model/tier/effort for coder, reviewer and planner, approvals, notifications, remote preferences, conductor policies, automation defaults, plugins and opaque theme/keybindings blobs. Values replace a whole key; blobs do not deep-merge.
+
+Resolve each key from defaults, global `<dataDir>/settings.json`, workspace `<repo>/.ace/settings.json`, then thread `<dataDir>/threads/<id>/settings.json`. Return both value and layer. Thread files survive restarts. Scopes use daemon-owned workspace/thread IDs on the wire. The service accepts paths only at its trusted integration boundary.
+
+Version 1 has the same dotted settings in `values`. Reading it renames `values` to `settings` and advances the version with minimal JSONC edits. Migration writes once. Unknown settings and document fields survive migration and writes. Unsupported versions produce a diagnostic rather than a speculative rewrite. Known keys validate independently; unknown keys remain opaque and are not exposed through typed `get`/`set`.
+
+JSONC accepts comments and trailing commas. Use the MIT-licensed [Microsoft jsonc-parser](https://github.com/microsoft/node-jsonc-parser) documented parser and edit API. Never accept the parser's recovery result when it reports errors. Preserve whitespace and comments around unchanged values. Moving the v1 container can relocate its comments; ordinary sets edit one value.
+
+Writes reread the current file, validate, apply minimal edits, validate again, write an exclusive temporary sibling, fsync it, rename over the destination and fsync the directory. Each file serializes daemon operations with a bounded queue. An external edit that completes before reread is retained. Between reread and rename, the last rename wins for the entire document. There is no cross-process compare-and-swap. Readers see complete old or new files, never a torn write. Invalid files block writes and retain the last good in-memory document.
+
+Watch parent directories, including the nearest existing ancestor when `.ace` has not been created yet. Reattach after directory changes and debounce bursts with one replaceable timer per file. Diagnostics describe parse, validation, version, secret, size or I/O failures without echoing values. Deleting a file restores lower layers. Shutdown stops watchers and drains writes.
+
+## Protocol additions
+
+Add authenticated `settings.get`, `settings.set` and `settings.subscribe` requests beside existing commands. Async file operations stay outside synchronous SQLite receipt transactions. Request IDs correlate `settings.result` responses. Sets are assignments and safe to retry, but have no durable receipt deduplication. `settings.subscribe` sends an initial result then `settings.changed` messages for selected keys whose value or provenance changed. Existing `unsubscribe` releases either kind of subscription. Reconnect by fetching/subscribing again; settings notifications are not event-log replay. Diagnostics are included in reads and delivered to active selectors as `settings.diagnostic`.
+
+## Security
+
+ADR 0002 applies to every layer and opaque blob. Reject recursively named token, API/private/secret key, password, credential and authorization fields, and recognizable bearer tokens, provider key prefixes and PEM private keys in string values. Generic `key` fields are forbidden, while the declared `clients.keybindings` setting is allowed. These checks are a guardrail, not a classifier for arbitrary random strings. Provider login, remote device credentials and relay keys belong to their respective secure stores. Remote settings are preferences and never activate transport or grant authority. Workspace approvals are preferences; an execution engine must enforce its trust and capability rules separately.
+
+Documents are capped at 1 MiB and each client blob at 64 KiB. Cap JSON depth, file handles, subscribers, selected keys and queued operations. Client payloads validate with Zod and file reads enforce the byte cap while reading. Never include file content or rejected values in diagnostics.
+
+## Performance and testing
+
+Index subscriptions by selected key and layer file so a change visits only affected subscribers, then compares effective value and provenance. Cache validated documents and values; resolution visits at most three files. Full parsing and diffing occur only for bounded external documents or writes. Non-gating benchmarks measure cached gets, indexed notification fan-out and debounced watcher scheduling, with throughput and peak RSS.
+
+Tests use public service APIs, temporary files and real authenticated WebSockets. Cover precedence/provenance, one-time migration, unknown-key round-trips, comments, external-write ordering and atomic visibility, invalid-edit recovery, debounced bursts, selective delivery, secrets, limits, restart persistence and socket cleanup. Inject watcher/timer boundaries for deterministic burst tests; no sleeps or wall-clock assertions. Apply at least eight production mutations and require a behavioral test failure for each before delivery.
