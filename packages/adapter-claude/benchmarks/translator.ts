@@ -134,16 +134,36 @@ function childRetention(): number {
   translator.tick(20_000);
   return retained / 1024 / 1024;
 }
-const median = (run: () => number): number =>
-  [run(), run(), run()].toSorted((a, b) => a - b)[1] ?? 0;
+function median(run: () => number): { ms: number; cpuMs: number } {
+  const samples = Array.from({ length: 3 }, () => {
+    const start = process.cpuUsage();
+    const ms = run();
+    const cpu = process.cpuUsage(start);
+    return { ms, cpuMs: (cpu.user + cpu.system) / 1000 };
+  });
+  return {
+    ms: samples.map((sample) => sample.ms).toSorted((a, b) => a - b)[1] ?? 0,
+    cpuMs: samples.map((sample) => sample.cpuMs).toSorted((a, b) => a - b)[1] ?? 0,
+  };
+}
 repeated(2000);
 streamed(1000);
 console.log(
   JSON.stringify(
     {
       node: process.version,
-      repeatedMs: [5000, 10000, 20000].map((n) => ({ frames: n, ms: median(() => repeated(n)) })),
-      streamedMs: [5000, 10000, 20000].map((n) => ({ blocks: n, ms: median(() => streamed(n)) })),
+      repeatedMs: [5000, 10000, 20000].map((n) =>
+        Object.assign(
+          { frames: n },
+          median(() => repeated(n)),
+        ),
+      ),
+      streamedMs: [5000, 10000, 20000].map((n) =>
+        Object.assign(
+          { blocks: n },
+          median(() => streamed(n)),
+        ),
+      ),
       retainedMiB: retention(),
       retainedChildMiB: childRetention(),
     },
