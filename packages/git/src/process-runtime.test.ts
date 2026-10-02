@@ -94,6 +94,8 @@ test.each(["darwin", "win32"] as const)(
       // Callbacks can register the taskkill helper deadline; expire only the original calls.
       const due = Array.from(deadlines);
       for (const expire of due) expire();
+      // The public rejection follows pipe closure, including inherited descendant pipes.
+      await rejected;
       await exited.promise;
       expect(() => process.kill(pids.parent, 0)).toThrow(
         expect.objectContaining({ code: "ESRCH" }),
