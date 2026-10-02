@@ -23,6 +23,16 @@ mutations.extend([
     ("root done ignores live trees", "packages/conductor/src/advance.ts", '    Object.values(s.lanes).every((l) => !l.live) &&\n', '', "review-quality"),
     ("reviewer omits repository rules", "packages/conductor/src/prompts.ts", '    quoted("Repository rules", rules),\n', '', "artifacts"),
 ])
+mutations.extend([
+    ("Unicode ownership only lowercases", "packages/protocol/src/conductor-plan-validation.ts", 'normalized.toLowerCase().toUpperCase()', 'normalized.toLowerCase()', "unicode-ownership"),
+    ("ownership skips NFC normalization", "packages/protocol/src/conductor-plan-validation.ts", 'path.normalize("NFC")', 'path', "unicode-ownership"),
+    ("buffered done overwrites first terminal timestamp", "packages/conductor/src/reducer.ts", 'fact.status === "done" && lane.migrationObservation?.status === "done"', 'false', "migration-deadline"),
+    ("buffered done resets artifact deadline", "packages/conductor/src/reducer.ts", 'lane.artifactDeadline ?? observation.at + state.spec.constraints.stallAfterMs', 'fact.at + state.spec.constraints.stallAfterMs', "migration-deadline"),
+    ("tick misses buffered artifact expiry", "packages/conductor/src/reducer.ts", '(lane.status === "migrating" && lane.migrationObservation?.status === "done")', 'false', "migration-deadline"),
+    ("migration stall destroys acknowledgement barrier", "packages/conductor/src/reducer.ts", '!missingArtifact && lane.status !== "migrating"', '!missingArtifact', "migration-deadline"),
+    ("buffered completion forgets the latest observation fence", "packages/conductor/src/reducer.ts", 'lastActivity: fact.at,\n              artifactDeadline:', 'lastActivity: observation.at,\n              artifactDeadline:', "migration-deadline"),
+    ("acknowledgement forgets newer buffered timestamps", "packages/conductor/src/reducer.ts", 'Math.max(lane.lastActivity, lane.migrationObservation?.at ?? env.now())', 'lane.migrationObservation?.at ?? env.now()', "migration-deadline"),
+])
 results = []
 with tempfile.TemporaryDirectory(prefix="ace-conductor-mutations-") as directory:
     for i, (name, file, original, replacement, suite) in enumerate(mutations):

@@ -17,7 +17,11 @@ for (const size of sizes) {
     await context.install(project);
     const worker = progress(context.state()).lanes[0];
     if (!worker) throw new Error("Worker missing");
-    const iterations = process.argv.includes("--baseline") ? 1 : 1000;
+    const iterations = process.argv.includes("--baseline")
+      ? 1
+      : process.argv.includes("--short")
+        ? 50
+        : 1000;
     const before = performance.now();
     for (let i = 0; i < iterations; i++)
       context.send({

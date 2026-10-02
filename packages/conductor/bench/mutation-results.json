@@ -68,5 +68,45 @@
     "mutation": "reviewer omits repository rules",
     "file": "packages/conductor/src/prompts.ts",
     "failingTest": "worker briefs quote repository rules and fix evidence; reviewers receive the adversarial protocol"
+  },
+  {
+    "mutation": "Unicode ownership only lowercases",
+    "file": "packages/protocol/src/conductor-plan-validation.ts",
+    "failingTest": "Unicode ownership aliases \u03a3.ts / \u03c2.ts cannot dispatch independent workers"
+  },
+  {
+    "mutation": "ownership skips NFC normalization",
+    "file": "packages/protocol/src/conductor-plan-validation.ts",
+    "failingTest": "Unicode ownership aliases \u00e9.ts / e\u0301.ts cannot dispatch independent workers"
+  },
+  {
+    "mutation": "buffered done overwrites first terminal timestamp",
+    "file": "packages/conductor/src/reducer.ts",
+    "failingTest": "a buffered done with an artifact cannot postpone a stalled migration acknowledgement"
+  },
+  {
+    "mutation": "buffered done resets artifact deadline",
+    "file": "packages/conductor/src/reducer.ts",
+    "failingTest": "repeated buffered done cannot postpone the artifact gate before acknowledgement"
+  },
+  {
+    "mutation": "tick misses buffered artifact expiry",
+    "file": "packages/conductor/src/reducer.ts",
+    "failingTest": "repeated buffered done cannot postpone the artifact gate before acknowledgement"
+  },
+  {
+    "mutation": "migration stall destroys acknowledgement barrier",
+    "file": "packages/conductor/src/reducer.ts",
+    "failingTest": "a buffered done with an artifact cannot postpone a stalled migration acknowledgement"
+  },
+  {
+    "mutation": "buffered completion forgets the latest observation fence",
+    "file": "packages/conductor/src/reducer.ts",
+    "failingTest": "older work cannot replace newer buffered completion before acknowledgement"
+  },
+  {
+    "mutation": "acknowledgement forgets newer buffered timestamps",
+    "file": "packages/conductor/src/reducer.ts",
+    "failingTest": "older work cannot replace newer buffered completion after acknowledgement"
   }
 ]
