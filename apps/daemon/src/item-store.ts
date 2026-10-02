@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { EventPayload, Item, type Event, type ItemsPage, type ThreadId } from "@ace/protocol";
 import { applyDelta } from "@ace/projection";
 
@@ -32,31 +32,31 @@ function appendSize(append: string, lastUnit: number): number {
 /** Authoritative bodies plus append-only text: delta writes never read or rewrite history. */
 export class ItemStore {
   private readonly db: DatabaseSync;
-  constructor(db: DatabaseSync) {
+  private readonly statement: (sql: string) => StatementSync;
+  constructor(db: DatabaseSync, statement: (sql: string) => StatementSync) {
     this.db = db;
+    this.statement = statement;
   }
   /** Rebuild encoding metadata once after migration, recovering old chunks from the event log. */
   initialize(): void {
-    if (this.db.prepare("SELECT id FROM text_encoding_migration WHERE id = 1").get()) return;
+    if (this.statement("SELECT id FROM text_encoding_migration WHERE id = 1").get()) return;
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      for (const row of this.db.prepare("SELECT id, item FROM items").iterate()) {
+      for (const row of this.statement("SELECT id, item FROM items").iterate()) {
         const item = Item.parse(JSON.parse(String(row.item)));
         let { prefix, lastUnit } = textMetadata(item);
         let size = Buffer.byteLength(JSON.stringify(item));
-        for (const chunk of this.db
-          .prepare("SELECT append FROM item_text_chunks WHERE item_id = ? ORDER BY seq")
-          .iterate(item.id)) {
+        for (const chunk of this.statement(
+          "SELECT append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
+        ).iterate(item.id)) {
           const append = decodeAppend(chunk.append);
           size += appendSize(append, lastUnit) + prefix;
           prefix = 0;
           if (append.length) lastUnit = append.charCodeAt(append.length - 1);
         }
-        this.db
-          .prepare(
-            "UPDATE item_heads SET size = ?, text_prefix = ?, text_last_unit = ? WHERE id = ?",
-          )
-          .run(size, prefix, lastUnit, item.id);
+        this.statement(
+          "UPDATE item_heads SET size = ?, text_prefix = ?, text_last_unit = ? WHERE id = ?",
+        ).run(size, prefix, lastUnit, item.id);
       }
       this.db.exec("INSERT INTO text_encoding_migration VALUES (1); COMMIT");
     } catch (error) {
@@ -65,35 +65,29 @@ export class ItemStore {
     }
   }
   upsert(event: Event, item: Item): void {
-    const existing = this.db.prepare("SELECT thread_id FROM items WHERE id = ?").get(item.id);
+    const existing = this.statement("SELECT thread_id FROM items WHERE id = ?").get(item.id);
     if (existing && existing.thread_id !== event.threadId) throw new Error("Item outside thread");
     const body = JSON.stringify(item);
     const { prefix, lastUnit } = textMetadata(item);
-    this.db
-      .prepare(
-        "INSERT INTO items VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET item = excluded.item",
-      )
-      .run(item.id, event.threadId, event.seq, body);
-    this.db
-      .prepare(`INSERT INTO item_heads VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET size = excluded.size, item_type = excluded.item_type, text_prefix = excluded.text_prefix, text_last_unit = excluded.text_last_unit`)
-      .run(
-        item.id,
-        event.threadId,
-        event.seq,
-        Buffer.byteLength(body),
-        item.type,
-        prefix,
-        lastUnit,
-      );
-    this.db.prepare("DELETE FROM item_text_chunks WHERE item_id = ?").run(item.id);
+    this.statement(
+      "INSERT INTO items VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET item = excluded.item",
+    ).run(item.id, event.threadId, event.seq, body);
+    this.statement(`INSERT INTO item_heads VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET size = excluded.size, item_type = excluded.item_type, text_prefix = excluded.text_prefix, text_last_unit = excluded.text_last_unit`).run(
+      item.id,
+      event.threadId,
+      event.seq,
+      Buffer.byteLength(body),
+      item.type,
+      prefix,
+      lastUnit,
+    );
+    this.statement("DELETE FROM item_text_chunks WHERE item_id = ?").run(item.id);
   }
   append(event: Event, delta: Extract<EventPayload, { type: "item.delta" }>): void {
-    const row = this.db
-      .prepare(
-        "SELECT item_type, text_prefix, text_last_unit FROM item_heads WHERE id = ? AND thread_id = ?",
-      )
-      .get(delta.itemId, event.threadId);
+    const row = this.statement(
+      "SELECT item_type, text_prefix, text_last_unit FROM item_heads WHERE id = ? AND thread_id = ?",
+    ).get(delta.itemId, event.threadId);
     if (
       !row ||
       !(
@@ -108,23 +102,24 @@ export class ItemStore {
     const lastUnit = delta.append.length
       ? delta.append.charCodeAt(delta.append.length - 1)
       : Number(row.text_last_unit);
-    this.db
-      .prepare("INSERT INTO item_text_chunks VALUES (?, ?, ?, ?)")
-      .run(delta.itemId, event.seq, delta.field, JSON.stringify(delta.append));
-    this.db
-      .prepare(
-        "UPDATE item_heads SET size = size + ?, text_prefix = 0, text_last_unit = ? WHERE id = ?",
-      )
-      .run(size, lastUnit, delta.itemId);
+    this.statement("INSERT INTO item_text_chunks VALUES (?, ?, ?, ?)").run(
+      delta.itemId,
+      event.seq,
+      delta.field,
+      JSON.stringify(delta.append),
+    );
+    this.statement(
+      "UPDATE item_heads SET size = size + ?, text_prefix = 0, text_last_unit = ? WHERE id = ?",
+    ).run(size, lastUnit, delta.itemId);
   }
   private materialize(id: string, body: unknown): Item {
     const item = Item.parse(JSON.parse(String(body)));
     let field: unknown;
     const appends: string[] = [];
     // Stream rows instead of retaining their objects. Accepted fields share one append target.
-    for (const row of this.db
-      .prepare("SELECT field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq")
-      .iterate(id)) {
+    for (const row of this.statement(
+      "SELECT field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
+    ).iterate(id)) {
       field ??= row.field;
       appends.push(decodeAppend(row.append));
     }
@@ -150,11 +145,9 @@ export class ItemStore {
       limit > 200
     )
       throw new Error("Invalid item page");
-    const rows = this.db
-      .prepare(
-        "SELECT id, created_seq, size FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
-      )
-      .all(threadId, before, limit + 1);
+    const rows = this.statement(
+      "SELECT id, created_seq, size FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
+    ).all(threadId, before, limit + 1);
     let count = 0;
     // Budget both items:{} and itemOrder:[], including serialized ids, colons and commas.
     let bytes = 4;
@@ -173,10 +166,9 @@ export class ItemStore {
     const oldestRow = rows[count - 1];
     const oldest = oldestRow ? Number(oldestRow.created_seq) : before;
     const items = count
-      ? this.db
-          .prepare(
-            "SELECT id, item FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
-          )
+      ? this.statement(
+          "SELECT id, item FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
+        )
           .all(threadId, oldest, before)
           .map((row) => this.materialize(String(row.id), row.item))
       : [];
