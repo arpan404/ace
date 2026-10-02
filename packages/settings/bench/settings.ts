@@ -63,10 +63,28 @@ try {
   });
   timer?.();
   await service.refresh({ kind: "global" });
-  document = JSON.stringify({ version: 2, settings: { "future.payload": "x".repeat(16384) } });
-  await measure("external reconciliation, 16 KiB", 1000, async () => {
+  const payload = "x".repeat(16384);
+  await measure("changed external reconciliation, 16 KiB", 1000, async (index) => {
+    document = JSON.stringify({
+      version: 2,
+      settings: { "future.payload": payload, "future.revision": index },
+    });
     await service.refresh({ kind: "global" });
   });
+  for (const kib of [0, 16, 256, 879]) {
+    document = JSON.stringify({
+      version: 2,
+      settings: { "notifications.sound": false, "future.payload": "x".repeat(kib * 1024) },
+    });
+    await service.refresh({ kind: "global" });
+    await measure(
+      `existing scalar assignment, ${kib} KiB unrelated payload`,
+      1000,
+      async (index) => {
+        await service.set("notifications.sound", index % 2 === 0, { kind: "global" });
+      },
+    );
+  }
   console.log(JSON.stringify({ deliveries, peakRssKiB: process.resourceUsage().maxRSS }));
 } finally {
   await service.close();

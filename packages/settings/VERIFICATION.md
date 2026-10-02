@@ -1,5 +1,7 @@
 # Settings verification
 
+This records the original implementation baseline. Current review regressions, mutation results, local gate and expanded benchmarks are in [review verification](REVIEW-VERIFICATION.md).
+
 Each mutation below changed production code, ran the named public behavior test and produced a failing assertion. Each change was reverted before the next run. Commands used `bun run test <test file> -t <behavior>`.
 
 | Production mutation                                              | Failing behavior                                                                        |
