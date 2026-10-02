@@ -22,3 +22,6 @@ export type {
 } from "./types.ts";
 
 export { PluginService } from "./service.ts";
+
+export { gitRuntime, type GitRuntime } from "./git.ts";
+export { preparePluginSession } from "./session.ts";

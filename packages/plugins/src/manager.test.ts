@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { Transform } from "node:stream";
 import {
   chmod,
   lstat,
@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { PluginManager, inspectPackage, limits } from "./index.ts";
+import { PluginManager, inspectPackage, limits, gitRuntime } from "./index.ts";
 import { fixture, git, sampleFiles, sampleManifest, writeFiles } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -189,19 +189,47 @@ test("startup and removal collect abandoned versions, fetches and pending stages
   await f.manager.remove("sample");
   expect(await readdir(join(f.managerRoot, "staging"))).toEqual([]);
 });
-test("a competing manager cannot mutate while the directory transaction is held", async () => {
+test("a second manager cannot mutate while the first manager is preparing a real Git package", async () => {
   const f = await setup();
-  const lock = new DatabaseSync(join(f.managerRoot, "operation.sqlite"));
-  lock.exec("BEGIN IMMEDIATE");
+  const runtime = gitRuntime();
+  const held = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let first = true;
+  const owner = await PluginManager.open({
+    root: f.managerRoot,
+    now: () => 1,
+    id: () => "competing-review",
+    git: {
+      ...runtime,
+      spawn(options) {
+        const child = runtime.spawn(options);
+        if (!first) return child;
+        first = false;
+        const gate = new Transform({
+          transform(chunk: Buffer, _encoding, callback) {
+            held.resolve();
+            void release.promise.then(() => callback(null, chunk));
+          },
+        });
+        child.stdout.pipe(gate);
+        return { ...child, stdout: gate };
+      },
+    },
+  });
+  const preparing = owner.prepare({ repository: f.repo, ref: "main", name: "sample" });
   try {
+    await held.promise;
     await expect(f.manager.remove("sample")).rejects.toThrow("busy");
   } finally {
-    lock.exec("ROLLBACK");
-    lock.close();
+    release.resolve();
   }
-  const review = await f.prepare();
-  await f.manager.accept(review);
-  expect(f.manager.list()).toHaveLength(1);
+  try {
+    const review = await preparing;
+    await f.manager.accept(review);
+    expect(owner.list()).toHaveLength(1);
+  } finally {
+    owner.close();
+  }
 });
 test("package hash includes paths and executable permissions", async () => {
   const f = await setup();
@@ -209,8 +237,9 @@ test("package hash includes paths and executable permissions", async () => {
   const first = await inspectPackage(path);
   await chmod(join(path, "scripts/start.js"), 0o600);
   expect((await inspectPackage(path)).hash).not.toBe(first.hash);
+  const beforeRename = await inspectPackage(path);
   await rename(join(path, "rules/style.md"), join(path, "rules/renamed.md"));
-  expect((await inspectPackage(path)).hash).not.toBe(first.hash);
+  expect((await inspectPackage(path)).hash).not.toBe(beforeRename.hash);
 });
 test("existing user directories are refused", async () => {
   const f = await setup();

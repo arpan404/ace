@@ -1,4 +1,8 @@
-import { spawn } from "node:child_process";
+import {
+  spawnBytes,
+  type ByteProcess,
+  type ByteProcessOptions,
+} from "@ace/provider-kit/process-bytes";
 import { createWriteStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, isAbsolute } from "node:path";
@@ -16,15 +20,33 @@ const treeEntry = z.object({
   bytes: z.number().int().nonnegative().max(limits.file),
   path: z.string(),
 });
-/** Git never reads user config or checks out files. Output and subprocess lifetime are bounded. */
+export interface GitRuntime {
+  spawn: (options: ByteProcessOptions) => ByteProcess;
+  command: string;
+  env: NodeJS.ProcessEnv;
+  schedule: (callback: () => void, milliseconds: number) => () => void;
+}
+/** Resolve platform defaults at the I/O boundary; all Git operations accept this dependency. */
+export function gitRuntime(): GitRuntime {
+  return {
+    spawn: spawnBytes,
+    command: "git",
+    env: { PATH: process.env.PATH },
+    schedule: (callback, milliseconds) => {
+      const timer = setTimeout(callback, milliseconds);
+      return () => clearTimeout(timer);
+    },
+  };
+}
 async function runGit<T>(
   args: string[],
   cwd: string,
   consume: (output: Readable) => Promise<T>,
+  runtime: GitRuntime,
 ): Promise<T> {
-  const child = spawn(
-    "git",
-    [
+  const child = runtime.spawn({
+    command: runtime.command,
+    args: [
       "-c",
       "core.hooksPath=/dev/null",
       "-c",
@@ -37,62 +59,67 @@ async function runGit<T>(
       "protocol.ssh.allow=always",
       ...args,
     ],
-    {
-      cwd,
-      env: {
-        PATH: process.env.PATH,
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_OPTIONAL_LOCKS: "0",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
+    cwd,
+    env: {
+      ...runtime.env,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_OPTIONAL_LOCKS: "0",
     },
-  );
+  });
   let stderr = "";
   let timedOut = false;
-  const timeout = setTimeout(() => {
+  const cancel = runtime.schedule(() => {
     timedOut = true;
-    child.kill("SIGKILL");
+    void child.stop();
   }, 120_000);
   child.stderr.on("data", (chunk: Buffer) => {
     if (stderr.length < 8192) stderr += chunk.toString("utf8").slice(0, 8192 - stderr.length);
   });
-  const completion = new Promise<void>((resolve, reject) => {
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (timedOut) reject(new Error("Git operation timed out"));
-      else if (code !== 0) reject(new Error(`Git failed: ${stderr}`));
-      else resolve();
-    });
+  const completion = child.exited.then((code) => {
+    if (timedOut) throw new Error("Git operation timed out");
+    if (code !== 0) throw new Error(`Git failed: ${stderr}`);
   });
   try {
     const [value] = await Promise.all([consume(child.stdout), completion]);
     return value;
   } catch (error) {
-    child.kill("SIGKILL");
+    await child.stop();
     await completion.catch(() => {});
+    if (timedOut) throw new Error("Git operation timed out", { cause: error });
     throw error;
   } finally {
-    clearTimeout(timeout);
+    cancel();
   }
 }
-async function git(args: string[], cwd: string, maximum = limits.json): Promise<Buffer> {
-  return runGit(args, cwd, async (stream) => {
-    const chunks: Buffer[] = [];
-    let bytes = 0;
-    for await (const chunk of stream) {
-      bytes += chunk.length;
-      if (bytes > maximum) throw new Error("Git output exceeds byte limit");
-      chunks.push(chunk);
-    }
-    return Buffer.concat(chunks, bytes);
-  });
+async function git(
+  args: string[],
+  cwd: string,
+  runtime: GitRuntime,
+  maximum = limits.json,
+): Promise<Buffer> {
+  return runGit(
+    args,
+    cwd,
+    async (stream) => {
+      const chunks: Buffer[] = [];
+      let bytes = 0;
+      for await (const chunk of stream) {
+        bytes += chunk.length;
+        if (bytes > maximum) throw new Error("Git output exceeds byte limit");
+        chunks.push(chunk);
+      }
+      return Buffer.concat(chunks, bytes);
+    },
+    runtime,
+  );
 }
 export async function fetchRepository(
   repository: string,
   ref: string,
   temporary: string,
+  runtime: GitRuntime,
 ): Promise<{ gitRoot: string; commit: string }> {
   if (
     repository.length > 8192 ||
@@ -104,16 +131,21 @@ export async function fetchRepository(
     throw new Error("Invalid Git ref");
   const gitRoot = join(temporary, "repository.git");
   await mkdir(gitRoot, { recursive: true, mode: 0o700 });
-  await git(["init", "--bare", gitRoot], temporary);
-  await git(["fetch", "--depth=1", "--no-tags", "--", repository, ref], gitRoot);
+  await git(["init", "--bare", gitRoot], temporary, runtime);
+  await git(["fetch", "--depth=1", "--no-tags", "--", repository, ref], gitRoot, runtime);
   const commit = PluginCommit.parse(
-    (await git(["rev-parse", "FETCH_HEAD^{commit}"], gitRoot)).toString("utf8").trim(),
+    (await git(["rev-parse", "FETCH_HEAD^{commit}"], gitRoot, runtime)).toString("utf8").trim(),
   );
   return { gitRoot, commit };
 }
-export async function readGitFile(gitRoot: string, commit: string, path: string): Promise<string> {
+export async function readGitFile(
+  gitRoot: string,
+  commit: string,
+  path: string,
+  runtime: GitRuntime,
+): Promise<string> {
   return (
-    await git(["show", `${PluginCommit.parse(commit)}:${normalizePath(path)}`], gitRoot)
+    await git(["show", `${PluginCommit.parse(commit)}:${normalizePath(path)}`], gitRoot, runtime)
   ).toString("utf8");
 }
 export async function extractPlugin(
@@ -121,6 +153,7 @@ export async function extractPlugin(
   commit: string,
   pluginPath: string,
   destination: string,
+  runtime: GitRuntime,
 ): Promise<void> {
   const prefix = pluginPath === "." ? "" : normalizePath(pluginPath);
   const tree = (
@@ -135,6 +168,7 @@ export async function extractPlugin(
         ...(prefix ? [`${prefix}/`] : []),
       ],
       gitRoot,
+      runtime,
       2 * 1024 * 1024,
     )
   ).toString("utf8");
@@ -157,22 +191,27 @@ export async function extractPlugin(
     const target = join(destination, path);
     await assertNoSymlinks(target);
     await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-    await runGit(["cat-file", "blob", entry.hash], gitRoot, async (stream) => {
-      let bytes = 0;
-      const cap = new Transform({
-        transform(chunk: Buffer, _encoding, callback) {
-          bytes += chunk.length;
-          if (bytes > entry.bytes) callback(new Error("Blob size mismatch"));
-          else callback(null, chunk);
-        },
-      });
-      await pipeline(
-        stream,
-        cap,
-        createWriteStream(target, { flags: "wx", mode: entry.mode === "100755" ? 0o700 : 0o600 }),
-      );
-      if (bytes !== entry.bytes) throw new Error("Blob size mismatch");
-    });
+    await runGit(
+      ["cat-file", "blob", entry.hash],
+      gitRoot,
+      async (stream) => {
+        let bytes = 0;
+        const cap = new Transform({
+          transform(chunk: Buffer, _encoding, callback) {
+            bytes += chunk.length;
+            if (bytes > entry.bytes) callback(new Error("Blob size mismatch"));
+            else callback(null, chunk);
+          },
+        });
+        await pipeline(
+          stream,
+          cap,
+          createWriteStream(target, { flags: "wx", mode: entry.mode === "100755" ? 0o700 : 0o600 }),
+        );
+        if (bytes !== entry.bytes) throw new Error("Blob size mismatch");
+      },
+      runtime,
+    );
   }
   if (!count) throw new Error("Plugin source directory missing");
 }

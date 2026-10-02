@@ -10,7 +10,7 @@ import {
   ownDirectory,
   readPackageText,
 } from "./files.ts";
-import { extractPlugin, fetchRepository, readGitFile } from "./git.ts";
+import { extractPlugin, fetchRepository, readGitFile, gitRuntime, type GitRuntime } from "./git.ts";
 import { importPlugin } from "./import.ts";
 import { Registry } from "./registry.ts";
 import { reviewPlugin, validateComponents } from "./review.ts";
@@ -20,14 +20,17 @@ export interface PluginManagerOptions {
   root: string;
   now: () => number;
   id: () => string;
+  git?: GitRuntime;
 }
 export class PluginManager {
   private registry: Registry;
   private root: string;
   private options: PluginManagerOptions;
+  private git: GitRuntime;
   private constructor(root: string, options: PluginManagerOptions) {
     this.root = root;
     this.options = options;
+    this.git = options.git ?? gitRuntime();
     this.registry = new Registry(join(root, "registry.sqlite"));
   }
   static async open(options: PluginManagerOptions): Promise<PluginManager> {
@@ -83,6 +86,7 @@ export class PluginManager {
           request.repository,
           request.ref,
           temporary,
+          this.git,
         );
         let catalogText: string | undefined;
         for (const path of [
@@ -91,7 +95,7 @@ export class PluginManager {
           ".cursor-plugin/marketplace.json",
         ]) {
           try {
-            catalogText = await readGitFile(gitRoot, commit, path);
+            catalogText = await readGitFile(gitRoot, commit, path, this.git);
             break;
           } catch (error) {
             if (!(error instanceof Error && error.message.includes("does not exist"))) throw error;
@@ -106,6 +110,7 @@ export class PluginManager {
           commit,
           entry.source === "." || entry.source === "./" ? "." : normalizePath(entry.source),
           stage,
+          this.git,
         );
         const digest = await inspectPackage(stage);
         if (entry.hash !== undefined && entry.hash !== digest.hash)
