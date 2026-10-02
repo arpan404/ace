@@ -5,8 +5,9 @@ final class TestButton: NSButton {
 }
 
 final class TestPattern: NSView {
+    var tick = 0
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(deviceRed: 1, green: 0, blue: 0, alpha: 1).setFill(); NSRect(x: 20, y: 220, width: 160, height: 60).fill()
+        NSColor(deviceRed: 1, green: Double(tick % 10) / 20, blue: 0, alpha: 1).setFill(); NSRect(x: 20, y: 220, width: 160, height: 60).fill()
         NSColor(deviceRed: 0, green: 0, blue: 1, alpha: 1).setFill(); NSRect(x: 220, y: 220, width: 160, height: 60).fill()
     }
 }
@@ -14,16 +15,24 @@ final class TestDocument: NSView { override var isFlipped: Bool { true } }
 final class TestScroll: NSScrollView {}
 @MainActor final class TestDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
     private var window: NSWindow?
+    private var animation: Timer?
     private var scrollObserver: NSObjectProtocol?
     func applicationDidFinishLaunching(_ notification: Notification) {
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         self.window = window
         window.title = String((CommandLine.arguments.dropFirst().first ?? "ace screen integration").prefix(64))
         window.contentView = TestPattern(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        if CommandLine.arguments.contains("--animate"), let pattern = window.contentView as? TestPattern {
+            animation = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in pattern.tick += 1; pattern.needsDisplay = true }
+        }
         let view = NSTextField(string: "")
         view.delegate = self
         view.frame = NSRect(x: 40, y: 100, width: 300, height: 50)
         window.contentView?.addSubview(view)
+        let secure = NSSecureTextField(string: "fixture secret")
+        secure.setAccessibilityLabel("Secret test")
+        secure.frame = NSRect(x: 40, y: 165, width: 200, height: 32)
+        window.contentView?.addSubview(secure)
         let button = TestButton(title: "Click test", target: self, action: #selector(clicked(_:)))
         button.frame = NSRect(x: 40, y: 30, width: 160, height: 32)
         button.keyEquivalent = "\r"

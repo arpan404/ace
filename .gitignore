@@ -11,3 +11,4 @@ coverage/
 .recordings/
 
 native/screen-helper/build/
+/native/screen-helper/.build/
