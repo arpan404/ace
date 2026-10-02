@@ -42,8 +42,6 @@ it("Codex fixture totals count cumulative samplings once despite resends", async
         outputTokens: u.outputTokens,
         cachedInputTokens: u.cachedInputTokens,
         reasoningTokens: u.reasoningOutputTokens,
-        counterMode: "cumulative",
-        counterKey: result.data.params.threadId,
       });
   }
   expect(h.totals()).toMatchObject({
@@ -74,16 +72,15 @@ it("Claude result accounting uses one run aggregate instead of repeated assistan
     const result = Native.safeParse(frame);
     if (!result.success) continue;
     const u = result.data.usage;
+    h.send({ type: "run.started", agent: "root", run: result.data.uuid });
     for (let repeat = 0; repeat < 2; repeat++)
-      h.usage(u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens, "root", {
+      h.usage(u.input_tokens, "root", {
         outputTokens: u.output_tokens,
         cachedInputTokens: u.cache_read_input_tokens,
         cacheWriteTokens: u.cache_creation_input_tokens,
         cacheWrite1hTokens: u.cache_creation.ephemeral_1h_input_tokens,
         reasoningTokens: u.output_tokens_details.thinking_tokens,
         costUsd: result.data.total_cost_usd,
-        counterMode: "cumulative",
-        counterKey: `${result.data.session_id}/${result.data.uuid}`,
       });
   }
   expect(h.totals()).toMatchObject({
@@ -123,13 +120,12 @@ it("OpenCode step ids deduplicate SSE and sync envelopes without adding assistan
     const result = Native.safeParse(frame);
     if (!result.success) continue;
     const { tokens: u, id, cost } = result.data.payload;
-    h.usage(u.input + u.cache.read + u.cache.write, "root", {
-      outputTokens: u.output + u.reasoning,
+    h.usage(u.input, "root", {
+      outputTokens: u.output,
       cachedInputTokens: u.cache.read,
       cacheWriteTokens: u.cache.write,
       reasoningTokens: u.reasoning,
       costUsd: cost,
-      counterMode: "cumulative",
       counterKey: id,
     });
   }

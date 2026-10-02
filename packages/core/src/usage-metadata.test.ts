@@ -22,6 +22,9 @@ it("usage metadata reaches canonical events without changing agent status", () =
     expect.objectContaining({
       type: "usage.updated",
       inputTokens: 20,
+      outputTokens: 5,
+      cachedInputTokens: 4,
+      model: "model",
       reasoningTokens: 2,
       cacheWriteTokens: 3,
       cacheWrite1hTokens: 1,

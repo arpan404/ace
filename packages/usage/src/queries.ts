@@ -1,4 +1,5 @@
 import { UsageQuery, UsageRow, type UsageResult, UsageDimension } from "@ace/protocol";
+import { boundedTotals } from "./numeric.ts";
 import type { StatementSync, SQLInputValue } from "node:sqlite";
 
 const columns: Record<UsageDimension, string> = {
@@ -10,18 +11,19 @@ const columns: Record<UsageDimension, string> = {
   model: "NULLIF(d.model,'')",
   workspace: "d.workspace",
 };
-// Reasoning and cache tokens are subsets, never billed twice.
-export const estimateSql = `(MAX(0, d.input-d.cached-d.write)*p.input + d.cached*p.cached +
-  MAX(0,d.write-d.write1h)*p.write + d.write1h*p.write1h + d.output*p.output)/1000000.0`;
-const totalsSql = `SUM(d.input) AS inputTokens, SUM(d.output) AS outputTokens,
-  SUM(d.cached) AS cachedInputTokens, SUM(d.reasoning) AS reasoningTokens,
-  SUM(d.write) AS cacheWriteTokens, SUM(d.write1h) AS cacheWrite1hTokens,
+// Late cache classification produces signed adjustments. Linear pricing stays additive across groups.
+export const estimateSql = `((d.input-d.cached-d.write)*p.input + d.cached*p.cached +
+  (d.write-d.write1h)*p.write + d.write1h*p.write1h + d.output*p.output)/1000000.0`;
+const totalsSql = `SUM(CAST(d.input AS REAL)) AS inputTokens, SUM(CAST(d.output AS REAL)) AS outputTokens,
+  SUM(CAST(d.cached AS REAL)) AS cachedInputTokens, SUM(CAST(d.reasoning AS REAL)) AS reasoningTokens,
+  SUM(CAST(d.write AS REAL)) AS cacheWriteTokens, SUM(CAST(d.write1h AS REAL)) AS cacheWrite1hTokens,
   SUM(d.cost) AS providerReportedUsd,
   SUM(CASE WHEN d.billing='api' THEN COALESCE(${estimateSql},0) ELSE 0 END) AS estimatedUsd,
   SUM(COALESCE(${estimateSql},0)) AS equivalentApiUsd,
-  SUM(CASE WHEN p.model IS NULL THEN d.input+d.output ELSE 0 END) AS unpricedTokens,
-  SUM(CASE WHEN d.billing='subscription' THEN d.input+d.output ELSE 0 END) AS subscriptionTokens,
-  SUM(CASE WHEN d.billing='unknown' THEN d.input+d.output ELSE 0 END) AS unknownBillingTokens`;
+  SUM(CASE WHEN p.model IS NULL THEN CAST(d.input AS REAL)+CAST(d.output AS REAL) ELSE 0 END) AS unpricedTokens,
+  SUM(CASE WHEN p.model IS NULL THEN 1 ELSE 0 END) AS missingPrices,
+  SUM(CASE WHEN d.billing='subscription' THEN CAST(d.input AS REAL)+CAST(d.output AS REAL) ELSE 0 END) AS subscriptionTokens,
+  SUM(CASE WHEN d.billing='unknown' THEN CAST(d.input AS REAL)+CAST(d.output AS REAL) ELSE 0 END) AS unknownBillingTokens`;
 
 export function queryRows(
   prepare: (sql: string) => StatementSync,
@@ -63,8 +65,8 @@ export function queryRows(
   // but only a few model/billing combinations per requested group.
   const aggregate = `SELECT ${selectGroups ? `${selectGroups}, ` : ""}
     d.model AS pricing_model, d.billing,
-    SUM(d.input) AS input, SUM(d.output) AS output, SUM(d.cached) AS cached,
-    SUM(d.reasoning) AS reasoning, SUM(d.write) AS write, SUM(d.write1h) AS write1h, SUM(d.cost) AS cost
+    SUM(CAST(d.input AS REAL)) AS input, SUM(CAST(d.output AS REAL)) AS output, SUM(CAST(d.cached AS REAL)) AS cached,
+    SUM(CAST(d.reasoning AS REAL)) AS reasoning, SUM(CAST(d.write AS REAL)) AS write, SUM(CAST(d.write1h AS REAL)) AS write1h, SUM(d.cost) AS cost
     FROM usage_daily d WHERE ${clauses.join(" AND ")}
     GROUP BY ${[...groups.map((g) => columns[g]), "d.model", "d.billing"].join(", ")}`;
   const sql =
@@ -75,8 +77,14 @@ export function queryRows(
       : `${cte} SELECT ${selectGroups ? `${selectGroups}, ` : ""}${totalsSql}
         FROM (${aggregate}) d LEFT JOIN usage_prices p ON p.model=d.pricing_model
         ${groupSql} ORDER BY ${order}${tie} LIMIT ?`;
-  const rows = prepare(sql).all(...params, q.limit + 1);
-  const result = rows.slice(0, q.limit).map((row) => {
+  const result: UsageRow[] = [];
+  let bytes = 2;
+  let truncated = false;
+  for (const row of prepare(sql).iterate(...params, q.limit + 1)) {
+    if (result.length === q.limit) {
+      truncated = true;
+      break;
+    }
     const dimensions: Partial<Record<UsageDimension, unknown>> = {};
     for (const g of groups) dimensions[g] = row[g];
     const {
@@ -89,14 +97,25 @@ export function queryRows(
       workspace: _workspace,
       ...totals
     } = row;
-    return UsageRow.parse({
+    const parsed = UsageRow.parse({
       dimensions,
       totals: {
-        ...Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, value ?? 0])),
+        ...boundedTotals(
+          Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, value ?? 0])),
+        ),
         equivalentApiUsd:
-          q.equivalentApiCost && !Number(row.unpricedTokens) ? (row.equivalentApiUsd ?? 0) : null,
+          q.equivalentApiCost && !Number(row.missingPrices)
+            ? boundedTotals({ equivalentApiUsd: row.equivalentApiUsd ?? 0 }).equivalentApiUsd
+            : null,
       },
     });
-  });
-  return { rows: result, truncated: rows.length > q.limit };
+    const size = Buffer.byteLength(JSON.stringify(parsed)) + 1;
+    if (bytes + size > 512 * 1024) {
+      truncated = true;
+      break;
+    }
+    result.push(parsed);
+    bytes += size;
+  }
+  return { rows: result, truncated };
 }

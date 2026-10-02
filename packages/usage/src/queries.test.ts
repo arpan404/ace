@@ -127,6 +127,7 @@ describe("usage queries", () => {
       windowId: "5h",
       unit: "tokens",
       observed: 60,
+      overflow: false,
       perHour: 30,
       remaining: 80,
       exhaustionAt: at + (2 + 80 / 30) * 3_600_000,
@@ -176,5 +177,42 @@ describe("usage queries", () => {
         ],
       }),
     ).toThrow("Cross-thread");
+  });
+});
+
+it("query pages bound returned bytes as well as row count and expose truncation", () => {
+  const h = setup();
+  h.thread();
+  h.agent();
+  for (let i = 0; i < 100; i++)
+    h.usage(1, "root", { model: `${i}:` + "m".repeat(8000), counterMode: "incremental" });
+  const page = h.store.summary({ ...query, groupBy: ["model"], limit: 1000 });
+  expect(page.truncated).toBe(true);
+  expect(page.rows.length).toBeGreaterThan(1);
+  expect(page.rows.length).toBeLessThan(100);
+  expect(Buffer.byteLength(JSON.stringify(page.rows))).toBeLessThanOrEqual(512 * 1024);
+});
+it("quota aggregates saturate numeric overflow and suppress an unreliable exhaustion forecast", () => {
+  const h = setup();
+  h.thread();
+  h.agent();
+  for (let i = 0; i < 2; i++)
+    h.usage(Number.MAX_SAFE_INTEGER, "root", {
+      costUsd: Number.MAX_VALUE,
+      accountId: "account",
+      counterMode: "incremental",
+    });
+  const at = Date.parse("2026-10-02T12:00Z");
+  const window = { id: "quota", start: at - 1, end: at + 1000, remaining: 100 };
+  expect(h.store.burn("account", { ...window, unit: "usd" }, at + 1)).toMatchObject({
+    observed: Number.MAX_VALUE,
+    perHour: Number.MAX_VALUE,
+    overflow: true,
+    exhaustionAt: null,
+  });
+  expect(h.store.burn("account", { ...window, unit: "tokens" }, at + 1)).toMatchObject({
+    observed: Number.MAX_SAFE_INTEGER,
+    overflow: true,
+    exhaustionAt: null,
   });
 });

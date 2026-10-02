@@ -56,6 +56,9 @@ export class UsageStore {
   private query(query: unknown, kind: "summary" | "series"): Result {
     return UsageResult.parse({
       cursor: this.cursor(),
+      omittedEvents: Number(
+        this.statement("SELECT omitted FROM usage_meta WHERE id=1").get()?.omitted,
+      ),
       timezone: this.settings.timezone,
       priceVersion: this.priceVersion,
       ...queryRows((sql) => this.statement(sql), query, kind),
@@ -64,13 +67,14 @@ export class UsageStore {
   burn(account: string, input: unknown, now: number) {
     const window = QuotaWindow.parse(input);
     if (!Number.isFinite(now) || now < 0) throw new Error("Invalid clock");
-    const row = this.statement(`SELECT COALESCE(SUM(d.input+d.output),0) AS tokens,
+    const row =
+      this.statement(`SELECT COALESCE(SUM(CAST(d.input AS REAL)+CAST(d.output AS REAL)),0) AS tokens,
       COALESCE(SUM(d.cost),0) AS usd FROM usage_increments d
       WHERE d.account=? AND d.at>=? AND d.at<?`).get(
-      account,
-      window.start,
-      Math.min(now, window.end),
-    );
+        account,
+        window.start,
+        Math.min(now, window.end),
+      );
     return burnRate(window, Number(window.unit === "tokens" ? row?.tokens : row?.usd), now);
   }
   close(): void {

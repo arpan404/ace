@@ -174,3 +174,103 @@ describe("usage accounting", () => {
     expect(h.totals().inputTokens).toBe(10);
   });
 });
+
+it("partial cache reports preserve signed daily adjustments and additive grouped estimates", () => {
+  const h = setup();
+  h.thread();
+  h.agent();
+  h.usage(1_000_000, "root", { billingMode: "api" }, Date.parse("2026-10-02T23:59Z"));
+  h.usage(
+    1_000_000,
+    "root",
+    { cachedInputTokens: 500_000, billingMode: "api" },
+    Date.parse("2026-10-03T00:01Z"),
+  );
+  const q = { ...query, equivalentApiCost: true };
+  expect(h.totals(q).estimatedUsd).toBeCloseTo(1.65);
+  const series = h.store.series(q).rows;
+  expect(series.map((r) => r.totals.estimatedUsd)).toEqual([3, -1.35]);
+  for (const groupBy of [
+    ["day"],
+    ["day", "agent"],
+    ["day", "model", "provider", "account", "workspace", "thread", "agent"],
+  ]) {
+    const rows = h.store.summary({ ...q, groupBy }).rows;
+    expect(rows.reduce((sum, r) => sum + r.totals.estimatedUsd, 0)).toBeCloseTo(1.65);
+    expect(rows.reduce((sum, r) => sum + (r.totals.equivalentApiUsd ?? 0), 0)).toBeCloseTo(1.65);
+  }
+  expect(h.totals({ ...q, from: "2026-10-03", to: "2026-10-03" }).estimatedUsd).toBeCloseTo(-1.35);
+});
+it("legacy OpenCode increments include cache input and reasoning output exactly once", () => {
+  const h = setup();
+  h.thread("thread", "opencode");
+  h.agent("root", null, null, "opencode");
+  for (let i = 0; i < 2; i++)
+    h.usage(10, "root", {
+      outputTokens: 3,
+      cachedInputTokens: 4,
+      cacheWriteTokens: 2,
+      reasoningTokens: 5,
+    });
+  expect(h.totals()).toMatchObject({
+    inputTokens: 32,
+    outputTokens: 16,
+    cachedInputTokens: 8,
+    cacheWriteTokens: 4,
+    reasoningTokens: 10,
+  });
+});
+it("large provider reports remain queryable and aggregate overflow is explicitly saturated", () => {
+  const h = setup();
+  h.thread();
+  h.agent();
+  h.usage(1, "root", { costUsd: 2e12, counterMode: "incremental" });
+  expect(h.totals()).toMatchObject({ providerReportedUsd: 2e12, overflow: false });
+  h.usage(Number.MAX_SAFE_INTEGER, "root", {
+    costUsd: Number.MAX_VALUE,
+    counterMode: "incremental",
+  });
+  h.usage(Number.MAX_SAFE_INTEGER, "root", {
+    costUsd: Number.MAX_VALUE,
+    counterMode: "incremental",
+  });
+  expect(h.totals()).toMatchObject({
+    providerReportedUsd: Number.MAX_VALUE,
+    inputTokens: Number.MAX_SAFE_INTEGER,
+    overflow: true,
+  });
+  h.reopen();
+  expect(h.totals().overflow).toBe(true);
+});
+
+it("deletions in the same transaction cannot resurrect deferred rollups", () => {
+  const h = setup();
+  h.thread();
+  h.agent();
+  const cursor = h.store.cursor();
+  h.store.ingest({
+    afterSeq: cursor,
+    throughSeq: cursor + 2,
+    events: [
+      {
+        seq: cursor + 1,
+        at: Date.parse("2026-10-02"),
+        threadId: "thread",
+        payload: { type: "usage.updated", agentId: "root", inputTokens: 10, outputTokens: 2 },
+      },
+      {
+        seq: cursor + 2,
+        at: Date.parse("2026-10-02"),
+        threadId: "thread",
+        payload: { type: "thread.deleted" },
+      },
+    ],
+  });
+  expect(h.totals().inputTokens).toBe(0);
+  expect(h.store.summary({ ...query, groupBy: ["thread"] }).rows).toEqual([]);
+  h.reopen();
+  h.thread();
+  h.agent();
+  h.usage(10);
+  expect(h.totals().inputTokens).toBe(10);
+});

@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { UsageBatch, type UsageEvent } from "./events.ts";
-import { Counts, normalizeUsage, zeroCounts, type Counts as CountValues } from "./counters.ts";
+import { Counts, type Counts as CountValues } from "./counters.ts";
+import { accountSample, counterPolicy } from "./accounting.ts";
 import { upsertDaily } from "./database.ts";
 const Agent = z.object({
   thread: z.string(),
@@ -47,6 +48,12 @@ export class Ingestion {
       for (const event of batch.events)
         if (event.seq > cursor) {
           const delta = this.apply(event);
+          if (event.payload.type === "thread.deleted") {
+            // Deferred rollups from this same batch must not resurrect a deleted thread.
+            for (let i = deltas.length - 1; i >= 0; i--) {
+              if (deltas[i]?.thread === event.threadId) deltas.splice(i, 1);
+            }
+          }
           if (delta) deltas.push(delta);
         }
       if (deltas.length) this.sql(upsertDaily).run(JSON.stringify(deltas));
@@ -78,6 +85,20 @@ export class Ingestion {
   private apply(event: UsageEvent): DailyIncrement | undefined {
     const p = event.payload;
     const thread = event.threadId;
+    if (p.type === "usage.skipped") {
+      this.sql("UPDATE usage_meta SET omitted=omitted+1 WHERE id=1").run();
+      return;
+    }
+    if (p.type === "thread.deleted") {
+      this.sql(
+        "DELETE FROM usage_counters WHERE agent IN (SELECT agent FROM usage_agents WHERE thread=?)",
+      ).run(thread);
+      this.sql("DELETE FROM usage_agents WHERE thread=?").run(thread);
+      this.sql("DELETE FROM usage_daily WHERE thread=?").run(thread);
+      this.sql("DELETE FROM usage_increments WHERE thread=?").run(thread);
+      this.sql("DELETE FROM usage_threads WHERE thread=?").run(thread);
+      return;
+    }
     if (p.type === "thread.created") {
       this.sql("INSERT OR IGNORE INTO usage_threads VALUES (?, ?, ?)").run(
         thread,
@@ -124,42 +145,29 @@ export class Ingestion {
       );
       return;
     }
-    const a = Agent.parse(
-      this.sql(`SELECT a.thread, a.parent, a.model,
+    const metadata = this.sql(`SELECT a.thread, a.parent, a.model,
       COALESCE(a.provider,t.provider) AS provider, a.run, t.workspace
       FROM usage_agents a JOIN usage_threads t ON t.thread=a.thread
-      WHERE a.agent=? AND a.thread=?`).get(p.agentId, thread),
-    );
+      WHERE a.agent=? AND a.thread=?`).get(p.agentId, thread);
+    if (!metadata) {
+      // An incompatible retained creation can be omitted without pinning healthy replay.
+      this.sql("UPDATE usage_meta SET omitted=omitted+1 WHERE id=1").run();
+      return;
+    }
+    const a = Agent.parse(metadata);
     const provider = a.provider;
-    const mode =
-      p.counterMode ??
-      (provider === "codex" || provider === "claude" ? "cumulative" : "incremental");
-    const scope =
-      p.counterKey === undefined
-        ? provider === "claude"
-          ? `legacy:run:${a.run}`
-          : "legacy"
-        : `key:${p.counterKey}`;
-    const tracked = mode === "cumulative" || p.counterKey !== undefined;
+    const { mode, scope, tracked } = counterPolicy(p, provider, a.run);
     const previousRow = tracked
       ? this.sql(
           "SELECT input, output, cached, reasoning, write, write1h, cost FROM usage_counters WHERE agent=? AND scope=?",
         ).get(p.agentId, scope)
       : undefined;
-    const previous = previousRow ? Counts.parse(previousRow) : zeroCounts;
-    // Legacy Claude/OpenCode input excludes cache; explicit metadata uses canonical inclusive counts.
-    const legacy = p.counterMode === undefined && provider !== "codex";
-    const usage = {
-      ...p,
-      inputTokens:
-        p.inputTokens + (legacy ? (p.cachedInputTokens ?? 0) + (p.cacheWriteTokens ?? 0) : 0),
-      outputTokens:
-        p.outputTokens + (legacy && provider === "opencode" ? (p.reasoningTokens ?? 0) : 0),
-    };
-    const result =
-      mode === "incremental" && previousRow
-        ? { delta: zeroCounts, next: previous }
-        : normalizeUsage(usage, previous);
+    const result = accountSample(
+      p,
+      provider,
+      mode,
+      previousRow ? Counts.parse(previousRow) : undefined,
+    );
     if (tracked)
       this.sql(
         "INSERT INTO usage_counters VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(agent,scope) DO UPDATE SET input=excluded.input, output=excluded.output, cached=excluded.cached, reasoning=excluded.reasoning, write=excluded.write, write1h=excluded.write1h, cost=excluded.cost",
@@ -178,9 +186,10 @@ export class Ingestion {
     if (Object.values(delta).every((v) => v === 0)) return;
     const billing = p.billingMode ?? "unknown";
     const account = p.accountId ?? "";
-    this.sql("INSERT INTO usage_increments VALUES (?, ?, ?, ?, ?, ?)").run(
+    this.sql("INSERT INTO usage_increments VALUES (?, ?, ?, ?, ?, ?, ?)").run(
       event.seq,
       event.at,
+      thread,
       account,
       delta.input,
       delta.output,
@@ -194,7 +203,7 @@ export class Ingestion {
       agent: p.agentId,
       provider,
       account,
-      model: p.model ?? a.model ?? "",
+      model: (p.model === undefined ? a.model : p.model) ?? "",
       workspace: a.workspace,
       billing,
     };

@@ -2,12 +2,13 @@ import { z } from "zod";
 
 const id = z.string().min(1).max(512);
 const tokens = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const dollars = z.number().nonnegative().max(1e12);
+const dollars = z.number().nonnegative();
+const adjustment = z.number();
 export const UsageMetadata = z.object({
   reasoningTokens: tokens.optional(),
   cacheWriteTokens: tokens.optional(),
   cacheWrite1hTokens: tokens.optional(),
-  model: id.optional(),
+  model: z.string().min(1).optional(),
   accountId: id.optional(),
   billingMode: z.enum(["api", "subscription", "unknown"]).optional(),
   counterMode: z.enum(["cumulative", "incremental"]).optional(),
@@ -30,7 +31,9 @@ export const UsageQuery = z
     from: date,
     to: date,
     groupBy: z.array(UsageDimension).max(7).default([]),
-    filters: z.partialRecord(UsageDimension, z.array(id).min(1).max(50)).default({}),
+    filters: z
+      .partialRecord(UsageDimension, z.array(z.string().min(1).max(8192)).min(1).max(50))
+      .default({}),
     agentTree: id.optional(),
     limit: z.number().int().min(1).max(1000).default(100),
     orderBy: z.enum(["tokens", "cost"]).default("tokens"),
@@ -53,8 +56,10 @@ export const UsageTotals = z.object({
   cacheWriteTokens: tokens,
   cacheWrite1hTokens: tokens,
   providerReportedUsd: dollars,
-  estimatedUsd: dollars,
-  equivalentApiUsd: dollars.nullable(),
+  estimatedUsd: adjustment,
+  equivalentApiUsd: adjustment.nullable(),
+  /** Saturation prevents unsafe token totals or non-finite aggregate dollars. */
+  overflow: z.boolean().default(false),
   unpricedTokens: tokens,
   subscriptionTokens: tokens,
   unknownBillingTokens: tokens,
@@ -69,6 +74,7 @@ export const UsageBurn = z.object({
   windowId: id,
   unit: z.enum(["tokens", "usd"]),
   observed: z.number().nonnegative(),
+  overflow: z.boolean().default(false),
   perHour: z.number().nonnegative(),
   remaining: z.number().nonnegative().nullable(),
   exhaustionAt: z.number().nonnegative().nullable(),
@@ -76,6 +82,7 @@ export const UsageBurn = z.object({
 export type UsageBurn = z.infer<typeof UsageBurn>;
 export const UsageResult = z.object({
   cursor: tokens,
+  omittedEvents: tokens.default(0),
   timezone: id,
   priceVersion: id,
   rows: z.array(UsageRow).max(1000),

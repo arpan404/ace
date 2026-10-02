@@ -44,10 +44,11 @@ export class UsageWorker {
   private call(call: WorkerCall): Promise<unknown> {
     if (this.failed || this.closing)
       return Promise.reject(this.failed ?? new Error("Usage worker closing"));
-    if (this.pending.size >= 16) return Promise.reject(new Error("Usage worker backpressure"));
+    if (call.method !== "close" && this.pending.size >= 16)
+      return Promise.reject(new Error("Usage worker backpressure"));
     const message = WorkerRequest.parse({ id: ++this.sequence, call });
     const bytes = Buffer.byteLength(JSON.stringify(message));
-    if (bytes > 1024 * 1024 || this.bytes + bytes > 4 * 1024 * 1024)
+    if (bytes > 1024 * 1024 || (call.method !== "close" && this.bytes + bytes > 4 * 1024 * 1024))
       return Promise.reject(new Error("Usage worker byte backpressure"));
     return new Promise((resolve, reject) => {
       this.pending.set(message.id, { resolve, reject, bytes });
@@ -86,6 +87,7 @@ export class UsageWorker {
   }
   close(): Promise<void> {
     if (!this.closing) {
+      // One reserved control slot follows all admitted messages in the worker FIFO.
       const closed = this.call({ method: "close" });
       this.closing = (async () => {
         try {

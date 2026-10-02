@@ -40,7 +40,7 @@ it("backfill resumes across worker restarts and skipped transcript pages without
         id: "a",
         threadId: "t",
         parentId: null,
-        model: "m",
+        model: "m".repeat(513),
         native: { provider: "codex", id: "native" },
         origin: "root",
         fidelity: "full",
@@ -91,5 +91,44 @@ it("worker backpressure rejects excess RPCs without abandoning accepted operatio
     expect(await worker.cursor()).toBe(0);
   } finally {
     await worker.close();
+  }
+});
+
+it("closing a saturated worker drains every accepted write before SQLite is reopened", async () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-drain-"));
+  const path = join(home, "usage.sqlite");
+  const worker = new UsageWorker(path);
+  let reopened: UsageWorker | undefined;
+  try {
+    const accepted = Array.from({ length: 16 }, (_, i) =>
+      worker.ingest({
+        afterSeq: i,
+        throughSeq: i + 1,
+        events: [
+          {
+            seq: i + 1,
+            at: Date.parse("2026-10-02"),
+            threadId: "thread",
+            payload:
+              i === 0
+                ? { type: "thread.created", workspace: "w", provider: "codex" }
+                : i === 1
+                  ? { type: "agent.created", id: "a", parent: null, model: null, provider: "codex" }
+                  : { type: "usage.updated", agentId: "a", inputTokens: i, outputTokens: 0 },
+          },
+        ],
+      }),
+    );
+    const closed = worker.close();
+    await expect(worker.cursor()).rejects.toThrow("closing");
+    expect(await Promise.all(accepted)).toEqual(Array.from({ length: 16 }, (_, i) => i + 1));
+    await closed;
+    reopened = new UsageWorker(path);
+    expect(await reopened.cursor()).toBe(16);
+    expect((await reopened.summary(query)).rows[0]?.totals.inputTokens).toBe(15);
+  } finally {
+    await worker.close();
+    await reopened?.close();
+    rmSync(home, { recursive: true, force: true });
   }
 });

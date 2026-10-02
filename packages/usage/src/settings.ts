@@ -12,7 +12,7 @@ export const PriceTable = z.object({
   version: z.string().min(1).max(128),
   sources: z.array(z.url()).max(100),
   models: z
-    .record(z.string().min(1).max(512), ModelPrice)
+    .record(z.string().min(1).max(8192), ModelPrice)
     .refine((m) => Object.keys(m).length <= 1000),
 });
 export type PriceTable = z.infer<typeof PriceTable>;
@@ -33,7 +33,7 @@ export const UsageSettings = z.object({
     .default("UTC"),
   prices: PriceTable.default(defaultPrices),
   priceOverrides: z
-    .record(z.string().min(1).max(512), ModelPrice)
+    .record(z.string().min(1).max(8192), ModelPrice)
     .default({})
     .refine((m) => Object.keys(m).length <= 1000),
   overrideVersion: z.string().min(1).max(128).default("local"),

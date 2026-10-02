@@ -22,9 +22,9 @@ export const UsageUpdated = z.object({
   ...UsageMetadata.shape,
   type: z.literal("usage.updated"),
   agentId: AgentId,
-  inputTokens: z.number().int().nonnegative(),
-  outputTokens: z.number().int().nonnegative(),
-  cachedInputTokens: z.number().int().nonnegative().optional(),
+  inputTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  outputTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  cachedInputTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   contextWindow: z.number().int().positive().optional(),
   costUsd: z.number().nonnegative().optional(),
 });
