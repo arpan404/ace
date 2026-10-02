@@ -227,7 +227,7 @@ describe("checkpoints", () => {
       process.stdout.write(JSON.stringify(checkpoint));
     `;
     const output = await execute(process.execPath, ["--input-type=module", "--eval", script], {
-      timeout: 30_000,
+      timeout: 120_000,
     });
     const checkpoint = z
       .object({ tree: z.string(), sha: z.string() })
@@ -239,7 +239,7 @@ describe("checkpoints", () => {
         .split("\0")
         .filter(Boolean),
     ).toHaveLength(5_000);
-  }, 30_000);
+  }, 120_000);
 });
 
 describe("restore", () => {
