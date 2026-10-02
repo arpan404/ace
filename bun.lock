@@ -24,10 +24,28 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/adapter-testkit": {
+      "name": "@ace/adapter-testkit",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/engine-api": "workspace:*",
+        "@ace/projection": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+      },
+    },
+    "packages/engine-api": {
+      "name": "@ace/engine-api",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
       },
     },
     "packages/notify": {
@@ -58,15 +76,20 @@
     "tools/recorder": {
       "name": "@ace/recorder",
       "dependencies": {
+        "@ace/engine-api": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@anthropic-ai/claude-agent-sdk": "0.3.287",
       },
     },
   },
   "packages": {
+    "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],
+
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
+
+    "@ace/engine-api": ["@ace/engine-api@workspace:packages/engine-api"],
 
     "@ace/notify": ["@ace/notify@workspace:packages/notify"],
 

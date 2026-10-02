@@ -1,0 +1,17 @@
+{
+  "name": "@ace/engine-api",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ace/core": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*"
+  }
+}
