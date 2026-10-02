@@ -1,0 +1,42 @@
+# 0008: Authenticated dev-server previews
+
+Date: 2026-10-02. Status: accepted for the backend library. Daemon and client wiring follows remote-access and relay delivery.
+
+## Context
+
+The orchestration research inventories t3code's desktop webview and planned gateway, Claude's desktop launch configs, and screenshot-based remote workflows. Those notes describe no authenticated host-local dev-server preview in a phone's own browser. They are feature references only; this implementation is written fresh. A screenshot cannot exercise cookies, service workers, SSE or HMR.
+
+## Decision
+
+`@ace/preview` owns discovery, launch supervision, HTTP forwarding and relay streams. It exposes small dependency interfaces for device authorization and the encrypted channel. It does not modify provider credentials or run agent prompts.
+
+Use `p<port>-<generation>.<wildcard-host>` virtual hosts on one listener. Each registration has a fresh generation, so unregistering and registering invalidates prior links and cookies. Different listener ports have different web origins but share hostname cookies; that alternative does not satisfy cookie isolation. No body rewriting or JavaScript injection is needed with different hostnames. Upstream Domain attributes are removed to make application cookies host-only, and gateway cookies never reach the application.
+
+Remote browsers need wildcard DNS directed at the daemon's LAN or Tailscale address. A bare IP or Tailscale MagicDNS node name is insufficient. The caller configures DNS and supplies a wildcard TLS certificate for HTTPS. HTTPS is required for service workers and Secure application cookies outside loopback. HTTP is an explicit development transport, with reduced transport security. Native relay clients use distinct loopback IPs so their cookies remain isolated without DNS. Browsers cannot create TCP listeners or act as a secure-channel peer, so remote browsers use LAN or Tailscale, not the relay.
+
+## Public API and wire additions
+
+- `createPreviewGateway` accepts listen interface, wildcard hostname, optional TLS, limits and a device authority. `register({ port })` only targets numeric loopback TCP ports. `mintLink({ port, deviceToken })` authorizes a paired device before issuing a short-lived signed link. `unregister` closes in-flight work. `close` owns all connections.
+- `discoverListeningPorts` uses bounded `lsof` output on Darwin and bounded `/proc/net/tcp{,6}` reads on Linux. `pollPorts` emits added/removed ports, doubles its delay while unchanged and resets after change. Discovered ports are suggestions, never automatically exposed.
+- `TerminalUrlScanner` consumes bounded chunks, retains a small incomplete suffix and reports loopback HTTP(S) URLs. Terminal PR #7 can feed its output hook without a package dependency.
+- `.ace/launch.json` has a bounded `configurations` array. Entries contain `name`, `command` or `runtimeExecutable`, optional `args`, `cwd`, `env`, `port`, `autoPort`, or `url`. `command` is an executable, not shell source. An attach URL is HTTP on loopback only. `autoPort` reserves a free port before launch, injects `PORT`, then releases the reservation immediately before spawning. Generic CLIs cannot inherit that listening socket; a small bind race remains and failed launch is reported. Start and stop use `@ace/provider-kit/process` to own process groups. Launches do not imply forwarding permission.
+- Preview control schemas are additive, in `@ace/protocol/preview`. They describe list/start/stop/forward/unforward/link requests and discovery/launch descriptors. This library does not add unauthenticated daemon endpoints. The daemon must dispatch those controls only after pairing authorization.
+- `attachPreviewRelay({ channel, allowPort })` is the host endpoint. `openPreviewProxy({ channel, port })` returns a localhost URL and a close handle. Channel adapters must deliver ordered binary messages, resolve sends only once admitted under their own bounded backpressure, and notify close. The host authorizes each requested port using the paired-channel identity captured by its `allowPort` callback.
+
+Relay version 1 frames have a 12-byte header: version u8, kind u8, reserved u16=0, stream id u32, value u32, followed by at most 16 KiB of binary data. Kinds are OPEN (value=port), READY, DATA (value=payload bytes), CREDIT (value=consumed bytes), END (TCP half-close), RESET. Client allocates monotonically increasing nonzero ids and never reuses them in a channel. Both directions start with 256 KiB credit after READY. A receiver replenishes credit only after its destination write completes. Invalid frames, credit overflow and unknown kinds close the channel endpoint. Stream count and socket count are capped; excess opens are reset. Data is never JSON or base64. Reconnection creates a new endpoint and new sockets; old streams fail visibly rather than replaying HTTP writes. HMR can then open a new websocket normally.
+
+## Security
+
+HMAC-SHA256 links are audience-bound to the exact preview hostname, expire after 60 seconds, and consume a nonce synchronously before setting the session cookie. Outstanding nonce storage has a hard cap; expired entries leave in issuance order. Link URLs use a reserved login path, redirect to `/`, and carry no-store and no-referrer headers. The cookie is HttpOnly, SameSite=Strict, host-only, and Secure on HTTPS. HTTPS uses the __Host- prefix. Signed sessions expire after an hour, bind to the generation and device, and recheck device revocation on every HTTP request and websocket upgrade. A restart changes the signing secret and invalidates old sessions. Existing sockets require explicit `revokeDevice` when pairing is revoked.
+
+Reject unknown Host values, foreign Origin values, absolute-form request targets, CONNECT, unauthenticated upgrades and arbitrary upstream addresses. Strip hop-by-hop and forwarded headers, rewrite Host and accepted Origin to loopback, and rewrite loopback Location redirects to the preview origin. External redirects stay external. Cookie Domain is removed; attempts to set the reserved gateway cookie are discarded. Limits bound tokens, registrations, connections, headers and relay frames. Authorization errors fail closed. Applications are still untrusted development code; a compromised dev server can control its own preview origin. Do not put previews under the ace UI's cookie domain.
+
+## Performance
+
+HTTP uploads, downloads, SSE and websocket bytes use Node stream backpressure end to end. Headers are small bounded metadata; response bodies are never accumulated. Lookup and dispatch are O(1) by hostname or stream id. Port snapshots cost O(current listeners), diff emits only changes, and polling backs off to 30 seconds. Terminal scanning is O(chunk bytes) with an 8 KiB suffix cap. Relay credit bounds each direction at 256 KiB per stream, with 16 KiB frames and capped connections. Shutdown destroys sockets and cancels pending work. Non-gating benchmarks cover HTTP streaming/fan-out, relay throughput and discovery scanning, reporting throughput and peak RSS.
+
+## Validation
+
+Tests use real HTTP, websocket and SSE servers, process groups and TCP sockets. They cover two-host cookie isolation, single-use and expired links, forged hosts/origins/cookies, revocation, streaming uploads and a 50 MiB download with bounded stream queues, 200 concurrent connections, and websocket echo after upstream restart. Relay tests cover concurrent sockets, half-close, flow control, malformed frames and replacement channels after disconnect. Discovery tests guard change-only notifications and URL chunk boundaries. Launch tests verify PORT injection, attach and stopping owned processes. At least eight production mutations must make their named behaviour tests fail before PR delivery. `bun run check` is the delivery gate.
+
+Primary references: [Node HTTP](https://nodejs.org/docs/latest-v24.x/api/http.html), [Node streams](https://nodejs.org/docs/latest-v24.x/api/stream.html), [RFC 6265 cookies](https://www.rfc-editor.org/rfc/rfc6265#section-5.1.3), [RFC 6455 websocket](https://www.rfc-editor.org/rfc/rfc6455), [MDN service workers](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API).
