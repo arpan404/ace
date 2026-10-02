@@ -36,19 +36,3 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: settings.ACE_LOG_LEVEL,
   };
 }
-export function logger(
-  level: LogLevel,
-): (severity: Exclude<LogLevel, "silent">, message: string, error?: unknown) => void {
-  const levels = ["debug", "info", "warn", "error", "silent"];
-  return (severity, message, error) => {
-    if (levels.indexOf(severity) < levels.indexOf(level)) return;
-    process.stderr.write(
-      JSON.stringify({
-        at: Date.now(),
-        level: severity,
-        message,
-        ...(error === undefined ? {} : { error: String(error) }),
-      }) + "\n",
-    );
-  };
-}

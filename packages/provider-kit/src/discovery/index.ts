@@ -32,6 +32,8 @@ export type DiscoveryOptions = {
   /** Explicit environment overrides, including PATH, for resolution and probes. */
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  signal?: AbortSignal;
+  probe?: typeof probeOutput;
 };
 const specs = {
   claude: {
@@ -112,10 +114,14 @@ export async function discoverProviders(
         if (!path) return [provider, result];
         result.installed = true;
         result.path = path;
-        const probeOptions = { env, timeoutMs: options.timeoutMs ?? 10_000 };
+        const probeOptions = {
+          env,
+          timeoutMs: options.timeoutMs ?? 10_000,
+          ...(options.signal ? { signal: options.signal } : {}),
+        };
         const [version, auth] = await Promise.allSettled([
-          probeOutput(path, ["--version"], probeOptions),
-          probeOutput(path, spec.authArgs, probeOptions),
+          (options.probe ?? probeOutput)(path, ["--version"], probeOptions),
+          (options.probe ?? probeOutput)(path, spec.authArgs, probeOptions),
         ]);
         const errors: string[] = [];
         if (version.status === "fulfilled" && version.value.code === 0) {
@@ -143,4 +149,35 @@ export async function discoverProviders(
     ),
   );
   return Object.fromEntries(entries) as Record<Provider, DiscoveryResult>;
+}
+
+/** No documented read-only login-status command: never enter the interactive login flow. */
+export async function discoverAntigravity(
+  options: DiscoveryOptions = {},
+): Promise<DiscoveryResult> {
+  const env = options.env ?? process.env;
+  const path = await findExecutable("agy", env);
+  const result: DiscoveryResult = {
+    installed: Boolean(path),
+    auth: "unknown",
+    loginHint: "agy interactively to verify your Google account login",
+  };
+  if (!path) return result;
+  result.path = path;
+  try {
+    const output = await (options.probe ?? probeOutput)(path, ["--version"], {
+      env,
+      timeoutMs: options.timeoutMs ?? 4000,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+    if (output.code === 0) {
+      const version = parseVersion("antigravity", output.stdout);
+      if (version) result.version = version;
+    }
+  } catch {
+    /* Status stays unknown; raw exceptions and CLI output are private. */
+  }
+  result.error =
+    "Login status requires interactive verification; no safe status command is documented";
+  return result;
 }
