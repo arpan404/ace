@@ -1,3 +1,4 @@
+import type { CommandService } from "@ace/commands";
 import { randomUUID } from "node:crypto";
 import type { NotificationWorker } from "@ace/notify";
 import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
@@ -54,6 +55,7 @@ export interface ServerOptions {
   hostId: string;
   store: Store;
   handler: CommandHandler;
+  commands?: CommandService;
   replayLimit?: number;
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
@@ -309,6 +311,40 @@ export async function startServer(options: ServerOptions): Promise<{
             subscriptions.set(message.subscriptionId, stop);
           } catch {
             fail("subscribe_failed", "Unknown thread or invalid cursor");
+          }
+          break;
+        }
+        case "commands.list":
+        case "commands.resolve": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
+          if (!options.commands) {
+            fail("commands_unavailable", "Command catalog unavailable");
+            break;
+          }
+          try {
+            if (message.type === "commands.list") {
+              const result = await options.commands.list(
+                message.threadId,
+                message.query,
+                message.limit,
+              );
+              if (socket.readyState === WebSocket.OPEN && allows(authenticated.get(socket), "read"))
+                send({ type: "commands.list.result", requestId: message.requestId, ...result });
+            } else {
+              const result = await options.commands.resolve(
+                message.threadId,
+                message.commandId,
+                message.arguments,
+                message.positional,
+              );
+              if (socket.readyState === WebSocket.OPEN && allows(authenticated.get(socket), "read"))
+                send({ type: "commands.resolve.result", requestId: message.requestId, result });
+            }
+          } catch {
+            fail("commands_failed", "Unknown thread or command catalog unavailable");
           }
           break;
         }

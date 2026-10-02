@@ -18,6 +18,7 @@
     "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {
+    "@ace/commands": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/notify": "workspace:*",
     "@ace/projection": "workspace:*",

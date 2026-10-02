@@ -1,3 +1,5 @@
+import { createDaemonCommandLibrary } from "./command-library.ts";
+import type { CommandLibrary } from "@ace/commands";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
@@ -19,6 +21,7 @@ export {
   type CommandContext,
 } from "./commands.ts";
 export { readConfig } from "./config.ts";
+export { createDaemonCommandLibrary } from "./command-library.ts";
 const noop = () => {};
 
 export async function startDaemon(
@@ -31,6 +34,7 @@ export async function startDaemon(
   tokenPath: string;
   store: Store;
   notifications: NotificationWorker;
+  commands: CommandLibrary;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   remoteUrl?: string;
   fingerprint?: string;
@@ -40,30 +44,35 @@ export async function startDaemon(
   const log = logger(config.logLevel);
   let store: Store | undefined;
   let notifications: DaemonNotifications | undefined;
+  let commands: CommandLibrary | undefined;
   let closeChannels = noop;
   let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let endpointPath: string | undefined;
   const closeResources = async () => {
     try {
-      await mcp?.close();
+      await commands?.close();
     } finally {
       try {
-        await server?.close();
+        await mcp?.close();
       } finally {
         try {
-          await notifications?.close();
+          await server?.close();
         } finally {
           try {
-            closeChannels();
+            await notifications?.close();
           } finally {
             try {
-              store?.close();
+              closeChannels();
             } finally {
               try {
-                if (endpointPath) unlinkSync(endpointPath);
+                store?.close();
               } finally {
-                unlock();
+                try {
+                  if (endpointPath) unlinkSync(endpointPath);
+                } finally {
+                  unlock();
+                }
               }
             }
           }
@@ -88,6 +97,7 @@ export async function startDaemon(
       () => log("error", "Notification service failure"),
       configured.channels,
     );
+    commands = createDaemonCommandLibrary(store, config.dataDir);
     const remote = await remoteListener(config);
     server = await startServer({
       ...(remote ? { remote } : {}),
@@ -96,6 +106,7 @@ export async function startDaemon(
       hostId,
       store,
       handler,
+      commands,
       notifications: notifications.service,
       log: (error) => log("error", "WebSocket failure", error),
     });
@@ -113,6 +124,7 @@ export async function startDaemon(
       tokenPath,
       store,
       notifications: notifications.service,
+      commands,
       mcp,
       close() {
         closing ??= closeResources();
