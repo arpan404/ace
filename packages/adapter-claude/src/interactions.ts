@@ -1,4 +1,4 @@
-import type { InteractionRequest, InteractionResolution } from "@ace/protocol";
+import type { InteractionRequest, InteractionResolution, Question } from "@ace/protocol";
 import { list, object, string, type Data } from "./native.ts";
 export function requestFor(name: string, input: Data, options: Data): InteractionRequest {
   if (name === "AskUserQuestion")
@@ -6,21 +6,23 @@ export function requestFor(name: string, input: Data, options: Data): Interactio
       kind: "question",
       questions: list(input["questions"]).map((value) => {
         const q = object(value);
-        return {
+        const question: Question = {
           id: string(q["question"]),
           text: string(q["question"]),
-          ...(typeof q["header"] === "string" ? { header: q["header"] } : {}),
           multiSelect: q["multiSelect"] === true,
           allowOther: true,
-          options: list(q["options"]).map((value) => {
-            const o = object(value);
-            return {
+          options: list(q["options"]).map((option) => {
+            const o = object(option);
+            const result: Question["options"][number] = {
               id: string(o["label"]),
               label: string(o["label"]),
-              ...(typeof o["description"] === "string" ? { description: o["description"] } : {}),
             };
+            if (typeof o["description"] === "string") result.description = o["description"];
+            return result;
           }),
         };
+        if (typeof q["header"] === "string") question.header = q["header"];
+        return question;
       }),
     };
   if (name === "ExitPlanMode")

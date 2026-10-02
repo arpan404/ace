@@ -1,9 +1,10 @@
+import { z } from "zod";
 import type { RawPayload } from "@ace/protocol";
 export type Data = Record<string, unknown>;
+const DataSchema = z.record(z.string(), z.unknown());
 export function object(value: unknown): Data {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Data)
-    : {};
+  const parsed = DataSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
 }
 export function string(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;

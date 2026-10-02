@@ -31,11 +31,13 @@ async function harness() {
     signal: controller.signal,
     onFrame(frame) {
       frames.push(frame);
-      for (const waiter of [...waiters])
-        if (waiter.predicate(frame)) {
-          waiters.splice(waiters.indexOf(waiter), 1);
+      for (let i = waiters.length - 1; i >= 0; i--) {
+        const waiter = waiters[i];
+        if (waiter?.predicate(frame)) {
+          waiters.splice(i, 1);
           waiter.resolve(frame);
         }
+      }
     },
     onExit: exit.resolve,
   });

@@ -11,7 +11,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { capabilities } from "./capabilities.ts";
 import { InputStream, content, permissionResult } from "./input.ts";
-import { object, string } from "./native.ts";
+import { list, object, string } from "./native.ts";
 import { requestFor } from "./interactions.ts";
 import { spawnSdkProcess } from "./sdk-process.ts";
 export interface ClaudeOptions {
@@ -23,6 +23,11 @@ interface Pending {
   input: Record<string, unknown>;
   suggestions: PermissionUpdate[];
   finish(result: PermissionResult, cancelled?: boolean): void;
+}
+function nativeKey(key: string, kind: string): string {
+  return key.includes(`:${kind}:`)
+    ? key.slice(key.lastIndexOf(`:${kind}:`) + kind.length + 2)
+    : key;
 }
 export async function openSession(
   ctx: SessionContext,
@@ -160,9 +165,7 @@ export async function openSession(
       for await (const message of q) {
         const data = object(message);
         if (data["type"] === "assistant")
-          for (const value of Array.isArray(object(data["message"])["content"])
-            ? (object(data["message"])["content"] as unknown[])
-            : []) {
+          for (const value of list(object(data["message"])["content"])) {
             const block = object(value);
             if (block["type"] === "tool_use")
               toolParents.set(string(block["id"]), string(data["parent_tool_use_id"]));
@@ -204,11 +207,6 @@ export async function openSession(
   const ensureOpen = () => {
     if (closed || exited) throw new Error("Claude session is closed");
   };
-  function nativeKey(key: string, kind: string): string {
-    return key.includes(`:${kind}:`)
-      ? key.slice(key.lastIndexOf(`:${kind}:`) + kind.length + 2)
-      : key;
-  }
   return {
     nativeSessionId: sessionId,
     async send(parts, delivery) {
@@ -239,7 +237,7 @@ export async function openSession(
       } else await q.interrupt();
       if (target.cascade) {
         const spawns = new Set<string>();
-        if (targetId) spawns.add(tasks.get(targetId)!.spawn);
+        if (targetId) spawns.add(tasks.get(targetId)?.spawn ?? "");
         let changed = true;
         while (changed) {
           changed = false;

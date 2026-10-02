@@ -136,8 +136,8 @@ test("terminal task enrichment does not restart a finished child", () => {
 test("streamed text is replaced by the complete assistant message without duplication", () => {
   const h = harness();
   h.init();
-  const event = (event: unknown) =>
-    h.send({ type: "stream_event", event, parent_tool_use_id: null });
+  const event = (nativeEvent: unknown) =>
+    h.send({ type: "stream_event", event: nativeEvent, parent_tool_use_id: null });
   event({ type: "message_start", message: { id: "m" } });
   event({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
   event({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hello" } });
@@ -269,7 +269,7 @@ test("late background result origin preserves the child wake trigger", () => {
   h.result({ origin: { kind: "task-notification" } });
   expect(
     Object.values(h.state.runs)
-      .filter((r) => r.agentId === h.state.agents["root"]?.agent.id)
-      .at(-1)?.trigger,
+      .toReversed()
+      .find((r) => r.agentId === h.state.agents["root"]?.agent.id)?.trigger,
   ).toBe("subagent_result");
 });

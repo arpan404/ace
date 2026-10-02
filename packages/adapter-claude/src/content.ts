@@ -54,8 +54,8 @@ export function message(state: ClaudeState, data: Data, seq: number): void {
     else if (type === "tool_result") {
       const toolId = string(block["tool_use_id"]);
       if (!toolId) continue;
-      const declined = list(data["tool_result_meta"]).some((value) => {
-        const meta = object(value);
+      const declined = list(data["tool_result_meta"]).some((nativeMeta) => {
+        const meta = object(nativeMeta);
         return meta["id"] === toolId && meta["non_execution_kind"] === "permission-rule";
       });
       state.emit({
@@ -81,9 +81,9 @@ export function message(state: ClaudeState, data: Data, seq: number): void {
           append: output,
         });
     } else if (type === "text") {
-      const value = string(block["text"]);
-      if (role === "user" && value === "[Request interrupted by user]") {
-        state.notice(data, `${seq}`, agent, "info", value);
+      const contentText = string(block["text"]);
+      if (role === "user" && contentText === "[Request interrupted by user]") {
+        state.notice(data, `${seq}`, agent, "info", contentText);
         continue;
       }
       state.emit({
@@ -96,7 +96,7 @@ export function message(state: ClaudeState, data: Data, seq: number): void {
         draft: {
           type: "message",
           role,
-          parts: [{ type: "text", text: value }],
+          parts: [{ type: "text", text: contentText }],
           complete: true,
           raw: [raw(data)],
         },

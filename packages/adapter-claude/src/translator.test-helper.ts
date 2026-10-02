@@ -10,8 +10,8 @@ export function harness() {
   const translator = createTranslator({ rootKey: "root" });
   let sequence = 0;
   let time = 0;
-  let id = 0;
-  const ids = { next: (kind: string) => `${kind}_${++id}` };
+  let nextId = 0;
+  const ids = { next: (kind: string) => `${kind}_${++nextId}` };
   function fold(facts: Fact[], now: number) {
     for (const fact of facts) apply(state, fact, { now, ids });
   }

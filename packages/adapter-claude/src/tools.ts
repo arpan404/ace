@@ -40,7 +40,7 @@ export function toolDetail(name: string, value: unknown): ToolDetailDraft {
   const kind = name.startsWith("mcp__")
     ? "mcp"
     : Object.hasOwn(kinds, name)
-      ? kinds[name]!
+      ? (kinds[name] ?? "custom")
       : "custom";
   switch (kind) {
     case "shell":

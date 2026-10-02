@@ -1,9 +1,12 @@
+import { z } from "zod";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type {
   PermissionResult,
   PermissionUpdate,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+
+const ImageMime = z.enum(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 /** Open input stream; ending it is part of graceful session shutdown. */
 export class InputStream implements AsyncIterable<SDKUserMessage> {
@@ -34,18 +37,15 @@ export function content(input: ContentPart[]): SDKUserMessage["message"]["conten
   return input.map((part) => {
     if (part.type === "text") return { type: "text" as const, text: part.text };
     if (part.type === "file") return { type: "text" as const, text: `@${part.path}` };
+    const mime = ImageMime.safeParse(part.mimeType);
     const data = /^data:([^;,]+);base64,(.+)$/s.exec(part.url);
-    if (
-      !data ||
-      !["image/jpeg", "image/png", "image/gif", "image/webp"].includes(part.mimeType) ||
-      data[1] !== part.mimeType
-    )
+    if (!data || !mime.success || data[1] !== part.mimeType)
       throw new Error("Claude image inputs require a matching base64 data URL");
     return {
       type: "image" as const,
       source: {
         type: "base64" as const,
-        media_type: part.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+        media_type: mime.data,
         data: data[2] ?? "",
       },
     };

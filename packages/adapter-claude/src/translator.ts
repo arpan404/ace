@@ -1,4 +1,4 @@
-import type { Fact, Key } from "@ace/core";
+import type { Key } from "@ace/core";
 import type { Translator, Frame } from "@ace/engine-api";
 import { ClaudeState } from "./state.ts";
 import { message, stream, tool, type StreamState } from "./content.ts";

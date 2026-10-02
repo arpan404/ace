@@ -137,12 +137,27 @@ describe("JSON-RPC stdio", () => {
   });
   it("rejects every pending request and reports EPIPE while the peer is still alive", async () => {
     const failures: Error[] = [];
-    const { rpc, proc } = peer(
-      `if(m.method==='pending') { require('node:fs').closeSync(0); send({method:'stdin-closed'}); setInterval(()=>{},1000); }`,
-      { timeoutMs: null, onError: (error) => failures.push(error) },
-    );
+    // Close the OS read end before Node can retain a separate stdin handle.
+    const proc = spawnSupervised({
+      command: "/bin/sh",
+      args: [
+        "-c",
+        `IFS= read -r line; exec 0<&-; printf '%s\\n' '{"method":"stdin-closed"}'; exec "$1" -e 'setInterval(()=>{},1000)'`,
+        "epipe-peer",
+        process.execPath,
+      ],
+      env: {},
+      name: "closed-stdin-peer",
+    });
+    processes.push(proc);
+    const rpc = new JsonRpcPeer(proc, {
+      timeoutMs: null,
+      onError: (error) => failures.push(error),
+    });
     const closed = new Promise<void>((resolve) => {
-      rpc.onNotification = () => resolve();
+      rpc.onNotification = ({ method }) => {
+        if (method === "stdin-closed") resolve();
+      };
     });
     const pending = rpc.request("pending").then(
       () => "resolved",
