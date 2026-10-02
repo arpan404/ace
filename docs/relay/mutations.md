@@ -21,3 +21,25 @@ On 2026-10-02, each change below was applied alone to production code. A focused
 | Rekey resets the nonce              | `packages/secure-channel/src/cipher.ts` | coordinated directional rekeys keep the nonce and replace the old key                        |
 
 Focused runs used `bun run test <test file> -t <behaviour pattern> --reporter=json`. The final unmutated repository is checked with `bun run check`. These are hand-applied defects, not claims of exhaustive mutation coverage.
+
+## Review follow-up verification
+
+After the availability fixes, the following eleven production mutations were applied individually on the final implementation. Each focused public-API test failed with an assertion or rejected promise, rather than relying on a timeout. Exact source bytes were restored after every run and verified before the unmutated suite passed again.
+
+| Review id / mutation                           | Failing behavior                                                                               |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| M11: remove reserved-nonce exhaustion          | Last permitted nonce works once; the next encrypt/decrypt must throw permanently               |
+| M26: allow premature client frames             | Unpaired data was forwarded instead of closing with 1008                                       |
+| M29: allow short non-final encrypted fragments | Invalid fragmentation resolved as a valid pong instead of rejecting                            |
+| M30: bypass the incoming daemon schema         | Invalid daemon message resolved instead of rejecting                                           |
+| M31: remove the host admission cap             | An excess client connected instead of being rejected while authorized channels remained usable |
+| M32: refuse a newer proven registration        | Fresh proof failed instead of replacing a paused stale owner                                   |
+| M15: bypass binary token throttling            | Registration arrived before the required refill                                                |
+| M24: bypass control-frame throttling           | Pong arrived before the shared IP budget refilled                                              |
+| R1: disable inactive LRU eviction              | A new IP was refused while an inactive entry was available                                     |
+| R2: key IPv6 quotas by full address            | Another address in the same `/64` bypassed its connection quota                                |
+| R3: disable the device-authorization deadline  | An unverified hello could still send after expiry                                              |
+
+M32 from the original review changed duplicate rejection into replacement. Replacement is now required behavior, so the mutation tested here removes replacement. M22 remains equivalent: deleting the endpoint's redundant frame-size check cannot admit a frame larger than `ws.maxPayload`. Configured relay limits and Noise's own size limit have independent failing behavior tests; an equivalent mutation has no observable defect to detect.
+
+Focused runs use `bun run test <file> -t <behavior> --reporter=json --outputFile=<temporary file>`. The 15 original mutations above are historical implementation evidence; these eleven runs verify the revised behavior.
