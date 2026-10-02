@@ -55,7 +55,21 @@ async function savedShell() {
         `INSERT INTO engine_state_appends(thread_id,section,key,patch) VALUES (?, 'items', 'shell', ?)`,
       ).run(id, JSON.stringify({ path: ["call", "detail", "output"], text: " legacy append" }));
     });
-  return { id, store, construct, state, legacyOutput };
+  const output = () =>
+    store.atomic((db) => ({
+      base: db
+        .prepare(
+          "SELECT value FROM engine_state_records WHERE thread_id=? AND section='items' AND key='shell'",
+        )
+        .get(id)?.value,
+      chunks: db
+        .prepare(
+          "SELECT patch FROM engine_state_appends WHERE thread_id=? AND section='items' AND key='shell' ORDER BY id",
+        )
+        .all(id)
+        .map((row) => row.patch),
+    }));
+  return { id, store, construct, state, legacyOutput, output };
 }
 
 test.each([1, 6, 7, 999, 0, "invalid"])(
@@ -68,11 +82,13 @@ test.each([1, 6, 7, 999, 0, "invalid"])(
       db.prepare("UPDATE thread_state SET state=json_set(state,'$.engineSnapshot',2)").run();
     });
     const before = saved.state();
+    const output = saved.output();
     const seq = saved.store.headSeq();
     expect(saved.construct).toThrow(
       /Unsupported engine schema version.*fresh development database/,
     );
     expect(saved.state()).toBe(before);
+    expect(saved.output()).toEqual(output);
     expect(saved.store.headSeq()).toBe(seq);
     expect(
       saved.store.atomic(
@@ -84,10 +100,13 @@ test.each([1, 6, 7, 999, 0, "invalid"])(
 
 test("unversioned development engine data is rejected without trying to initialize over it", async () => {
   const saved = await savedShell();
+  saved.legacyOutput();
   saved.store.atomic((db) => db.exec("DELETE FROM engine_schema_version"));
   const before = saved.state();
+  const output = saved.output();
   expect(saved.construct).toThrow(/Unsupported engine schema version.*fresh development database/);
   expect(saved.state()).toBe(before);
+  expect(saved.output()).toEqual(output);
 });
 
 test.each([undefined, 1, 2, 999, "invalid"])(
@@ -107,11 +126,13 @@ test.each([undefined, 1, 2, 999, "invalid"])(
         ).run(format, saved.id);
     });
     const before = saved.state();
+    const output = saved.output();
     const seq = saved.store.headSeq();
     expect(saved.construct).toThrow(
       /Unsupported engine snapshot format.*fresh development database/,
     );
     expect(saved.state()).toBe(before);
+    expect(saved.output()).toEqual(output);
     expect(saved.store.headSeq()).toBe(seq);
   },
 );
