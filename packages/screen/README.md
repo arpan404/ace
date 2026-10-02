@@ -43,7 +43,7 @@ Human input requires ownership of the session's human controller on that connect
 
 ## Package and MCP API
 
-Instantiate `ScreenManager` with helper command, injected id generator, artifact directory and artifact publisher, or use `localScreenManager` at the daemon boundary. Pass a manager as the optional fourth argument to `startDaemon`, after MCP toolkits, or through `ServerOptions.screen`. `screenConnection` also accepts an authenticated transport's JSON sender and asynchronous binary sender, allowing the remote-access and encrypted-relay workstreams to reuse it.
+Instantiate `ScreenManager` with helper command, injected id generator, artifact directory and artifact publisher, or use `localScreenManager` at the daemon boundary. Pass a manager as the optional fifth argument to `startDaemon`, after MCP toolkits and notification channels, or through `ServerOptions.screen`. `screenConnection` also accepts an authenticated transport's JSON sender and asynchronous binary sender, allowing the remote-access and encrypted-relay workstreams to reuse it.
 
 `computerUseTools` contains JSON schemas for `screen_screenshot`, `screen_click`, `screen_type`, `screen_key` and `screen_scroll`. `computerUseHandler(manager, sessionId, owner)` is an MCP-compatible handler scoped to a host-selected session and agent owner. A human can delegate through `controller` with `controller: "agent"` and `agentId` matching the scoped agent owner. The MCP host can also grant agent control with that same owner after human approval. Tool arguments cannot change the session, approve applications or enable access. Screenshots return a bounded MCP image; live video uses binary transport. These definitions are ready for registration by the separate MCP server workstream.
 
