@@ -1,5 +1,13 @@
 import { CatalogModel } from "@ace/protocol";
-import { AcpSession, ClaudeModels, CodexPage, ConfigOption } from "./native-schemas.ts";
+import {
+  AcpSession,
+  ClaudeModels,
+  CodexPage,
+  ConfigOption,
+  SelectConfigOption,
+  isModelConfig,
+  isSelectConfig,
+} from "./native-schemas.ts";
 import { rawPayload } from "./raw.ts";
 import type { ModelInstance } from "./types.ts";
 import { z } from "zod";
@@ -49,7 +57,7 @@ export function normalizeClaude(payload: unknown, instance: ModelInstance): Cata
     }),
   );
 }
-function options(config: z.infer<typeof ConfigOption>) {
+function options(config: z.infer<typeof SelectConfigOption>) {
   return (config.options ?? []).flatMap((option) =>
     "options" in option
       ? z
@@ -60,7 +68,7 @@ function options(config: z.infer<typeof ConfigOption>) {
 }
 function applyConfig(model: CatalogModel, configs: z.infer<typeof ConfigOption>[]): CatalogModel {
   for (const config of configs) {
-    if (config.type !== "select") continue;
+    if (!isSelectConfig(config)) continue;
     const values = options(config);
     if (config.category === "thought_level" || config.id === "reasoning_effort") {
       model.reasoningEfforts = values.map((value) => value.value);
@@ -88,9 +96,7 @@ function applyConfig(model: CatalogModel, configs: z.infer<typeof ConfigOption>[
 }
 export function normalizeAcp(payload: unknown, instance: ModelInstance): CatalogModel[] {
   const session = AcpSession.parse(payload);
-  const modelConfig = session.configOptions?.find(
-    (option) => option.category === "model" || option.id === "model",
-  );
+  const modelConfig = session.configOptions?.find(isModelConfig);
   const current = modelConfig?.currentValue ?? session.models?.currentModelId;
   const rows = modelConfig
     ? options(modelConfig).map((option) => ({
