@@ -1,6 +1,6 @@
 # Settings verification
 
-This records the original implementation baseline. Current review regressions, mutation results, local gate and expanded benchmarks are in [review verification](REVIEW-VERIFICATION.md).
+This records the original implementation baseline. The first review round is recorded in [review verification](REVIEW-VERIFICATION.md). Current changes and validation deferred to merge are in [verifier follow-up](VERIFIER-FOLLOWUP.md).
 
 Each mutation below changed production code, ran the named public behavior test and produced a failing assertion. Each change was reverted before the next run. Commands used `bun run test <test file> -t <behavior>`.
 

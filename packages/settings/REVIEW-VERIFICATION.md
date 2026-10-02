@@ -1,5 +1,7 @@
 # Review verification
 
+Historical evidence for the previous fix round ending at `94c9534`. This does not validate the current revision. See [verifier follow-up](VERIFIER-FOLLOWUP.md) for containment corrections, current static checks and validation deferred to merge under the owner rule.
+
 Review fixes were developed against the merged `origin/main` (merge commit `78afa40`). Relay and notifications subsequently landed and were merged in `f1a80fe`, preserving both settings and notification wire/lifecycle integration. Before fixes, the new public-service regression suite had 11 failing cases and one passing case. Every blocker reproduced its reported behavior with real files or an injected uncontrollable boundary; the tests then passed after correction. A scalar-offset regression was added with the performance change. Settings/package/daemon coverage now contains 44 tests, including 17 added during this review.
 
 ## Regressions
