@@ -71,6 +71,7 @@
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
+        "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
       },
     },
