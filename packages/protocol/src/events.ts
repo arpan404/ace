@@ -14,8 +14,19 @@ import {
 } from "./ids.ts";
 import { Interaction, InteractionResolution, InteractionState } from "./interactions.ts";
 import { Item } from "./items.ts";
-import { Run, RunTrigger, Thread, ThreadStatus } from "./thread.ts";
 import { NativeRef } from "./provider.ts";
+import { Run, RunTrigger, Thread, ThreadStatus } from "./thread.ts";
+
+export const UsageUpdated = z.object({
+  type: z.literal("usage.updated"),
+  agentId: AgentId,
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  cachedInputTokens: z.number().int().nonnegative().optional(),
+  contextWindow: z.number().int().positive().optional(),
+  costUsd: z.number().nonnegative().optional(),
+});
+export type UsageUpdated = z.infer<typeof UsageUpdated>;
 
 export const EventPayload = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread.created"), thread: Thread }),
@@ -83,15 +94,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     status: BackgroundTask.shape.status,
     endedAt: Timestamp.optional(),
   }),
-  z.object({
-    type: z.literal("usage.updated"),
-    agentId: AgentId,
-    inputTokens: z.number().int().nonnegative(),
-    outputTokens: z.number().int().nonnegative(),
-    cachedInputTokens: z.number().int().nonnegative().optional(),
-    contextWindow: z.number().int().positive().optional(),
-    costUsd: z.number().nonnegative().optional(),
-  }),
+  UsageUpdated,
 ]);
 export type EventPayload = z.infer<typeof EventPayload>;
 export type EventType = EventPayload["type"];
