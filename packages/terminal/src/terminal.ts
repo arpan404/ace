@@ -22,6 +22,8 @@ export class Terminal {
   #exit: ExitStatus | null = null;
   #failure: Error | undefined;
   #released = false;
+  #shutdownStarted = false;
+  #closed = false;
   #closing: Promise<void> | undefined;
   #listeners = new Set<() => void>();
 
@@ -115,14 +117,24 @@ export class Terminal {
   }
 
   close(graceMs: number): Promise<void> {
-    this.#closing ??= this.#backend.close(graceMs).then(async () => {
-      await this.exited;
-    });
+    this.#shutdownStarted = true;
+    this.#closing ??= this.#backend
+      .close(graceMs)
+      .then(async () => {
+        // Exit decoding and process cleanup are separate outcomes. Keep the
+        // original exited rejection observable, but permit history disposal.
+        await this.exited.catch(() => {});
+        this.#closed = true;
+      })
+      .catch((error: unknown) => {
+        this.#closing = undefined;
+        throw error;
+      });
     return this.#closing;
   }
 
   release(): void {
-    if (!this.#closing || !this.#exit) throw new Error("Close the terminal before releasing it");
+    if (!this.#closed) throw new Error("Close the terminal before releasing it");
     this.#released = true;
     this.#ring.release();
     this.#wake();
@@ -135,7 +147,7 @@ export class Terminal {
 
   #assertRunning(): void {
     this.#assertAvailable();
-    if (this.#closing) throw new Error("Terminal is closing");
+    if (this.#shutdownStarted) throw new Error("Terminal is closing");
     if (this.#exit) throw new Error("Terminal has exited");
   }
 

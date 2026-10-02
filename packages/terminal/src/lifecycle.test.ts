@@ -180,7 +180,7 @@ test("malformed native exit status rejects lifecycle and a pending watcher", asy
   context.exit({ exitCode: "invalid", signal: -1 });
   await Promise.all([exitAssertion, readAssertion]);
   expect(() => context.terminal.snapshot()).toThrow();
-  await expect(context.manager.closeAll()).rejects.toThrow();
+  await context.manager.closeAll();
 });
 
 test("explicit release drops replay handles while other terminals stay usable", async () => {

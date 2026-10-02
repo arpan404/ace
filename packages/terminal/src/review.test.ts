@@ -1,8 +1,11 @@
+import { configureRealPtyTests } from "./real-pty-test-config.ts";
 import { afterEach, expect, test } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { TerminalManager } from "./index.ts";
 import { fixture, until, collect, runNode } from "./test-support.ts";
+
+configureRealPtyTests();
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => {

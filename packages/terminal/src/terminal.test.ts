@@ -1,9 +1,12 @@
+import { configureRealPtyTests } from "./real-pty-test-config.ts";
 import { afterEach, expect, test } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setImmediate } from "node:timers/promises";
 import { fixture, until, collect, runNode, quote } from "./test-support.ts";
 import type { TerminalEvent } from "./index.ts";
+
+configureRealPtyTests();
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {

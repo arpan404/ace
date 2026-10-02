@@ -26,6 +26,7 @@ export class TerminalManager {
   #graceMs: number;
   #terminals = new Set<Terminal>();
   #closing: Promise<void> | undefined;
+  #closed = false;
   #dependencies: TerminalDependencies;
 
   constructor({
@@ -49,7 +50,7 @@ export class TerminalManager {
   }
 
   openTerminal(options: OpenTerminalOptions): Terminal {
-    if (this.#closing) throw new Error("Terminal manager is closed");
+    if (this.#closed) throw new Error("Terminal manager is closed");
     validateDimensions(options.cols, options.rows);
     options = TerminalOpenSchema.parse(options);
     const ring = new ByteRing(this.#capacity);
@@ -65,7 +66,11 @@ export class TerminalManager {
 
   /** Idempotent. Retains exited terminals and their scrollback for existing handles. */
   closeAll(): Promise<void> {
-    this.#closing ??= this.#close();
+    this.#closed = true;
+    this.#closing ??= this.#close().catch((error: unknown) => {
+      this.#closing = undefined;
+      throw error;
+    });
     return this.#closing;
   }
 

@@ -133,6 +133,24 @@ export function createPosixBackendFactory(
     };
     const control: ProcessControl = {
       read: () => base.read(),
+      stopShell() {
+        if (exited || leaseReleaseRequested || !lease.alive()) return;
+        if (ports) {
+          ports.processes.stopShell?.();
+          return;
+        }
+        try {
+          // The helper reserves this original group ID, so the shell PID cannot
+          // be recycled while leased. Do not STOP the helper along with it.
+          process.kill(pty.pid, "SIGSTOP");
+        } catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ESRCH") return;
+          throw error;
+        }
+      },
+      resumeLease() {
+        if (!leaseReleaseRequested && lease.alive()) base.signal(pty.pid, "SIGCONT");
+      },
       signal(group, signal) {
         base.signal(group, signal);
         if (group === pty.pid && signal === "SIGKILL") leaseReleaseRequested = true;

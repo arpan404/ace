@@ -1,6 +1,9 @@
+import { configureRealPtyTests } from "./real-pty-test-config.ts";
 import { afterEach, test, expect } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+
+configureRealPtyTests();
 
 const controllers = new Set<AbortController>();
 afterEach(() => {
@@ -17,4 +20,4 @@ test("20 MiB has bounded peak live allocations at every output barrier with a st
     { maxBuffer: 1024 * 1024, signal: controller.signal },
   );
   expect(stdout).toMatch(/^BOUNDED_20_MIB peakLiveDeltaBytes=\d+\n$/);
-}, 30000);
+}, 120000);

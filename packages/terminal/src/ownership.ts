@@ -7,6 +7,10 @@ export interface ShutdownScheduler {
 export interface ProcessControl {
   read(): Promise<ProcessIdentity[]>;
   signal(group: number, signal: NodeJS.Signals): void;
+  /** Freeze the original shell PID while leaving the FIFO keeper runnable. */
+  stopShell?(): void;
+  /** Safe even when inventory fails: the I/O boundary verifies its private lease. */
+  resumeLease?(): void;
 }
 
 function ownedGroups(rows: ProcessIdentity[], owner: string): Set<number> {
@@ -17,7 +21,7 @@ function ownedGroups(rows: ProcessIdentity[], owner: string): Set<number> {
   );
 }
 
-/** The reserved group is stopped with everything else, but killed LAST. Its
+/** The reserved shell is stopped without its keeper, and its group killed LAST. Its
  * lifetime proves the session identity; after release we only verify, never signal. */
 export function sessionOwnership(
   owner: string,
@@ -27,6 +31,7 @@ export function sessionOwnership(
 ) {
   let leaseEnded = false;
   let stopped = false;
+  const paused = new Set<number>();
   async function groups() {
     const live = ownedGroups(await control.read(), owner);
     return !leaseEnded && !live.has(leaseGroup) ? new Set<number>() : live;
@@ -35,7 +40,10 @@ export function sessionOwnership(
     const failures: unknown[] = [];
     for (const group of selected) {
       try {
+        // A preceding signal may have made another group exit and be recycled.
+        if (!(await groups()).has(group)) continue;
         control.signal(group, requested);
+        if (requested === "SIGSTOP") paused.add(group);
       } catch (error) {
         if (error instanceof Error && "code" in error && error.code === "ESRCH") continue;
         if (
@@ -52,37 +60,57 @@ export function sessionOwnership(
   }
   async function escalate(failures: unknown[] = []) {
     const deadline = scheduler.now() + 1000;
-    for (let sweep = 0; sweep < 32; sweep++) {
-      if (!leaseEnded) {
-        try {
-          await signalSelected(await groups(), "SIGSTOP");
-        } catch (error) {
-          failures.push(error);
-        }
-        const live = await groups();
-        if (!live.size) {
-          stopped = true;
-          break;
-        }
-        const jobs = new Set([...live].filter((group) => group !== leaseGroup));
-        try {
+    try {
+      for (let sweep = 0; sweep < 32; sweep++) {
+        if (!leaseEnded) {
+          const discovered = await groups();
+          if (discovered.has(leaseGroup)) {
+            control.stopShell?.();
+            paused.add(leaseGroup);
+          }
+          await signalSelected(
+            new Set([...discovered].filter((group) => group !== leaseGroup)),
+            "SIGSTOP",
+          );
+          let live = await groups();
+          const jobs = new Set([...live].filter((group) => group !== leaseGroup));
           if (jobs.size) await signalSelected(jobs, "SIGKILL");
-          else {
+          // Finish this stop/kill transaction before applying the loop budget.
+          // Slow inventories must not leave only the stopped shell/keeper alive.
+          live = await groups();
+          if (live.size === 1 && live.has(leaseGroup)) {
             await signalSelected(live, "SIGKILL");
             leaseEnded = true;
           }
+        }
+        if (!(await groups()).size) {
+          stopped = true;
+          break;
+        }
+        if (scheduler.now() >= deadline) break;
+        await scheduler.delay(0);
+      }
+      if (!stopped && !(await groups()).size) stopped = true;
+      if (!stopped) failures.push(new Error("Terminal processes survived bounded shutdown"));
+    } catch (error) {
+      failures.push(error);
+    } finally {
+      if (!stopped && !leaseEnded) {
+        try {
+          await signalSelected(paused, "SIGCONT");
         } catch (error) {
           failures.push(error);
         }
-      } else if (!(await groups()).size) {
-        stopped = true;
-        break;
+        // A stopped keeper cannot consume FIFO EOF when the daemon dies. The
+        // private lease can prove its group even when process inventories fail.
+        try {
+          control.resumeLease?.();
+        } catch (error) {
+          failures.push(error);
+        }
       }
-      if (scheduler.now() >= deadline) break;
-      await scheduler.delay(0);
+      paused.clear();
     }
-    if (!stopped && !(await groups()).size) stopped = true;
-    if (!stopped) failures.push(new Error("Terminal processes survived bounded shutdown"));
     if (failures.length) throw new AggregateError(failures, "Terminal shutdown failed");
   }
   return {
