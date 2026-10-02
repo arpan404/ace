@@ -100,10 +100,7 @@ test("Codex loads skills through an ace marketplace and passes TOML MCP override
       ],
     },
   });
-  expect(projection.unsupported).toEqual([
-    "sample: codex cannot inject slash command check",
-    "sample: codex cannot inject agent reviewer",
-  ]);
+  expect(projection.unsupported).toEqual([]);
   expect(projection.env).toEqual({});
 });
 test("OpenCode runtime content adds skills, command templates, subagent prompts, instructions and MCP", async () => {
@@ -210,6 +207,11 @@ test("unknown hook events and unsupported transport or cwd are reported instead 
   expect(projectPlugins("opencode", snapshots, { root }).unsupported).toContain(
     "ace-sample__cwd: OpenCode cannot inject MCP cwd",
   );
+  const openCode = projectPlugins("opencode", snapshots, { root });
+  const openCodeConfig = z
+    .object({ mcp: z.record(z.string(), z.unknown()) })
+    .parse(JSON.parse(openCode.env.OPENCODE_CONFIG_CONTENT ?? "null"));
+  expect(openCodeConfig.mcp["ace-sample__cwd"]).toBeUndefined();
   const acp = projectPlugins("acp", snapshots, { root });
   expect(acp.unsupported).toContain("ace-sample__cwd: ACP cannot inject MCP cwd");
   expect(acp.sessionConfig.mcpServers?.some((server) => server.name === "ace-sample__cwd")).toBe(

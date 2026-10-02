@@ -213,6 +213,14 @@ export async function startServer(options: ServerOptions): Promise<{
       }
       switch (message.type) {
         case "pluginRequest": {
+          const scope =
+            message.request.type === "plugins.list" || message.request.type === "plugins.readReview"
+              ? "read"
+              : "admin";
+          if (!allows(authenticated.get(socket), scope)) {
+            fail("forbidden", `${scope} scope required`);
+            break;
+          }
           if (!options.plugins) {
             fail("plugins_unavailable", "Plugin service unavailable");
             break;

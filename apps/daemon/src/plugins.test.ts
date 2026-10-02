@@ -93,7 +93,7 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
       type: "welcome",
     });
     const client = socket;
-    async function request(input: z.infer<typeof PluginRequest>) {
+    async function request(input: z.input<typeof PluginRequest>) {
       const requestId = randomUUID();
       const pending = once(client, "message");
       client.send(JSON.stringify({ type: "pluginRequest", requestId, request: input }));
@@ -117,7 +117,11 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
     });
     expect(await request({ type: "plugins.list" })).toMatchObject({
       installs: [],
-      reviews: [review.review],
+      reviews: [{ id: review.review.id, executionCount: review.review.executions.length }],
+    });
+    expect(await request({ type: "plugins.readReview", id: review.review.id })).toMatchObject({
+      type: "plugins.reviewPage",
+      entries: [{ type: "execution", execution: { name: "tools" } }],
     });
     expect(
       await request({
@@ -161,6 +165,25 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
       ),
     ).toBe("Run project checks.");
     await restarted.close();
+    const marker = join(root, "native-invocation.json");
+    const script = join(root, "native.cjs");
+    await writeFile(
+      script,
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify(process.argv.slice(2)));`,
+    );
+    const launched = await daemon.launchPlugins("claude", join(root, "native-session"), {
+      command: process.execPath,
+      args: [script],
+      env: {},
+      name: "test-native",
+    });
+    expect((await launched.exited).code).toBe(0);
+    expect(z.array(z.string()).parse(JSON.parse(await readFile(marker, "utf8")))).toContain(
+      "--plugin-dir",
+    );
+    await expect(
+      readFile(join(root, "native-session/generated/plugins/sample/commands/check.md")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     socket?.terminate();
     await daemon?.close();

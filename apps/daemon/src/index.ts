@@ -1,6 +1,13 @@
 import { realpath } from "node:fs/promises";
+import { PluginLaunches } from "./plugin-launches.ts";
 import { randomUUID } from "node:crypto";
-import { PluginManager, PluginService, preparePluginSession } from "@ace/plugins";
+import {
+  PluginManager,
+  PluginService,
+  preparePluginSession,
+  launchPluginProcess,
+} from "@ace/plugins";
+import type { SpawnOptions } from "@ace/provider-kit/process";
 import type { Provider } from "@ace/plugins";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { remoteListener } from "./network.ts";
@@ -29,6 +36,11 @@ export async function startDaemon(
   tokenPath: string;
   store: Store;
   preparePlugins(provider: Provider, root: string): ReturnType<typeof preparePluginSession>;
+  launchPlugins(
+    provider: Provider,
+    root: string,
+    options: SpawnOptions,
+  ): ReturnType<typeof launchPluginProcess>;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   remoteUrl?: string;
   fingerprint?: string;
@@ -53,6 +65,9 @@ export async function startDaemon(
       id: randomUUID,
     });
     const ownedPlugins = plugins;
+    const launches = new PluginLaunches((provider, root, options) =>
+      launchPluginProcess(ownedPlugins, provider, root, options),
+    );
     mcp = await startDaemonMcp(store, toolkits);
     const ownedMcp = mcp;
     const remote = await remoteListener(config);
@@ -78,11 +93,16 @@ export async function startDaemon(
       tokenPath,
       store,
       preparePlugins: (provider, root) => preparePluginSession(ownedPlugins, provider, root),
+      launchPlugins: (provider, root, options) => launches.launch(provider, root, options),
       mcp: ownedMcp,
       close() {
         closing ??= (async () => {
           try {
-            await ownedMcp.close();
+            try {
+              await launches.close();
+            } finally {
+              await ownedMcp.close();
+            }
           } finally {
             try {
               await ownedServer.close();

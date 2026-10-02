@@ -1,3 +1,4 @@
+import { codexAgent, codexCommand } from "./codex-components.ts";
 import { isAbsolute, join } from "node:path";
 import { PluginInstall } from "@ace/protocol/plugins";
 import { PluginManifest, normalizePath, limits } from "./manifest.ts";
@@ -141,10 +142,21 @@ export function projectPlugins(
     }
     for (const skill of isAcp ? plugin.manifest.skills : [])
       projection.unsupported.push(`${name}: ${provider} cannot inject skill ${skill.name}`);
+    const skillNames = new Set(plugin.manifest.skills.map((skill) => skill.name));
     for (const entry of plugin.manifest.commands) {
       const content = expandRoot(textFile(plugin, entry.path), payloadRoot);
       if (provider === "claude" || provider === "cursor")
         projection.files.push(outputFile(`${base}/commands/${entry.name}.md`, content));
+      else if (provider === "codex")
+        codexCommand(
+          name,
+          entry.name,
+          content,
+          entry.description ?? entry.name,
+          base,
+          skillNames,
+          projection,
+        );
       else if (provider === "opencode")
         commands[`ace-${name}__${entry.name}`] = {
           template: body(content),
@@ -159,6 +171,16 @@ export function projectPlugins(
       const content = expandRoot(textFile(plugin, entry.path), payloadRoot);
       if (provider === "claude" || provider === "cursor")
         projection.files.push(outputFile(`${base}/agents/${entry.name}.md`, content));
+      else if (provider === "codex")
+        codexAgent(
+          name,
+          entry.name,
+          content,
+          entry.description ?? entry.name,
+          base,
+          options.root,
+          projection,
+        );
       else if (provider === "opencode")
         agents[`ace-${name}__${entry.name}`] = {
           prompt: body(content),

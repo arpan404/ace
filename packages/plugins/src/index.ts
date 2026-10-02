@@ -25,3 +25,9 @@ export { PluginService } from "./service.ts";
 
 export { gitRuntime, type GitRuntime } from "./git.ts";
 export { preparePluginSession } from "./session.ts";
+export { launchPluginProcess } from "./launch.ts";
+export {
+  newPluginAcpSession,
+  type AcpSessionTransport,
+  type AcpExecutableResolver,
+} from "./acp-session.ts";

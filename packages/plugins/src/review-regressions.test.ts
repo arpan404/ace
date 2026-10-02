@@ -276,3 +276,73 @@ test("a deep acyclic reference chain fails before exhausting the stack", () => {
     );
   expect(() => importPlugin(files)).toThrow("Import expansion limit");
 });
+
+test("Codex commands remain invokable as native skills and portable agents become native role configs", async () => {
+  const f = await setup();
+  const root = join(f.root, "codex-native");
+  const projection = projectPlugins("codex", await f.manager.installed(), { root });
+  await materializeProjection(projection, { root });
+  expect(
+    await readFile(
+      join(root, "generated/plugins/sample/skills/ace-sample-command-check/SKILL.md"),
+      "utf8",
+    ),
+  ).toContain("Run checks $ARGUMENTS");
+  expect(
+    await readFile(join(root, "generated/plugins/sample/agents/reviewer.toml"), "utf8"),
+  ).toContain('developer_instructions="Review behavior and failure paths."\n');
+  expect(projection.args).toContain(
+    `agents."ace-sample__reviewer".config_file=${JSON.stringify(join(root, "generated/plugins/sample/agents/reviewer.toml"))}`,
+  );
+  expect(
+    projection.unsupported.some(
+      (message) => message.includes("slash command") || message.includes("cannot inject agent"),
+    ),
+  ).toBe(false);
+});
+
+test("Codex command invocations remain distinct across installed plugins", async () => {
+  const f = await setup();
+  await writeFiles(f.repo, {
+    "marketplace.json": JSON.stringify({
+      name: "test",
+      plugins: [
+        { name: "sample", source: "plugins/sample" },
+        { name: "other", source: "plugins/other" },
+      ],
+    }),
+    "plugins/other/ace-plugin.json": JSON.stringify({
+      schemaVersion: 1,
+      name: "other",
+      version: "1",
+      commands: [{ name: "check", path: "check.md" }],
+    }),
+    "plugins/other/check.md": "Check the other project.",
+  });
+  await git(f.repo, ["add", "."]);
+  await git(f.repo, ["commit", "-m", "second command"]);
+  await f.manager.accept(await f.prepare());
+  await f.manager.accept(
+    await f.manager.prepare({ repository: f.repo, ref: "main", name: "other" }),
+  );
+  const root = join(f.root, "codex-commands");
+  await materializeProjection(projectPlugins("codex", await f.manager.installed(), { root }), {
+    root,
+  });
+  const sample = await readFile(
+    join(root, "generated/plugins/sample/skills/ace-sample-command-check/SKILL.md"),
+    "utf8",
+  );
+  const other = await readFile(
+    join(root, "generated/plugins/other/skills/ace-other-command-check/SKILL.md"),
+    "utf8",
+  );
+  expect(sample).toContain("Run checks $ARGUMENTS");
+  expect(other).toContain("Check the other project.");
+  expect(
+    await readFile(
+      join(root, "generated/plugins/sample/skills/ace-sample-command-check/agents/openai.yaml"),
+      "utf8",
+    ),
+  ).toContain("allow_implicit_invocation: false");
+});
