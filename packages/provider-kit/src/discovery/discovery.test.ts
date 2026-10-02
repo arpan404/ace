@@ -143,6 +143,8 @@ describe("provider discovery", () => {
   }, 15_000);
   it("runs provider probes concurrently so a blocked CLI cannot gate a healthy one", async () => {
     const root = await directory();
+    // Stand-ins must also execute under an enclosing ESM package (e.g. repo-local TMPDIR).
+    await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }));
     const waiting = new Set<Socket>();
     let released = false;
     const gate = createServer((socket) => {
@@ -165,12 +167,12 @@ describe("provider discovery", () => {
     try {
       await writeFile(
         join(root, "codex"),
-        `#!${process.execPath}\nconst socket=require('node:net').createConnection(${endpoint},()=>socket.write('wait'));socket.once('data',()=>console.log(process.argv[2]==='--version'?'codex-cli 1.2.3':'Logged in using ChatGPT'));\n`,
+        `#!${process.execPath}\nimport {createConnection} from 'node:net';const socket=createConnection(${endpoint},()=>socket.write('wait'));socket.once('data',()=>console.log(process.argv[2]==='--version'?'codex-cli 1.2.3':'Logged in using ChatGPT'));\n`,
         { mode: 0o755 },
       );
       await writeFile(
         join(root, "agent"),
-        `#!${process.execPath}\nconst socket=require('node:net').createConnection(${endpoint},()=>socket.end('release'));console.log(process.argv[2]==='--version'?'2026.09.26-dd393fe':'Logged in as private@example.test');\n`,
+        `#!${process.execPath}\nimport {createConnection} from 'node:net';const socket=createConnection(${endpoint},()=>socket.end('release'));console.log(process.argv[2]==='--version'?'2026.09.26-dd393fe':'Logged in as private@example.test');\n`,
         { mode: 0o755 },
       );
       const result = await discoverProviders({ env: { PATH: root }, timeoutMs: 10_000 });
@@ -180,7 +182,9 @@ describe("provider discovery", () => {
         auth: "logged_in",
         authDetail: "ChatGPT",
       });
-      expect(result.cursor.auth).toBe("logged_in");
+      expect(result.codex.error).toBeUndefined();
+      expect(result.cursor).toMatchObject({ version: "2026.09.26-dd393fe", auth: "logged_in" });
+      expect(result.cursor.error).toBeUndefined();
     } finally {
       for (const socket of waiting) socket.destroy();
       await new Promise<void>((resolve, reject) =>
