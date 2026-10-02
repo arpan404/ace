@@ -55,6 +55,14 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/automations": {
+      "name": "@ace/automations",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
@@ -149,6 +157,8 @@
   },
   "packages": {
     "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],
+
+    "@ace/automations": ["@ace/automations@workspace:packages/automations"],
 
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
