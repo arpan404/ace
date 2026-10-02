@@ -1,3 +1,4 @@
+import { workspaceRuntime } from "./runtime.ts";
 import { GitIgnore } from "./ignore.ts";
 import { list } from "./list.ts";
 import { read } from "./read.ts";
@@ -32,7 +33,8 @@ export type {
 /** A root-bound service. Watch subscriptions own their own disposal lifetime. */
 export async function createWorkspace(root: string, options: WorkspaceOptions = {}) {
   const safe = await SafeRoot.create(root);
-  const ignore = await GitIgnore.create(safe);
+  const runtime = workspaceRuntime(options.runtime);
+  const ignore = await GitIgnore.create(safe, runtime.spawn);
   return {
     root: safe.root,
     async list(request: ListOptions) {
@@ -56,6 +58,7 @@ export async function createWorkspace(root: string, options: WorkspaceOptions = 
           ignore,
           options.ripgrep === undefined ? "rg" : options.ripgrep,
           request,
+          runtime,
         );
       } catch (error) {
         throw failure(error);
@@ -76,3 +79,5 @@ export type Workspace = Awaited<ReturnType<typeof createWorkspace>>;
 export { SafeRoot, transferTemporary as isWorkspaceTransferTemporary } from "./safety.ts";
 export { GitIgnore } from "./ignore.ts";
 export { tree as walkWorkspace } from "./tree.ts";
+
+export type { WorkspaceRuntime, WorkspaceProcessSpawner } from "./runtime.ts";

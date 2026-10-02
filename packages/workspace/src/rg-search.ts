@@ -1,3 +1,5 @@
+import type { WorkspaceProcessSpawner } from "./runtime.ts";
+import { spawn } from "node:child_process";
 import { rgMatches } from "./rg-parser.ts";
 import { command } from "./process.ts";
 import { WorkspaceError, type Match } from "./types.ts";
@@ -14,6 +16,7 @@ export async function rgSearch(
     limit: number;
   },
   signal?: AbortSignal,
+  spawnProcess: WorkspaceProcessSpawner = spawn,
 ): Promise<Match[]> {
   const matches: Match[] = [];
   const args = [
@@ -29,6 +32,7 @@ export async function rgSearch(
   if (!request.regex) args.push("--fixed-strings");
   args.push("-e", request.query, "--", "-");
   const result = await command(binary, args, {
+    spawn: spawnProcess,
     input: Buffer.from(request.text),
     ...(signal ? { signal } : {}),
     onLine(line) {

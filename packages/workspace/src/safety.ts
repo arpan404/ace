@@ -82,10 +82,12 @@ export class SafeRoot {
       throw new WorkspaceError("PATH_CHANGED", "Path changed during the operation");
     }
   }
-  async file(input: string): Promise<{ handle: FileHandle; info: Stats }> {
+  async file(input: string): Promise<{ handle: FileHandle; info: Stats; resolved: string }> {
     let handle: FileHandle | undefined;
     try {
       const resolved = await this.resolve(input);
+      if (transferTemporary(relative(this.root, resolved).split(sep).join("/")))
+        throw new WorkspaceError("INVALID_PATH", "Upload temporary files are private");
       const expected = await lstat(resolved);
       if (!expected.isFile()) throw new WorkspaceError("NOT_FILE", "Path is not a regular file");
       // O_NOFOLLOW protects the final component. Identity checks protect swapped parents.
@@ -98,7 +100,7 @@ export class SafeRoot {
       if (!info.isFile() || !same(info, expected))
         throw new WorkspaceError("PATH_CHANGED", "File was replaced while opening");
       await this.verify(input, resolved, info);
-      return { handle, info };
+      return { handle, info, resolved };
     } catch (error) {
       await handle?.close();
       throw failure(error);

@@ -1,3 +1,4 @@
+import type { WorkspaceRuntime } from "./runtime.ts";
 import { matchesGlob } from "node:path";
 import type { GitIgnore } from "./ignore.ts";
 import { NodeSearch } from "./node-search.ts";
@@ -19,10 +20,17 @@ import {
   type SearchResult,
 } from "./types.ts";
 
-async function backend(binary: string | null, signal?: AbortSignal): Promise<"node" | "ripgrep"> {
+async function backend(
+  binary: string | null,
+  runtime: WorkspaceRuntime,
+  signal?: AbortSignal,
+): Promise<"node" | "ripgrep"> {
   if (binary === null) return "node";
   try {
-    const result = await command(binary, ["--version"], signal ? { signal } : {});
+    const result = await command(binary, ["--version"], {
+      spawn: runtime.spawn,
+      ...(signal ? { signal } : {}),
+    });
     if (result.code !== 0)
       throw new WorkspaceError("SEARCH_FAILED", result.stderr || "Cannot run ripgrep");
     return "ripgrep";
@@ -36,6 +44,7 @@ export async function search(
   ignore: GitIgnore,
   binary: string | null,
   options: SearchOptions,
+  runtime: WorkspaceRuntime,
 ): Promise<SearchResult> {
   aborted(options.signal);
   const expression = querySource(options);
@@ -44,14 +53,14 @@ export async function search(
   if (options.glob !== undefined && (options.glob.length > 4096 || options.glob.includes("\0"))) {
     throw new WorkspaceError("INVALID_ARGUMENT", "Invalid search glob");
   }
-  const selected = await backend(binary, options.signal);
+  const selected = await backend(binary, runtime, options.signal);
   const result: SearchResult = {
     matches: [],
     truncated: false,
     bytesScanned: 0,
     backend: selected,
   };
-  const fallback = selected === "node" ? new NodeSearch() : undefined;
+  const fallback = selected === "node" ? new NodeSearch(runtime) : undefined;
   try {
     for await (const entry of tree(safe, ignore, {
       dir: "",
@@ -109,6 +118,7 @@ export async function search(
                 limit: remaining,
               },
               options.signal,
+              runtime.spawn,
             );
         result.matches.push(...matches);
         if (result.matches.length >= limit) {

@@ -119,6 +119,7 @@ export interface WorkspaceWatcher {
   dispose(): Promise<void>;
 }
 export interface WorkspaceOptions {
+  runtime?: Partial<import("./runtime.ts").WorkspaceRuntime>;
   /** null forces the pure Node backend; otherwise resolved from PATH by default. */
   ripgrep?: string | null;
   watchMode?: "native" | "polling";

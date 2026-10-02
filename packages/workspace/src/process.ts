@@ -1,3 +1,4 @@
+import type { WorkspaceProcessSpawner } from "./runtime.ts";
 import { spawn } from "node:child_process";
 import { aborted, errorCode, WorkspaceError } from "./types.ts";
 
@@ -6,6 +7,7 @@ export async function command(
   binary: string,
   args: string[],
   options: {
+    spawn?: WorkspaceProcessSpawner;
     cwd?: string;
     input?: Buffer;
     signal?: AbortSignal;
@@ -15,7 +17,7 @@ export async function command(
 ): Promise<{ code: number | null; stdout: Buffer; stderr: string }> {
   aborted(options.signal);
   return new Promise((resolve, reject) => {
-    const child = spawn(binary, args, {
+    const child = (options.spawn ?? spawn)(binary, args, {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       env: { ...process.env, RIPGREP_CONFIG_PATH: "", GIT_OPTIONAL_LOCKS: "0" },
       stdio: ["pipe", "pipe", "pipe"],
