@@ -8,7 +8,7 @@ import {
   type SettingsProvenance,
   type SettingsEntry,
 } from "@ace/protocol";
-import { workspaceGuard } from "./workspace.ts";
+import { WorkspaceGuards } from "./workspace.ts";
 import { defaults } from "./defaults.ts";
 import { SettingsError, validateValue } from "./document.ts";
 import { SettingsFile, freeze, type FileChange } from "./file.ts";
@@ -47,6 +47,7 @@ export interface SettingsOptions {
 }
 export class SettingsService {
   private cache = new FileCache();
+  private workspaces = new WorkspaceGuards();
   private index = new Map<SettingsFile, Map<SettingsKey, Set<Subscription>>>();
   private subscriptions = new Set<Subscription>();
   private options: SettingsOptions;
@@ -66,8 +67,11 @@ export class SettingsService {
   private async file(layer: Layer): Promise<LayerFile> {
     if (this.closed) throw new SettingsError("io", "Settings service is closed");
     const path = this.path(layer);
+    const guard =
+      layer.kind === "workspace"
+        ? await this.workspaces.get(layer.workspace)
+        : await this.workspaces.forFile(path);
     const lease = await this.cache.acquire(path, async () => {
-      const guard = layer.kind === "workspace" ? await workspaceGuard(layer.workspace) : undefined;
       const file = new SettingsFile({
         ...(guard ? { validate: guard } : {}),
         path,
@@ -79,14 +83,21 @@ export class SettingsService {
       });
       return file;
     });
-    return { ...lease, layer: layer.kind };
+    try {
+      if (guard) await lease.file.protect(guard);
+      return { ...lease, layer: layer.kind };
+    } catch (error) {
+      lease.release();
+      throw error;
+    }
   }
   private async scope(scope: Scope): Promise<LayerFile[]> {
     const files: LayerFile[] = [];
     try {
-      files.push(await this.file({ kind: "global" }));
+      // Acquire the workspace first so a cold physical alias is guarded before global reload.
       if (scope.workspace !== undefined)
         files.push(await this.file({ kind: "workspace", workspace: scope.workspace }));
+      files.unshift(await this.file({ kind: "global" }));
       if (scope.thread !== undefined)
         files.push(await this.file({ kind: "thread", thread: scope.thread }));
       return files;
@@ -141,10 +152,9 @@ export class SettingsService {
   async set<K extends SettingsKey>(key: K, value: SettingsValues[K], layer: Layer): Promise<void> {
     SettingsKey.parse(key);
     const parsed = validateValue(key, value);
-    const guard = layer.kind === "workspace" ? await workspaceGuard(layer.workspace) : undefined;
     const lease = await this.file(layer);
     try {
-      await lease.file.set(key, parsed, guard);
+      await lease.file.set(key, parsed);
     } finally {
       lease.release();
     }
@@ -272,6 +282,7 @@ export class SettingsService {
   async close(): Promise<void> {
     this.closed = true;
     await this.cache.close();
+    await this.workspaces.close();
     this.subscriptions.clear();
     this.index.clear();
   }

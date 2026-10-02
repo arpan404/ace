@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { watch } from "node:fs";
-import { mkdir, open, rename, unlink, stat } from "node:fs/promises";
+import { mkdir, open, rename, stat } from "node:fs/promises";
 import { dirname, basename, join, relative, sep } from "node:path";
+import { removeTemporary } from "./temporary.ts";
 import { MAX_DOCUMENT_BYTES, SettingsError } from "./document.ts";
 
 export interface Scheduler {
@@ -73,8 +74,11 @@ export async function atomicWrite(
 ): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
-  const file = await openFile(temp, "wx", 0o600);
+  const directory = await openFile(dirname(path), "r");
+  let temporaryExists = false;
   try {
+    const file = await openFile(temp, "wx", 0o600);
+    temporaryExists = true;
     try {
       await file.writeFile(text, "utf8");
       await file.sync();
@@ -83,16 +87,14 @@ export async function atomicWrite(
     }
     await beforeRename?.();
     await rename(temp, path);
-    const directory = await openFile(dirname(path), "r");
+    temporaryExists = false;
+    await directory.sync();
+  } finally {
     try {
-      await directory.sync();
+      if (temporaryExists) await removeTemporary(temp, directory);
     } finally {
       await directory.close();
     }
-  } finally {
-    await unlink(temp).catch((error: unknown) => {
-      if (!missing(error)) throw error;
-    });
   }
 }
 async function watchPath(

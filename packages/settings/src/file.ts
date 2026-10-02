@@ -1,10 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import {
-  SettingsKey,
-  type SettingsDocument,
-  type SettingsDiagnostic,
-  type SettingsProvenance,
-} from "@ace/protocol";
+import { SettingsKey, type SettingsDiagnostic, type SettingsProvenance } from "@ace/protocol";
 import { decode, assign, emptyText, SettingsError, type DecodedDocument } from "./document.ts";
 import type { FileIO, Scheduler } from "./io.ts";
 
@@ -18,7 +13,7 @@ export function freeze<T>(value: T): T {
 export type FileChange = { keys: SettingsKey[]; diagnostic?: SettingsDiagnostic };
 export class SettingsFile {
   private prepared = decode(emptyText);
-  document: SettingsDocument = freeze(this.prepared.document);
+  document: DecodedDocument["document"] = freeze(this.prepared.document);
   private documentDiagnostic: SettingsDiagnostic | undefined;
   private watcherDiagnostic: SettingsDiagnostic | undefined;
   get diagnostic(): SettingsDiagnostic | undefined {
@@ -74,13 +69,15 @@ export class SettingsFile {
       error instanceof SettingsError
         ? error
         : new SettingsError("io", "Cannot read or write settings file");
-    this.documentDiagnostic = freeze({
+    const diagnostic = freeze({
       layer: this.layer,
       code: known.code,
       message: known.message,
       ...(known.offset === undefined ? {} : { offset: known.offset }),
     });
-    this.changed({ keys: [], diagnostic: this.documentDiagnostic });
+    if (isDeepStrictEqual(this.documentDiagnostic, diagnostic)) return;
+    this.documentDiagnostic = diagnostic;
+    this.changed({ keys: [], diagnostic });
   }
   private publish(prepared: DecodedDocument): void {
     const document = prepared.document;
@@ -132,6 +129,17 @@ export class SettingsFile {
       void this.reload().catch((error: unknown) => this.report(error));
     }, this.delay);
   }
+  /** Attach the logical workspace's permanent guard even to a pre-existing global alias. */
+  protect(validate: () => Promise<void>): Promise<void> {
+    return this.enqueue(async () => {
+      this.validate ??= validate;
+      try {
+        await this.validate();
+      } catch (error) {
+        this.report(error);
+      }
+    });
+  }
   reload(): Promise<void> {
     return this.enqueue(async () => {
       await this.rewatch();
@@ -146,16 +154,16 @@ export class SettingsFile {
       }
     });
   }
-  set(key: SettingsKey, value: unknown, beforeCommit = this.validate): Promise<void> {
+  set(key: SettingsKey, value: unknown): Promise<void> {
     return this.enqueue(async () => {
       try {
-        await beforeCommit?.();
+        await this.validate?.();
         const raw = (await this.io.read(this.path)) ?? emptyText;
         const source = raw === this.prepared.text ? this.prepared : decode(raw);
         const result = assign(source, key, value);
         const text = result.text;
         if (source.migrated || text !== source.text)
-          await this.io.write(this.path, text, beforeCommit);
+          await this.io.write(this.path, text, this.validate);
         this.publish(result);
         await this.rewatch();
       } catch (error) {

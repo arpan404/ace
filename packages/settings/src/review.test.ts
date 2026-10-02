@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { SettingsService, atomicWrite, fileIO, type Notification } from "./index.ts";
@@ -99,6 +99,7 @@ test("a workspace directory changed to an escaping symlink during a write cannot
   expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
     settings: { "approvals.policy": "ask" },
   });
+  expect(await readdir(join(f.workspace, "old-ace"))).toEqual([]);
 });
 
 test("watch installation failures remain visible after valid reads and retry registration", async () => {
