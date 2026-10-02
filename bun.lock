@@ -29,6 +29,9 @@
         "@ace/protocol": "workspace:*",
       },
     },
+    "packages/git": {
+      "name": "@ace/git",
+    },
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
@@ -56,6 +59,8 @@
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
+
+    "@ace/git": ["@ace/git@workspace:packages/git"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
