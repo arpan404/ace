@@ -85,7 +85,7 @@ it("lists and resolves snippets over authenticated WebSocket without executing p
       query: "",
       limit: 20,
     });
-    expect(await client.next()).toMatchObject({ type: "error", code: "commands_failed" });
+    expect(await client.next()).toMatchObject({ type: "error", code: "read_denied" });
   } finally {
     await f.close();
     await lib.close();
@@ -135,6 +135,35 @@ it("allows read-scoped remote previews and rejects devices without read scope", 
     });
     expect(await blocked.next()).toMatchObject({ type: "error", code: "forbidden" });
   } finally {
+    await lib.close();
+  }
+});
+
+it("denies list and resolution when the thread access policy rejects the device", async () => {
+  const lib = await library(),
+    f = await fixture({ commands: lib.service, canReadThread: () => false });
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({
+      type: "commands.list",
+      requestId: "list",
+      threadId: f.thread.id,
+      query: "",
+      limit: 10,
+    });
+    expect(await client.next()).toMatchObject({ type: "error", code: "read_denied" });
+    client.send({
+      type: "commands.resolve",
+      requestId: "resolve",
+      threadId: f.thread.id,
+      commandId: "ace#fork",
+      arguments: {},
+      positional: [],
+    });
+    expect(await client.next()).toMatchObject({ type: "error", code: "read_denied" });
+  } finally {
+    await f.close();
     await lib.close();
   }
 });

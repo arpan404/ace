@@ -4,7 +4,13 @@ import type { Store } from "./store.ts";
 
 export type SubscriptionStore = Pick<
   Store,
-  "subscribe" | "headSeq" | "acquireThread" | "releaseThread" | "listThreads" | "readEvents"
+  | "snapshotThread"
+  | "subscribe"
+  | "headSeq"
+  | "acquireThread"
+  | "releaseThread"
+  | "listThreads"
+  | "readEvents"
 >;
 
 /** Delivery covers (afterSeq, throughSeq], including events filtered out by scope. */
@@ -79,7 +85,8 @@ export function subscribe(
         ? store.acquireThread(scope.threadId)
         : createThreadListView(store.listThreads());
     if (scope.kind === "thread") acquired = scope.threadId;
-    const snapshotView = structuredClone(view);
+    const snapshotView =
+      scope.kind === "thread" ? store.snapshotThread(scope.threadId) : structuredClone(view);
     const head = store.headSeq();
     snapshotView.seq = head;
     if (afterSeq !== undefined && afterSeq > head) throw new Error("Cursor ahead of log");
