@@ -14,5 +14,8 @@
     "@ace/git": "workspace:*",
     "@ace/protocol": "workspace:*",
     "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@ace/provider-kit": "workspace:*"
   }
 }

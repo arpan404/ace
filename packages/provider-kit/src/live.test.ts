@@ -5,6 +5,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { discoverProviders, type DiscoveryResult, type Provider } from "./discovery/index.ts";
 import { JsonRpcPeer } from "./jsonrpc.ts";
 import { spawnSupervised, type SupervisedProcess } from "./process.ts";
+import { PROCESS_TEST_TIMEOUT } from "./testing/cli.ts";
 import { readSse } from "./sse.ts";
 
 const processes: SupervisedProcess[] = [];
@@ -37,7 +38,7 @@ describe.skipIf(process.env["ACE_LIVE_CLI"] !== "1")(
             )
             .join("; "),
       );
-    }, 60_000);
+    }, PROCESS_TEST_TIMEOUT);
     it("discovers a version and read-only auth status for every installed CLI", () => {
       for (const result of Object.values(discovery)) {
         if (!result.installed) continue;
@@ -92,7 +93,7 @@ describe.skipIf(process.env["ACE_LIVE_CLI"] !== "1")(
       const exit = await proc.stop({ graceMs: 5000 });
       expect(exit.reason).toBe("stopped");
       console.info("Live OpenCode: connected + heartbeat; stopped");
-    }, 60_000);
+    });
     it("Codex app-server initializes over stdio without starting a thread", async (ctx) => {
       if (!discovery.codex.installed) ctx.skip();
       const proc = launch("codex", ["app-server"]);
@@ -115,7 +116,7 @@ describe.skipIf(process.env["ACE_LIVE_CLI"] !== "1")(
       expect(errors).toEqual([]);
       await proc.stop({ graceMs: 5000 });
       console.info("Live Codex: initialize + initialized; stopped");
-    }, 60_000);
+    });
     it("Cursor ACP initializes without creating a session", async (ctx) => {
       if (!discovery.cursor.installed) ctx.skip();
       const proc = launch("cursor", ["acp"]);
@@ -135,6 +136,6 @@ describe.skipIf(process.env["ACE_LIVE_CLI"] !== "1")(
       expect(result).toMatchObject({ protocolVersion: 1 });
       await proc.stop({ graceMs: 5000 });
       console.info("Live Cursor: initialize; stopped");
-    }, 60_000);
+    });
   },
 );
