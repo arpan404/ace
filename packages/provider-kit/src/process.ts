@@ -59,7 +59,7 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
           if (pending > limit) {
             child.stdout.destroy();
             child.stderr.destroy();
-            child.kill("SIGKILL");
+            if (child.pid !== undefined) killGroup(child.pid, "SIGKILL");
             return;
           }
         }
