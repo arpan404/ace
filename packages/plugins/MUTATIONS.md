@@ -76,3 +76,14 @@ Every case below is **not executed (tests run at merge)**. Runtime confirmation 
 | C1-sibling | Use a raw string prefix for directory ownership            | private lease cleanup stops nested processes and preserves siblings with the same path prefix                                                                                   | not executed (tests run at merge) |
 
 The integration rehearsal comment provides no specific per-PR diagnostic beyond the canonical status precedence. This branch merges main's conductor, automations and process-test changes and leaves core status unchanged. Plugin real-edge tests join main's process project. No combined runtime rehearsal was executed under the owner's rule.
+
+## Merge with main at 4701bfa
+
+Protocol exports and process-test inventories retain both branches. Daemon shutdown joins plugin tasks and presence cleanup; the outbox retains main's snapshot pressure checks, serialization and injected clock alongside plugin results.
+
+| Deliberate fault                                                  | Guarding behavior                                                                             | Mutation validation               |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------- |
+| Drop either plugin drain or presence failure from shutdown        | finishes pending plugin persistence before reporting a presence shutdown failure              | not executed (tests run at merge) |
+| Lose plugin results or their ordering during outbox serialization | delivers plugin control results after queued events and preserves subsequent control messages | not executed (tests run at merge) |
+
+The owner granted a merge-conflict exception for specific affected test files. Ten daemon test files passed with 60 tests, including these two behavior guards. No mutation, full-suite run, benchmark, Docker harness or CI command was executed. All remaining runtime claims need run at merge.

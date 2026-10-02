@@ -1,6 +1,6 @@
 import type { ModelCatalogApi } from "@ace/models";
 import { handleModelRequest } from "./models.ts";
-import { randomUUID } from "node:crypto";
+import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
 import type { NotificationWorker } from "@ace/notify";
 import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
 import { z } from "zod";
@@ -56,6 +56,7 @@ export interface ServerOptions {
   port: number;
   remote?: RemoteListener;
   now?: () => number;
+  runtime?: Partial<DeliveryRuntime>;
   entropy?: EntropySource;
   pairingAddress?: (request: IncomingMessage) => string;
   ticketLimits?: Partial<TicketLimits>;
@@ -85,13 +86,18 @@ export async function startServer(options: ServerOptions): Promise<{
   fingerprint?: string;
   close(): Promise<void>;
 }> {
+  const runtime = {
+    ...systemDeliveryRuntime,
+    ...options.runtime,
+    now: options.now ?? options.runtime?.now ?? systemDeliveryRuntime.now,
+  };
   const hostId = HostId.parse(options.hostId);
   if (!/^[0-9a-f]{64}$/.test(options.token)) throw new Error("Invalid server token");
   const auth = new RemoteAuth(
     options.store.devices,
     options.token,
     {
-      now: options.now ?? Date.now,
+      now: runtime.now,
       secret: () => generateSecret(options.entropy ?? systemCredentials.randomBytes),
     },
     z
@@ -128,6 +134,13 @@ export async function startServer(options: ServerOptions): Promise<{
         socket.destroy();
         return;
       }
+      if (cleanups.size >= 256) {
+        socket.end(
+          "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+          () => socket.destroy(),
+        );
+        return;
+      }
       wss.handleUpgrade(request, socket, head, (websocket) =>
         wss.emit("connection", websocket, isLocal),
       );
@@ -149,26 +162,36 @@ export async function startServer(options: ServerOptions): Promise<{
   const pluginTasks = new Set<Promise<void>>();
   const input = new SocketInput();
   const cleanups = new Map<WebSocket, () => void>();
+  let disconnects = Promise.resolve();
+  let disconnectError: Error | undefined;
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
+    socket.on("error", (error) => {
+      options.log?.(error);
+      socket.terminate();
+    });
     let modelRequests = 0;
     if (cleanups.size >= 256) {
-      socket.close(4009, "Connection limit");
+      socket.terminate();
       return;
     }
-    const sessionId = randomUUID();
+    const sessionId = z.string().min(1).max(200).parse(runtime.id());
     let device: DeviceId | undefined;
     let pluginPending = false;
+    let hasPresence = false;
+    let cleaned = false;
     let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
-    const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
+    const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure }, runtime.now);
     const send = (message: ServerMessage | PluginServerMessage) => outbox.send(message);
     const fail = (code: string, message: string, close = false) => {
       send({ type: "error", code, message });
       if (close) socket.close(4001, code);
     };
     const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -177,8 +200,19 @@ export async function startServer(options: ServerOptions): Promise<{
         connections?.delete(socket);
         if (!connections?.size) receivers.delete(device);
       }
-      void options.notifications?.disconnect(sessionId).catch(() => {});
-      cleanups.delete(socket);
+      if (hasPresence) {
+        // Retain this socket's admission slot until removal is acknowledged. Active
+        // sockets plus queued removals therefore remain bounded at 256 under churn.
+        disconnects = disconnects
+          .then(() => options.notifications?.disconnect(sessionId))
+          .then(() => {
+            cleanups.delete(socket);
+          })
+          .catch((error: unknown) => {
+            disconnectError = error instanceof Error ? error : new Error("Presence cleanup failed");
+            options.log?.(disconnectError);
+          });
+      } else cleanups.delete(socket);
       ticks.delete(socket);
       authenticated.delete(socket);
     };
@@ -187,10 +221,6 @@ export async function startServer(options: ServerOptions): Promise<{
       if (auth.now() - lastActivity > (options.idleTimeoutMs ?? 60_000))
         socket.close(4008, "Idle timeout");
       outbox.tick();
-    });
-    socket.on("error", (error) => {
-      options.log?.(error);
-      socket.terminate();
     });
     socket.on("close", () => {
       cleanup();
@@ -356,9 +386,10 @@ export async function startServer(options: ServerOptions): Promise<{
             break;
           }
           try {
-            if (message.type === "presence.update")
+            if (message.type === "presence.update") {
+              hasPresence = true;
               await options.notifications.updatePresence(sessionId, device, message);
-            else if (message.type === "notification.register")
+            } else if (message.type === "notification.register")
               await options.notifications.register(device, message.device);
             else if (message.type === "notification.preferences")
               await options.notifications.preferences(device, message.preferences);
@@ -404,6 +435,8 @@ export async function startServer(options: ServerOptions): Promise<{
               message.afterSeq,
               options.replayLimit ?? 5000,
               send,
+              250,
+              runtime.delay,
             );
             subscriptions.set(message.subscriptionId, stop);
           } catch {
@@ -485,13 +518,12 @@ export async function startServer(options: ServerOptions): Promise<{
     };
     input.listen(socket, receive, (error) => options.log?.(error));
   });
-  const timer = setInterval(
+  const stopTimer = runtime.every(
     () => {
       for (const tick of ticks.values()) tick();
     },
     Math.max(10, Math.min(1000, (options.idleTimeoutMs ?? 60_000) / 2)),
   );
-  timer.unref();
   let port: number;
   try {
     port = await bind(local, "127.0.0.1", options.port);
@@ -500,7 +532,7 @@ export async function startServer(options: ServerOptions): Promise<{
       remoteOrigin = `https://${urlHost(options.remote.advertisedHost)}:${remotePort}`;
     }
   } catch (error) {
-    clearInterval(timer);
+    stopTimer();
     stopRevocation();
     await closeListener(local);
     if (remote) await closeListener(remote);
@@ -529,7 +561,7 @@ export async function startServer(options: ServerOptions): Promise<{
     },
     close() {
       closing ??= new Promise<void>((resolve, reject) => {
-        clearInterval(timer);
+        stopTimer();
         stopRevocation();
         for (const cleanup of cleanups.values()) cleanup();
         for (const socket of wss.clients) {
@@ -539,10 +571,11 @@ export async function startServer(options: ServerOptions): Promise<{
         void Promise.all([closeListener(local), ...(remote ? [closeListener(remote)] : [])]).then(
           () =>
             wss.close((error) => {
-              void Promise.allSettled(pluginTasks).then(() => {
+              void Promise.all([Promise.allSettled(pluginTasks), disconnects]).then(() => {
                 if (error) reject(error);
+                else if (disconnectError) reject(disconnectError);
                 else resolve();
-              });
+              }, reject);
             }),
         );
       });
