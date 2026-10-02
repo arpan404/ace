@@ -115,6 +115,8 @@ export async function startServer(options: ServerOptions): Promise<{
           fail("device_unavailable", "Device unavailable", true);
           return;
         }
+        // Authentication may finish after disconnect or daemon shutdown.
+        if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
         device = message.deviceId;
         let connections = receivers.get(device);
         if (!connections) {

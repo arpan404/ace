@@ -32,6 +32,7 @@ async function setup() {
   });
   const f = await fixture({
     notifications: service,
+    // Fixture arbitration is not the production engine handler. This suite covers socket routing and receipts.
     handler: {
       handle(command, store) {
         const p = command.payload;
@@ -109,7 +110,7 @@ it("authenticated websocket presence suppresses phone push and delivers browser 
   expect(mobile).toEqual(["phone"]);
   expect(errors).toEqual([]);
 });
-it("notification approve and deny actions require authenticated identity and retain first-answer-wins receipts", async () => {
+it("notification actions enforce authenticated identity and replay command receipts with an injected handler", async () => {
   const { f, client, attached, errors } = await setup();
   const interactionId = InteractionId.parse("approval");
   f.store.appendEvents(f.thread.id, [
