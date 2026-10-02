@@ -7,7 +7,7 @@ const root = "repos/octo/ace";
 function response(body: unknown, link?: string): string {
   return `HTTP/2.0 200 OK\r\nETag: "stable"\r\n${link ? `Link: ${link}\r\n` : ""}\r\n${JSON.stringify(body)}`;
 }
-async function measure(records: number): Promise<void> {
+async function measure(records: number, editing = false): Promise<void> {
   const pages = new Map<string, string>();
   pages.set(
     `${root}/pulls/7`,
@@ -30,6 +30,9 @@ async function measure(records: number): Promise<void> {
   pages.set(`${root}/issues/7/comments?per_page=100`, response([]));
   pages.set(`${root}/pulls/7/reviews?per_page=100`, response([]));
   const count = Math.ceil(records / 100);
+  const firstPath = `${root}/pulls/7/comments?per_page=100`;
+  let editedFirst = "";
+  let tick = 0;
   for (let page = 0; page < count; page++) {
     const path =
       page === 0
@@ -48,6 +51,13 @@ async function measure(records: number): Promise<void> {
         ? `<https://api.github.com/${root}/pulls/7/comments?per_page=100&page=${page + 2}>; rel="next"`
         : undefined;
     pages.set(path, response(comments, link));
+    if (page === 0)
+      editedFirst = response(
+        comments.map((comment, index) =>
+          index === 0 ? Object.assign({}, comment, { body: "Changed feedback" }) : comment,
+        ),
+        link,
+      );
   }
   const graph = response({
     data: {
@@ -63,9 +73,13 @@ async function measure(records: number): Promise<void> {
     const stdout =
       path === "graphql"
         ? graph
-        : request.args.includes('If-None-Match: "stable"')
-          ? "HTTP/2.0 304 Not Modified\r\n\r\n"
-          : pages.get(path ?? "");
+        : editing && path === firstPath
+          ? tick % 2
+            ? editedFirst
+            : pages.get(firstPath)
+          : request.args.includes('If-None-Match: "stable"')
+            ? "HTTP/2.0 304 Not Modified\r\n\r\n"
+            : pages.get(path ?? "");
     if (!stdout) throw new Error("Unexpected benchmark endpoint");
     return { code: 0, stdout, truncated: false };
   };
@@ -75,14 +89,15 @@ async function measure(records: number): Promise<void> {
   const countSamples = 2_000;
   const start = performance.now();
   for (let index = 0; index < countSamples; index++) {
+    tick = index + 1;
     const current = await forge.status(7, signal);
-    if (current !== initial || current.comments.length !== records)
+    if ((!editing && current !== initial) || current.comments.length !== records)
       throw new Error("Revision cache changed unexpectedly");
   }
   const ms = performance.now() - start;
   console.log(
     JSON.stringify({
-      name: `warm status, ${records} comments, ${count} conditional pages`,
+      name: `${editing ? "one edited page" : "warm status"}, ${records} comments, ${count} conditional pages`,
       samples: countSamples,
       opsPerSecond: Math.round((countSamples / ms) * 1_000),
       usPerOp: +((ms / countSamples) * 1_000).toFixed(2),
@@ -92,3 +107,7 @@ async function measure(records: number): Promise<void> {
 }
 await measure(2);
 await measure(2_000);
+
+await measure(2, true);
+await measure(100, true);
+await measure(2_000, true);

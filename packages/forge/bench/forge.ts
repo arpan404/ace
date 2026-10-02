@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { performance } from "node:perf_hooks";
-import { ForgeStore, LogTail, mapCheck, ReviewIndex } from "../src/index.ts";
+import { ForgeStore, LogTail, mapCheck, ReviewIndex, StatusRevisions } from "../src/index.ts";
 import type { ForgePrStatus } from "@ace/protocol/forge";
 
 const repository = { forge: "github", host: "github.com", owner: "octo", name: "ace" } as const;
@@ -89,6 +89,45 @@ measure("metadata-only revision, 2000 unchanged records", 100_000, (index) => {
   largeIndex.update({ ...large, title: String(index) });
   checksum++;
 });
+for (const size of [2, 2_000]) {
+  const revisions = new StatusRevisions();
+  const before = { ...large, comments: large.comments.slice(0, size) };
+  const last = before.comments.at(-1);
+  if (!last) throw new Error("Missing benchmark feedback");
+  const edited = { ...last, body: "One edited comment" };
+  const after = { ...before, comments: [...before.comments.slice(0, -1), edited] };
+  revisions.comments.retain(before.comments, after.comments, { upsert: [edited], removed: [] });
+  revisions.comments.retain(after.comments, before.comments, { upsert: [last], removed: [] });
+  const index = new ReviewIndex({ link, generation: 1 }, ignored, revisions);
+  index.update(before);
+  for (const candidate of index.pending()) index.observe(candidate.key);
+  measure(`one edited comment, ${size} current records`, 100_000, (i) => {
+    index.update(i % 2 === 0 ? after : before);
+    for (const candidate of index.pending()) {
+      checksum++;
+      index.observe(candidate.key);
+    }
+  });
+}
+// Callers without version metadata submit full collections; comparing their current
+// references is necessarily O(input). GitHubForge supplies exact deltas instead.
+for (const size of [2, 2_000]) {
+  const before = { ...large, comments: large.comments.slice(0, size) };
+  const last = before.comments.at(-1);
+  if (!last) throw new Error("Missing benchmark feedback");
+  const after = {
+    ...before,
+    comments: [...before.comments.slice(0, -1), { ...last, body: "Edited" }],
+  };
+  const index = new ReviewIndex({ link, generation: 1 }, ignored);
+  index.update(before);
+  for (const candidate of index.pending()) index.observe(candidate.key);
+  measure(`unversioned full input, ${size} records`, 1_000, (i) => {
+    index.update(i % 2 === 0 ? after : before);
+    for (const candidate of index.pending()) index.observe(candidate.key);
+    checksum++;
+  });
+}
 const chunk = Buffer.from("compiler diagnostic line\n".repeat(2_000));
 const tail = new LogTail();
 measure("streaming tail, 50KB chunk", 2_000, () => {

@@ -2,21 +2,30 @@
 
 Run on 2026-10-02 in the feature worktree with Node 26.8.1 on Darwin arm64 using native TypeScript execution. Benchmarks are non-gating; process RSS is the cumulative high-water mark, including the in-memory SQLite benchmark database. The production ledger uses a file database and removes acknowledged payloads.
 
-| Operation                                                 |   Samples |       Ops/s |  µs/op | Peak RSS MiB |
-| --------------------------------------------------------- | --------: | ----------: | -----: | -----------: |
-| Check mapping                                             |   100,000 |     343,259 |   2.91 |        106.4 |
-| Unchanged review index, 2 comments                        | 1,000,000 | 176,748,708 |   0.01 |        106.7 |
-| Unchanged review index, 2,000 comments                    | 1,000,000 | 158,676,637 |   0.01 |        109.2 |
-| Metadata-only revision, 2,000 comments                    |   100,000 |  22,317,488 |   0.04 |        109.2 |
-| Streamed tail, 50 KB chunk                                |     2,000 |       1,370 | 729.72 |        126.2 |
-| SQLite admission and acknowledgement                      |    10,000 |      22,353 |  44.74 |        242.1 |
-| Indexed duplicate lookup after 10,000 deliveries          |   100,000 |   1,629,154 |   0.61 |        243.0 |
-| Warm status, 2 comments, 1 conditional comment page       |     2,000 |      81,242 |  12.31 |        109.0 |
-| Warm status, 2,000 comments, 20 conditional comment pages |     2,000 |      31,382 |  31.87 |        112.2 |
+| Operation                                               |   Samples |      Ops/s |    µs/op | Peak RSS MiB |
+| ------------------------------------------------------- | --------: | ---------: | -------: | -----------: |
+| check mapping                                           |   100,000 |     16,376 |    61.06 |        107.9 |
+| unchanged review index, 2 records                       | 1,000,000 |  2,880,782 |     0.35 |        108.5 |
+| unchanged review index, 2000 records                    | 1,000,000 | 18,235,586 |     0.05 |        110.6 |
+| metadata-only revision, 2000 unchanged records          |   100,000 |    303,718 |     3.29 |        111.1 |
+| one edited comment, 2 current records                   |   100,000 |     70,883 |    14.11 |        111.3 |
+| one edited comment, 2000 current records                |   100,000 |     90,125 |     11.1 |        112.3 |
+| unversioned full input, 2 records                       |     1,000 |    699,158 |     1.43 |        112.3 |
+| unversioned full input, 2000 records                    |     1,000 |        149 |  6707.76 |        129.4 |
+| streaming tail, 50KB chunk                              |     2,000 |         69 | 14555.27 |        129.5 |
+| SQLite intent admission and acknowledgement             |    10,000 |      1,434 |   697.31 |        243.8 |
+| SQLite duplicate lookup with 10000 delivered identities |   100,000 |     69,131 |    14.47 |        247.5 |
+| warm status, 2 comments, 1 conditional pages            |     2,000 |      7,532 |   132.77 |        113.1 |
+| warm status, 2000 comments, 20 conditional pages        |     2,000 |      1,218 |   820.91 |        118.2 |
+| one edited page, 2 comments, 1 conditional pages        |     2,000 |        955 |  1046.58 |        136.9 |
+| one edited page, 100 comments, 1 conditional pages      |     2,000 |        123 |  8134.77 |        222.6 |
+| one edited page, 2000 comments, 20 conditional pages    |     2,000 |         89 | 11271.24 |        222.7 |
 
-`bun run --filter @ace/forge bench` runs both workloads. The warm status benchmark uses a prepared injected command runner to isolate API decoding/cache CPU from process startup. It still reads independent resource pages and hashes the GraphQL response bytes; no network or subprocess throughput claim is implied. Status RSS is from its separate process; other RSS entries are cumulative within the first benchmark process.
+`bun run --filter @ace/forge bench` runs both workloads. These final observations were made under shared-machine load above 270; elapsed measurements include scheduler contention. RSS is cumulative per process; status uses a separate injected-runner process. No subprocess/network throughput claim is implied.
 
-The review measured the old one-shot candidate API at 2.70 µs for two unchanged comments and 990.43 µs for 2,000. The retained index now performs O(1) work for unchanged snapshots and metadata-only revisions with unchanged collections. Cached pages are decoded once per retained representation. Warm status cost scales with conditional page requests, without traversing their historical records. Changed representations remain bounded by the page/record/byte limits. Incoming log processing is linear in chunk bytes. Duplicate detection uses SQLite's primary-key index rather than an in-memory session history scan.
+Versioned one-comment edits take 14.11/11.10 µs with 2/2,000 current comments: candidate work depends on the changed feedback, not historical record count. An earlier lower-load run of the same candidate design measured 0.72/0.67 µs. REST pages reuse unchanged row projections inside edited pages; GraphQL retains unaffected thread projections. Warm status scales with conditional page requests. Edited-page status includes bounded decoding and O(output) flat immutable array materialization; 100 versus 2,000 comments use the same 100-record edited page, with the latter also polling 19 unchanged pages.
+
+The unversioned compatibility path must compare a caller’s full current input: it has no change metadata. It is explicitly O(input), benchmarks at 1.43/6,707.76 µs under this load, and is not used by GitHubForge’s retained review loop. Logs process incoming bytes and duplicate detection uses SQLite’s index. Weak collection metadata contains opaque predecessor tokens, not owning snapshot chains; row maps retain only current capped records.
 
 ## Deliberate mutations
 
@@ -37,7 +46,7 @@ Each mutation was applied to production code alone, killed by the listed behavio
 | M11: ignore inactive review-thread membership | Resolved and outdated feedback never queues                       |
 | M12: double the snapshot byte budget          | Oversized paginated snapshots fail visibly                        |
 
-The current full repository check after merging origin/main passed 447 tests, with four opt-in tests skipped. Forge's 49 tests use a temporary executable fake `gh`, synthetic recorded JSON responses, real git repositories, real subprocess cancellation handshakes and temporary SQLite. No coding-provider prompts or recorder sessions were run.
+The first review-round repository check passed 447 tests, with four opt-in tests skipped. That round’s 49 forge tests use a temporary executable fake `gh`, synthetic recorded JSON responses, real git repositories, real subprocess cancellation handshakes and temporary SQLite. No coding-provider prompts or recorder sessions were run.
 
 A read-only smoke test through the real logged-in `gh` read ace PR #10 as merged with two successful checks and no review threads. It printed only aggregate status fields. No live mutation calls were made.
 
@@ -61,3 +70,22 @@ The review's four surviving mutations were each reproduced against the old asser
 No mutation remains in the delivered code. The final repository check includes the strengthened tests and all regression cases. No provider prompts or recorder sessions were run.
 
 After merging remote access from `origin/main` (`844e0eb`), default-concurrency checks encountered five-second timeouts under shared-machine load (load average above 180). `VITEST_MAX_WORKERS=2 bun run check` limits process fan-out without changing assertions, synchronization or test deadlines; the combined suite has 447 passing tests and four opt-in skips.
+
+## Independent-verifier fixes
+
+Before their fixes, the historical file-SQLite ledger replayed both accepted intents; a one-page edit replaced untouched feedback versions; and resolving one thread replaced the other thread’s immutable projection. All now pass through the public API. Additional tests cover mixed legacy/current accepted or pending identities, original executor-key retry, feedback-free paused unlink/relink, location-only edits and oversized review states. Forge now has 58 passing tests.
+
+Eight separately applied production mutations each failed a behaviour assertion (no timeout or tooling failure) and were reverted:
+
+| Mutation                                   | Behaviour caught                                          |
+| ------------------------------------------ | --------------------------------------------------------- |
+| N4: disable early generation assertion     | Feedback-free paused read rejects across identical relink |
+| N12: omit file/line from digest            | Location-only edit queues fresh file/line context         |
+| Disable legacy acceptance adoption         | Original acknowledged ledger does not replay              |
+| Keep adopted legacy acceptance key         | Later location edit produces a fresh intent               |
+| Drop legacy CI candidate alias             | Pending retry retains original executor identity          |
+| Observe before durable admission           | Backpressure preserves unadmitted feedback                |
+| Remap unchanged records within edited page | Unaffected feedback retains its public version            |
+| Drop changed-comment collection upserts    | Edited feedback appears in current pending candidates     |
+
+Under load above 230, unchanged pre-round head `2749697` also hit the default five-second fake-process timeout in the same worktree; the original bytes were restored afterward. Forge fake-process tests now use a 60-second completion safeguard, independent of the production child deadline. No unrelated package deadlines or assertions were changed. Tests use completion handshakes, not sleep synchronization. CI is disabled by the repository owner; no CI run, rerun or wait was requested this round.
