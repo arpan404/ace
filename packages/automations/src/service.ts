@@ -7,9 +7,10 @@ import {
 } from "@ace/protocol";
 import { ExecutionResult, type Dependencies, type ExecutionInput } from "./contracts.ts";
 import { renderPrompt, scheduledDeadline, recoverOccurrence } from "./decisions.ts";
-import { compileSchedule, Occurrence, type Recurrence } from "./recurrence.ts";
+import { Occurrence } from "./recurrence.ts";
 import { AutomationStore, type JobMetadata } from "./store.ts";
 import { pollGithub } from "./github.ts";
+import { AutomationRuntime } from "./runtime.ts";
 import type { GhClient } from "./gh-process.ts";
 
 function message(error: unknown): string {
@@ -19,10 +20,7 @@ export class AutomationService {
   private store: AutomationStore;
   private deps: Dependencies;
   private gh: GhClient | undefined;
-  private recurrences = new Map<string, Recurrence>();
-  private revisions = new Map<string, number>();
-  private revision = 0;
-  private watches = new Map<string, () => void>();
+  private runtime:AutomationRuntime;
   private cancelTimer: (() => void) | undefined;
   private pending = new Set<Promise<void>>();
   private polling = new Set<string>();
@@ -34,6 +32,7 @@ export class AutomationService {
     this.store = store;
     this.deps = deps;
     this.gh = gh;
+    this.runtime=new AutomationRuntime(deps,()=>this.live,(id,event)=>{this.trigger(id,event,"file");},(error)=>this.report(error));
   }
   start(): void {
     if (this.live) return;
@@ -42,13 +41,13 @@ export class AutomationService {
     this.controller = new AbortController();
     try {
       for (const job of this.store.jobs()) {
-        this.configure(job.automation);
+        this.runtime.install(this.runtime.prepare(job.automation));
         if (
           job.automation.trigger.kind === "schedule" &&
           job.nominal !== null &&
           job.due !== null
         ) {
-          const recurrence = this.recurrences.get(job.automation.id);
+          const recurrence = this.runtime.recurrence(job.automation.id);
           if (!recurrence) throw new Error("Missing recurrence");
           const cursor = Occurrence.parse(this.store.readState(job.automation.id));
           const occurrence = recoverOccurrence(
@@ -87,10 +86,7 @@ export class AutomationService {
     this.controller.abort();
     this.cancelTimer?.();
     this.cancelTimer = undefined;
-    for (const unsubscribe of this.watches.values()) unsubscribe();
-    this.watches.clear();
-    this.recurrences.clear();
-    this.revisions.clear();
+    this.runtime.stop();
   }
   /** Tests and orderly shutdown can await already admitted work, without polling. */
   async settled(): Promise<void> {
@@ -110,36 +106,15 @@ export class AutomationService {
       this.report(error);
     }
   }
-  private configure(automation: Automation): void {
-    this.revisions.set(automation.id, ++this.revision);
-    this.watches.get(automation.id)?.();
-    this.watches.delete(automation.id);
-    this.recurrences.delete(automation.id);
-    if (!automation.enabled) return;
-    if (automation.trigger.kind === "schedule")
-      this.recurrences.set(automation.id, compileSchedule(automation.trigger.schedule));
-    if (automation.trigger.kind === "file" && this.live && this.deps.workspace) {
-      this.watches.set(
-        automation.id,
-        this.deps.workspace.subscribe(
-          automation.workspace,
-          automation.trigger.paths,
-          async (event) => {
-            this.trigger(automation.id, event, "file");
-          },
-        ),
-      );
-    }
-  }
   put(input: unknown): Automation {
     const automation = Automation.parse(input);
     const existing = this.store.definition(automation.id);
-    if (existing && JSON.stringify(existing) === JSON.stringify(automation))
+    if (existing && JSON.stringify(existing) === JSON.stringify(automation)) {
+      if(this.runtime.needsWatch(automation))this.runtime.install(this.runtime.prepare(automation));
       return automation;
-    const recurrence =
-      automation.trigger.kind === "schedule"
-        ? compileSchedule(automation.trigger.schedule)
-        : undefined;
+    }
+    const prepared=this.runtime.prepare(automation);
+    const recurrence=prepared.recurrence;
     const occurrence =
       automation.enabled && recurrence ? recurrence.seek(this.deps.now() - 1) : undefined;
     const nominal = occurrence?.at;
@@ -150,17 +125,15 @@ export class AutomationService {
         : recurrence
           ? scheduledDeadline(occurrence, recurrence, automation.jitterMs, this.deps.random())
           : undefined;
-    this.store.put(automation, nominal, due, occurrence ?? {});
-    this.configure(automation);
+    try {this.store.transaction(()=>this.store.put(automation, nominal, due, occurrence ?? {}));}
+    catch(error){this.runtime.discard(prepared);throw error;}
+    this.runtime.install(prepared);
     this.arm();
     return automation;
   }
   remove(id: string): void {
     this.store.remove(id);
-    this.watches.get(id)?.();
-    this.watches.delete(id);
-    this.recurrences.delete(id);
-    this.revisions.delete(id);
+    this.runtime.remove(id);
     this.arm();
   }
   list(): Automation[] {
@@ -296,7 +269,7 @@ export class AutomationService {
     }
   }
   private scheduled(job: JobMetadata): void {
-    const recurrence = this.recurrences.get(job.automation.id);
+    const recurrence = this.runtime.recurrence(job.automation.id);
     if (!recurrence || job.nominal === null) throw new Error("Invalid scheduled job");
     // Compute before admission so any evaluation error cannot partially advance the cursor.
     let occurrence: Occurrence | undefined;
@@ -334,7 +307,7 @@ export class AutomationService {
   }
   private async poll(job: JobMetadata): Promise<void> {
     const generation = this.generation;
-    const revision = this.revisions.get(job.automation.id);
+    const revision = this.runtime.current(job.automation.id);
     const trigger = job.automation.trigger;
     if (trigger.kind !== "github") return;
     // Advance before I/O to bound repeated failures and prevent a busy loop.
@@ -344,7 +317,7 @@ export class AutomationService {
       const result = await pollGithub(this.gh, trigger, this.store.readState(job.automation.id), this.controller.signal);
       if (!this.live || generation !== this.generation) return;
       // An edit/removal while gh was in flight invalidates this response.
-      if (this.revisions.get(job.automation.id) !== revision) return;
+      if (this.runtime.current(job.automation.id) !== revision) return;
       for (const event of result.events) this.trigger(job.automation.id, event, "github");
       if (result.changed) this.store.savePoll(job.automation.id, result.state);
     } catch (error) {
