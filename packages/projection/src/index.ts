@@ -1,4 +1,13 @@
-import type { DeliveryEvent, Event, Thread, ThreadListView, ThreadView } from "@ace/protocol";
+import type {
+  DeliveryEvent,
+  Event,
+  EventBatch,
+  Progress,
+  Thread,
+  ThreadListView,
+  ThreadListEntry,
+  ThreadView,
+} from "@ace/protocol";
 export type { ThreadView, ThreadListView } from "@ace/protocol";
 
 export type ApplyResult =
@@ -23,8 +32,12 @@ export function createThreadListView(threads: Thread[] = [], seq = 0): ThreadLis
   return {
     kind: "threads",
     seq,
-    threads: Object.fromEntries(threads.map((thread) => [thread.id, structuredCopy(thread)])),
+    threads: Object.fromEntries(threads.map((thread) => [thread.id, sidebarEntry(thread)])),
   };
+}
+function sidebarEntry(thread: Thread): ThreadListEntry {
+  const { rootAgentId: _root, ...entry } = structuredCopy(thread);
+  return entry;
 }
 // JSON copy keeps the package usable on runtimes without structuredClone.
 function structuredCopy<T>(value: T): T {
@@ -41,6 +54,24 @@ function put<T>(record: Record<string, T>, id: string, value: T): void {
     configurable: true,
   });
 }
+function reparentAgent(
+  view: ThreadView,
+  id: string,
+  oldParent: string | null | undefined,
+  nextParent: string | null,
+): void {
+  if (oldParent && oldParent !== nextParent)
+    put(
+      view.agentChildren,
+      oldParent,
+      (get(view.agentChildren, oldParent) ?? []).filter((child) => child !== id),
+    );
+  if (nextParent) {
+    const children = get(view.agentChildren, nextParent) ?? [];
+    if (!children.includes(id)) children.push(id);
+    put(view.agentChildren, nextParent, children);
+  }
+}
 function advance(view: { seq: number }, event: DeliveryEvent): ApplyResult {
   if (event.seq <= view.seq) return { kind: "ignored" };
   const first = event.firstSeq ?? event.seq;
@@ -56,20 +87,33 @@ export function updateThread(thread: Thread, event: Event): void {
     if (payload.archivedAt === null) delete thread.archivedAt;
     else if (payload.archivedAt !== undefined) thread.archivedAt = payload.archivedAt;
   }
-  thread.updatedAt = event.at;
+  if (payload.type === "agent.created" && payload.agent.origin === "root")
+    thread.rootAgentId = payload.agent.id;
+  if (isSidebarEvent(event)) thread.updatedAt = event.at;
+}
+export function isSidebarEvent(event: Event): boolean {
+  return event.payload.type === "thread.created" || event.payload.type === "thread.updated";
 }
 export function applyThreadListEvent(view: ThreadListView, event: DeliveryEvent): ApplyResult {
   const result = advance(view, event);
   if (result.kind !== "applied") return result;
-  if (event.payload.type === "thread.created")
-    put(view.threads, event.threadId, structuredCopy(event.payload.thread));
-  const thread = get(view.threads, event.threadId);
-  if (thread) updateThread(thread, event);
+  foldThreadList(view, event);
   return result;
 }
+function foldThreadList(view: ThreadListView, event: DeliveryEvent): void {
+  if (event.payload.type === "thread.created")
+    put(view.threads, event.threadId, sidebarEntry(event.payload.thread));
+  const thread = get(view.threads, event.threadId);
+  if (thread && isSidebarEvent(event)) updateThread(thread, event);
+}
+
 export function applyEvent(view: ThreadView, event: DeliveryEvent): ApplyResult {
   const result = advance(view, event);
   if (result.kind !== "applied" || event.threadId !== view.thread.id) return result;
+  foldEvent(view, event);
+  return result;
+}
+function foldEvent(view: ThreadView, event: DeliveryEvent): void {
   const p = event.payload;
   updateThread(view.thread, event);
   switch (p.type) {
@@ -81,18 +125,8 @@ export function applyEvent(view: ThreadView, event: DeliveryEvent): ApplyResult 
       break;
     case "agent.created": {
       const previous = get(view.agents, p.agent.id);
-      if (previous?.parentId)
-        put(
-          view.agentChildren,
-          previous.parentId,
-          (get(view.agentChildren, previous.parentId) ?? []).filter((id) => id !== p.agent.id),
-        );
+      reparentAgent(view, p.agent.id, previous?.parentId, p.agent.parentId);
       put(view.agents, p.agent.id, structuredCopy(p.agent));
-      if (p.agent.parentId) {
-        const children = get(view.agentChildren, p.agent.parentId) ?? [];
-        put(view.agentChildren, p.agent.parentId, children);
-        if (!children.includes(p.agent.id)) children.push(p.agent.id);
-      }
       break;
     }
     case "agent.status": {
@@ -104,7 +138,8 @@ export function applyEvent(view: ThreadView, event: DeliveryEvent): ApplyResult 
       const agent = get(view.agents, p.agentId);
       if (agent) {
         const { type: _type, agentId: _id, ...changes } = p;
-        Object.assign(agent, changes);
+        if (p.parentId !== undefined) reparentAgent(view, p.agentId, agent.parentId, p.parentId);
+        Object.assign(agent, structuredCopy(changes));
       }
       break;
     }
@@ -173,5 +208,34 @@ export function applyEvent(view: ThreadView, event: DeliveryEvent): ApplyResult 
       return exhaustive;
     }
   }
-  return result;
+}
+
+/** Apply a scoped interval atomically. Host gaps inside it represent filtered events.
+ * The declared predecessor detects a missing batch or progress frame. */
+export function applyDelivery(
+  view: ThreadView | ThreadListView,
+  message: EventBatch | Progress,
+): ApplyResult {
+  if (message.throughSeq <= view.seq) return { kind: "ignored" };
+  if (message.afterSeq !== view.seq)
+    return { kind: "gap", expected: view.seq, received: message.afterSeq };
+  const events = message.type === "events" ? message.events : [];
+  let last = message.afterSeq;
+  for (const event of events) {
+    const first = event.firstSeq ?? event.seq;
+    if (first <= last || first > event.seq || event.seq > message.throughSeq)
+      return { kind: "gap", expected: last + 1, received: first };
+    if (
+      (view.kind === "thread" && event.threadId !== view.thread.id) ||
+      (view.kind === "threads" && !isSidebarEvent(event))
+    )
+      return { kind: "gap", expected: last + 1, received: first };
+    last = event.seq;
+  }
+  for (const event of events) {
+    if (view.kind === "thread") foldEvent(view, event);
+    else foldThreadList(view, event);
+  }
+  view.seq = message.throughSeq;
+  return { kind: "applied" };
 }

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import { Command } from "./commands.ts";
-import { Event, EventPayload } from "./events.ts";
+import { Event, UsageUpdated } from "./events.ts";
 import { CommandId, DeviceId, HostId, ThreadId } from "./ids.ts";
 import { Interaction } from "./interactions.ts";
 import { Item } from "./items.ts";
@@ -10,7 +10,6 @@ import { Run, Thread } from "./thread.ts";
 
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const records = <T extends z.ZodType>(schema: T) => z.record(z.string(), schema);
-export const Usage = EventPayload.options[14];
 export const ThreadView = z.object({
   kind: z.literal("thread"),
   seq,
@@ -22,13 +21,15 @@ export const ThreadView = z.object({
   itemOrder: z.array(z.string()),
   interactions: records(Interaction),
   backgroundTasks: records(BackgroundTask),
-  usage: records(Usage),
+  usage: records(UsageUpdated),
 });
 export type ThreadView = z.infer<typeof ThreadView>;
+export const ThreadListEntry = Thread.omit({ rootAgentId: true });
+export type ThreadListEntry = z.infer<typeof ThreadListEntry>;
 export const ThreadListView = z.object({
   kind: z.literal("threads"),
   seq,
-  threads: records(Thread),
+  threads: records(ThreadListEntry),
 });
 export type ThreadListView = z.infer<typeof ThreadListView>;
 export const SnapshotView = z.discriminatedUnion("kind", [ThreadView, ThreadListView]);
@@ -81,13 +82,42 @@ export const ServerMessage = z.discriminatedUnion("type", [
     .refine((message) => message.seq === message.view.seq, {
       message: "Snapshot cursor must match view cursor",
     }),
-  z.object({
-    type: z.literal("events"),
-    subscriptionId: z.string(),
-    events: z.array(DeliveryEvent),
-  }),
+  z
+    .object({
+      type: z.literal("events"),
+      subscriptionId: z.string(),
+      afterSeq: seq,
+      throughSeq: seq,
+      events: z.array(DeliveryEvent),
+    })
+    .refine(
+      (message) => {
+        let previous = message.afterSeq;
+        if (message.throughSeq < previous) return false;
+        for (const event of message.events) {
+          if ((event.firstSeq ?? event.seq) <= previous || event.seq > message.throughSeq)
+            return false;
+          previous = event.seq;
+        }
+        return true;
+      },
+      { message: "Events must be ordered inside the declared coverage interval" },
+    ),
+  z
+    .object({
+      type: z.literal("progress"),
+      subscriptionId: z.string(),
+      afterSeq: seq,
+      throughSeq: seq,
+    })
+    .refine((message) => message.throughSeq >= message.afterSeq, {
+      message: "Progress must not move backwards",
+    }),
   CommandResult.extend({ type: z.literal("commandResult") }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
   z.object({ type: z.literal("pong") }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
+
+export type EventBatch = Extract<ServerMessage, { type: "events" }>;
+export type Progress = Extract<ServerMessage, { type: "progress" }>;
