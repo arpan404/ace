@@ -23,6 +23,12 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/core": {
+      "name": "@ace/core",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+      },
+    },
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
@@ -43,6 +49,8 @@
     },
   },
   "packages": {
+    "@ace/core": ["@ace/core@workspace:packages/core"],
+
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
