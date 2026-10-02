@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
+import { ImportedProvenance } from "./history.ts";
 import { ProviderKind } from "./provider.ts";
 
 /** What started a run. Agents can start runs without anyone asking. */
@@ -66,5 +67,6 @@ export const Thread = z.object({
   createdAt: Timestamp,
   updatedAt: Timestamp,
   archivedAt: Timestamp.optional(),
+  imported: ImportedProvenance.optional(),
 });
 export type Thread = z.infer<typeof Thread>;
