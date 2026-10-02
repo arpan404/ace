@@ -1,6 +1,6 @@
 # 0006: Large payloads: output streams, capped raw data, paged snapshots
 
-Date: 2026-10-02. Status: proposed.
+Date: 2026-10-02. Status: accepted.
 
 ## Context
 
@@ -45,3 +45,13 @@ Agents routinely run builds, test suites and log tails, so this is the normal ca
 - Core stops accumulating full output in its state. It keeps byte counts and the tail; the daemon owns the stream. That also removes core's largest memory cost.
 - Projection must handle windowed views and paging.
 - Delta-heavy sessions still write one row per delta. If profiling shows this matters, the daemon may coalesce consecutive deltas for the same item within a short window (≤ 50 ms) before appending, keeping order and sequence semantics.
+
+## Implementation choices
+
+Limits count UTF-8 bytes. Output reads return base64 so arbitrary byte offsets do not corrupt multibyte characters. Oversized output facts become canonical deltas of at most 4 KiB; the adapter delta fact shape stays unchanged. Legacy string output in drafts is accepted as an append-only source and translated into suffix deltas. A stream combines stdout and stderr for its shell item.
+
+Item cursors are exclusive creation sequences. Snapshots take the newest contiguous suffix within both limits. Item pages return at most 200 current items in creation order and allow a single item to exceed the snapshot byte budget. Projection can seed a tracked detail item and merge older pages while preserving newer live values.
+
+Raw blobs contain JSON-serialized data, with byte sizes and hashes computed over those bytes. They are deduplicated within a thread and deleted with that thread. Blob retrieval is left for the detail/debugging API; this decision adds only output reads and item pages to the wire protocol.
+
+Text and reasoning deltas both append to reasoning and notice items. Messages accept only text, and shells accept only output. The shared projection delta function owns these rules.
