@@ -67,7 +67,11 @@ test("unknown fields on status and result frames are retained as raw data", () =
   h.result({ future_result: "kept" });
   const data = h
     .items()
-    .flatMap((item) => (item.type === "notice" ? item.raw.map((payload) => payload.data) : []));
+    .flatMap((item) =>
+      item.type === "notice"
+        ? item.raw.flatMap((payload) => ("data" in payload ? [payload.data] : []))
+        : [],
+    );
   expect(data).toContainEqual({
     type: "system",
     subtype: "status",

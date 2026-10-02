@@ -241,7 +241,10 @@ test("deferred child raw payload survives once before and after identity binding
             ? []
             : (item.raw ?? []),
       )
-      .filter((payload) => JSON.stringify(payload.data).includes('"marker":"deferred"'));
+      .filter(
+        (payload) =>
+          "data" in payload && JSON.stringify(payload.data)?.includes('"marker":"deferred"'),
+      );
   expect(payloads()).toHaveLength(1);
   register(h);
   expect(payloads()).toHaveLength(1);

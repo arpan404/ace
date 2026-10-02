@@ -289,7 +289,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           finishStream(state, streams, fact.agent);
       const carriesRaw = state.facts.some((fact) => {
         const payloads = factRaw(fact);
-        return payloads.some((payload) => payload.data === frame.data || payload.data === data);
+        return payloads.some((payload) => "data" in payload && (payload.data === frame.data || payload.data === data));
       });
       if (!carriesRaw && frame.channel !== "lifecycle")
         state.notice(

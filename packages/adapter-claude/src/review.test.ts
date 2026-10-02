@@ -231,7 +231,7 @@ test("subsequent raw additions survive once without replaying earlier payloads",
         fact.type === "item.upsert" &&
         (fact.draft.type === "notice" || fact.draft.type === "message")
       )
-        payloads.push(...(fact.draft.raw ?? []).map((r) => r.data));
+        payloads.push(...(fact.draft.raw ?? []).flatMap((r) => ("data" in r ? [r.data] : [])));
   }
   expect(payloads).toHaveLength(100);
   expect(payloads[0]).toMatchObject({ extra: 0 });

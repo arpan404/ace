@@ -243,7 +243,10 @@ test("unknown and malformed JSON frames survive in raw without throwing", () => 
     h
       .items()
       .filter((i) => i.type === "notice")
-      .map((i) => i.raw[0]?.data),
+      .flatMap((i) => {
+        const payload = i.raw[0];
+        return payload && "data" in payload ? [payload.data] : [];
+      }),
   ).toContainEqual({ type: "new_native_type", extra: { future: true } });
   h.tool("future", "toString", { arbitrary: "input" });
   expect(h.items().find((i) => i.type === "tool_call")).toMatchObject({
