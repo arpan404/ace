@@ -11,6 +11,7 @@ export * from "./tools.ts";
 export * from "./wire.ts";
 
 export * from "./screen.ts";
+export * from "./models.ts";
 export * from "./orchestration.ts";
 export * from "./orchestration-execution.ts";
 export * from "./orchestration-state.ts";

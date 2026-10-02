@@ -8,7 +8,7 @@ export { installShutdownHandlers } from "./process-owner.ts";
 export type ProcessExit = {
   code: number | null;
   signal: NodeJS.Signals | null;
-  reason: "exit" | "signal" | "stopped" | "spawn-error";
+  reason: "exit" | "signal" | "stopped" | "spawn-error" | "output-limit";
 };
 export type SupervisedProcess = {
   stdin: Writable;
@@ -30,10 +30,17 @@ export type SpawnOptions = {
   /** Opt-in raw byte boundary, applied independently to stdout and stderr before readline. */
   maxLineBytes?: number;
   onOutputLimit?: (error: Error) => void;
+  /** Stop before readline can accumulate unbounded metadata from a probe. */
+  maxOutputBytes?: number;
 };
 
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
 export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
+  if (
+    options.maxOutputBytes !== undefined &&
+    (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 1)
+  )
+    throw new RangeError("Invalid maxOutputBytes");
   if (process.platform === "win32") {
     throw new Error("Process-group supervision requires POSIX; Windows needs a Job Object owner");
   }
@@ -49,6 +56,26 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const controller = new AbortController();
+  let outputBytes = 0;
+  let outputLimited = false;
+  const capOutput = (chunk: Buffer) => {
+    outputBytes += chunk.length;
+    if (
+      options.maxOutputBytes !== undefined &&
+      outputBytes > options.maxOutputBytes &&
+      child.pid !== undefined
+    ) {
+      outputLimited = true;
+      controller.abort();
+      killGroup(child.pid, "SIGKILL");
+      child.stdout.destroy();
+      child.stderr.destroy();
+    }
+  };
+  if (options.maxOutputBytes !== undefined) {
+    child.stdout.on("data", capOutput);
+    child.stderr.on("data", capOutput);
+  }
   const limited = (input: typeof child.stdout) =>
     options.maxLineBytes === undefined
       ? input
@@ -92,7 +119,15 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
       resolve({
         code,
         signal,
-        reason: failed ? "spawn-error" : stopped ? "stopped" : signal ? "signal" : "exit",
+        reason: outputLimited
+          ? "output-limit"
+          : failed
+            ? "spawn-error"
+            : stopped
+              ? "stopped"
+              : signal
+                ? "signal"
+                : "exit",
       });
     });
   });
