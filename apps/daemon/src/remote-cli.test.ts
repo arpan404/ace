@@ -3,8 +3,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { once } from "node:events";
 import { afterEach, expect, it } from "vitest";
-import { DeviceCredential, PairingResponse } from "@ace/protocol";
+import { Command, DeviceCredential, DeviceId, PairingResponse } from "@ace/protocol";
 import { nodeBinary } from "@ace/provider-kit/testing";
 import { accessRequest, redeemPairing } from "./client-access.ts";
 import { lanAddress, refusesTcp } from "./network-test-support.ts";
@@ -12,6 +13,7 @@ import { scanTerminalQr } from "./qr-test-support.ts";
 import { readConfig } from "./config.ts";
 import { startDaemon } from "./index.ts";
 import { copyTlsFixture, daemonCli, launchDaemon } from "./process-test-support.ts";
+import { Client } from "./socket-test-support.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -33,6 +35,42 @@ const envFor = (directory: string) => ({
 });
 const cli = (directory: string, args: string[], env: NodeJS.ProcessEnv = envFor(directory)) =>
   promisify(execFile)(process.execPath, [daemonCli(), ...args], { env });
+it("the bundled CLI serves durable review commands through its package worker", async () => {
+  const directory = home();
+  const { child, exited, ready } = launchDaemon(envFor(directory), /Public-key SHA-256:/, cleanups);
+  const output = await ready;
+  const url = /ace daemon: (ws:\/\/127\.0\.0\.1:\d+)/.exec(output)?.[1];
+  if (!url) throw new Error("Missing daemon URL");
+  const client = new Client(url);
+  cleanups.push(() => client.close());
+  await once(client.socket, "open");
+  const deviceId = DeviceId.parse("bundled-review");
+  client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId,
+    token: readFileSync(join(directory, "daemon-token"), "utf8").trim(),
+  });
+  expect((await client.next()).type).toBe("welcome");
+  const command = Command.parse({
+    id: "bundled-review-list",
+    deviceId,
+    payload: { type: "review.list" },
+  });
+  client.send({ type: "command", command });
+  const receipt = await client.next();
+  expect(receipt).toMatchObject({
+    type: "commandResult",
+    commandId: command.id,
+    ok: true,
+    review: { sessions: [] },
+  });
+  client.send({ type: "command", command });
+  expect(await client.next()).toEqual(receipt);
+  await client.close();
+  child.kill("SIGTERM");
+  expect((await exited)[0]).toBe(0);
+});
 it("starts in the foreground and exposes status, a redeemable QR URL, device listing and revocation through the CLI", async () => {
   const directory = home();
   const { child, exited, ready } = launchDaemon(envFor(directory), /Public-key SHA-256:/, cleanups);

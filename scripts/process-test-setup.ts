@@ -22,6 +22,7 @@ export default async function setup(project: TestProject) {
     // entry URL still resolves to the real worker-entry.ts beside worker.ts.
     // MCP's jsonc-parser uses runtime-relative UMD requires; keep them native.
     // Main's model catalog also resolves a storage worker beside its source.
+    // Review must retain its worker.ts URL relative to its source package too.
     const results = await Promise.allSettled([
       execute(
         "bun",
@@ -38,6 +39,8 @@ export default async function setup(project: TestProject) {
           "@ace/mcp-server",
           "--external",
           "@ace/models",
+          "--external",
+          "@ace/review",
           "--outfile",
           daemonCli,
         ],

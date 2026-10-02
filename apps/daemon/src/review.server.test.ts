@@ -165,7 +165,7 @@ it("daemon review follows a thread's isolated worktree and refreshes when its fi
     await daemon?.close();
     await rm(directory, { recursive: true, force: true });
   }
-}, 30_000);
+});
 
 it("a pending daemon receipt recovers its durable worker result without replaying an effect", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ace-review-receipt-"));
