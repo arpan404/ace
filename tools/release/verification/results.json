@@ -77,5 +77,85 @@
     "mutation": "native input checksum verification bypassed",
     "test": "a corrupt Linux native input cannot enter the artifact",
     "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "stop before approved drain settles",
+    "test": "approved drain closes admission and waits for natural completion before stopping",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "skip database restoration",
+    "test": "failed candidate health restores the old executable and database schema",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "unlink current before replacement",
+    "test": "readers see either complete pointer while swaps race with reads",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "snapshot main file without WAL",
+    "test": "SQLite snapshots contain uncheckpointed WAL changes",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "accept unsafe journal paths",
+    "test": "an unsafe recovery target is rejected before stopping or removing installation data",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "accept incomplete snapshot inventory",
+    "test": "rollback inventory preserves all live databases",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "omit durable original database inventory",
+    "test": "rollback inventory preserves all live databases",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "leave supervisor timer referenced after spawn failure",
+    "test": "an asynchronous daemon spawn failure closes logs and lets the supervisor process terminate",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "disable recovery retries under manual update policy",
+    "test": "recovery retries after the transaction owner dies even with automatic updates disabled",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "skip restart when service configuration changes",
+    "test": "reinstall applies changed daemon ports and PATH to the running service",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "compare prerelease numbers lexically",
+    "test": "version 1.0.0-preview.10 compared with 1.0.0-preview.2 permits update=true",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "leave supervisor diagnostic files unbounded",
+    "test": "a failed supervisor startup caps both diagnostic files and exits without a live daemon",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "acknowledge saturated log writes without backpressure",
+    "test": "a saturated log refuses more producer data until accepted bytes reach disk",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "skip notification worker persistence",
+    "test": "the bundled daemon starts its notification worker and answers authenticated status without a checkout",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "ignore drain deadline",
+    "test": "an approved drain deadline refuses restart and reopens admission while work remains active",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "forget admission recovery once the journal disappears",
+    "test": "committed recovery retries after the transaction owner dies even with automatic updates disabled",
+    "status": "not executed (tests run at merge)"
   }
 ]
