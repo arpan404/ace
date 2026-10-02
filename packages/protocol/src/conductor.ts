@@ -1,3 +1,4 @@
+import { validatePlan } from "./conductor-plan-validation.ts";
 import { z } from "zod";
 import { AgentId, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
@@ -25,7 +26,14 @@ const Paths = z
 export const ConductorBrief = z.object({
   objective: Text,
   instructions: Text,
-  acceptance: z.array(Text).min(1).max(64),
+  acceptance: z
+    .array(Text)
+    .min(1)
+    .max(64)
+    .refine(
+      (criteria) => new Set(criteria).size === criteria.length,
+      "acceptance criteria must be distinct",
+    ),
   files: Paths,
   packages: Paths,
   risks: z.array(Text).max(32),
@@ -38,60 +46,23 @@ export const ConductorWorkstream = z.object({
   dependencies: z.array(Id).max(256),
   priority: z.number().int().min(-1000).max(1000),
 });
-const overlap = (a: string, b: string) =>
-  a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`) || a === "." || b === ".";
-export const ConductorPlan = z
-  .object({
-    summary: Text,
-    workstreams: z.array(ConductorWorkstream).min(1).max(256),
-  })
-  .superRefine((plan, ctx) => {
-    if (JSON.stringify(plan).length > 1_048_576)
+const PlanShape = z.object({
+  summary: Text,
+  workstreams: z.array(ConductorWorkstream).min(1).max(256),
+});
+function planSchema(caseSensitivity: "sensitive" | "insensitive") {
+  return PlanShape.superRefine((plan, ctx) => {
+    if (new TextEncoder().encode(JSON.stringify(plan)).byteLength > 1_048_576) {
       ctx.addIssue({ code: "custom", message: "plan artifact exceeds 1 MiB" });
-    const nodes = new Map(plan.workstreams.map((w) => [w.id, w]));
-    const error = (message: string) => ctx.addIssue({ code: "custom", message });
-    if (nodes.size !== plan.workstreams.length) error("duplicate workstream id");
-    const ancestors = new Map<string, Set<string>>();
-    const visiting = new Set<string>();
-    const visit = (id: string): Set<string> => {
-      const cached = ancestors.get(id);
-      if (cached) return cached;
-      if (visiting.has(id)) {
-        error("dependency cycle");
-        return new Set();
-      }
-      visiting.add(id);
-      const result = new Set<string>();
-      const node = nodes.get(id);
-      if (!node) error(`unknown dependency ${id}`);
-      for (const dep of node?.dependencies ?? []) {
-        result.add(dep);
-        for (const a of visit(dep)) result.add(a);
-      }
-      visiting.delete(id);
-      ancestors.set(id, result);
-      return result;
-    };
-    for (const w of plan.workstreams) {
-      if (new Set(w.dependencies).size !== w.dependencies.length) error("duplicate dependency");
-      visit(w.id);
+      return;
     }
-
-    for (let i = 0; i < plan.workstreams.length; i++) {
-      const a = plan.workstreams[i];
-      if (!a) continue;
-      for (const b of plan.workstreams.slice(i + 1)) {
-        if (ancestors.get(a.id)?.has(b.id) || ancestors.get(b.id)?.has(a.id)) continue;
-        if (
-          [...a.brief.files, ...a.brief.packages].some((p) =>
-            [...b.brief.files, ...b.brief.packages].some((q) => overlap(p, q)),
-          )
-        ) {
-          error(`unordered ownership overlap: ${a.id}, ${b.id}`);
-        }
-      }
-    }
+    validatePlan(plan.workstreams, caseSensitivity, (message) =>
+      ctx.addIssue({ code: "custom", message }),
+    );
   });
+}
+export const ConductorPlan = planSchema("sensitive");
+export const ConductorPlanOnInsensitiveFilesystem = planSchema("insensitive");
 export type ConductorPlan = z.infer<typeof ConductorPlan>;
 export const ConductorReview = z
   .object({
@@ -115,7 +86,7 @@ export const ConductorReview = z
     performance: z.object({ passed: z.boolean(), evidence: Text }),
   })
   .superRefine((report, ctx) => {
-    if (JSON.stringify(report).length > 65_536)
+    if (new TextEncoder().encode(JSON.stringify(report)).byteLength > 65_536)
       ctx.addIssue({ code: "custom", message: "review artifact exceeds 64 KiB" });
     if (new Set(report.mutations.map((m) => m.change)).size !== report.mutations.length)
       ctx.addIssue({ code: "custom", message: "mutations must be distinct" });
