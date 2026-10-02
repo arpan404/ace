@@ -9,3 +9,5 @@ coverage/
 
 # Raw recorder output before review/redaction. Reviewed fixtures live in fixtures/.
 .recordings/
+
+native/screen-helper/build/
