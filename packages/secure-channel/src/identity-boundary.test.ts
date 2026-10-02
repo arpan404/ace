@@ -68,15 +68,14 @@ it.each([0, 31, 33, 64 * 1024 * 1024])(
             bytes: new Uint8Array(16).fill(17 + i),
           }))
         : [{ offset: 0, bytes: new Uint8Array(size).fill(27) }];
-    let original: Awaited<ReturnType<typeof stat>>;
     try {
       await file.truncate(size);
       for (const region of regions)
         await file.write(region.bytes, 0, region.bytes.length, region.offset);
-      original = await file.stat();
     } finally {
       await file.close();
     }
+    const original = await stat(path);
     await expect(loadOrCreateHostKeys(dir)).rejects.toThrow("Invalid stored static key");
     const stored = await open(path, "r");
     try {
