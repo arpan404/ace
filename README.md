@@ -35,9 +35,14 @@ Requires Node 24+ and Bun 1.3+.
 
 ```sh
 bun install
-bun run check   # format check, lint, typecheck, tests
+bun run check   # merge gate only: includes tests
 bun run --filter @ace/daemon dev
 ```
+
+Tests run in separate unit and process projects with bounded concurrency. See
+[process test reliability](docs/testing/process-tests.md) for the real-I/O suite
+inventory, shared fixtures and validation record. The owner requires tests to
+run only at merge; development verification uses the permitted static checks.
 
 The daemon prints its URL and token-file path. Remote access is off by default. See [remote access](docs/daemon/remote-access.md) for LAN/Tailscale pairing, device scopes and the `ace` CLI. See [store and sync](docs/daemon/store-and-sync.md) for configuration, the development creator, the command port, and replay behavior.
 
