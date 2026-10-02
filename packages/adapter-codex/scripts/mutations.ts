@@ -119,7 +119,7 @@ const cases = [
   {
     name: "skip loaded descendant hydration",
     file: "session.ts",
-    before: 'if (typeof entry === "string" && !known.has(entry)) await readThread(entry);',
+    before: 'if (typeof entry === "string" && !recovered.has(entry)) await readThread(entry);',
     after: "if (false) await readThread(str(entry));",
     test: "session.test.ts",
   },
@@ -199,8 +199,8 @@ const cases = [
   {
     name: "skip recovery retries once ancestry is known",
     file: "session.ts",
-    before: "if (!closed && !timers.has(threadId))",
-    after: "if (!closed && !known.has(threadId) && !timers.has(threadId))",
+    before: "      scheduleRecovery(threadId);",
+    after: "      if (!known.has(threadId)) scheduleRecovery(threadId);",
     test: "verifier-session.test.ts",
   },
   {
@@ -213,8 +213,9 @@ const cases = [
   {
     name: "duplicate replayed shell aggregates",
     file: "../../core/src/reconciled-item.ts",
-    before: "current.startsWith(aggregate) ? current : aggregate",
-    after: "current + aggregate",
+    before: "return upsertItem(state, agent, key, { ...draft, call }, ctx, events);",
+    after:
+      'if (call.detail?.kind === "shell" && typeof call.detail.output === "string") call.detail.output = "duplicate" + call.detail.output; return upsertItem(state, agent, key, { ...draft, call }, ctx, events);',
     test: "verifier-translator.test.ts",
   },
   {
@@ -246,10 +247,46 @@ const cases = [
     test: "verifier-translator.test.ts",
   },
   {
-    name: "disable injected shutdown grace",
+    name: "append a conflicting native aggregate to observed output",
+    file: "../../core/src/reconciled-item.ts",
+    before: "!extendsOutput(previous.call.detail.output, detail.output)",
+    after: "false",
+    test: "packages/core/src/reconciled-item.test.ts",
+  },
+  {
+    name: "omit acknowledged turn controls before notification",
     file: "session.ts",
-    before: "proc.stop({ graceMs: io.stopGraceMs })",
-    after: "proc.stop()",
+    before: "if (id) active.set(control.thread, id);",
+    after: "// Ignore turn/start acknowledgment",
+    test: "verifier-session.test.ts",
+  },
+  {
+    name: "retain resolved async owners",
+    file: "translator.ts",
+    before: "asyncOwners.delete(key);",
+    after: "// Retain resolved owner",
+    test: "verifier-translator.test.ts",
+  },
+  {
+    name: "treat confirmed ancestry as recovered history",
+    file: "session.ts",
+    before: 'if (typeof entry === "string" && !recovered.has(entry)) await readThread(entry);',
+    after: 'if (typeof entry === "string" && !known.has(entry)) await readThread(entry);',
+    test: "verifier-session.test.ts",
+  },
+  {
+    name: "lose complete eviction evidence",
+    file: "retention.ts",
+    before: "if (!thread) return { frames: [], lost: overflow };",
+    after: "if (!thread) return { frames: [], lost: false };",
+    test: "verifier-translator.test.ts",
+  },
+  {
+    name: "skip admitted child recovery when unknown timers are saturated",
+    file: "session.ts",
+    before:
+      "            parents.set(child, thread);\n            if (!recovered.has(child)) scheduleRecovery(child);",
+    after: "            parents.set(child, thread);",
     test: "verifier-session.test.ts",
   },
 ];
@@ -267,10 +304,24 @@ for (const mutation of cases.slice(first, first + count)) {
     writeFileSync(path, original.replace(mutation.before, mutation.after));
     const result = spawnSync(
       "bun",
-      ["run", "test", `packages/adapter-codex/src/${mutation.test}`],
+      [
+        "run",
+        "test",
+        mutation.test.startsWith("packages/")
+          ? mutation.test
+          : `packages/adapter-codex/src/${mutation.test}`,
+        "--maxWorkers=1",
+        "--testTimeout=30000",
+      ],
       { cwd: repository, encoding: "utf8" },
     );
-    if (result.status !== 1 || !result.stdout.includes("failed"))
+    if (
+      result.status !== 1 ||
+      !result.stdout.includes("failed") ||
+      /Test timed out|Failed to load|Cannot find package|Cannot find module/.test(
+        result.stdout + result.stderr,
+      )
+    )
       throw new Error(
         `Mutation was not caught: ${mutation.name}\n${result.stdout}\n${result.stderr}`,
       );
