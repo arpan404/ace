@@ -1,14 +1,30 @@
 import { constants } from "node:fs";
+import type { Stats } from "node:fs";
 import { mkdir, open, link, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { keyPair } from "./crypto.ts";
 import type { KeyPair } from "./crypto.ts";
+export type HostIdentityFile = {
+  stat(): Promise<Pick<Stats, "isFile" | "mode" | "size">>;
+  read(
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number,
+  ): Promise<{ bytesRead: number }>;
+  close(): Promise<void>;
+};
+/** Trusted descriptor I/O; the loader supplies no-follow/nonblocking flags and owns closure. */
+export type OpenHostIdentity = (path: string, flags: number) => Promise<HostIdentityFile>;
 /** Atomic publication avoids exposing partially written keys to concurrent starts. */
-export async function loadOrCreateHostKeys(dataDir: string): Promise<KeyPair> {
+export async function loadOrCreateHostKeys(
+  dataDir: string,
+  openIdentity: OpenHostIdentity = open,
+): Promise<KeyPair> {
   const path = join(dataDir, "noise-static.key");
   try {
-    return await loadHostKeys(path);
+    return await loadHostKeys(path, openIdentity);
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
@@ -34,11 +50,14 @@ export async function loadOrCreateHostKeys(dataDir: string): Promise<KeyPair> {
     await file.close();
     await unlink(temporary);
   }
-  return loadHostKeys(path);
+  return loadHostKeys(path, openIdentity);
 }
 
-async function loadHostKeys(path: string): Promise<KeyPair> {
-  const stored = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+async function loadHostKeys(path: string, openIdentity: OpenHostIdentity): Promise<KeyPair> {
+  const stored = await openIdentity(
+    path,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
   try {
     const stat = await stored.stat();
     if (!stat.isFile() || (stat.mode & 0o777) !== 0o600)
