@@ -177,6 +177,8 @@ export async function probeOutput(
   try {
     const exit = await proc.exited;
     if (proc.signal.reason instanceof OutputLimitError) throw proc.signal.reason;
+    // The child can exit before its buffered output finishes draining.
+    if (exit.reason === "output-limit") throw new OutputLimitError("Probe output exceeded limit");
     if (failure) throw failure;
     if (exit.reason === "spawn-error") throw new Error("Probe failed to start");
     return { stdout: stdout.trim(), stderr: stderr.trim(), code: exit.code };

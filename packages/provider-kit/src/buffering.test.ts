@@ -39,6 +39,14 @@ it("probe shares its raw byte budget across both output pipes", async () => {
   ).rejects.toThrow("Probe output exceeded limit");
 }, 15000);
 
+it("probe rejects oversized output even when the child exits immediately", async () => {
+  await expect(
+    probeOutput(process.execPath, ["-e", "process.stdout.write('x'.repeat(4096));"], {
+      maxBytes: 1024,
+    }),
+  ).rejects.toThrow("Probe output exceeded limit");
+});
+
 it.each(["stdout", "stderr"])(
   "supervision stops an oversized unterminated %s line",
   async (pipe) => {
