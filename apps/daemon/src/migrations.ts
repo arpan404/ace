@@ -68,6 +68,7 @@ const migrations = [
     json_quote(append)
   );
   CREATE TABLE text_encoding_migration (id INTEGER PRIMARY KEY);`,
+  `CREATE TABLE usage_deletions (seq INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, at INTEGER NOT NULL);`,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");

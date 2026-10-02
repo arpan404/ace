@@ -50,7 +50,7 @@ export async function loadUsageSettings(dataDir: string): Promise<UsageSettings>
 }
 export function createDaemonUsage(
   dataDir: string,
-  store: Pick<Store, "subscribe" | "readUsagePage">,
+  store: Pick<Store, "subscribeUsage" | "readUsagePage">,
   settings: UsageSettings,
   onError: (error: unknown) => void,
   accounts?: QuotaReader,
@@ -69,6 +69,7 @@ export function createDaemonUsage(
       });
   };
   const catchUp = (): Promise<void> => {
+    if (stopped) return Promise.reject(new Error("Usage service closed"));
     if (running) return running;
     running = (async () => {
       while (await backfillBatch(worker, store)) {
@@ -80,8 +81,9 @@ export function createDaemonUsage(
     });
     return running;
   };
-  const unsubscribe = store.subscribe(schedule);
+  const unsubscribe = store.subscribeUsage(schedule);
   const query = async (kind: "summary" | "series", input: UsageQuery) => {
+    if (stopped) throw new Error("Usage service closed");
     const parsed = UsageQuery.parse(input);
     const result = await worker[kind](parsed);
     if (parsed.quotaAccount && accounts) {

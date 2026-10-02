@@ -172,6 +172,23 @@ it("daemon backfill advances through output-only pages and settings overrides re
   const settings = await loadUsageSettings(f.home);
   expect(settings.timezone).toBe("America/Chicago");
   expect(settings.priceOverrides["claude-sonnet-4-6"]?.input).toBe(1);
+  const q = UsageQuery.parse({ ...query, equivalentApiCost: true });
+  expect((await f.service.summary(q)).rows[0]?.totals.equivalentApiUsd).toBeCloseTo(0.000081);
+  await f.service.close();
+  // Keep the projection timezone; pricing alone can change without rebuilding history.
+  writeFileSync(
+    join(f.home, "usage-settings.json"),
+    JSON.stringify({ ...settings, timezone: "UTC" }),
+  );
+  const reopened = createDaemonUsage(f.home, f.store, await loadUsageSettings(f.home), (error) => {
+    throw error;
+  });
+  cleanups.push(() => reopened.close());
+  await reopened.start();
+  const repriced = await reopened.summary(q);
+  expect(repriced.rows[0]?.totals.equivalentApiUsd).toBeCloseTo(0.000027);
+  expect(repriced.rows[0]?.totals.inputTokens).toBe(12);
+  expect(repriced.priceVersion).toContain("negotiated");
   writeFileSync(join(f.home, "usage-settings.json"), JSON.stringify({ timezone: "Mars/Orbit" }));
   await expect(loadUsageSettings(f.home)).rejects.toThrow();
 });
