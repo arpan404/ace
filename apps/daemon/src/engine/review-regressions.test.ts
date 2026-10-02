@@ -293,6 +293,8 @@ test("late frames from a retired session cannot enter the resumed transcript", a
       end,
     ),
   );
+  old.onFrame({ ...frames.frame(), seq: -1 });
+  old.onFrame({ ...frames.frame(), data: "x".repeat(5 * 1024 * 1024) });
   await h.engine.flush();
   expect(h.store.getThread(id)?.status.state).toBe("working");
   expect(

@@ -123,7 +123,7 @@ export class ThreadActor {
     this.wake();
   }
   frame(frame: Frame, generation: number): void {
-    if (this.stopped) return;
+    if (this.stopped || generation !== this.generation) return;
     const result = frameSchema.safeParse(frame);
     if (!result.success) {
       this.enqueue(() => {

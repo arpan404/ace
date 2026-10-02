@@ -230,9 +230,11 @@ test("oversized unknown raw data is capped in snapshots and events while its ori
   const id = await h.create();
   const notice = Object.values(view(h.store, id).items).find((item) => item.type === "notice");
   if (!notice || notice.type !== "notice") throw new Error("Missing raw notice");
-  const envelope = z
-    .object({ aceRawBlob: z.object({ id: z.string(), size: z.number(), preview: z.string() }) })
-    .parse(notice.raw[0]?.data);
+  const envelopeSchema = z.object({
+    aceRawBlob: z.object({ id: z.string(), size: z.number(), preview: z.string() }),
+  });
+  expect(envelopeSchema.safeParse(notice.raw[0]?.data).success).toBe(true);
+  const envelope = envelopeSchema.parse(notice.raw[0]?.data);
   expect(envelope.aceRawBlob.size).toBeGreaterThan(1024 * 1024);
   const bytes = h.engine.readRawBlob(envelope.aceRawBlob.id);
   expect(bytes).toBeDefined();

@@ -1,4 +1,5 @@
 /** Non-gating benchmark: real adapter callbacks -> translation -> core -> SQLite -> WS client. */
+import { applyDelivery } from "@ace/projection";
 import { performance } from "node:perf_hooks";
 import type { Fact } from "@ace/core";
 import { harness, scriptFrames, start, until } from "./test-support.ts";
@@ -34,7 +35,10 @@ for (const history of [10, 100, 1000, 10000]) {
       subscriptionId: "bench",
       scope: { kind: "thread", threadId: id },
     });
-    await until(client, (message) => message.type === "snapshot");
+    const snapshot = await until(client, (message) => message.type === "snapshot");
+    if (snapshot.type !== "snapshot" || snapshot.view.kind !== "thread")
+      throw new Error("Missing thread snapshot");
+    const projected = snapshot.view;
     const iterations = 30;
     const began = performance.now();
     for (let i = 0; i < iterations; i++) {
@@ -48,12 +52,18 @@ for (const history of [10, 100, 1000, 10000]) {
         }),
       );
       await h.engine.flush();
-      await until(
-        client,
-        (message) =>
+      for (;;) {
+        const message = await client.next();
+        if (message.type === "events" || message.type === "progress") {
+          const result = applyDelivery(projected, message);
+          if (result.kind === "gap") throw new Error("Client delivery gap");
+        }
+        if (
           message.type === "events" &&
-          message.events.some((event) => event.payload.type === "item.delta"),
-      );
+          message.events.some((event) => event.payload.type === "item.delta")
+        )
+          break;
+      }
     }
     const meanFrameMs = (performance.now() - began) / iterations;
     const snapshotBytes = h.store.atomic((db) =>

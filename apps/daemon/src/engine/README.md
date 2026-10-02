@@ -1,65 +1,92 @@
 # Daemon engine
 
-`new Engine(store, options)` owns provider sessions, actors, deadlines and durable intents. Pass
-`engine.handler` to `startServer`. `startDaemon(config, undefined, options)` installs the engine
-by default and closes it before closing SQLite. The development stub remains available for
-transport-only fixtures and the explicit development CLI mode.
+`new Engine(store, options)` owns provider sessions, actors, deadlines and durable intents.
+Pass `engine.handler` to `startServer`. `startDaemon(config, undefined, options)` installs the
+engine by default and closes it before SQLite. The development stub remains available for
+transport fixtures and explicit development CLI mode.
 
-Register each adapter with `AdapterRegistry.register(adapter, discoveryResult)`. The registry
-uses the adapter's declared capabilities. An empty registry accepts no new provider threads.
-This workstream does not bundle real adapters or run provider discovery itself.
+Register adapters with `AdapterRegistry.register(adapter, discoveryResult)`. The registry
+uses declared capabilities. An empty registry accepts no new provider threads. Discovery
+and real adapters are outside this workstream.
 
-Options accept the registry, a clock, core and thread id sources, `idleMs` and `silenceMs`, and
-an error reporter. Idle sessions close after 30 minutes by default. `flush()` drains accepted
-commands and frames, without waiting for queued sends to become runnable. `close()` rejects
-new commands, closes sessions gracefully, aborts remaining owned lifetimes and drains workers.
+Options accept a registry, clock, core and thread id sources, `idleMs`, `silenceMs`, an error
+reporter and `limits`. `flush()` drains accepted frames and active delivery workers without
+waiting for held sends to become runnable. `close()` refuses new commands, closes sessions,
+drains accepted output and aborts remaining owned lifetimes.
 
 ## Persistence and delivery
 
-The engine migration has its own version table to avoid conflicting with store migrations.
-It adds `thread_state`, `intents`, and `engine_sessions`. The last table keeps the resolved cwd,
-model and native resume id outside the core snapshot. `Store.atomic` exposes the existing
-SQLite transaction to the engine. Events and the state snapshot commit together; event
-subscribers run only after commit. Receipts, creation events, metadata and intents also share
-one transaction. Provider work runs in a later microtask and reads durable intents. Sends and controls use
-separate worker lanes, so a pending transport response does not block interrupt or stop.
+The independently versioned engine migration adds `thread_state`, `engine_state_records`,
+`engine_state_appends`, `intents`, `engine_sessions`, `engine_slots` and `engine_raw_blobs`.
+Cwd, model and native resume id live in session metadata. `Store.atomic` extends the existing
+SQLite transaction. Events, snapshot header, changed records, append chunks and delivery
+acknowledgements commit together. Subscribers receive events only after commit. Receipts,
+creation events, metadata, capacity reservations and intents also share one transaction.
 
-`thread.create` includes mandatory input, so its intent creates the session and sends that
-input. Other sessions open lazily when a send becomes runnable. A queued send is persisted
-before delivery and reported through `queue.changed`. Readiness comes from core with the
-queue count temporarily set to zero, because core otherwise reports `waiting/queue` instead
-of `done`. An unacknowledged send remains visible until a provider turn boundary arrives.
-Steering bypasses readiness only when the adapter declares support.
+A complete core snapshot consists of the JSON header in `thread_state.state` and its
+native-keyed records. Historical items, runs and native turn ids load on demand. String
+deltas append to a journal instead of rewriting the item's accumulated text. Full item
+updates replace its base and retire the corresponding journal. This is a physical storage
+departure from the original single JSON row, needed to meet the review's O(change) requirement.
+Recovery uses this snapshot, not canonical events, preserving native identities. Version 1
+full snapshots remain readable and convert on their next write. Cache state is discarded
+after failed persistence so uncommitted mutations cannot enter a later transaction.
 
-An interaction id has one unique resolution reservation. A second device receives
-`already_resolved` while the first answer is in flight. Provider resolution echoes acquire
-the winning device and answer from that reservation. A failed answer retains its reservation:
-retrying an answer with uncertain provider delivery is unsafe.
+Ordinary sends, steering and controls use independent worker lanes. A pending send response
+cannot hold an interrupt, task stop or capable steering call. Each intent is claimed before
+provider I/O. `thread.create` has mandatory input and therefore opens and sends immediately;
+other sessions open when their first send becomes runnable. Unsupported steering uses the
+normal queue. Readiness derives from core with queue count excluded.
 
-On restart, saved live work receives an unexpected process exit, expiring interactions and
-settling runs and background tasks. Unattempted sends remain eligible for delivery. Running
-intents receive notices and are never automatically replayed. Control intents whose old
-provider session is gone also receive notices. Frames from retired session generations are
-ignored. A persistence failure stops the affected session and prevents its translator from
-continuing from an uncommitted position.
+Delivered sends retain a durable acknowledgement reservation until core accepts a fresh
+root run caused by user input, queue delivery or an unknown partial stream. Replayed native
+boundaries, child runs and known autonomous root turns do not acknowledge input. Steering
+into an active root run uses that run. On restart, live work receives an unexpected process
+exit; uncertain delivery receives a notice and is never replayed. Queue counts reconcile
+without requiring another command, including legacy untracked acknowledgement state.
 
-One timer per thread covers the earliest core deadline or idle-close deadline. Expiry applies
-translator tick facts followed by a core tick. Idle resume supplies the saved native session
-id and applies `process.started` before folding frames from the resumed session.
+An interaction id has one unique resolution reservation. Kind, offered approval options,
+question identities, selections, free text and dismissal are validated before reservation.
+A second device gets `already_resolved` while the first answer is in flight. Echoed resolutions
+keep the winning device and answer. A failed valid answer retains its reservation because
+provider delivery may be uncertain.
+
+One timer covers the earliest core or idle deadline. It ticks translator and core. Sessions
+close after 30 minutes of done by default. Resume supplies the saved native id and applies
+`process.started`. Shutdown drains frames received before close and frames emitted while
+closing before fencing intake. Retired generations are checked before decoding or accounting
+frames and again when folding. A persistence failure fences that translator until restart.
+
+## Resource bounds and large payload integration
+
+Default limits are 64 active thread actors, 256 queued callbacks per actor, 8 MiB of queued
+frame JSON per actor and 4 MiB per frame. Capacity reservations are transactional; idle close
+and process exit release them. Retired actors are evicted when another thread needs a slot.
+Each snapshot dictionary caches at most 128 records and 1 MiB of serialized entity data.
+Read-only scheduling and command validation do not retain every historical entity they scan.
+Mailbox overload drains its accepted prefix, reports an error notice and aborts the session.
+
+Raw data above 64 KiB is stored as original JSON bytes in a content-addressed blob. Its data
+field carries `{ aceRawBlob: { id, size, preview } }`, with a 2 KiB preview.
+`engine.readRawBlob(id)` returns the original bytes. This temporary envelope fits the existing
+schema's unknown data field without editing protocol. Replace it with ADR 0006's shared blob
+form and read route once PR #12 lands on main. Its bounded tool-output summaries and windowed
+client snapshots remain necessary: the current core/projection APIs still materialize a
+single item's text when a cold item or full update needs it. Engine historical cache and
+mailbox bounds do not claim to bound that temporary materialization or client view memory.
 
 ## Verification and performance
 
-Run `bun run test apps/daemon/src/engine` for scripted-adapter tests against file-backed SQLite
-and real WebSocket clients. Clocks and provider waits are controlled at their boundaries.
-No real provider prompts or recordings are needed.
+Run `bun run test apps/daemon/src/engine` for public API tests with scripted providers,
+file-backed SQLite and real WebSockets. Provider waits and clocks are controlled boundaries;
+there are no synchronization sleeps or gating performance budgets.
 
-Run `node apps/daemon/src/engine/benchmark.ts` for a non-gating snapshot benchmark. With
-50 deltas per history size, this machine measured approximately 0.19, 0.34 and 2.36 ms per
-repository apply at 10, 100 and 1,000 items. JSON snapshots were 5,150, 39,800 and 387,200 bytes.
-Snapshot serialization and validation scale with history because ADR 0007 requires a full
-core snapshot in every commit. Intent scans select only outstanding rows. Incremental
-snapshot storage would require a separate core persistence contract.
+Run `node apps/daemon/src/engine/benchmark.ts` for the complete adapter callback, translation,
+core, SQLite and WebSocket delivery benchmark. It seeds 10, 100, 1,000 and 10,000 items, then
+measures 30 one-character deltas at each size. The PR records results and mutation failures.
+The header remains about 542 bytes at every history size; untouched entities are not decoded
+or serialized on the frame path. SQLite intent queries index only outstanding statuses and
+acknowledgements. Core status traversal still depends on the agent tree and live work.
 
-The snapshot decoder validates the core state while retaining the original JSON fields.
-A public, versioned core snapshot codec would remove the engine's need to maintain that
-validator. This is requested in the PR rather than changing core in this workstream.
+A versioned snapshot/record codec exported by core would remove the engine-owned validator.
+That dependency change is requested in the PR, without modifying core in this workstream.
