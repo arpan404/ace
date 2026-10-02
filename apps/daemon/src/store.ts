@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync, type StatementSync, type SQLOutputValue } from "node:sqlite";
 import {
+  McpIntent,
   CommandResult,
   Event,
   Thread,
@@ -12,11 +13,13 @@ import {
   WorkspaceId,
 } from "@ace/protocol";
 import { applyEvent, createThreadView, updateThread } from "@ace/projection";
+import { McpData } from "./mcp-data.ts";
 import { migrate } from "./migrations.ts";
 
 type Listener = (events: Event[]) => void;
 export class Store {
   private readonly db: DatabaseSync;
+  private readonly mcp: McpData;
   private statements = new Map<string, StatementSync>();
   private closed = false;
   private transactionEvents: Event[] | undefined;
@@ -33,6 +36,7 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
+      this.mcp = new McpData(this.db, (id) => this.getThread(id));
     } catch (error) {
       this.db.close();
       throw error;
@@ -203,11 +207,33 @@ export class Store {
           event.payload.type,
           JSON.stringify(event.payload),
         );
+        this.mcp.apply(event, thread);
         events.push(event);
       }
       this.transactionEvents?.push(...events);
       return events;
     });
+  }
+  enqueueMcpIntent(id: string, intent: McpIntent, events: EventPayload[], at: number): void {
+    const parsed = McpIntent.parse(intent);
+    this.transaction(() => {
+      if (!this.mcp.getAgent(parsed.threadId, parsed.agentId))
+        throw new Error("Unknown MCP caller");
+      this.mcp.enqueue(id, parsed);
+      this.appendEvents(parsed.threadId, events, at);
+    });
+  }
+  readMcpIntents(limit = 100) {
+    return this.mcp.read(limit);
+  }
+  acknowledgeMcpIntent(id: string): boolean {
+    return this.transaction(() => this.mcp.acknowledge(id));
+  }
+  getMcpAgent(threadId: ThreadId, agentId: string) {
+    return this.mcp.getAgent(threadId, agentId);
+  }
+  listMcpAgents(threadId: ThreadId, cursor: string, limit: number) {
+    return this.mcp.agents(threadId, cursor, limit);
   }
   readEvents(options: { afterSeq: number; threadId?: ThreadId; limit: number }): Event[] {
     const rows =

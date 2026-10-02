@@ -8,9 +8,11 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "dev": "node src/cli.ts"
+    "dev": "node src/cli.ts",
+    "bench:mcp": "node bench/mcp.ts"
   },
   "dependencies": {
+    "@ace/mcp-server": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "ws": "^8.18.3"

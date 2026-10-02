@@ -1,3 +1,5 @@
+import { startDaemonMcp } from "./mcp.ts";
+import type { Toolkit } from "@ace/mcp-server";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
@@ -15,10 +17,13 @@ export { readConfig } from "./config.ts";
 export async function startDaemon(
   config: Config = readConfig(),
   handler: CommandHandler = stubHandler(),
-): Promise<{ url: string; tokenPath: string; store: Store; close(): Promise<void> }> {
+  toolkits: readonly Toolkit[] = [],
+) {
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
   let store: Store | undefined;
+  let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
+  let server: Awaited<ReturnType<typeof startServer>> | undefined;
   try {
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
@@ -26,7 +31,9 @@ export async function startDaemon(
       log("error", "Event subscriber failed", error),
     );
     const ownedStore = store;
-    const server = await startServer({
+    mcp = await startDaemonMcp(store, toolkits);
+    const ownedMcp = mcp;
+    server = await startServer({
       port: config.port,
       token,
       hostId,
@@ -34,20 +41,26 @@ export async function startDaemon(
       handler,
       log: (error) => log("error", "WebSocket failure", error),
     });
+    const ownedServer = server;
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
       tokenPath,
       store,
+      mcp: ownedMcp,
       close() {
         closing ??= (async () => {
           try {
-            await server.close();
+            await ownedMcp.close();
           } finally {
             try {
-              ownedStore.close();
+              await ownedServer.close();
             } finally {
-              unlock();
+              try {
+                ownedStore.close();
+              } finally {
+                unlock();
+              }
             }
           }
         })();
@@ -56,9 +69,17 @@ export async function startDaemon(
     };
   } catch (error) {
     try {
-      store?.close();
+      await mcp?.close();
     } finally {
-      unlock();
+      try {
+        await server?.close();
+      } finally {
+        try {
+          store?.close();
+        } finally {
+          unlock();
+        }
+      }
     }
     throw error;
   }
