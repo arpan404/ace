@@ -19,7 +19,10 @@
         "ace": "./src/cli.ts",
       },
       "dependencies": {
+        "@ace/adapter-acp": "workspace:*",
         "@ace/adapter-claude": "workspace:*",
+        "@ace/adapter-codex": "workspace:*",
+        "@ace/adapter-opencode": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/context": "workspace:*",
         "@ace/core": "workspace:*",

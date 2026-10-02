@@ -9,9 +9,12 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     return;
   }
   const engineOptions = options.engine ?? {};
+  const registry =
+    engineOptions.registry ?? (await discoverAdapters(engineOptions.adapterDiscovery));
+  if (!engineOptions.registry) resources.own(() => registry.close());
   const engine = new Engine(store, {
     ...engineOptions,
-    registry: engineOptions.registry ?? (await discoverAdapters(engineOptions.adapterDiscovery)),
+    registry,
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());
