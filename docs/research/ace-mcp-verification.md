@@ -97,7 +97,8 @@ workspace typechecks and the 1,500-line size check pass.
 
 ## Main integration and verifier N3
 
-Merged remote-access main `844e0eb` without rebasing. Both benchmark scripts,
+Merged remote-access main `844e0eb`, then shared CLI fixture fixes from
+`51e739a`, without rebasing. Both benchmark scripts,
 MCP and remote dependencies, protocol exports, Store projections and daemon
 listeners are retained. Shutdown closes MCP and local/remote listeners, closes
 the Store, removes the endpoint file and releases the lock. The startup error
@@ -122,8 +123,10 @@ Verifier mutation N3 removed the opened-descriptor regular-file check. Added a
 public discovery test using `/dev/null` plus a valid regular config as a control.
 The original passes, removal fails because discovery reports `invalid` instead
 of rejecting the device as `unreadable`, and restoration passes. The mutation
-is reverted. No test-runner settings or deadlines changed. CI is disabled by
-the repository owner and was not run or queried in this integration round.
+is reverted. No timing assertions or test-runner overrides were added. The
+subsequent main fixture fix preserves its upstream 15-second CLI integration
+deadlock timeout. CI is disabled by the repository owner and was not run or
+queried in this integration round.
 
 ## Non-gating performance
 
