@@ -1,56 +1,49 @@
 # Codex adapter verification
 
-All eight 0.159.1 recordings have expectation files. The testkit timeline CLI confirmed every listed checkpoint. Background shell completion remains waiting from t=12290 until t=23076. The round-2 interrupt remains waiting from t=14503 through its late command output until t=67107. Plan review stays pending at t=38723 and t=48897 and expires at the recorder's deliberate exit. Child work prevents early done at t=9062; the current core reports working until t=14153, with the root blocked on its background task.
+All eight Codex 0.159.1 recordings have expectation files and replay through the shared testkit. The timeline CLI now confirms waiting/background_task at 9062 and 11294 and done at 14153 for subagent-background. Background shells and interrupted commands retain the original late-completion checkpoints. Raw recordings were not changed.
 
-The offline suite contains 68 adapter tests. Real supervised fake-CLI processes cover commands and process effects; frame promises provide synchronization. No tests send prompts to the installed Codex CLI. The opt-in live initialize handshake passed and stopped its process without starting a thread.
+## Independent verifier follow-up
 
-The complete repository check passes with 425 tests and five opt-in skips. It covers formatting, lint, source-size checks, all workspace typechecks and offline tests. The adapter sources are below 400 lines each. Generated protocol files come from the installed CLI rather than handwritten native definitions. Generation was rerun after formatting and produced the same definitions.
+The first nine added public-API regressions all failed against the previous implementation. They reproduced same-chunk resume completion, shell completion after 1,025 newer items, repeated aggregate duplication, loss of exact start raw, unbounded unknown-agent metadata, background-child waiting, starting grace, failed child recovery after ancestry registration, and a provider ignoring SIGTERM. Each passes after its fix. The native wait test also first failed with working/tool instead of blocked/subagents. A further read/completion-in-one-chunk test fails with a rejected stale interrupt when original hydration ordering is restored, then passes with revision-aware hydration. Additional tests cover output-only work first seen after turn end and replayed starts during a newer turn.
 
-## Mutation evidence
+- Start/resume controls are applied at their wire position. Read controls are skipped after a newer control notification. Awaiting replies cannot resurrect completed turns.
+- `item.reconciled` uses canonical core state, preserving completed shells, exact first raw input and streamed output covered by repeated aggregates. Evictable hints cannot prove unfinished work.
+- Child recovery reads retry independently of known ancestry. Their guards survive failed reads and loaded-thread scans until complete snapshots recover them.
+- Unknown frames emit raw facts immediately. Compact metadata caps at 256 IDs, with one aggregate guard surviving ID eviction until authoritative reconciliation; confirmed truncated children get independent guards. Unconfirmed IDs do not allocate heavy Agent records.
+- Background descendants retain their own working state while a finished parent makes the thread waiting/background_task. Successful spawn announcements keep children starting through silence grace. Native wait tools explicitly block on live target children without changing their tool kind.
+- Async question closure uses an owner index rather than scanning historical agents. Exact raw shell start input survives completion in the current item.
+- Process shutdown grace is injectable. Offline processes use zero grace and a deliberate SIGTERM-ignoring fake proves forced cleanup, one exit, and rejection of later work. Defaults remain five seconds. This removes the known overlap between the default supervisor's five-second fallback and Vitest's default timeout; no synchronization sleeps or time-budget assertions were added.
+- The redundant image existence assertion was removed; the exact URL assertion remains.
 
-`node packages/adapter-codex/scripts/mutations.ts` applies these changes one at a time and restores the original source in `finally`. All 24 mutations from the review, plus one buffer-limit mutation, caused their targeted Vitest suites to exit with test failures. The six previous survivors now fail assertions on public queue status, image URL, raw primitives, historical items, usage events and the real fake-CLI launch mode. Skipping terminal termination fails an explicit remaining-terminal assertion before any timeout. They were all reverted before the final repository check.
+These changes include a separately committed shared-core fix, as explicitly requested by the latest instruction to fix every not-fixed verifier finding. Earlier ownership guidance prohibited such edits; the latest instruction covers canonical snapshot state, waiting/starting and native wait behavior. No provider-kit, protocol, projection, engine-api, testkit or daemon code was edited.
 
-| Production mutation                            | Observed failing behaviour                                                                  |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Omit surviving-shell promotion                 | An interrupted command must keep the thread waiting until its stale-turn completion.        |
-| Discard buffered child frames                  | Late registration must retain the child's earlier turn and transcript.                      |
-| Make async questions blocking                  | An async final-answer question must allow the model to keep working.                        |
-| Omit orphan question item synthesis            | The linked ask-user tool must retain the native question payload.                           |
-| Omit plan review                               | The plan-review fixture must require input after the plan completes.                        |
-| Leave completed background shells live         | Both background-shell and interrupt fixtures must settle at their command completions.      |
-| Drop original native tool inputs               | Completion must preserve original name, arguments and vendor fields alongside the result.   |
-| Reopen review on a replayed boundary           | A replayed completion must not reopen a resolved plan review.                               |
-| Replace an offered amendment with plain accept | The fake provider must receive the exact selected amendment object.                         |
-| Steer queued input                             | Queue delivery must preserve input for later instead of injecting it into the running turn. |
+## Performance
 
-| Ignore provider failure text | Nominal completion must fail after explicit quota text. |
-| Keep retry after activity | Native activity must clear the retry status. |
-| Steer wrong native turn | Provider must accept steering against the active native turn. |
-| Skip cascade child | All descendant turns must be interrupted. |
-| Skip terminal termination | A subsequent provider query must observe no remaining terminals. |
-| Zero native queue count | Queued input must keep an idle thread waiting on queue. |
-| Skip loaded hydration | Unseen descendants must prevent early completion. |
-| Corrupt image URL | User content must retain the exact native URL. |
-| Drop malformed primitives | Each null, array, string and numeric frame must retain its raw value. |
-| Replace usage with invalid signal | Usage must publish token counts without rejected facts. |
-| Discard historical turns | Resume must preserve messages and surviving command tasks. |
-| Omit usage facts | Native usage must emit input, output and cached token counts. |
-| Disable async free text | Async questions must allow a free-text answer. |
-| Launch help instead of app-server | The discovered executable must initialize in app-server mode. |
-| Remove per-thread replay limit | Lost replay history must hold completion until a full snapshot recovers it. |
+Non-gating Node 26.8.1 measurements, through the exported translator:
 
-An initial mutation attempt exposed a weak orphan-question test: core's fallback item made the link assertion pass. The test was strengthened to require the native payload in the linked tool's raw data, and the mutation then failed as expected.
+| Probe                                                           | Result                                                                                             |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 1k / 2k / 4k plan chunks, 100 bytes each                        | 464,013 / 927,013 / 1,853,013 emitted bytes, including final aggregate; two plan-tool upserts each |
+| Plan wall / CPU milliseconds                                    | 3.46 / 6.73; 5.40 / 13.61; 6.63 / 12.56                                                            |
+| 10,000 unique 4-KiB payloads, one unknown ID                    | 0.43 MiB retained after GC and tick                                                                |
+| Same payloads, 10,000 distinct unknown IDs                      | 0.35 MiB retained after GC and tick, versus verifier's 13.85 MiB                                   |
+| 10,000 keyed closures with 1k / 2k / 4k / 10k historical agents | 5.96 / 5.49 / 5.48 / 8.27 ms; all 10,000 interaction-closed facts emitted in each run              |
+| Closure CPU milliseconds                                        | 15.46 / 14.62 / 12.53 / 19.14                                                                      |
 
-## Contract limits
+Commands: `node --expose-gc packages/adapter-codex/bench/plan.ts` and `node --expose-gc packages/adapter-codex/bench/ownership.ts`. Timings vary under host load and do not gate tests. Delta traffic is proportional to input bytes; keyed closure is independent of transcript history. Full snapshot reconciliation performs work proportional to the supplied aggregate, at snapshot boundaries rather than per delta. Canonical history remains engine-owned.
 
-The requests and rationale are in [README.md](README.md). Core currently labels active background children as working, can mark a child unresponsive before its first turn, and cannot encode an explicit wait on subagent keys. The adapter keeps all live work unsettled without inventing status facts. Native queue counts and ace's queued input share one counter. Plan preview uses append-only notice text, and completed plan markdown remains on the canonical plan tool. No cumulative markdown upserts remain.
+## Final local gate
 
-No recorder ran, no committed recording was changed, and no credentials were collected. Other packages were only brought in through dependency merges; the recorder manifest conflict preserves both foundation and provider-kit dependencies.
+After merging origin/main at 94b2170 and installing its dependencies, `bun run check` passed. Formatting, lint, all workspace typechecks and the 1,500-line check passed. Vitest reported 539 passed and five skipped across 67 files. All 294 source files passed the size check; the largest adapter source is 398 lines.
 
-## Review regressions and performance
+Three consecutive `bun run test packages/adapter-codex` runs each passed 81 tests and skipped the opt-in live test. Durations were 14.64, 9.28 and 8.34 seconds. The first ran alongside the full repository check under load. The previously intermittent abort test and the SIGTERM-ignoring shutdown test passed in every run.
 
-Each of the ten blockers was first reproduced through the public translator/session API. Initial regressions failed for two-question correlation, same-chunk turn completion, active resume controls, historical shell hydration, unrelated loaded threads, failed discovery guards, delta-only terminal ownership, aggregate/late shell output, immediate human flags and unsupported subagent variants. Each passes after its fix. Recovery also remains complete after a repeated child registration following a truncated stream.
+## Mutation checks
 
-Session tests discover the executable rather than supplying a discovery result. The executable handles version and login probes and refuses an incorrect app-server launch. Exit notifications are counted, terminal state is queried through the provider, and manual timers synchronize discovery retries without sleeps. No test runs a model.
+The checked-in script applies production mutations one at a time and restores sources in `finally`. The original 24 review mutations and replay-buffer mutation remain represented, including all six previous survivors: queue count, image URL, malformed raw primitives, historical turns, usage facts and CLI launch mode. Ten further mutations target resume ordering, read ordering, recovery retry, canonical completion, aggregate replay, first raw preservation, discovery after ID eviction, background precedence, native wait and shutdown grace. All 35 mutations were caught and reverted. The recovery-retry mutation was rerun after adding an offline I/O barrier and failed its final-state assertion in 352 ms. Shutdown-grace removal deterministically restored the five-second supervisor fallback and exceeded Vitest's default timeout; the other cases produced assertions or explicit request failures. The mutation list is in the PR description.
 
-The non-gating `node --expose-gc packages/adapter-codex/bench/plan.ts` run measured 464,013 / 927,013 / 1,853,013 emitted bytes for 1,000 / 2,000 / 4,000 100-byte chunks. Wall times were 3.42 / 4.70 / 6.71 ms; CPU times were 6.70 / 12.68 / 12.63 ms. Each stream has exactly two plan-tool upserts, including final authoritative markdown. A 10,000-frame probe with unique 4-KiB payloads retained 0.13 MiB after GC and a far-future tick, with repeated runs between 0.13 and 0.34 MiB. Earlier measurements in the review were 50.05 / 200.10 / 800.20 MB of cumulative markdown and 40.88 MiB of retained unknown payloads. The new byte counts include every emitted fact, not only markdown. Wall timings vary substantially with shared-machine load and never gate tests.
+## Remaining integration notes
+
+Provider-native queue counts and engine-owned queued input share one counter; the engine should combine them if it holds both simultaneously. Plan preview uses append-only companion notice text because generic tool markdown deltas are absent; full authoritative markdown remains on the completed plan tool. These are integration notes, not outstanding verifier failures.
+
+CI is disabled by the repository owner. No CI run, retry or watch was requested. The local `bun run check` is the delivery gate. Tests use real supervised offline processes and manual timers; no installed-provider prompts, model threads or recorder ran in this round.

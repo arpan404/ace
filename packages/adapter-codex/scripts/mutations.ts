@@ -14,7 +14,7 @@ const cases = [
   {
     name: "discard buffered child frames",
     file: "agent-registry.ts",
-    before: "const buffered = config.takeBuffer(agent);",
+    before: "const buffered = retained.frames;",
     after: "const buffered: Frame[] = [];",
     test: "translator.test.ts",
   },
@@ -42,8 +42,8 @@ const cases = [
   {
     name: "leave completed background shells live",
     file: "translate-item.ts",
-    before: "if (complete && tasks.has(shellKey(itemId)))",
-    after: "if (!complete && tasks.has(shellKey(itemId)))",
+    before: 'if (complete && type === "commandExecution")',
+    after: 'if (!complete && type === "commandExecution")',
     test: "fixtures.test.ts",
   },
   {
@@ -176,12 +176,89 @@ const cases = [
   {
     name: "retain an unlimited per-thread replay buffer",
     file: "retention.ts",
-    before: "agent.buffer.length > 64",
-    after: "agent.buffer.length > 64000",
+    before: "thread.frames.length > 64",
+    after: "thread.frames.length > 64000",
     test: "streaming.test.ts",
   },
+  {
+    name: "restore resume controls after awaiting the reply",
+    file: "session.ts",
+    before: '    model = str(result["model"], model);',
+    after:
+      '    hydrateControls(obj(result["thread"]), active, shells); model = str(result["model"], model);',
+    test: "verifier-session.test.ts",
+  },
+  {
+    name: "apply stale read controls after an observed completion",
+    file: "session.ts",
+    before:
+      "if (revision === (revisions.get(threadId) ?? 0)) hydrateControls(thread, active, shells);",
+    after: "hydrateControls(thread, active, shells);",
+    test: "verifier-session.test.ts",
+  },
+  {
+    name: "skip recovery retries once ancestry is known",
+    file: "session.ts",
+    before: "if (!closed && !timers.has(threadId))",
+    after: "if (!closed && !known.has(threadId) && !timers.has(threadId))",
+    test: "verifier-session.test.ts",
+  },
+  {
+    name: "reopen completed tools from replayed starts",
+    file: "../../core/src/reconciled-item.ts",
+    before: "if (previous?.complete && draft.complete === false) return previous;",
+    after: "// Reopen canonical completion from replay data",
+    test: "verifier-translator.test.ts",
+  },
+  {
+    name: "duplicate replayed shell aggregates",
+    file: "../../core/src/reconciled-item.ts",
+    before: "current.startsWith(aggregate) ? current : aggregate",
+    after: "current + aggregate",
+    test: "verifier-translator.test.ts",
+  },
+  {
+    name: "discard the exact canonical raw start",
+    file: "../../core/src/reconciled-item.ts",
+    before: "if (first && call.raw?.length) call.raw = [first, ...call.raw.slice(-1)];",
+    after: "// Discard first raw input",
+    test: "verifier-translator.test.ts",
+  },
+  {
+    name: "close unknown discovery despite evicted metadata",
+    file: "translator.ts",
+    before: "buffers.pending === 0 && !buffers.overflow",
+    after: "buffers.pending <= 256",
+    test: "verifier-translator.test.ts",
+  },
+  {
+    name: "count working background children as foreground",
+    file: "../../core/src/status.ts",
+    before: "if (inBackground(record)) return false;",
+    after: "// Count background children as working",
+    test: "verifier-translator.test.ts",
+  },
+  {
+    name: "remove native subagent wait declaration",
+    file: "translate-item.ts",
+    before: 'type: "subagents.waiting",',
+    after: 'type: "signal",',
+    test: "verifier-translator.test.ts",
+  },
+  {
+    name: "disable injected shutdown grace",
+    file: "session.ts",
+    before: "proc.stop({ graceMs: io.stopGraceMs })",
+    after: "proc.stop()",
+    test: "verifier-session.test.ts",
+  },
 ];
-for (const mutation of cases) {
+const first = Number(process.argv[2] ?? 0);
+if (!Number.isInteger(first) || first < 0 || first >= cases.length)
+  throw new Error("Invalid mutation offset");
+const count = Number(process.argv[3] ?? cases.length);
+if (!Number.isInteger(count) || count < 1) throw new Error("Invalid mutation count");
+for (const mutation of cases.slice(first, first + count)) {
   const path = `${directory}src/${mutation.file}`;
   const original = readFileSync(path, "utf8");
   if (!original.includes(mutation.before))
