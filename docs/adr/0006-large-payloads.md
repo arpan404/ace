@@ -48,7 +48,7 @@ Agents routinely run builds, test suites and log tails, so this is the normal ca
 
 ## Implementation choices
 
-Limits count UTF-8 bytes. Output reads return base64 so arbitrary byte offsets do not corrupt multibyte characters. Oversized output facts become canonical deltas of at most 4 KiB; the adapter delta fact shape stays unchanged. Legacy string output in drafts is accepted as an append-only source and translated into suffix deltas. A stream combines stdout and stderr for its shell item.
+Limits count UTF-8 bytes. Output tails and canonical appends also fit within 4 KiB of JSON string content after escaping; control characters can therefore shorten the retained tail. Output reads return base64 so arbitrary byte offsets do not corrupt multibyte characters. Oversized output facts become canonical deltas of at most 4 KiB; the adapter delta fact shape stays unchanged. Summary objects belong to core and are rejected in adapter drafts, including partial details that omit their kind. Legacy string output in drafts is accepted as an append-only source and translated into suffix deltas. A stream combines stdout and stderr for its shell item.
 
 Item cursors are exclusive creation sequences. Snapshots take the newest contiguous suffix within both limits. Item pages return at most 200 current items in creation order and allow a single item to exceed the snapshot byte budget. Projection can seed a tracked detail item and merge older pages while preserving newer live values.
 

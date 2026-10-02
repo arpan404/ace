@@ -135,6 +135,8 @@ function itemError(state: ThreadState, fact: Fields, now: number): string | unde
   if (detail !== undefined && !object(detail)) return "tool detail must be an object";
   if (detail && ["childAgentId", "targetAgentId"].some((field) => Object.hasOwn(detail, field)))
     return "tool agent references must use native keys";
+  if (detail && "output" in detail && !optionalString(detail.output))
+    return "output summaries belong to core; adapters append output deltas";
   if (detail?.kind === "agent.spawn" && detail.childAgent !== undefined) {
     if (typeof detail.childAgent !== "string") return "child agent key must be a string";
     const error = relationError(state, detail.childAgent, fact.agent as string);

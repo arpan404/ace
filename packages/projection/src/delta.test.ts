@@ -64,3 +64,21 @@ it("counts UTF-8 bytes and keeps a whole-character output tail across chunk boun
     call: { detail: { output: { bytes: 8197, tail: "y".repeat(4093) } } },
   });
 });
+
+it("messages ignore reasoning and output fields without losing or creating text parts", () => {
+  const item = Item.parse({
+    id: "m",
+    agentId: "a",
+    type: "message",
+    role: "assistant",
+    parts: [],
+    createdAt: 1,
+    complete: false,
+  });
+  expect(applyDelta(item, "reasoning", "hidden")).toBe(false);
+  expect(applyDelta(item, "output", "hidden")).toBe(false);
+  expect(item).toMatchObject({ parts: [] });
+  expect(applyDelta(item, "text", "visible")).toBe(true);
+  expect(applyDelta(item, "reasoning", "hidden")).toBe(false);
+  expect(item).toMatchObject({ parts: [{ type: "text", text: "visible" }] });
+});

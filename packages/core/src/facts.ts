@@ -18,10 +18,10 @@ import type {
 /** Adapter-owned identity, unique within an entity kind and provider process. */
 export type Key = string;
 
-type PartialDetail<T> = T extends { kind: "shell"; output?: infer O }
+type PartialDetail<T> = T extends { kind: "shell" }
   ? Partial<Omit<T, "kind" | "output">> & {
       kind: "shell";
-      output?: O | string;
+      output?: string;
       outputTruncated?: boolean;
     }
   : T extends { kind: "agent.spawn" }
