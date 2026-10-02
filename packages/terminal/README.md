@@ -1,6 +1,6 @@
 # @ace/terminal
 
-POSIX PTY sessions owned by the local daemon. This package has no client UI or daemon transport wiring. `node-pty` is its only direct runtime dependency.
+POSIX PTY sessions owned by the local daemon. This package has no client UI or daemon transport wiring. `node-pty` is its only new external runtime dependency; schemas come from the existing `@ace/protocol` workspace package.
 
 ## API
 
@@ -46,7 +46,7 @@ Start one consumer task per attachment. Call `attachment.detach()` to cancel a p
 
 `name` is a display label. The terminal type is always `xterm-256color`; `COLORTERM` is always `truecolor`, even if `env` overrides them. Other environment values override the daemon's environment; `undefined` removes an inherited value. Environment values are not included in snapshots.
 
-The shell is the explicit `shell`, otherwise the daemon's `$SHELL`, otherwise the first executable of `/bin/zsh` and `/bin/bash`. It runs with `-l -i` and reads the user's normal startup files. An explicitly configured shell that cannot launch fails rather than silently selecting another shell. Dimensions must be positive safe integers. The narrow internal `PtyBackend` interface owns native output, input, resizing and process-group termination; a future ConPTY backend can implement it without changing scrollback or attachments.
+The shell is the explicit `shell`, otherwise the daemon's `$SHELL`, otherwise the first executable of `/bin/zsh` and `/bin/bash`. It runs with `-l -i` and reads the user's normal startup files. An explicitly configured shell that cannot launch fails rather than silently selecting another shell. Dimensions must be integers from 1 through 65535, matching native winsize fields. Rejected resizes preserve the current size. The public `PtyBackend` interface owns native output, input, resizing and process-group termination; a future ConPTY backend can implement it without changing scrollback or attachments.
 
 ## Offsets and bounded memory
 
@@ -62,11 +62,17 @@ Incomplete UTF-8 suffixes stay in the raw ring until their remaining bytes arriv
 
 ## Shutdown and persistence
 
-`closeAll()` permanently closes the manager and is idempotent. It collects the shell's descendant process groups through POSIX `ps`, sends SIGTERM to each group, waits the configured grace period, sends SIGKILL to surviving groups, and waits until those groups have no running members. A zombie awaiting OS reaping is already stopped. Job-control background groups are included, and captured groups remain targets if the shell exits first. Errors are aggregated after every terminal has been attempted. `kill(signal)` also targets the shell and its current descendant groups.
+`closeAll()` permanently closes the manager and is idempotent. Ownership follows the POSIX session created by the PTY, so ordinary jobs remain owned after redirection, disowning, shell exit and reparenting. Each signal sweep reads current session membership, rather than reusing cached process-group IDs. A live replacement session leader after shell exit is rejected as identifier reuse. Zombies are already stopped.
 
-This is process supervision, not process isolation. Processes that detach, or outlive a naturally exited shell and become reparented before discovery, are outside this ancestry-based ownership model. A naturally exited shell retains its scrollback and status; it is not restarted. Terminal handles reject writes and resize after exit or during shutdown.
+Shutdown sends SIGTERM to every current owned group, waits the configured grace, then discovers jobs again. It sends SIGSTOP before SIGKILL to limit concurrent fork churn and waits for surviving members to stop. Escalation is bounded by 32 sweeps and a one-second injected deadline after grace; individual system queries have five-second failure timeouts. Errors are aggregated after attempting every terminal. `kill(signal)` targets current owned session groups too.
 
-`snapshot()` returns JSON-safe versioned metadata, dimensions, capacity, raw byte offsets, base64 retained bytes and the retained exit status. A snapshot may start inside a UTF-8 character or end with an incomplete one. Restore consumers must align/decode it as described above. Snapshot loading and restarting live shells are left to future daemon work. The manager retains terminal handles for its lifetime; discard the manager to release those rings.
+Linux obtains session IDs from `ps`. macOS masks the `ps` session fields, so its built-in `/usr/bin/osascript` JavaScript bridge batches libc `getsid` calls. Concurrent terminals in one manager share in-flight process inventories. No process environments are inspected, no provider CLI is invoked, and no extra addon or package is installed. This macOS bridge can be replaced at the exported backend seam later.
+
+This is supervision, not isolation: a program that deliberately creates another POSIX session escapes this session ownership model. Ordinary `disown` does not. Terminal handles reject writes and resize after exit or during shutdown.
+
+The manager accepts `dependencies` with `backendFactory`, `resolveShell`, `createSessionId`, and `shutdownScheduler` (`now`, `delay`). `createPosixBackendFactory` also accepts native-spawn and process-control ports. Defaults live in the I/O shell; pure ownership decisions and schema-backed decoders do not access global clocks, process spawners or randomness. Malformed native exit events reject `exited` and pending watchers rather than publishing an invalid status.
+
+`snapshot()` returns JSON-safe versioned metadata, dimensions, capacity, raw byte offsets, base64 retained bytes and the retained exit status. A snapshot may start inside a UTF-8 character or end with an incomplete one. Restore consumers must align/decode it as described above. Snapshot loading and restarting live shells are left to future daemon work. After persisting a snapshot, call `await manager.release(terminal)` to stop any remaining owned jobs, free its ring and remove the manager's handle. Late attachment remains available until explicit release. Released handles reject replay and snapshots. The daemon chooses when to release historical terminals.
 
 ## Native installation and Electron
 
@@ -101,8 +107,8 @@ node packages/terminal/scripts/mutations.ts
 bun run --filter @ace/terminal bench 100
 ```
 
-Tests use real PTYs, isolated shell and Readline startup files and shell/output barriers. There are no elapsed-time assertions or sleeps for synchronization. The 20 MiB case checks retained bytes, heap and buffer allocations, resync and successful shell completion. Test-runner timeouts only prevent hangs.
+Tests use real PTYs, isolated shell and Readline startup files and shell/output barriers. There are no elapsed-time assertions or sleeps for synchronization. The 20 MiB cases check retained bytes, resync and successful shell completion. An isolated Node process with `--expose-gc` samples live heap and buffer allocations at every 64 KiB output/read barrier, avoiding dependence on automatic GC timing. Its maximum live allocation growth must stay below 8 MiB while 20 MiB passes through a 64 KiB ring. Test-runner timeouts only prevent hangs.
 
-The mutation audit sequentially edits production code, runs each guarding real-PTY test, and restores the original file in `finally`. Do not run it concurrently with edits or tests in the same worktree. Eleven mutations were killed, including retaining all output strings outside the ring.
+The mutation audit sequentially edits production code, runs each guarding real-PTY test, and restores the original file in `finally`. Do not run it concurrently with edits or tests in the same worktree. All 24 review mutations are included, especially the previously surviving default-capacity, grace-period and post-exit-write mutations. Retaining every output string is checked by the isolated memory probe.
 
-The benchmark is optional and non-gating. It reports throughput, retained bytes, allocation changes and the stalled reader's outcome. On one macOS arm64 run with Node 26.8.1, 100 MiB drained at about 152 MiB/s with 4 MiB retained and a `resync` event. This is a local observation, not a performance requirement.
+The benchmark is optional and non-gating. It reports throughput, retained bytes, allocation changes, sampled peak RSS/heap/buffer growth and the stalled reader's outcome. Run it serially without the GC-heavy memory test or mutation audit in flight. Benchmark results are recorded in the PR description; throughput is non-gating.

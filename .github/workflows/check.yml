@@ -72,3 +72,7 @@ jobs:
 
       - name: Tests
         run: bun run test
+
+      - name: PTY throughput (informational)
+        continue-on-error: true
+        run: bun run --filter @ace/terminal bench 100
