@@ -1,3 +1,5 @@
+import { createDaemonReview } from "./review.ts";
+import type { ReviewExecutor } from "@ace/review";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
@@ -11,6 +13,7 @@ import { type Config, logger, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
+export { createDaemonReview, type ReviewPort } from "./review.ts";
 export { Store } from "./store.ts";
 export {
   createDevThread,
@@ -26,6 +29,7 @@ export async function startDaemon(
   handler: CommandHandler = stubHandler(),
   toolkits: readonly Toolkit[] = [],
   notificationChannels?: Omit<NotificationChannels, "websocket">,
+  reviewExecutor?: ReviewExecutor,
 ): Promise<{
   url: string;
   tokenPath: string;
@@ -43,9 +47,11 @@ export async function startDaemon(
   let closeChannels = noop;
   let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  let review: ReturnType<typeof createDaemonReview> | undefined;
   let endpointPath: string | undefined;
   const closeResources = async () => {
     try {
+      await review?.close();
       await mcp?.close();
     } finally {
       try {
@@ -77,6 +83,7 @@ export async function startDaemon(
     store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
       log("error", "Event subscriber failed", error),
     );
+    review = createDaemonReview(config.dataDir, store, reviewExecutor);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
       ? { channels: notificationChannels, close: closeChannels }
@@ -96,6 +103,7 @@ export async function startDaemon(
       hostId,
       store,
       handler,
+      review,
       notifications: notifications.service,
       log: (error) => log("error", "WebSocket failure", error),
     });

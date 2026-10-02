@@ -1,3 +1,4 @@
+import type { ReviewPort } from "./review.ts";
 import { randomUUID } from "node:crypto";
 import type { NotificationWorker } from "@ace/notify";
 import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
@@ -54,6 +55,7 @@ export interface ServerOptions {
   hostId: string;
   store: Store;
   handler: CommandHandler;
+  review?: ReviewPort;
   replayLimit?: number;
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
@@ -313,8 +315,9 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         }
         case "command": {
-          if (!allows(authenticated.get(socket), "operate")) {
-            fail("forbidden", "Operate scope required");
+          const requiredScope = message.command.payload.type === "review.list" ? "read" : "operate";
+          if (!allows(authenticated.get(socket), requiredScope)) {
+            fail("forbidden", `${requiredScope} scope required`);
             break;
           }
           try {
@@ -330,6 +333,16 @@ export async function startServer(options: ServerOptions): Promise<{
             break;
           }
           try {
+            if (message.command.payload.type.startsWith("review.")) {
+              if (!options.review) {
+                fail("reviews_unavailable", "Reviews unavailable");
+                break;
+              }
+              const result = await options.review.handle(message.command);
+              if (socket.readyState === WebSocket.OPEN && authenticated.has(socket))
+                send({ type: "commandResult", ...result });
+              break;
+            }
             const result = options.store.recordCommand(message.command.id, device, () =>
               options.handler.handle(message.command, commandContext(options.store)),
             );

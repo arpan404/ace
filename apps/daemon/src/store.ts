@@ -145,6 +145,10 @@ export class Store {
     this.statement("INSERT INTO workspaces VALUES (?, ?, ?, ?)").run(id, path, name, at);
     return id;
   }
+  getWorkspacePath(id: WorkspaceId): string | undefined {
+    const row = this.statement("SELECT path FROM workspaces WHERE id = ?").get(id);
+    return typeof row?.path === "string" ? row.path : undefined;
+  }
   getThread(id: ThreadId): Thread | undefined {
     const row = this.statement("SELECT * FROM threads WHERE id = ?").get(id);
     if (!row) return undefined;

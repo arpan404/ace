@@ -23,6 +23,7 @@
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@ace/review": "workspace:*",
         "qrcode-generator": "2.0.4",
         "ws": "^8.18.3",
         "zod": "^4.6.5",
@@ -112,6 +113,14 @@
     "packages/provider-kit": {
       "name": "@ace/provider-kit",
     },
+    "packages/review": {
+      "name": "@ace/review",
+      "dependencies": {
+        "@ace/git": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/secure-channel": {
       "name": "@ace/secure-channel",
       "dependencies": {
@@ -153,6 +162,8 @@
     "@ace/recorder": ["@ace/recorder@workspace:tools/recorder"],
 
     "@ace/relay": ["@ace/relay@workspace:apps/relay"],
+
+    "@ace/review": ["@ace/review@workspace:packages/review"],
 
     "@ace/secure-channel": ["@ace/secure-channel@workspace:packages/secure-channel"],
 
