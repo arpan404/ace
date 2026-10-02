@@ -1,9 +1,16 @@
 import { spawn } from "node:child_process";
 import { chromium } from "playwright-core";
-import { describe, expect, it } from "vitest";
-import { readFile } from "node:fs/promises";
+import { afterEach, describe, expect, it } from "vitest";
+import { readFile, readdir } from "node:fs/promises";
 import { executablePath, fixture } from "./test-support.ts";
 import { installChromium } from "./index.ts";
+
+const noop = () => {};
+let releaseDelayedStop = noop;
+afterEach(() => {
+  releaseDelayedStop();
+  releaseDelayedStop = noop;
+});
 
 describe.skipIf(!executablePath)("injected browser process boundaries", () => {
   it("uses an injected launcher with real Chromium", async () => {
@@ -30,6 +37,35 @@ describe.skipIf(!executablePath)("injected browser process boundaries", () => {
     const dir = artifact.path.replace(/\/player\.html$/, "");
     expect(await readFile(`${dir}/frames.jsonl`, "utf8")).toContain('"file":"1.jpg"');
     expect((await readFile(`${dir}/1.jpg`)).subarray(0, 2)).toEqual(Buffer.from([255, 216]));
+  }, 30_000);
+
+  it("closes Chromium even when a screencast stop response is delayed until transport closure", async () => {
+    const closed = Promise.withResolvers<void>();
+    const f = await fixture({
+      launchContext: async (profile, options) => {
+        const context = await chromium.launchPersistentContext(profile, options);
+        context.once("close", () => closed.resolve());
+        releaseDelayedStop = closed.resolve;
+        const createSession = context.newCDPSession.bind(context);
+        context.newCDPSession = async (page) => {
+          const session = await createSession(page);
+          const send = session.send.bind(session);
+          session.send = async (method, params) => {
+            const result = await send(method, params);
+            if (method === "Page.stopScreencast") await closed.promise;
+            return result;
+          };
+          return session;
+        };
+        return context;
+      },
+    });
+    await f.service.closeThread("thread");
+    await closed.promise;
+    expect(
+      (await readdir(`${f.home}/browser`)).filter((name) => name.startsWith("ephemeral-")),
+    ).toEqual([]);
+    expect(() => f.service.state("thread")).toThrow("not open");
   }, 30_000);
 
   it("uses injected installer and cache lookup processes", async () => {

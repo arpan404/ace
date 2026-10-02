@@ -309,12 +309,14 @@ export class BrowserSession {
       this.controller = "none";
       this.owner = undefined;
       this.emit();
-      // Close the context first to abort commands waiting inside Chromium.
+      // Detach capture synchronously, but do not wait for a CDP stop reply
+      // before closing the transport that can abort that pending request.
       try {
-        await this.live.close();
+        const stopped = this.live.close();
         try {
           await this.options.context.close();
         } finally {
+          await stopped;
           await this.tail;
         }
       } finally {
