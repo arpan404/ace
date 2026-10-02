@@ -16,6 +16,10 @@ export const defaultPressure: PressureOptions = {
 };
 export function coalesceEvents(events: DeliveryEvent[]): DeliveryEvent[] {
   const result: DeliveryEvent[] = [];
+  appendCoalesced(result, events);
+  return result;
+}
+function appendCoalesced(result: DeliveryEvent[], events: DeliveryEvent[]): void {
   for (const event of events) {
     const last = result.at(-1);
     if (
@@ -35,7 +39,6 @@ export function coalesceEvents(events: DeliveryEvent[]): DeliveryEvent[] {
       };
     } else result.push(event);
   }
-  return result;
 }
 interface EventBatch {
   subscriptionId: string;
@@ -58,7 +61,7 @@ export class Outbox {
     if (message.type === "events" && this.socket.bufferedAmount > this.options.softLimit) {
       const last = this.pending.at(-1);
       if (last?.subscriptionId === message.subscriptionId && last.throughSeq === message.afterSeq) {
-        last.events = coalesceEvents([...last.events, ...message.events]);
+        appendCoalesced(last.events, message.events);
         last.throughSeq = message.throughSeq;
       } else
         this.pending.push({
@@ -72,14 +75,32 @@ export class Outbox {
       this.tick();
       return;
     }
+    // Admit the whole snapshot before handing any of its bytes to the transport.
+    if (message.type === "snapshot") {
+      const serialized = JSON.stringify(message);
+      if (
+        this.bytes + this.socket.bufferedAmount + Buffer.byteLength(serialized) >
+        this.options.maxQueuedBytes
+      ) {
+        this.resync();
+        return;
+      }
+      this.flush();
+      this.writeSerialized(serialized);
+      this.tick();
+      return;
+    }
     // Control messages retain ordering relative to queued event batches.
     this.flush();
     this.write(message);
     this.tick();
   }
   private write(message: ServerMessage): void {
+    this.writeSerialized(JSON.stringify(message));
+  }
+  private writeSerialized(message: string): void {
     if (this.socket.readyState === WebSocket.OPEN)
-      this.socket.send(JSON.stringify(message), (error) => {
+      this.socket.send(message, (error) => {
         if (error) this.socket.terminate();
       });
   }
