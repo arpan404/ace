@@ -3,9 +3,14 @@ import { deriveAgentStatus, isSettled } from "./status.ts";
 import { subtreeSignalReader, transportSignalAt } from "./liveness.ts";
 
 /** Earliest injected instant at which a tick can change an agent status. */
-export function nextDeadline(state: ThreadState): number | undefined {
+export function nextDeadline(state: ThreadState, providerDeadline?: number): number | undefined {
   if (state.processExit) return undefined;
-  let next: number | undefined;
+  let next =
+    providerDeadline !== undefined &&
+    Number.isSafeInteger(providerDeadline) &&
+    providerDeadline >= 0
+      ? providerDeadline
+      : undefined;
   const subtreeSignal = subtreeSignalReader(state);
   const latestTransportSignal = transportSignalAt(state);
   for (const [key, record] of Object.entries(state.agents)) {
