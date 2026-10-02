@@ -199,3 +199,40 @@ it("refuses new credentials at capacity and permanently closes authority on shut
   expect(credentials.authenticate(second.bearer)).toBeUndefined();
   expect(() => credentials.issue(scope(), signal)).toThrow("closed");
 });
+
+it("rejects oversized, cyclic and deeply nested results before output validation or serialization", async () => {
+  const h = await harness(cleanups);
+  const cycle: Record<string, unknown> = {};
+  cycle.self = cycle;
+  let deep: Record<string, unknown> = {};
+  for (let i = 0; i < 1000; i++) deep = { next: deep };
+  h.registry.register({
+    name: "ace_large",
+    description: "Large output",
+    input: z.strictObject({ kind: z.enum(["large", "cycle", "deep", "small"]) }),
+    output: z.strictObject({ data: z.unknown() }),
+    capability: null,
+    timeoutMs: 1000,
+    async run(value) {
+      return {
+        data:
+          value.kind === "large"
+            ? "x".repeat(256 * 1024 + 1)
+            : value.kind === "cycle"
+              ? cycle
+              : value.kind === "deep"
+                ? deep
+                : "small",
+      };
+    },
+  });
+  const { client } = await h.connect();
+  for (const kind of ["large", "cycle", "deep"])
+    expect(await client.callTool({ name: "ace_large", arguments: { kind } })).toMatchObject({
+      isError: true,
+      content: [{ text: "Tool result too large" }],
+    });
+  expect(await client.callTool({ name: "ace_large", arguments: { kind: "small" } })).toMatchObject({
+    structuredContent: { data: "small" },
+  });
+});

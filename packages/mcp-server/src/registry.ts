@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpAttribution, McpCapability } from "@ace/protocol";
 import { specTypeSchemas, type CallToolResult, type Tool } from "@modelcontextprotocol/server";
+import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
 import type { Principal } from "./credentials.ts";
 
 export interface ToolContext {
@@ -69,9 +70,12 @@ export class ToolRegistry {
       capability,
       timeoutMs,
       async execute(value, context) {
+        if (!withinJsonBudget(value, 64 * 1024)) throw new Error("Input budget exceeded");
         const args = input.parse(value);
         context.signal.throwIfAborted();
-        return output.parse(await definition.run(args, context));
+        const result = await definition.run(args, context);
+        if (!withinJsonBudget(result, 256 * 1024)) throw new ResultBudgetExceeded();
+        return output.parse(result);
       },
     });
   }
@@ -118,7 +122,11 @@ export class ToolRegistry {
         if (Buffer.byteLength(text) > 256 * 1024) return failure("Tool result too large");
         return { content: [{ type: "text", text }], structuredContent };
       })
-      .catch(() => failure("Tool failed validation or execution"))
+      .catch((error: unknown) =>
+        error instanceof ResultBudgetExceeded
+          ? failure("Tool result too large")
+          : failure("Tool failed validation or execution"),
+      )
       .finally(() => {
         this.active--;
       });

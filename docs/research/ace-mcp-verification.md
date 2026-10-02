@@ -16,6 +16,7 @@ HTTP. Discovery tests use temporary configs and a synthetic OpenCode HTTP API.
 - Independent calls finish while another backend is waiting at an explicit barrier.
 - Concurrent notification/spawn calls retain the credential's own node attribution.
 - Input and output validation reject malformed values; backend errors stay private.
+- Oversized, cyclic and deeply nested results fail before schema cloning or serialization.
 - Credential capacity rejects new leases, and shutdown permanently closes authority.
 - Uncooperative timed-out backends retain their slots until execution ends.
 - Host/Origin checks and body bounds reject hostile or oversized HTTP requests.
@@ -49,7 +50,7 @@ failed under Vitest, then the original code was restored. No mutation remains.
 | Omit Claude HTTP bearer headers                 | Produces the exact Agent SDK shape                                |
 | Release capacity as soon as timeout returns     | Retains capacity while a backend ignores cancellation             |
 
-All twelve mutations were killed. The final baseline passes `bun run check` on
+All thirteen mutations were killed. The final baseline passes `bun run check` on
 Node 24.21.0 and Node 26.8.1. Live-provider suites remain opt-in and skipped.
 
 ## Non-gating performance
@@ -69,7 +70,8 @@ without a performance assertion or a wall-clock test budget.
 Measured with Node 26.8.1. RSS is the process high-water mark, including Node,
 SDK initialization, GC heap capacity and preceding benchmark stages. It is
 not a per-operation retained allocation. Scripts live in `packages/mcp-server/bench`
-and `apps/daemon/bench`. Tool schema conversion happens at registration; transport
+and `apps/daemon/bench`. The final dispatch measurements include the budget check
+before schema cloning and serialization. Tool schema conversion happens at registration; transport
 instances have no replay buffer. SQLite agent indexing performs work only for
 agent changes and reads through the thread/id index.
 
