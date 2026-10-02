@@ -1,10 +1,10 @@
-import type { ConductorPlan } from "@ace/protocol";
+import { ConductorPlanOnInsensitiveFilesystem, type ConductorPlan } from "@ace/protocol";
 import type { Artifact, Lane, Node, State } from "./schema.ts";
 import { gate, release } from "./transition.ts";
 import type { Context } from "./transition.ts";
 
 export function installPlan(ctx: Context, plan: ConductorPlan): void {
-  ctx.state.plan = plan;
+  ctx.state.plan = admitOwnership(ctx.state, plan);
   ctx.state.nodes = Object.fromEntries(
     plan.workstreams.map((w) => [
       w.id,
@@ -28,6 +28,8 @@ export function installPlan(ctx: Context, plan: ConductorPlan): void {
 }
 export function settle(ctx: Context, lane: Lane): void {
   if (!lane.live || lane.status !== "done" || !lane.artifact) return;
+  if (Object.values(ctx.state.gates).some((g) => g.kind === "escalation" && g.lane === lane.id))
+    return;
   const node = lane.workstream ? ctx.state.nodes[lane.workstream] : null;
   if (ctx.state.phase === "cancelling") {
     release(ctx, lane);
@@ -63,10 +65,13 @@ export function settle(ctx: Context, lane: Lane): void {
         return;
       }
       node.lastReview = lane.artifact.review;
-      node.reviews.push({
-        verdict: lane.artifact.review.verdict,
-        summary: lane.artifact.review.summary.slice(0, 2048),
-      });
+      node.reviews = [
+        ...node.reviews,
+        {
+          verdict: lane.artifact.review.verdict,
+          summary: lane.artifact.review.summary.slice(0, 2048),
+        },
+      ];
       if (lane.artifact.review.verdict === "pass") node.state = "approved";
       else if (node.fixRounds < ctx.state.spec.policies.maxFixRounds) {
         node.fixRounds++;
@@ -92,4 +97,10 @@ export function validateReview(state: State, lane: Lane, artifact: Artifact): vo
     !criteria.every((c) => reviewed.includes(c))
   )
     throw new Error("review_requirements_mismatch");
+}
+
+export function admitOwnership(state: State, plan: ConductorPlan): ConductorPlan {
+  return state.ownershipCase === "insensitive"
+    ? ConductorPlanOnInsensitiveFilesystem.parse(plan)
+    : plan;
 }

@@ -47,6 +47,8 @@ export function advance(ctx: Context): void {
       lane.model = choice.model;
       lane.generation++;
       lane.status = "migrating";
+      lane.migrationObservation = null;
+      lane.artifactDeadline = null;
       lane.artifact = null;
       lane.lastActivity = ctx.env.now();
       s.spent += choice.model.cost;
@@ -110,6 +112,7 @@ export function advance(ctx: Context): void {
 }
 
 export function cancel(ctx: Context): void {
+  if (ctx.state.phase === "cancelling" || ctx.state.phase === "cancelled") return;
   ctx.state.phase = "cancelling";
   for (const lane of Object.values(ctx.state.lanes)) {
     if (!lane.live) continue;

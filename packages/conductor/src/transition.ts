@@ -96,6 +96,8 @@ export function launch(
     model: choice.model,
     status: "starting",
     lastActivity: ctx.env.now(),
+    migrationObservation: null,
+    artifactDeadline: null,
     artifact: null,
     source: source?.id ?? null,
     live: true,
@@ -139,7 +141,11 @@ export function launch(
   } else ctx.state.planner = lane.id;
   return lane;
 }
-export function emptyState(id: string, spec: ConductorSpec): State {
+export function emptyState(
+  id: string,
+  spec: ConductorSpec,
+  ownershipCase: State["ownershipCase"],
+): State {
   return {
     version: 1,
     id,
@@ -148,6 +154,7 @@ export function emptyState(id: string, spec: ConductorSpec): State {
     beforePause: "planning",
     plan: null,
     planApproved: false,
+    ownershipCase,
     accounts: [],
     lanes: {},
     nodes: {},

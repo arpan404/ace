@@ -1,3 +1,4 @@
+import { laneDeadline } from "./liveness.ts";
 import type { State } from "./schema.ts";
 
 /** The daemon keeps one timer and sends a tick at this deadline. No file polling. */
@@ -10,8 +11,8 @@ export function nextDeadline(state: State): number | null {
   )
     times.push(state.spec.constraints.deadline);
   for (const lane of Object.values(state.lanes)) {
-    if (lane.live && !lane.retiring && ["starting", "working", "migrating"].includes(lane.status))
-      times.push(lane.lastActivity + state.spec.constraints.stallAfterMs);
+    const deadline = laneDeadline(state, lane);
+    if (deadline !== null) times.push(deadline);
   }
   return times.length ? Math.min(...times) : null;
 }

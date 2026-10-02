@@ -3,6 +3,7 @@ import {
   ConductorApproval,
   ConductorModel,
   ConductorPlan,
+  ConductorPlanOnInsensitiveFilesystem,
   ConductorReview,
   ConductorSpec,
   ProviderKind,
@@ -41,6 +42,7 @@ export const Artifact = z.discriminatedUnion("kind", [
   }),
 ]);
 export type Artifact = z.infer<typeof Artifact>;
+const ObservedStatus = z.enum(["working", "waiting", "done", "failed", "unresponsive"]);
 export const Lane = z.object({
   id: Key,
   agentId: z.string().uuid(),
@@ -60,6 +62,11 @@ export const Lane = z.object({
     "migrating",
   ]),
   lastActivity: z.number().int().nonnegative(),
+  artifactDeadline: z.number().int().nonnegative().nullable().default(null),
+  migrationObservation: z
+    .object({ status: ObservedStatus.or(z.literal("limited")), at: z.number().int().nonnegative() })
+    .nullable()
+    .default(null),
   artifact: Artifact.nullable(),
   source: Key.nullable(),
   live: z.boolean(),
@@ -114,6 +121,7 @@ export const State = z
     beforePause: z.enum(["planning", "running"]),
     plan: ConductorPlan.nullable(),
     planApproved: z.boolean(),
+    ownershipCase: z.enum(["sensitive", "insensitive"]).default("insensitive"),
     accounts: z.array(Account).max(64),
     lanes: z.record(Key, Lane),
     nodes: z.record(Key, Node),
@@ -129,6 +137,12 @@ export const State = z
       Object.keys(s.gates).length > 512
     )
       ctx.addIssue({ code: "custom", message: "run indexes exceed capacity" });
+    if (s.ownershipCase === "insensitive" && s.plan) {
+      const admitted = ConductorPlanOnInsensitiveFilesystem.safeParse(s.plan);
+      if (!admitted.success)
+        for (const issue of admitted.error.issues)
+          ctx.addIssue({ code: "custom", message: issue.message });
+    }
   });
 export type State = z.infer<typeof State>;
 const LaneRef = { laneId: Key, generation: z.number().int().nonnegative() };
@@ -137,7 +151,7 @@ export const Fact = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("status"),
     ...LaneRef,
-    status: z.enum(["working", "waiting", "done", "failed", "unresponsive"]),
+    status: ObservedStatus,
     at: z.number().int().nonnegative(),
   }),
   z.object({ type: z.literal("artifact"), ...LaneRef, artifact: Artifact }),
@@ -207,6 +221,8 @@ export interface Environment {
   now(): number;
   id(): string;
   agentId(): string;
+  /** Pure lookup of workspace semantics probed by the I/O boundary. Unknown defaults to insensitive. */
+  ownershipCase?(workspaceId: string): "sensitive" | "insensitive";
 }
 export interface Transition {
   state: State;

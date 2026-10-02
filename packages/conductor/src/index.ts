@@ -17,3 +17,4 @@ export * from "./progress.ts";
 export * from "./testing.ts";
 export * from "./observations.ts";
 export * from "./deadlines.ts";
+export * from "./workspace.ts";
