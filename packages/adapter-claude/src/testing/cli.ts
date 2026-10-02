@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Synthetic provider boundary. No model, auth service, or installed CLI is invoked.
+import { list, object } from "../native.ts";
 import { createInterface } from "node:readline";
 if (process.argv.includes("--version")) {
   console.log("2.1.286 (Claude Code)");
@@ -10,10 +11,10 @@ const write = (data: unknown) => console.log(JSON.stringify(data));
 const lines = createInterface({ input: process.stdin });
 let id = 0;
 for await (const line of lines) {
-  const data = JSON.parse(line) as Record<string, unknown>;
+  const data = object(JSON.parse(line) as unknown);
   if (data["type"] === "control_request") {
-    const request = data["request"] as Record<string, unknown>;
-    write({ type: "system", subtype: "fake_control", request });
+    const request = object(data["request"]);
+    write({ type: "system", subtype: "fake_control", request, argv: process.argv });
     write({
       type: "control_response",
       response: {
@@ -37,12 +38,17 @@ for await (const line of lines) {
         session_id: session,
       });
   } else if (data["type"] === "user") {
-    const message = data["message"] as Record<string, unknown>;
-    const parts = message["content"] as { type: string; text?: string }[];
-    const text = parts.map((p) => p.text ?? "image").join(" ");
+    const message = object(data["message"]);
+    const parts = list(message["content"]);
+    const text = parts.map((p) => object(p)["text"] ?? "image").join(" ");
     write({ type: "system", subtype: "init", session_id: session, cwd: process.cwd() });
     write({ type: "system", subtype: "fake_input", input: data });
     if (text === "crash") process.exit(3);
+    if (text === "future") {
+      console.log("malformed JSON");
+      console.log("null");
+      write({ type: "future_frame", novel: { value: 42 } });
+    }
     if (text === "tasks") {
       write({
         type: "system",

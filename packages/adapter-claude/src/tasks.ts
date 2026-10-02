@@ -103,7 +103,7 @@ export function taskFrame(state: ClaudeState, data: Data, now: number): boolean 
           parts: [{ type: "text", text: data["prompt"] }],
           synthetic: true,
           complete: true,
-          raw: [raw(data)],
+          raw: state.keepMessageRaw(state.key("prompt", task.child), data),
         },
       });
     return true;

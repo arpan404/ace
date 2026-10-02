@@ -1,6 +1,6 @@
 import type { ToolDetailDraft } from "@ace/core";
-import type { ToolKind } from "@ace/protocol";
-import { object, string } from "./native.ts";
+import { TodoEntry, type ToolKind } from "@ace/protocol";
+import { list, object, string } from "./native.ts";
 const kinds: Record<string, ToolKind> = {
   Bash: "shell",
   PowerShell: "shell",
@@ -78,7 +78,13 @@ export function toolDetail(name: string, value: unknown): ToolDetailDraft {
     case "agent.message":
       return { kind, message: string(input["message"]) };
     case "todo":
-      return { kind, todos: [] };
+      return {
+        kind,
+        todos: list(input["todos"]).flatMap((entry) => {
+          const parsed = TodoEntry.safeParse(entry);
+          return parsed.success ? [parsed.data] : [];
+        }),
+      };
     case "plan":
       return { kind, markdown: string(input["plan"]) };
     default:

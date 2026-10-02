@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
+import { object } from "./native.ts";
 import type { SpawnedProcess, SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 
 /** SDK transport bridge; provider-kit owns the process group and all shutdowns. */
@@ -25,31 +26,35 @@ export function spawnSdkProcess(
   let exitCode: number | null = null;
   process.stdout.on("line", (line) => {
     // SDK consumes controls internally. Forward cancellations and unknown wire data too.
+    let data: unknown;
     try {
-      const data: unknown = JSON.parse(line);
-      if (
-        typeof data === "object" &&
-        data !== null &&
-        "type" in data &&
-        (String(data.type).startsWith("control_") ||
-          ![
-            "system",
-            "assistant",
-            "user",
-            "result",
-            "stream_event",
-            "rate_limit_event",
-            "keep_alive",
-            "tool_progress",
-            "tool_use_summary",
-            "auth_status",
-            "prompt_suggestion",
-          ].includes(String(data.type)))
-      )
-        hooks.onWire("recv", data);
+      data = JSON.parse(line);
     } catch {
       hooks.onWire("recv", { type: "malformed_stdout", line });
+      return;
     }
+    const type = object(data)["type"];
+    if (typeof type !== "string") {
+      hooks.onWire("recv", data);
+      return;
+    }
+    if (
+      type.startsWith("control_") ||
+      ![
+        "system",
+        "assistant",
+        "user",
+        "result",
+        "stream_event",
+        "rate_limit_event",
+        "keep_alive",
+        "tool_progress",
+        "tool_use_summary",
+        "auth_status",
+        "prompt_suggestion",
+      ].includes(type)
+    )
+      hooks.onWire("recv", data);
     stdout.write(`${line}\n`);
   });
   process.stderr.on("line", hooks.onStderr);

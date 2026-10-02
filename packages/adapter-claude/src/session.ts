@@ -53,6 +53,7 @@ export async function openSession(
   const sessionId = ctx.resume?.nativeSessionId ?? randomUUID();
   const input = new InputStream();
   const pending = new Map<string, Pending>();
+  const cancelledRequests = new Set<string>();
   const toolParents = new Map<string, string>();
   const tasks = new Map<string, { spawn: string; parent: string; live: boolean }>();
   let sequence = 0;
@@ -120,8 +121,17 @@ export async function openSession(
       spawnClaudeCodeProcess: (spawn) =>
         spawnSdkProcess(spawn, {
           onStderr: (line) => frame("stderr", "sdk", line),
-          onWire: (dir, data) =>
-            frame(dir, object(data)["type"] === "control_cancel_request" ? "sdk" : "wire", data),
+          onWire: (dir, data) => {
+            const cancel = object(data)["type"] === "control_cancel_request";
+            if (dir === "recv" && cancel) {
+              const id = string(object(data)["request_id"]);
+              cancelledRequests.add(id);
+              pending
+                .get(id)
+                ?.finish({ behavior: "deny", message: "Claude cancelled the request." }, true);
+            }
+            frame(dir, cancel ? "sdk" : "wire", data);
+          },
           onProcess: (handle) => {
             ownedProcess = handle;
             void handle.exited.then((exit) =>
@@ -155,7 +165,7 @@ export async function openSession(
             },
           });
           frame("recv", "can_use_tool", { toolName, input: toolInput, options: meta });
-          if (signal.aborted || closed || exited) cancelled();
+          if (signal.aborted || closed || exited || cancelledRequests.delete(id)) cancelled();
           else signal.addEventListener("abort", cancelled, { once: true });
         }),
     },
@@ -230,7 +240,8 @@ export async function openSession(
       if (target.agent && target.agent !== "root" && target.agent !== sessionId) {
         const spawn = nativeKey(target.agent, "child");
         targetId = [...tasks].find(
-          ([id, task]) => id === target.agent || task.spawn === spawn,
+          ([id, task]) =>
+            id === target.agent || id === spawn.replace(/^native:/, "") || task.spawn === spawn,
         )?.[0];
         if (!targetId) throw new Error("Unknown Claude child agent");
         await q.stopTask(targetId);

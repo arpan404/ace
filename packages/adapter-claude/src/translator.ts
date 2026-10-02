@@ -1,10 +1,21 @@
-import type { Key } from "@ace/core";
+import type { Fact, Key } from "@ace/core";
+import type { RawPayload } from "@ace/protocol";
 import type { Translator, Frame } from "@ace/engine-api";
 import { ClaudeState } from "./state.ts";
 import { message, stream, tool, type StreamState } from "./content.ts";
 import { taskFrame, taskTick } from "./tasks.ts";
 import { requestFor, resolutionFor } from "./interactions.ts";
 import { number, object, string, type Data } from "./native.ts";
+
+function factRaw(fact: Fact): RawPayload[] {
+  if (fact.type === "item.upsert") {
+    if (fact.draft.type === "tool_call") return fact.draft.call?.raw ?? [];
+    if (fact.draft.type !== "compaction") return fact.draft.raw ?? [];
+  }
+  if (fact.type === "interaction.opened" || fact.type === "background.started")
+    return fact.raw ?? [];
+  return [];
+}
 
 export function createTranslator(init: { rootKey: Key }): Translator {
   let state = new ClaudeState(init.rootKey);
@@ -16,7 +27,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       const subtype = string(data["subtype"]);
       if (subtype === "init") {
         state.start(state.root, state.sent ? "user" : (state.wake ?? "unknown"));
-        state.lastError = undefined;
+        state.errors.delete(state.root);
         state.sent = false;
         state.wake = undefined;
         state.wakeDuringTurn = false;
@@ -26,7 +37,12 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state.emit({
           type: "activity",
           agent: state.root,
-          activity: data["status"] === "compacting" ? "compacting" : "thinking",
+          activity:
+            data["status"] === "compacting"
+              ? "compacting"
+              : subtype === "thinking_tokens" || state.contentSeen.has(state.root)
+                ? "thinking"
+                : "starting_turn",
         });
         return true;
       }
@@ -69,14 +85,17 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state.sent = true;
         state.start(state.root, "user");
       }
-      message(state, data, frame.seq);
+      message(state, data, frame.seq, streams);
       return true;
     }
     if (type === "result") {
       const aborted = string(data["terminal_reason"]).startsWith("aborted_");
-      const failed = !aborted && (data["is_error"] === true || state.lastError !== undefined);
-      if (state.wakeDuringTurn && object(data["origin"])["kind"] !== "task-notification")
-        state.emit({ type: "wake.expected", agent: state.root, until: now + 5_000 });
+      const lastError = state.errors.get(state.root);
+      const failed = !aborted && (data["is_error"] === true || lastError !== undefined);
+      if (state.wakeDuringTurn && object(data["origin"])["kind"] !== "task-notification") {
+        state.wakeUntil = now + 5_000;
+        state.emit({ type: "wake.expected", agent: state.root, until: state.wakeUntil });
+      }
       state.emit({
         type: "turn.ended",
         agent: state.root,
@@ -92,9 +111,8 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         ...(failed
           ? {
               error: {
-                kind: state.lastError?.kind ?? ("provider" as const),
-                message:
-                  state.lastError?.message ?? string(data["result"], "Claude execution failed"),
+                kind: lastError?.kind ?? ("provider" as const),
+                message: lastError?.message ?? string(data["result"], "Claude execution failed"),
               },
             }
           : {}),
@@ -107,7 +125,11 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           on: "upstream",
           message: "Claude session has not settled",
         });
-      state.emit({ type: "queue.changed", count: Math.floor(number(data["queued_turn_count"])) });
+      const queued = Math.floor(number(data["queued_turn_count"]));
+      if (queued !== state.nativeQueued) {
+        state.emit({ type: "queue.changed", count: queued });
+        state.nativeQueued = queued;
+      }
       const usage = object(data["usage"]);
       state.emit({
         type: "usage",
@@ -211,6 +233,18 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           typeof frame.data === "string" ? frame.data : "Claude frame",
         );
       }
+      const carriesRaw = state.facts.some((fact) => {
+        const payloads = factRaw(fact);
+        return payloads.some((payload) => payload.data === frame.data || payload.data === data);
+      });
+      if (!carriesRaw && frame.channel !== "lifecycle")
+        state.notice(
+          frame.data,
+          `native:${frame.seq}`,
+          state.agentFor(data),
+          "info",
+          "Claude event",
+        );
       return state.facts;
     },
     tick(now) {

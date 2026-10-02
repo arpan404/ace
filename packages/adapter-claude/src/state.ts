@@ -16,7 +16,7 @@ export class ClaudeState {
   cwd = "";
   processId = "";
   sessionState: string | undefined;
-  lastError: { kind: "provider" | "auth" | "quota" | "network"; message: string } | undefined;
+  errors = new Map<Key, { kind: "provider" | "auth" | "quota" | "network"; message: string }>();
   runTrigger: RunTrigger = "unknown";
   wakeUntil: number | undefined;
   active = new Set<Key>();
@@ -24,6 +24,7 @@ export class ClaudeState {
   toolOwners = new Map<string, Key>();
   toolKinds = new Map<string, string>();
   toolRaw = new Map<string, RawPayload[]>();
+  messageRaw = new Map<string, RawPayload[]>();
   children = new Map<string, Key>();
   nativeAgents = new Map<string, Key>();
   tasks = new Map<string, NativeTask>();
@@ -35,6 +36,9 @@ export class ClaudeState {
   wake: RunTrigger | undefined;
   wakeDuringTurn = false;
   turn = 0;
+  nativeQueued = 0;
+  contentSeen = new Set<Key>();
+  nativeByAgent = new Map<Key, string>();
   constructor(root: Key) {
     this.root = root;
   }
@@ -66,9 +70,12 @@ export class ClaudeState {
   start(agent: Key, trigger: RunTrigger): void {
     if (this.active.has(agent)) return;
     this.active.add(agent);
+    this.contentSeen.delete(agent);
     if (agent === this.root) {
       this.runTrigger = trigger;
       this.wakeUntil = undefined;
+      this.wake = undefined;
+      this.wakeDuringTurn = false;
     }
     this.emit({
       type: "turn.started",
@@ -93,13 +100,16 @@ export class ClaudeState {
       fidelity: "full",
       native: {
         provider: "claude",
-        nativeId: nativeId ?? [...this.nativeAgents].find(([, key]) => key === agent)?.[0] ?? spawn,
+        nativeId: nativeId ?? this.nativeByAgent.get(agent) ?? spawn,
       },
       cwd: this.cwd,
       background,
     });
     this.seen.add(agent);
-    if (nativeId) this.nativeAgents.set(nativeId, agent);
+    if (nativeId) {
+      this.nativeAgents.set(nativeId, agent);
+      this.nativeByAgent.set(agent, nativeId);
+    }
     if (fresh) this.start(agent, "spawn");
     return agent;
   }
@@ -133,6 +143,11 @@ export class ClaudeState {
   keepToolRaw(id: string, data: unknown, name?: string): RawPayload[] {
     const entries = [...(this.toolRaw.get(id) ?? []), raw(data, name)];
     this.toolRaw.set(id, entries);
+    return entries;
+  }
+  keepMessageRaw(item: Key, data: unknown): RawPayload[] {
+    const entries = [...(this.messageRaw.get(item) ?? []), raw(data)];
+    this.messageRaw.set(item, entries);
     return entries;
   }
   endChild(task: NativeTask, status: string): void {

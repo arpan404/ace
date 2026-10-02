@@ -1,5 +1,5 @@
 import { ClaudeState } from "./state.ts";
-import { list, number, object, raw, string, text, type Data } from "./native.ts";
+import { list, number, object, string, text, type Data } from "./native.ts";
 import { toolDetail } from "./tools.ts";
 
 export function tool(
@@ -38,7 +38,12 @@ export function tool(
   });
   state.emit({ type: "activity", agent, activity: "tool" });
 }
-export function message(state: ClaudeState, data: Data, seq: number): void {
+export function message(
+  state: ClaudeState,
+  data: Data,
+  seq: number,
+  streams: Map<string, StreamState>,
+): void {
   const agent = state.agentFor(data);
   const m = object(data["message"]);
   const role = data["type"] === "assistant" ? "assistant" : "user";
@@ -46,10 +51,19 @@ export function message(state: ClaudeState, data: Data, seq: number): void {
     state.start(agent, agent === state.root ? (state.wake ?? "unknown") : "spawn");
   const content =
     typeof m["content"] === "string" ? [{ type: "text", text: m["content"] }] : list(m["content"]);
+  if (role === "assistant" && content.length > 0) state.contentSeen.add(agent);
   const id = string(m["id"], string(data["uuid"], `${seq}`));
   for (const [index, value] of content.entries()) {
     const block = object(value);
     const type = string(block["type"]);
+    const current = streams.get(agent);
+    const streamed =
+      current?.id === id
+        ? [...current.blocks].find(([i, entry]) => entry.kind === type && !current.finalized.has(i))
+        : undefined;
+    const blockIndex = streamed?.[0] ?? index;
+    if (streamed) current?.finalized.add(blockIndex);
+    const messageItem = state.key("message", `${agent}:${id}:${blockIndex}`);
     if (type === "tool_use") tool(state, agent, block, data);
     else if (type === "tool_result") {
       const toolId = string(block["tool_use_id"]);
@@ -86,19 +100,18 @@ export function message(state: ClaudeState, data: Data, seq: number): void {
         state.notice(data, `${seq}`, agent, "info", contentText);
         continue;
       }
+      const item =
+        role === "user" && agent !== state.root ? state.key("prompt", agent) : messageItem;
       state.emit({
         type: "item.upsert",
         agent,
-        item:
-          role === "user" && agent !== state.root
-            ? state.key("prompt", agent)
-            : state.key("message", `${agent}:${id}:${index}`),
+        item,
         draft: {
           type: "message",
           role,
           parts: [{ type: "text", text: contentText }],
           complete: true,
-          raw: [raw(data)],
+          raw: state.keepMessageRaw(item, data),
         },
       });
       if (role === "assistant") state.emit({ type: "activity", agent, activity: "responding" });
@@ -106,12 +119,12 @@ export function message(state: ClaudeState, data: Data, seq: number): void {
       state.emit({
         type: "item.upsert",
         agent,
-        item: state.key("message", `${agent}:${id}:${index}`),
+        item: messageItem,
         draft: {
           type: "reasoning",
           text: string(block["thinking"]),
           complete: true,
-          raw: [raw(data)],
+          raw: state.keepMessageRaw(messageItem, data),
         },
       });
     else state.notice(data, `${seq}:${index}`, agent);
@@ -119,7 +132,7 @@ export function message(state: ClaudeState, data: Data, seq: number): void {
   if (typeof data["error"] === "string") {
     const error = data["error"];
     // Provider error metadata is authoritative. Ordinary prose mentioning auth is not.
-    state.lastError = {
+    state.errors.set(agent, {
       kind:
         error === "authentication_failed"
           ? "auth"
@@ -127,20 +140,25 @@ export function message(state: ClaudeState, data: Data, seq: number): void {
             ? "quota"
             : "provider",
       message: text(m["content"]) || error,
-    };
+    });
     state.notice(data, `error:${seq}`, agent, "error", error);
   }
 }
 export interface StreamState {
   id: string;
   blocks: Map<number, { kind: string; item: string }>;
+  finalized: Set<number>;
 }
 export function stream(state: ClaudeState, data: Data, streams: Map<string, StreamState>): void {
   const agent = state.agentFor(data);
   const event = object(data["event"]);
   const type = string(event["type"]);
   if (type === "message_start") {
-    streams.set(agent, { id: string(object(event["message"])["id"]), blocks: new Map() });
+    streams.set(agent, {
+      id: string(object(event["message"])["id"]),
+      blocks: new Map(),
+      finalized: new Set(),
+    });
     return;
   }
   const current = streams.get(agent);
@@ -150,6 +168,7 @@ export function stream(state: ClaudeState, data: Data, streams: Map<string, Stre
   if (type === "content_block_start") {
     const block = object(event["content_block"]);
     const kind = string(block["type"]);
+    state.contentSeen.add(agent);
     current.blocks.set(index, { kind, item });
     if (kind === "text" || kind === "thinking") {
       state.emit({
@@ -163,13 +182,13 @@ export function stream(state: ClaudeState, data: Data, streams: Map<string, Stre
                 role: "assistant",
                 parts: [{ type: "text", text: string(block["text"]) }],
                 complete: false,
-                raw: [raw(data)],
+                raw: state.keepMessageRaw(item, data),
               }
             : {
                 type: "reasoning",
                 text: string(block["thinking"]),
                 complete: false,
-                raw: [raw(data)],
+                raw: state.keepMessageRaw(item, data),
               },
       });
       state.emit({
