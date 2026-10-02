@@ -184,7 +184,8 @@ export async function startServer(options: ServerOptions): Promise<{
     };
     const authorize = (scope: import("@ace/protocol").DeviceScope) => {
       const actor = authenticated.get(socket);
-      return allows(actor?.revocable ? options.store.devices.get(actor.id) : actor, scope);
+      const current = actor?.revocable ? options.store.devices.get(actor.id) : actor;
+      return current?.revokedAt === null && allows(current, scope);
     };
     const sessions = createServiceSessions({
       options,
@@ -288,15 +289,14 @@ export async function startServer(options: ServerOptions): Promise<{
           revocable: message.ticket !== undefined,
         });
         try {
-          if (allows(authenticated.get(socket), "read"))
-            await options.notifications?.connectDevice(actor.id);
+          if (authorize("read")) await options.notifications?.connectDevice(actor.id);
         } catch {
           fail("device_unavailable", "Device unavailable", true);
           return;
         }
         // Authentication may finish after disconnect, revocation or daemon shutdown.
         if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
-        if (allows(authenticated.get(socket), "read")) {
+        if (authorize("read")) {
           let connections = receivers.get(device);
           if (!connections) {
             connections = new Map();
@@ -325,7 +325,7 @@ export async function startServer(options: ServerOptions): Promise<{
           subscriptions.delete(message.subscriptionId);
           break;
         case "subscribe": {
-          if (!allows(authenticated.get(socket), "read")) {
+          if (!authorize("read")) {
             fail("forbidden", "Read scope required", false, {
               subscriptionId: message.subscriptionId,
             });
@@ -368,7 +368,7 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         }
         case "output.read": {
-          if (!allows(authenticated.get(socket), "read")) {
+          if (!authorize("read")) {
             fail("forbidden", "Read scope required", false, { requestId: message.requestId });
             break;
           }
@@ -389,7 +389,7 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         }
         case "items.page": {
-          if (!allows(authenticated.get(socket), "read")) {
+          if (!authorize("read")) {
             fail("forbidden", "Read scope required", false, { requestId: message.requestId });
             break;
           }
@@ -434,13 +434,16 @@ export async function startServer(options: ServerOptions): Promise<{
             break;
           }
           try {
-            if (allows(authenticated.get(socket), "read"))
-              await options.notifications?.connectDevice(device);
+            if (authorize("read")) await options.notifications?.connectDevice(device);
           } catch {
             fail("device_unavailable", "Device unavailable", true);
             break;
           }
           if (socket.readyState !== WebSocket.OPEN || !authenticated.has(socket)) break;
+          if (!authorize(scope)) {
+            fail("forbidden", `${scope} scope required`);
+            break;
+          }
           if (message.command.deviceId !== device) {
             fail("device_mismatch", "Command device must match hello");
             break;
