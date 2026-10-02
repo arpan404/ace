@@ -76,11 +76,15 @@ export function querySearch(
       : q.mode === "substring"
         ? "search_trigram"
         : "search_prose";
-  const where: string[] = [q.scope === "threads" ? "d.kind='thread'" : "1=1"];
+  const filtered = Object.values(q.filters).some((value) => value !== undefined);
+  const where: string[] = [
+    q.scope === "threads" && (!text || filtered) ? "d.kind='thread'" : "1=1",
+  ];
   const values: SQLInputValue[] = [];
+  const expression = text ? matchExpression(text, q.mode, q.scope) : "";
   if (text) {
     where.push(`${table} MATCH ?`);
-    values.push(matchExpression(text, q.mode, q.scope));
+    values.push(expression);
   }
   for (const [value, column, operator] of [
     [q.filters.workspaceId, "t.workspace", "="],
@@ -97,11 +101,12 @@ export function querySearch(
     }
   }
   const score = text ? `bm25(${table},8.0,1.0)` : "-d.at";
+  const id = text ? `${table}.rowid` : "d.id";
   const title = text ? `snippet(${table},0,char(1),char(2),'…',24)` : "substr(d.title,1,4096)";
   const body = text && q.scope === "items" ? `snippet(${table},1,char(1),char(2),'…',40)` : "''";
   if (cursor) {
     where.push(
-      text ? `(${score}>? OR (${score}=? AND d.id>?))` : "(d.at<? OR (d.at=? AND d.id>?))",
+      text ? `(${score}>? OR (${score}=? AND ${id}>?))` : "(d.at<? OR (d.at=? AND d.id>?))",
     );
     values.push(
       text ? cursor.score : -cursor.score,
@@ -110,12 +115,23 @@ export function querySearch(
     );
   }
   values.push(q.limit + 1);
+  const metadata = `d.id,d.thread,d.item,d.agent,d.kind,d.at,t.title AS threadTitle,t.workspace,t.provider,t.status,t.seq AS statusSeq`;
+  const query = text
+    ? `WITH ranked AS MATERIALIZED (
+        SELECT ${id} AS id,${score} AS score FROM ${table}
+        ${filtered ? `JOIN search_docs d ON d.id=${table}.rowid JOIN search_threads t ON t.id=d.thread` : ""}
+        WHERE ${where.join(" AND ")} ORDER BY score,${id} LIMIT ?
+      )
+      SELECT ${metadata},r.score,${title} AS titleSnippet,${body} AS bodySnippet
+      FROM ranked r CROSS JOIN search_docs d CROSS JOIN search_threads t CROSS JOIN ${table}
+      WHERE d.id=r.id AND t.id=d.thread AND ${table}.rowid=r.id AND ${table} MATCH ?
+      ORDER BY r.score,r.id`
+    : `SELECT ${metadata},${score} AS score,${title} AS titleSnippet,${body} AS bodySnippet
+      FROM search_docs d JOIN search_threads t ON t.id=d.thread
+      WHERE ${where.join(" AND ")} ORDER BY d.at DESC,d.id LIMIT ?`;
+  if (text) values.push(expression);
   const rows = sql
-    .get(`SELECT d.id,d.thread,d.item,d.agent,d.kind,d.at,t.title AS threadTitle,t.workspace,t.provider,t.status,t.seq AS statusSeq,
-      ${score} AS score,${title} AS titleSnippet,${body} AS bodySnippet
-    FROM ${text ? `${table} JOIN search_docs d ON d.id=${table}.rowid` : "search_docs d"}
-    JOIN search_threads t ON t.id=d.thread WHERE ${where.join(" AND ")}
-    ORDER BY ${text ? "score,d.id" : "d.at DESC,d.id"} LIMIT ?`)
+    .get(query)
     .all(...values)
     .map((row) => Row.parse(row));
   const page = rows.slice(0, q.limit);

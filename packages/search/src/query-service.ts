@@ -3,7 +3,7 @@ import { SearchQuery, type SearchResults } from "@ace/protocol";
 import { SearchWorkerResult } from "./worker-protocol.ts";
 
 /** One reader with bounded admission. Ranking cannot block the daemon's event loop. */
-export class SearchQueries {
+class SearchReader {
   private readonly path: string;
   private worker: Worker | undefined;
   private nextId = 0;
@@ -65,5 +65,25 @@ export class SearchQueries {
     this.fail();
     void this.worker?.terminate();
     this.worker = undefined;
+  }
+}
+
+/** Title requests have independent admission and execution from transcript ranking. */
+export class SearchQueries {
+  private readonly transcripts: SearchReader;
+  private readonly titles: SearchReader;
+  constructor(path: string) {
+    this.transcripts = new SearchReader(path);
+    this.titles = new SearchReader(path);
+  }
+  query(input: unknown): Promise<SearchResults> {
+    const parsed = SearchQuery.safeParse(input);
+    if (!parsed.success) return Promise.reject(new Error("search_invalid_query"));
+    const reader = parsed.data.scope === "threads" ? this.titles : this.transcripts;
+    return reader.query(parsed.data);
+  }
+  close(): void {
+    this.transcripts.close();
+    this.titles.close();
   }
 }

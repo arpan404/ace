@@ -61,3 +61,24 @@ test("query admission is bounded and closing rejects outstanding work", async ()
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("palette requests remain available when transcript query admission is full", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ace-search-worker-"));
+  const path = join(directory, "events.sqlite");
+  const log = new Log(path);
+  log.append([{ type: "thread.created", thread }]);
+  const queries = new SearchQueries(path);
+  try {
+    const transcripts = Promise.allSettled(
+      Array.from({ length: 16 }, () => queries.query({ text: "Compiler" })),
+    );
+    await expect(queries.query({ text: "Compiler" })).rejects.toThrow("search_failed");
+    const palette = await queries.query({ text: "Comp", scope: "threads" });
+    expect(palette.hits.map((hit) => hit.threadId)).toEqual([thread.id]);
+    expect((await transcripts).every((result) => result.status === "fulfilled")).toBe(true);
+  } finally {
+    queries.close();
+    log.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
