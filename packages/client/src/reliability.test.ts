@@ -46,9 +46,11 @@ test("a dropped frame forces snapshot resync and stale frames cannot duplicate t
   const selected = store.select([`item:${itemId}`], (view) => view.item(itemId));
   await when(selected, Boolean);
   let dropped: string | undefined;
+  let replayDropped: (() => void) | undefined;
   faults.incoming = (event, frame, deliver) => {
     if (event.type === "events" && !dropped) {
       dropped = frame;
+      replayDropped = () => deliver(frame);
       return;
     }
     deliver(frame);
@@ -62,6 +64,8 @@ test("a dropped frame forces snapshot resync and stale frames cannot duplicate t
       .map((s) => JSON.parse(s))
       .filter((s) => s.type === "subscribe" && s.afterSeq === undefined),
   ).toHaveLength(2);
+  replayDropped?.();
+  expect(itemText(store.item(itemId))).toBe("lostfound");
   expect(store.cursor).toBe(h.daemon.store.headSeq());
 });
 
@@ -217,11 +221,13 @@ test("item and text windows are capped and older history is read on demand", asy
   expect(store.order).toEqual(["item-3", "item-4"]);
   const page = await client.itemsPage({
     threadId: h.thread.id,
-    before: ItemId.parse("item-3"),
+    before: h.daemon.store
+      .readEvents({ afterSeq: 0, limit: 100 })
+      .find((e) => e.payload.type === "item.created" && e.payload.item.id === "item-3")?.seq,
     limit: 2,
   });
   expect(page.items.map((item) => item.id)).toEqual(["item-1", "item-2"]);
-  store.page(page.items, page.itemsBefore);
+  store.page(page);
   expect(store.order).toEqual(["item-1", "item-2"]);
   h.daemon.store.appendEvents(h.thread.id, [message, delta("abcdef")]);
   await barrier(client, h.thread.id);
@@ -373,10 +379,10 @@ test("paged opaque item identifiers cannot change the item record prototype", as
   );
   const page = await client.itemsPage({
     threadId: h.thread.id,
-    before: ItemId.parse("new"),
+    before: h.daemon.store.headSeq(),
     limit: 1,
   });
-  store.page(page.items, page.itemsBefore);
+  store.page(page);
   expect(store.item("__proto__")?.id).toBe("__proto__");
   expect(store.order).toEqual(["__proto__"]);
 });

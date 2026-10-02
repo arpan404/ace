@@ -1,9 +1,12 @@
+import { MessageDeltas } from "./message-deltas.ts";
+import { PageJournal } from "./page-journal.ts";
 import { applyDelivery } from "@ace/projection";
-import type { ThreadView, EventBatch, Progress, Item } from "@ace/protocol";
+import type { ThreadView, EventBatch, Progress, Item, ItemsPage } from "@ace/protocol";
 import { Notifications, type Selection } from "./observable.ts";
 import { ClientError, type Limits } from "./types.ts";
 
 export type ThreadKey =
+  | "error"
   | "thread"
   | "order"
   | "cursor"
@@ -15,10 +18,11 @@ export type ThreadKey =
   | `task:${string}`
   | `usage:${string}`;
 export interface ThreadReader {
+  readonly error: ClientError | undefined;
   readonly thread: ThreadView["thread"] | undefined;
   readonly order: readonly string[];
   readonly cursor: number | undefined;
-  readonly itemsBefore: string | null | undefined;
+  readonly itemsBefore: number | null | undefined;
   item(id: string): Item | undefined;
   agent(id: string): ThreadView["agents"][string] | undefined;
   run(id: string): ThreadView["runs"][string] | undefined;
@@ -29,6 +33,18 @@ export interface ThreadReader {
 }
 const emptyOrder: readonly string[] = [];
 export class ThreadStore implements ThreadReader {
+  private messageDeltas = new MessageDeltas();
+  private journal: PageJournal;
+  private hydrated = new Map<string, number>();
+  private creation = new Map<string, number>();
+  private failure: ClientError | undefined;
+  get error() {
+    return this.failure;
+  }
+  fail(error: ClientError): void {
+    this.failure = error;
+    this.notifications.emit(["error"]);
+  }
   private view: ThreadView | undefined;
   private notifications: Notifications;
   private limits: Limits;
@@ -36,6 +52,7 @@ export class ThreadStore implements ThreadReader {
   private counts = new Map<string, number>();
   constructor(limits: Limits) {
     this.limits = limits;
+    this.journal = new PageJournal(limits);
     this.notifications = new Notifications(limits.listeners);
   }
   get thread() {
@@ -82,9 +99,16 @@ export class ThreadStore implements ThreadReader {
     return this.notifications.select(keys, () => selector(this), equal);
   }
   snapshot(view: ThreadView): void {
-    this.view = view;
-    this.clipped.clear();
-    this.counts.clear();
+    if (view.itemOrder.length > 200 || Object.keys(view.items).length > 200)
+      throw new ClientError("limit", "Snapshot item capacity exceeded");
+    const parentKeys = Object.keys(view.agentChildren);
+    const parentReferences = Object.values(view.agentChildren).reduce(
+      (count, children) => count + children.length,
+      0,
+    );
+    if (parentKeys.length > this.limits.entities || parentReferences > this.limits.entities)
+      throw new ClientError("limit", "Parent reference capacity exceeded");
+    const counts = new Map<string, number>();
     // Entity collections must stay bounded without discarding tree status facts.
     for (const [name, record] of Object.entries({
       agents: view.agents,
@@ -95,8 +119,15 @@ export class ThreadStore implements ThreadReader {
     })) {
       const size = Object.keys(record).length;
       if (size > this.limits.entities) throw new ClientError("limit", "Entity capacity exceeded");
-      this.counts.set(name, size);
+      counts.set(name, size);
     }
+    this.view = view;
+    this.failure = undefined;
+    this.journal.reset(view.seq);
+    this.hydrated.clear();
+    this.creation.clear();
+    this.clipped.clear();
+    this.counts = counts;
     this.trim();
     for (const id of view.itemOrder) this.clip(id);
     this.notifications.emitAll();
@@ -117,18 +148,39 @@ export class ThreadStore implements ThreadReader {
     if (!view) return "gap";
     if (message.throughSeq <= view.seq) return "ignored";
     if (message.afterSeq !== view.seq) return "gap";
+    if (message.type === "events")
+      for (const event of message.events) {
+        if (event.threadId !== view.thread.id) throw new ClientError("protocol");
+        this.journal.record(event);
+      }
     const admitted = new Set<string>();
-    const sequential = message.type === "events" ? message.events.filter((event) => {
-      const payload = event.payload;
-      if (payload.type === "item.created") { admitted.add(payload.item.id); return true; }
-      if (payload.type === "item.updated") return !!this.item(payload.item.id) || admitted.has(payload.item.id);
-      if (payload.type === "item.delta") return !!this.item(payload.itemId) || admitted.has(payload.itemId);
-      return true;
-    }) : [];
+    const sequential =
+      message.type === "events"
+        ? message.events.filter((event) => {
+            const payload = event.payload;
+            const itemId =
+              payload.type === "item.created" || payload.type === "item.updated"
+                ? payload.item.id
+                : payload.type === "item.delta"
+                  ? payload.itemId
+                  : undefined;
+            if (itemId && event.seq <= (this.hydrated.get(itemId) ?? -1)) return false;
+            if (payload.type === "item.created") this.creation.set(payload.item.id, event.seq);
+            if (payload.type === "item.created") {
+              admitted.add(payload.item.id);
+              return true;
+            }
+            if (payload.type === "item.updated")
+              return !!this.item(payload.item.id) || admitted.has(payload.item.id);
+            if (payload.type === "item.delta")
+              return !!this.item(payload.itemId) || admitted.has(payload.itemId);
+            return true;
+          })
+        : [];
     const keys = new Set<ThreadKey>(["cursor"]);
-    const changedItems = new Set<string>();
     for (const event of sequential) {
       const p = event.payload;
+      let appended = false;
       switch (p.type) {
         case "thread.created":
         case "thread.updated":
@@ -163,22 +215,27 @@ export class ThreadStore implements ThreadReader {
             view.itemOrder = [...view.itemOrder];
             keys.add("order");
           }
-          changedItems.add(p.item.id);
           keys.add(`item:${p.item.id}`);
           break;
         case "item.delta":
           {
             const item = this.item(p.itemId);
-            if (item?.type === "message")
-              view.items[p.itemId] = { ...item, parts: item.parts.map((part) => ({ ...part })) };
-            else if (item?.type === "tool_call")
+            if (item?.type === "message" && p.field === "text") {
+              view.items[p.itemId] = this.messageDeltas.append(
+                item,
+                p.append,
+                this.limits.text,
+                this.limits.items,
+                () => this.clipped.add(p.itemId),
+              );
+              appended = true;
+            } else if (item?.type === "tool_call")
               view.items[p.itemId] = {
                 ...item,
                 call: { ...item.call, detail: { ...item.call.detail } },
               };
             else if (item) view.items[p.itemId] = { ...item };
           }
-          changedItems.add(p.itemId);
           keys.add(`item:${p.itemId}`);
           break;
         case "interaction.opened":
@@ -203,10 +260,28 @@ export class ThreadStore implements ThreadReader {
           keys.add(`usage:${p.agentId}`);
           break;
       }
+      const result = applyDelivery(
+        view,
+        appended
+          ? {
+              type: "progress",
+              subscriptionId: message.subscriptionId,
+              afterSeq: view.seq,
+              throughSeq: event.seq,
+            }
+          : {
+              type: "events",
+              subscriptionId: message.subscriptionId,
+              afterSeq: view.seq,
+              throughSeq: event.seq,
+              events: [event],
+            },
+      );
+      if (result.kind !== "applied") return result.kind;
+      if (p.type === "item.created" || p.type === "item.updated") this.clip(p.item.id);
+      else if (p.type === "item.delta" && !appended) this.clip(p.itemId);
     }
-    const result = applyDelivery(view, message.type === "events" ? { ...message, events: sequential } : message);
-    if (result.kind !== "applied") return result.kind;
-    for (const id of changedItems) this.clip(id);
+    view.seq = message.throughSeq;
     const evicted = this.trim();
     if (evicted.length) {
       keys.add("order");
@@ -216,9 +291,11 @@ export class ThreadStore implements ThreadReader {
     this.notifications.emit(keys);
     return "applied";
   }
-  page(items: Item[], before: string | null): void {
+  page(page: ItemsPage): void {
     const view = this.view;
     if (!view) throw new ClientError("offline");
+    if (page.threadId !== view.thread.id) throw new ClientError("protocol");
+    const items = this.journal.reconcile(page, view.seq);
     const keys = new Set<ThreadKey>(["order", "history"]);
     const added: string[] = [];
     for (const item of items)
@@ -229,18 +306,23 @@ export class ThreadStore implements ThreadReader {
           enumerable: true,
           configurable: true,
         });
+        this.hydrated.set(item.id, Math.max(page.seq, view.seq));
         added.push(item.id);
         keys.add(`item:${item.id}`);
         this.clip(item.id);
       }
     view.itemOrder = [...added, ...view.itemOrder];
-    view.itemsBefore = before;
+    view.itemsBefore = page.itemsBefore;
     // History scrolling replaces the tail of the bounded window, never grows it.
     while (view.itemOrder.length > this.limits.items) {
       const id = view.itemOrder.pop();
       if (id) {
         delete view.items[id];
         this.clipped.delete(id);
+        this.hydrated.delete(id);
+        this.creation.delete(id);
+        this.hydrated.delete(id);
+        this.creation.delete(id);
         keys.add(`item:${id}`);
       }
     }
@@ -253,10 +335,12 @@ export class ThreadStore implements ThreadReader {
     if (count <= 0) return [];
     const removed = view.itemOrder.slice(0, count);
     view.itemOrder = view.itemOrder.slice(count);
-    view.itemsBefore = view.itemOrder[0] ?? null;
+    view.itemsBefore = this.creation.get(view.itemOrder[0] ?? "") ?? view.itemsBefore;
     for (const id of removed) {
       delete view.items[id];
       this.clipped.delete(id);
+      this.hydrated.delete(id);
+      this.creation.delete(id);
     }
     return removed;
   }
@@ -291,6 +375,6 @@ export class ThreadStore implements ThreadReader {
       }
     } else if (item.type === "reasoning" || item.type === "notice") item.text = cut(item.text);
     else if (item.type === "tool_call" && item.call.detail.kind === "shell")
-      item.call.detail.output = cut(item.call.detail.output ?? "");
+      if (item.call.detail.output?.truncated) this.clipped.add(id);
   }
 }

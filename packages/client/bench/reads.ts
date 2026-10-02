@@ -23,10 +23,13 @@ try {
           startedAt: 0,
           status: "succeeded",
           raw: [],
-          detail: { kind: "shell", command: "synthetic", output: "x".repeat(65536) },
+          detail: { kind: "shell", command: "synthetic" },
         },
       },
     },
+  ]);
+  h.daemon.store.appendEvents(h.thread.id, [
+    { type: "item.delta", itemId: itemId, agentId, field: "output", append: "x".repeat(65536) },
   ]);
   const { client }: { client: Client } = h.make({
     transport: () => webSocketTransport(() => new WebSocket(h.daemon.url)),
@@ -47,12 +50,11 @@ try {
   const start = performance.now();
   for (let i = 0; i < count; i++) {
     const result = await client.outputRead({
-      threadId: h.thread.id,
-      itemId,
+      streamId: `output:${itemId}`,
       offset: 0,
       limit: 65536,
     });
-    if (result.text.length !== 65536) throw new Error("Short read");
+    if (result.bytes.length !== 65536) throw new Error("Short read");
   }
   const seconds = (performance.now() - start) / 1000;
   console.log(
@@ -65,6 +67,27 @@ try {
     }),
   );
   subscription.release();
+  for (const history of [1000, 10000]) {
+    const payloads = Array.from({ length: history - h.daemon.store.headSeq() }, (_, i) => ({
+      type: "thread.updated" as const,
+      title: `history-${i}`,
+    }));
+    for (let i = 0; i < payloads.length; i += 100)
+      h.daemon.store.appendEvents(h.thread.id, payloads.slice(i, i + 100));
+    const coldStart = performance.now();
+    for (let i = 0; i < 1000; i++)
+      await client.outputRead({ streamId: `output:${itemId}`, offset: 65535, limit: 1 });
+    const elapsed = performance.now() - coldStart;
+    console.log(
+      JSON.stringify({
+        name: "cold one-byte indexed output.read",
+        history,
+        opsPerSecond: Math.round(1e6 / elapsed),
+        microsecondsPerOperation: elapsed,
+        peakRssMiB: process.resourceUsage().maxRSS / 1024,
+      }),
+    );
+  }
 } finally {
   await h.cleanup();
 }

@@ -40,7 +40,13 @@ export class Subscriptions {
         if (!evict) throw new ClientError("limit");
         this.cache.delete(evict[0]);
       }
-      entry = { store: new ThreadStore(this.limits), threadId, snapshotAllowed: true, refs: 0, subscriptionId: undefined };
+      entry = {
+        store: new ThreadStore(this.limits),
+        threadId,
+        snapshotAllowed: true,
+        refs: 0,
+        subscriptionId: undefined,
+      };
     }
     this.cache.delete(threadId);
     this.cache.set(threadId, entry);
@@ -83,6 +89,13 @@ export class Subscriptions {
     this.wires.clear();
     for (const entry of this.cache.values()) entry.subscriptionId = undefined;
   }
+  reject(id: string, error: ClientError): void {
+    const entry = this.wires.get(id);
+    if (!entry) return;
+    this.wires.delete(id);
+    entry.subscriptionId = undefined;
+    entry.store.fail(error);
+  }
   receive(message: ServerMessage): void {
     if (message.type !== "snapshot" && message.type !== "events" && message.type !== "progress")
       return;
@@ -90,14 +103,31 @@ export class Subscriptions {
     if (!entry) return;
     if (message.type === "snapshot") {
       if (message.view.kind !== "thread") throw new ClientError("protocol");
-      if (!entry.snapshotAllowed || (entry.store.cursor !== undefined && message.seq < entry.store.cursor)) return;
+      if (
+        !entry.snapshotAllowed ||
+        (entry.store.cursor !== undefined && message.seq < entry.store.cursor)
+      )
+        return;
       entry.snapshotAllowed = false;
       if (message.view.thread.id !== entry.threadId) throw new ClientError("protocol");
-      entry.store.snapshot(message.view);
+      try {
+        entry.store.snapshot(message.view);
+      } catch (error) {
+        if (!(error instanceof ClientError) || error.code !== "limit") throw error;
+        this.send({ type: "unsubscribe", subscriptionId: message.subscriptionId });
+        this.reject(message.subscriptionId, error);
+      }
       return;
     }
     entry.snapshotAllowed = false;
-    if (entry.store.delivery(message) !== "gap") return;
+    try {
+      if (entry.store.delivery(message) !== "gap") return;
+    } catch (error) {
+      if (!(error instanceof ClientError) || error.code !== "limit") throw error;
+      this.send({ type: "unsubscribe", subscriptionId: message.subscriptionId });
+      this.reject(message.subscriptionId, error);
+      return;
+    }
     this.send({ type: "unsubscribe", subscriptionId: message.subscriptionId });
     this.wires.delete(message.subscriptionId);
     const threadId = entry.store.thread?.id;

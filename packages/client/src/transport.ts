@@ -13,20 +13,29 @@ export function webSocketTransport(createSocket: () => SocketLike): Transport {
   let events: TransportEvents | undefined;
   return {
     open(next) {
+      socket?.close();
       events = next;
-      socket = createSocket();
-      socket.addEventListener("open", () => events?.open());
-      socket.addEventListener("message", (event) => {
-        if (typeof event.data === "string") events?.message(event.data);
+      const opened = createSocket();
+      socket = opened;
+      const current = () => socket === opened && events === next;
+      opened.addEventListener("open", () => {
+        if (current()) next.open();
+      });
+      opened.addEventListener("message", (event) => {
+        if (!current()) return;
+        if (typeof event.data === "string") next.message(event.data);
         else {
-          events?.close(4002);
-          socket?.close();
+          next.close(4002);
+          opened.close();
         }
       });
-      socket.addEventListener("close", (event) => events?.close(event.code));
-      socket.addEventListener("error", () => {
-        events?.close(1006);
-        socket?.close();
+      opened.addEventListener("close", (event) => {
+        if (current()) next.close(event.code);
+      });
+      opened.addEventListener("error", () => {
+        if (!current()) return;
+        next.close(1006);
+        opened.close();
       });
     },
     send(text) {

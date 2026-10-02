@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { ReadRequest, ReadResponse } from "./reads.ts";
 import {
   PresenceUpdate,
   NotificationRegister,
@@ -17,7 +16,29 @@ import { Item } from "./items.ts";
 import { Run, Thread } from "./thread.ts";
 
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const records = <T extends z.ZodType>(schema: T) => z.record(z.string(), schema);
+// Zod's record writer skips __proto__; retain every validated own key safely.
+const records = <T extends z.ZodType>(schema: T) =>
+  z
+    .custom<Record<string, unknown>>(
+      (value) => value !== null && typeof value === "object" && !Array.isArray(value),
+    )
+    .transform((value, context) => {
+      const result: Record<string, z.output<T>> = Object.create(null);
+      for (const [key, entry] of Object.entries(value)) {
+        const parsed = schema.safeParse(entry);
+        if (!parsed.success) {
+          context.addIssue({ code: "custom", message: "Invalid record entry", path: [key] });
+          return z.NEVER;
+        }
+        Object.defineProperty(result, key, {
+          value: parsed.data,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      }
+      return result;
+    });
 export const ThreadView = z.object({
   kind: z.literal("thread"),
   seq,
@@ -27,7 +48,8 @@ export const ThreadView = z.object({
   runs: records(Run),
   items: records(Item),
   itemOrder: z.array(z.string()),
-  itemsBefore: z.string().nullable().optional(),
+  /** Exclusive item creation-sequence cursor for older history. */
+  itemsBefore: seq.positive().nullable().default(null),
   interactions: records(Interaction),
   backgroundTasks: records(BackgroundTask),
   usage: records(UsageUpdated),
@@ -55,8 +77,14 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
     (event.payload.type === "item.delta" && event.firstSeq <= event.seq),
 );
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
+export const ItemsPage = z.object({
+  seq,
+  threadId: ThreadId,
+  items: z.array(Item).max(200),
+  itemsBefore: seq.positive().nullable(),
+});
+export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
-  ReadRequest,
   PresenceUpdate,
   NotificationRegister,
   NotificationSettings,
@@ -80,6 +108,20 @@ export const ClientMessage = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("unsubscribe"), subscriptionId: z.string().min(1) }),
   z.object({ type: z.literal("command"), command: Command }),
+  z.object({
+    type: z.literal("output.read"),
+    requestId: z.string().min(1),
+    streamId: z.string().min(1),
+    offset: seq,
+    limit: seq.positive().max(256 * 1024),
+  }),
+  z.object({
+    type: z.literal("items.page"),
+    requestId: z.string().min(1),
+    threadId: ThreadId,
+    before: seq.positive(),
+    limit: seq.positive().max(200),
+  }),
   z.object({ type: z.literal("ping") }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
@@ -89,7 +131,7 @@ export const CommandResult = z.object({
   error: z.string().optional(),
 });
 export type CommandResult = z.infer<typeof CommandResult>;
-const CoreServerMessage = z.discriminatedUnion("type", [
+export const ServerMessage = z.discriminatedUnion("type", [
   NotificationMessage,
   z.object({
     type: z.literal("welcome"),
@@ -134,10 +176,25 @@ const CoreServerMessage = z.discriminatedUnion("type", [
       message: "Progress must not move backwards",
     }),
   CommandResult.extend({ type: z.literal("commandResult") }),
-  z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
+  z.object({
+    type: z.literal("error"),
+    code: z.string(),
+    message: z.string(),
+    requestId: z.string().optional(),
+    subscriptionId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("output.data"),
+    requestId: z.string(),
+    streamId: z.string(),
+    offset: seq,
+    nextOffset: seq,
+    bytes: z.string(),
+    eof: z.boolean(),
+  }),
+  ItemsPage.extend({ type: z.literal("items.page"), requestId: z.string() }),
   z.object({ type: z.literal("pong") }),
 ]);
-export const ServerMessage = z.union([ReadResponse, CoreServerMessage]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
 export type EventBatch = Extract<ServerMessage, { type: "events" }>;

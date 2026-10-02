@@ -1,6 +1,5 @@
 import { afterEach, expect, test } from "vitest";
 import { AgentId, InteractionId, DeviceId } from "@ace/protocol";
-import type { CommandHandler } from "@ace/daemon";
 import { setup, ready, when, barrier, memoryStorage } from "./test-support.ts";
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -120,29 +119,7 @@ test("stored credentials for another device are rejected before connecting", asy
 
 test("the first interaction answer wins and a later daemon rejection becomes a failed intent", async () => {
   const interactionId = InteractionId.parse("approval");
-  const handler: CommandHandler = {
-    handle(command, store) {
-      if (command.payload.type !== "interaction.resolve")
-        return { commandId: command.id, ok: false, error: "not_implemented" };
-      const events = store.readEvents({ afterSeq: 0, limit: 100 });
-      const threadId = events[0]?.threadId;
-      if (!threadId) throw new Error("missing thread");
-      if (events.some((event) => event.payload.type === "interaction.closed"))
-        return { commandId: command.id, ok: false, error: "already_resolved" };
-      store.appendEvents(threadId, [
-        {
-          type: "interaction.closed",
-          interactionId,
-          state: "resolved",
-          closedAt: 2,
-          resolvedBy: command.deviceId,
-          resolution: command.payload.resolution,
-        },
-      ]);
-      return { commandId: command.id, ok: true };
-    },
-  };
-  const h = await setup(handler);
+  const h = await setup();
   cleanup = h.cleanup;
   h.daemon.store.appendEvents(h.thread.id, [
     {
@@ -168,11 +145,17 @@ test("the first interaction answer wins and a later daemon rejection becomes a f
     interactionId,
     resolution: { kind: "approval" as const, optionId: "allow" },
   };
-  const first = await one.client.command(payload);
-  const second = await two.client.command(payload);
-  expect(first.ok).toBe(true);
-  expect(second).toMatchObject({ ok: false, error: "already_resolved" });
-  await when(two.client.intent(second.commandId), (intent) => intent?.state === "failed");
+  const [first, second] = await Promise.all([
+    one.client.command(payload),
+    two.client.command(payload),
+  ]);
+  expect([first.ok, second.ok].filter(Boolean)).toHaveLength(1);
+  const failed = first.ok ? second : first;
+  expect(failed).toMatchObject({ ok: false, error: "already_resolved" });
+  await when(
+    (first.ok ? two : one).client.intent(failed.commandId),
+    (intent) => intent?.state === "failed",
+  );
   expect(
     h.daemon.store
       .readEvents({ afterSeq: 0, limit: 100 })

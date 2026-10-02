@@ -4,10 +4,21 @@ import { Notifications, type Selection } from "./observable.ts";
 import { ClientError, type Limits } from "./types.ts";
 
 export interface SidebarReader {
+  readonly error: ClientError | undefined;
   readonly ids: readonly string[];
   thread(id: string): ThreadListEntry | undefined;
 }
 export class Sidebar implements SidebarReader {
+  private failure: ClientError | undefined;
+  get error() {
+    return this.failure;
+  }
+  reject(id: string, error: ClientError): void {
+    if (id !== this.wire) return;
+    this.failure = error;
+    this.wire = undefined;
+    this.notifications.emit(["error"]);
+  }
   private view: ThreadListView | undefined;
   private order: readonly string[] = [];
   private notifications: Notifications;
@@ -37,7 +48,7 @@ export class Sidebar implements SidebarReader {
     return this.view && Object.hasOwn(this.view.threads, id) ? this.view.threads[id] : undefined;
   }
   select<T>(
-    keys: readonly ("ids" | `thread:${string}`)[],
+    keys: readonly ("error" | "ids" | `thread:${string}`)[],
     read: (sidebar: SidebarReader) => T,
     equal: (a: T, b: T) => boolean = Object.is,
   ): Selection<T> {
@@ -85,7 +96,12 @@ export class Sidebar implements SidebarReader {
       if (!this.snapshotAllowed || (this.view && message.seq < this.view.seq)) return;
       this.snapshotAllowed = false;
       const ids = Object.keys(message.view.threads);
-      if (ids.length > this.limits.entities) throw new ClientError("limit");
+      if (ids.length > this.limits.entities) {
+        this.send({ type: "unsubscribe", subscriptionId: message.subscriptionId });
+        this.reject(message.subscriptionId, new ClientError("limit"));
+        return;
+      }
+      this.failure = undefined;
       this.view = message.view;
       this.order = ids;
       this.notifications.emitAll();
@@ -107,7 +123,11 @@ export class Sidebar implements SidebarReader {
       if (entry) view.threads[event.threadId] = { ...entry };
       changed.add(event.threadId);
     }
-    if (this.order.length + added.length > this.limits.entities) throw new ClientError("limit");
+    if (this.order.length + added.length > this.limits.entities) {
+      this.send({ type: "unsubscribe", subscriptionId: message.subscriptionId });
+      this.reject(message.subscriptionId, new ClientError("limit"));
+      return;
+    }
     if (applyDelivery(view, message).kind === "gap") {
       this.resync();
       return;

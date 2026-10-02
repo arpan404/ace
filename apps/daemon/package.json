@@ -15,6 +15,7 @@
     "dev": "node src/cli.ts",
     "bench:mcp": "node bench/mcp.ts",
     "bench:remote": "node --expose-gc src/remote.bench.ts",
+    "bench:payloads": "node --expose-gc bench/payloads.ts",
     "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {

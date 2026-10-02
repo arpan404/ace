@@ -17,11 +17,11 @@ import {
   DeviceId,
   type ServerMessage,
   type Notification,
+  type ThreadId,
 } from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
-import { read } from "./reads.ts";
 import { SocketInput } from "./socket-input.ts";
 import { subscribe } from "./subscription.ts";
 
@@ -64,6 +64,8 @@ export interface ServerOptions {
     "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
   > &
     Partial<Pick<NotificationWorker, "revoke">>;
+  /** Local-token clients can read all threads by default. */
+  canReadThread?: (deviceId: DeviceId, threadId: ThreadId) => boolean;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
 export async function startServer(options: ServerOptions): Promise<{
@@ -150,8 +152,13 @@ export async function startServer(options: ServerOptions): Promise<{
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
     const send = (message: ServerMessage) => outbox.send(message);
-    const fail = (code: string, message: string, close = false) => {
-      send({ type: "error", code, message });
+    const fail = (
+      code: string,
+      message: string,
+      close = false,
+      scope: { requestId?: string; subscriptionId?: string } = {},
+    ) => {
+      send({ type: "error", code, message, ...scope });
       if (close) socket.close(4001, code);
     };
     const cleanup = () => {
@@ -289,13 +296,26 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         case "subscribe": {
           if (!allows(authenticated.get(socket), "read")) {
-            fail("forbidden", "Read scope required");
+            fail("forbidden", "Read scope required", false, {
+              subscriptionId: message.subscriptionId,
+            });
             break;
           }
           subscriptions.get(message.subscriptionId)?.();
           subscriptions.delete(message.subscriptionId);
           if (subscriptions.size >= 64) {
-            fail("subscription_limit", "Too many subscriptions");
+            fail("subscription_limit", "Too many subscriptions", false, {
+              subscriptionId: message.subscriptionId,
+            });
+            break;
+          }
+          if (
+            message.scope.kind === "thread" &&
+            options.canReadThread?.(device, message.scope.threadId) === false
+          ) {
+            fail("read_denied", "Thread is not readable", false, {
+              subscriptionId: message.subscriptionId,
+            });
             break;
           }
           try {
@@ -309,29 +329,53 @@ export async function startServer(options: ServerOptions): Promise<{
             );
             subscriptions.set(message.subscriptionId, stop);
           } catch {
-            fail("subscribe_failed", "Unknown thread or invalid cursor");
+            fail("subscribe_failed", "Unknown thread or invalid cursor", false, {
+              subscriptionId: message.subscriptionId,
+            });
           }
           break;
         }
-        case "request": {
+        case "output.read": {
           if (!allows(authenticated.get(socket), "read")) {
-            send({ type: "response", requestId: message.requestId, ok: false, error: "forbidden" });
+            fail("forbidden", "Read scope required", false, { requestId: message.requestId });
+            break;
+          }
+          const threadId = options.store.outputThread(message.streamId);
+          if (!threadId || options.canReadThread?.(device, threadId) === false) {
+            fail("read_denied", "Output stream is not readable", false, {
+              requestId: message.requestId,
+            });
+            break;
+          }
+          send({
+            type: "output.data",
+            requestId: message.requestId,
+            streamId: message.streamId,
+            offset: message.offset,
+            ...options.store.readOutput(message.streamId, message.offset, message.limit),
+          });
+          break;
+        }
+        case "items.page": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required", false, { requestId: message.requestId });
+            break;
+          }
+          if (
+            !options.store.getThread(message.threadId) ||
+            options.canReadThread?.(device, message.threadId) === false
+          ) {
+            fail("read_denied", "Thread is not readable", false, { requestId: message.requestId });
             break;
           }
           try {
             send({
-              type: "response",
+              type: "items.page",
               requestId: message.requestId,
-              ok: true,
-              result: read(options.store, message.payload),
+              ...options.store.readItems(message.threadId, message.before, message.limit),
             });
           } catch {
-            send({
-              type: "response",
-              requestId: message.requestId,
-              ok: false,
-              error: "read_failed",
-            });
+            fail("read_denied", "Invalid item cursor", false, { requestId: message.requestId });
           }
           break;
         }

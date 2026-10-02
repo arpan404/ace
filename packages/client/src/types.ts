@@ -63,6 +63,7 @@ export const defaultLimits: Limits = {
 };
 export class ClientError extends Error {
   readonly code:
+    | "stale"
     | "offline"
     | "timeout"
     | "aborted"

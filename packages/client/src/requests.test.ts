@@ -15,19 +15,18 @@ test("a request deadline rejects the waiter and a late response does not poison 
   let held: string | undefined;
   let deliverHeld: ((text: string) => void) | undefined;
   faults.incoming = (event, frame, deliver) => {
-    if (event.type === "response" && !held) {
+    if (event.type === "items.page" && !held) {
       held = frame;
       deliverHeld = deliver;
     } else deliver(frame);
   };
   const request = client.itemsPage({ threadId: h.thread.id, limit: 1 }, { timeoutMs: 100 });
   const rejected = expect(request).rejects.toMatchObject({ code: "timeout" });
-  await faults.wait((event) => event.type === "response");
+  await faults.wait((event) => event.type === "items.page");
   scheduler.advance(100);
   await rejected;
   if (held) deliverHeld?.(held);
   expect(await client.itemsPage({ threadId: h.thread.id, limit: 1 })).toMatchObject({
-    type: "items.page",
     items: [],
   });
 });
@@ -38,7 +37,7 @@ test("abort cancels an in-flight request and a pre-aborted read sends nothing", 
   const { client, faults } = h.make();
   await ready(client);
   faults.incoming = (event, frame, deliver) => {
-    if (event.type !== "response") deliver(frame);
+    if (event.type !== "items.page") deliver(frame);
   };
   const controller = new AbortController();
   const request = client.itemsPage(
@@ -46,7 +45,7 @@ test("abort cancels an in-flight request and a pre-aborted read sends nothing", 
     { signal: controller.signal },
   );
   const rejected = expect(request).rejects.toMatchObject({ code: "aborted" });
-  await faults.wait((event) => event.type === "response");
+  await faults.wait((event) => event.type === "items.page");
   controller.abort();
   await rejected;
   const count = faults.sent.length;
@@ -62,7 +61,7 @@ test("request capacity bounds outstanding correlations and frees capacity after 
   const { client, faults } = h.make({ limits: { requests: 1 } });
   await ready(client);
   faults.incoming = (event, frame, deliver) => {
-    if (event.type !== "response") deliver(frame);
+    if (event.type !== "items.page") deliver(frame);
   };
   const controller = new AbortController();
   const first = client.itemsPage(
@@ -126,19 +125,27 @@ test("lazy output reads fetch successive chunks without accumulating output in t
           title: "echo",
           startedAt: 1,
           status: "succeeded",
-          detail: { kind: "shell", command: "echo", output: "abcdef" },
+          detail: { kind: "shell", command: "echo" },
           raw: [],
         },
       },
     },
   ]);
-  const { client } = h.make();
+  h.daemon.store.appendEvents(h.thread.id, [
+    { type: "item.delta", itemId: id, agentId, field: "output", append: "abcdef" },
+  ]);
+  const { client, faults } = h.make();
   await ready(client);
-  const stream = client.output({ threadId: h.thread.id, itemId: id, offset: 0, limit: 2 });
-  expect(await stream.next()).toEqual({ value: "ab", done: false });
-  expect(await stream.next()).toEqual({ value: "cd", done: false });
-  expect(await stream.next()).toEqual({ value: "ef", done: false });
+  const stream = client.output({ streamId: `output:${id}`, offset: 0, limit: 2 });
+  const reads = () => faults.sent.filter((s) => JSON.parse(s).type === "output.read").length;
+  expect(reads()).toBe(0);
+  expect(await stream.next()).toEqual({ value: new TextEncoder().encode("ab"), done: false });
+  expect(reads()).toBe(1);
+  expect(await stream.next()).toEqual({ value: new TextEncoder().encode("cd"), done: false });
+  expect(await stream.next()).toEqual({ value: new TextEncoder().encode("ef"), done: false });
+  expect(reads()).toBe(3);
   expect((await stream.next()).done).toBe(true);
+  expect(reads()).toBe(3);
 });
 
 test("oversized frames fail without buffering or parsing more traffic", async () => {
@@ -146,14 +153,32 @@ test("oversized frames fail without buffering or parsing more traffic", async ()
   cleanup = h.cleanup;
   const { client, faults } = h.make({ limits: { frameBytes: 300 } });
   await ready(client);
+  let late: (() => void) | undefined;
   faults.incoming = (event, frame, deliver) => {
-    if (event.type === "response") deliver(" ".repeat(301));
-    else deliver(frame);
+    if (event.type === "items.page") {
+      late = () =>
+        deliver(
+          JSON.stringify({
+            type: "welcome",
+            hostId: "late-daemon",
+            protocolVersion: 1,
+            headSeq: 0,
+          }),
+        );
+      deliver(" ".repeat(301));
+    } else deliver(frame);
   };
   const request = client.itemsPage({ threadId: h.thread.id, limit: 1 });
   await expect(request).rejects.toMatchObject({ code: "offline" });
   expect(client.state).toBe("fatal");
   expect(client.error?.code).toBe("limit");
+  late?.();
+  const sent = faults.sent.length;
+  await expect(client.itemsPage({ threadId: h.thread.id, limit: 1 })).rejects.toMatchObject({
+    code: "offline",
+  });
+  expect(client.error?.code).toBe("limit");
+  expect(faults.sent).toHaveLength(sent);
 });
 
 test("output read byte limits preserve Unicode characters across chunks", async () => {
@@ -177,18 +202,22 @@ test("output read byte limits preserve Unicode characters across chunks", async 
           startedAt: 1,
           status: "succeeded",
           raw: [],
-          detail: { kind: "shell", command: "echo", output: "éA🌍Z" },
+          detail: { kind: "shell", command: "echo" },
         },
       },
     },
   ]);
+  h.daemon.store.appendEvents(h.thread.id, [
+    { type: "item.delta", itemId: id, agentId, field: "output", append: "éA🌍Z" },
+  ]);
   const { client } = h.make();
   await ready(client);
-  const first = await client.outputRead({ threadId: h.thread.id, itemId: id, offset: 0, limit: 3 });
-  expect(first).toMatchObject({ text: "éA", nextOffset: 2, done: false });
-  const next = await client.outputRead({ threadId: h.thread.id, itemId: id, offset: 2, limit: 4 });
-  expect(next).toMatchObject({ text: "🌍", nextOffset: 4, done: false });
-  expect(
-    await client.outputRead({ threadId: h.thread.id, itemId: id, offset: 4, limit: 1 }),
-  ).toMatchObject({ text: "Z", done: true });
+  const first = await client.outputRead({ streamId: `output:${id}`, offset: 0, limit: 3 });
+  expect(first).toMatchObject({ bytes: new TextEncoder().encode("éA"), nextOffset: 3, eof: false });
+  const next = await client.outputRead({ streamId: `output:${id}`, offset: 3, limit: 4 });
+  expect(next).toMatchObject({ bytes: new TextEncoder().encode("🌍"), nextOffset: 7, eof: false });
+  expect(await client.outputRead({ streamId: `output:${id}`, offset: 7, limit: 1 })).toMatchObject({
+    bytes: new TextEncoder().encode("Z"),
+    eof: true,
+  });
 });

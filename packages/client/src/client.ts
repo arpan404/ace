@@ -1,10 +1,10 @@
+import { decodeBase64 } from "./base64.ts";
 import {
   CommandResult,
-  ReadPayload,
+  ClientMessage,
+  ServerMessage,
   ItemsPage,
-  OutputRead,
   type CommandPayload,
-  type ReadPayload as Payload,
 } from "@ace/protocol";
 import { Connection } from "./connection.ts";
 import { Intents, type Intent } from "./intents.ts";
@@ -58,12 +58,18 @@ export class Client {
               .acknowledge(message)
               .catch(() => this.connection.fail(new ClientError("storage")));
             break;
-          case "response":
-            if (message.ok) this.requests.resolve(message.requestId, message.result);
-            else this.requests.reject(message.requestId, new ClientError("daemon", message.error));
+          case "items.page":
+          case "output.data":
+            this.requests.resolve(message.requestId, message);
             break;
           case "error":
-            this.connection.fail(new ClientError("daemon", message.code));
+            if (message.requestId)
+              this.requests.reject(message.requestId, new ClientError("daemon", message.code));
+            else if (message.subscriptionId) {
+              const error = new ClientError("daemon", message.code);
+              this.subscriptions.reject(message.subscriptionId, error);
+              this.sidebar.reject(message.subscriptionId, error);
+            } else this.connection.fail(new ClientError("daemon", message.code));
             break;
           default:
             this.subscriptions.receive(message);
@@ -158,41 +164,70 @@ export class Client {
       );
     });
   }
-  private read<T>(
-    payload: Payload,
+  private async read<T>(
+    payload:
+      | { type: "items.page"; threadId: string; before: number; limit: number }
+      | { type: "output.read"; streamId: string; offset: number; limit: number },
     decode: (value: unknown) => T,
     options: RequestOptions,
   ): Promise<T> {
-    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
-    const parsed = ReadPayload.parse(payload);
+    if (this.state !== "ready" || this.closed) throw new ClientError("offline");
     const id = this.options.id();
+    const parsed = ClientMessage.safeParse({ ...payload, requestId: id });
+    if (!parsed.success) throw new ClientError("protocol", "Invalid read parameters");
     return this.requests.wait(id, decode, options, () => {
-      if (!this.connection.send({ type: "request", requestId: id, payload: parsed }))
-        throw new ClientError("offline");
+      if (!this.connection.send(parsed.data)) throw new ClientError("offline");
     });
   }
   itemsPage(
-    payload: Omit<Extract<Payload, { type: "items.page" }>, "type">,
+    payload: { threadId: string; before?: number | undefined; limit: number },
     options: RequestOptions = {},
   ) {
-    return this.read({ type: "items.page", ...payload }, ItemsPage.parse, options);
+    return this.read(
+      { type: "items.page", ...payload, before: payload.before ?? Number.MAX_SAFE_INTEGER },
+      (value) => {
+        const page = ItemsPage.parse(value);
+        if (page.threadId !== payload.threadId) throw new ClientError("protocol");
+        return page;
+      },
+      options,
+    );
   }
   outputRead(
-    payload: Omit<Extract<Payload, { type: "output.read" }>, "type">,
+    payload: { streamId: string; offset: number; limit: number },
     options: RequestOptions = {},
   ) {
-    return this.read({ type: "output.read", ...payload }, OutputRead.parse, options);
+    return this.read(
+      { type: "output.read", ...payload },
+      (value) => {
+        const result = ServerMessage.parse(value);
+        if (
+          result.type !== "output.data" ||
+          result.streamId !== payload.streamId ||
+          result.offset !== payload.offset
+        )
+          throw new ClientError("protocol");
+        const bytes = decodeBase64(result.bytes);
+        if (
+          bytes.length > payload.limit ||
+          result.nextOffset !== payload.offset + bytes.length ||
+          (!result.eof && !bytes.length)
+        )
+          throw new ClientError("protocol");
+        return { ...result, bytes };
+      },
+      options,
+    );
   }
   async *output(
-    payload: Omit<Extract<Payload, { type: "output.read" }>, "type">,
+    payload: { streamId: string; offset: number; limit: number },
     options: RequestOptions = {},
-  ): AsyncGenerator<string> {
+  ): AsyncGenerator<Uint8Array> {
     let offset = payload.offset;
     for (;;) {
       const result = await this.outputRead({ ...payload, offset }, options);
-      if (result.text) yield result.text;
-      if (result.done) return;
-      if (result.nextOffset <= offset) throw new ClientError("protocol");
+      if (result.bytes.length) yield result.bytes;
+      if (result.eof) return;
       offset = result.nextOffset;
     }
   }

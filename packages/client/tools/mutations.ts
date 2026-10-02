@@ -3,6 +3,34 @@ import { spawnSync } from "node:child_process";
 
 const mutations = [
   {
+    name: "result-type decoder bypassed",
+    file: "requests.ts",
+    before: "resolve(decode(value));",
+    after: "resolve(value as T);",
+    test: "a correlated response of the wrong result type",
+  },
+  {
+    name: "daemon identity guard removed",
+    file: "client.ts",
+    before: "if (this.hostId && this.hostId !== message.hostId)",
+    after: "if (false)",
+    test: "a reconnect to a different daemon identity",
+  },
+  {
+    name: "incremental entity cap removed",
+    file: "thread-store.ts",
+    before: "if (count > this.limits.entities)",
+    after: "if (false)",
+    test: "incremental entity overflow",
+  },
+  {
+    name: "snapshot item-count cap removed",
+    file: "thread-store.ts",
+    before: "if (view.itemOrder.length > 200 || Object.keys(view.items).length > 200)",
+    after: "if (false)",
+    test: "a snapshot exceeding the wire item budget",
+  },
+  {
     name: "retry cap removed",
     file: "lifecycle.ts",
     before: "Math.min(cap, base * 2 ** Math.min(attempt, 30)) * random",
@@ -74,9 +102,9 @@ const mutations = [
   },
   {
     name: "delta mutates prior selected item",
-    file: "thread-store.ts",
-    before: "parts: item.parts.map((part) => ({ ...part }))",
-    after: "parts: item.parts",
+    file: "message-deltas.ts",
+    before: "previous.tail ? [{ ...previous.tail }] : []",
+    after: "previous.tail ? [previous.tail] : []",
     test: "only the changed item",
   },
   {

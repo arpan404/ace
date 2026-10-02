@@ -14,7 +14,7 @@ const thread = Thread.parse({
 });
 const itemId = ItemId.parse("message");
 const agentId = AgentId.parse("agent");
-function run(name: string, matching: number, unrelated: number): void {
+function run(name: string, matching: number, unrelated: number, parts = 1): void {
   const store = new ThreadStore(defaultLimits);
   const view = createThreadView(thread);
   view.items[itemId] = {
@@ -24,7 +24,7 @@ function run(name: string, matching: number, unrelated: number): void {
     createdAt: 0,
     complete: false,
     role: "assistant",
-    parts: [{ type: "text", text: "" }],
+    parts: Array.from({ length: parts }, () => ({ type: "text", text: "" })),
     synthetic: false,
     raw: [],
   };
@@ -86,5 +86,6 @@ function run(name: string, matching: number, unrelated: number): void {
   for (const stop of stops) stop();
 }
 run("event application", 0, 0);
+run("200-part message application", 0, 0, 200);
 run("one observer plus 1000 unrelated selectors", 1, 1000);
 run("fan-out to 100 matching selectors", 100, 1000);
