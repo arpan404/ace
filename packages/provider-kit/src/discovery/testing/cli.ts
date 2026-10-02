@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+export { nodeBinary } from "../../testing/cli.ts";
+
 export type Output = { stdout: string; stderr: string; code: number };
 export type Capture = { version: Output; auth: Output };
 const empty = { stdout: "", stderr: "", code: 0 };
@@ -30,13 +32,6 @@ export async function binary(root: string, name: string, capture: Partial<Captur
     `#!/bin/sh\nif [ "$1" = '--version' ]; then\n${print(capture.version ?? empty)}\nelse\n${print(capture.auth ?? empty)}\nfi\n`,
     { mode: 0o755 },
   );
-  return path;
-}
-/** Keep extensionless Node stand-ins in CommonJS even beneath an ESM package. */
-export async function nodeBinary(root: string, name: string, source: string) {
-  await writeFile(join(root, "package.json"), '{"type":"commonjs"}\n');
-  const path = join(root, name);
-  await writeFile(path, `#!${process.execPath}\n${source}\n`, { mode: 0o755 });
   return path;
 }
 export async function fixture(provider: string): Promise<Capture> {
