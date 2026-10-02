@@ -11,3 +11,5 @@ coverage/
 .recordings/
 
 native/screen-helper/build/
+
+native/screen-helper-windows/target/

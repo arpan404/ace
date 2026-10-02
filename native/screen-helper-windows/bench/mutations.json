@@ -1,0 +1,92 @@
+[
+  {
+    "source": "codec.rs",
+    "mutation": "Accept oversized/incomplete command lines",
+    "test": "fragmented_lines_preserve_unicode_and_reject_oversize_or_incomplete_commands",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "codec.rs",
+    "mutation": "Return ok:true for a failed command or lose reply correlation",
+    "test": "replies_preserve_correlation_and_use_typed_errors_only_in_v2",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "coordinates.rs",
+    "mutation": "Use 192 instead of 96 for DPI conversion or ignore negative monitor origin",
+    "test": "logical_points_map_through_dpi_and_negative_monitor_origins",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "tiles.rs",
+    "mutation": "Treat changed hashes as unchanged",
+    "test": "identical_pixels_emit_nothing_and_a_changed_edge_tile_is_reported",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "stream.rs",
+    "mutation": "Update hashes inside a rejected pacing slot or increment sequence twice",
+    "test": "frame_pacing_keeps_the_final_change_and_sequence_continues_after_resume",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "tree.rs",
+    "mutation": "Do not decrement the node budget or omit offscreen pruning",
+    "test": "tree_caps_bound_provider_work_prune_offscreen_and_find_without_children",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "tree.rs",
+    "mutation": "Continue searching after reaching the result limit",
+    "test": "finding_controls_stops_provider_work_at_the_result_limit",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "references.rs",
+    "mutation": "Reuse an expired reference or evict the refreshed element",
+    "test": "references_survive_refresh_but_never_alias_evicted_or_replaced_targets",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "errors.rs",
+    "mutation": "Map access denied or stale element errors to internal",
+    "test": "hresults_distinguish_stale_elements_uipi_timeouts_and_unsupported_patterns",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "input.rs",
+    "mutation": "Drop low surrogates or omit key/button releases",
+    "test": "unicode_input_preserves_surrogates_and_drag_pairs_are_validated_before_injection",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "semantic.rs",
+    "mutation": "Allow provider denial/timeout to trigger an input fallback",
+    "test": "only_an_unsupported_pattern_can_fall_back_and_the_reply_reports_its_centre",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "tree.rs",
+    "mutation": "Ignore the aggregate reply byte budget",
+    "test": "large_names_truncate_the_tree_before_the_reply_byte_cap",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/helper-owner.ts",
+    "mutation": "Create a new helper for each inspection/session",
+    "test": "one host helper serves inspections, restarts and semantic tools with controller checks",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/session.ts",
+    "mutation": "Keep capture running after the last viewer leaves",
+    "test": "capture suspends without viewers and a fresh screenshot resumes it",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "packages/screen/src/session-ui.ts",
+    "mutation": "Do not recheck ownership after a delayed tree read",
+    "test": "a UI read cannot return after controller ownership changes",
+    "status": "not executed (tests run at merge)"
+  }
+]
