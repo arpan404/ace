@@ -126,7 +126,7 @@ it("backfills version-two work entities and item metadata once, then keeps appen
     store.close();
     const db = new DatabaseSync(path);
     db.exec(
-      "DROP TABLE item_text_chunks; DROP TABLE item_heads; DROP TABLE view_entities; DROP TABLE status_migration; UPDATE schema_version SET version = 2",
+      "DROP TABLE text_encoding_migration; DROP TABLE item_text_chunks; DROP TABLE item_heads; DROP TABLE view_entities; DROP TABLE status_migration; UPDATE schema_version SET version = 2",
     );
     db.close();
     store = new Store(path);

@@ -48,6 +48,7 @@ export class PayloadStore {
   }
   /** Upgrade existing event logs once, preserving event ids and host sequences. */
   initialize(): void {
+    this.items.initialize();
     if (this.db.prepare("SELECT id FROM payload_migration WHERE id = 1").get()) return;
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -173,7 +174,7 @@ export class PayloadStore {
           .prepare("UPDATE output_streams SET size = size + ? WHERE id = ?")
           .run(bytes.length, streamId);
       }
-      applyDelta(item, p.field, p.append);
+      if (!applyDelta(item, p.field, p.append)) return;
       const body = JSON.stringify(item);
       this.db.prepare("UPDATE items SET item = ? WHERE id = ?").run(body, item.id);
       this.db

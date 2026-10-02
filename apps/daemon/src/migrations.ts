@@ -58,6 +58,12 @@ const migrations = [
     PRIMARY KEY(thread_id, collection, id)
   );
   CREATE TABLE status_migration (id INTEGER PRIMARY KEY);`,
+  `ALTER TABLE item_heads ADD COLUMN text_last_unit INTEGER NOT NULL DEFAULT -1;
+  UPDATE item_text_chunks SET append = COALESCE(
+    (SELECT payload -> '$.append' FROM events WHERE seq = item_text_chunks.seq AND type = 'item.delta'),
+    json_quote(append)
+  );
+  CREATE TABLE text_encoding_migration (id INTEGER PRIMARY KEY);`,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");
