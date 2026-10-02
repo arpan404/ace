@@ -69,7 +69,7 @@ restores the file in `finally`. All 12 were killed and reverted:
 
 ## Non-gating benchmark
 
-`bun run --filter @ace/orchestrator benchmark` uses Node and 300,000 operations
+`bun run --filter @ace/orchestrator benchmark` uses Node 26.8.1 and 300,000 operations
 per path per lane count. Each lane changes thread phase every round, so the
 status benchmark includes event emission and counter updates. Both paths parse
 the public fact schema. Numbers are measurements on this machine, not CI limits.
