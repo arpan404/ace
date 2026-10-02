@@ -12,7 +12,7 @@ export function isSecretKey(key: string): boolean {
   return SECRET_KEY.test(key);
 }
 
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+const EMAIL = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const SECRETS: readonly RegExp[] = [
   /\bAIza[A-Za-z0-9_-]{35}/g,
   /\bxox[baprs]-[A-Za-z0-9-]{10,}/g,
@@ -23,7 +23,7 @@ const SECRETS: readonly RegExp[] = [
   /\bsk-[A-Za-z0-9_-]{16,}/g,
   /\bgh[opsur]_[A-Za-z0-9]{20,}/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
-  /\b(?:Bearer|Basic)\s+[A-Za-z0-9+/=._-]+/g,
+  /\b(?:Bearer|Basic)\s+[A-Za-z0-9+/=._-]+/gi,
 ];
 /** JSON string fields that identify a device, account or organisation. */
 const IDENTIFYING_KEYS =
@@ -86,27 +86,56 @@ export function createRedactor(ctx: RedactionContext): (line: string) => string 
   };
   const identity =
     /^(installationId|deviceId|accountId|account_uuid|userId|user_id|organizationId|organization_uuid|orgId)$/;
-  function clean(value: unknown): unknown {
-    if (typeof value === "string") return scrub(value);
-    if (Array.isArray(value)) return value.map(clean);
-    if (value && typeof value === "object") {
-      const result: Record<string, unknown> = {};
-      for (const [key, item] of Object.entries(value)) {
-        Object.defineProperty(result, scrub(key), {
-          enumerable: true,
-          value: isSecretKey(key) ? "<SECRET>" : identity.test(key) ? "<ID>" : clean(item),
-        });
-      }
-      return result;
-    }
-    return value;
-  }
   return (line) => {
+    if (line.length > 262144) return '"<OVERSIZED REDACTED>"';
+    let remaining = 10000;
+    function clean(value: unknown, depth: number): unknown {
+      if (--remaining < 0 || depth > 32) return "<OMITTED>";
+      if (typeof value === "string") {
+        const text = value.trimStart();
+        if (text.startsWith("{") || text.startsWith("[")) {
+          try {
+            const embedded: unknown = JSON.parse(value);
+            return JSON.stringify(clean(embedded, depth + 1));
+          } catch {
+            return "<INVALID STRUCTURED DATA OMITTED>";
+          }
+        }
+        return scrub(value);
+      }
+      if (Array.isArray(value))
+        return value.slice(0, remaining).map((item) => clean(item, depth + 1));
+      if (value && typeof value === "object") {
+        const result: Record<string, unknown> = {};
+        for (const [key, item] of Object.entries(value)) {
+          if (remaining <= 0) break;
+          Object.defineProperty(result, scrub(key), {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: isSecretKey(key)
+              ? "<SECRET>"
+              : identity.test(key)
+                ? "<ID>"
+                : clean(item, depth + 1),
+          });
+        }
+        return result;
+      }
+      return value;
+    }
+    let value: unknown;
     try {
-      const value: unknown = JSON.parse(line);
-      return JSON.stringify(clean(value));
+      value = JSON.parse(line);
     } catch {
+      // A damaged structured record must never fall back to weaker lexical rules.
+      if (/^\s*[[{"]/.test(line)) return '"<INVALID STRUCTURED DATA OMITTED>"';
       return scrub(line);
+    }
+    try {
+      return JSON.stringify(clean(value, 0));
+    } catch {
+      return '"<REDACTION FAILED: RECORD OMITTED>"';
     }
   };
 }
