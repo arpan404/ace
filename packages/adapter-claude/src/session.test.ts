@@ -298,6 +298,10 @@ test("selected question identities survive native comma serialization", async ()
     const id = String(object(object(request.data)["options"])["requestId"]);
     const resolution = { kind: "question" as const, answers: { "Tabs?": ["Tabs", "Spaces, two"] } };
     await h.session.resolve(id, resolution);
+    const native = object(
+      object(object((await h.wait(subtype("fake_resolution"))).data)["response"])["response"],
+    );
+    expect(object(native["updatedInput"])["answers"]).toEqual({ "Tabs?": ["Tabs", "Spaces, two"] });
     const translator = createTranslator({ rootKey: "root" });
     const state = createThreadState({
       threadId: ThreadId.parse("answers"),

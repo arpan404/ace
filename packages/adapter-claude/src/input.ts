@@ -64,7 +64,10 @@ export function permissionResult(
       updatedInput: {
         ...input,
         answers: Object.fromEntries(
-          Object.entries(resolution.answers).map(([q, answers]) => [q, answers.join(", ")]),
+          Object.entries(resolution.answers).map(([q, answers]) => [
+            q,
+            answers.length === 1 ? answers[0] : answers,
+          ]),
         ),
       },
     };
