@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { ContextService } from "@ace/context";
 import { ThreadId } from "@ace/protocol";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { remoteListener } from "./network.ts";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
@@ -23,6 +25,8 @@ export async function startDaemon(
   tokenPath: string;
   store: Store;
   context: ContextService;
+  remoteUrl?: string;
+  fingerprint?: string;
   close(): Promise<void>;
 }> {
   const unlock = acquireLock(config.dataDir);
@@ -47,8 +51,10 @@ export async function startDaemon(
       },
     });
     const ownedContext = context;
+    const remote = await remoteListener(config);
     const server = await startServer({
       context,
+      ...(remote ? { remote } : {}),
       port: config.port,
       token,
       hostId,
@@ -56,6 +62,13 @@ export async function startDaemon(
       handler,
       log: (error) => log("error", "WebSocket failure", error),
     });
+    const endpointPath = join(config.dataDir, "daemon-endpoint");
+    try {
+      writeFileSync(endpointPath, server.httpUrl, { mode: 0o600 });
+    } catch (error) {
+      await server.close();
+      throw error;
+    }
     let maintaining = false;
     const maintain = () => {
       if (maintaining) return;
@@ -73,6 +86,9 @@ export async function startDaemon(
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
+      ...(server.remoteUrl && server.fingerprint
+        ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
+        : {}),
       tokenPath,
       store,
       context: ownedContext,
@@ -86,7 +102,11 @@ export async function startDaemon(
               await ownedContext.close();
               ownedStore.close();
             } finally {
-              unlock();
+              try {
+                unlinkSync(endpointPath);
+              } finally {
+                unlock();
+              }
             }
           }
         })();

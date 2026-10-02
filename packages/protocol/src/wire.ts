@@ -49,12 +49,17 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ClientMessage = z.discriminatedUnion("type", [
   ContextRequest,
-  z.object({
-    type: z.literal("hello"),
-    protocolVersion: z.literal(1),
-    deviceId: DeviceId,
-    token: z.string(),
-  }),
+  z
+    .object({
+      type: z.literal("hello"),
+      protocolVersion: z.literal(1),
+      deviceId: DeviceId,
+      token: z.string().optional(),
+      ticket: z.string().optional(),
+    })
+    .refine((hello) => (hello.token !== undefined) !== (hello.ticket !== undefined), {
+      message: "Exactly one credential is required",
+    }),
   z.object({
     type: z.literal("subscribe"),
     subscriptionId: z.string().min(1),

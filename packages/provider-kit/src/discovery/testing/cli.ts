@@ -6,9 +6,11 @@ export type Output = { stdout: string; stderr: string; code: number };
 export type Capture = { version: Output; auth: Output };
 const empty = { stdout: "", stderr: "", code: 0 };
 const directories: string[] = [];
-export async function directory() {
-  const path = await mkdtemp(join(tmpdir(), "provider-kit-discovery-"));
+export async function directory(base = tmpdir()) {
+  const path = await mkdtemp(join(base, "provider-kit-discovery-"));
   directories.push(path);
+  // Extensionless Node stand-ins must not inherit the checkout's ESM package scope.
+  await writeFile(join(path, "package.json"), JSON.stringify({ type: "commonjs" }));
   return path;
 }
 export async function cleanupDirectories() {
