@@ -30,6 +30,8 @@ export interface ProviderAdapter {
 }
 
 export interface Translator {
+  /** Combine with core.nextDeadline(state, translator.nextDeadline?.()). */
+  nextDeadline?(): number | undefined;
   /** Pure and synchronous. Never throws on provider data. */
   translate(frame: Frame, now: number): Fact[];
   /** Facts implied by time passing, including grace windows and wake expiry. */
@@ -37,6 +39,8 @@ export interface Translator {
 }
 
 export interface SessionContext {
+  /** Engine root identity, also used by targeted interrupts. */
+  rootKey?: Key;
   threadId: ThreadId;
   cwd: string;
   model?: string;

@@ -129,10 +129,13 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
       exitProcess(state, fact, ctx, events);
       break;
     case "process.started":
+      state.queueSources.provider = 0;
+      state.queueCount = state.queueSources.engine;
       delete state.processExit;
       break;
     case "queue.changed": {
-      state.queueCount = fact.count;
+      state.queueSources[fact.source ?? "engine"] = fact.count;
+      state.queueCount = state.queueSources.engine + state.queueSources.provider;
       break;
     }
     case "signal":

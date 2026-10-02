@@ -43,6 +43,12 @@ it("schedules staggered nested wakes with linear agent reads and settles the tre
     });
     expect(nextDeadline(state)).toBe(200);
     expect(reads).toBeLessThanOrEqual(12 * (count + 1));
+    reads = 0;
+    expect(nextDeadline(state, 150)).toBe(150);
+    expect(reads).toBeLessThanOrEqual(12 * (count + 1));
+    reads = 0;
+    expect(nextDeadline(state, 300)).toBe(200);
+    expect(reads).toBeLessThanOrEqual(12 * (count + 1));
     apply(state, { type: "tick" }, { ...ctx, now: 200 });
     reads = 0;
     expect(nextDeadline(state)).toBe(201);
@@ -53,6 +59,31 @@ it("schedules staggered nested wakes with linear agent reads and settles the tre
     });
     expect(nextDeadline(state)).toBeUndefined();
   }
+});
+
+it("provider deadlines schedule startup without agents and ignore invalid instants", () => {
+  const state = createThreadState({
+    threadId: ThreadId.parse("t"),
+    config: { provider: "claude", silenceMs: 10 },
+  });
+  expect(nextDeadline(state)).toBeUndefined();
+  expect(nextDeadline(state, 0)).toBe(0);
+  expect(nextDeadline(state, 150)).toBe(150);
+  for (const invalid of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])
+    expect(nextDeadline(state, invalid)).toBeUndefined();
+});
+
+it("provider maintenance survives live tools and competes with silence until process exit", () => {
+  const h = harness("claude", { silenceMs: 10 });
+  h.start();
+  h.shell();
+  expect(nextDeadline(h.state)).toBeUndefined();
+  expect(nextDeadline(h.state, 150)).toBe(150);
+  h.send({ type: "turn.started", agent: "quiet", trigger: "user" }, 110);
+  expect(nextDeadline(h.state, 130)).toBe(121);
+  expect(nextDeadline(h.state, 120)).toBe(120);
+  h.send({ type: "process.exited", deliberate: true }, 200);
+  expect(nextDeadline(h.state, 0)).toBeUndefined();
 });
 
 it("groups live work once even when every sibling has a distinct silence candidate", () => {

@@ -160,5 +160,11 @@ transition can unblock ancestor silence, that descendant transition is scheduled
 first and eligibility is recomputed after its tick. Retained summaries are linear
 in the current tree and live work.
 
+Pass the translator's `nextDeadline?.()` as the second argument to
+`nextDeadline(state, providerDeadline)` when provider maintenance needs its own
+tick. Core selects the earliest valid provider or core deadline, including when
+live tools suppress silence. Provider deadlines must be nonnegative safe
+integers. A process exit stops both kinds of scheduling.
+
 The deferred pre-root diagnostic admission limit is tracked in
 [the follow-up contract](../../docs/follow-ups/diagnostic-admission.md).

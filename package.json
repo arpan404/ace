@@ -16,7 +16,8 @@
     "test": "vitest run",
     "check": "bun run fmt:check && bun run lint && bun run check:size && bun run typecheck && bun run test",
     "record": "bun run --filter @ace/recorder record",
-    "check:size": "node scripts/check-file-size.ts"
+    "check:size": "node scripts/check-file-size.ts",
+    "postinstall": "bun run --filter @ace/workspace build:native"
   },
   "devDependencies": {
     "@ace/provider-kit": "workspace:*",

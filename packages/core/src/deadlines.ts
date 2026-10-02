@@ -7,9 +7,14 @@ import { transportSignalAt } from "./liveness.ts";
  * scheduled first, then the next pass observes whether ancestors can fall silent.
  * This keeps one current-relevance summary, rather than a tree cache per time.
  */
-export function nextDeadline(state: ThreadState): number | undefined {
+export function nextDeadline(state: ThreadState, providerDeadline?: number): number | undefined {
   if (state.processExit) return undefined;
-  let next: number | undefined;
+  let next =
+    providerDeadline !== undefined &&
+    Number.isSafeInteger(providerDeadline) &&
+    providerDeadline >= 0
+      ? providerDeadline
+      : undefined;
   const silenceDeadline =
     state.config.liveness === "transport" ? undefined : silenceDeadlineReader(state);
   const transportDeadline = Math.floor(transportSignalAt(state) + state.config.silenceMs) + 1;
