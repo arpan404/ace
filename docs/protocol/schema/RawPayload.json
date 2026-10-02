@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/RawPayload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "data": {},
+    "name": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "data"
+  ],
+  "type": "object"
+}

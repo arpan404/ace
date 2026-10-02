@@ -41,3 +41,5 @@ export {
   openCodeDiscoveryApi,
   type CodexMcpStatusPort,
 } from "./discovery-apis.ts";
+
+export { builtinToolCatalog } from "./catalog.ts";

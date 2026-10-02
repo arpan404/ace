@@ -47,11 +47,13 @@ export const SubscriptionScope = z.discriminatedUnion("kind", [
 export type SubscriptionScope = z.infer<typeof SubscriptionScope>;
 
 /** First covered sequence when consecutive deltas have been concatenated in transit. */
-export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().optional() }).refine(
-  (event) =>
-    event.firstSeq === undefined ||
-    (event.payload.type === "item.delta" && event.firstSeq <= event.seq),
-);
+export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().optional() })
+  .refine(
+    (event) =>
+      event.firstSeq === undefined ||
+      (event.payload.type === "item.delta" && event.firstSeq <= event.seq),
+  )
+  .meta({ "x-ace-constraint": "firstSeq is allowed only on item.delta and must be <= seq." });
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ClientMessage = z.discriminatedUnion("type", [
   PresenceUpdate,
@@ -68,7 +70,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
     })
     .refine((hello) => (hello.token !== undefined) !== (hello.ticket !== undefined), {
       message: "Exactly one credential is required",
-    }),
+    })
+    .meta({ "x-ace-constraint": "Exactly one of token and ticket is required." }),
   z.object({
     type: z.literal("subscribe"),
     subscriptionId: z.string().min(1),
@@ -98,7 +101,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
     .object({ type: z.literal("snapshot"), subscriptionId: z.string(), seq, view: SnapshotView })
     .refine((message) => message.seq === message.view.seq, {
       message: "Snapshot cursor must match view cursor",
-    }),
+    })
+    .meta({ "x-ace-constraint": "seq must equal view.seq." }),
   z
     .object({
       type: z.literal("events"),
@@ -119,7 +123,11 @@ export const ServerMessage = z.discriminatedUnion("type", [
         return true;
       },
       { message: "Events must be ordered inside the declared coverage interval" },
-    ),
+    )
+    .meta({
+      "x-ace-constraint":
+        "throughSeq >= afterSeq; events are ordered with (firstSeq ?? seq) > previous seq and seq <= throughSeq.",
+    }),
   z
     .object({
       type: z.literal("progress"),
@@ -129,7 +137,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
     })
     .refine((message) => message.throughSeq >= message.afterSeq, {
       message: "Progress must not move backwards",
-    }),
+    })
+    .meta({ "x-ace-constraint": "throughSeq must be >= afterSeq." }),
   CommandResult.extend({ type: z.literal("commandResult") }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
   z.object({ type: z.literal("pong") }),

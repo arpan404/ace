@@ -18,7 +18,7 @@ No messages or protocol version changes are introduced. Protocol version 1 is th
 
 ## Semantic constraints and unsupported constructs
 
-Standard JSON Schema cannot express comparisons between sibling values or validate an IANA time zone against the runtime's installed data. Existing custom refinements get source-owned descriptions and an explicit `x-ace-constraint` annotation. The export describes structural validation plus these named semantic requirements; full validation still requires Zod or equivalent application checks. Every reference page explains this boundary. Arbitrary refinements, transformations, coercion and unrepresentable Zod constructs fail with the owning schema's name. Never use Zod's permissive unrepresentable fallback.
+Standard JSON Schema cannot express comparisons between sibling values or validate an IANA time zone against the runtime's installed data. Existing custom refinements get source-owned descriptions and an explicit `x-ace-constraint` annotation. The export describes structural validation plus these named semantic requirements; full validation still requires Zod or equivalent application checks. Every reference page explains this boundary. Arbitrary refinements, transformations, coercion and unrepresentable Zod constructs fail with the owning schema's name. Never use Zod's permissive unrepresentable fallback. Accept the MIT-licensed Ajv, ajv-formats, randexp and fast-check dependencies for independent JSON Schema validation, bounded examples and property testing.
 
 ## Compatibility
 

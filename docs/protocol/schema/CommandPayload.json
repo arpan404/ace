@@ -1,0 +1,147 @@
+{
+  "$id": "https://ace.local/protocol/v1/CommandPayload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "input": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ContentPart.json"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "const": "thread.create",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "provider",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "delivery": {
+          "enum": [
+            "steer",
+            "queue"
+          ],
+          "type": "string"
+        },
+        "input": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ContentPart.json"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.send",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "input",
+        "delivery"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "cascade": {
+          "default": true,
+          "type": "boolean"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.interrupt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.archive",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "interactionId": {
+          "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+        },
+        "resolution": {
+          "$ref": "https://ace.local/protocol/v1/InteractionResolution.json"
+        },
+        "type": {
+          "const": "interaction.resolve",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "interactionId",
+        "resolution"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "taskId": {
+          "$ref": "https://ace.local/protocol/v1/BackgroundTaskId.json"
+        },
+        "type": {
+          "const": "background_task.stop",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "taskId"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -1,0 +1,236 @@
+{
+  "$id": "https://ace.local/protocol/v1/Item.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "parts": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ContentPart.json"
+          },
+          "type": "array"
+        },
+        "raw": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+          },
+          "type": "array"
+        },
+        "role": {
+          "enum": [
+            "user",
+            "assistant"
+          ],
+          "type": "string"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "synthetic": {
+          "default": false,
+          "type": "boolean"
+        },
+        "type": {
+          "const": "message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "agentId",
+        "createdAt",
+        "complete",
+        "type",
+        "role",
+        "parts"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "raw": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+          },
+          "type": "array"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "summary": {
+          "default": false,
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string"
+        },
+        "type": {
+          "const": "reasoning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "agentId",
+        "createdAt",
+        "complete",
+        "type",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "call": {
+          "$ref": "https://ace.local/protocol/v1/ToolCall.json"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "type": {
+          "const": "tool_call",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "agentId",
+        "createdAt",
+        "complete",
+        "type",
+        "call"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "type": "string"
+        },
+        "raw": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+          },
+          "type": "array"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "text": {
+          "type": "string"
+        },
+        "type": {
+          "const": "notice",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "agentId",
+        "createdAt",
+        "complete",
+        "type",
+        "level",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "tokensAfter": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        "tokensBefore": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        "type": {
+          "const": "compaction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "agentId",
+        "createdAt",
+        "complete",
+        "type"
+      ],
+      "type": "object"
+    }
+  ]
+}

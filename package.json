@@ -14,9 +14,12 @@
     "lint": "oxlint --deny-warnings",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "vitest run",
-    "check": "bun run fmt:check && bun run lint && bun run check:size && bun run typecheck && bun run test",
+    "check": "bun run fmt:check && bun run docs:protocol --check && bun run lint && bun run check:size && bun run typecheck && bun run test",
     "record": "bun run --filter @ace/recorder record",
-    "check:size": "node scripts/check-file-size.ts"
+    "check:size": "node scripts/check-file-size.ts",
+    "docs:protocol": "bun tools/protocol-docs/src/cli.ts",
+    "docs:protocol:compat": "bun tools/protocol-docs/src/cli.ts --compat",
+    "docs:protocol:snapshot": "bun tools/protocol-docs/src/cli.ts --snapshot"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

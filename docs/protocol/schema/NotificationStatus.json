@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/NotificationStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "needs_you",
+    "done",
+    "failed",
+    "unresponsive",
+    "background_done"
+  ],
+  "type": "string"
+}

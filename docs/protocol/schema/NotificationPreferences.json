@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/NotificationPreferences.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "includePreview": {
+      "default": false,
+      "type": "boolean"
+    },
+    "quietHours": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/QuietHours.json"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "type": "object"
+}

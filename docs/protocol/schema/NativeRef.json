@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/NativeRef.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "aliases": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "nativeId": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    }
+  },
+  "required": [
+    "provider"
+  ],
+  "type": "object"
+}

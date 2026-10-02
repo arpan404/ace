@@ -1,0 +1,117 @@
+{
+  "$id": "https://ace.local/protocol/v1/ClientMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/PresenceUpdate.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/NotificationRegister.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/NotificationSettings.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/NotificationSnooze.json"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+        },
+        "protocolVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "type": {
+          "const": "hello",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "protocolVersion",
+        "deviceId"
+      ],
+      "type": "object",
+      "x-ace-constraint": "Exactly one of token and ticket is required."
+    },
+    {
+      "properties": {
+        "afterSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "https://ace.local/protocol/v1/SubscriptionScope.json"
+        },
+        "subscriptionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "subscribe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "subscriptionId",
+        "scope"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "subscriptionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "unsubscribe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "subscriptionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "command": {
+          "$ref": "https://ace.local/protocol/v1/Command.json"
+        },
+        "type": {
+          "const": "command",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "command"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "ping",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    }
+  ]
+}

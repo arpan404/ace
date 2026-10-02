@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/Command.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "deviceId": {
+      "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/CommandId.json"
+    },
+    "payload": {
+      "$ref": "https://ace.local/protocol/v1/CommandPayload.json"
+    }
+  },
+  "required": [
+    "id",
+    "deviceId",
+    "payload"
+  ],
+  "type": "object"
+}

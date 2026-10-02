@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/WebPushSubscription.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "auth": {
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "type": "string"
+    },
+    "endpoint": {
+      "format": "uri",
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "p256dh": {
+      "pattern": "^[A-Za-z0-9_-]{87}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "endpoint",
+    "p256dh",
+    "auth"
+  ],
+  "type": "object"
+}
