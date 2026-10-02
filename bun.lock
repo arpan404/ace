@@ -44,6 +44,19 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/adapter-acp": {
+      "name": "@ace/adapter-acp",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/engine-api": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@ace/adapter-testkit": "workspace:*",
+      },
+    },
     "packages/adapter-opencode": {
       "name": "@ace/adapter-opencode",
       "dependencies": {
@@ -139,6 +152,8 @@
     },
   },
   "packages": {
+    "@ace/adapter-acp": ["@ace/adapter-acp@workspace:packages/adapter-acp"],
+
     "@ace/adapter-opencode": ["@ace/adapter-opencode@workspace:packages/adapter-opencode"],
 
     "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],

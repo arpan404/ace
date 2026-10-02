@@ -59,7 +59,9 @@ const allowed: Record<Fact["type"], string[]> = {
     "outputPath",
     "raw",
   ],
-  "background.ended": ["task", "status"],
+  "background.ended": ["task", "status", "uncertain"],
+  "agent.disconnected": ["agent"],
+  "agent.reconnected": ["agent"],
   retry: ["agent", "on", "attempt", "until", "message"],
   "retry.cleared": ["agent"],
   "wake.expected": ["agent", "until"],
@@ -251,7 +253,11 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         (fact.raw === undefined || validData(raw, fact.raw))
       );
     case "background.ended":
-      return oneOf(fact.status, ["completed", "failed", "stopped", "unknown"]);
+      return (
+        oneOf(fact.status, ["completed", "failed", "stopped", "unknown"]) &&
+        optionalBoolean(fact.uncertain) &&
+        (fact.uncertain !== true || fact.status === "unknown")
+      );
     case "retry":
       return (
         oneOf(fact.on, ["rate_limit", "network", "upstream"]) &&
@@ -265,6 +271,8 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
       return typeof fact.deliberate === "boolean" && optionalString(fact.message);
     case "queue.changed":
       return typeof fact.count === "number" && Number.isSafeInteger(fact.count) && fact.count >= 0;
+    case "agent.disconnected":
+    case "agent.reconnected":
     case "retry.cleared":
     case "signal":
     case "tick":

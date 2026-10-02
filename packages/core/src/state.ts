@@ -47,6 +47,7 @@ export interface AgentRecord {
   activity: AgentActivity;
   detail?: string;
   lastSignalAt: number;
+  disconnectedAt?: number;
   retry?: Omit<Extract<Fact, { type: "retry" }>, "type" | "agent">;
   wakeUntil?: number;
   parentKey?: Key;
@@ -76,6 +77,8 @@ export interface ThreadState {
   items: Record<Key, Item>;
   interactions: Record<Key, Interaction>;
   tasks: Record<Key, BackgroundTask>;
+  /** Optional for snapshots created before uncertain execution was represented. */
+  uncertainTasks?: Record<Key, true>;
   interactionHistory: Record<string, Interaction>;
   taskHistory: Record<string, BackgroundTask>;
   indexes: LiveIndexes;
@@ -116,6 +119,7 @@ export function createThreadState(init: {
     items: dictionary(),
     interactions: dictionary(),
     tasks: dictionary(),
+    uncertainTasks: dictionary(),
     interactionHistory: dictionary(),
     taskHistory: dictionary(),
     indexes: {
