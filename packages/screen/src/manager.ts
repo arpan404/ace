@@ -4,10 +4,12 @@ import {
   ScreenInventory,
   ScreenPermissions,
   ScreenTarget,
+  ScreenUIActOptions,
+  ScreenInput,
   type ScreenState,
 } from "@ace/protocol";
-import { FrameHub, type Frame, type FrameSink } from "./frames.ts";
-import { Helper, type HelperOptions } from "./helper.ts";
+import { type Frame, type FrameSink } from "./frames.ts";
+import { type Helper, type HelperOptions } from "./helper.ts";
 import {
   ScreenPolicy,
   bundles,
@@ -16,24 +18,15 @@ import {
   stopping,
   terminated,
 } from "./policy.ts";
+import { readTree, findElements, actOnElement } from "./semantic.ts";
+import { HelperHost } from "./helper-host.ts";
+import { createSession, type Session } from "./session.ts";
+import { nodeScheduler } from "./runtime.ts";
 import { Recording, type RecordingArtifact } from "./recording.ts";
 
 export type ScreenOptions = Omit<HelperOptions, "onFrame" | "onFailure"> & {
   recordingDirectory: string;
   publishArtifact: (artifact: RecordingArtifact) => Promise<void>;
-};
-type Session = {
-  state: ScreenState;
-  helper: Helper;
-  hub: FrameHub;
-  latest: Frame | undefined;
-  epoch: number;
-  owner: string | undefined;
-  recording: Recording | undefined;
-  actionTail: Promise<void>;
-  queuedActions: number;
-  recordingStarting: boolean;
-  stopping: Promise<void> | undefined;
 };
 export class ScreenManager {
   private readonly policy = new ScreenPolicy();
@@ -41,13 +34,42 @@ export class ScreenManager {
   private readonly listeners = new Set<(state: ScreenState) => void>();
   private readonly options: ScreenOptions;
   private reservations = 0;
+  private readonly host: HelperHost;
+  private starting = false;
 
   constructor(options: ScreenOptions) {
     this.options = options;
+    this.host = new HelperHost({
+      ...options,
+      onFrame: (frame) => {
+        const session = this.sessions.get(frame.header.sessionId);
+        if (!session || !["live", "starting"].includes(session.state.lifecycle)) return;
+        try {
+          if (frame.header.sequence <= (session.latest?.header.sequence ?? -1))
+            throw new Error("Invalid frame sequence or session");
+          this.authorize(session.state.target);
+          session.latest = frame;
+          session.pixels.frame(frame);
+          if (session.state.lifecycle === "live") {
+            session.hub.publish(frame);
+            session.recording?.push(frame);
+          }
+        } catch (error) {
+          this.fail(session, error instanceof Error ? error : new Error("Invalid frame"));
+        }
+      },
+      onFailure: (error) => {
+        for (const session of this.sessions.values()) this.fail(session, error);
+      },
+    });
   }
   async enable(enabled: boolean): Promise<void> {
     this.policy.enable(enabled);
-    if (!enabled) await Promise.all([...this.sessions.keys()].map((id) => this.stop(id)));
+    if (!enabled) {
+      const stopped = Promise.all([...this.sessions.keys()].map((id) => this.stop(id)));
+      await this.host.close();
+      await stopped;
+    }
   }
   async approve(bundleId: string, allowed: boolean): Promise<void> {
     ScreenBundle.parse(bundleId);
@@ -71,12 +93,14 @@ export class ScreenManager {
     this.reservations++;
     let helper: Helper | undefined;
     try {
-      helper = await Helper.open({ ...this.options, onFrame: () => {}, onFailure: () => {} });
+      helper = await this.host.open();
       return await helper.request({ op });
     } finally {
       this.reservations--;
-      await helper?.close();
     }
+  }
+  async capabilities() {
+    return (await this.host.open()).negotiate();
   }
   async permissions(): Promise<ScreenPermissions> {
     return ScreenPermissions.parse(await this.inspect("permissions"));
@@ -89,7 +113,8 @@ export class ScreenManager {
     const target = ScreenTarget.parse(input);
     this.authorize(target);
     if (!Number.isInteger(fps) || fps < 1 || fps > 30) throw new Error("Invalid frame rate");
-    if (this.sessions.size + this.reservations >= 4) throw new Error("Session limit");
+    if (this.sessions.size >= 1 || this.starting) throw new Error("Session limit");
+    this.starting = true;
     this.reservations++;
     const epoch = this.policy.epoch;
     let helper: Helper | undefined;
@@ -97,52 +122,23 @@ export class ScreenManager {
     try {
       const id = this.options.nextId();
       if (this.sessions.has(id)) throw new Error("Duplicate session id");
-      helper = await Helper.open({
-        ...this.options,
-        onFrame: (frame) => {
-          if (
-            !session ||
-            (session.state.lifecycle !== "live" && session.state.lifecycle !== "starting")
-          )
-            return;
-          if (
-            frame.header.sessionId !== id ||
-            frame.header.sequence <= (session.latest?.header.sequence ?? -1)
-          ) {
-            this.fail(session, new Error("Invalid frame sequence or session"));
-            return;
-          }
-          this.authorize(target);
-          session.latest = frame;
-          if (session.state.lifecycle === "live") {
-            session.hub.publish(frame);
-            session.recording?.push(frame);
-          }
-        },
-        onFailure: (error) => {
-          if (session) this.fail(session, error);
-        },
-      });
-      session = {
+      helper = await this.host.open();
+      session = createSession(
         helper,
-        hub: new FrameHub(),
-        epoch: 0,
-        latest: undefined,
-        owner: undefined,
-        recording: undefined,
-        actionTail: Promise.resolve(),
-        queuedActions: 0,
-        recordingStarting: false,
-        stopping: undefined,
-        state: {
-          sessionId: id,
-          lifecycle: "starting",
-          controller: "none",
-          indicator: false,
-          target,
-          permissions: { screenRecording: false, accessibility: false },
+        id,
+        target,
+        (active) => {
+          const current = this.sessions.get(id);
+          if (current && ["starting", "live"].includes(current.state.lifecycle)) {
+            current.state = { ...current.state, indicator: active };
+            this.emit(current);
+          }
         },
-      };
+        (error) => {
+          const current = this.sessions.get(id);
+          if (current) this.fail(current, error);
+        },
+      );
       this.sessions.set(id, session);
       session.state.permissions = ScreenPermissions.parse(
         await helper.request({ op: "permissions" }),
@@ -151,30 +147,36 @@ export class ScreenManager {
         throw new Error("Screen Recording permission denied");
       this.authorize(target);
       if (epoch !== this.policy.epoch) throw new Error("Screen policy changed during start");
-      session.state = { ...session.state, indicator: true };
+      session.state = { ...session.state, indicator: helper.capabilities?.platform !== "macos" };
       this.emit(session);
       await helper.request({
         op: "start",
         sessionId: id,
         target,
         fps,
+        capture: helper.capabilities?.platform !== "macos",
         allowlist: this.policy.allowlist(),
       });
       this.authorize(target);
       if (epoch !== this.policy.epoch || session.state.lifecycle !== "starting")
         throw new Error("Screen start cancelled");
-      session.state = { ...session.state, lifecycle: "live", indicator: true };
+      session.state = {
+        ...session.state,
+        lifecycle: "live",
+        indicator: helper.capabilities?.platform !== "macos",
+      };
       this.emit(session);
       return this.state(id);
     } catch (error) {
       if (session) {
         this.fail(session, error instanceof Error ? error : new Error("Start failed"));
       }
-      await helper?.close();
+      if (helper) await this.host.close();
       if (session) this.sessions.delete(session.state.sessionId);
       throw error;
     } finally {
       this.reservations--;
+      this.starting = false;
     }
   }
   states(): ScreenState[] {
@@ -192,14 +194,70 @@ export class ScreenManager {
   }
   subscribe(id: string, sink: FrameSink): () => void {
     const session = this.live(id);
-    const stop = session.hub.subscribe(sink, session.latest);
-    return stop;
+    const lease = session.pixels.acquire();
+    try {
+      const stop = session.hub.subscribe(async (frame) => {
+        try {
+          await sink(frame);
+        } catch (error) {
+          lease.release();
+          throw error;
+        }
+      }, session.latest);
+      return () => {
+        stop();
+        lease.release();
+      };
+    } catch (error) {
+      lease.release();
+      throw error;
+    }
   }
   screenshot(id: string): Frame {
     const session = this.live(id);
     this.authorize(session.state.target);
     if (!session.latest) throw new Error("No captured frame yet");
     return session.latest;
+  }
+  async captureScreenshot(id: string): Promise<Frame> {
+    const session = this.live(id);
+    this.authorize(session.state.target);
+    if (session.helper.capabilities?.platform !== "macos") return this.screenshot(id);
+    return session.pixels.screenshot(
+      this.options.scheduler ?? nodeScheduler,
+      this.options.timeoutMs ?? 10_000,
+    );
+  }
+  private async readUI<T>(id: string, read: (session: Session) => Promise<T>): Promise<T> {
+    const session = this.live(id);
+    this.authorize(session.state.target);
+    const result = await read(session);
+    this.authorize(session.state.target);
+    if (session.state.lifecycle !== "live") throw new Error("Screen session is not live");
+    return result;
+  }
+  uiTree(id: string, options: unknown) {
+    return this.readUI(id, (session) =>
+      readTree(session.helper, session.state.target, this.policy.allowlist(), options),
+    );
+  }
+  uiFind(id: string, options: unknown) {
+    return this.readUI(id, (session) =>
+      findElements(session.helper, session.state.target, this.policy.allowlist(), options),
+    );
+  }
+  async uiAct(id: string, actor: "human" | "agent", options: unknown, owner = "local") {
+    const action = ScreenUIActOptions.parse(options);
+    return this.execute(id, actor, owner, (session) =>
+      actOnElement(session.helper, session.state.target, this.policy.allowlist(), action),
+    );
+  }
+  async input(id: string, actor: "human" | "agent", options: unknown, owner = "local") {
+    const input = ScreenInput.parse(options);
+    await this.execute(id, actor, owner, (session) => {
+      if (!session.helper.capabilities) throw new Error("V2 input not supported by helper");
+      return session.helper.request({ op: "input", input });
+    });
   }
   controller(id: string, controller: ScreenState["controller"], owner = "local"): void {
     const session = this.live(id);
@@ -213,6 +271,16 @@ export class ScreenManager {
     owner = "local",
   ): Promise<void> {
     const action = ScreenAction.parse(input);
+    await this.execute(id, actor, owner, (session) =>
+      session.helper.request({ op: "action", action }),
+    );
+  }
+  private async execute(
+    id: string,
+    actor: "human" | "agent",
+    owner: string,
+    dispatch: (session: Session) => Promise<unknown>,
+  ): Promise<unknown> {
     const session = this.live(id);
     this.authorize(session.state.target);
     authorizeInput(session, actor, owner);
@@ -238,12 +306,15 @@ export class ScreenManager {
           session.state.lifecycle !== "live"
         )
           throw new Error("Controller changed");
-        await session.helper.request({ op: "action", action });
+        return dispatch(session);
       })
       .finally(() => {
         session.queuedActions--;
       });
-    session.actionTail = execute.catch(() => {});
+    session.actionTail = execute.then(
+      () => {},
+      () => {},
+    );
     return execute;
   }
   releaseController(owner: string): void {
@@ -260,12 +331,20 @@ export class ScreenManager {
         this.options.recordingDirectory,
         this.options.nextId(),
         this.options.publishArtifact,
+        undefined,
+        () => {
+          session.recordingLease?.release();
+          session.recordingLease = undefined;
+        },
       );
       if (session.state.lifecycle !== "live" || session.recording) {
         await recording.stop();
         throw new Error("Recording start cancelled");
       }
       session.recording = recording;
+      const lease = session.pixels.acquire();
+      session.recordingLease = lease;
+      await lease.ready;
     } finally {
       session.recordingStarting = false;
     }
@@ -275,6 +354,8 @@ export class ScreenManager {
     const recording = session.recording;
     if (!recording) throw new Error("No recording active");
     session.recording = undefined;
+    session.recordingLease?.release();
+    session.recordingLease = undefined;
     return recording.stop();
   }
   stop(id: string): Promise<void> {
@@ -288,7 +369,8 @@ export class ScreenManager {
     session.hub.clear();
     session.state = stopping(session.state);
     this.emit(session);
-    await session.helper.close();
+    session.pixels.stop();
+    await this.host.stopCapture(session.helper);
     session.state = terminated(session.state);
     this.emit(session);
     try {
@@ -330,6 +412,7 @@ export class ScreenManager {
     session.epoch++;
     session.latest = undefined;
     session.hub.clear();
+    session.pixels.stop(error);
     session.state = {
       ...session.state,
       lifecycle: "stopping",
@@ -339,7 +422,7 @@ export class ScreenManager {
     this.emit(session);
     void session.recording?.stop().catch(() => {});
     session.recording = undefined;
-    void session.helper.close().then(() => {
+    void this.host.close().then(() => {
       session.state = terminated(session.state);
       this.emit(session);
     });

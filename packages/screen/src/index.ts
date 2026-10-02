@@ -7,3 +7,6 @@ export { screenConnection, type ScreenPeer } from "./bridge.ts";
 export { computerUseTools, computerUseHandler } from "./tools.ts";
 
 export { localScreenManager } from "./host.ts";
+
+export { installScreenHelper } from "./install.ts";
+export { localFrameEndpoint, type FrameEndpoint } from "./endpoint.ts";

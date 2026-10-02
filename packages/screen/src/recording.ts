@@ -20,20 +20,24 @@ export class Recording {
   private readonly path: string;
   private readonly id: string;
   private readonly limit: number;
+  private readonly captureDone: () => void;
   private readonly publish: (artifact: RecordingArtifact) => Promise<void>;
   private constructor(
     path: string,
     id: string,
     limit: number,
     publish: (artifact: RecordingArtifact) => Promise<void>,
+    captureDone: () => void,
   ) {
     this.path = path;
     this.id = id;
     this.limit = limit;
     this.publish = publish;
+    this.captureDone = captureDone;
     this.stream = createWriteStream(path, { flags: "wx", mode: 0o600, highWaterMark: 64 * 1024 });
     this.stream.on("error", (error) => {
       this.failure = error;
+      this.captureDone();
       this.pending = undefined;
       this.busy = false;
       this.drained?.();
@@ -44,11 +48,18 @@ export class Recording {
     id: string,
     publish: (artifact: RecordingArtifact) => Promise<void>,
     limit = 50 * 1024 * 1024,
+    captureDone: () => void = () => {},
   ): Promise<Recording> {
     ScreenId.parse(id);
     if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid recording limit");
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    const recording = new Recording(join(directory, `${id}.ace-screen`), id, limit, publish);
+    const recording = new Recording(
+      join(directory, `${id}.ace-screen`),
+      id,
+      limit,
+      publish,
+      captureDone,
+    );
     await new Promise<void>((resolve, reject) => {
       recording.stream.once("open", () => resolve());
       recording.stream.once("error", reject);
@@ -81,6 +92,7 @@ export class Recording {
   }
   stop(): Promise<RecordingArtifact> {
     this.closing ??= (async () => {
+      this.captureDone();
       if (this.busy)
         await new Promise<void>((resolve) => {
           this.drained = resolve;

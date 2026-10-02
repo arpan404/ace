@@ -42,6 +42,21 @@ export function screenConnection(
           case "approve":
             await manager.approve(operation.bundleId, operation.allowed);
             break;
+          case "capabilities":
+            data = await manager.capabilities();
+            break;
+          case "ui.tree":
+            data = await manager.uiTree(operation.sessionId, operation);
+            break;
+          case "ui.find":
+            data = await manager.uiFind(operation.sessionId, operation);
+            break;
+          case "ui.act":
+            data = await manager.uiAct(operation.sessionId, "human", operation, owner);
+            break;
+          case "input":
+            await manager.input(operation.sessionId, "human", operation.input, owner);
+            break;
           case "permissions":
             data = await manager.permissions();
             break;

@@ -42,7 +42,7 @@ it("spawn failure rejects pending work and releases the helper socket", async ()
   const helper = await Helper.open({
     command: "/no-such-screen-helper",
     spawn: (options) => {
-      socketPath = options.args?.at(-1);
+      socketPath = options.args?.at(-1)?.replace(/^unix:/, "");
       return spawnSupervised(options);
     },
     nextId: ids(),

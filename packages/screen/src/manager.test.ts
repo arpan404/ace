@@ -121,10 +121,9 @@ it("human takeover cancels queued input before it can update permission state", 
   await expect(action).rejects.toThrow("Controller changed");
   expect(screen.state(state.sessionId).permissions.accessibility).toBe(true);
 });
-it("session limits are bounded and disabling stops every capture", async () => {
+it("one host capture is reserved and disabling stops the owned capture", async () => {
   const screen = await setup();
   await ready(screen);
-  await Promise.all([screen.start(target), screen.start(target), screen.start(target)]);
   await expect(screen.start(target)).rejects.toThrow("limit");
   await screen.enable(false);
   await expect(screen.start(target)).rejects.toThrow("disabled");

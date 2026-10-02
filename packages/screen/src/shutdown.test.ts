@@ -81,15 +81,14 @@ it("disabling and revoking approval terminate the owned processes and remove all
   );
   cleanups.push(test.close);
   await ready(test.screen);
-  await test.screen.start(target);
   await test.screen.enable(false);
   expect(test.screen.states()).toEqual([]);
-  expect(children.map((child) => child.signal.aborted)).toEqual([true, true]);
+  expect(children.map((child) => child.signal.aborted)).toEqual([true]);
   await test.screen.enable(true);
   await test.screen.start(target);
   await test.screen.approve(target.bundleId, false);
   expect(test.screen.states()).toEqual([]);
-  expect(children.map((child) => child.signal.aborted)).toEqual([true, true, true]);
+  expect(children.map((child) => child.signal.aborted)).toEqual([true, true]);
 });
 it("startup cancellation publishes an indicator until termination and then clears it", async () => {
   const test = await manager();

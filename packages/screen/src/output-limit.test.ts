@@ -17,7 +17,7 @@ for (const stream of ["stdout", "stderr"]) {
       ],
       nextId: ids(),
       spawn: (options) => {
-        socketPath = options.args?.at(-1);
+        socketPath = options.args?.at(-1)?.replace(/^unix:/, "");
         child = spawnSupervised(options);
         child.stdout.on("line", (line: string) => {
           if (line.includes("overflow escaped")) outcome.resolve("overflow escaped");

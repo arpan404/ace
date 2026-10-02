@@ -1,18 +1,24 @@
-import { mkdtemp, chmod, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { createServer, type Socket } from "node:net";
 import {
   spawnSupervised,
   type SpawnOptions,
   type SupervisedProcess,
 } from "@ace/provider-kit/process";
-import { ScreenHelperReply, ScreenHelperRequest } from "@ace/protocol";
+import {
+  ScreenEndpoint,
+  ScreenCapabilities,
+  ScreenHelperReply,
+  ScreenHelperRequest,
+} from "@ace/protocol";
+import { localFrameEndpoint, type FrameEndpoint } from "./endpoint.ts";
 import { nodeScheduler } from "./runtime.ts";
 import { FrameDecoder, type Frame } from "./frames.ts";
 
 export type HelperOptions = {
   command: string;
+  prepare?: () => Promise<string>;
+  endpoint?: () => Promise<FrameEndpoint>;
+  transport?: "endpoint" | "legacy";
   args?: readonly string[];
   env?: NodeJS.ProcessEnv;
   spawn?: (options: SpawnOptions) => SupervisedProcess;
@@ -33,6 +39,7 @@ export class Helper {
     }
   >();
   private readonly recent: unknown[] = [];
+  capabilities: ScreenCapabilities | undefined;
   private closed = false;
   private readonly proc: SupervisedProcess;
   private readonly cleanup: () => Promise<void>;
@@ -57,7 +64,12 @@ export class Helper {
         this.pending.delete(reply.id);
         pending.cancel();
         if (reply.ok) pending.resolve(reply.data);
-        else pending.reject(new Error(reply.error ?? "Helper rejected command"));
+        else
+          pending.reject(
+            typeof reply.error === "object"
+              ? Object.assign(new Error(reply.error.message), { code: reply.error.code })
+              : new Error(reply.error ?? "Helper rejected command"),
+          );
       } catch (error) {
         this.fail(error instanceof Error ? error : new Error("Invalid helper reply"));
       }
@@ -65,9 +77,16 @@ export class Helper {
     void proc.exited.then(() => this.fail(new Error("Screen helper exited")));
   }
   static async open(options: HelperOptions): Promise<Helper> {
-    const directory = await mkdtemp(join(tmpdir(), "ace-screen-"));
-    await chmod(directory, 0o700);
-    const path = join(directory, "frames.sock");
+    const endpoint = await (
+      options.endpoint ?? (() => localFrameEndpoint(process.platform, options.nextId))
+    )();
+    try {
+      ScreenEndpoint.parse(endpoint.uri);
+    } catch (error) {
+      await endpoint.close();
+      throw error;
+    }
+    const path = endpoint.path;
     const server = createServer();
     let socket: Socket | undefined;
     let helper: Helper | undefined;
@@ -91,11 +110,17 @@ export class Helper {
     try {
       await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
-        server.listen(path, resolve);
+        server.listen({ path, readableAll: false, writableAll: false }, resolve);
       });
+      await endpoint.secure();
+      const command = options.prepare ? await options.prepare() : options.command;
       const proc = (options.spawn ?? spawnSupervised)({
-        command: options.command,
-        args: [...(options.args ?? []), "--socket", path],
+        command,
+        args: [
+          ...(options.args ?? []),
+          options.transport === "legacy" ? "--socket" : "--endpoint",
+          options.transport === "legacy" ? path : endpoint.uri,
+        ],
         env: options.env ?? {},
         name: "screen-helper",
         maxLineBytes: 64 * 1024,
@@ -106,14 +131,31 @@ export class Helper {
         async () => {
           socket?.destroy();
           await new Promise<void>((resolve) => server.close(() => resolve()));
-          await rm(directory, { recursive: true, force: true });
+          await endpoint.close();
         },
         options,
       );
       return helper;
     } catch (error) {
       server.close();
-      await rm(directory, { recursive: true, force: true });
+      await endpoint.close();
+      throw error;
+    }
+  }
+  async negotiate(): Promise<ScreenCapabilities | undefined> {
+    try {
+      const result = await this.request({ op: "hello" });
+      // Older v1 helpers return no negotiation data or explicitly reject hello.
+      if (result === undefined) return undefined;
+      this.capabilities = ScreenCapabilities.parse(result);
+      return this.capabilities;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (/Unsupported command|not supported/i.test(error.message) ||
+          ("code" in error && error.code === "not_supported"))
+      )
+        return undefined;
       throw error;
     }
   }
@@ -122,7 +164,7 @@ export class Helper {
     if (this.pending.size >= 32) return Promise.reject(new Error("Helper request limit"));
     const request = ScreenHelperRequest.parse({
       ...command,
-      version: 1,
+      version: command.op === "hello" ? 1 : this.capabilities ? 2 : 1,
       id: this.options.nextId(),
     });
     if (this.pending.has(request.id)) return Promise.reject(new Error("Duplicate request id"));
