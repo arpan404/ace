@@ -80,10 +80,11 @@ it("rejects tampered, replayed and reordered ciphertext without advancing the re
 });
 it("accepts maximum Noise transport size and rejects larger messages", () => {
   const [a, b] = pair();
-  const message = a.send.encrypt(new Uint8Array(MAX_MESSAGE - 16));
-  expect(b.receive.decrypt(message).length).toBe(MAX_MESSAGE - 16);
-  expect(() => a.send.encrypt(new Uint8Array(MAX_MESSAGE - 15))).toThrow("too large");
-  expect(() => b.receive.decrypt(new Uint8Array(MAX_MESSAGE + 1))).toThrow("too large");
+  const message = a.send.encrypt(new Uint8Array(65519));
+  expect(message.length).toBe(65535);
+  expect(b.receive.decrypt(message).length).toBe(65519);
+  expect(() => a.send.encrypt(new Uint8Array(65520))).toThrow("too large");
+  expect(() => b.receive.decrypt(new Uint8Array(65536))).toThrow("too large");
 });
 it("coordinated directional rekeys keep the nonce and replace the old key", () => {
   const key = new Uint8Array(32).fill(7);
@@ -95,6 +96,8 @@ it("coordinated directional rekeys keep the nonce and replace the old key", () =
   a.rekey();
   b.rekey();
   const message = a.encrypt(new Uint8Array([2]));
+  // Native Node/OpenSSL reference: key 07 repeated 32 times, rekey after one send, payload 02 at nonce 1.
+  expect(asHex(message)).toBe("acc100689abe3692f6d7cccfd594fc119c");
   expect(() => old.decrypt(message)).toThrow();
   expect(b.decrypt(message)).toEqual(new Uint8Array([2]));
 });

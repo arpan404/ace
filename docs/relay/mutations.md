@@ -18,5 +18,6 @@ On 2026-10-02, each change below was applied alone to production code. A focused
 | Control-frame rate bypass           | `apps/relay/src/server.ts`              | WebSocket control frames cannot bypass per-IP message rate limits                            |
 | Ticket consumption bypass           | `apps/relay/src/server.ts`              | stream tickets are single-use and expire before an unauthenticated join can consume them     |
 | Host id trusts an asserted identity | `apps/relay/src/server.ts`              | registration proves possession of the static key and ignores a claimed host id               |
+| Rekey resets the nonce              | `packages/secure-channel/src/cipher.ts` | coordinated directional rekeys keep the nonce and replace the old key                        |
 
 Focused runs used `bun run test <test file> -t <behaviour pattern> --reporter=json`. The final unmutated repository is checked with `bun run check`. These are hand-applied defects, not claims of exhaustive mutation coverage.
