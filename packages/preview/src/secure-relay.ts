@@ -6,9 +6,17 @@ export function previewRelayChannel(channel: {
   receiveBinary(): Promise<Uint8Array>;
   close(): void;
   readonly closed: Promise<Error | undefined>;
+  readonly bufferedBytes?: number;
+  readonly bufferedReceiveBytes?: number;
 }): PreviewChannel {
   let subscribed = false;
   return {
+    get bufferedBytes() {
+      return channel.bufferedBytes ?? 0;
+    },
+    get bufferedReceiveBytes() {
+      return channel.bufferedReceiveBytes ?? 0;
+    },
     send: (frame) => channel.sendBinary(frame),
     close: () => channel.close(),
     subscribe(onFrame, onClose) {

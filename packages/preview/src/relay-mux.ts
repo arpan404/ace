@@ -1,11 +1,16 @@
 import { PreviewPort } from "@ace/protocol/preview";
+import { z } from "zod";
 import { decodeFrame, encodeFrame, frameSize, kinds, windowSize } from "./relay-wire.ts";
+
+const SocketChunk = z.instanceof(Uint8Array).refine((bytes) => bytes.byteLength <= windowSize);
 
 /** Exclusive ordered preview subchannel. send resolves under bounded transport admission. */
 export type PreviewChannel = {
   send(frame: Uint8Array): Promise<void>;
   close(): void;
   subscribe(onFrame: (frame: Uint8Array) => void, onClose: () => void): () => void;
+  readonly bufferedBytes?: number;
+  readonly bufferedReceiveBytes?: number;
 };
 /** Native bridges expose bounded socket queues and Node-like stream events. */
 export type PreviewSocket = {
@@ -30,6 +35,8 @@ type Stream = {
   outgoingEnded: boolean;
   pending: Promise<void>;
   wake: (() => void) | undefined;
+  cancelSend: (() => void) | undefined;
+  payloadBytes: number;
 };
 type MuxOptions = {
   channel: PreviewChannel;
@@ -48,6 +55,8 @@ export function createMux(options: MuxOptions) {
   let lastId = 0;
   let nextId = 1;
   let pendingSends = 0;
+  let pendingFrameBytes = 0;
+  let pendingPayloadBytes = 0;
   const maxPendingSends = options.maxStreams * 34 + 32;
   let unsubscribe: (() => void) | undefined;
   const close = () => {
@@ -56,8 +65,10 @@ export function createMux(options: MuxOptions) {
     unsubscribe?.();
     options.channel.close();
     for (const stream of streams.values()) {
+      releasePayload(stream);
       stream.socket.destroy();
       stream.wake?.();
+      stream.cancelSend?.();
     }
     streams.clear();
     options.onClosed?.();
@@ -69,34 +80,64 @@ export function createMux(options: MuxOptions) {
       return;
     }
     pendingSends++;
+    const frame = encodeFrame(kind, id, value, data);
+    pendingFrameBytes += frame.byteLength;
     try {
-      await options.channel.send(encodeFrame(kind, id, value, data));
+      await options.channel.send(frame);
     } catch {
       close();
     } finally {
       pendingSends--;
+      pendingFrameBytes -= frame.byteLength;
     }
   };
   const alive = (stream: Stream) => !closed && streams.get(stream.id) === stream;
+  const releasePayload = (stream: Stream) => {
+    pendingPayloadBytes -= stream.payloadBytes;
+    stream.payloadBytes = 0;
+  };
   const remove = (stream: Stream) => {
     if (streams.get(stream.id) !== stream) return;
     streams.delete(stream.id);
+    releasePayload(stream);
     stream.wake?.();
+    stream.cancelSend?.();
     stream.socket.destroy();
   };
   const transmit = async (stream: Stream, chunk: Uint8Array) => {
-    for (let offset = 0; offset < chunk.length && alive(stream);) {
-      if (!stream.ready || stream.sendCredit === 0) {
+    stream.payloadBytes = chunk.byteLength;
+    pendingPayloadBytes += chunk.byteLength;
+    try {
+      for (let offset = 0; offset < chunk.length && alive(stream);) {
+        if (!stream.ready || stream.sendCredit === 0) {
+          await new Promise<void>((resolve) => {
+            stream.wake = resolve;
+          });
+          stream.wake = undefined;
+          continue;
+        }
+        const length = Math.min(frameSize, stream.sendCredit, chunk.length - offset);
+        stream.sendCredit -= length;
+        const writing = send(
+          kinds.data,
+          stream.id,
+          length,
+          chunk.subarray(offset, offset + length),
+        );
+        // Cancelling a local socket must also release its chunk when the channel
+        // writer is blocked. Admitted frames remain ordered in the channel queue.
         await new Promise<void>((resolve) => {
-          stream.wake = resolve;
+          if (!alive(stream)) return resolve();
+          stream.cancelSend = resolve;
+          void writing.then(() => {
+            stream.cancelSend = undefined;
+            resolve();
+          });
         });
-        stream.wake = undefined;
-        continue;
+        offset += length;
       }
-      const length = Math.min(frameSize, stream.sendCredit, chunk.length - offset);
-      stream.sendCredit -= length;
-      await send(kinds.data, stream.id, length, chunk.subarray(offset, offset + length));
-      offset += length;
+    } finally {
+      releasePayload(stream);
     }
     if (alive(stream)) stream.socket.resume();
   };
@@ -111,10 +152,18 @@ export function createMux(options: MuxOptions) {
       outgoingEnded: false,
       pending: Promise.resolve(),
       wake: undefined,
+      cancelSend: undefined,
+      payloadBytes: 0,
     };
     streams.set(id, stream);
     socket.pause();
     socket.on("data", (chunk: Uint8Array) => {
+      if (!alive(stream)) return;
+      if (stream.payloadBytes || !SocketChunk.safeParse(chunk).success) {
+        remove(stream);
+        void send(kinds.reset, id);
+        return;
+      }
       socket.pause();
       stream.pending = transmit(stream, chunk).catch(close);
     });
@@ -131,13 +180,9 @@ export function createMux(options: MuxOptions) {
       remove(stream);
     });
     socket.on("close", () => {
-      void stream.pending.then(() => {
-        if (streams.get(id) === stream) {
-          streams.delete(id);
-          stream.wake?.();
-          if (!stream.incomingEnded || !stream.outgoingEnded) void send(kinds.reset, id);
-        }
-      });
+      if (!alive(stream)) return;
+      remove(stream);
+      if (!stream.incomingEnded || !stream.outgoingEnded) void send(kinds.reset, id);
     });
     return stream;
   };
@@ -245,10 +290,19 @@ export function createMux(options: MuxOptions) {
     // Observability reports counts and windows, never retained payloads.
     stats: () => ({
       streams: streams.size,
-      bufferedBytes: [...streams.values()].reduce(
-        (n, s) => n + s.socket.readableLength + s.socket.writableLength,
-        0,
-      ),
+      pendingPayloadBytes,
+      pendingFrameBytes,
+      channelBufferedBytes:
+        (options.channel.bufferedBytes ?? 0) + (options.channel.bufferedReceiveBytes ?? 0),
+      bufferedBytes:
+        pendingPayloadBytes +
+        pendingFrameBytes +
+        (options.channel.bufferedBytes ?? 0) +
+        (options.channel.bufferedReceiveBytes ?? 0) +
+        [...streams.values()].reduce(
+          (n, s) => n + s.socket.readableLength + s.socket.writableLength,
+          0,
+        ),
       closed,
     }),
   };
