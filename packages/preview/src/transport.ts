@@ -63,3 +63,4 @@ export async function openPreviewProxy(options: {
     throw error;
   }
 }
+export { previewRelayChannel } from "./secure-relay.ts";

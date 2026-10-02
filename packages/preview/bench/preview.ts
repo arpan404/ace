@@ -1,3 +1,6 @@
+import { DeviceId } from "@ace/protocol";
+import { keyPair } from "@ace/secure-channel";
+import { startRelay, connectHostToRelay, connectClientViaRelay } from "@ace/relay";
 import { performance } from "node:perf_hooks";
 import { request } from "node:http";
 import { Readable } from "node:stream";
@@ -8,6 +11,7 @@ import {
   attachPreviewRelay,
   openPreviewProxy,
   createLaunchManager,
+  previewRelayChannel,
 } from "../src/index.ts";
 import { serve, http, channelPair } from "../src/test-support.ts";
 
@@ -150,6 +154,49 @@ async function main() {
   } finally {
     await client.close();
     host.close();
+  }
+  const relay = await startRelay({ limits: { messagesPerSecond: 100_000, messageBurst: 200_000 } });
+  const deviceToken = "b".repeat(64);
+  const registration = await connectHostToRelay({
+    relayUrl: relay.url,
+    hostKeys: keyPair(),
+    async onClientChannel(channel) {
+      const hello = await channel.receive();
+      if (hello.type !== "hello" || hello.token !== deviceToken)
+        throw new Error("Unpaired benchmark device");
+      channel.authorize();
+      attachPreviewRelay({
+        channel: previewRelayChannel(channel),
+        allowPort: async (port) => port === large.port,
+      });
+      await channel.send({ type: "pong" });
+    },
+  });
+  const encrypted = await connectClientViaRelay({
+    relayUrl: relay.url,
+    hostId: registration.hostId,
+    pinnedFingerprint: registration.hostId,
+  });
+  await encrypted.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("bench"),
+    token: deviceToken,
+  });
+  await encrypted.receive();
+  const encryptedProxy = await openPreviewProxy({
+    channel: previewRelayChannel(encrypted),
+    port: large.port,
+  });
+  try {
+    baseline = process.memoryUsage().rss;
+    start = performance.now();
+    const peak = await download(encryptedProxy.url, size);
+    report("encrypted relay streamed bytes/s, 50 MiB", size, start, peak, baseline);
+  } finally {
+    await encryptedProxy.close();
+    await registration.close();
+    await relay.close();
     await large.close();
   }
 }

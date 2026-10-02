@@ -1,15 +1,16 @@
-import { createPreviewGateway, type GatewayOptions } from "@ace/preview";
+import type { createPreviewGateway, GatewayOptions } from "@ace/preview";
 import type { Store } from "./store.ts";
 
 export type DaemonPreviewOptions = Omit<GatewayOptions, "authority" | "now">;
 export type DaemonPreview = Awaited<ReturnType<typeof createPreviewGateway>>;
 
 /** The host's local admin credential cannot mint a paired-device browser session. */
-export function createDaemonPreview(
+export async function createDaemonPreview(
   store: Store,
   options: DaemonPreviewOptions,
   now: () => number,
 ): Promise<DaemonPreview> {
+  const { createPreviewGateway } = await import("@ace/preview");
   return createPreviewGateway({
     ...options,
     now,

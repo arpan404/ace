@@ -10,3 +10,4 @@ export { TerminalUrlScanner } from "./terminal-urls.ts";
 export { createLaunchManager, type LaunchHandle } from "./launch.ts";
 export { attachPreviewRelay, openPreviewProxy, type PreviewChannel } from "./relay.ts";
 export { loadLaunchFile } from "./launch-config.ts";
+export { previewRelayChannel } from "./secure-relay.ts";

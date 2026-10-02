@@ -84,3 +84,9 @@ The image installs with Bun and runs TypeScript on Node 24 as an unprivileged us
 The Noise core is portable; these helpers use Node's `ws`. Browser and Expo bindings remain with the client workers. Pairing, token verification and daemon route selection remain with the remote-access worker.
 
 See [performance measurements](performance.md), [mutation evidence](mutations.md), [Noise revision 34](https://noiseprotocol.org/noise.html), [ws API](https://github.com/websockets/ws/blob/master/doc/ws.md), and [secure-channel provenance](../../packages/secure-channel/README.md).
+
+## Exclusive binary preview subchannels
+
+Channels additionally expose `sendBinary(Uint8Array)` and `receiveBinary()`. After authenticating the initial JSON hello and calling the host's `authorize()`, a dedicated preview channel switches to binary receive. The owner acknowledges this switch over JSON before the client starts preview traffic. Do not interleave a JSON reader with a binary reader; one consumer owns each channel. `@ace/preview` supplies `previewRelayChannel` for that ownership contract.
+
+Each encrypted plaintext begins with tag `2` followed by a single binary record, at most 65,518 bytes. Tags `0` and `1` retain the existing JSON-fragment meanings. Binary records reuse the ordered bounded send queue, rekey counters, receive-frame bounds and disconnect cleanup. They do not use JSON, Base64 or logical-message reassembly. Caller buffers are copied once into tagged plaintext at admission. Invalid record kind closes the encrypted channel. Authorization and approved preview ports still belong to the daemon.

@@ -17,6 +17,8 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/relay": "workspace:*",
+    "@ace/secure-channel": "workspace:*",
     "@types/ws": "^8.18.1",
     "tough-cookie": "^6.0.0",
     "ws": "^8.18.3"
