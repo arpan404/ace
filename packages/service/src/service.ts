@@ -41,6 +41,8 @@ export class UserService {
         if (!missing(e)) throw e;
       }
       if (existing !== p.content) {
+        // Re-register only changed plans; an unchanged reinstall leaves the daemon running.
+        await this.perform("stop");
         await writeFile(p.file + ".tmp", p.content, { mode: 0o600 });
         await rename(p.file + ".tmp", p.file);
         if (!mac) await this.call(["daemon-reload"]);

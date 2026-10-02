@@ -9,6 +9,9 @@ export const processTestSuites = [
   "packages/git/src/**/*.test.ts",
   "packages/orchestrator/src/git{,-boundary}.test.ts",
   "tools/recorder/src/stdio.test.ts",
+  "packages/service/src/{artifact,update,service,lock,migration-recovery,supervisor,supervisor-recovery}.test.ts",
+  "apps/daemon/src/maintenance.server.test.ts",
+  "tools/release/src/{bundle,install,supervisor-diagnostics}.test.ts",
   "packages/adapter-testkit/src/cli.test.ts",
   // Main advanced during this audit; these match after the model catalog merges.
   "apps/daemon/src/models.server.test.ts",

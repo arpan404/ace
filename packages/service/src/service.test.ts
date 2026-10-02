@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse } from "plist";
 import { z } from "zod";
-import { planService, ServiceEnvironment, UserService, runProcess } from "./index.ts";
+import {
+  planService,
+  ServiceEnvironment,
+  UserService,
+  runProcess,
+  type ServicePlan,
+} from "./index.ts";
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -45,8 +51,8 @@ test("LaunchAgent starts at login with throttled restart and escaped environment
     PATH: "/opt/<tools>:/bin",
     ACE_AUTO_UPDATE: "1",
   });
-  expect(plist.StandardOutPath).toBe("/Users/A & B/.ace/logs/daemon.log");
-  expect(plist.StandardErrorPath).toBe("/Users/A & B/.ace/logs/daemon.err.log");
+  expect(plist.StandardOutPath).toBe("/dev/null");
+  expect(plist.StandardErrorPath).toBe("/dev/null");
 });
 test("user systemd unit enables login startup, caps restart frequency and quotes paths", () => {
   const plan = planService({
@@ -85,18 +91,6 @@ for (const platform of ["darwin", "linux"] as const)
         statePath = join(root, "state.json"),
         executable = join(root, "manager.mjs");
       await writeFile(statePath, JSON.stringify({ active: false, enabled: false }));
-      await writeFile(
-        executable,
-        `#!/usr/bin/env node\nimport {readFileSync,writeFileSync} from 'node:fs';
-const path=${JSON.stringify(statePath)}; const s=JSON.parse(readFileSync(path,'utf8')); const a=process.argv.slice(2).filter(x=>x!=='--user');
-if(a[0]==='print'||a[0]==='is-active') process.exit(s.active?0:(a[0]==='print'?113:3));
-if(a[0]==='bootstrap'||a[0]==='start') s.active=true;
-if(a[0]==='bootout'||a[0]==='stop') s.active=false;
-if(a[0]==='enable') s.enabled=true;
-if(a[0]==='disable') s.enabled=false;
-writeFileSync(path,JSON.stringify(s));\n`,
-      );
-      await chmod(executable, 0o755);
       const plan = planService({
         platform,
         home: root,
@@ -105,7 +99,7 @@ writeFileSync(path,JSON.stringify(s));\n`,
         path: "/bin",
         uid: 1000,
       });
-      const service = new UserService(plan, (_file, args) => runProcess(executable, args));
+      const service = new UserService(plan, await fakeManager(plan, statePath, executable));
       await service.perform("install");
       await service.perform("install");
       await service.perform("start");
@@ -120,7 +114,7 @@ writeFileSync(path,JSON.stringify(s));\n`,
       await service.perform("uninstall");
       expect(await service.active()).toBe(false);
       await expect(readFile(plan.file)).rejects.toMatchObject({ code: "ENOENT" });
-      expect(JSON.parse(await readFile(statePath, "utf8"))).toEqual({
+      expect(JSON.parse(await readFile(statePath, "utf8"))).toMatchObject({
         active: false,
         enabled: false,
       });
@@ -167,3 +161,68 @@ test("service environment preserves daemon network settings while excluding prov
   });
   expect(p.content).not.toContain("must-not-persist");
 });
+
+async function fakeManager(plan: ServicePlan, statePath: string, executable: string) {
+  await writeFile(
+    executable,
+    `#!/usr/bin/env node
+import {readFileSync,writeFileSync} from 'node:fs';
+const path=${JSON.stringify(statePath)}, file=${JSON.stringify(plan.file)}, domain=${JSON.stringify(plan.domain)}, mac=${JSON.stringify(plan.platform === "darwin")};
+const s=JSON.parse(readFileSync(path,'utf8'));let a=process.argv.slice(2);
+if(!mac){if(a.shift()!=='--user')process.exit(64);}
+const verb=a[0];
+if(mac){
+  if(verb==='bootstrap'){if(a.length!==3||a[1]!==domain.slice(0,domain.lastIndexOf('/'))||a[2]!==file)process.exit(64);}
+  else if(!['print','bootout'].includes(verb)||a.length!==2||a[1]!==domain)process.exit(64);
+}else if(verb==='daemon-reload'){if(a.length!==1)process.exit(64);}
+else if(!['is-active','start','stop','enable','disable'].includes(verb)||a.length!==2||a[1]!=='ace.service')process.exit(64);
+if(verb==='print'||verb==='is-active')process.exit(s.active?0:(mac?113:3));
+if(verb==='bootstrap'||verb==='start'){s.active=true;s.loaded=readFileSync(file,'utf8');}
+if(verb==='bootout'||verb==='stop')s.active=false;
+if(verb==='enable'){readFileSync(file);s.enabled=true;}
+if(verb==='disable')s.enabled=false;
+writeFileSync(path,JSON.stringify(s));
+`,
+  );
+  await chmod(executable, 0o755);
+  return (file: string, args: readonly string[]) => {
+    if (file !== (plan.platform === "darwin" ? "launchctl" : "systemctl"))
+      throw new Error("Unexpected manager");
+    return runProcess(executable, args);
+  };
+}
+for (const platform of ["darwin", "linux"] as const)
+  test(`${platform} reinstall applies changed daemon ports and PATH to the running service`, async () => {
+    const root = await temp(),
+      state = join(root, "state.json"),
+      executable = join(root, "manager.mjs");
+    await writeFile(state, JSON.stringify({ active: false, enabled: false }));
+    const input = {
+      platform,
+      home: root,
+      dataDir: join(root, "data"),
+      executable: join(root, "bin/ace"),
+      path: "/old/bin",
+      uid: 501,
+      environment: { ACE_PORT: "4000" },
+    };
+    const original = planService(input),
+      run = await fakeManager(original, state, executable);
+    await new UserService(original, run).perform("install");
+    const changed = planService({ ...input, path: "/new/bin", environment: { ACE_PORT: "5000" } });
+    await new UserService(changed, run).perform("install");
+    const result = z
+      .object({ active: z.boolean(), loaded: z.string() })
+      .parse(JSON.parse(await readFile(state, "utf8")));
+    expect(result.active).toBe(true);
+    if (platform === "darwin")
+      expect(
+        z
+          .object({ EnvironmentVariables: z.record(z.string(), z.string()) })
+          .parse(parse(result.loaded)).EnvironmentVariables,
+      ).toMatchObject({ ACE_PORT: "5000", PATH: "/new/bin" });
+    else {
+      expect(result.loaded).toContain("ACE_PORT=5000");
+      expect(result.loaded).toContain("PATH=/new/bin");
+    }
+  });

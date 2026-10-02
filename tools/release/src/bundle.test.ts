@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { generateKeyPairSync } from "node:crypto";
 import { bundleDaemon } from "@ace/release";
+import { ServerMessage, NotificationDevice } from "@ace/protocol";
 const roots: string[] = [];
 afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
@@ -39,12 +40,12 @@ test(
     let output = "",
       errors = "";
     child.stderr.on("data", (chunk: Buffer) => {
-      errors += chunk.toString();
+      errors = (errors + chunk.toString()).slice(-65536);
     });
     try {
       await new Promise<void>((ready, reject) => {
         child.stdout.on("data", (chunk: Buffer) => {
-          output += chunk.toString();
+          output = (output + chunk.toString()).slice(-65536);
           if (output.includes("Token file:")) ready();
         });
         child.once("error", reject);
@@ -56,9 +57,61 @@ test(
         headers: { authorization: `Bearer ${token}` },
       });
       expect(await response.json()).toMatchObject({ running: true, version: "1.2.3" });
+      const socket = new WebSocket(endpoint.replace("http:", "ws:"));
+      try {
+        await new Promise<void>((ready, reject) => {
+          socket.addEventListener(
+            "open",
+            () =>
+              socket.send(
+                JSON.stringify({
+                  type: "hello",
+                  protocolVersion: 1,
+                  deviceId: "bundle-host",
+                  token,
+                }),
+              ),
+            { once: true },
+          );
+          socket.addEventListener("error", () => reject(new Error("Bundled WebSocket failed")), {
+            once: true,
+          });
+          socket.addEventListener("message", (event) => {
+            try {
+              const frame = ServerMessage.parse(JSON.parse(String(event.data)));
+              if (frame.type === "welcome") ready();
+              else if (frame.type === "error") reject(new Error(frame.message));
+            } catch (error) {
+              reject(error);
+            }
+          });
+        });
+      } finally {
+        const closed = new Promise<void>((closedReady) =>
+          socket.addEventListener("close", () => closedReady(), { once: true }),
+        );
+        socket.close();
+        await closed;
+      }
       const exit = once(child, "exit");
       child.kill("SIGTERM");
       expect((await exit)[0]).toBe(0);
+      const persisted = new DatabaseSync(join(root, "data/notifications.sqlite"), {
+        readOnly: true,
+      });
+      try {
+        const row = persisted
+          .prepare("SELECT body FROM devices WHERE id=? AND revoked=0")
+          .get("bundle-host");
+        if (typeof row?.body !== "string")
+          throw new Error("Notification worker did not persist the host device");
+        expect(NotificationDevice.parse(JSON.parse(row.body))).toMatchObject({
+          id: "bundle-host",
+          address: { channel: "websocket", platform: "web" },
+        });
+      } finally {
+        persisted.close();
+      }
       const copy = join(root, "migration-copy");
       await cp(join(root, "data"), copy, { recursive: true });
       await checked(runProcess, process.execPath, [join(root, "ace.mjs"), "migrate-check", copy]);
