@@ -1,5 +1,6 @@
-import { watch as nativeWatch, type FSWatcher } from "node:fs";
-import { sep } from "node:path";
+import type { CancelTimer } from "./runtime.ts";
+import { type FSWatcher } from "node:fs";
+import { sep, relative, dirname, basename, isAbsolute } from "node:path";
 import type { SafeRoot } from "./safety.ts";
 import { internal, validRelativePath } from "./safety.ts";
 import type { GitIgnore } from "./ignore.ts";
@@ -16,8 +17,12 @@ export async function watch(
   let disposed = false;
   const lifetime = new AbortController();
   let native: FSWatcher | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let interval: ReturnType<typeof setInterval> | undefined;
+  const metadataWatchers: FSWatcher[] = [];
+  function closeMetadata() {
+    for (const watcher of metadataWatchers.splice(0)) watcher.close();
+  }
+  let timer: CancelTimer | undefined;
+  let interval: CancelTimer | undefined;
   let mode: "native" | "polling" = "native";
   let previous = new VisibleTree([]);
   let full = false;
@@ -66,20 +71,21 @@ export async function watch(
   }
   function schedule(): void {
     if (disposed || initializing || timer) return;
-    timer = setTimeout(() => {
+    timer = safe.runtime.clock.after(() => {
       timer = undefined;
-      void reconcile();
+      return reconcile();
     }, 100);
   }
   function polling(reason: string): void {
     if (disposed || mode === "polling") return;
     mode = "polling";
     native?.close();
+    closeMetadata();
     native = undefined;
     warning(
       `Workspace recursive watch unavailable; falling back to polling every 100 ms: ${reason}`,
     );
-    interval = setInterval(() => {
+    interval = safe.runtime.clock.every(() => {
       if (!tail && !initializing && !disposed) void reconcile();
     }, 100);
   }
@@ -88,11 +94,12 @@ export async function watch(
     if (forcePolling) polling("polling explicitly requested");
     else {
       try {
-        native = nativeWatch(root, { recursive: true }, (_event, filename) => {
+        native = safe.runtime.watch(root, { recursive: true }, (_event, filename) => {
           if (filename !== null) {
             const path = filename.toString().split(sep).join("/");
             if (!validRelativePath(path)) return;
-            if (path === ".git/info/exclude") full = true;
+            if (path === ".git/info/exclude" || path === ".git/index" || path === ".git/index.lock")
+              full = true;
             else if (internal(path)) return;
             if (!path || path.split("/").at(-1) === ".gitignore") full = true;
             if (dirty.size < 100_000) dirty.add(path);
@@ -101,6 +108,27 @@ export async function watch(
           schedule();
         });
         native.on("error", (error) => polling(error.message));
+        const folders = new Map<string, Set<string>>();
+        for (const path of await ignore.metadataPaths(lifetime.signal)) {
+          const rel = relative(root, path);
+          if (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel)) continue;
+          const dir = dirname(path);
+          const names = folders.get(dir) ?? new Set<string>();
+          names.add(basename(path));
+          names.add(basename(path) + ".lock");
+          folders.set(dir, names);
+        }
+        for (const [dir, names] of folders) {
+          if (!native) break;
+          const subscription = safe.runtime.watch(dir, { recursive: false }, (_event, filename) => {
+            if (filename === null || names.has(filename)) {
+              full = true;
+              schedule();
+            }
+          });
+          subscription.on("error", (error) => polling(error.message));
+          metadataWatchers.push(subscription);
+        }
       } catch (error) {
         polling(String(error));
       }
@@ -112,8 +140,9 @@ export async function watch(
   } catch (error) {
     disposed = true;
     native?.close();
-    clearInterval(interval);
-    clearTimeout(timer);
+    closeMetadata();
+    interval?.();
+    timer?.();
     throw error;
   }
   return {
@@ -121,7 +150,7 @@ export async function watch(
       return mode;
     },
     async flush() {
-      clearTimeout(timer);
+      timer?.();
       timer = undefined;
       full = true;
       await reconcile();
@@ -130,8 +159,9 @@ export async function watch(
       disposed = true;
       lifetime.abort();
       native?.close();
-      clearInterval(interval);
-      clearTimeout(timer);
+      closeMetadata();
+      interval?.();
+      timer?.();
       await tail;
       dirty.clear();
       previous = new VisibleTree([]);

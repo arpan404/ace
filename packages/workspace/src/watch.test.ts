@@ -10,6 +10,7 @@ describe("workspace watching", () => {
     const events = batches();
     const watcher = await service.watch({ onChange: events.onChange });
     try {
+      expect(watcher.mode).toBe("native");
       const created = events.next("a.ts", "created");
       await file("secret.log", "ignore");
       await file("ignored/a.ts", "ignore");
@@ -58,6 +59,7 @@ describe("workspace watching", () => {
     const events = batches();
     const watcher = await service.watch({ onChange: events.onChange });
     try {
+      expect(watcher.mode).toBe("native");
       const changed = events.next("valid.ts", "changed");
       await file("new\\name", "unsupported");
       await file("valid.ts", "after");
@@ -75,6 +77,7 @@ describe("workspace watching", () => {
     const events = batches();
     const watcher = await service.watch({ onChange: events.onChange });
     try {
+      expect(watcher.mode).toBe("native");
       const created = events.next("new/deep/c.ts", "created");
       await file("new/deep/c.ts", "c");
       expect(await created).toContainEqual({ path: "new/deep/c.ts", kind: "created" });
