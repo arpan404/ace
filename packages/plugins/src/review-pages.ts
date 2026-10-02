@@ -6,6 +6,10 @@ import {
 
 export const reviewBytes = 256 * 1024;
 export const pageBytes = 192 * 1024;
+// Legacy source JSON could fill 256 KiB before import added names, defaults and wrappers.
+// One complete entry may exceed the page target; this fixed ceiling includes that envelope
+// and still leaves more than half of the daemon's 1 MiB message budget available.
+const legacyEntryBytes = 384 * 1024;
 /** Count JSON one scalar at a time, stopping before allocating a large serialized review. */
 export function jsonSize(
   value: unknown,
@@ -59,7 +63,7 @@ export function reviewPage(review: PluginReview, offset: number) {
       execution === undefined
         ? { type: "diagnostic", message: diagnostic ?? "" }
         : { type: "execution", execution };
-    const size = jsonSize(entry, reviewBytes);
+    const size = jsonSize(entry, legacyEntryBytes);
     if (bytes + size > pageBytes && entries.length) break;
     bytes += size;
     entries.push(entry);
