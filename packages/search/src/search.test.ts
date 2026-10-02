@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { Event, Item, Thread } from "@ace/protocol";
 import { FIELD_CAP } from "./index.ts";
-import { Log, message, thread, agent } from "./test-support.ts";
+import { Log, message, thread, agent, shell } from "./test-support.ts";
 
 let directory: string;
 let log: Log;
@@ -76,12 +76,12 @@ test("huge completed and streamed outputs retain head and tail while omitting th
     " middleneedle " +
     "x".repeat(FIELD_CAP * 3) +
     " tailneedle";
-  const item = message(text);
+  const item = shell(text);
   log.append([{ type: "item.created", item }]);
   expect(log.query("headneedle").hits[0]?.itemId).toBe(item.id);
   expect(log.query("tailneedle").hits[0]?.itemId).toBe(item.id);
   expect(log.query("middleneedle").hits).toEqual([]);
-  const streamed = message("headstream ", false);
+  const streamed = shell("headstream ", false);
   log.append([{ type: "item.created", item: streamed }]);
   for (const append of [
     "x".repeat(FIELD_CAP * 4),
@@ -90,7 +90,13 @@ test("huge completed and streamed outputs retain head and tail while omitting th
     " tailstream",
   ])
     log.append([
-      { type: "item.delta", itemId: streamed.id, agentId: streamed.agentId, field: "text", append },
+      {
+        type: "item.delta",
+        itemId: streamed.id,
+        agentId: streamed.agentId,
+        field: "output",
+        append,
+      },
     ]);
   log.index.flush();
   expect(log.query("headstream").hits[0]?.itemId).toBe(streamed.id);

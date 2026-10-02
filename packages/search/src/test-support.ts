@@ -76,3 +76,24 @@ export class Log implements SearchSource {
     this.db.close();
   }
 }
+
+export function shell(output: string, complete = true): Item {
+  const id = randomUUID();
+  return Item.parse({
+    id,
+    agentId: agent,
+    createdAt: 20,
+    complete,
+    type: "tool_call",
+    call: {
+      id,
+      agentId: agent,
+      kind: "shell",
+      title: "Build output",
+      status: complete ? "succeeded" : "running",
+      startedAt: 20,
+      detail: { kind: "shell", command: "build", output },
+      raw: [],
+    },
+  });
+}
