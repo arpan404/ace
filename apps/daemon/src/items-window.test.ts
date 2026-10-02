@@ -1,0 +1,199 @@
+import { Agent, BackgroundTask, Interaction, ThreadId, Run } from "@ace/protocol";
+import { applyDelivery, applyItemsPage, trackItem } from "@ace/projection";
+import { afterEach, expect, it } from "vitest";
+import { fixture } from "./socket-test-support.ts";
+import { message } from "./payload-test-support.ts";
+
+const cleanups: (() => Promise<void> | void)[] = [];
+afterEach(async () => {
+  for (const close of cleanups.splice(0).toReversed()) await close();
+});
+async function setup() {
+  const f = await fixture();
+  cleanups.push(() => f.close());
+  return f;
+}
+
+it("snapshots only the last 200 items, keeps all work entities and pages older history in creation order", async () => {
+  const f = await setup();
+  const agent = Agent.parse({
+    id: "root",
+    threadId: f.thread.id,
+    parentId: null,
+    origin: "root",
+    native: { provider: "codex" },
+    fidelity: "full",
+    cwd: "/repo",
+    status: { state: "idle" },
+    createdAt: 1,
+  });
+  const run = Run.parse({
+    id: "run",
+    threadId: f.thread.id,
+    agentId: agent.id,
+    trigger: "user",
+    state: "active",
+    startedAt: 1,
+  });
+  const interaction = Interaction.parse({
+    id: "question",
+    threadId: f.thread.id,
+    agentId: agent.id,
+    blocking: true,
+    request: { kind: "approval", title: "Allow", options: [] },
+    state: "pending",
+    createdAt: 1,
+  });
+  const task = BackgroundTask.parse({
+    id: "task",
+    agentId: agent.id,
+    kind: "shell",
+    title: "Build",
+    status: "running",
+    stoppable: true,
+    startedAt: 1,
+  });
+  f.store.appendEvents(f.thread.id, [
+    { type: "agent.created", agent },
+    { type: "run.started", run },
+    { type: "interaction.opened", interaction },
+    { type: "background_task.started", task },
+  ]);
+  f.store.appendEvents(
+    f.thread.id,
+    Array.from({ length: 250 }, (_, i) => ({
+      type: "item.created" as const,
+      item: message(`item-${i}`),
+    })),
+  );
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.updated", item: message("item-0", "late update") },
+  ]);
+  const c = await f.connect();
+  await c.next();
+  c.send({
+    type: "subscribe",
+    subscriptionId: "s",
+    scope: { kind: "thread", threadId: f.thread.id },
+  });
+  const snapshot = await c.next();
+  if (snapshot.type !== "snapshot" || snapshot.view.kind !== "thread")
+    throw new Error("Expected thread snapshot");
+  const view = snapshot.view;
+  expect(view.itemOrder).toEqual(Array.from({ length: 200 }, (_, i) => `item-${i + 50}`));
+  expect(view.itemsBefore).toBe(56);
+  expect(view.agents.root).toEqual(agent);
+  expect(view.runs.run).toEqual(run);
+  expect(view.interactions.question).toEqual(interaction);
+  expect(view.backgroundTasks.task).toEqual(task);
+  c.send({
+    type: "items.page",
+    requestId: "page",
+    threadId: f.thread.id,
+    before: view.itemsBefore!,
+    limit: 30,
+  });
+  const page = await c.next();
+  if (page.type !== "items.page") throw new Error("Expected page");
+  expect(page.items.map((item) => item.id)).toEqual(
+    Array.from({ length: 30 }, (_, i) => `item-${i + 20}`),
+  );
+  expect(page.itemsBefore).toBe(26);
+  applyItemsPage(view, page);
+  const last = f.store.readItems(f.thread.id, page.itemsBefore!, 200);
+  expect(last.items.map((item) => item.id)).toEqual(
+    Array.from({ length: 20 }, (_, i) => `item-${i}`),
+  );
+  expect(last.items[0]).toMatchObject({ parts: [{ text: "late update" }] });
+  expect(last.itemsBefore).toBeNull();
+  applyItemsPage(view, last);
+  expect(view.itemOrder).toHaveLength(250);
+  expect(new Set(view.itemOrder).size).toBe(250);
+  expect(view.seq).toBe(snapshot.seq);
+});
+it("keeps snapshots within the item byte budget and permits paging a single oversized item", async () => {
+  const f = await setup();
+  f.store.appendEvents(
+    f.thread.id,
+    Array.from({ length: 100 }, (_, i) => ({
+      type: "item.created" as const,
+      item: message(`item-${i}`, "é".repeat(20 * 1024)),
+    })),
+  );
+  const view = f.store.snapshotThread(f.thread.id);
+  expect(view.itemOrder.length).toBeGreaterThan(0);
+  expect(view.itemOrder.length).toBeLessThan(100);
+  expect(Buffer.byteLength(JSON.stringify(Object.values(view.items)))).toBeLessThanOrEqual(
+    1024 * 1024,
+  );
+  expect(view.itemOrder.at(-1)).toBe("item-99");
+  expect(view.itemsBefore).not.toBeNull();
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.created", item: message("huge", "x".repeat(2 * 1024 * 1024)) },
+  ]);
+  const empty = f.store.snapshotThread(f.thread.id);
+  expect(empty.itemOrder).toEqual([]);
+  expect(empty.itemsBefore).toBe(f.store.headSeq() + 1);
+  const page = f.store.readItems(f.thread.id, empty.itemsBefore!, 1);
+  expect(page.items[0]?.id).toBe("huge");
+  expect(page.itemsBefore).not.toBeNull();
+});
+it("ignores unloaded updates and deltas, follows tracked details and preserves newer values when paging", async () => {
+  const f = await setup();
+  f.store.appendEvents(
+    f.thread.id,
+    Array.from({ length: 201 }, (_, i) => ({
+      type: "item.created" as const,
+      item: message(`item-${i}`),
+    })),
+  );
+  const c = await f.connect();
+  await c.next();
+  c.send({
+    type: "subscribe",
+    subscriptionId: "s",
+    scope: { kind: "thread", threadId: f.thread.id },
+  });
+  const snapshot = await c.next();
+  if (snapshot.type !== "snapshot" || snapshot.view.kind !== "thread")
+    throw new Error("Expected thread snapshot");
+  const view = snapshot.view;
+  const oldPage = f.store.readItems(f.thread.id, view.itemsBefore!, 1);
+  const update = (id: string, text: string) =>
+    f.store.appendEvents(f.thread.id, [{ type: "item.updated", item: message(id, text) }]);
+  update("item-0", "ignored");
+  const ignored = await c.next();
+  if (ignored.type !== "events") throw new Error("Expected events");
+  expect(applyDelivery(view, ignored).kind).toBe("applied");
+  expect(view.items["item-0"]).toBeUndefined();
+  f.store.appendEvents(f.thread.id, [
+    {
+      type: "item.delta",
+      itemId: message("item-0").id,
+      agentId: message("item-0").agentId,
+      field: "text",
+      append: " ignored delta",
+    },
+  ]);
+  const delta = await c.next();
+  if (delta.type !== "events") throw new Error("Expected events");
+  applyDelivery(view, delta);
+  expect(view.items["item-0"]).toBeUndefined();
+  trackItem(view, oldPage.items[0]!);
+  update("item-0", "tracked");
+  const tracked = await c.next();
+  if (tracked.type !== "events") throw new Error("Expected events");
+  applyDelivery(view, tracked);
+  applyItemsPage(view, oldPage);
+  expect(view.items["item-0"]).toMatchObject({ parts: [{ text: "tracked" }] });
+  expect(view.itemOrder[0]).toBe("item-0");
+  expect(view.itemsBefore).toBeNull();
+  update("new", "new live item"); // Unknown updates after paging all history are authoritative.
+  const newest = await c.next();
+  if (newest.type !== "events") throw new Error("Expected events");
+  applyDelivery(view, newest);
+  expect(view.items.new).toMatchObject({ parts: [{ text: "new live item" }] });
+  expect(() => applyItemsPage(view, { ...oldPage, threadId: ThreadId.parse("wrong") })).toThrow(
+    "scope",
+  );
+});

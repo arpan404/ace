@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentId, type ServerMessage } from "@ace/protocol";
+import { AgentId, ThreadId, type ServerMessage } from "@ace/protocol";
 import { applyDelivery, createThreadView } from "@ace/projection";
 import { fixture } from "./socket-test-support.ts";
 import { subscribe, type SubscriptionStore } from "./subscription.ts";
@@ -15,6 +15,7 @@ async function setup() {
 }
 function port(store: SubscriptionStore): SubscriptionStore {
   return {
+    snapshotThread: store.snapshotThread.bind(store),
     subscribe: store.subscribe.bind(store),
     headSeq: store.headSeq.bind(store),
     acquireThread: store.acquireThread.bind(store),
@@ -82,6 +83,51 @@ describe("subscription bootstrap", () => {
       seq: 2,
       view: { threads: { [f.thread.id]: { title: "Before head" } } },
     });
+  });
+  it("deduplicates commits straddling listThreads and snapshot delivery", async () => {
+    const f = await setup();
+    const input = port(f.store);
+    const messages: ServerMessage[] = [];
+    input.listThreads = () => {
+      f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Before head" }]);
+      return f.store.listThreads();
+    };
+    cleanups.push(
+      subscribe(input, "s", { kind: "threads" }, undefined, 5000, (message) => {
+        messages.push(structuredClone(message));
+        if (message.type === "snapshot")
+          f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "During send" }]);
+      }),
+    );
+    expect(messages.map((m) => m.type)).toEqual(["snapshot", "events"]);
+    expect(messages[0]).toMatchObject({
+      seq: 2,
+      view: { threads: { [f.thread.id]: { title: "Before head" } } },
+    });
+    expect(messages[1]).toMatchObject({ afterSeq: 2, throughSeq: 3 });
+    expect(
+      messages.flatMap((m) => (m.type === "events" ? m.events.map((e) => e.seq) : [])),
+    ).toEqual([3]);
+  });
+  it("immediately advances replay containing only other threads without a progress timer", async () => {
+    vi.useFakeTimers();
+    const f = await setup();
+    const other = { ...f.thread, id: ThreadId.parse("other") };
+    f.store.appendEvents(other.id, [
+      { type: "thread.created", thread: other },
+      { type: "thread.updated", title: "Other only" },
+    ]);
+    const messages: ServerMessage[] = [];
+    cleanups.push(
+      subscribe(f.store, "s", { kind: "thread", threadId: f.thread.id }, 1, 5000, (m) =>
+        messages.push(m),
+      ),
+    );
+    expect(messages).toEqual([
+      { type: "progress", subscriptionId: "s", afterSeq: 1, throughSeq: 3 },
+    ]);
+    vi.advanceTimersByTime(250);
+    expect(messages).toHaveLength(1);
   });
   it("captures commits between reading the head and delivering the snapshot", async () => {
     const f = await setup();
