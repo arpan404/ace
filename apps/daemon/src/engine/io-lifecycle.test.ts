@@ -198,3 +198,38 @@ test("a retiring idle session cannot abort a newer resumed session", async () =>
   expect(h.errors).toEqual([]);
   expect(h.store.getThread(id)?.status.state).toBe("done");
 });
+
+test("a resumed provider turn becomes working after an idle process exit", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    idleMs: 500,
+  });
+  cleanups.push(h.close);
+  const id = await h.create();
+  h.clock.advance(1500);
+  await h.engine.flush();
+  h.registry.register(
+    {
+      ...h.adapter,
+      async openSession(ctx) {
+        const session = await h.adapter.openSession(ctx);
+        return {
+          ...session,
+          async send(input, delivery) {
+            await session.send(input, delivery);
+            ctx.onFrame(frames.frame(start));
+          },
+        };
+      },
+    },
+    discovery,
+  );
+  h.command({
+    type: "thread.send",
+    threadId: id,
+    input: [{ type: "text", text: "resume" }],
+    delivery: "queue",
+  });
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("working");
+});
