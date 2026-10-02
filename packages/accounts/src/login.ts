@@ -21,6 +21,11 @@ export async function addAccount(
   await mkdir(instance.homeDir, { recursive: true, mode: 0o700 });
   const status = await loginStatus(instance, options.discovery);
   if (!status.path) throw new Error("Provider CLI is not installed");
+  if (
+    instance.provider === "cursor" &&
+    status.error === "Cursor account isolation is not verified for this CLI version"
+  )
+    throw new Error(status.error);
   const env = instanceEnv(instance, options.discovery?.env ?? process.env);
   const code = await new Promise<number | null>((resolve, reject) => {
     const child = spawn(status.path ?? "", args, {

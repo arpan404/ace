@@ -185,3 +185,31 @@ test("the registry caps account inventory while allowing updates to existing lab
     registry.close();
   }
 });
+
+test("unverified Cursor versions cannot advertise isolated auth or launch an accounts login", async () => {
+  const root = await temp();
+  await fakeClis(root);
+  const path = join(root, "agent");
+  await writeFile(
+    path,
+    (await readFile(path, "utf8")).replace("2026.09.26-dd393fe", "2026.10.01-abcdef0"),
+    { mode: 0o755 },
+  );
+  const account = createInstance({
+    id: "cursor-new",
+    provider: "cursor",
+    label: "new",
+    homeDir: join(root, "new"),
+  });
+  const discovery = { env: { PATH: root } };
+  expect((await loginStatus(account, discovery)).auth).toBe("unknown");
+  const registry = await openRegistry(join(root, "registry.sqlite"));
+  try {
+    await expect(addAccount(registry, account, { now: () => 1234, discovery })).rejects.toThrow(
+      "not verified",
+    );
+  } finally {
+    registry.close();
+  }
+  await expect(readFile(join(account.homeDir, "user", ".cursor", "logged-in"))).rejects.toThrow();
+});

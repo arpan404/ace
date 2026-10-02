@@ -85,7 +85,16 @@ export async function loginStatus(instance: ProviderInstance, options: Discovery
     ...options,
     env: instanceEnv(instance, options.env ?? process.env),
   });
-  return results[instance.provider];
+  const result = results[instance.provider];
+  // This credential-store selector is hidden, so do not trust unknown releases
+  // to isolate auth merely because they accept data/config directory variables.
+  if (instance.provider === "cursor" && result.version !== "2026.09.26-dd393fe")
+    return {
+      ...result,
+      auth: "unknown" as const,
+      error: "Cursor account isolation is not verified for this CLI version",
+    };
+  return result;
 }
 export function loginArgs(
   provider: Provider,
