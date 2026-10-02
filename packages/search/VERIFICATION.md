@@ -25,4 +25,4 @@ ADR 0035 and `bench/results.json` retain historical 1M-item measurements from be
 
 ## Static checks
 
-`bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed. All 537 source files are within 1,500 lines. `bun run check` and GitHub CI were not run. The comments on PR 47 were also inspected for `Integration rehearsal: findings for this PR`; no such comment was present during this review-fix run.
+`bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed. All 543 source files are within 1,500 lines. `bun run check` and GitHub CI were not run. The comments on PR 47 were also inspected for `Integration rehearsal: findings for this PR`; no such comment was present during this review-fix run.

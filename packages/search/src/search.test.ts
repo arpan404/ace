@@ -207,6 +207,9 @@ test("pagination keeps tied ranks ordered, binds filters and rejects changed gen
   const firstCursor = first.cursor;
   if (!firstCursor) throw new Error("Expected page cursor");
   expect(() => log.query("different", { cursor: firstCursor })).toThrow("search_invalid_query");
+  expect(() =>
+    log.query("pageneedle", { cursor: firstCursor, filters: { workspaceId: thread.workspaceId } }),
+  ).toThrow("search_invalid_query");
   expect(() => log.query("pageneedle", { cursor: "broken" })).toThrow("search_invalid_query");
   log.append([{ type: "item.created", item: message("pageneedle") }]);
   expect(() => log.query("pageneedle", { cursor: firstCursor })).toThrow("search_cursor_stale");
@@ -283,6 +286,7 @@ test("backfill yields in bounded batches and resumes durable staging after a sim
   ).rejects.toThrow("simulated crash");
   expect(yields).toBe(1);
   expect(log.index.status(log.headSeq()).indexedSeq).toBe(257);
+  expect(log.index.status(log.headSeq()).pending).toBe(0);
   expect(log.index.status(log.headSeq()).ready).toBe(false);
   log.close();
   log = new Log(join(directory, "events.sqlite"));
