@@ -1,5 +1,13 @@
 import { CatalogModel } from "@ace/protocol";
-import { AcpSession, ClaudeModels, CodexPage, ConfigOption } from "./native-schemas.ts";
+import {
+  AcpSession,
+  ClaudeModels,
+  CodexPage,
+  ConfigOption,
+  SelectConfigOption,
+  isModelConfig,
+  isSelectConfig,
+} from "./native-schemas.ts";
 import { rawPayload } from "./raw.ts";
 import type { ModelInstance } from "./types.ts";
 import { z } from "zod";
@@ -49,7 +57,7 @@ export function normalizeClaude(payload: unknown, instance: ModelInstance): Cata
     }),
   );
 }
-function options(config: z.infer<typeof ConfigOption>) {
+function options(config: z.infer<typeof SelectConfigOption>) {
   return (config.options ?? []).flatMap((option) =>
     "options" in option
       ? z
@@ -60,7 +68,7 @@ function options(config: z.infer<typeof ConfigOption>) {
 }
 function applyConfig(model: CatalogModel, configs: z.infer<typeof ConfigOption>[]): CatalogModel {
   for (const config of configs) {
-    if (config.type !== "select") continue;
+    if (!isSelectConfig(config)) continue;
     const values = options(config);
     if (config.category === "thought_level" || config.id === "reasoning_effort") {
       model.reasoningEfforts = values.map((value) => value.value);
@@ -88,9 +96,7 @@ function applyConfig(model: CatalogModel, configs: z.infer<typeof ConfigOption>[
 }
 export function normalizeAcp(payload: unknown, instance: ModelInstance): CatalogModel[] {
   const session = AcpSession.parse(payload);
-  const modelConfig = session.configOptions?.find(
-    (option) => option.category === "model" || option.id === "model",
-  );
+  const modelConfig = session.configOptions?.find(isModelConfig);
   const current = modelConfig?.currentValue ?? session.models?.currentModelId;
   const rows = modelConfig
     ? options(modelConfig).map((option) => ({
@@ -104,14 +110,28 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
         native: option,
       }));
   if (rows.length > 512) throw new Error("Too many models");
-  return rows.map((row) => {
+  const sessionConfigs = session.configOptions ?? [];
+  const sessionExtensions = sessionConfigs.filter((config) => !isSelectConfig(config));
+  const representative = Math.max(
+    0,
+    rows.findIndex((row) => row.modelId === current),
+  );
+  return rows.map((row, index) => {
     const model = base(instance, row.modelId, row.name, row.native);
     model.isDefault = row.modelId === current;
     const perModel = z
       .object({ configOptions: z.array(ConfigOption).max(64).optional() })
       .parse(row.native).configOptions;
-    const configs = perModel ?? (model.isDefault ? (session.configOptions ?? []) : []);
-    model.raw = rawPayload({ ...row.native, configOptions: configs });
+    const configs = perModel ?? (model.isDefault ? sessionConfigs : []);
+    // Metadata association does not imply model support. Preserve session extensions once,
+    // even when per-model configs override semantics or no listed model is current.
+    model.raw = rawPayload({
+      ...row.native,
+      configOptions: configs,
+      ...(index === representative && configs !== sessionConfigs && sessionExtensions.length
+        ? { sessionConfigOptions: sessionExtensions }
+        : {}),
+    });
     return applyConfig(model, configs);
   });
 }

@@ -1,4 +1,4 @@
-import { OrchestrationState, type OrchestrationLane } from "@ace/protocol";
+import { OrchestrationId, OrchestrationState, type OrchestrationLane } from "@ace/protocol";
 import { canExecute } from "./execution-policy.ts";
 import { runStatus } from "./lifecycle.ts";
 import { terminal, type Transition } from "./state.ts";
@@ -47,6 +47,31 @@ export function recover(input: unknown): { state: OrchestrationState } & Transit
     )
       throw new Error("Unchecked success");
   }
+  const receiptedChildren = new Set<string>();
+  for (const [key, childId] of Object.entries(state.spawnReceipts)) {
+    const [parentId, attemptText, requestId, extra] = key.split(":");
+    const parent = parentId ? state.lanes[parentId] : undefined;
+    const child = state.lanes[childId];
+    const attempt = Number(attemptText);
+    if (
+      state.input.template.kind !== "coordinator" ||
+      extra !== undefined ||
+      !OrchestrationId.safeParse(parentId).success ||
+      !OrchestrationId.safeParse(requestId).success ||
+      !parent ||
+      !Number.isSafeInteger(attempt) ||
+      attempt < 1 ||
+      attempt > parent.attempt ||
+      String(attempt) !== attemptText ||
+      !child ||
+      child.parentId !== parentId ||
+      receiptedChildren.has(childId)
+    )
+      throw new Error("Invalid spawn receipt");
+    receiptedChildren.add(childId);
+  }
+  for (const lane of lanes)
+    if (lane.parentId && !receiptedChildren.has(lane.id)) throw new Error("Missing spawn receipt");
   if (
     open !== state.open ||
     waiting !== state.waiting ||

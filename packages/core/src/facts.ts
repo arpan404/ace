@@ -166,7 +166,7 @@ export type Fact =
   | { type: "signal"; agent?: Key }
   | { type: "process.started" }
   | { type: "process.exited"; deliberate: boolean; message?: string }
-  | { type: "queue.changed"; count: number }
+  | { type: "queue.changed"; count: number; source?: "engine" | "provider" }
   | { type: "tick" };
 
 export type AgentSeenFact = Extract<Fact, { type: "agent.seen" }>;

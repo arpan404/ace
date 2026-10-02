@@ -22,5 +22,8 @@ export function applyItemsPage(view: ThreadView, page: ItemsPage): void {
     }
   }
   view.itemOrder = [...older, ...view.itemOrder];
-  view.itemsBefore = page.itemsBefore;
+  // Exclusive creation cursors only move backward; reaching the start is final.
+  if (view.itemsBefore !== null)
+    view.itemsBefore =
+      page.itemsBefore === null ? null : Math.min(view.itemsBefore, page.itemsBefore);
 }
