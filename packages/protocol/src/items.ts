@@ -19,8 +19,8 @@ const ItemBase = z.object({
   complete: z.boolean(),
 });
 
-/** One entry in an agent's transcript. */
-export const Item = z.discriminatedUnion("type", [
+/** Agent-owned transcript entries always identify their owner. */
+export const AgentItem = z.discriminatedUnion("type", [
   ItemBase.extend({
     type: z.literal("message"),
     role: z.enum(["user", "assistant"]),
@@ -48,6 +48,12 @@ export const Item = z.discriminatedUnion("type", [
     tokensBefore: z.number().int().optional(),
     tokensAfter: z.number().int().optional(),
   }),
+]);
+export type AgentItem = z.infer<typeof AgentItem>;
+
+/** Thread entries also include browser artifacts created before an agent starts. */
+export const Item = z.discriminatedUnion("type", [
+  ...AgentItem.options,
   ItemBase.extend({
     type: z.literal("artifact"),
     /** Thread artifacts can exist before the first agent starts. */

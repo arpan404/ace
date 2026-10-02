@@ -1,6 +1,6 @@
-import { Item } from "@ace/protocol";
+import { AgentItem } from "@ace/protocol";
 export function shell(id = "shell") {
-  return Item.parse({
+  return AgentItem.parse({
     id,
     agentId: "root",
     type: "tool_call",
@@ -19,7 +19,7 @@ export function shell(id = "shell") {
   });
 }
 export function message(id: string, text = id) {
-  return Item.parse({
+  return AgentItem.parse({
     id,
     agentId: "root",
     type: "message",

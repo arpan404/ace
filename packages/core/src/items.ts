@@ -160,7 +160,7 @@ function appendDelta(
   text: string,
   events: EventPayload[],
 ): void {
-  if (!applyDelta(item, field, text))
+  if (item.type === "artifact" || !applyDelta(item, field, text))
     throw new Error(`delta ${field} does not apply to ${item.type}`);
   for (const append of field === "output" ? outputDeltas(text) : [text])
     events.push({ type: "item.delta", itemId: item.id, agentId: item.agentId, field, append });
