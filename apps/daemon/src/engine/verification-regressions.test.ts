@@ -277,3 +277,30 @@ test("late callbacks from a failed open cannot retire a newer session of the sam
     h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex", input }).error,
   ).toBe("engine_capacity_exceeded");
 });
+
+test("commands owned by orchestration are declined without provider work or thread capacity", async () => {
+  const frames = scriptFrames();
+  const h = track(
+    await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+      limits: { maxActiveThreads: 1 },
+    }),
+  );
+  const command = Command.parse({
+    id: "other-owner",
+    deviceId: "device",
+    payload: { type: "orchestration.cancel", orchestrationId: "other" },
+  });
+  expect(
+    h.store.recordCommand(command.id, command.deviceId, () =>
+      h.engine.handler.handle(command, h.store),
+    ),
+  ).toMatchObject({ ok: false, error: "not_implemented" });
+  await h.engine.flush();
+  expect(h.store.headSeq()).toBe(0);
+  expect(h.adapter.commands).toEqual([]);
+  expect(
+    h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex", input }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  expect(h.adapter.commands.filter((c) => c.type === "send")).toHaveLength(1);
+});

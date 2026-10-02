@@ -40,10 +40,12 @@ provider I/O. `thread.create` has mandatory input and therefore opens and sends 
 other sessions open when their first send becomes runnable. Unsupported steering uses the
 normal queue. Readiness derives from core with queue count excluded.
 
-Delivered sends retain a durable acknowledgement reservation until core accepts a fresh
+Delivered sends retain a durable acknowledgement target until core accepts a fresh
 root run caused by user input, queue delivery or an unknown partial stream. Replayed native
 boundaries, child runs and known autonomous root turns do not acknowledge input. Steering
-into an active root run uses that run. On restart, live work receives an unexpected process
+into an active root run uses that run. Steering before the first acknowledgement joins the
+outstanding delivery target; one accepted turn clears every member of that group. On restart,
+live work receives an unexpected process
 exit; uncertain delivery receives a notice and is never replayed. Queue counts reconcile
 without requiring another command, including legacy untracked acknowledgement state.
 
@@ -57,7 +59,9 @@ One timer covers the earliest core or idle deadline. It ticks translator and cor
 close after 30 minutes of done by default. Resume supplies the saved native id and applies
 `process.started`. Shutdown drains frames received before close and frames emitted while
 closing before fencing intake. Retired generations are checked before decoding or accounting
-frames and again when folding. A persistence failure fences that translator until restart.
+frames and again when folding. A failed open drains its accepted prefix, retires only its owned
+generation, aborts that lifetime and releases its capacity slot. Late failed-open callbacks cannot
+retire a newer session. A persistence failure fences that translator until restart.
 
 ## Resource bounds and large payload integration
 
@@ -68,14 +72,18 @@ Each snapshot dictionary caches at most 128 records and 1 MiB of serialized enti
 Read-only scheduling and command validation do not retain every historical entity they scan.
 Mailbox overload drains its accepted prefix, reports an error notice and aborts the session.
 
-Raw data above 64 KiB is stored as original JSON bytes in a content-addressed blob. Its data
-field carries `{ aceRawBlob: { id, size, preview } }`, with a 2 KiB preview.
-`engine.readRawBlob(id)` returns the original bytes. This temporary envelope fits the existing
-schema's unknown data field without editing protocol. Replace it with ADR 0006's shared blob
-form and read route once PR #12 lands on main. Its bounded tool-output summaries and windowed
-client snapshots remain necessary: the current core/projection APIs still materialize a
-single item's text when a cold item or full update needs it. Engine historical cache and
-mailbox bounds do not claim to bound that temporary materialization or client view memory.
+Text appends fold against a persisted metadata record whose string bodies are empty. The base
+and append chunks remain the complete snapshot. The scoped append value keeps core validation,
+identity and append semantics while avoiding historical string reconstruction. Full reads and
+upserts materialize the text on demand; replacing a body retires its old journal. Both full bodies
+and metadata use bounded dictionary caches. Legacy snapshots gain metadata on their first append.
+
+ADR 0006 is on main. Shell deltas persist the bounded summary in engine state and fill Store's
+shared output stream; `output.read` serves its bytes. Store provides windowed snapshots and item
+pages. Raw data above 64 KiB uses Store's shared cap and protocol blob-ref form, with a 2 KiB
+preview. `engine.readRawBlob(id)` reads both shared blobs and legacy engine envelopes. Core and
+projection need to materialize text when a full item is requested, but valid text deltas no longer
+reconstruct its accumulated body. No engine-authored changes touch those packages.
 
 ## Verification and performance
 
@@ -85,7 +93,9 @@ there are no synchronization sleeps or gating performance budgets.
 
 Run `node apps/daemon/src/engine/benchmark.ts` for the complete adapter callback, translation,
 core, SQLite and WebSocket delivery benchmark. It seeds 10, 100, 1,000 and 10,000 items, then
-measures 30 one-character deltas at each size. The PR records results and mutation failures.
+measures 30 one-character deltas at each size. It also measures active messages of 1 KiB,
+1 MiB + 1 byte and 4 MiB. Detail items load through real WebSocket pages before timing so
+client projection applies every delta even when the item is outside the snapshot window. The PR records results and mutation failures.
 The header remains about 542 bytes at every history size; untouched entities are not decoded
 or serialized on the frame path. SQLite intent queries index only outstanding statuses and
 acknowledgements. Core status traversal still depends on the agent tree and live work.

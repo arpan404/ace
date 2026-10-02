@@ -76,7 +76,7 @@ export function engineHandler(
             )
           )
             return fail("agent_not_found");
-        } else {
+        } else if (p.type === "interaction.resolve" || p.type === "background_task.stop") {
           for (const state of repo.states()) {
             if (p.type === "interaction.resolve") {
               const interaction = Object.values(state.interactions).find(
@@ -99,7 +99,7 @@ export function engineHandler(
           }
           if (!threadId)
             return fail(p.type === "interaction.resolve" ? "already_resolved" : "task_not_found");
-        }
+        } else return fail("not_implemented");
         if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
         repo.add(command, threadId, resolutionId);
         // Microtasks execute only after the enclosing receipt transaction commits.
