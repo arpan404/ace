@@ -96,3 +96,5 @@ These 18 mutations were applied individually, failed the named public behavior t
 | M21   | Discard malformed stdio text                                 | keeps unknown and malformed frames as raw without rejecting later traffic                         |
 
 This round rechecks F15, N15 and M5/M13/M14/M21. The partial-input byte test catches both accumulating opaque fields in interpretation and assembling them into raw on every change. Removing terminal collection or assembly also fails the preservation assertions, so the scaling assertion cannot pass by dropping input. Benchmark CPU/wall numbers are informational; the byte assertion is deterministic.
+
+Two public core/client-replay tests cover clearing an actual spawning item and invalidating a pending old spawning item. Both fail when canonical unlinking is disabled and pass when restored. The subsequent main payload-contract merge exposed five type errors; narrowing locally produced raw data to the inline variant and guarding public union assertions resolves them without casts or runtime behavior changes.

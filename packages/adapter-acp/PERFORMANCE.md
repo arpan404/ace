@@ -31,3 +31,5 @@ The verifier's accumulated-input workload emitted 447,785/1,670,685/6,456,485 by
 | 2,000                         |       100,000 |  29.36 |  224.04 | 106.29–253.75 |
 
 Routing uses constant-time live-child and key indexes. This pure routing measurement excludes history setup. Cascade traversal visits the selected subtree once through parent adjacency. Completed intermediates remain indexed so a live grandchild stays reachable. Assistant diagnostic retention remains an 8 KiB prefix; canonical deltas retain the full transcript.
+
+After merging main through `19a7e14`, a confirmation run emitted the identical byte totals in both workloads. Partial-input CPU times were 19.09/16.46/38.96 ms for 100/200/400 additions; wall times were 239.65/225.24/622.77 ms under concurrent host load. The deterministic scaling result is unchanged.
