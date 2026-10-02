@@ -81,6 +81,7 @@ export class McpData {
         value: Agent.parse(JSON.parse(String(row.payload))),
         enumerable: true,
         writable: true,
+        configurable: true,
       });
     applyEvent(view, event);
     const agent = Object.hasOwn(view.agents, id) ? view.agents[id] : undefined;
