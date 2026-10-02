@@ -1,3 +1,5 @@
+import { discoverAdapters } from "./engine/adapters.ts";
+import type { discoverProviders } from "@ace/provider-kit/discovery";
 import { Engine, type EngineOptions } from "./engine/index.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
@@ -24,7 +26,10 @@ export {
 } from "./commands.ts";
 export { readConfig } from "./config.ts";
 const noop = () => {};
-export type DaemonOptions = EngineOptions & { toolkits?: readonly Toolkit[] };
+export type DaemonOptions = EngineOptions & {
+  toolkits?: readonly Toolkit[];
+  adapterDiscovery?: typeof discoverProviders;
+};
 const isToolkitList = (input: DaemonOptions | readonly Toolkit[]): input is readonly Toolkit[] =>
   Array.isArray(input);
 
@@ -101,6 +106,8 @@ export async function startDaemon(
     if (!handler) {
       engine = new Engine(store, {
         ...engineOptions,
+        registry:
+          engineOptions.registry ?? (await discoverAdapters(engineOptions.adapterDiscovery)),
         onError: engineOptions.onError ?? ((error) => log("error", "Engine failure", error)),
       });
       handler = engine.handler;

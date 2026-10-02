@@ -4,7 +4,6 @@ import { Command, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
 import { capFact, readRawBlob } from "./raw.ts";
-import { PayloadStore } from "../payload-store.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 
@@ -21,14 +20,12 @@ export class EngineRepository {
   readonly store: Store;
   private ids: IdSource;
   private capacity: number;
-  private payloads: PayloadStore;
   private snapshots = new Map<ThreadId, Snapshot>();
   constructor(store: Store, ids: IdSource = { next: () => randomUUID() }, capacity = 64) {
     this.capacity = capacity;
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
-    this.payloads = store.atomic((db) => new PayloadStore(db, () => this.ids.next("item")));
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
   }
   state(id: ThreadId): ThreadState | undefined {
@@ -93,7 +90,7 @@ export class EngineRepository {
         if (!state) throw new Error("Missing engine state");
         this.snapshots.get(id)?.begin();
         const events = facts.flatMap((input) => {
-          let fact = capFact((raw) => this.payloads.capRaw(raw, id), input);
+          let fact = capFact((raw) => this.store.capRaw(raw, id), input);
           if (fact.type === "interaction.closed" && fact.state === "resolved") {
             const interaction = Object.hasOwn(state.interactions, fact.interaction)
               ? state.interactions[fact.interaction]

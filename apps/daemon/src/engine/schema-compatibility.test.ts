@@ -72,7 +72,7 @@ async function savedShell() {
   return { id, store, construct, state, legacyOutput, output };
 }
 
-test.each([1, 6, 7, 999, 0, "invalid"])(
+test.each([1, 6, 7, 8, 999, 0, "invalid"])(
   "development engine schema %s is rejected before recovering or rewriting shell output",
   async (version) => {
     const saved = await savedShell();
@@ -109,7 +109,7 @@ test("unversioned development engine data is rejected without trying to initiali
   expect(saved.output()).toEqual(output);
 });
 
-test.each([undefined, 1, 2, 999, "invalid"])(
+test.each([undefined, 1, 2, 8, 999, "invalid"])(
   "snapshot format %s is rejected clearly even when the database declares the current schema",
   async (format) => {
     const saved = await savedShell();

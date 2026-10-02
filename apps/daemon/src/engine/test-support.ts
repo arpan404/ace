@@ -74,6 +74,7 @@ export async function harness(
     steer?: boolean;
     idleMs?: number;
     tick?: (now: number) => Fact[];
+    nextDeadline?: () => number | undefined;
     resolveGate?: Promise<void>;
   } = {},
 ) {
@@ -99,7 +100,11 @@ export async function harness(
       imageInput: true,
       rewindFiles: false,
     }),
-    createTranslator: () => ({ translate: frames.translate, tick: options.tick ?? (() => []) }),
+    createTranslator: () => ({
+      translate: frames.translate,
+      tick: options.tick ?? (() => []),
+      ...(options.nextDeadline ? { nextDeadline: options.nextDeadline } : {}),
+    }),
     steps,
   });
   const registry = new AdapterRegistry();

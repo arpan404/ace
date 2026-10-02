@@ -19,6 +19,7 @@
     "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {
+    "@ace/adapter-claude": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/engine-api": "workspace:*",
     "@ace/mcp-server": "workspace:*",

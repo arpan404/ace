@@ -28,10 +28,12 @@ export class Sessions {
       const metadata = this.dependencies.repo.session(actor.id);
       if (metadata.nativeSessionId && !capabilities.resume)
         throw new Error("Provider cannot resume this thread");
-      actor.translator = adapter.createTranslator({ threadId: actor.id, rootKey: "root" });
+      const rootKey = state.rootKey ?? "root";
+      actor.translator = adapter.createTranslator({ threadId: actor.id, rootKey });
       actor.apply([{ type: "process.started" }]);
       const session = await adapter.openSession({
         threadId: actor.id,
+        rootKey,
         cwd: metadata.cwd,
         ...(metadata.model === undefined ? {} : { model: metadata.model }),
         ...(metadata.nativeSessionId === undefined
@@ -46,7 +48,10 @@ export class Sessions {
             lifetime.abort();
             actor.generation++;
             this.dependencies.expireDelivery(actor);
-            actor.apply([{ type: "process.exited", ...exit }]);
+            actor.apply([
+              { type: "process.exited", ...exit },
+              { type: "queue.changed", source: "provider", count: 0 },
+            ]);
             if (!actor.poisoned) this.dependencies.released(actor.id);
             this.dependencies.wake(actor.id);
           }),
@@ -67,7 +72,10 @@ export class Sessions {
         actor.lifetime = undefined;
         lifetime.abort();
         try {
-          actor.apply([{ type: "process.exited", deliberate: false }]);
+          actor.apply([
+            { type: "process.exited", deliberate: false },
+            { type: "queue.changed", source: "provider", count: 0 },
+          ]);
         } finally {
           this.dependencies.released(actor.id);
         }
@@ -95,7 +103,10 @@ export class Sessions {
         actor.idleDue = false;
         this.dependencies.repo.apply(
           actor.id,
-          [{ type: "process.exited", deliberate: !actor.poisoned }],
+          [
+            { type: "process.exited", deliberate: !actor.poisoned },
+            { type: "queue.changed", source: "provider", count: 0 },
+          ],
           this.dependencies.clock.now(),
         );
       }

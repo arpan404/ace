@@ -8,8 +8,10 @@ transport fixtures and explicit development CLI mode. Daemon options can also in
 remain supported.
 
 Register adapters with `AdapterRegistry.register(adapter, discoveryResult)`. The registry
-uses declared capabilities. An empty registry accepts no new provider threads. Discovery
-and real adapters are outside this workstream.
+uses declared capabilities. An empty registry accepts no new provider threads. By default `startDaemon` probes installed
+CLIs through provider-kit and registers the shipped Claude adapter with the discovered executable.
+An explicit registry bypasses discovery; `adapterDiscovery` injects metadata probes. No session
+opens during discovery. Other provider adapters can be registered as they land.
 
 Options accept a registry, clock, core and thread id sources, `idleMs`, `silenceMs`, an error
 reporter and `limits`. `flush()` drains accepted frames and active delivery workers without
@@ -31,7 +33,7 @@ deltas append to a journal instead of rewriting the item's accumulated text. Ful
 updates replace its base and retire the corresponding journal. This is a physical storage
 departure from the original single JSON row, needed to meet the review's O(change) requirement.
 Recovery uses this snapshot, not canonical events, preserving native identities. Both the
-engine database and snapshot header require schema version 8. The engine has never shipped;
+engine database and snapshot header require schema version 9. The engine has never shipped;
 older inline snapshots and pre-ADR-0006 shell records/journals are development formats with
 no upgrade path. Older, newer, malformed or unversioned formats fail with a clear error
 requesting a fresh development database. Cache state is discarded after failed persistence
@@ -41,7 +43,9 @@ Ordinary sends, steering and controls use independent worker lanes. A pending se
 cannot hold an interrupt, task stop or capable steering call. Each intent is claimed before
 provider I/O. `thread.create` has mandatory input and therefore opens and sends immediately;
 other sessions open when their first send becomes runnable. Unsupported steering uses the
-normal queue. Readiness derives from core with queue count excluded.
+normal queue. Readiness derives from core with only the engine-held queue excluded. Native provider queues
+remain part of readiness; engine reconciliation updates only its own queue source. Provider
+queue counts retire with the session and produce an uncertainty notice on crash recovery.
 Thread status also comes from core: human requests precede active work anywhere in the tree,
 then waiting reasons, unresponsiveness and settled outcomes. A running background child
 keeps the thread working; queued input waits until the entire tree settles.
@@ -61,7 +65,7 @@ A second device gets `already_resolved` while the first answer is in flight. Ech
 keep the winning device and answer. A failed valid answer retains its reservation because
 provider delivery may be uncertain.
 
-One timer covers the earliest core or idle deadline. It ticks translator and core. Sessions
+One timer covers the earliest core, translator or idle deadline. It ticks translator and core. Sessions
 close after 30 minutes of done by default. Resume supplies the saved native id and applies
 `process.started`. Shutdown drains frames received before close and frames emitted while
 closing before fencing intake. Retired generations are checked before decoding or accounting
@@ -97,7 +101,8 @@ reconstruct its accumulated body. No engine-authored changes touch those package
 The repository owner requires tests to run once at merge. The committed public API tests use
 scripted providers, file-backed SQLite and real WebSockets. Provider waits and clocks are
 controlled boundaries; there are no synchronization sleeps or gating performance budgets.
-Until merge, run only formatting, lint, typechecking and size checks. Runtime assertions,
+Until merge, run only formatting, lint, typechecking and size checks. The owner allows specific
+test files touching conflict code after resolving a main merge. Other runtime assertions,
 performance measurements and mutation cases need run at merge.
 
 `benchmark.ts` contains the complete adapter callback, translation, core, SQLite and WebSocket
@@ -112,3 +117,16 @@ acknowledgements. Core status traversal still depends on the agent tree and live
 
 A versioned snapshot/record codec exported by core would remove the engine-owned validator.
 That dependency change is requested in the PR, without modifying core in this workstream.
+
+## Composition with main
+
+Daemon startup retains remote-access device scopes, MCP toolkits, models and notifications.
+The server drains durable callbacks and presence removal before engine shutdown; notification
+draining remains attached until final engine events commit. Raw capping uses Store's owned
+PayloadStore and prepared-statement cache instead of creating a second payload owner.
+
+Conductor remains behind its documented executor ports in ADR 0017. A production lane bridge
+needs durable effect receipts, child attachment, worktrees, account migration, artifact extraction
+and forkable history. Installing a partial bridge here would launch invisible or unrecoverable
+lanes. Its public driver and existing injected daemon handler remain available; engine commands
+continue to decline conductor commands explicitly until those executors are supplied.

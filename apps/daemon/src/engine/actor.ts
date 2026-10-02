@@ -154,12 +154,13 @@ export class ThreadActor {
   private queueFact(): Extract<Fact, { type: "queue.changed" }> {
     return {
       type: "queue.changed",
+      source: "engine",
       count: this.repo.queuedCount(this.id),
     };
   }
   syncQueue(): void {
     const fact = this.queueFact();
-    if (this.repo.state(this.id)?.queueCount !== fact.count) this.apply([fact]);
+    if (this.repo.state(this.id)?.queueSources.engine !== fact.count) this.apply([fact]);
   }
   apply(facts: Fact[]): void {
     this.repo.apply(this.id, facts, this.clock.now());
@@ -178,7 +179,7 @@ export class ThreadActor {
       this.idleDue = false;
     }
     const deadlines = [
-      nextDeadline(state),
+      nextDeadline(state, this.translator?.nextDeadline?.()),
       this.idleSince === undefined ? undefined : this.idleSince + this.idleMs,
     ].filter((value): value is number => value !== undefined);
     if (!deadlines.length) return;

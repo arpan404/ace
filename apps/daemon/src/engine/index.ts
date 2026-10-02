@@ -110,6 +110,7 @@ export class Engine {
     const uncertain = new Set<ThreadId>();
     for (const state of this.repo.states()) {
       const live =
+        state.queueSources.provider > 0 ||
         Object.values(state.agents).some(
           (record) =>
             record.activeRun ||
@@ -118,18 +119,29 @@ export class Engine {
         ) ||
         Object.keys(state.indexes.pendingInteractions).length > 0 ||
         Object.keys(state.indexes.runningTasks).length > 0;
-      if (live)
-        this.repo.apply(
-          state.threadId,
-          [
-            {
-              type: "process.exited",
-              deliberate: false,
-              message: "Daemon restarted while provider work was live",
+      if (live) {
+        const facts: Fact[] = [
+          {
+            type: "process.exited",
+            deliberate: false,
+            message: "Daemon restarted while provider work was live; execution is uncertain",
+          },
+          { type: "queue.changed", source: "provider", count: 0 },
+        ];
+        if (state.queueSources.provider > 0)
+          facts.push({
+            type: "item.upsert",
+            agent: state.rootKey ?? "root",
+            item: "engine:recovered-provider-queue",
+            draft: {
+              type: "notice",
+              level: "error",
+              complete: true,
+              text: "Provider queued work was interrupted by daemon restart; execution is uncertain",
             },
-          ],
-          this.clock.now(),
-        );
+          });
+        this.repo.apply(state.threadId, facts, this.clock.now());
+      }
     }
     for (const intent of this.repo.intents()) {
       if (
@@ -147,7 +159,7 @@ export class Engine {
     }
     for (const state of this.repo.states()) {
       const count = this.repo.queuedCount(state.threadId);
-      if (state.queueCount > count && !uncertain.has(state.threadId))
+      if (state.queueSources.engine > count && !uncertain.has(state.threadId))
         this.repo.apply(
           state.threadId,
           [
@@ -165,8 +177,12 @@ export class Engine {
           ],
           this.clock.now(),
         );
-      if (state.queueCount !== count)
-        this.repo.apply(state.threadId, [{ type: "queue.changed", count }], this.clock.now());
+      if (state.queueSources.engine !== count)
+        this.repo.apply(
+          state.threadId,
+          [{ type: "queue.changed", source: "engine", count }],
+          this.clock.now(),
+        );
       if (
         this.repo
           .intents(state.threadId)
@@ -237,7 +253,7 @@ export class Engine {
       this.repo.mark(intent, "queued");
       this.queue(actor);
       const state = this.repo.requireState(actor.id);
-      const status = deriveThreadStatus({ ...state, queueCount: 0 });
+      const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
       if (
         this.repo.intents(actor.id).some((pending) => pending.awaiting) ||
         !["new", "done", "failed"].includes(status.state)

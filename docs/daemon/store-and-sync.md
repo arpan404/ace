@@ -67,6 +67,8 @@ A coalesced wire event keeps the last event's `seq`, id and timestamp, and adds 
 
 The outbox checks pressure periodically and on writes. If buffering stays above 4 MiB for 5 seconds, or queued input would exceed 4 MiB, it closes with code 4009. The client reconnects from its last applied cursor and replays original events. Control messages flush older queued events first so results and heartbeat responses retain delivery order.
 
+Snapshot admission counts its serialized UTF-8 bytes together with queued event bytes and socket buffering. Exceeding the delivery cap closes with code 4009 before sending the snapshot. This bounds transport admission, but the status view and its JSON string are still allocated first. ADR 0006 keeps all agents, runs, interactions and tasks, so status-heavy snapshots can exceed the cap even with bounded transcript items. Repeating the same snapshot request cannot recover from that case. A separate protocol/projection/daemon design must add byte metadata or status paging and a client recovery contract while preserving every live or human-blocked agent. Item paging alone does not solve oversized status, and status truncation would violate the tree-state priority.
+
 ## Engine command port
 
 `CommandHandler.handle(command, context)` is synchronous. The context contains only bound `appendEvents`, `getThread` and `readEvents` methods, so handlers cannot own caches, close the database, or recursively enter receipt management. It returns a result carrying the command id and appends facts through the transaction-owned store. Retrying an id returns the saved result, including failed results, without running its handler again. A thrown exception rolls back events, projection and receipt, allowing a retry.

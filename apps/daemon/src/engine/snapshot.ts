@@ -117,6 +117,7 @@ const snapshot = z.object({
   ),
   itemLinks: records(itemLinks),
   queueCount: Timestamp,
+  queueSources: z.object({ engine: Timestamp, provider: Timestamp }),
   hasRun: z.boolean(),
   status: ThreadStatus,
 });
