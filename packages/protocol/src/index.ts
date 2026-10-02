@@ -9,6 +9,7 @@ export * from "./provider.ts";
 export * from "./thread.ts";
 export * from "./tools.ts";
 export * from "./wire.ts";
+export * from "./automations.ts";
 export * from "./models.ts";
 export * from "./orchestration.ts";
 export * from "./orchestration-execution.ts";

@@ -99,7 +99,7 @@ describe("provider discovery", () => {
       error: "Version probe timed out; Authentication probe timed out",
     });
     expect(JSON.stringify(result)).not.toMatch(/private@example\.test|sk-synthetic-secret/);
-  }, 15_000);
+  });
   it("discovers Codex from captured stderr auth output with empty stdout", async () => {
     const root = await directory();
     const capture = await fixture("codex");
@@ -149,16 +149,18 @@ describe("provider discovery", () => {
       version: { stdout: "codex-cli 7.8.9", stderr: "", code: 0 },
       auth: { stdout: "", stderr: "Logged in using ChatGPT", code: 0 },
     });
-    const json = await probeOutput(process.execPath, [cli, "--json"], { env: { PATH: root } });
+    const [json, table] = await Promise.all([
+      probeOutput(process.execPath, [cli, "--json"], { env: { PATH: root } }),
+      probeOutput(process.execPath, [cli], { env: { PATH: root } }),
+    ]);
     expect(json.code).toBe(0);
     expect(JSON.parse(json.stdout)).toMatchObject({
       codex: { installed: true, version: "7.8.9", auth: "logged_in", authDetail: "ChatGPT" },
     });
-    const table = await probeOutput(process.execPath, [cli], { env: { PATH: root } });
     expect(table.code).toBe(0);
     for (const text of ["codex", "7.8.9", "logged_in", "ChatGPT"])
       expect(table.stdout).toContain(text);
-  }, 15_000);
+  });
   it("runs provider probes concurrently so a blocked CLI cannot gate a healthy one", async () => {
     const parent = await directory();
     await writeFile(join(parent, "package.json"), JSON.stringify({ type: "module" }));
@@ -209,5 +211,5 @@ describe("provider discovery", () => {
         gate.close((error) => (error ? reject(error) : resolve())),
       );
     }
-  }, 20_000);
+  });
 });
