@@ -1,4 +1,4 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, StatementSync } from "node:sqlite";
 import {
   Interaction,
   Event,
@@ -37,6 +37,7 @@ function target(p: EventPayload): { collection: Collection; id: string } | undef
 /** Materialized work entities, independent of transcript history. Canonical folding owns updates. */
 export class StatusStore {
   private readonly db: DatabaseSync;
+  private interactionRead: StatementSync | undefined;
   constructor(db: DatabaseSync) {
     this.db = db;
   }
@@ -91,11 +92,10 @@ export class StatusStore {
         .run(thread.id, collection, id, JSON.stringify(value));
   }
   interaction(id: string): Interaction | undefined {
-    const row = this.db
-      .prepare(
-        "SELECT value FROM view_entities WHERE collection = 'interactions' AND id = ? LIMIT 1",
-      )
-      .get(id);
+    this.interactionRead ??= this.db.prepare(
+      "SELECT value FROM view_entities WHERE collection = 'interactions' AND id = ? LIMIT 1",
+    );
+    const row = this.interactionRead.get(id);
     return row ? Interaction.parse(JSON.parse(String(row.value))) : undefined;
   }
   snapshot(thread: Thread, seq: number): ThreadView {

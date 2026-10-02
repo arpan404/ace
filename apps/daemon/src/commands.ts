@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { Thread, type Command, type CommandResult, type WorkspaceId } from "@ace/protocol";
+import {
+  Thread,
+  type Interaction,
+  type ThreadId,
+  type EventPayload,
+  type Command,
+  type CommandResult,
+  type WorkspaceId,
+} from "@ace/protocol";
 import type { Store } from "./store.ts";
 
 export type CommandContext = Pick<
@@ -21,6 +29,31 @@ export function commandContext(store: Store): CommandContext {
 export interface CommandHandler {
   handle(command: Command, store: CommandContext): CommandResult;
 }
+/** Pure decision; the handler reads current facts and commits inside the receipt transaction. */
+function interactionAnswer(
+  command: Command,
+  interaction: Interaction | undefined,
+  at: number,
+): { ok: true; threadId: ThreadId; event: EventPayload } | { ok: false; error: string } {
+  const payload = command.payload;
+  if (payload.type !== "interaction.resolve") return { ok: false, error: "invalid_command" };
+  if (!interaction) return { ok: false, error: "interaction_not_found" };
+  if (interaction.state !== "pending") return { ok: false, error: "already_resolved" };
+  if (interaction.request.kind !== payload.resolution.kind)
+    return { ok: false, error: "invalid_resolution" };
+  return {
+    ok: true,
+    threadId: interaction.threadId,
+    event: {
+      type: "interaction.closed",
+      interactionId: interaction.id,
+      state: "resolved",
+      closedAt: at,
+      resolvedBy: command.deviceId,
+      resolution: payload.resolution,
+    },
+  };
+}
 export function stubHandler(
   options: { development?: boolean; now?: () => number } = {},
 ): CommandHandler {
@@ -30,22 +63,9 @@ export function stubHandler(
       const p = command.payload;
       if (p.type === "interaction.resolve") {
         const interaction = store.getInteraction(p.interactionId);
-        if (!interaction)
-          return { commandId: command.id, ok: false, error: "interaction_not_found" };
-        if (interaction.state !== "pending")
-          return { commandId: command.id, ok: false, error: "already_resolved" };
-        if (interaction.request.kind !== p.resolution.kind)
-          return { commandId: command.id, ok: false, error: "invalid_resolution" };
-        store.appendEvents(interaction.threadId, [
-          {
-            type: "interaction.closed",
-            interactionId: interaction.id,
-            state: "resolved",
-            closedAt: now(),
-            resolvedBy: command.deviceId,
-            resolution: p.resolution,
-          },
-        ]);
+        const decision = interactionAnswer(command, interaction, now());
+        if (!decision.ok) return { commandId: command.id, ...decision };
+        store.appendEvents(decision.threadId, [decision.event]);
         return { commandId: command.id, ok: true };
       }
       if (p.type === "thread.archive") {
