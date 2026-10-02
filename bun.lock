@@ -48,6 +48,20 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/adapter-claude": {
+      "name": "@ace/adapter-claude",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/engine-api": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "@anthropic-ai/claude-agent-sdk": "0.3.287",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/adapter-testkit": "workspace:*",
+      },
+    },
     "packages/adapter-testkit": {
       "name": "@ace/adapter-testkit",
       "dependencies": {
@@ -96,6 +110,13 @@
         "@ace/core": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+      },
+    },
+    "packages/forge": {
+      "name": "@ace/forge",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
       },
     },
     "packages/git": {
@@ -178,6 +199,13 @@
         "@noble/hashes": "2.0.1",
       },
     },
+    "packages/workspace": {
+      "name": "@ace/workspace",
+      "dependencies": {
+        "node-api-headers": "^1.9.0",
+        "zod": "^4.6.5",
+      },
+    },
     "tools/recorder": {
       "name": "@ace/recorder",
       "dependencies": {
@@ -189,6 +217,8 @@
     },
   },
   "packages": {
+    "@ace/adapter-claude": ["@ace/adapter-claude@workspace:packages/adapter-claude"],
+
     "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],
 
     "@ace/automations": ["@ace/automations@workspace:packages/automations"],
@@ -202,6 +232,8 @@
     "@ace/diagnostics": ["@ace/diagnostics@workspace:packages/diagnostics"],
 
     "@ace/engine-api": ["@ace/engine-api@workspace:packages/engine-api"],
+
+    "@ace/forge": ["@ace/forge@workspace:packages/forge"],
 
     "@ace/git": ["@ace/git@workspace:packages/git"],
 
@@ -226,6 +258,8 @@
     "@ace/relay": ["@ace/relay@workspace:apps/relay"],
 
     "@ace/secure-channel": ["@ace/secure-channel@workspace:packages/secure-channel"],
+
+    "@ace/workspace": ["@ace/workspace@workspace:packages/workspace"],
 
     "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.3.287", "", { "optionalDependencies": { "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.287", "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.287", "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.287", "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.287", "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.287", "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.287", "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.287", "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.287" }, "peerDependencies": { "@anthropic-ai/sdk": ">=0.93.0", "@modelcontextprotocol/sdk": "^1.29.0", "zod": "^4.0.0" } }, "sha512-DrYUMzmSVfL1VciNDo/9BhxiVnTsSCKVzxLHB3+NvvRiyN4pfWTKFrUzQesPnWswds9x1Ir10Gi6GRsnjT0UkA=="],
 
@@ -618,6 +652,8 @@
     "nanoid": ["nanoid@3.3.19", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug=="],
 
     "negotiator": ["negotiator@1.1.0", "", { "dependencies": { "content-type": "^2.1.0" } }, "sha512-NMPBRMJgiQHjbd8phG3Vebdx4kZ1H121rbl5IkMqeOsahptB9BKo/d7oJ3zTXqTgagn2bWlNSXkh0QUGM31RYg=="],
+
+    "node-api-headers": ["node-api-headers@1.9.0", "", {}, "sha512-2oNILP4jXwRB4ywnYKjVk1YyJ96n2D4EOVJO6S3oYZ5PtbJrw3Yt9TpAuX3nBLMuzn74rnfGQrv13pS9vC+YiA=="],
 
     "object-assign": ["object-assign@4.1.1", "", {}, "sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg=="],
 

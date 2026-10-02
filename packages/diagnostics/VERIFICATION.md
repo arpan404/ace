@@ -92,3 +92,11 @@ A public daemon socket test reads changing session/queue measurements from the e
 | Cache workload rather than sample current counters | Two authenticated health responses reflect changed sessions/queues             | not executed (tests run at merge) |
 
 No tests, mutations, flakiness runs, probes, benchmarks, full check or CI were executed in this follow-up. All behavior and final performance conclusions **need run at merge**. Historical numbers above remain historical; quoted-wrapper work is capped by the existing maximum record length, 32 levels and 10,000 visited values. Raw probe capture stops after the byte budget with at most one transport chunk in flight. Newline-free output has no unbounded line accumulation.
+
+## Main integration after approval
+
+Merged main through `fe670b0`, including Claude adapter, workspace, forge and daemon audit fixes. Both NOTICE paragraphs and root `ace`/`postinstall` scripts are retained. The server keeps main's cleanup guard and notification-disconnect ownership while also releasing pending health requests. The diff against main retains all server behavior and adds diagnostics handling and counters. Remote read authorization continues using main's device `allows` API.
+
+A public socket regression closes the server with notification presence and a health sample in flight. It requires clean shutdown, removed presence and zero pending health depth. Designed mutations are removal of pending-health release, removal of the one-time cleanup guard, and unconditional double decrement after a late sample. Each is **not executed (tests run at merge)**.
+
+`bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` pass after integration; all 590 source files remain within 1,500 lines. Cached dependency links were restored for static checking. Install and native postinstall were deferred under the owner's static-only rule. No test, probe, benchmark, mutation, full check or CI was executed. Combined shutdown behavior and native dependency installation **need run at merge**. The integration-rehearsal comment has no diagnostics-specific failure IDs, and shared status precedence is unchanged.

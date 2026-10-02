@@ -100,3 +100,52 @@ it("a paired read-only device can request health through its authenticated socke
   });
   expect(await client.next()).toMatchObject({ type: "commandResult", ok: true, health: { at: 7 } });
 });
+
+it("shutdown removes notification presence and releases pending health exactly once", async () => {
+  const entered = Promise.withResolvers<void>();
+  const sample = Promise.withResolvers<ReturnType<typeof health>>();
+  const activePresence = new Set<string>();
+  const f = await fixture({
+    health: () => {
+      entered.resolve();
+      return sample.promise;
+    },
+    notifications: {
+      async connectDevice() {},
+      async register() {},
+      async preferences() {},
+      async snooze() {},
+      async updatePresence(session) {
+        activePresence.add(session);
+      },
+      async disconnect(session) {
+        if (!activePresence.delete(session)) throw new Error("Presence was already removed");
+        sample.resolve(health(1));
+      },
+    },
+  });
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "presence.update", threadId: f.thread.id, inputAgeMs: 0 });
+    client.send({ type: "ping" });
+    expect(await client.next()).toEqual({ type: "pong" });
+    expect(activePresence.size).toBe(1);
+    client.send({
+      type: "command",
+      command: Command.parse({
+        id: "shutdown-health",
+        deviceId: "device",
+        payload: { type: "diagnostics.health" },
+      }),
+    });
+    await entered.promise;
+    expect(f.server.diagnosticsQueues().healthRequests).toBe(1);
+    await expect(f.server.close()).resolves.toBeUndefined();
+    expect(activePresence.size).toBe(0);
+    expect(f.server.diagnosticsQueues().healthRequests).toBe(0);
+  } finally {
+    sample.resolve(health(1));
+    await f.close();
+  }
+});
