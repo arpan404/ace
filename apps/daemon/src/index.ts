@@ -11,6 +11,17 @@ import {
   createHealthMonitor,
   type HealthOptions,
 } from "@ace/diagnostics";
+import { realpath } from "node:fs/promises";
+import { PluginLaunches } from "./plugin-launches.ts";
+import { randomUUID } from "node:crypto";
+import {
+  PluginManager,
+  PluginService,
+  preparePluginSession,
+  launchPluginProcess,
+} from "@ace/plugins";
+import type { SpawnOptions } from "@ace/provider-kit/process";
+import type { Provider } from "@ace/plugins";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
@@ -53,6 +64,12 @@ export async function startDaemon(
   url: string;
   tokenPath: string;
   store: Store;
+  preparePlugins(provider: Provider, root: string): ReturnType<typeof preparePluginSession>;
+  launchPlugins(
+    provider: Provider,
+    root: string,
+    options: SpawnOptions,
+  ): ReturnType<typeof launchPluginProcess>;
   models: ModelCatalog;
   notifications: NotificationWorker;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
@@ -68,6 +85,8 @@ export async function startDaemon(
   let health: ReturnType<typeof createHealthMonitor> | undefined;
   let store: Store | undefined;
   let engine: Engine | undefined;
+  let plugins: PluginManager | undefined;
+  let launches: PluginLaunches | undefined;
   let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
@@ -76,7 +95,11 @@ export async function startDaemon(
   let endpointPath: string | undefined;
   const closeResources = async () => {
     try {
-      await mcp?.close();
+      try {
+        await launches?.close();
+      } finally {
+        await mcp?.close();
+      }
     } finally {
       try {
         await server?.close();
@@ -95,7 +118,11 @@ export async function startDaemon(
               try {
                 await models?.close();
               } finally {
-                store?.close();
+                try {
+                  plugins?.close();
+                } finally {
+                  store?.close();
+                }
               }
             } finally {
               try {
@@ -164,6 +191,16 @@ export async function startDaemon(
       });
       handler = engine.handler;
     }
+    plugins = await PluginManager.open({
+      root: join(await realpath(config.dataDir), "plugins"),
+      now: Date.now,
+      id: randomUUID,
+    });
+    const ownedPlugins = plugins;
+    launches = new PluginLaunches((provider, root, options) =>
+      launchPluginProcess(ownedPlugins, provider, root, options),
+    );
+    const ownedLaunches = launches;
     models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
@@ -184,6 +221,7 @@ export async function startDaemon(
       hostId,
       store,
       handler,
+      plugins: new PluginService(plugins),
       models,
       notifications: notifications.service,
       health: health.collect,
@@ -203,6 +241,8 @@ export async function startDaemon(
         : {}),
       tokenPath,
       store,
+      preparePlugins: (provider, root) => preparePluginSession(ownedPlugins, provider, root),
+      launchPlugins: (provider, root, options) => ownedLaunches.launch(provider, root, options),
       models,
       notifications: notifications.service,
       mcp,

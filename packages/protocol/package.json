@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./plugins": "./src/plugins.ts",
     "./forge": "./src/forge.ts"
   },
   "scripts": {

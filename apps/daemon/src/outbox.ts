@@ -1,3 +1,4 @@
+import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { WebSocket } from "ws";
 import type { DeliveryEvent, ServerMessage } from "@ace/protocol";
@@ -59,7 +60,7 @@ export class Outbox {
     this.socket = socket;
     this.options = options;
   }
-  send(message: ServerMessage): void {
+  send(message: ServerMessage | PluginServerMessage): void {
     if (this.socket.readyState !== WebSocket.OPEN) return;
     if (message.type === "events" && this.socket.bufferedAmount > this.options.softLimit) {
       const last = this.pending.at(-1);
@@ -99,7 +100,7 @@ export class Outbox {
     this.write(message);
     this.tick();
   }
-  private write(message: ServerMessage): void {
+  private write(message: ServerMessage | PluginServerMessage): void {
     this.writeSerialized(JSON.stringify(message));
   }
   private writeSerialized(message: string): void {

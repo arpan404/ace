@@ -26,6 +26,7 @@
         "@ace/mcp-server": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/notify": "workspace:*",
+        "@ace/plugins": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
@@ -215,6 +216,14 @@
         "@ace/provider-kit": "workspace:*",
       },
     },
+    "packages/plugins": {
+      "name": "@ace/plugins",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
@@ -305,6 +314,8 @@
     "@ace/notify": ["@ace/notify@workspace:packages/notify"],
 
     "@ace/orchestrator": ["@ace/orchestrator@workspace:packages/orchestrator"],
+
+    "@ace/plugins": ["@ace/plugins@workspace:packages/plugins"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 

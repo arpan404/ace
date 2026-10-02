@@ -22,6 +22,11 @@ import {
   type Notification,
   type ThreadId,
 } from "@ace/protocol";
+import {
+  PluginClientMessage,
+  PluginResponse,
+  type PluginServerMessage,
+} from "@ace/protocol/plugins";
 import { commandContext, type CommandHandler } from "./commands.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
@@ -60,6 +65,7 @@ export interface ServerOptions {
   hostId: string;
   store: Store;
   handler: CommandHandler;
+  plugins?: { handle(input: unknown): Promise<PluginResponse> };
   replayLimit?: number;
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
@@ -156,6 +162,7 @@ export async function startServer(options: ServerOptions): Promise<{
         socket.terminate();
       }
   });
+  const pluginTasks = new Set<Promise<void>>();
   const input = new SocketInput();
   let healthRequests = 0;
   const cleanups = new Map<WebSocket, () => void>();
@@ -176,12 +183,13 @@ export async function startServer(options: ServerOptions): Promise<{
     const sessionId = z.string().min(1).max(200).parse(runtime.id());
     let device: DeviceId | undefined;
     let healthPending = false;
+    let pluginPending = false;
     let hasPresence = false;
     let cleaned = false;
     let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure }, runtime.now);
-    const send = (message: ServerMessage) => outbox.send(message);
+    const send = (message: ServerMessage | PluginServerMessage) => outbox.send(message);
     const fail = (code: string, message: string, close = false) => {
       send({ type: "error", code, message });
       if (close) socket.close(4001, code);
@@ -232,10 +240,12 @@ export async function startServer(options: ServerOptions): Promise<{
     const receive = async (data: RawData, binary: boolean) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       lastActivity = auth.now();
-      let message: ClientMessage;
+      let message: ClientMessage | PluginClientMessage;
       try {
         if (binary) throw new Error("Text required");
-        message = ClientMessage.parse(JSON.parse(data.toString()));
+        const decoded: unknown = JSON.parse(data.toString());
+        const standard = ClientMessage.safeParse(decoded);
+        message = standard.success ? standard.data : PluginClientMessage.parse(decoded);
       } catch {
         fail(
           device ? "invalid_message" : "unauthorized",
@@ -298,6 +308,51 @@ export async function startServer(options: ServerOptions): Promise<{
         return;
       }
       switch (message.type) {
+        case "pluginRequest": {
+          const scope =
+            message.request.type === "plugins.list" || message.request.type === "plugins.readReview"
+              ? "read"
+              : "admin";
+          if (!allows(authenticated.get(socket), scope)) {
+            fail("forbidden", `${scope} scope required`);
+            break;
+          }
+          if (!options.plugins) {
+            fail("plugins_unavailable", "Plugin service unavailable");
+            break;
+          }
+          if (pluginPending || pluginTasks.size >= 8) {
+            fail("plugins_busy", "Plugin operation already pending");
+            break;
+          }
+          pluginPending = true;
+          const service = options.plugins;
+          const request = message;
+          const task = (async () => {
+            try {
+              const response = PluginResponse.parse(await service.handle(request.request));
+              const result: PluginServerMessage = {
+                type: "pluginResult",
+                requestId: request.requestId,
+                response,
+              };
+              if (Buffer.byteLength(JSON.stringify(result)) > 1024 * 1024)
+                throw new Error("Plugin response exceeds wire limit");
+              send(result);
+            } catch (error) {
+              options.log?.(error);
+              fail(
+                "plugin_failed",
+                error instanceof Error ? error.message.slice(0, 8192) : "Plugin operation failed",
+              );
+            } finally {
+              pluginPending = false;
+            }
+          })();
+          pluginTasks.add(task);
+          void task.finally(() => pluginTasks.delete(task));
+          break;
+        }
         case "models.list":
         case "models.resolve":
         case "models.refresh": {
@@ -568,12 +623,11 @@ export async function startServer(options: ServerOptions): Promise<{
         void Promise.all([closeListener(local), ...(remote ? [closeListener(remote)] : [])]).then(
           () =>
             wss.close((error) => {
-              if (error) reject(error);
-              else
-                disconnects.then(() => {
-                  if (disconnectError) reject(disconnectError);
-                  else resolve();
-                }, reject);
+              void Promise.all([Promise.allSettled(pluginTasks), disconnects]).then(() => {
+                if (error) reject(error);
+                else if (disconnectError) reject(disconnectError);
+                else resolve();
+              }, reject);
             }),
         );
       });

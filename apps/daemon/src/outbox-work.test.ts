@@ -1,9 +1,73 @@
 import { once } from "node:events";
 import { WebSocketServer, WebSocket } from "ws";
 import { Event, ServerMessage } from "@ace/protocol";
+import { PluginServerMessage } from "@ace/protocol/plugins";
+import { z } from "zod";
 import { expect, it, vi } from "vitest";
 import { Outbox, defaultPressure } from "./outbox.ts";
 import { Client } from "./socket-test-support.ts";
+
+it("delivers plugin control results after queued events and preserves subsequent control messages", async () => {
+  const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing port");
+  const connected = once(server, "connection");
+  const client = new WebSocket(`ws://127.0.0.1:${address.port}`);
+  const received: unknown[] = [];
+  const delivered = Promise.withResolvers<void>();
+  const response = z.union([ServerMessage, PluginServerMessage]);
+  client.on("message", (data) => {
+    try {
+      received.push(response.parse(JSON.parse(data.toString())));
+      if (received.length === 3) delivered.resolve();
+    } catch (error) {
+      delivered.reject(error);
+    }
+  });
+  const opened = once(client, "open");
+  const [socket] = await connected;
+  if (!(socket instanceof WebSocket)) throw new Error("Missing server socket");
+  await opened;
+  try {
+    const outbox = new Outbox(socket, { ...defaultPressure, softLimit: -1 });
+    const event = Event.parse({
+      seq: 1,
+      id: "e1",
+      at: 0,
+      threadId: "t",
+      payload: { type: "thread.updated", title: "Changed title" },
+    });
+    outbox.send({
+      type: "events",
+      subscriptionId: "s",
+      afterSeq: 0,
+      throughSeq: 1,
+      events: [event],
+    });
+    outbox.send({
+      type: "pluginResult",
+      requestId: "list",
+      response: { type: "plugins.list", installs: [], reviews: [] },
+    });
+    outbox.send({ type: "pong" });
+    await delivered.promise;
+    expect(received).toEqual([
+      { type: "events", subscriptionId: "s", afterSeq: 0, throughSeq: 1, events: [event] },
+      {
+        type: "pluginResult",
+        requestId: "list",
+        response: { type: "plugins.list", installs: [], reviews: [] },
+      },
+      { type: "pong" },
+    ]);
+  } finally {
+    const closed = once(client, "close");
+    client.terminate();
+    await closed;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 
 it("queues metadata with linear payload reads and delivers every event in order", async () => {
   const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });

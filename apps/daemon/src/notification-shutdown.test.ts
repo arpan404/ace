@@ -1,11 +1,83 @@
 import { request as httpRequest } from "node:http";
 import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import type { PluginResponse } from "@ace/protocol/plugins";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { startDaemon, readConfig } from "./index.ts";
 import { Client, fixture } from "./socket-test-support.ts";
+
+it("finishes pending plugin persistence before reporting a presence shutdown failure", async () => {
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const completed = Promise.withResolvers<void>();
+  let marker: string | undefined;
+  let dispatched = false;
+  let persisted = false;
+  const f = await fixture({
+    plugins: {
+      async handle(): Promise<PluginResponse> {
+        dispatched = true;
+        started.resolve();
+        try {
+          await release.promise;
+          if (!marker) throw new Error("Missing marker");
+          await writeFile(marker, "Plugin persisted");
+          persisted = true;
+          return { type: "plugins.list", installs: [], reviews: [] };
+        } finally {
+          completed.resolve();
+        }
+      },
+    },
+    notifications: {
+      async connectDevice() {},
+      async register() {},
+      async preferences() {},
+      async snooze() {},
+      async updatePresence() {},
+      async disconnect() {
+        throw new Error("Presence removal failed");
+      },
+    },
+  });
+  marker = join(f.home, "plugin-result");
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "presence.update", threadId: f.thread.id, inputAgeMs: 0 });
+    client.send({ type: "ping" });
+    expect(await client.next()).toEqual({ type: "pong" });
+    client.socket.send(
+      JSON.stringify({
+        type: "pluginRequest",
+        requestId: "pending",
+        request: { type: "plugins.list" },
+      }),
+    );
+    await started.promise;
+    const disconnected = once(client.socket, "close");
+    const shutdown = f.server.close().then(
+      () => ({ persisted, error: undefined }),
+      (error: unknown) => ({
+        persisted,
+        error: error instanceof Error ? error.message : "Unknown error",
+      }),
+    );
+    await disconnected;
+    release.resolve();
+    expect(await shutdown).toEqual({ persisted: true, error: "Presence removal failed" });
+    expect(await readFile(marker, "utf8")).toBe("Plugin persisted");
+  } finally {
+    release.resolve();
+    if (dispatched) await completed.promise;
+    await f.close().catch(() => {});
+    f.store.close();
+    rmSync(f.home, { recursive: true, force: true });
+  }
+});
 
 it("gracefully shuts down more than 64 unauthenticated connections", async () => {
   const home = mkdtempSync(join(tmpdir(), "ace-shutdown-"));
