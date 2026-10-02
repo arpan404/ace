@@ -8,7 +8,7 @@ The competitor inventories supplied for this work describe file context, screens
 
 ## Decision
 
-`@ace/context` owns mention resolution, path completion, upload storage, and pure provider projection. The protocol package adds schemas only. The daemon mounts a small authenticated request handler. Clients send workspace-relative mentions or attachment hashes, never daemon paths. The package accepts injected clocks, identifiers, roots, workspace lookup and authorization. Until the workspace service lands, a narrow `WorkspaceFiles` interface uses Git for ignore semantics. Git must be installed; non-Git folders must be initialized before using this implementation.
+`@ace/context` owns mention resolution, path completion, upload storage, and pure provider projection. The protocol package adds schemas only. The daemon mounts a small authenticated request handler. Clients send workspace-relative mentions or attachment hashes, never daemon paths. The package accepts injected clocks, identifiers, roots, workspace lookup and authorization. A narrow `WorkspaceFiles` interface uses Git for ignore semantics. Workspace PR #26 has landed; the migration assessment below records why this merge keeps the current implementation. Git must be installed; non-Git folders must be initialized before using this implementation.
 
 File and folder mentions expand to bounded text with relative names and explicit truncation markers. Line ranges are inclusive and one-based. Binary files produce a diagnostic and path reference rather than text. Resolution refuses absolute paths, parent traversal and every symlink component. This stricter symlink policy avoids races through redirected directory components. Git ignored paths are refused even if tracked. Reads use no-follow file descriptors and verify the opened inode against its resolved path. Folders use the shared cached index rather than walking the tree on every request.
 
@@ -69,3 +69,9 @@ The engine and adapters are still absent from `origin/main` at `5494e21`; PR #15
 Invalid projection padding bits and reserved VP8L version bits now have negative public-API tests, including valid counterparts. The verifier's surviving mutations are killed by assertions rather than compilation errors or test timeouts.
 
 The final main merge includes automations and process-test reliability. Context reuses main's canonical `spawnRawSupervised` boundary instead of retaining a second raw-stream owner. Its real-process and socket suites join the process-test manifest. Only static checks run before delivery under the owner's current policy.
+
+## Main integration follow-up
+
+Workspace PR #26 is now merged. The narrow `WorkspaceFiles` implementation remains for this merge: context requires raw bounded byte prefixes for binary/UTF-8 diagnostics and an incrementally published fuzzy index, while `@ace/workspace.read` returns decoded text or a binary flag and its watcher owns an asynchronous disposal contract. Adapting those contracts safely needs a separate migration rather than a merge-resolution change. Git and canonical roots remain required; every symlink is refused. Remote authorization already uses the merged daemon device scopes via `allows`.
+
+Main at `fe670b0` is merged without rebasing. NOTICE retains both image-size and workspace descriptor notices. The daemon retains model requests, notifications, authenticated context requests and main's injected delivery runtime, connection admission, presence cleanup and shutdown behavior. Engine PR #15 remains open; the context-owned `deliverContext` integration contract is unchanged.

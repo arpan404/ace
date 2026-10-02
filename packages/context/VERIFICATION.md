@@ -2,7 +2,7 @@
 
 The repo owner's general rule reserves tests for merge. The review revision received static checks only; its behavior tests, mutations, benchmarks and probes were **not executed (tests run at merge)**. A later, file-specific exception authorized the watcher follow-up below. Other runtime correctness and performance claims still need run at merge. No CI, provider prompts or recorder sessions are requested or run.
 
-`bun run fmt`, `bun run lint`, `bun run check:size` and `bun run typecheck` pass. The size check covers 421 source files, all below 1,500 lines.
+`bun run fmt`, `bun run lint`, `bun run check:size` and `bun run typecheck` pass. After the latest main merge, the size check covers 594 source files, all below 1,500 lines.
 
 Main at `19a7e14` was merged without rebasing in `1430295`; the branch then merged `5494e21`, including automations and process-test reliability. Conflict resolution preserves context, model-catalog and orchestration requests, both daemon-owned service lifetimes, and main's canonical `spawnRawSupervised` owner with its output limit. Context reuses that owner rather than retaining a duplicate raw-stream implementation. Its four real-process package suites and two socket suites join main's process-test manifest, without changing assertions or per-test deadlines. All work stays in the context worktree. The temporary baseline archive was removed.
 
@@ -73,13 +73,13 @@ The final 50,000-file benchmark adds recovery-rebuild cost. `bench/delivery.ts` 
 
 Before the owner prohibited execution, isolated `origin/main` with its own dependencies reproduced the same core delta, daemon restart/crash, pairing-budget, remote CLI startup, Tailscale status/guidance, notification-spool and MCP shutdown timeouts seen on the PR. Machine load averages exceeded 300. No upstream assertion or deadline was changed.
 
-The attempted full PR gate failed with timeout-only assertions outside context and a terminated Git worker. The baseline full gate also failed and had terminated workers; neither is a successful gate. A targeted baseline checkpoint restore passed, so it does not prove the full Git checkpoint/nested failures are load-only. Those cases and the final full suite **need run at merge**. The final revision has no claim of an unmodified `bun run check` pass, and no execution follows the owner's new rule.
+The attempted full PR gate failed with timeout-only assertions outside context and a terminated Git worker. The baseline full gate also failed and had terminated workers; neither is a successful gate. A targeted baseline checkpoint restore passed, so it does not prove the full Git checkpoint/nested failures are load-only. Those cases and the final full suite **need run at merge**. The final revision has no claim of an unmodified `bun run check` pass, and execution under the owner's new rule is limited to the explicit exceptions recorded below.
 
 ## Integration rehearsal I7
 
 `deliverContext(service, command, capabilities, consume)` is the context-owned intent-worker interface. It validates the command, resolves thread-owned references, supplies original input/delivery plus native projection, returns typed diagnostics and releases in `finally`. The consumer promise settles after bytes are consumed or consumption has stopped on cancellation/failure. Initial thread creation can use `compose` after engine-assigned thread creation with the same lifetime contract.
 
-PR #15 is still open and the engine/adapters are absent from main at `5494e21`. Its session-launcher must call this interface around native provider submission and call `releaseThread` on durable thread deletion. Accounts, MCP leases, plugins, model resolution and default adapter registration belong to their respective owners. Full I7 end-to-end session launch remains pending that integration and **needs run at merge**. Core state precedence is unchanged.
+PR #15 is still open and its engine launcher is absent from main at `fe670b0`. Claude adapter PR #18 has landed, but `SessionContext` still has no native context submission hook. Its session-launcher must call this interface around native provider submission and call `releaseThread` on durable thread deletion. Accounts, MCP leases, plugins, model resolution and default adapter registration belong to their respective owners. Full I7 end-to-end session launch remains pending that integration and **needs run at merge**. Core state precedence is unchanged.
 
 ## Merge-time watcher follow-up
 
@@ -88,3 +88,13 @@ The orchestrator reported an empty retry queue where the watcher-error test expe
 Empty drains now return immediately. The settling drain hands pending work to a new drain while preserving backoff, and a fired retry waits for the previous drain to settle. Retry tests wait for the injected scheduler to register work rather than using `setImmediate`. A new public behavior test queues a notification as the replacement watcher starts and waits for the real Git update to publish before asserting completion.
 
 `bunx vitest run packages/context/src/workspace-review.test.ts` passes all **8 tests**. No other test file, full suite, mutation run, benchmark or probe was executed for this follow-up. The new guard is designed to reject omission of the final drain handoff; that mutation is **not executed (tests run at merge)**. The existing retry mutation target follows the updated callback, without executing its runner.
+
+## Main merge validation
+
+Merged `origin/main` at `fe670b0`. The two conflicts are resolved by union: NOTICE keeps image-size and node-api-headers, and each socket keeps `contextBusy`, `hasPresence` and `cleaned`. Comparing server.ts against main leaves only the additive context option, imports, busy flag and request handler. All main services and delivery lifecycle behavior remain. Dependencies were installed with `bun install --ignore-scripts`.
+
+Workspace PR #26 is now merged. The narrow `WorkspaceFiles` implementation remains for this merge: context requires raw bounded byte prefixes for binary/UTF-8 diagnostics and an incrementally published fuzzy index, while `@ace/workspace.read` returns decoded text or a binary flag and its watcher owns an asynchronous disposal contract. Adapting those contracts safely needs a separate migration rather than a merge-resolution change. Git and canonical roots remain required; every symlink is refused. Remote authorization already uses the merged daemon device scopes via `allows`.
+
+Under the owner's merge-conflict exception, the following files passed: daemon `server.test.ts`, `context.server.test.ts`, `context.remote.test.ts`, `models.server.test.ts`, `remote.server.test.ts`, `delivery-runtime.test.ts`, `notification-shutdown.test.ts`, `presence-pressure.test.ts`, and context `workspace-review.test.ts`. Total: **9 files, 55 tests**. These cover local/remote context access, model requests, server commands/subscriptions, injected identities/time, admission during pending presence removal, shutdown acknowledgement and watcher recovery.
+
+Formatting, lint, typecheck and size checks pass. No full suite, CI, benchmark, mutation runner, provider prompt or recorder was run. Full integration and final performance measurements still **need run at merge**.
