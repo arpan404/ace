@@ -67,6 +67,8 @@ Each mutation was applied independently, its selected behavior test failed, and 
 | Remove endpoint canonicalization                       | rejects noncanonical endpoint                                         |
 | Load snapshots during definition lookup                | admits manual work without decoding unrelated poll state              |
 
+| Launch after notification-driven shutdown | does not launch a new observer after notification-driven stop |
+
 ## Updated benchmark after review
 
 Command: `bun run --filter @ace/automations bench`. Node v26.8.1, macOS arm64. No gating timing budgets. Peak RSS is cumulative within each benchmark process; it includes transient bounded snapshot decoding, not retained memory per operation. Admission samples run 1,000 durable failed-template arrivals with 8-KiB bodies in the cached entries. Composed samples include ten pages, resetting the persisted baseline, fetching/parsing/diffing, durable admissions, skipped arrivals at capacity, executor outcomes, and snapshot commit. Each poll loads its prior snapshot once. Per-job capacity is 32, host capacity 256. Machine load can change these observations.
