@@ -11,6 +11,8 @@ export async function launchPluginProcess(
   options: SpawnOptions,
   spawn = spawnSupervised,
 ) {
+  if (options.killGroupOnExit === false)
+    throw new Error("Plugin launches require process-group cleanup on leader exit");
   const session = await preparePluginSession(manager, provider, root);
   try {
     const process = spawn({

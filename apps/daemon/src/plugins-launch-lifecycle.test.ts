@@ -29,9 +29,18 @@ test("daemon shutdown stops its plugin-launched providers and removes their proj
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Missing address");
     const script = join(root, "provider.cjs");
+    const childScript = join(root, "child.cjs");
+    await writeFile(
+      childScript,
+      `const socket = require('node:net').connect(${address.port}, '127.0.0.1');
+socket.once('connect', () => process.send('ready')); setInterval(() => {}, 1000);`,
+    );
     await writeFile(
       script,
-      `require('node:net').connect(${address.port}, '127.0.0.1'); setInterval(() => {}, 1000);`,
+      `const child = require('node:child_process').spawn(process.execPath,
+  [${JSON.stringify(childScript)}], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+child.once('message', () => { child.disconnect(); child.unref(); console.log('child ready'); });
+process.stdin.resume();`,
     );
     launched = await daemon.launchPlugins("claude", join(root, "session"), {
       command: process.execPath,
@@ -40,6 +49,8 @@ test("daemon shutdown stops its plugin-launched providers and removes their proj
       name: "standin",
     });
     await connected.promise;
+    // The same-group child uses its parent's resources even though it holds no output pipes.
+    expect((await lstat(join(root, "session/generated"))).isDirectory()).toBe(true);
     await daemon.close();
     expect(launched.signal.aborted).toBe(true);
     await disconnected.promise;
@@ -49,6 +60,35 @@ test("daemon shutdown stops its plugin-launched providers and removes their proj
     await launched?.stop({ graceMs: 0 });
     connection?.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    await daemon.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("plugin launches reject retained groups before starting a provider or creating resources", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-launch-retained-")));
+  const daemon = await startDaemon({
+    dataDir: join(root, "daemon"),
+    host: "127.0.0.1",
+    port: 0,
+    logLevel: "silent",
+    listen: "local",
+    remotePort: 0,
+  });
+  try {
+    const marker = join(root, "started");
+    await expect(
+      daemon.launchPlugins("claude", join(root, "session"), {
+        command: process.execPath,
+        args: ["-e", `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started')`],
+        env: {},
+        name: "standin",
+        killGroupOnExit: false,
+      }),
+    ).rejects.toThrow("Plugin launches require process-group cleanup on leader exit");
+    await expect(lstat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(root, "session"))).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
     await daemon.close();
     await rm(root, { recursive: true, force: true });
   }

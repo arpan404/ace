@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdir, readFile, realpath, rm, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { WebSocket } from "ws";
@@ -184,6 +185,54 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
     await expect(
       readFile(join(root, "native-session/generated/plugins/sample/commands/check.md")),
     ).rejects.toMatchObject({ code: "ENOENT" });
+    // A child with ignored output pipes must retain usable plugin content until shutdown.
+    const ready = Promise.withResolvers<string>();
+    const disconnected = Promise.withResolvers<void>();
+    let childSocket: Socket | undefined;
+    const resourceServer = createServer((connection) => {
+      childSocket = connection;
+      connection.setEncoding("utf8");
+      let text = "";
+      connection.on("data", (chunk: string) => {
+        text += chunk;
+        if (text.length > 1024) ready.reject(new Error("Unexpected child output"));
+        else if (text.includes("\n")) ready.resolve(text.trim());
+      });
+      connection.once("close", () => disconnected.resolve());
+    });
+    try {
+      await new Promise<void>((resolve) => resourceServer.listen(0, "127.0.0.1", resolve));
+      const address = resourceServer.address();
+      if (!address || typeof address === "string") throw new Error("Missing address");
+      const resource = join(root, "child-session/generated/plugins/sample/commands/check.md");
+      const childScript = join(root, "native-child.cjs");
+      await writeFile(
+        childScript,
+        `const socket = require('node:net').connect(${address.port}, '127.0.0.1');
+socket.once('connect', () => { socket.write(require('node:fs').readFileSync(${JSON.stringify(resource)}, 'utf8') + '\\n'); process.send('ready'); });`,
+      );
+      await writeFile(
+        script,
+        `const child = require('node:child_process').spawn(process.execPath,
+[${JSON.stringify(childScript)}], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+child.once('message', () => { child.disconnect(); child.unref(); }); process.stdin.resume();`,
+      );
+      await daemon.launchPlugins("claude", join(root, "child-session"), {
+        command: process.execPath,
+        args: [script],
+        env: {},
+        name: "test-child-owner",
+      });
+      expect(await ready.promise).toBe("Run project checks.");
+      expect(await readFile(resource, "utf8")).toBe("Run project checks.");
+      await daemon.close();
+      await disconnected.promise;
+      await expect(readFile(resource)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await daemon.close();
+      childSocket?.destroy();
+      await new Promise<void>((resolve) => resourceServer.close(() => resolve()));
+    }
   } finally {
     socket?.terminate();
     await daemon?.close();
