@@ -10,6 +10,7 @@ import { renderPrompt, scheduledDeadline, recoverOccurrence } from "./decisions.
 import { Occurrence } from "./recurrence.ts";
 import { AutomationStore, type JobMetadata } from "./store.ts";
 import { pollGithub } from "./github.ts";
+import { Lifecycle } from "./lifecycle.ts";
 import { ExecutionOwner } from "./execution-owner.ts";
 import { observe } from "./observation.ts";
 import { AutomationRuntime } from "./runtime.ts";
@@ -27,7 +28,10 @@ export class AutomationService {
   private cancelTimer: (() => void) | undefined;
   private pending = new Set<Promise<void>>();
   private polling = new Set<string>();
-  private live = false;
+  private lifecycle = new Lifecycle();
+  private get live(): boolean {
+    return this.lifecycle.live;
+  }
   private controller = new AbortController();
   private generation = 0;
   private ticking = false;
@@ -51,13 +55,13 @@ export class AutomationService {
     );
   }
   start(): void {
-    if (this.live) return;
-    this.live = true;
+    if (!this.lifecycle.beginStart()) return;
     this.generation++;
     this.controller = new AbortController();
     try {
       for (const job of this.store.jobs()) {
         this.runtime.install(this.runtime.prepare(job.automation));
+        if (!this.live) break;
         if (
           job.automation.trigger.kind === "schedule" &&
           job.nominal !== null &&
@@ -89,23 +93,37 @@ export class AutomationService {
             });
         }
       }
-      for (const { run, input } of this.store.active()) this.executions.restore(run, input);
+      for (const { run, input } of this.store.active()) {
+        if (!this.live) break;
+        this.executions.restore(run, input);
+      }
       this.arm();
     } catch (error) {
       this.stop();
       throw error;
+    } finally {
+      if (this.lifecycle.endStart()) this.stop();
     }
   }
   stop(): void {
-    this.live = false;
+    if (!this.lifecycle.beginStop()) return;
     this.generation++;
-    this.controller.abort();
-    this.executions.stop();
+    const cancelTimer = this.cancelTimer;
+    this.cancelTimer = undefined;
     this.pending.clear();
     this.polling.clear();
-    this.cancelTimer?.();
-    this.cancelTimer = undefined;
-    this.runtime.stop();
+    try {
+      this.controller.abort();
+      this.executions.stop();
+      try {
+        cancelTimer?.();
+      } catch (error) {
+        this.report(error);
+      }
+      this.runtime.stop();
+    } finally {
+      this.lifecycle.endStop();
+    }
   }
   /** Tests and orderly shutdown can await already admitted work, without polling. */
   async settled(): Promise<void> {
@@ -306,8 +324,6 @@ export class AutomationService {
       );
       if (result === undefined) return;
       if (!this.live || generation !== this.generation) return;
-      // An edit/removal while gh was in flight invalidates this response.
-      if (this.runtime.current(job.automation.id) !== revision) return;
       for (const event of result.events) {
         if (
           !this.live ||
