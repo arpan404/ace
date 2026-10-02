@@ -4,7 +4,7 @@ import { SafeRoot } from "@ace/workspace";
 import { FileOperation, type WorkspaceFileChange } from "@ace/protocol";
 import { ArtifactRecord, Catalog, TrashRecord, UploadRecord } from "./catalog.ts";
 import { archiveDownload, previewArchive, type Preview } from "./archive.ts";
-import { openDownload } from "./download.ts";
+import { openDownload, openBorrowedDownload } from "./download.ts";
 import { newId, observed } from "./filesystem.ts";
 import { Mutations } from "./mutations.ts";
 import { Uploads } from "./uploads.ts";
@@ -184,7 +184,18 @@ export class FilesService {
       return this.uploads.append(device, id, offset, bytes);
     });
   }
-  async download(device: string, input: unknown): Promise<Download> {
+  download(device: string, input: unknown): Promise<Download> {
+    return this.prepareDownload(device, input, openDownload);
+  }
+  /** Bytes remain valid until the next read; transports must await writes before advancing. */
+  downloadForTransport(device: string, input: unknown): Promise<Download> {
+    return this.prepareDownload(device, input, openBorrowedDownload);
+  }
+  private async prepareDownload(
+    device: string,
+    input: unknown,
+    openFile: typeof openDownload,
+  ): Promise<Download> {
     this.authorize(device, "files.read");
     const operation = FileOperation.parse(input);
     const release = this.reserve();
@@ -192,7 +203,7 @@ export class FilesService {
       let download: Download;
       switch (operation.op) {
         case "download":
-          download = await openDownload(
+          download = await openFile(
             this.safe,
             operation.path,
             operation.offset,
@@ -203,7 +214,7 @@ export class FilesService {
           const record = ArtifactRecord.parse(this.catalog.get(operation.artifactId));
           const root = this.roots.get(record.root);
           if (!root) throw new FileError("FORBIDDEN", "Artifact root is no longer configured");
-          download = await openDownload(root, record.path, operation.offset, operation.validator);
+          download = await openFile(root, record.path, operation.offset, operation.validator);
           break;
         }
         case "archive.download": {

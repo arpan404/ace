@@ -89,7 +89,7 @@ export function archiveDownload(safe: SafeRoot, preview: Preview): Download {
           throw new FileError("CONFLICT", "Archive entry changed");
         for (const header of tarHeaders(entry)) await write(header);
         if (!entry.directory) {
-          current = await openBorrowedDownload(safe, entry.path, entry.version);
+          current = await openBorrowedDownload(safe, entry.path, 0, entry.version);
           // The gzip callback releases ownership before this buffer is refilled.
           for await (const bytes of current.chunks) await write(bytes);
           await current.close();

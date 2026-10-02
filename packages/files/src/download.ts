@@ -13,10 +13,11 @@ export function openDownload(
 export function openBorrowedDownload(
   safe: SafeRoot,
   path: string,
-  validator: string,
+  offset: number,
+  validator?: string,
 ): Promise<Download> {
   const buffer = Buffer.allocUnsafe(CHUNK_SIZE);
-  return openFile(safe, path, 0, (length) => buffer.subarray(0, length), validator);
+  return openFile(safe, path, offset, (length) => buffer.subarray(0, length), validator);
 }
 async function openFile(
   safe: SafeRoot,

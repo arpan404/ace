@@ -48,6 +48,10 @@ it("rejects malformed binary frames and pipelined upload bytes without appending
   const upload = Upload.parse(
     await client.request({ op: "upload.begin", path: "a", expected: null, size: 2 }),
   );
+  const aliasedMagic = encodeFileFrame(upload.channel, 0, Buffer.from("a"));
+  aliasedMagic[0] = 0xc1;
+  client.socket.send(aliasedMagic);
+  expect(await client.next()).toMatchObject({ code: "INVALID_FRAME" });
   client.socket.send(encodeFileFrame(upload.channel, 0, Buffer.from("a")));
   client.socket.send(encodeFileFrame(upload.channel, 1, Buffer.from("b")));
   const responses = [await client.next(), await client.next()];

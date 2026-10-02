@@ -4,7 +4,7 @@ Date: 2026-10-02. Status: accepted.
 
 ## Context
 
-The supplied competitor inventories describe workspace editors, screenshot and recording artifacts, and phone controls for agents. They do not establish a general, resumable host filesystem transfer channel across every remote transport. ace needs the same downloads on loopback, LAN, Tailscale and the encrypted relay, without a second HTTP listener. This implementation is written from our requirements, Node APIs and the WebSocket specification, without competitor code.
+The supplied inventories describe t3code's workspace editor and browser recordings capped at 50 MiB, Codex's artifact viewer, Claude's browser uploads and GIF capture, Cursor's remote desktop evidence attached to PRs, and Antigravity's plans, walkthroughs and recordings. They do not establish a general, resumable host filesystem transfer channel across every remote transport. ace needs the same downloads on loopback, LAN, Tailscale and the encrypted relay, without a second HTTP listener. This implementation is written from our requirements, Node APIs and the WebSocket specification, without competitor code.
 
 ADR 0006 separates large output and blobs from event payloads. `@ace/workspace` already owns containment, safe file handles, bounded traversal and gitignore rules. File operations must use that implementation.
 
@@ -12,7 +12,7 @@ ADR 0006 separates large output and blobs from event payloads. `@ace/workspace` 
 
 `@ace/files` owns transfers, mutation transactions, trash and an artifact registry. The daemon attaches it to an authenticated socket. Authorization is an injected `authorize(device, capability)` check with `files.read` and `files.write`. After merging remote access from main, authenticated socket scopes map `read` to reads and `operate` to mutations; local admin tokens allow both. Checks run for every control request and upload frame, allowing revocation during a transfer. Workspace selection is a daemon configuration decision, never a path supplied by a device.
 
-Downloads pull at most 64 KiB per credit. A credit grants one frame; at most eight outstanding credits are accepted. The sender awaits the WebSocket write callback before reading again. Four active transfers per service, bounded control queues, socket payload limits and upload quotas prevent memory growth from slow or hostile devices. Cancellation and socket close release handles and compression streams. Files have no download size cap.
+Downloads pull at most 64 KiB per credit. A credit grants one frame; at most eight outstanding credits are accepted. The sender awaits the WebSocket write callback before reading again, allowing it to reuse one read buffer and one binary envelope per channel. The public download generator retains stable chunk ownership. Four active transfers per service, bounded control queues, socket payload limits and upload quotas prevent memory growth from slow or hostile devices. Cancellation and socket close release handles and compression streams. Files have no download size cap.
 
 ## Protocol and wire additions
 

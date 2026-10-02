@@ -30,6 +30,9 @@ const Upload = z.object({
   offset: z.number(),
   size: z.number(),
 });
+function chunkDigest(bytes: unknown): string {
+  return createHash("sha256").update(z.instanceof(Buffer).parse(bytes)).digest("hex");
+}
 async function receive(
   client: Client,
   channel: number,
@@ -245,4 +248,23 @@ it("refuses a successful trailer if the file changes during a paused transfer", 
   client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
   expect(Buffer.isBuffer(await client.next())).toBe(true);
   expect(await client.next()).toMatchObject({ type: "files.error", code: "CONFLICT" });
+});
+
+it("preserves retained public download chunks after subsequent reads", async () => {
+  const f = await setup();
+  await writeFile(
+    join(f.root, "retained"),
+    Buffer.concat([Buffer.alloc(CHUNK_SIZE, 17), Buffer.alloc(CHUNK_SIZE, 42)]),
+  );
+  const download = await f.service.download("writer", { op: "download", path: "retained" });
+  try {
+    const first = await download.chunks.next();
+    const second = await download.chunks.next();
+    expect(first.done).toBe(false);
+    expect(second.done).toBe(false);
+    expect(chunkDigest(first.value)).toBe(chunkDigest(Buffer.alloc(CHUNK_SIZE, 17)));
+    expect(chunkDigest(second.value)).toBe(chunkDigest(Buffer.alloc(CHUNK_SIZE, 42)));
+  } finally {
+    await download.close();
+  }
 });

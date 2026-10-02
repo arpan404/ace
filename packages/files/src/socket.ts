@@ -154,7 +154,7 @@ export function attachFilesChannel(
       const id = allocate();
       let download: Download;
       try {
-        download = await service.download(device, operation);
+        download = await service.downloadForTransport(device, operation);
       } finally {
         opening.delete(id);
       }
