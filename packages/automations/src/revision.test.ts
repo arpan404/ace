@@ -56,3 +56,25 @@ it("rejects an in-flight poll response after a configuration revision changes", 
   expect(h.store.get("triage")?.state).toEqual({});
   expect(h.inputs).toEqual([]);
 });
+it("preserves replacement state when the last GitHub event edits configuration", async () => {
+  let data: unknown = [];
+  const h = harness({
+    async get() {
+      return { status: 200, etag: '"old"', next: undefined, data };
+    },
+  });
+  h.service.put(github());
+  await h.timer.fire();
+  await h.service.settled();
+  h.deps.onRun = (run) => {
+    if (run.status === "running") h.service.put(definition({ prompt: "CHANGED {{number}}" }));
+  };
+  data = [resource(1)];
+  h.now = start;
+  await h.timer.fire();
+  await h.nextExecution(0);
+  await h.finish();
+  expect(h.inputs.map((input) => input.prompt)).toEqual(["Review 1"]);
+  expect(h.service.list()).toEqual([definition({ prompt: "CHANGED {{number}}" })]);
+  expect(h.store.get("triage")?.state).toEqual({});
+});

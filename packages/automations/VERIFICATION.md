@@ -93,3 +93,45 @@ Command: `bun run --filter @ace/automations bench`. Node v26.8.1, macOS arm64. N
 | Supervised fake-gh process, 64-KiB response |      15 |       65,615.00 |         100.5 |
 
 A separate `node --expose-gc packages/automations/bench/poll-admission.ts` observation allocated 0.322 MiB for listing 31 definitions with 30 persisted 0.79-MiB snapshots. It measures allocation for one call immediately after GC; it is non-gating. Full `bun run check` passed with 445 tests and four existing skips before delivery.
+
+## Independent verifier follow-up
+
+Merged origin/main at 94b2170, retaining automation, MCP and remote exports. The merge brings main's CommonJS fake-CLI fixture helper from #30. No CI invocation, rerun or watch was made in this round; CI is disabled by the repository owner and the local check is the gate.
+
+Reproduced both verifier lifecycle probes before fixing them: executor abort attempted a synchronous restart, and throwing file cleanup called onError, which attempted a restart. Each public-service test found one active resource after stop instead of zero. A third startup probe had a workspace subscription call stop and likewise leaked one watcher. All three now pass through a pure, constant-space lifecycle state machine. Teardown owns the transition and suppresses callback-driven startup until it finishes; stop during startup disables admission immediately and drains cleanup after startup registers resources. An explicit later start recovers observers and installs usable watchers, and a later stop releases them.
+
+Added the single-event final-snapshot behavior through the public API. Removing only the final revision check reproduced old pages overwriting the replacement manual definition's empty state. Restoring it passes. Removed the redundant initial revision check, so R3's equivalent isolated mutation no longer has a target; delivery and commit retain their own revision checks.
+
+Four additional production mutations were independently applied, failed behavioral assertions and were restored in finally:
+
+| Mutation                                       | Guarding behavior                                                     |
+| ---------------------------------------------- | --------------------------------------------------------------------- |
+| Allow startup during teardown                  | executor abort and cleanup error callbacks cannot restart inside stop |
+| Ignore a stop requested during startup         | a subscription-triggered stop releases the newly registered watcher   |
+| Do not drain a startup stop after registration | a subscription-triggered stop releases the newly registered watcher   |
+| Remove only the final snapshot revision check  | the last event's notification edit preserves replacement state        |
+
+The verifier's discovery failure was not reproduced after the merge. The first full check passed with 542 tests and four existing skips. A temporary diagnostic used public discoverProviders with the same filesystem marker handshake, real fake CLI processes and four concurrent calls per wave: 100 attempts, zero failures. The existing discovery suite also passed alongside the automation suite. No discovery or process-supervisor implementation change was made in this round. These observations do not establish the historical cause or prove unrelated flakiness. The diagnostic was removed.
+
+Refreshed non-gating measurements on Node v26.8.1, macOS arm64, shared machine. Command: bun run --filter @ace/automations bench. Peak RSS is cumulative within each benchmark process and includes transient allocations.
+
+| Path                                                |   Ops/s | Microseconds/op | Peak RSS, MiB |
+| --------------------------------------------------- | ------: | --------------: | ------------: |
+| Weekday RRULE                                       |  18,166 |           55.05 |         118.5 |
+| Five-minute cron                                    |  24,996 |           40.01 |         118.9 |
+| Counted cursor advance                              |  39,002 |           25.64 |         119.2 |
+| 100 PR snapshot, one change                         | 111,270 |            8.99 |         119.3 |
+| Durable admission and template failure              |   9,543 |          104.79 |         124.5 |
+| Durable dedup over 10k records                      |  66,999 |           14.93 |         126.8 |
+| File admission, executor and outcome                |   5,989 |          166.98 |         130.4 |
+| Indexed next deadline, 1,000 jobs                   | 132,333 |            7.56 |         132.1 |
+| Indexed inbox page, 15k records                     |  13,390 |           74.68 |         222.8 |
+| Admission, zero cached entries                      |  11,663 |           85.74 |         110.2 |
+| Admission, 100 cached entries                       |  11,905 |           84.00 |         116.6 |
+| Admission, 1,000 cached entries                     |  14,156 |           70.64 |         141.3 |
+| List 31 definitions with 30 large snapshots         |  13,202 |           75.75 |         149.8 |
+| Poll 1,000 cached entries, one change               |      18 |       55,967.86 |         257.7 |
+| Poll 1,000 cached entries, 100 changes              |      13 |       77,536.59 |         273.7 |
+| Poll 1,000 cached entries, 1,000 changes            |       6 |      158,759.84 |         308.4 |
+| Supervised fake-gh process, 64-KiB response         |      17 |       58,817.34 |         101.8 |
+| Restart, recovery and cancellation, one pending run |   9,782 |          102.23 |         117.3 |
