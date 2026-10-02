@@ -1,3 +1,4 @@
+import { normalize } from "node:path";
 import { Mention, type ContextDiagnostic, type ResolvedMention } from "@ace/protocol";
 import { ContextError, requireContext } from "./errors.ts";
 import type { WorkspaceFiles } from "./git-workspace.ts";
@@ -103,7 +104,7 @@ export async function resolveMentions(
           });
       } else {
         requireContext(!mention.lines, "invalid_request", "Folders do not have line ranges");
-        for (const path of workspace.index.under(mention.path.replace(/\/$/, ""))) {
+        for (const path of workspace.index.under(normalize(mention.path).replace(/\/$/, ""))) {
           if (!(await visit(path))) {
             diagnostics.push({
               code: "truncated",

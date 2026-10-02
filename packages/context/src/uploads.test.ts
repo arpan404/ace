@@ -1,4 +1,4 @@
-import { appendFile, readFile, writeFile, rename, access } from "node:fs/promises";
+import { appendFile, readFile, writeFile, rename, access, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { uploads, hash, attachment, thread, otherThread, png } from "./test-support.ts";
@@ -93,9 +93,10 @@ describe("resumable uploads", () => {
   });
   test("a huge PNG header is rejected without attempting decompression", async () => {
     const f = await fixture();
-    const bomb = Buffer.from(png);
-    bomb.writeUInt32BE(100_000, 16);
-    bomb.writeUInt32BE(100_000, 20);
+    const bomb = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgABhqAAAYagCAQAAAACW8NDAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=",
+      "base64",
+    );
     const id = await f.begin(bomb);
     await f.chunk(id, bomb);
     await expect(f.commit(id)).rejects.toMatchObject({
@@ -168,7 +169,7 @@ describe("resumable uploads", () => {
     await expect(access(sharedPath)).rejects.toThrow();
   });
   test("deduplicating within a thread releases the extra reservation", async () => {
-    const f = await fixture({ threadBytes: 8 });
+    const f = await fixture({ threadBytes: 8, globalBytes: 8 });
     const bytes = Buffer.from("four");
     await f.put(bytes);
     await f.put(bytes);
@@ -217,4 +218,118 @@ describe("resumable uploads", () => {
       offset: 0,
     });
   });
+});
+
+test("pixel area limits reject images whose individual sides fit", async () => {
+  const f = await fixture();
+  const bytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAJxAAACcQCAQAAAAQR6qsAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=",
+    "base64",
+  );
+  const id = await f.begin(bytes);
+  await f.chunk(id, bytes);
+  await expect(f.commit(id)).rejects.toMatchObject({
+    code: "invalid_image",
+    message: expect.stringContaining("dimensions"),
+  });
+});
+test("corrupt PNG header checksums are rejected before retaining images", async () => {
+  const f = await fixture(),
+    bytes = Buffer.from(png);
+  bytes.writeUInt32BE(0, 29);
+  const id = await f.begin(bytes);
+  await f.chunk(id, bytes);
+  await expect(f.commit(id)).rejects.toMatchObject({
+    code: "invalid_image",
+    message: expect.stringContaining("checksum"),
+  });
+});
+test("animated GIFs cannot multiply the validated canvas allocation", async () => {
+  const f = await fixture();
+  const single = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+  expect(attachment(await f.put(single)).mimeType).toBe("image/gif");
+  const frame = single.subarray(single.indexOf(44), single.length - 1);
+  const animated = Buffer.concat([single.subarray(0, -1), frame, Buffer.from([59])]);
+  const id = await f.begin(animated);
+  await f.chunk(id, animated);
+  await expect(f.commit(id)).rejects.toMatchObject({
+    code: "invalid_image",
+    message: expect.stringContaining("Animated"),
+  });
+});
+test("the store rejects excess queued requests while the accepted upload stays usable", async () => {
+  const f = await fixture({ queued: 1 });
+  const bytes = Buffer.from("data"),
+    first = f.begin(bytes);
+  await expect(f.begin(bytes)).rejects.toMatchObject({ code: "busy" });
+  const id = await first;
+  await f.chunk(id, bytes);
+  expect(attachment(await f.commit(id)).sha256).toBe(hash(bytes));
+});
+test("queued upload operations recheck the transport access boundary before writing", async () => {
+  const f = await fixture();
+  let permitted = true;
+  const operation = f.store.handle(
+    "device",
+    { op: "upload.begin", threadId: thread, bytes: 1, sha256: "0".repeat(64), name: "file" },
+    () => permitted,
+  );
+  permitted = false;
+  await expect(operation).rejects.toMatchObject({ code: "forbidden" });
+  expect(await f.store.handle("device", { op: "attachment.list", threadId: thread })).toEqual({
+    kind: "attachments",
+    attachments: [],
+  });
+});
+
+test("retrying commit cannot revive a released attachment retained by another thread", async () => {
+  const f = await fixture(),
+    bytes = Buffer.from("shared"),
+    id = await f.begin(bytes);
+  await f.chunk(id, bytes);
+  await f.commit(id);
+  await f.put(bytes, otherThread);
+  await f.store.handle("device", {
+    op: "attachment.release",
+    threadId: thread,
+    sha256: hash(bytes),
+  });
+  await expect(f.commit(id)).rejects.toMatchObject({ code: "not_found" });
+  expect(await f.store.handle("device", { op: "attachment.list", threadId: thread })).toEqual({
+    kind: "attachments",
+    attachments: [],
+  });
+});
+
+test("global disk quota includes unreferenced blobs until collection reclaims them", async () => {
+  const f = await fixture({ globalBytes: 4 }),
+    bytes = Buffer.from("data");
+  await f.put(bytes);
+  await f.store.handle("device", {
+    op: "attachment.release",
+    threadId: thread,
+    sha256: hash(bytes),
+  });
+  await f.restart();
+  await expect(f.begin(Buffer.from("next"))).rejects.toMatchObject({ code: "quota" });
+  await f.store.collect();
+  expect(await f.begin(Buffer.from("next"))).toBeTruthy();
+});
+
+test("deduplication republishes bytes missing after an interrupted collection", async () => {
+  const f = await fixture(),
+    bytes = Buffer.from("recoverable");
+  await f.put(bytes);
+  const blob = await f.store.attachment("device", thread, hash(bytes));
+  await f.store.handle("device", {
+    op: "attachment.release",
+    threadId: thread,
+    sha256: hash(bytes),
+  });
+  await rm(blob.path);
+  await f.restart();
+  await f.put(bytes);
+  expect(await readFile((await f.store.attachment("device", thread, hash(bytes))).path)).toEqual(
+    bytes,
+  );
 });

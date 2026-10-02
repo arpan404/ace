@@ -115,3 +115,18 @@ describe("native attachment projection", () => {
     expect(result.diagnostics).toHaveLength(2);
   });
 });
+
+test("Claude plaintext uploads become native document blocks when supported", () => {
+  const result = projectAttachments(
+    [{ path: "/repo/readme.txt", name: "readme.txt", mimeType: "text/plain", base64: "aGVsbG8=" }],
+    { ...capabilities("claude"), documents: ["text/plain"] },
+  );
+  expect(result.input).toEqual([
+    {
+      type: "document",
+      source: { type: "text", media_type: "text/plain", data: "hello" },
+      title: "readme.txt",
+    },
+  ]);
+  expect(result.diagnostics).toEqual([]);
+});

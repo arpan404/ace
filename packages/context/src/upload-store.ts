@@ -4,38 +4,13 @@ import { join } from "node:path";
 import { z } from "zod";
 import { Attachment, BlobHash, ContextOperation, type ContextResult } from "@ace/protocol";
 import { ContextError, requireContext } from "./errors.ts";
-import { inspectBlob, defaultImageLimits, type ImageLimits } from "./media.ts";
+import { inspectBlob, defaultImageLimits } from "./media.ts";
 import { Maintenance } from "./maintenance.ts";
 import { Metadata, UploadRow } from "./metadata.ts";
 
-export interface UploadLimits {
-  fileBytes: number;
-  threadBytes: number;
-  globalBytes: number;
-  threadEntries: number;
-  globalEntries: number;
-  uploads: number;
-  queued: number;
-  ttlMs: number;
-}
-export const defaultUploadLimits: UploadLimits = {
-  fileBytes: 32 * 1024 * 1024,
-  threadBytes: 128 * 1024 * 1024,
-  globalBytes: 2 * 1024 * 1024 * 1024,
-  threadEntries: 256,
-  globalEntries: 65_536,
-  uploads: 1024,
-  queued: 32,
-  ttlMs: 24 * 60 * 60 * 1000,
-};
-export interface UploadOptions {
-  root: string;
-  now(): number;
-  id(): string;
-  authorize(device: string, thread: string): boolean | Promise<boolean>;
-  limits?: Partial<UploadLimits>;
-  imageLimits?: ImageLimits;
-}
+import { defaultUploadLimits, type UploadOptions, type UploadLimits } from "./upload-options.ts";
+export { defaultUploadLimits, type UploadOptions, type UploadLimits } from "./upload-options.ts";
+
 type Result = ContextResult["result"];
 export class UploadStore {
   private metadata: Metadata;
@@ -98,17 +73,25 @@ export class UploadStore {
       "Thread access denied",
     );
   }
-  async handle(device: string, value: unknown): Promise<Result> {
+  async handle(
+    device: string,
+    value: unknown,
+    access: () => boolean = () => true,
+  ): Promise<Result> {
     const op = ContextOperation.parse(value);
     return this.serialize(async () => {
+      requireContext(access(), "forbidden", "Device access revoked");
       if (op.op === "upload.begin") {
         await this.authorized(device, op.threadId);
         requireContext(op.bytes <= this.limits.fileBytes, "quota", "Upload exceeds file quota");
+        const occupied = this.metadata.storage();
         const thread = this.metadata.usage(op.threadId),
           global = this.metadata.usage("*");
         requireContext(
           thread.bytes + op.bytes <= this.limits.threadBytes &&
             global.bytes + op.bytes <= this.limits.globalBytes &&
+            occupied.bytes + op.bytes <= this.limits.globalBytes &&
+            occupied.count < this.limits.globalEntries &&
             thread.count < this.limits.threadEntries &&
             global.count < this.limits.globalEntries,
           "quota",
@@ -147,6 +130,7 @@ export class UploadStore {
               this.options.now() + this.limits.ttlMs,
             );
             this.metadata.adjust(op.threadId, op.bytes, 1);
+            this.metadata.adjustStorage(op.bytes, 1);
           });
         } catch (error) {
           await rm(this.temp(id), { force: true });
@@ -271,7 +255,12 @@ export class UploadStore {
   private async commit(row: UploadRow): Promise<Attachment> {
     if (row.done) {
       const blob = this.metadata.blob(row.sha256);
-      requireContext(blob, "not_found", "Committed blob no longer retained");
+      const reference = this.metadata.get(
+        "SELECT sha256 FROM refs WHERE thread=? AND sha256=?",
+        row.thread,
+        row.sha256,
+      );
+      requireContext(blob && reference, "not_found", "Committed blob no longer retained by thread");
       return { ...blob, name: row.name };
     }
     requireContext(row.offset === row.bytes, "offset", "Upload is incomplete");
@@ -288,6 +277,7 @@ export class UploadStore {
       }
       try {
         await file.truncate(row.offset);
+        await file.sync();
       } finally {
         await file.close();
       }
@@ -307,17 +297,17 @@ export class UploadStore {
       throw new ContextError("invalid_image", "Image header could not be validated");
     }
     const existing = this.metadata.blob(row.sha256);
-    if (existing) await rm(this.temp(row.id), { force: true });
-    else {
-      if (candidate !== this.path(row.sha256)) await rename(candidate, this.path(row.sha256));
-      const directory = await open(join(this.options.root, "blobs"), "r");
-      try {
-        await directory.sync();
-      } finally {
-        await directory.close();
-      }
+    // Publish the verified bytes even when metadata exists. A crash during GC can
+    // leave an unreferenced metadata row whose file has already been removed.
+    if (candidate !== this.path(row.sha256)) await rename(candidate, this.path(row.sha256));
+    const directory = await open(join(this.options.root, "blobs"), "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
     }
     this.metadata.transaction(() => {
+      if (existing) this.metadata.adjustStorage(-row.bytes, -1);
       this.metadata.run(
         "INSERT OR IGNORE INTO blobs VALUES(?,?,0)",
         row.sha256,
@@ -345,8 +335,17 @@ export class UploadStore {
     await rm(this.temp(row.id), { force: true });
     this.metadata.transaction(() => {
       this.metadata.run("DELETE FROM uploads WHERE id=?", row.id);
-      if (!row.done) this.metadata.adjust(row.thread, -row.bytes, -1);
+      if (!row.done) {
+        this.metadata.adjust(row.thread, -row.bytes, -1);
+        this.metadata.adjustStorage(-row.bytes, -1);
+      }
     });
+    if (
+      !row.done &&
+      !this.metadata.blob(row.sha256) &&
+      !this.metadata.get("SELECT id FROM uploads WHERE sha256=? AND done=0 LIMIT 1", row.sha256)
+    )
+      await rm(this.path(row.sha256), { force: true });
   }
   async attachment(
     device: string,

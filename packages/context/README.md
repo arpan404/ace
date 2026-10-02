@@ -1,0 +1,56 @@
+# @ace/context
+
+Backend context preparation for the user's own daemon. No provider credentials, prompts, image rendering or archive extraction.
+
+## Public API
+
+- `ContextService.open({root, now, id, authorize, workspace})` creates the store and workspace cache. `root` is a private data directory, `authorize` checks device/thread access, and `workspace` returns a canonical Git workspace root.
+- `handle(device, ContextRequest, access?)` handles a validated wire operation and returns a typed result. A transport may supply `access` to recheck revocation when queued work starts.
+- `compose(device, thread, MessageContext, ProjectionCapabilities)` resolves mentions, checks thread-owned blob references, prepares bounded inline bytes, and returns native provider input plus diagnostics. This is the hook for the engine's asynchronous intent worker. `startDaemon()` exposes its context service. The synchronous command receipt handler must not perform this I/O.
+- `projectAttachments(prepared, capabilities)` is pure. Native inputs are discriminated by provider. `claude` supports PNG/JPEG/GIF/WebP images and PDF/plaintext documents when negotiated; `codex` uses local images; `opencode` uses file parts; `acp` uses images and embedded resources for Cursor/Antigravity as negotiated by the adapter. Pass actual MIME allowlists and the installed provider's inline-media byte limit. Selected mention text has its own aggregate cap.
+- `GitWorkspace` implements the narrow `WorkspaceFiles` interface. `initialize()` streams Git's index and untracked files, removing ignored tracked files. `update(changedPaths)` applies watcher changes, including subtree additions/removals. `PathIndex.complete()` returns files and folder paths with a trailing slash. `under(folder)` enumerates only that subtree.
+- `UploadStore` is independently usable. `attachment(device, thread, sha256)` returns a verified thread-owned descriptor and daemon path. `releaseThread(thread)` is the hook for thread deletion. `collect(batch)` expires uploads and deletes unreferenced/orphan files in bounded batches. The daemon runs it on startup and once per minute. `close()` drains accepted work and closes SQLite and watchers.
+
+## WebSocket
+
+After authenticated hello, send one request at a time:
+
+```json
+{
+  "type": "context.request",
+  "requestId": "request-1",
+  "operation": {
+    "op": "upload.begin",
+    "threadId": "existing-thread-id",
+    "sha256": "<64 lowercase hex digits>",
+    "bytes": 12345,
+    "name": "phone-photo.png"
+  }
+}
+```
+
+The response is `{type:"context.result", requestId, result}`. A begin/status/chunk result has `{kind:"upload", uploadId, offset, bytes}`. Send `upload.chunk` with `uploadId`, the acknowledged `offset`, and canonical base64 `data` containing at most 64 KiB. Resume by asking `upload.status` after reconnect, using the same paired device. Chunks ahead of the offset or different retransmitted bytes are rejected. A full upload still requires `upload.commit`. Commit returns `{kind:"attachment", attachment}` with the sniffed MIME and sha256. Retrying commit is safe until the receipt expires or its thread releases the attachment.
+
+Other operations are `upload.cancel`, `attachment.list`, `attachment.release`, `mention.complete {threadId, query, limit?}` and `mention.resolve {threadId, mentions}`. A mention is `{path, lines?:{start,end}}`, with inclusive one-based lines. `thread.send` and `thread.create` accept optional `context: {mentions, attachments:[{sha256}]}`. Uploads require an existing thread; allocating drafts and invoking the composition hook belong to the future engine/client work.
+
+Local token-file clients have admin rights. Remote `read` permits status, attachment listings, mention completion and resolution; `operate` permits upload mutations and attachment release; `admin` includes both. A normal composer needs both read and operate. Every operation also checks thread access. Remote transport uses the merged pairing/ticket/pinned-TLS service. There is no separate upload HTTP endpoint.
+
+Errors and diagnostics use `ContextErrorCode`: quota, busy, forbidden, not_found, offset, hash_mismatch, invalid_image, outside_workspace, ignored, binary, truncated, unsupported and invalid_request. Unsupported provider input becomes a text path reference with a diagnostic. Binary mentions produce a diagnostic and validated path reference during composition.
+
+## Bounds and durability
+
+Defaults are 32 MiB per upload, 128 MiB per thread and 2 GiB globally; 256 references/reservations per thread, 65,536 globally, 1,024 pending/completed upload receipts and 32 queued store operations. Each socket accepts one outstanding context operation. Upload receipts expire after 24 hours. Quotas count reservations and references; global accounting deliberately counts each thread reference even when physical bytes deduplicate. A separate occupied-disk counter retains the charge for unreferenced blobs until GC removes them.
+
+Mentions read at most 64 KiB per file, emit at most 256 KiB total context and expand at most 128 files. Line selection operates within the bounded prefix; ranges beyond it return a diagnostic. Paths and folder traversal reject symlink components, absolute paths and parent traversal. The fallback implementation needs Git and canonical roots. The file/folder index has 100,000 entries and 1,024-character paths. Four workspace indexes are cached with LRU eviction. Watch queues cap at 4,096 changes; overflow or ignore changes rebuild the index. Completion returns at most 50 results.
+
+Each chunk is synced before SQLite records the acknowledged offset. Startup/retry truncates unacknowledged trailing bytes. Commit streams sha256 and renames bytes into `blobs/<sha256>`; a crash between rename and the reference transaction can be recovered. GC preserves blobs pinned by pending uploads as well as thread references. Metadata uses a separate SQLite database and byte counters, so upload chunks do not enter the event log.
+
+Image-size 2.0.2 is accepted under MIT for bounded header dimension parsing; see NOTICE. Limits are 16,384 pixels per side and 40 million pixels total. Header input is capped at 64 KiB, so JPEG files needing longer metadata fail conservatively. PNG/GIF/WebP container walks cap at 4,096 metadata reads, validate framing, and reject animation. GIF frame rectangles must fit the validated canvas. PNG checks IHDR CRC. This is metadata/container validation, not proof that every compressed pixel decodes successfully. No raster decode runs in this package. SVG and unknown binary files remain opaque attachments.
+
+## Verification and measurement
+
+`bun run test packages/context apps/daemon/src/context.server.test.ts apps/daemon/src/context.remote.test.ts` exercises real Git, files, symlinks, SQLite and WS/WSS. `bun run check` is the local gate.
+
+Run `node packages/context/bench/mutations.ts` to apply and revert 16 independent production mutations, each requiring a behavior assertion failure. Run it alone, without concurrent tests or edits.
+
+`bun run --filter @ace/context bench` creates a real 50,000-file Git repository and reports cold indexing, completion median/p95, incremental update, mention resolution, durable upload throughput, projection and GC costs, plus peak RSS including setup. `bun run --filter @ace/daemon bench:context` measures durable uploads through the real loopback JSON/base64 WebSocket. Both stream a 16 MiB payload as 64 KiB chunks. Timings are informational, with no gating wall-clock budgets.

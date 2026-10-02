@@ -10,7 +10,7 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
-async function setup() {
+async function setup(authorize?: () => Promise<boolean>) {
   let service: ContextService | undefined;
   const f = await fixture({
     context: {
@@ -25,7 +25,8 @@ async function setup() {
     root: join(f.home, "context"),
     id: () => `upload-${++id}`,
     now: () => 1000,
-    authorize: (_device, thread) => thread === f.thread.id,
+    authorize: async (_device, thread) =>
+      thread === f.thread.id && (authorize ? await authorize() : true),
     workspace: () => undefined,
   });
   const owned = service;
@@ -105,7 +106,13 @@ test("upload requests require hello authentication and an authorized thread", as
   ).toMatchObject({ kind: "error", code: "forbidden" });
 });
 test("the socket rejects overlapping context operations instead of buffering chunks", async () => {
-  const f = await setup();
+  const entered = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  const f = await setup(async () => {
+    entered.resolve();
+    await release.promise;
+    return true;
+  });
   const client = await f.connect();
   await client.next();
   client.send({
@@ -113,24 +120,24 @@ test("the socket rejects overlapping context operations instead of buffering chu
     requestId: "first",
     operation: { op: "attachment.list", threadId: f.thread.id },
   });
-  client.send({
-    type: "context.request",
-    requestId: "second",
-    operation: { op: "attachment.list", threadId: f.thread.id },
-  });
-  const results = [await client.next(), await client.next()];
-  expect(results).toContainEqual(
-    expect.objectContaining({
+  await entered.promise;
+  try {
+    client.send({
+      type: "context.request",
+      requestId: "second",
+      operation: { op: "attachment.list", threadId: f.thread.id },
+    });
+    expect(await client.next()).toMatchObject({
       type: "context.result",
       requestId: "second",
-      result: expect.objectContaining({ kind: "error", code: "busy" }),
-    }),
-  );
-  expect(results).toContainEqual(
-    expect.objectContaining({
-      type: "context.result",
-      requestId: "first",
-      result: { kind: "attachments", attachments: [] },
-    }),
-  );
+      result: { kind: "error", code: "busy" },
+    });
+  } finally {
+    release.resolve();
+  }
+  expect(await client.next()).toMatchObject({
+    type: "context.result",
+    requestId: "first",
+    result: { kind: "attachments", attachments: [] },
+  });
 });

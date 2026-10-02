@@ -55,11 +55,12 @@ try {
     total = 16 * 1024 * 1024;
   const digest = createHash("sha256");
   for (let offset = 0; offset < total; offset += chunk.length) digest.update(chunk);
+  const sha256 = digest.digest("hex");
   start = performance.now();
   const begin = await store.handle("device", {
     op: "upload.begin",
     threadId: "thread",
-    sha256: digest.digest("hex"),
+    sha256,
     bytes: total,
     name: "benchmark.txt",
   });
@@ -87,7 +88,7 @@ try {
   await store.handle("device", {
     op: "attachment.release",
     threadId: "thread",
-    sha256: createHash("sha256").update(Buffer.alloc(total, 97)).digest("hex"),
+    sha256,
   });
   start = performance.now();
   await store.collect();

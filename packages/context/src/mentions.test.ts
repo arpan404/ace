@@ -172,3 +172,15 @@ describe("workspace mentions", () => {
     }).toThrow("Workspace index limit");
   });
 });
+
+test("folder completion chips remain indexed until their last descendant disappears", () => {
+  const index = new PathIndex();
+  index.update("src/deep/a.ts", true);
+  index.update("src/deep/b.ts", true);
+  expect(index.complete("sd", 1)).toEqual(["src/deep/"]);
+  expect([...index.under("src")]).toEqual(["src/deep/a.ts", "src/deep/b.ts"]);
+  index.update("src/deep/a.ts", false);
+  expect(index.complete("sd", 1)).toEqual(["src/deep/"]);
+  index.update("src/deep/b.ts", false);
+  expect(index.complete("sd")).toEqual([]);
+});

@@ -29,6 +29,11 @@ export class Metadata {
       CREATE TABLE IF NOT EXISTS refs(thread TEXT NOT NULL, sha256 TEXT NOT NULL REFERENCES blobs(sha256), name TEXT NOT NULL, PRIMARY KEY(thread,sha256));
       CREATE TABLE IF NOT EXISTS usage(scope TEXT PRIMARY KEY, bytes INTEGER NOT NULL, count INTEGER NOT NULL);
       INSERT OR IGNORE INTO usage VALUES('*',0,0);
+      CREATE TABLE IF NOT EXISTS storage(id INTEGER PRIMARY KEY CHECK(id=1),bytes INTEGER NOT NULL,count INTEGER NOT NULL);
+      INSERT OR IGNORE INTO storage SELECT 1,
+        COALESCE((SELECT SUM(json_extract(metadata,'$.bytes')) FROM blobs),0)+COALESCE((SELECT SUM(bytes) FROM uploads WHERE done=0),0),
+        (SELECT COUNT(*) FROM blobs)+(SELECT COUNT(*) FROM uploads WHERE done=0);
+
     `);
   }
   private statement(sql: string): StatementSync {
@@ -73,6 +78,14 @@ export class Metadata {
       .parse(
         this.get("SELECT bytes,count FROM usage WHERE scope=?", scope) ?? { bytes: 0, count: 0 },
       );
+  }
+  storage(): { bytes: number; count: number } {
+    return z
+      .object({ bytes: z.number(), count: z.number() })
+      .parse(this.get("SELECT bytes,count FROM storage WHERE id=1"));
+  }
+  adjustStorage(bytes: number, count: number): void {
+    this.run("UPDATE storage SET bytes=bytes+?,count=count+? WHERE id=1", bytes, count);
   }
   adjust(thread: string, bytes: number, count: number): void {
     for (const scope of [thread, "*"])

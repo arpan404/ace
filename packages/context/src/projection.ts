@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { ContextDiagnostic, type ContextDiagnostic as Diagnostic } from "@ace/protocol";
 import { requireContext } from "./errors.ts";
@@ -13,13 +14,14 @@ export const PreparedAttachment = z.object({
   base64: z
     .string()
     .max(44 * 1024 * 1024)
+    .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/)
     .optional(),
 });
 export type PreparedAttachment = z.infer<typeof PreparedAttachment>;
 export const ProjectionCapabilities = z.object({
   provider: z.enum(["claude", "codex", "opencode", "acp"]),
-  images: z.array(z.string()).max(32),
-  documents: z.array(z.string()).max(32),
+  images: z.array(z.string().max(128)).max(32),
+  documents: z.array(z.string().max(128)).max(32),
   embeddedContext: z.boolean(),
   maxInlineBytes: z
     .number()
@@ -58,11 +60,13 @@ export type Projection =
   | { provider: "acp"; input: AcpInput[]; diagnostics: Diagnostic[] };
 // URL construction stays pure and works on Windows drive letters and POSIX paths.
 export function fileUri(path: string): string {
-  const normalized = path.replaceAll("\\", "/");
-  return `file://${normalized.startsWith("/") ? "" : "/"}${normalized
-    .split("/")
-    .map((part) => encodeURIComponent(part))
-    .join("/")}`;
+  const windows = /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+  requireContext(
+    windows || path.startsWith("/"),
+    "invalid_request",
+    "Provider file paths must be absolute",
+  );
+  return pathToFileURL(path, { windows }).href;
 }
 export function projectAttachments(
   values: readonly PreparedAttachment[],
@@ -108,11 +112,27 @@ export function projectAttachments(
         if (a.text !== undefined) return { type: "text", text: a.text };
         const image = a.mimeType.startsWith("image/") && capabilities.images.includes(a.mimeType);
         const document =
-          a.mimeType === "application/pdf" && capabilities.documents.includes(a.mimeType);
+          (a.mimeType === "application/pdf" || a.mimeType === "text/plain") &&
+          capabilities.documents.includes(a.mimeType);
         const encoded = image || document ? data(a) : undefined;
         if (encoded === undefined) return fallback(a);
         const source: Source = { type: "base64", media_type: a.mimeType, data: encoded };
-        return image ? { type: "image", source } : { type: "document", source, title: a.name };
+        if (image) return { type: "image", source };
+        if (a.mimeType === "text/plain") {
+          try {
+            const text = new TextDecoder("utf-8", { fatal: true }).decode(
+              Buffer.from(encoded, "base64"),
+            );
+            return {
+              type: "document",
+              source: { type: "text", media_type: "text/plain", data: text },
+              title: a.name,
+            };
+          } catch {
+            return fallback(a);
+          }
+        }
+        return { type: "document", source, title: a.name };
       });
       return { provider: "claude", input, diagnostics };
     }

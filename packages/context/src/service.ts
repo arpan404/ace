@@ -41,9 +41,14 @@ export class ContextService {
     requireContext(root, "not_found", "Thread workspace unavailable");
     return this.workspaces.get(root);
   }
-  async handle(device: string, value: unknown): Promise<ContextResult> {
+  async handle(
+    device: string,
+    value: unknown,
+    access: () => boolean = () => true,
+  ): Promise<ContextResult> {
     const request = ContextRequest.parse(value);
     try {
+      requireContext(access(), "forbidden", "Device access revoked");
       const op = request.operation;
       let result: ContextResult["result"];
       if (op.op === "mention.resolve")
@@ -56,7 +61,7 @@ export class ContextService {
           kind: "completion",
           paths: (await this.workspace(device, op.threadId)).index.complete(op.query, op.limit),
         };
-      else result = await this.uploads.handle(device, op);
+      else result = await this.uploads.handle(device, op, access);
       return { type: "context.result", requestId: request.requestId, result };
     } catch (error) {
       return {

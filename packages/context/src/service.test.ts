@@ -75,7 +75,7 @@ test("composer resolves mentions and stored phone uploads into one provider inpu
   ]);
   expect(result.diagnostics).toEqual([]);
 });
-test("oversized inline media falls back without losing validated binary mention paths", async () => {
+test("binary mentions retain validated paths and typed fallback diagnostics", async () => {
   const f = await fixture();
   await f.write("binary.dat", Buffer.from([0, 1]));
   const result = await f.service.compose(
@@ -122,4 +122,36 @@ test("completion and folder context share the initialized file index", async () 
     kind: "mentions",
     entries: [{ path: "src/main.ts", text: "File: src/main.ts\nsource" }],
   });
+});
+
+test("composition falls back when a stored image exceeds the inline media budget", async () => {
+  const f = await fixture();
+  const begin = await f.service.uploads.handle("device", {
+    op: "upload.begin",
+    threadId: thread,
+    bytes: png.length,
+    sha256: hash(png),
+    name: "phone.png",
+  });
+  if (begin.kind !== "upload") throw new Error("Expected upload");
+  await f.service.uploads.handle("device", {
+    op: "upload.chunk",
+    uploadId: begin.uploadId,
+    offset: 0,
+    data: png.toString("base64"),
+  });
+  await f.service.uploads.handle("device", { op: "upload.commit", uploadId: begin.uploadId });
+  const result = await f.service.compose(
+    "device",
+    thread,
+    { mentions: [], attachments: [{ sha256: hash(png) }] },
+    { ...caps, maxInlineBytes: 0 },
+  );
+  expect(result.projection.input).toEqual([
+    {
+      type: "text",
+      text: `Attachment: ${join(f.root, ".git", "ace-context", "blobs", hash(png))}`,
+    },
+  ]);
+  expect(result.diagnostics).toMatchObject([{ code: "unsupported" }]);
 });

@@ -117,6 +117,16 @@ async function gif(reader: Reader, bytes: number): Promise<void> {
       requireContext(++frames === 1, "invalid_image", "Animated GIF uploads are not supported");
       const descriptor = await reader.at(position, 9);
       position += 9;
+      const frameWidth = descriptor.readUInt16LE(4),
+        frameHeight = descriptor.readUInt16LE(6);
+      requireContext(
+        frameWidth > 0 &&
+          frameHeight > 0 &&
+          descriptor.readUInt16LE(0) + frameWidth <= header.readUInt16LE(6) &&
+          descriptor.readUInt16LE(2) + frameHeight <= header.readUInt16LE(8),
+        "invalid_image",
+        "GIF frame exceeds validated canvas",
+      );
       const flags = descriptor[8] ?? 0;
       if (flags & 128) position += 3 * 2 ** ((flags & 7) + 1);
       const code = (await reader.at(position++, 1))[0] ?? 0;

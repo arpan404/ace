@@ -42,8 +42,12 @@ export class Maintenance {
       limit,
     )) {
       const hash = BlobHash.parse(row.sha256);
+      const blob = this.metadata.blob(hash);
       await rm(join(this.root, "blobs", hash), { force: true });
-      this.metadata.run("DELETE FROM blobs WHERE sha256=? AND refs=0", hash);
+      this.metadata.transaction(() => {
+        this.metadata.run("DELETE FROM blobs WHERE sha256=? AND refs=0", hash);
+        if (blob) this.metadata.adjustStorage(-blob.bytes, -1);
+      });
       removed++;
     }
     this.uploadDirectory ??= await opendir(join(this.root, "uploads"));
