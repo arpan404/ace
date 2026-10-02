@@ -66,7 +66,7 @@ test("natural process exits remove the launch and shutdown rejects new starts", 
 });
 
 test.each(["stdout", "stderr"])(
-  "an oversized %s line terminates its launch before readline accumulates unlimited data",
+  "an oversized %s line terminates its owned launch",
   async (stream) => {
     const manager = createLaunchManager({ root: process.cwd() });
     try {

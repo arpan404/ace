@@ -95,7 +95,7 @@ test("failed polls preserve the previous snapshot and back off", async () => {
   expect(waits).toEqual([1, 2, 1]);
 });
 
-test("terminal URLs survive arbitrary chunk boundaries without growing transcript storage", () => {
+test("terminal URLs survive chunk boundaries, ANSI codes and long noise", () => {
   const scanner = new TerminalUrlScanner();
   expect(scanner.feed("Ready: ht")).toEqual([]);
   expect(scanner.feed("tp://local")).toEqual([]);
@@ -130,4 +130,30 @@ test("launch configuration reads from the workspace and rejects ambiguous execut
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("polling detects changes when the scanner reuses and mutates its result Set", async () => {
+  const ports = new Set([3000]);
+  const controller = new AbortController();
+  const changes: unknown[] = [];
+  let waits = 0;
+  await pollPorts({
+    scan: async () => ports,
+    signal: controller.signal,
+    onChange: (change) => changes.push(change),
+    onError: (error) => {
+      throw error;
+    },
+    wait: async () => {
+      waits++;
+      if (waits === 1) {
+        ports.clear();
+        ports.add(5173);
+      } else controller.abort();
+    },
+  });
+  expect(changes).toEqual([
+    { added: [3000], removed: [] },
+    { added: [5173], removed: [3000] },
+  ]);
 });

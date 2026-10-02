@@ -69,7 +69,7 @@ export async function pollPorts(options: {
   let previous: ReadonlySet<number> = new Set();
   while (!options.signal.aborted) {
     try {
-      const current = await options.scan();
+      const current = new Set(await options.scan());
       if (options.signal.aborted) break;
       const added = [...current].filter((p) => !previous.has(p));
       const removed = [...previous].filter((p) => !current.has(p));
