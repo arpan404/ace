@@ -40,21 +40,30 @@ export async function nestedPaths(
 }
 
 export async function repositoryPaths(root: string, paths: Iterable<string>): Promise<string[]> {
+  const candidates = [...paths];
   const nested: string[] = [];
-  for (const path of paths) {
-    try {
-      await stat(join(root, path, ".git"));
-      nested.push(path);
-    } catch (error) {
-      if (
-        !(
-          error instanceof Error &&
-          "code" in error &&
-          (error.code === "ENOENT" || error.code === "ENOTDIR")
-        )
-      )
-        throw error;
-    }
+  // Metadata checks are independent. Bound their concurrency instead of waiting
+  // for one filesystem round trip per candidate in a large working tree.
+  for (let start = 0; start < candidates.length; start += 64) {
+    const roots = await Promise.all(
+      candidates.slice(start, start + 64).map(async (path) => {
+        try {
+          await stat(join(root, path, ".git"));
+          return path;
+        } catch (error) {
+          if (
+            !(
+              error instanceof Error &&
+              "code" in error &&
+              (error.code === "ENOENT" || error.code === "ENOTDIR")
+            )
+          )
+            throw error;
+          return undefined;
+        }
+      }),
+    );
+    for (const path of roots) if (path !== undefined) nested.push(path);
   }
   return nested.toSorted();
 }
