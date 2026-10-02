@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AcpSession, ConfigOption } from "./native-schemas.ts";
+import { AcpSession, ConfigOption, isModelConfig } from "./native-schemas.ts";
 
 const id = z.string().min(1).max(256);
 const CursorModels = z
@@ -17,14 +17,11 @@ export function cursorSessionOptions(session: unknown, listing: unknown): unknow
   const parsed = AcpSession.parse(session);
   const rows = CursorModels.parse(listing).models;
   const current =
-    parsed.configOptions?.find((option) => option.id === "model" || option.category === "model")
-      ?.currentValue ?? parsed.models?.currentModelId;
+    parsed.configOptions?.find(isModelConfig)?.currentValue ?? parsed.models?.currentModelId;
   return {
     ...parsed,
     configOptions: [
-      ...(parsed.configOptions ?? []).filter(
-        (option) => option.id !== "model" && option.category !== "model",
-      ),
+      ...(parsed.configOptions ?? []).filter((option) => !isModelConfig(option)),
       { id: "model", category: "model", type: "select", currentValue: current, options: rows },
     ],
   };
