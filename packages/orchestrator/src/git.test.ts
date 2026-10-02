@@ -1,29 +1,19 @@
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import { GitService } from "@ace/git";
 import { ThreadId } from "@ace/protocol";
 import { compare, execute, mergeWinner, type Executor } from "./index.ts";
 import { stopFact, artifact, check, complete, fact, setup } from "./test-support.ts";
-const exec = promisify(execFile);
+import { gitFixture } from "./git-test-support.ts";
 async function repo() {
-  const root = await mkdtemp(join(tmpdir(), "ace-orch-"));
-  const dir = join(root, "target");
-  await mkdir(dir);
-  const cli = async (...args: string[]) => (await exec("git", ["-C", dir, ...args])).stdout.trim();
-  await cli("init", "-b", "main");
-  await cli("config", "user.name", "Test");
-  await cli("config", "user.email", "test@example.invalid");
+  const { root, dir, cli: command } = await gitFixture("ace-orch-", "target");
+  const cli = async (...args: string[]) => (await command(...args)).stdout.trim();
   await writeFile(join(dir, "feature.txt"), "original\n");
   await cli("add", ".");
   await cli("commit", "-m", "base");
   return { root, dir, cli, git: new GitService(), base: await cli("rev-parse", "HEAD") };
 }
-// Real subprocess I/O gets a generous runner timeout under shared CI load.
-// Behaviour assertions use injected time, never measured elapsed time.
 it("compares real lane checkpoints and applies the picked winner with a safety checkpoint", async () => {
   const p = await repo();
   try {
@@ -100,7 +90,7 @@ it("compares real lane checkpoints and applies the picked winner with a safety c
   } finally {
     await rm(p.root, { recursive: true, force: true });
   }
-}, 60_000);
+});
 it("winner application refuses a dirty target, an advanced base and the wrong branch", async () => {
   const p = await repo();
   try {
@@ -128,7 +118,7 @@ it("winner application refuses a dirty target, an advanced base and the wrong br
   } finally {
     await rm(p.root, { recursive: true, force: true });
   }
-}, 60_000);
+});
 it("picking a winner cancels remaining work and delays merge until stop acknowledgements", () => {
   const r = setup("fanout", 2);
   const [a, b] = r.lanes;
