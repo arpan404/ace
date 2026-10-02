@@ -180,7 +180,7 @@ it("keeps oversized text outside the snapshot window after an incompatible outpu
   cleanups.push(() => reopened.close());
   expect(reopened.snapshotThread(f.thread.id).itemOrder).toEqual([]);
 });
-it("recovers version-three split text chunks from the lossless event log during upgrade", async () => {
+it("recovers version-four split text chunks from the lossless event log during upgrade", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
   const item = message("split", "");
@@ -197,7 +197,7 @@ it("recovers version-three split text chunks from the lossless event log during 
   const path = join(f.home, "events.sqlite");
   const db = new DatabaseSync(path);
   cleanups.push(() => db.close());
-  // Reproduce schema-three TEXT bindings, including their irreversible UTF-8 replacement.
+  // Reproduce schema-four TEXT bindings, including their irreversible UTF-8 replacement.
   const rows = db.prepare("SELECT seq FROM item_text_chunks ORDER BY seq").all();
   const units = ["\ud83d", "\ude00"];
   for (const [index, row] of rows.entries())
@@ -212,7 +212,7 @@ it("recovers version-three split text chunks from the lossless event log during 
       .some((row) => row.name === "text_last_unit")
   )
     db.exec("ALTER TABLE item_heads DROP COLUMN text_last_unit");
-  db.exec("DROP TABLE IF EXISTS text_encoding_migration; UPDATE schema_version SET version = 3");
+  db.exec("DROP TABLE IF EXISTS text_encoding_migration; UPDATE schema_version SET version = 4");
   const reopened = new Store(path);
   cleanups.push(() => reopened.close());
   expect(reopened.snapshotThread(f.thread.id).items.split).toMatchObject({

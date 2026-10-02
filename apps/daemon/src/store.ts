@@ -1,3 +1,4 @@
+import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync, type StatementSync, type SQLOutputValue } from "node:sqlite";
 import {
@@ -12,11 +13,12 @@ import {
   WorkspaceId,
 } from "@ace/protocol";
 import { applyDelivery, updateThread } from "@ace/projection";
+import { Devices } from "./devices.ts";
 import { migrate } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
 import { PayloadStore } from "./payload-store.ts";
 
-export interface StoreOptions {
+export interface StoreOptions extends Partial<CredentialRuntime> {
   /** Store owns and closes this SQLite connection when supplied. */
   database?: DatabaseSync;
   nextId?: () => string;
@@ -24,6 +26,7 @@ export interface StoreOptions {
 }
 type Listener = (events: Event[]) => void;
 export class Store {
+  readonly devices: Devices;
   private readonly db: DatabaseSync;
   private readonly payloads: PayloadStore;
   private readonly status: StatusStore;
@@ -55,6 +58,10 @@ export class Store {
       migrate(this.db);
       this.payloads.initialize();
       this.status.initialize((id) => this.getThread(id));
+      this.devices = new Devices(this.db, {
+        id: options.id ?? this.nextId,
+        randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
+      });
     } catch (error) {
       this.db.close();
       throw error;

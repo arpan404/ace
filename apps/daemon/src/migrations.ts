@@ -17,6 +17,10 @@ const migrations = [
     provider TEXT NOT NULL, status JSON NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
     archived_at INTEGER, root_agent_id TEXT
   );`,
+  `CREATE TABLE IF NOT EXISTS devices (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, scopes JSON NOT NULL,
+    created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, revoked_at INTEGER
+  );`,
   `CREATE TABLE items (
     id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
     created_seq INTEGER NOT NULL UNIQUE, item JSON NOT NULL
