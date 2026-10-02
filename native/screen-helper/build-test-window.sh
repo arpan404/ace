@@ -11,6 +11,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>dev.ace.screen-test</string>
 <key>CFBundleExecutable</key><string>ScreenTest</string>
 <key>CFBundleName</key><string>ace screen test</string>
+<key>NSPrincipalClass</key><string>ScreenTestApplication</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 </dict></plist>
 PLIST

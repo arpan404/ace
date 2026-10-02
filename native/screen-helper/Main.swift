@@ -36,10 +36,10 @@ import Darwin
                     case "permissions": reply(request.id, data: permissions())
                     case "targets":
                         let content = try await capture.content()
-                        reply(request.id, data: ["displays": content.displays.prefix(64).map { ["displayId": $0.displayID, "width": $0.width, "height": $0.height] },
+                        reply(request.id, data: ["displays": content.displays.prefix(64).map { ["displayId": $0.displayID, "width": $0.width, "height": $0.height, "bounds": ["x": $0.frame.minX, "y": $0.frame.minY, "width": $0.frame.width, "height": $0.frame.height]] as [String: Any] },
                                                  "windows": content.windows.prefix(2048).compactMap { window -> [String: Any]? in
                             guard let app = window.owningApplication, !app.bundleIdentifier.isEmpty else { return nil }
-                            return ["windowId": window.windowID, "bundleId": app.bundleIdentifier, "title": String((window.title ?? "").prefix(1024))]
+                            return ["windowId": window.windowID, "bundleId": app.bundleIdentifier, "title": String((window.title ?? "").prefix(1024)), "bounds": ["x": window.frame.minX, "y": window.frame.minY, "width": window.frame.width, "height": window.frame.height]]
                         }])
                     case "start": try await capture.start(request); reply(request.id)
                     case "stop": try await capture.stop(); reply(request.id)

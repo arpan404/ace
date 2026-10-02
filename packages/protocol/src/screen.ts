@@ -74,10 +74,21 @@ export const ScreenState = z.object({
   error: z.string().max(1024).optional(),
 });
 export type ScreenState = z.infer<typeof ScreenState>;
+const ScreenBounds = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().nonnegative(),
+  height: z.number().finite().nonnegative(),
+});
 export const ScreenInventory = z.object({
   displays: z
     .array(
-      z.object({ displayId: z.number().int().positive(), width: z.number(), height: z.number() }),
+      z.object({
+        displayId: z.number().int().positive(),
+        width: z.number(),
+        height: z.number(),
+        bounds: ScreenBounds.optional(),
+      }),
     )
     .max(64),
   windows: z
@@ -86,6 +97,7 @@ export const ScreenInventory = z.object({
         windowId: z.number().int().positive(),
         bundleId: ScreenBundle,
         title: z.string().max(1024),
+        bounds: ScreenBounds.optional(),
       }),
     )
     .max(2048),
