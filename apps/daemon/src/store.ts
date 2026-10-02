@@ -43,6 +43,9 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
+      this.db.exec(
+        `CREATE INDEX IF NOT EXISTS threads_update_blockers ON threads(id) WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')`,
+      );
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
       this.devices = new Devices(this.db, credentials);
     } catch (error) {
@@ -162,6 +165,13 @@ export class Store {
       ...(row.archived_at === null ? {} : { archivedAt: row.archived_at }),
       ...(row.root_agent_id === null ? {} : { rootAgentId: row.root_agent_id }),
     });
+  }
+  updateBlockers(): number {
+    return Number(
+      this.statement(
+        "SELECT COUNT(*) AS n FROM threads WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')",
+      ).get()?.n,
+    );
   }
   listThreads(): Thread[] {
     return this.statement("SELECT * FROM threads ORDER BY updated_at DESC, id")

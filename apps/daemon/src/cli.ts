@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { z } from "zod";
+import { serviceCommand } from "@ace/service";
 import { PairingResponse } from "@ace/protocol";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -84,6 +85,12 @@ async function main(args: string[]): Promise<void> {
     process.once("SIGTERM", stop);
     return;
   }
+  if (command === "service") {
+    process.stdout.write(
+      JSON.stringify(await serviceCommand(config.dataDir, args.slice(1))) + "\n",
+    );
+    return;
+  }
   if (command === "doctor") {
     process.stdout.write(JSON.stringify(await doctor(), null, 2) + "\n");
     return;
@@ -108,7 +115,7 @@ async function main(args: string[]): Promise<void> {
   }
   if (command !== "pair" && command !== "devices")
     throw new Error(
-      "Usage: ace start|status|pair [scopes]|devices list|devices revoke <id>|doctor",
+      "Usage: ace start|status|service install|uninstall|start|stop|status|pair [scopes]|devices list|devices revoke <id>|doctor",
     );
   const { origin, token } = hostConnection(config.dataDir);
   if (command === "pair") {
@@ -142,7 +149,9 @@ async function main(args: string[]): Promise<void> {
     );
     return;
   }
-  throw new Error("Usage: ace start|status|pair [scopes]|devices list|devices revoke <id>|doctor");
+  throw new Error(
+    "Usage: ace start|status|service install|uninstall|start|stop|status|pair [scopes]|devices list|devices revoke <id>|doctor",
+  );
 }
 await main(process.argv.slice(2)).catch((error: unknown) => {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

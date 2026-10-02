@@ -13,3 +13,11 @@ export * from "./wire.ts";
 export * from "./notifications.ts";
 export * from "./mcp.ts";
 export * from "./remote.ts";
+export {
+  ReleaseTarget,
+  ReleaseVersion,
+  ReleaseManifest,
+  InstalledRelease,
+  MaintenanceStatus,
+  DaemonHealth,
+} from "./release.ts";

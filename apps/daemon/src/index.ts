@@ -1,3 +1,4 @@
+import type { MaintenanceGate } from "@ace/service";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
@@ -27,6 +28,7 @@ export async function startDaemon(
   toolkits: readonly Toolkit[] = [],
   notificationChannels?: Omit<NotificationChannels, "websocket">,
 ): Promise<{
+  maintenance: MaintenanceGate;
   url: string;
   tokenPath: string;
   store: Store;
@@ -91,6 +93,8 @@ export async function startDaemon(
     const remote = await remoteListener(config);
     server = await startServer({
       ...(remote ? { remote } : {}),
+      maintenance: process.env.ACE_MAINTENANCE === "1",
+      version: process.env.ACE_VERSION ?? "development",
       port: config.port,
       token,
       hostId,
@@ -106,6 +110,7 @@ export async function startDaemon(
     endpointPath = path;
     let closing: Promise<void> | undefined;
     return {
+      maintenance: server.maintenance,
       url: server.url,
       ...(server.remoteUrl && server.fingerprint
         ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }

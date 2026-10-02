@@ -1,3 +1,4 @@
+import { MaintenanceGate } from "@ace/service";
 import { randomUUID } from "node:crypto";
 import type { NotificationWorker } from "@ace/notify";
 import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
@@ -44,6 +45,8 @@ const closeListener = (listener: Server) =>
   });
 
 export interface ServerOptions {
+  maintenance?: boolean;
+  version?: string;
   port: number;
   remote?: RemoteListener;
   now?: () => number;
@@ -66,6 +69,7 @@ export interface ServerOptions {
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
 export async function startServer(options: ServerOptions): Promise<{
+  maintenance: MaintenanceGate;
   url: string;
   notify(device: DeviceId, notification: Notification): boolean;
   httpUrl: string;
@@ -95,13 +99,29 @@ export async function startServer(options: ServerOptions): Promise<{
     options.remote && remoteOrigin
       ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
       : undefined;
+  const maintenance = new MaintenanceGate(() => options.store.updateBlockers());
+  if (options.maintenance) maintenance.enter();
   const local = httpServer(
-    accessHttp(auth, auth.localBearer.bind(auth), pairing, options.pairingAddress),
+    accessHttp(
+      auth,
+      auth.localBearer.bind(auth),
+      pairing,
+      options.pairingAddress,
+      maintenance,
+      options.version,
+    ),
   );
   const remote = options.remote
     ? httpsServer(
         { ...options.remote.identity, minVersion: "TLSv1.2" },
-        accessHttp(auth, auth.deviceBearer.bind(auth), pairing, options.pairingAddress),
+        accessHttp(
+          auth,
+          auth.deviceBearer.bind(auth),
+          pairing,
+          options.pairingAddress,
+          undefined,
+          options.version,
+        ),
       )
     : undefined;
   for (const listener of [local, remote])
@@ -329,6 +349,10 @@ export async function startServer(options: ServerOptions): Promise<{
             fail("device_mismatch", "Command device must match hello");
             break;
           }
+          if (!maintenance.admitCommand(message.command)) {
+            fail("maintenance", "Daemon is draining for an update");
+            break;
+          }
           try {
             const result = options.store.recordCommand(message.command.id, device, () =>
               options.handler.handle(message.command, commandContext(options.store)),
@@ -368,6 +392,7 @@ export async function startServer(options: ServerOptions): Promise<{
   }
   let closing: Promise<void> | undefined;
   return {
+    maintenance,
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
     ...(remoteOrigin && options.remote
