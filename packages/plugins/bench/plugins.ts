@@ -1,12 +1,27 @@
 import { performance } from "node:perf_hooks";
 import { join } from "node:path";
-import { inspectPackage, materializeProjection, projectPlugins, limits } from "../src/index.ts";
+import {
+  importPlugin,
+  inspectPackage,
+  materializeProjection,
+  projectPlugins,
+  limits,
+} from "../src/index.ts";
 import type { Provider } from "../src/index.ts";
 import { fixture, sampleFiles, sampleManifest, writeFiles, git } from "../src/test-support.ts";
 
 const f = await fixture({ ...sampleFiles, "assets/large.bin": "x".repeat(limits.file) });
 try {
-  await f.manager.accept(await f.prepare());
+  const acquireStart = performance.now();
+  const initialReview = await f.prepare();
+  console.log(
+    JSON.stringify({
+      operation: "git-prepare-4MiB",
+      millisecondsPerOp: Math.round(performance.now() - acquireStart),
+      peakRssMiB: Math.round(process.resourceUsage().maxRSS / 1024),
+    }),
+  );
+  await f.manager.accept(initialReview);
   const snapshots = await f.manager.installed();
   const providers: Provider[] = ["claude", "codex", "opencode", "cursor", "acp", "antigravity"];
   for (const provider of providers) {
@@ -76,3 +91,29 @@ try {
 } finally {
   await f.close();
 }
+
+// The hostile alias graph is tiny on disk; runtime work must stop before exponential expansion.
+const aliases: Record<string, string> = {
+  ".claude-plugin/plugin.json": JSON.stringify({ name: "sample", hooks: "alias-0.json" }),
+  "leaf.json": JSON.stringify({ Stop: [{ command: "echo safe" }] }),
+};
+for (let index = 0; index < 16; index++) {
+  const next = index === 15 ? "leaf.json" : `alias-${index + 1}.json`;
+  aliases[`alias-${index}.json`] = JSON.stringify([next, next]);
+}
+const aliasStart = performance.now();
+for (let index = 0; index < 2000; index++) {
+  try {
+    importPlugin(aliases);
+    throw new Error("Alias graph accepted");
+  } catch (error) {
+    if (!(error instanceof Error && error.message === "Import expansion limit")) throw error;
+  }
+}
+console.log(
+  JSON.stringify({
+    operation: "reject-alias-graph",
+    microsecondsPerOp: Math.round((performance.now() - aliasStart) / 2),
+    peakRssMiB: Math.round(process.resourceUsage().maxRSS / 1024),
+  }),
+);
