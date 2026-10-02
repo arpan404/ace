@@ -140,3 +140,35 @@ it("keeps the thread working while an active background child outlives its paren
   h.event("session.status", { sessionID: "child", status: { type: "idle" } });
   expect(h.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
 });
+
+it("preserves owner waiting precedence while disconnected background agents remain unresponsive", () => {
+  const h = setup();
+  h.event("session.created", { info: { id: "child", parentID: "native_root" } });
+  h.event("message.updated", { sessionID: "child", info: { id: "child_user", role: "user" } });
+  h.event("session.status", { sessionID: "child", status: { type: "busy" } });
+  h.event("message.part.updated", {
+    part: {
+      id: "spawn",
+      sessionID: "native_root",
+      type: "tool",
+      tool: "task",
+      state: { status: "completed", input: {}, metadata: { background: true, sessionId: "child" } },
+    },
+  });
+  h.event("session.status", { sessionID: "native_root", status: { type: "idle" } });
+  h.event("permission.asked", { id: "approval", sessionID: "native_root", permission: "bash" });
+  expect(h.view.thread.status.state).toBe("needs_you");
+  h.lifecycle("disconnected");
+  h.event("server.heartbeat", {});
+  expect(Object.values(h.view.interactions).map((interaction) => interaction.state)).toEqual([
+    "expired",
+  ]);
+  expect(Object.values(h.view.agents).map((agent) => agent.status.state)).toEqual([
+    "unresponsive",
+    "unresponsive",
+  ]);
+  expect(Object.values(h.view.backgroundTasks).map((task) => task.status)).toEqual(["running"]);
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
+  h.lifecycle("resynced");
+  expect(h.view.thread.status.state).toBe("working");
+});

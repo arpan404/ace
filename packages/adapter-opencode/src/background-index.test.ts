@@ -59,6 +59,7 @@ it("expires staggered background results in deadline order after a child resumes
   h.tick(6300);
   expect(tasks()).toEqual({ first: "completed", second: "completed", third: "completed" });
   expect(h.view.thread.status.state).toBe("done");
+  expect(h.translator.isSettled()).toBe(true);
 });
 
 it("keeps late running tools visible after their owning turn has already idled", () => {
@@ -87,6 +88,7 @@ it("keeps late running tools visible after their owning turn has already idled",
     part: { ...part, state: { status: "completed", input: {}, output: "done" } },
   });
   expect(h.view.thread.status.state).toBe("done");
+  expect(h.translator.isSettled()).toBe(true);
 });
 
 it("does not create a second survivor for a live tool already representing its background child", () => {
@@ -120,4 +122,5 @@ it("does not create a second survivor for a live tool already representing its b
   h.tick(4000);
   expect(Object.values(h.view.backgroundTasks).map((task) => task.status)).toEqual(["completed"]);
   expect(h.view.thread.status.state).toBe("done");
+  expect(h.translator.isSettled()).toBe(true);
 });
