@@ -1,5 +1,6 @@
 import type { Fact, Key } from "@ace/core";
 import type { InteractionRequest, RawPayload, RunTrigger } from "@ace/protocol";
+import { MissingEdges } from "./missing-edges.ts";
 import type { ChildUsage } from "./usage.ts";
 import { object, raw, string, type Data } from "./native.ts";
 
@@ -10,6 +11,7 @@ export interface NativeTask {
   item?: Key;
   background: boolean;
   terminal: boolean;
+  terminalStatus?: string;
 }
 export class ClaudeState {
   readonly root: Key;
@@ -24,16 +26,20 @@ export class ClaudeState {
   seen = new Set<Key>();
   toolOwners = new Map<string, Key>();
   toolKinds = new Map<string, string>();
+  toolFrames = new Map<string, number>();
   rawItems = new Map<Key, Set<Key>>();
   childUsage: ChildUsage = new Map();
-  rawSequence = 0;
   terminalChildren = new Set<Key>();
   children = new Map<string, Key>();
+  bindings: string[] = [];
   nativeAgents = new Map<string, Key>();
   tasks = new Map<string, NativeTask>();
   level = new Set<string>();
-  missing = new Map<string, number>();
-  interactions = new Map<string, { agent: Key; item: Key; request: InteractionRequest }>();
+  missing = new MissingEdges();
+  interactions = new Map<
+    string,
+    { agent: Key; item: Key; toolId: string; request: InteractionRequest }
+  >();
   facts: Fact[] = [];
   sent = false;
   wake: RunTrigger | undefined;
@@ -87,12 +93,19 @@ export class ClaudeState {
       trigger,
     });
   }
-  child(spawn: string, owner = this.root, background = false, nativeId?: string): Key {
+  child(
+    spawn: string,
+    owner = this.root,
+    background = false,
+    nativeId?: string,
+    terminalStatus?: string,
+  ): Key {
     const agent =
       (nativeId ? this.nativeAgents.get(nativeId) : undefined) ??
       this.children.get(spawn) ??
       this.key("child", spawn);
     const fresh = !this.seen.has(agent);
+    if (this.children.get(spawn) !== agent) this.bindings.push(spawn);
     this.children.set(spawn, agent);
     this.emit({
       type: "agent.seen",
@@ -113,12 +126,12 @@ export class ClaudeState {
       this.nativeAgents.set(nativeId, agent);
       this.nativeByAgent.set(agent, nativeId);
     }
-    if (fresh) this.start(agent, "spawn");
+    if (fresh && !terminalStatus) this.start(agent, "spawn");
     return agent;
   }
   agentFor(data: Data): Key {
     const parent = string(data["parent_tool_use_id"]);
-    return parent ? (this.children.get(parent) ?? this.child(parent)) : this.root;
+    return parent ? (this.children.get(parent) ?? this.root) : this.root;
   }
   expectWake(now: number, task?: NativeTask): void {
     if (task?.data["ambient"] === true) return;
@@ -150,8 +163,7 @@ export class ClaudeState {
       items.add(item);
       return { raw: [raw(data, name)] };
     }
-    // Preserve subsequent payloads once, without copying the item's raw history.
-    this.notice(data, `addition:${++this.rawSequence}`, agent);
+    // The translator's single raw fallback preserves subsequent payloads once.
     return {};
   }
   keepToolRaw(id: string, data: unknown, name?: string): { raw?: RawPayload[] } {
@@ -166,15 +178,17 @@ export class ClaudeState {
   }
   endChild(task: NativeTask, status: string): void {
     if (!task.child) return;
+    const alreadyEnded = this.terminalChildren.has(task.child);
     this.terminalChildren.add(task.child);
     this.rawItems.delete(task.child);
-    this.childUsage.delete(task.child);
+
     this.contentSeen.delete(task.child);
     this.errors.delete(task.child);
-    if (!this.active.delete(task.child)) return;
+    if (!this.active.delete(task.child) && alreadyEnded) return;
     this.emit({
       type: "turn.ended",
       agent: task.child,
+      trigger: "spawn",
       outcome:
         status === "completed" ? "completed" : status === "failed" ? "failed" : "interrupted",
       ...(status === "failed"

@@ -10,7 +10,7 @@ function register(state: ClaudeState, data: Data, background: boolean): NativeTa
   const owner = state.toolOwners.get(spawn) ?? prior?.owner ?? state.root;
   const child =
     merged["task_type"] === "local_agent" && spawn
-      ? state.child(spawn, owner, background, id)
+      ? state.child(spawn, owner, background, id, prior?.terminalStatus)
       : prior?.child;
   const task: NativeTask = {
     data: merged,
@@ -19,8 +19,10 @@ function register(state: ClaudeState, data: Data, background: boolean): NativeTa
     ...(spawn ? { item: state.key("tool", spawn) } : prior?.item ? { item: prior.item } : {}),
     background: background || prior?.background === true,
     terminal: prior?.terminal ?? false,
+    ...(prior?.terminalStatus ? { terminalStatus: prior.terminalStatus } : {}),
   };
   state.tasks.set(id, task);
+  if (task.terminal && task.child) state.endChild(task, task.terminalStatus ?? "failed");
   if (task.background && !task.terminal)
     state.emit({
       type: "background.started",
@@ -55,6 +57,7 @@ function finish(
   if (task.background && !task.terminal && !state.active.has(state.root))
     state.expectWake(now, task);
   task.terminal = true;
+  task.terminalStatus = status;
   state.missing.delete(id);
   state.endChild(task, status);
   releaseTask(task);
@@ -131,17 +134,16 @@ export function taskFrame(state: ClaudeState, data: Data, now: number): boolean 
   return false;
 }
 export function taskTick(state: ClaudeState, now: number): Fact[] {
-  for (const [id, deadline] of state.missing)
-    if (now >= deadline) {
-      const task = state.tasks.get(id);
-      if (task && !task.terminal) {
-        task.terminal = true;
-        state.emit({ type: "background.ended", task: state.key("task", id), status: "unknown" });
-        state.endChild(task, "failed");
-        releaseTask(task);
-      }
-      state.missing.delete(id);
+  for (const id of state.missing.expired(now)) {
+    const task = state.tasks.get(id);
+    if (task && !task.terminal) {
+      task.terminal = true;
+      task.terminalStatus = "failed";
+      state.emit({ type: "background.ended", task: state.key("task", id), status: "unknown" });
+      state.endChild(task, "failed");
+      releaseTask(task);
     }
+  }
   return state.facts;
 }
 

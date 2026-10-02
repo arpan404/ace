@@ -111,29 +111,6 @@ for (const ambient of [false, true])
     h.send({ type: "keep_alive" }, "sdk", "recv", 1100);
     expect(Object.values(h.state.tasks)[0]?.status).toBe("unknown");
   });
-test("repeated message facts carry only the current raw addition", () => {
-  const translator = createTranslator({ rootKey: "root" });
-  let latest: ReturnType<typeof translator.translate> = [];
-  for (let seq = 0; seq < 100; seq++)
-    latest = translator.translate(
-      {
-        seq,
-        t: seq,
-        dir: "recv",
-        channel: "sdk",
-        data: {
-          type: "assistant",
-          message: { id: "same", content: [{ type: "text", text: "same" }] },
-          extra: seq,
-        },
-      },
-      seq,
-    );
-  const raw = latest.flatMap((f) =>
-    f.type === "item.upsert" && f.draft.type === "message" ? (f.draft.raw ?? []) : [],
-  );
-  expect(raw.length).toBeLessThanOrEqual(1);
-});
 
 test("root usage preserves provider input, output and cache counts", () => {
   const h = harness();

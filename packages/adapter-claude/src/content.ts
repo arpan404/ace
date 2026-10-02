@@ -24,11 +24,15 @@ export function tool(
     item: state.key("tool", id),
     draft: {
       type: "tool_call",
-      complete: false,
+      complete: state.terminalChildren.has(agent),
       call: {
         title: name,
         kind: detail.kind,
-        status: awaiting ? "awaiting_approval" : "running",
+        status: state.terminalChildren.has(agent)
+          ? "cancelled"
+          : awaiting
+            ? "awaiting_approval"
+            : "running",
         detail,
         ...state.keepToolRaw(id, frame, name),
       },
@@ -66,10 +70,15 @@ export function message(
       current?.id === id ? current : undefined,
     );
     const messageItem = state.key("message", `${agent}:${id}:${blockIndex}`);
-    if (type === "tool_use") tool(state, agent, block, data);
-    else if (type === "tool_result") {
+    if (type === "tool_use") {
+      const toolId = string(block["id"]);
+      if (seq < (state.toolFrames.get(toolId) ?? -1)) continue;
+      state.toolFrames.set(toolId, seq);
+      tool(state, agent, block, data);
+    } else if (type === "tool_result") {
       const toolId = string(block["tool_use_id"]);
-      if (!toolId) continue;
+      if (!toolId || seq < (state.toolFrames.get(toolId) ?? -1)) continue;
+      state.toolFrames.set(toolId, seq);
       const declined = list(data["tool_result_meta"]).some((nativeMeta) => {
         const meta = object(nativeMeta);
         return meta["id"] === toolId && meta["non_execution_kind"] === "permission-rule";

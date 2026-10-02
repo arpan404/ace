@@ -8,8 +8,7 @@ interface Counts {
   cachedInputTokens: number;
 }
 interface Accounting {
-  id: string;
-  latest: Counts;
+  messages: Map<string, Counts>;
   total: Counts;
 }
 export type ChildUsage = Map<Key, Accounting>;
@@ -24,7 +23,11 @@ export function childUsage(state: ClaudeState, agent: Key, id: string, message: 
     cachedInputTokens: number(usage["cache_read_input_tokens"]),
   };
   const prior = state.childUsage.get(agent);
-  const previous = prior?.id === id ? prior.latest : zero();
+  const messages = prior?.messages ?? new Map<string, Counts>();
+  const previous = messages.get(id) ?? zero();
+  next.inputTokens = Math.max(next.inputTokens, previous.inputTokens);
+  next.outputTokens = Math.max(next.outputTokens, previous.outputTokens);
+  next.cachedInputTokens = Math.max(next.cachedInputTokens, previous.cachedInputTokens);
   const totals = prior?.total ?? zero();
   const total = {
     inputTokens: totals.inputTokens + next.inputTokens - previous.inputTokens,
@@ -32,6 +35,7 @@ export function childUsage(state: ClaudeState, agent: Key, id: string, message: 
     cachedInputTokens:
       totals.cachedInputTokens + next.cachedInputTokens - previous.cachedInputTokens,
   };
-  state.childUsage.set(agent, { id, latest: next, total });
+  messages.set(id, next);
+  state.childUsage.set(agent, { messages, total });
   state.emit({ type: "usage", agent, ...total });
 }

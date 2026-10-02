@@ -114,9 +114,13 @@ test("recursive spawn keys link a grandchild to its actual parent", () => {
     },
   });
   h.system("task_started", { task_id: "g", tool_use_id: "grand", task_type: "local_agent" });
+  expect(h.state.status.state).not.toBe("done");
+  h.system("task_started", { task_id: "parent", tool_use_id: "spawn", task_type: "local_agent" });
   const agents = Object.values(h.state.agents).map((r) => r.agent);
   const grandchild = agents.find((a) => a.native.nativeId === "g");
-  expect(grandchild?.parentId).toBe(agents.find((a) => a.native.nativeId === "spawn")?.id);
+  const parent = agents.find((a) => a.native.nativeId === "parent");
+  expect(parent).toMatchObject({ origin: "provider_subagent" });
+  expect(grandchild).toMatchObject({ parentId: parent?.id, native: { nativeId: "g" } });
 });
 test("terminal task enrichment does not restart a finished child", () => {
   const h = harness();

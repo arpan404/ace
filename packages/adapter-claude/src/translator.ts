@@ -1,6 +1,7 @@
 import type { Fact, Key } from "@ace/core";
 import type { RawPayload } from "@ace/protocol";
 import type { Translator, Frame } from "@ace/engine-api";
+import { PendingTranscripts } from "./pending-transcripts.ts";
 import type { MessageBlocks } from "./blocks.ts";
 import { ClaudeState } from "./state.ts";
 import { message, stream, tool, finishStream, type StreamState } from "./content.ts";
@@ -18,10 +19,23 @@ function factRaw(fact: Fact): RawPayload[] {
   return [];
 }
 
+// Deferred frames already persist their raw payload at receipt, before identity is known.
+function canonicalOnly(fact: Fact): Fact {
+  if (fact.type === "item.upsert") {
+    if (fact.draft.type === "tool_call")
+      return { ...fact, draft: { ...fact.draft, call: { ...fact.draft.call, raw: [] } } };
+    if (fact.draft.type !== "compaction") return { ...fact, draft: { ...fact.draft, raw: [] } };
+  }
+  if (fact.type === "interaction.opened" || fact.type === "background.started")
+    return { ...fact, raw: [] };
+  return fact;
+}
+
 export function createTranslator(init: { rootKey: Key }): Translator {
   let state = new ClaudeState(init.rootKey);
   const streams = new Map<string, StreamState>();
   const messages = new Map<string, MessageBlocks>();
+  const pending = new PendingTranscripts();
   function sdk(data: Data, frame: Frame, now: number): boolean {
     const type = string(data["type"]);
     if (type === "system") {
@@ -175,6 +189,21 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       const id = string(data["requestId"]);
       const interaction = state.interactions.get(id);
       if (!interaction) return;
+      state.toolFrames.set(interaction.toolId, frame.seq);
+      const result = object(data["result"]);
+      const denied = result["behavior"] === "deny";
+      state.emit({
+        type: "item.upsert",
+        agent: interaction.agent,
+        item: interaction.item,
+        draft: {
+          type: "tool_call",
+          complete: denied,
+          call: {
+            status: denied ? (result["interrupt"] === true ? "cancelled" : "declined") : "running",
+          },
+        },
+      });
       state.emit({
         type: "interaction.closed",
         interaction: state.key("interaction", id),
@@ -194,9 +223,10 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       : state.root;
     const toolId = string(options["toolUseID"], `interaction:${id}`);
     const name = string(data["toolName"], "Unknown tool");
+    state.toolFrames.set(toolId, frame.seq);
     tool(state, agent, { id: toolId, name, input: data["input"] }, data, true);
     const request = requestFor(name, object(data["input"]), options);
-    state.interactions.set(id, { agent, item: state.key("tool", toolId), request });
+    state.interactions.set(id, { agent, item: state.key("tool", toolId), toolId, request });
     state.emit({
       type: "interaction.opened",
       agent,
@@ -216,10 +246,12 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state = new ClaudeState(init.rootKey);
         streams.clear();
         messages.clear();
+        pending.clear();
       }
       taskTick(state, now);
       state.ensureRoot(data);
       state.emit({ type: "signal", agent: state.agentFor(data) });
+      if (pending.defer(state, frame)) return state.facts;
       if (frame.channel === "can_use_tool") permission(data, frame);
       else if (frame.channel === "lifecycle" && data["type"] === "process.exited") {
         state.emit({
@@ -229,6 +261,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         });
         state.level.clear();
         state.missing.clear();
+        pending.clear();
       } else if (frame.channel === "lifecycle" && data["type"] === "process.started") {
         // ensureRoot already emitted the startup fact.
       } else if (frame.channel !== "sdk" || !sdk(data, frame, now)) {
@@ -240,6 +273,17 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           typeof frame.data === "string" ? frame.data : "Claude frame",
         );
       }
+      const bindings = state.bindings;
+      state.bindings = [];
+      for (const spawn of bindings)
+        for (const deferred of pending.take(state, spawn)) {
+          const start = state.facts.length;
+          sdk(object(deferred.data), deferred, now);
+          for (let index = start; index < state.facts.length; index++) {
+            const fact = state.facts[index];
+            if (fact) state.facts[index] = canonicalOnly(fact);
+          }
+        }
       for (const fact of state.facts)
         if (fact.type === "turn.ended" && fact.agent !== state.root)
           finishStream(state, streams, fact.agent);
@@ -258,9 +302,10 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       return state.facts;
     },
     nextDeadline() {
-      let deadline = state.wakeUntil;
-      for (const value of state.missing.values()) deadline = Math.min(deadline ?? Infinity, value);
-      return deadline;
+      const missing = state.missing.nextDeadline();
+      return missing === undefined
+        ? state.wakeUntil
+        : Math.min(missing, state.wakeUntil ?? Infinity);
     },
     tick(now) {
       state.facts = [];
