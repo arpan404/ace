@@ -169,6 +169,86 @@
     },
     {
       "properties": {
+        "bytes": {
+          "type": "string"
+        },
+        "eof": {
+          "type": "boolean"
+        },
+        "nextOffset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "streamId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "output.data",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "streamId",
+        "offset",
+        "nextOffset",
+        "bytes",
+        "eof"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/Item.json"
+          },
+          "type": "array"
+        },
+        "itemsBefore": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "items.page",
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "items",
+        "itemsBefore",
+        "type",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "type": {
           "const": "pong",
           "type": "string"

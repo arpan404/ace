@@ -37,15 +37,14 @@ Example:
 ```json
 {
   "thread": {
-    "archivedAt": 1,
-    "createdAt": 2,
+    "createdAt": 5,
     "id": "example",
-    "provider": "cursor",
+    "provider": "antigravity",
     "status": {
-      "state": "unresponsive"
+      "state": "new"
     },
     "title": "example",
-    "updatedAt": 1,
+    "updatedAt": 3,
     "workspaceId": "example"
   }
 }
@@ -88,7 +87,7 @@ Example:
 ```json
 {
   "agents": [],
-  "nextCursor": null
+  "nextCursor": "example"
 }
 ```
 
@@ -153,7 +152,6 @@ Example:
 
 ```json
 {
-  "name": "example",
   "task": "example"
 }
 ```

@@ -23,15 +23,9 @@ Example:
   "deviceId": "example",
   "id": "example",
   "payload": {
-    "delivery": "queue",
-    "input": [
-      {
-        "text": "example",
-        "type": "text"
-      }
-    ],
-    "threadId": "example",
-    "type": "thread.send"
+    "laneId": "9GP3Mfj985",
+    "orchestrationId": "foybDh4",
+    "type": "orchestration.pick"
   }
 }
 ```
@@ -39,6 +33,84 @@ Example:
 ## CommandPayload
 
 [JSON Schema](schema/CommandPayload.json), input validation.
+
+### orchestration.create
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"orchestration.create"` |  |
+| input | yes | [OrchestrationCreate.json](schema/OrchestrationCreate.json) |  |
+
+Example:
+
+```json
+{
+  "input": {
+    "baseRef": "e97c71aa27740355591bd1c6360deaef89d73ffc",
+    "prompt": "example",
+    "targetBranch": "example",
+    "template": {
+      "budget": {
+        "cost": 6,
+        "durationMs": 4,
+        "maxAttempts": 8,
+        "maxDepth": 3,
+        "maxLanes": 9,
+        "tokens": 2
+      },
+      "checks": {
+        "command": [
+          "example"
+        ]
+      },
+      "kind": "coordinator",
+      "lanes": [
+        {
+          "model": "example",
+          "provider": "claude"
+        }
+      ]
+    },
+    "workspaceId": "example"
+  },
+  "type": "orchestration.create"
+}
+```
+
+### orchestration.cancel
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"orchestration.cancel"` |  |
+| orchestrationId | yes | [LaneId.json](schema/LaneId.json) |  |
+
+Example:
+
+```json
+{
+  "orchestrationId": "hNT",
+  "type": "orchestration.cancel"
+}
+```
+
+### orchestration.pick
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"orchestration.pick"` |  |
+| orchestrationId | yes | [LaneId.json](schema/LaneId.json) |  |
+| laneId | yes | [LaneId.json](schema/LaneId.json) |  |
+| merge | no | boolean | {"default":false} |
+
+Example:
+
+```json
+{
+  "laneId": "2T2AjiJQ.",
+  "orchestrationId": "EoT",
+  "type": "orchestration.pick"
+}
+```
 
 ### thread.create
 
@@ -57,12 +129,11 @@ Example:
 {
   "input": [
     {
-      "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "text": "example",
+      "type": "text"
     }
   ],
-  "provider": "codex",
+  "provider": "antigravity",
   "title": "example",
   "type": "thread.create",
   "workspaceId": "example"
@@ -85,8 +156,8 @@ Example:
   "delivery": "queue",
   "input": [
     {
-      "text": "example",
-      "type": "text"
+      "path": "example",
+      "type": "file"
     }
   ],
   "threadId": "example",
@@ -107,6 +178,7 @@ Example:
 
 ```json
 {
+  "agentId": "example",
   "threadId": "example",
   "type": "thread.interrupt"
 }

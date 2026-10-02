@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/LanePhase.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "queued",
+    "starting",
+    "working",
+    "waiting",
+    "collecting",
+    "checking",
+    "joining",
+    "succeeded",
+    "failed",
+    "cancelling",
+    "cancelled"
+  ],
+  "type": "string"
+}

@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationIntent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "effect": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationEffect.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    }
+  },
+  "required": [
+    "id",
+    "effect"
+  ],
+  "type": "object"
+}

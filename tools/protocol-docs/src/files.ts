@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, unlink, writeFile, open } from "node:fs/promises";
+import { mkdir, readdir, unlink, writeFile, open } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { type Snapshot } from "./model.ts";
@@ -24,14 +24,41 @@ async function paths(root: string, relative = ""): Promise<string[]> {
   }
   return result.toSorted();
 }
+async function matches(path: string, expected: string): Promise<boolean> {
+  const handle = await open(path, "r");
+  try {
+    const length = Buffer.byteLength(expected);
+    if ((await handle.stat()).size !== length) return false;
+    const bytes = Buffer.alloc(length + 1);
+    let total = 0;
+    while (total < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, total, bytes.length - total, total);
+      if (!bytesRead) break;
+      total += bytesRead;
+    }
+    return total === length && bytes.subarray(0, total).toString("utf8") === expected;
+  } finally {
+    await handle.close();
+  }
+}
+async function forFiles<T>(items: T[], run: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(8, items.length) }, async () => {
+      while (next < items.length) {
+        const item = items[next++];
+        if (item !== undefined) await run(item);
+      }
+    }),
+  );
+}
 export async function checkFiles(root: string, expected: Map<string, string>): Promise<string[]> {
   const actual = new Set(await paths(root));
   const stale: string[] = [];
-  for (const [name, content] of expected) {
-    if (!actual.has(name) || (await readFile(join(root, name), "utf8")) !== content)
-      stale.push(name);
+  await forFiles([...expected], async ([name, content]) => {
+    if (!actual.has(name) || !(await matches(join(root, name), content))) stale.push(name);
     actual.delete(name);
-  }
+  });
   return [...stale, ...actual].toSorted();
 }
 export async function writeFiles(root: string, expected: Map<string, string>): Promise<void> {

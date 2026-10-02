@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/ItemsPage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/Item.json"
+      },
+      "type": "array"
+    },
+    "itemsBefore": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "items",
+    "itemsBefore"
+  ],
+  "type": "object"
+}

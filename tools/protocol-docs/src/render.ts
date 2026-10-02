@@ -23,7 +23,7 @@ const families = [
     title: "Client requests",
     names: ["ClientMessage"],
     intro:
-      "Authenticate with `hello` and the negotiated protocolVersion before subscribing or issuing commands. Use exactly one dummy-replaced credential, token or ticket. Subscribe with afterSeq to resume a cursor; unsubscribe releases the subscription. Notification and presence requests obey the authenticated device's scopes.",
+      "Authenticate with `hello` and the negotiated protocolVersion before subscribing or issuing commands. Use exactly one credential, token or ticket; the examples use dummy values. Subscribe with afterSeq to resume a cursor; unsubscribe releases the subscription. Notification and presence requests obey the authenticated device's scopes.",
   },
   {
     file: "push",
@@ -88,8 +88,18 @@ export function renderReference(
     }
     return result;
   }
-  const assigned = new Set(families.flatMap((family) => family.names));
-  for (const family of families) {
+  const orchestration = {
+    file: "orchestration",
+    title: "Orchestration",
+    names: entries
+      .filter((entry) => /^(Orchestration|Lane|SpawnAgentRequest|TestResults)/.test(entry.name))
+      .map((entry) => entry.name),
+    intro:
+      "See [ADR 0013](../adr/0013-orchestration.md). Orchestration commands use the authenticated command envelope. The event, fact, intent and snapshot contracts below are exported for engine integration; they do not imply an implemented WebSocket subscription. A lane succeeds only after the whole thread tree settles and its checks pass.",
+  };
+  const pages = [...families, orchestration];
+  const assigned = new Set(pages.flatMap((family) => family.names));
+  for (const family of pages) {
     files.set(
       `${family.file}.md`,
       `# ${family.title}\n\n${notice}\n${family.intro}\n\n` +
@@ -120,7 +130,7 @@ export function renderReference(
   );
   files.set(
     "README.md",
-    `# Daemon protocol reference\n\n${notice}\nProtocol version: **${snapshot.protocolVersion}**. Exchange UTF-8 JSON objects over the daemon WebSocket. This describes schemas accepted on the wire, so defaulted fields may be omitted. MCP result schemas describe populated outputs.\n\n- [Commands, requests, results and errors](commands.md)\n- [Client requests](requests.md)\n- [Server results and push messages](push.md)\n- [Canonical events](events.md)\n- [MCP tools](mcp.md)\n- [Supporting types](types.md)\n\n## Version and compatibility\n\nClients negotiate protocolVersion in hello/welcome. Version ${snapshot.protocolVersion} permits additive optional fields, wider types and new messages when readers tolerate unknown fields and message variants. Never infer whole-tree completion from provider turn completion. Removing or renaming fields, narrowing types or adding required fields breaks existing clients and requires a new negotiated version. JSON Schema ids use the versioned namespace https://ace.local/protocol/v${snapshot.protocolVersion}/; these are identifiers, not network endpoints. Resolve them through the local schema directory.\n\nRelease tooling captures a baseline with \`bun run docs:protocol:snapshot --output release.json\` and compares it using \`bun run docs:protocol:compat --baseline release.json\`. Commit each released snapshot with its release artifacts. No release has been declared by this generator. Compatibility checks conservatively reject unfamiliar validation changes and changed semantic constraints.\n\n## Example\n\n\`\`\`json\n{"type":"ping"}\n\`\`\`\n\nExamples on every page are synthetic and checked against Zod and exported JSON Schema at generation time. Replace example credentials and ids with your own authenticated values. Regenerate with \`bun run docs:protocol\`; \`bun run docs:protocol --check\` detects stale, missing and unexpected output.\n`,
+    `# Daemon protocol reference\n\n${notice}\nProtocol version: **${snapshot.protocolVersion}**. Exchange UTF-8 JSON objects over the daemon WebSocket. This describes schemas accepted on the wire, so defaulted fields may be omitted. MCP result schemas describe populated outputs.\n\n- [Commands, requests, results and errors](commands.md)\n- [Client requests](requests.md)\n- [Server results and push messages](push.md)\n- [Canonical events](events.md)\n- [MCP tools](mcp.md)\n- [Orchestration](orchestration.md)\n- [Supporting types](types.md)\n\n## Version and compatibility\n\nClients negotiate protocolVersion in hello/welcome. Version ${snapshot.protocolVersion} permits additive optional fields, wider types and new messages when readers tolerate unknown fields and message variants. Never infer whole-tree completion from provider turn completion. Removing or renaming fields, narrowing types or adding required fields breaks existing clients and requires a new negotiated version. JSON Schema ids use the versioned namespace https://ace.local/protocol/v${snapshot.protocolVersion}/; these are identifiers, not network endpoints. Resolve them through the local schema directory.\n\nRelease tooling captures a baseline with \`bun run docs:protocol:snapshot --output release.json\` and compares it using \`bun run docs:protocol:compat --baseline release.json\`. Commit each released snapshot with its release artifacts. No release has been declared by this generator. Compatibility checks conservatively reject unfamiliar validation changes and changed semantic constraints.\n\n## Example\n\n\`\`\`json\n{"type":"ping"}\n\`\`\`\n\nExamples on every page are synthetic and checked against Zod and exported JSON Schema at generation time. Replace example credentials and ids with your own authenticated values. Regenerate with \`bun run docs:protocol\`; \`bun run docs:protocol --check\` detects stale, missing and unexpected output.\n`,
   );
   const ping = entries.find((entry) => entry.name === "ClientMessage");
   if (

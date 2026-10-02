@@ -40,7 +40,7 @@ describe("exported protocol", () => {
 });
 it("documents every union alternative with examples accepted by both validators", () => {
   const files = renderReference(catalog.entries, catalog.tools, snapshot);
-  for (const page of ["commands", "requests", "push", "events", "mcp", "types"]) {
+  for (const page of ["commands", "requests", "push", "events", "mcp", "types", "orchestration"]) {
     const markdown = files.get(`${page}.md`);
     expect(markdown).toBeDefined();
     let name = "";
@@ -92,7 +92,10 @@ it("distinguishes accepted input defaults from populated MCP output defaults", (
 it("detects missing, stale and unexpected files and regeneration repairs them", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-protocol-docs-"));
   try {
-    const files = renderReference(catalog.entries, catalog.tools, snapshot);
+    const files = new Map([
+      ["README.md", "Generated reference\n"],
+      ["schema/Command.json", canonical(snapshot.schemas.Command)],
+    ]);
     expect(await checkFiles(root, files)).toContain("README.md");
     await writeFiles(root, files);
     expect(await checkFiles(root, files)).toEqual([]);

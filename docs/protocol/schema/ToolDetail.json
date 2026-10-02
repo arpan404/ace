@@ -27,10 +27,7 @@
           "type": "string"
         },
         "output": {
-          "type": "string"
-        },
-        "outputTruncated": {
-          "type": "boolean"
+          "$ref": "https://ace.local/protocol/v1/OutputSummary.json"
         }
       },
       "required": [

@@ -25,6 +25,8 @@ export function candidate(
 ): unknown {
   if (depth > 32) throw new Error("Example exceeds schema depth 32");
   const node = resolve(schema, schemas);
+  if ((node.minItems ?? 0) > 128 || (node.minLength ?? 0) > 32768)
+    throw new Error("Example exceeds item/string limits");
   if ("const" in node) return node.const;
   if (node.enum) return pick(node.enum, random);
   const choices = node.anyOf ?? node.oneOf;
@@ -89,7 +91,7 @@ export function candidate(
 }
 
 export function jsonValidator(snapshot: Snapshot): Ajv2020 {
-  const validator = new Ajv2020({ strict: false, validateFormats: true });
+  const validator = new Ajv2020({ strict: false, validateFormats: true, inlineRefs: false });
   addFormats.default(validator);
   for (const schema of Object.values(snapshot.schemas)) validator.addSchema(schema);
   return validator;
@@ -102,9 +104,17 @@ export function validExample(
   random: Random,
   validator: Ajv2020,
 ): unknown {
-  const validate = validator.compile(schema);
+  const validate =
+    validator.getSchema(snapshot.schemas[name]?.$id ?? "") ?? validator.compile(schema);
   for (let attempt = 0; attempt < 256; attempt++) {
-    const value = candidate(schema, snapshot.schemas, random);
+    let value: unknown;
+    try {
+      value = candidate(schema, snapshot.schemas, random);
+    } catch (error) {
+      throw new Error(`Schema ${name}: ${error instanceof Error ? error.message : String(error)}`, {
+        cause: error,
+      });
+    }
     if (source.safeParse(value).success && validate(value)) return value;
   }
   throw new Error(`Schema ${name}: no valid example after 256 attempts`);

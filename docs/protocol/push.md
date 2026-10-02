@@ -25,23 +25,16 @@ Example:
 
 ```json
 {
-  "at": 0,
+  "at": 8,
   "id": "example",
   "payload": {
-    "thread": {
-      "createdAt": 6,
-      "id": "example",
-      "provider": "cursor",
-      "status": {
-        "state": "done"
-      },
-      "title": "example",
-      "updatedAt": 3,
-      "workspaceId": "example"
-    },
-    "type": "thread.created"
+    "agentId": "example",
+    "append": "example",
+    "field": "reasoning",
+    "itemId": "example",
+    "type": "item.delta"
   },
-  "seq": 4,
+  "seq": 9,
   "threadId": "example"
 }
 ```
@@ -63,9 +56,11 @@ Example:
 {
   "notification": {
     "actions": [],
-    "backgroundCount": 9,
+    "backgroundCount": 1,
     "id": "example",
-    "status": "unresponsive",
+    "interactionId": "example",
+    "preview": "example",
+    "status": "failed",
     "threadId": "example",
     "title": "example"
   },
@@ -86,7 +81,7 @@ Example:
 
 ```json
 {
-  "headSeq": 0,
+  "headSeq": 1,
   "hostId": "example",
   "protocolVersion": 1,
   "type": "welcome"
@@ -108,7 +103,7 @@ Example:
 
 ```json
 {
-  "seq": 1,
+  "seq": 6,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
@@ -120,17 +115,18 @@ Example:
     "items": {},
     "kind": "thread",
     "runs": {},
-    "seq": 1,
+    "seq": 6,
     "thread": {
-      "archivedAt": 0,
-      "createdAt": 3,
+      "createdAt": 1,
       "id": "example",
-      "provider": "antigravity",
+      "provider": "claude",
+      "rootAgentId": "example",
       "status": {
-        "state": "done"
+        "interactions": 8,
+        "state": "needs_you"
       },
       "title": "example",
-      "updatedAt": 2,
+      "updatedAt": 7,
       "workspaceId": "example"
     },
     "usage": {}
@@ -154,10 +150,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 2,
+  "afterSeq": 0,
   "events": [],
   "subscriptionId": "example",
-  "throughSeq": 3,
+  "throughSeq": 5,
   "type": "events"
 }
 ```
@@ -177,9 +173,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 8,
+  "afterSeq": 7,
   "subscriptionId": "example",
-  "throughSeq": 9,
+  "throughSeq": 8,
   "type": "progress"
 }
 ```
@@ -218,6 +214,54 @@ Example:
   "code": "example",
   "message": "example",
   "type": "error"
+}
+```
+
+### output.data
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"output.data"` |  |
+| requestId | yes | string |  |
+| streamId | yes | string |  |
+| offset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| nextOffset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| bytes | yes | string |  |
+| eof | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "bytes": "example",
+  "eof": false,
+  "nextOffset": 2,
+  "offset": 9,
+  "requestId": "example",
+  "streamId": "example",
+  "type": "output.data"
+}
+```
+
+### items.page
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| items | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/Item.json"}} |
+| itemsBefore | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| type | yes | `"items.page"` |  |
+| requestId | yes | string |  |
+
+Example:
+
+```json
+{
+  "items": [],
+  "itemsBefore": 10,
+  "requestId": "example",
+  "threadId": "example",
+  "type": "items.page"
 }
 ```
 
