@@ -66,8 +66,7 @@ Each mutation was applied independently, its selected behavior test failed, and 
 | Leave obsolete monitoring subscriptions alive          | releases obsolete executor monitoring subscriptions                   |
 | Remove endpoint canonicalization                       | rejects noncanonical endpoint                                         |
 | Load snapshots during definition lookup                | admits manual work without decoding unrelated poll state              |
-
-| Launch after notification-driven shutdown | does not launch a new observer after notification-driven stop |
+| Launch after notification-driven shutdown              | does not launch a new observer after notification-driven stop         |
 
 ## Updated benchmark after review
 
