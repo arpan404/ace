@@ -1,6 +1,8 @@
 import { assertNoGitlinks, createCheckpoint, readCheckpoint, withIndex } from "./checkpoints.ts";
 import { nul } from "./parse.ts";
-import { decode, pathSchema } from "./decode.ts";
+import { restoreNested } from "./restore-nested.ts";
+import { ignoredPaths, repositoryPaths } from "./nested.ts";
+import { decode, pathAncestors, pathSchema } from "./decode.ts";
 import { Repository } from "./repository.ts";
 import { GitError, toGitError } from "./types.ts";
 
@@ -18,27 +20,22 @@ export async function restoreCheckpoint(
   );
   try {
     await assertNoGitlinks(repository, root, target.tree);
-    const ignored = nul(
-      (
-        await repository.cli.call(root, [
-          "ls-files",
-          "--others",
-          "--ignored",
-          "--exclude-standard",
-          "-z",
-        ])
-      ).stdout,
-    ).map((path) => decode(pathSchema, path, "ignored path"));
+    // The flattened safety tree lets Git see ignored contents below uninitialized
+    // gitlinks, which the user's opaque gitlink index would hide.
+    const ignored = await withIndex(repository.tempDirectory, async (env) => {
+      await repository.cli.call(root, ["read-tree", safety.tree], { write: true, env });
+      return ignoredPaths(repository, root, env);
+    });
     const targetPaths = new Set(
       nul(
         (await repository.cli.call(root, ["ls-tree", "-r", "--name-only", "-z", target.tree]))
           .stdout,
       ).map((path) => decode(pathSchema, path, "restore path")),
     );
+    for (const path of await repositoryPaths(root, targetPaths)) ignored.push(`${path}/.git`);
     const targetAncestors = new Set<string>();
     for (const path of targetPaths) {
-      const parts = path.split("/");
-      for (let n = 1; n <= parts.length; n++) targetAncestors.add(parts.slice(0, n).join("/"));
+      for (const ancestor of pathAncestors(path)) targetAncestors.add(ancestor);
     }
     // A reset can overwrite ignored files, or an ignored directory when restoring a file.
     // Refuse those collisions instead of silently losing files outside the snapshot.
@@ -46,9 +43,8 @@ export async function restoreCheckpoint(
       if (targetAncestors.has(path)) {
         throw new GitError("restore_collision", `Checkpoint would overwrite ignored path: ${path}`);
       }
-      const parts = path.split("/");
-      for (let n = 1; n <= parts.length; n++) {
-        if (targetPaths.has(parts.slice(0, n).join("/"))) {
+      for (const ancestor of pathAncestors(path)) {
+        if (targetPaths.has(ancestor)) {
           throw new GitError(
             "restore_collision",
             `Checkpoint would overwrite ignored path: ${path}`,
@@ -65,6 +61,7 @@ export async function restoreCheckpoint(
         { write: true, env },
       );
     });
+    await restoreNested(repository, root, target.tree);
     return { safetyCheckpointId: safety.id };
   } catch (error) {
     const failure = toGitError(error);

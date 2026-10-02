@@ -1,10 +1,20 @@
-import { readFile, rename, rm, symlink } from "node:fs/promises";
+import { readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { watch } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
 import { GitService } from "./index.ts";
-import { execute, git, put, repository, scalar, scratch, userState } from "./test-repo.ts";
+import {
+  execute,
+  git,
+  proxyGit,
+  put,
+  repository,
+  scalar,
+  scratch,
+  userState,
+} from "./test-repo.ts";
 
 const service = new GitService();
 
@@ -28,31 +38,6 @@ describe("checkpoints", () => {
       "changed skipped\n",
     );
     expect(await readFile(join(repo, ".git", "index"))).toEqual(index);
-  });
-
-  test("embedded repositories are refused instead of claiming their contents were captured", async () => {
-    const repo = await repository();
-    await put(repo, "nested/file.txt", "nested\n");
-    const nested = join(repo, "nested");
-    await git(nested, "init", "-b", "main");
-    await git(nested, "add", "--all");
-    await git(
-      nested,
-      "-c",
-      "user.name=Test",
-      "-c",
-      "user.email=test@example.invalid",
-      "-c",
-      "commit.gpgsign=false",
-      "commit",
-      "-m",
-      "Nested",
-    );
-    await expect(
-      service.createCheckpoint({ worktree: repo, threadId: "nested", label: "nested" }),
-    ).rejects.toMatchObject({ code: "unsupported_repository" });
-    expect(await service.listCheckpoints({ repo, threadId: "nested" })).toEqual([]);
-    expect(await readFile(join(nested, "file.txt"), "utf8")).toBe("nested\n");
   });
 
   test("snapshots preserve the index bytes, HEAD, branch refs and stash bytes", async () => {
@@ -133,19 +118,50 @@ describe("checkpoints", () => {
   test("two concurrent checkpoints across service instances allocate distinct refs", async () => {
     const repo = await repository();
     await put(repo, "new.txt", "new\n");
-    const [a, b] = await Promise.all([
-      service.createCheckpoint({ worktree: repo, threadId: "concurrent", label: "first" }),
-      new GitService().createCheckpoint({
-        worktree: join(repo, ".git", ".."),
+    // Delay first discovery until the second call has completed. Call arrival does
+    // not define lock-entry order, because discovery itself performs real I/O.
+    const gate = await scratch();
+    const ready = Promise.withResolvers<void>();
+    const watcher = watch(gate, (_event, name) => {
+      if (name === "ready") ready.resolve();
+    });
+    const binary =
+      await proxyGit(`if (args.includes('worktree') && args.includes('list') && !fs.existsSync(${JSON.stringify(join(gate, "open"))})) {
+      const watcher = fs.watch(${JSON.stringify(gate)}, () => {
+        if (!fs.existsSync(${JSON.stringify(join(gate, "open"))})) return;
+        watcher.close();
+        const child = spawn('git',args,{stdio:'inherit',shell:false});
+        child.on('close',code=>process.exit(code ?? 71));
+      });
+      fs.writeFileSync(${JSON.stringify(join(gate, "ready"))}, 'ready');
+      return;
+    }`);
+    const first = new GitService({ gitBinary: binary }).createCheckpoint({
+      worktree: repo,
+      threadId: "concurrent",
+      label: "first",
+    });
+    let a;
+    let b;
+    try {
+      await ready.promise;
+      b = await service.createCheckpoint({
+        worktree: repo,
         threadId: "concurrent",
         label: "second",
-      }),
-    ]);
+      });
+      await writeFile(join(gate, "open"), "open");
+      a = await first;
+    } finally {
+      watcher.close();
+    }
     expect(a.id).not.toBe(b.id);
     expect(a.tree).toBe(b.tree);
     expect(
       (await service.listCheckpoints({ repo, threadId: "concurrent" })).map((entry) => entry.id),
-    ).toEqual([a.id, b.id]);
+    ).toEqual(
+      [a, b].toSorted((left, right) => left.sequence - right.sequence).map((entry) => entry.id),
+    );
     expect(await scalar(repo, "rev-parse", a.id)).toBe(a.sha);
     expect(await scalar(repo, "rev-parse", b.id)).toBe(b.sha);
   });

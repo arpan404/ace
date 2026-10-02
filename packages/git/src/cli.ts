@@ -1,14 +1,16 @@
-import { spawn } from "node:child_process";
+import { Readable, type Writable } from "node:stream";
+import { killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
 import { stat } from "node:fs/promises";
 import { z } from "zod";
 import { count, decode } from "./decode.ts";
-import { GitError, toGitError, type GitOptions } from "./types.ts";
+import { GitError, toGitError, type GitOptions, type GitProcessRuntime } from "./types.ts";
 
 interface CallOptions {
   write?: boolean;
   env?: Record<string, string>;
-  input?: Buffer | string;
+  input?: Buffer | string | Readable;
+  output?: Writable;
   allowFailure?: boolean;
   captureBytes?: number;
   consume?: (chunk: Buffer) => void;
@@ -25,8 +27,10 @@ export class GitCli {
   readonly binary: string;
   readonly timeoutMs: number;
   private ready: Promise<void> | undefined;
+  private readonly runtime: GitProcessRuntime;
 
   constructor(options: GitOptions) {
+    this.runtime = processRuntime(options.processRuntime);
     this.binary = options.gitBinary ?? "git";
     if (!this.binary || this.binary.includes("\0")) {
       throw new GitError("invalid_argument", "gitBinary must name an executable");
@@ -87,11 +91,11 @@ export class GitCli {
       ...options.env,
     });
     return new Promise((resolve, reject) => {
-      const child = spawn(this.binary, ["--no-pager", ...args], {
+      const child = this.runtime.spawn(this.binary, ["--no-pager", ...args], {
         cwd,
         env,
         shell: false,
-        detached: process.platform !== "win32",
+        detached: this.runtime.platform !== "win32",
         stdio: ["pipe", "pipe", "pipe"],
       });
       const chunks: Buffer[] = [];
@@ -102,22 +106,21 @@ export class GitCli {
       let truncated = false;
       let failure: GitError | undefined;
       let spawnFailure: Promise<GitError> | undefined;
-      const kill = () => {
-        if (child.pid && process.platform !== "win32") {
-          try {
-            process.kill(-child.pid, "SIGKILL");
-          } catch {
-            child.kill("SIGKILL");
-          }
-        } else {
-          child.kill("SIGKILL");
-        }
-      };
-      const timer = setTimeout(() => {
+      const kill = () => killTree(this.runtime, child);
+      const cancelDeadline = this.runtime.scheduleTimeout(() => {
         failure = new GitError("git_timeout", `Git exceeded ${this.timeoutMs}ms`, { args });
         kill();
       }, this.timeoutMs);
+      const streamFailure = (error: Error) => {
+        failure = toGitError(error);
+        kill();
+      };
+      if (options.output) {
+        options.output.on("error", streamFailure);
+        child.stdout.pipe(options.output);
+      }
       child.stdout.on("data", (chunk: Buffer) => {
+        if (options.output) return;
         if (options.consume) {
           try {
             options.consume(chunk);
@@ -147,7 +150,7 @@ export class GitCli {
         spawnFailure = classifySpawn(error, cwd, this.binary);
       });
       child.on("close", async (code) => {
-        clearTimeout(timer);
+        cancelDeadline();
         if (spawnFailure) failure = await spawnFailure;
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
@@ -157,7 +160,10 @@ export class GitCli {
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
       });
       child.stdin.on("error", () => {});
-      child.stdin.end(options.input);
+      if (options.input instanceof Readable) {
+        options.input.on("error", streamFailure);
+        options.input.pipe(child.stdin);
+      } else child.stdin.end(options.input);
     });
   }
 }

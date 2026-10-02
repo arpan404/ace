@@ -1,7 +1,7 @@
 import { devNull } from "node:os";
 import { patchOutput } from "./cli.ts";
 import { readCheckpoint, snapshot } from "./checkpoints.ts";
-import { binaryNotices, classifyBinaries, textTree } from "./diff-binary.ts";
+import { binaryNotices, classifyBinaries, textTrees } from "./diff-binary.ts";
 import { parseDiff } from "./parse.ts";
 import { Repository } from "./repository.ts";
 import { GitError, type DiffResult, type DiffSide } from "./types.ts";
@@ -61,23 +61,14 @@ export async function diff(
   ]);
   const files = parseDiff(metadata.stdout);
   await classifyBinaries(repository, root, files);
-  const excluded = new Set<string>();
-  for (const { entry } of files)
-    if (entry.binary) {
-      excluded.add(entry.path);
-      if (entry.oldPath) excluded.add(entry.oldPath);
-    }
-  // Removing exact index paths handles file/directory replacements safely too.
-  // Binary objects are absent from both patch trees, even when attributes force text.
-  if (excluded.size) {
-    a = await textTree(repository, root, a, [...excluded]);
-    b = await textTree(repository, root, b, [...excluded]);
-  }
   const notices = Buffer.from(binaryNotices(files));
   const prefix = notices.subarray(0, maxPatchBytes);
   let truncated = notices.length > maxPatchBytes;
   let bytes = prefix;
-  if (!truncated) {
+  if (!truncated && files.some((file) => !file.entry.binary)) {
+    // Only changed text entries enter the patch indexes. Both sides of every
+    // binary rename are absent, without materializing the repository index.
+    if (files.some((file) => file.entry.binary)) [a, b] = await textTrees(repository, root, files);
     const patch = await repository.cli.call(
       root,
       [...args, "--patch", "--unified=3", "--inter-hunk-context=0", "-z", a, b, "--"],

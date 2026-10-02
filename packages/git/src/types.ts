@@ -1,4 +1,17 @@
+import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process";
+
+export interface GitProcessRuntime {
+  spawn: (
+    command: string,
+    args: string[],
+    options: SpawnOptionsWithoutStdio & { stdio: ["pipe", "pipe", "pipe"] },
+  ) => ChildProcessWithoutNullStreams;
+  scheduleTimeout: (callback: () => void, milliseconds: number) => () => void;
+  platform: NodeJS.Platform;
+}
+
 export interface GitOptions {
+  processRuntime?: Partial<GitProcessRuntime>;
   gitBinary?: string;
   timeoutMs?: number;
   maxPatchBytes?: number;

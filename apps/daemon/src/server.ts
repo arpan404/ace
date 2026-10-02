@@ -1,13 +1,56 @@
-import { WebSocket, WebSocketServer } from "ws";
-import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
+import { randomUUID } from "node:crypto";
+import type { NotificationWorker } from "@ace/notify";
+import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
+import { z } from "zod";
+import { defaultTicketLimits, type TicketLimits } from "./ticket-pool.ts";
+import { createServer as httpServer } from "node:http";
+import { createServer as httpsServer } from "node:https";
+import type { Server, IncomingMessage } from "node:http";
+import { accessHttp } from "./access-http.ts";
+import { allows, type Device } from "./devices.ts";
+import { RemoteAuth } from "./remote-auth.ts";
+import { urlHost, type RemoteListener } from "./network.ts";
+import { WebSocket, WebSocketServer, type RawData } from "ws";
+import {
+  ClientMessage,
+  HostId,
+  DeviceId,
+  type ServerMessage,
+  type Notification,
+  type ThreadId,
+} from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
-import { validToken } from "./local-files.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
+import { SocketInput } from "./socket-input.ts";
 import { subscribe } from "./subscription.ts";
+
+const bind = (listener: Server, host: string, port: number) =>
+  new Promise<number>((resolve, reject) => {
+    listener.once("error", reject);
+    listener.listen(port, host, () => {
+      listener.removeListener("error", reject);
+      const address = listener.address();
+      if (!address || typeof address === "string") {
+        reject(new Error("Missing listener address"));
+        return;
+      }
+      resolve(address.port);
+    });
+  });
+const closeListener = (listener: Server) =>
+  new Promise<void>((resolve) => {
+    listener.close(() => resolve());
+    listener.closeAllConnections();
+  });
 
 export interface ServerOptions {
   port: number;
+  remote?: RemoteListener;
+  now?: () => number;
+  entropy?: EntropySource;
+  pairingAddress?: (request: IncomingMessage) => string;
+  ticketLimits?: Partial<TicketLimits>;
   token: string;
   hostId: string;
   store: Store;
@@ -16,23 +59,96 @@ export interface ServerOptions {
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
+  /** Local-token clients can read all threads by default. */
+  canReadThread?: (deviceId: DeviceId, threadId: ThreadId) => boolean;
+  notifications?: Pick<
+    NotificationWorker,
+    "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
+  > &
+    Partial<Pick<NotificationWorker, "revoke">>;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
-export async function startServer(
-  options: ServerOptions,
-): Promise<{ url: string; close(): Promise<void> }> {
+export async function startServer(options: ServerOptions): Promise<{
+  url: string;
+  notify(device: DeviceId, notification: Notification): boolean;
+  httpUrl: string;
+  remoteUrl?: string;
+  fingerprint?: string;
+  close(): Promise<void>;
+}> {
   const hostId = HostId.parse(options.hostId);
   if (!/^[0-9a-f]{64}$/.test(options.token)) throw new Error("Invalid server token");
-  const wss = new WebSocketServer({
-    host: "127.0.0.1",
-    port: options.port,
-    maxPayload: 1024 * 1024,
+  const auth = new RemoteAuth(
+    options.store.devices,
+    options.token,
+    {
+      now: options.now ?? Date.now,
+      secret: () => generateSecret(options.entropy ?? systemCredentials.randomBytes),
+    },
+    z
+      .object({
+        global: z.number().int().positive(),
+        perDevice: z.number().int().positive(),
+        perMinute: z.number().int().positive(),
+      })
+      .parse({ ...defaultTicketLimits, ...options.ticketLimits }),
+  );
+  let remoteOrigin: string | undefined;
+  const pairing = () =>
+    options.remote && remoteOrigin
+      ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
+      : undefined;
+  const local = httpServer(
+    accessHttp(auth, auth.localBearer.bind(auth), pairing, options.pairingAddress),
+  );
+  const remote = options.remote
+    ? httpsServer(
+        { ...options.remote.identity, minVersion: "TLSv1.2" },
+        accessHttp(auth, auth.deviceBearer.bind(auth), pairing, options.pairingAddress),
+      )
+    : undefined;
+  for (const listener of [local, remote])
+    if (listener) {
+      listener.requestTimeout = 10_000;
+      listener.headersTimeout = 10_000;
+    }
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+  const attach = (listener: Server, isLocal: boolean) =>
+    listener.on("upgrade", (request, socket, head) => {
+      if (request.url !== "/") {
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (websocket) =>
+        wss.emit("connection", websocket, isLocal),
+      );
+    });
+  attach(local, true);
+  if (remote) attach(remote, false);
+  const authenticated = new Map<WebSocket, Device & { revocable: boolean }>();
+  const stopRevocation = auth.onRevoke((id) => {
+    void options.notifications
+      ?.revoke?.(DeviceId.parse(id))
+      .catch(() => options.log?.(new Error("Notification revocation failed")));
+    for (const [socket, device] of authenticated)
+      if (device.revocable && device.id === id) {
+        cleanups.get(socket)?.();
+        socket.close(4003, "Device revoked");
+        socket.terminate();
+      }
   });
+  const input = new SocketInput();
   const cleanups = new Map<WebSocket, () => void>();
+  const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   const ticks = new Map<WebSocket, () => void>();
-  wss.on("connection", (socket) => {
+  wss.on("connection", (socket, isLocal: boolean) => {
+    if (cleanups.size >= 256) {
+      socket.close(4009, "Connection limit");
+      return;
+    }
+    const sessionId = randomUUID();
     let device: DeviceId | undefined;
-    let lastActivity = Date.now();
+    let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
     const send = (message: ServerMessage) => outbox.send(message);
@@ -44,12 +160,19 @@ export async function startServer(
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
+      if (device) {
+        const connections = receivers.get(device);
+        connections?.delete(socket);
+        if (!connections?.size) receivers.delete(device);
+      }
+      void options.notifications?.disconnect(sessionId).catch(() => {});
       cleanups.delete(socket);
       ticks.delete(socket);
+      authenticated.delete(socket);
     };
     cleanups.set(socket, cleanup);
     ticks.set(socket, () => {
-      if (Date.now() - lastActivity > (options.idleTimeoutMs ?? 60_000))
+      if (auth.now() - lastActivity > (options.idleTimeoutMs ?? 60_000))
         socket.close(4008, "Idle timeout");
       outbox.tick();
     });
@@ -61,9 +184,9 @@ export async function startServer(
       cleanup();
       options.onDisconnect?.(device);
     });
-    socket.on("message", (data, binary) => {
+    const receive = async (data: RawData, binary: boolean) => {
       if (socket.readyState !== WebSocket.OPEN) return;
-      lastActivity = Date.now();
+      lastActivity = auth.now();
       let message: ClientMessage;
       try {
         if (binary) throw new Error("Text required");
@@ -77,11 +200,50 @@ export async function startServer(
         return;
       }
       if (!device) {
-        if (message.type !== "hello" || !validToken(message.token, options.token)) {
+        if (message.type !== "hello") {
           fail("unauthorized", "Valid hello required", true);
           return;
         }
-        device = message.deviceId;
+        const actor =
+          message.ticket !== undefined
+            ? auth.consume(message.ticket)
+            : message.token !== undefined && isLocal && auth.local(message.token)
+              ? {
+                  id: message.deviceId,
+                  name: "Host",
+                  scopes: ["admin"] as const,
+                  createdAt: 0,
+                  lastSeenAt: auth.now(),
+                  revokedAt: null,
+                }
+              : undefined;
+        if (!actor || (message.ticket !== undefined && actor.id !== message.deviceId)) {
+          fail("unauthorized", "Valid hello required", true);
+          return;
+        }
+        device = actor.id;
+        authenticated.set(socket, {
+          ...actor,
+          scopes: [...actor.scopes],
+          revocable: message.ticket !== undefined,
+        });
+        try {
+          if (allows(authenticated.get(socket), "read"))
+            await options.notifications?.connectDevice(actor.id);
+        } catch {
+          fail("device_unavailable", "Device unavailable", true);
+          return;
+        }
+        // Authentication may finish after disconnect, revocation or daemon shutdown.
+        if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
+        if (allows(authenticated.get(socket), "read")) {
+          let connections = receivers.get(device);
+          if (!connections) {
+            connections = new Map();
+            receivers.set(device, connections);
+          }
+          connections.set(socket, send);
+        }
         send({
           type: "welcome",
           hostId,
@@ -91,6 +253,32 @@ export async function startServer(
         return;
       }
       switch (message.type) {
+        case "presence.update":
+        case "notification.register":
+        case "notification.preferences":
+        case "notification.snooze": {
+          const scope = message.type === "notification.snooze" ? "operate" : "read";
+          if (!allows(authenticated.get(socket), scope)) {
+            fail("forbidden", `${scope === "read" ? "Read" : "Operate"} scope required`);
+            break;
+          }
+          if (!options.notifications) {
+            fail("notifications_unavailable", "Notifications unavailable");
+            break;
+          }
+          try {
+            if (message.type === "presence.update")
+              await options.notifications.updatePresence(sessionId, device, message);
+            else if (message.type === "notification.register")
+              await options.notifications.register(device, message.device);
+            else if (message.type === "notification.preferences")
+              await options.notifications.preferences(device, message.preferences);
+            else await options.notifications.snooze(message.threadId, message.until);
+          } catch {
+            fail("notification_rejected", "Notification update rejected");
+          }
+          break;
+        }
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;
@@ -102,10 +290,21 @@ export async function startServer(
           subscriptions.delete(message.subscriptionId);
           break;
         case "subscribe": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
           subscriptions.get(message.subscriptionId)?.();
           subscriptions.delete(message.subscriptionId);
           if (subscriptions.size >= 64) {
             fail("subscription_limit", "Too many subscriptions");
+            break;
+          }
+          if (
+            message.scope.kind === "thread" &&
+            options.canReadThread?.(device, message.scope.threadId) === false
+          ) {
+            fail("read_denied", "Thread is not readable");
             break;
           }
           try {
@@ -123,7 +322,61 @@ export async function startServer(
           }
           break;
         }
+        case "output.read": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
+          const threadId = options.store.outputThread(message.streamId);
+          if (!threadId || options.canReadThread?.(device, threadId) === false) {
+            fail("read_denied", "Output stream is not readable");
+            break;
+          }
+          send({
+            type: "output.data",
+            requestId: message.requestId,
+            streamId: message.streamId,
+            offset: message.offset,
+            ...options.store.readOutput(message.streamId, message.offset, message.limit),
+          });
+          break;
+        }
+        case "items.page": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
+          if (
+            !options.store.getThread(message.threadId) ||
+            options.canReadThread?.(device, message.threadId) === false
+          ) {
+            fail("read_denied", "Thread is not readable");
+            break;
+          }
+          try {
+            send({
+              type: "items.page",
+              requestId: message.requestId,
+              ...options.store.readItems(message.threadId, message.before, message.limit),
+            });
+          } catch {
+            fail("read_denied", "Invalid item cursor");
+          }
+          break;
+        }
         case "command": {
+          if (!allows(authenticated.get(socket), "operate")) {
+            fail("forbidden", "Operate scope required");
+            break;
+          }
+          try {
+            if (allows(authenticated.get(socket), "read"))
+              await options.notifications?.connectDevice(device);
+          } catch {
+            fail("device_unavailable", "Device unavailable", true);
+            break;
+          }
+          if (socket.readyState !== WebSocket.OPEN || !authenticated.has(socket)) break;
           if (message.command.deviceId !== device) {
             fail("device_mismatch", "Command device must match hello");
             break;
@@ -140,7 +393,8 @@ export async function startServer(
           break;
         }
       }
-    });
+    };
+    input.listen(socket, receive, (error) => options.log?.(error));
   });
   const timer = setInterval(
     () => {
@@ -149,33 +403,57 @@ export async function startServer(
     Math.max(10, Math.min(1000, (options.idleTimeoutMs ?? 60_000) / 2)),
   );
   timer.unref();
+  let port: number;
   try {
-    await new Promise<void>((resolve, reject) => {
-      wss.once("listening", resolve);
-      wss.once("error", reject);
-    });
+    port = await bind(local, "127.0.0.1", options.port);
+    if (remote && options.remote) {
+      const remotePort = await bind(remote, options.remote.host, options.remote.port);
+      remoteOrigin = `https://${urlHost(options.remote.advertisedHost)}:${remotePort}`;
+    }
   } catch (error) {
     clearInterval(timer);
+    stopRevocation();
+    await closeListener(local);
+    if (remote) await closeListener(remote);
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     throw error;
   }
-  const address = wss.address();
-  if (!address || typeof address === "string") throw new Error("Missing listener address");
   let closing: Promise<void> | undefined;
   return {
-    url: `ws://127.0.0.1:${address.port}`,
+    url: `ws://127.0.0.1:${port}`,
+    httpUrl: `http://127.0.0.1:${port}`,
+    ...(remoteOrigin && options.remote
+      ? {
+          remoteUrl: remoteOrigin.replace("https:", "wss:"),
+          fingerprint: options.remote.identity.fingerprint,
+        }
+      : {}),
+    notify(device, notification) {
+      let delivered = false;
+      for (const [socket, send] of receivers.get(device) ?? []) {
+        if (socket.readyState === WebSocket.OPEN) {
+          send({ type: "notification", notification });
+          delivered = true;
+        }
+      }
+      return delivered;
+    },
     close() {
       closing ??= new Promise<void>((resolve, reject) => {
         clearInterval(timer);
+        stopRevocation();
         for (const cleanup of cleanups.values()) cleanup();
         for (const socket of wss.clients) {
           socket.close(1001, "Daemon shutdown");
           socket.terminate();
         }
-        wss.close((error) => {
-          if (error) reject(error);
-          else resolve();
-        });
+        void Promise.all([closeListener(local), ...(remote ? [closeListener(remote)] : [])]).then(
+          () =>
+            wss.close((error) => {
+              if (error) reject(error);
+              else resolve();
+            }),
+        );
       });
       return closing;
     },

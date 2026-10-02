@@ -9,7 +9,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "benchmark": "node benchmark.ts",
-    "benchmark:history": "node benchmark-history.ts"
+    "benchmark:history": "node benchmark-history.ts",
+    "benchmark:diff": "node benchmark-diff.ts"
   },
   "dependencies": {
     "zod": "^4.6.5"

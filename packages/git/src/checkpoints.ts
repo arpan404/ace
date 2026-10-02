@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { flattenNested, nestedPaths } from "./nested.ts";
 import { textOutput } from "./cli.ts";
 import { decode, hash, malformed } from "./decode.ts";
 import {
@@ -44,7 +45,20 @@ export async function snapshot(repository: Repository, root: string): Promise<st
     const tracked = parseIndex((await cli.call(root, ["ls-files", "--stage", "-z"])).stdout);
     const seed = tracked.map((entry) => `${entry.mode} ${entry.sha} 0\t${entry.path}\0`).join("");
     await cli.call(root, ["update-index", "-z", "--index-info"], { write: true, env, input: seed });
-    await cli.call(root, ["add", "--all", "--", "."], { write: true, env });
+    const nested = await nestedPaths(repository, root, tracked, env);
+    const gitlinks = tracked.filter((entry) => entry.mode === "160000");
+    if (gitlinks.length)
+      await cli.call(root, ["update-index", "--force-remove", "-z", "--stdin"], {
+        write: true,
+        env,
+        input: gitlinks.map((entry) => entry.path).join("\0") + "\0",
+      });
+    await cli.call(root, ["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"], {
+      write: true,
+      env,
+      input: [".", ...nested.map((path) => `:(exclude,literal)${path}`)].join("\0") + "\0",
+    });
+    await flattenNested(repository, root, nested, env, snapshot);
     const current = parseIndex(
       (await cli.call(root, ["ls-files", "--stage", "-z"], { env })).stdout,
     );
