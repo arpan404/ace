@@ -4,12 +4,13 @@ import { Automation, AutomationRun, AutomationInbox, type AutomationEvent } from
 import { canAdmit } from "./decisions.ts";
 import type { ExecutionInput, ExecutionResult } from "./contracts.ts";
 
-const Job = z.object({
+const JobMetadata = z.object({
   automation: Automation,
   nominal: z.number().nullable(),
   due: z.number().nullable(),
-  state: z.unknown(),
 });
+export type JobMetadata = z.infer<typeof JobMetadata>;
+const Job=JobMetadata.extend({state:z.unknown()});
 export type Job = z.infer<typeof Job>;
 const Input = z.object({
   idempotencyKey: z.string(),
@@ -64,7 +65,7 @@ export class AutomationStore {
     state: unknown = {},
   ): void {
     if (
-      !this.get(automation.id) &&
+      !this.definition(automation.id) &&
       Number(this.sql("SELECT COUNT(*) AS n FROM automation_jobs").get()?.n) >= 1000
     )
       throw new Error("Automation limit reached");
@@ -92,26 +93,37 @@ export class AutomationStore {
         })
       : undefined;
   }
-  list(): Job[] {
-    return this.sql("SELECT id FROM automation_jobs ORDER BY id")
-      .all()
-      .flatMap((row) => {
-        const job = this.get(String(row.id));
-        return job ? [job] : [];
-      });
+  definition(id:string):Automation|undefined {
+    const row=this.sql("SELECT body FROM automation_jobs WHERE id=?").get(id);
+    return row?Automation.parse(JSON.parse(String(row.body))):undefined;
   }
-  next(excluded: readonly string[] = []): Job | undefined {
-    if (excluded.length > 4) throw new Error("Too many excluded polls");
-    const row = this.sql(
-      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND id NOT IN(?,?,?,?) ORDER BY due,id LIMIT 1",
-    ).get(excluded[0] ?? "", excluded[1] ?? "", excluded[2] ?? "", excluded[3] ?? "");
-    return row ? this.get(String(row.id)) : undefined;
+  metadata(id:string):JobMetadata|undefined {
+    const row=this.sql("SELECT body,nominal,due FROM automation_jobs WHERE id=?").get(id);
+    return row?JobMetadata.parse({automation:JSON.parse(String(row.body)),nominal:row.nominal,due:row.due}):undefined;
   }
-  nextScheduled(): Job | undefined {
-    const row = this.sql(
-      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1",
-    ).get();
-    return row ? this.get(String(row.id)) : undefined;
+  readState(id:string):unknown {
+    const row=this.sql("SELECT state FROM automation_jobs WHERE id=?").get(id);
+    if(!row)throw new Error("Automation is missing");
+    const state:unknown=JSON.parse(String(row.state));
+    return state;
+  }
+  *jobs():Iterable<JobMetadata> {
+    let count=0;
+    for(const row of this.sql("SELECT body,nominal,due FROM automation_jobs ORDER BY id LIMIT 1001").iterate()) {
+      if(++count>1000)throw new Error("Automation limit exceeded");
+      yield JobMetadata.parse({automation:JSON.parse(String(row.body)),nominal:row.nominal,due:row.due});
+    }
+  }
+  list():JobMetadata[] {return [...this.jobs()];}
+  next(excluded:readonly string[]=[]):JobMetadata|undefined {
+    if(excluded.length>4)throw new Error("Too many excluded polls");
+    const row=this.sql("SELECT id FROM automation_jobs WHERE due IS NOT NULL AND id NOT IN(?,?,?,?) ORDER BY due,id LIMIT 1")
+      .get(excluded[0]??"",excluded[1]??"",excluded[2]??"",excluded[3]??"");
+    return row?this.metadata(String(row.id)):undefined;
+  }
+  nextScheduled():JobMetadata|undefined {
+    const row=this.sql("SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1").get();
+    return row?this.metadata(String(row.id)):undefined;
   }
   advance(id: string, nominal: number | undefined, due: number | undefined): void {
     this.sql("UPDATE automation_jobs SET nominal=?,due=? WHERE id=?").run(

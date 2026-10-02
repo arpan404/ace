@@ -132,6 +132,8 @@ export function harness(gh?: import("./index.ts").GhClient) {
     get store() {
       return store;
     },
+    deps,
+    storePath:join(dir,"auto.sqlite"),
     timer,
     inputs,
     completions,

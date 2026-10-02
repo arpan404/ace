@@ -8,7 +8,7 @@ import {
 import { ExecutionResult, type Dependencies, type ExecutionInput } from "./contracts.ts";
 import { renderPrompt, scheduledDeadline, recoverOccurrence } from "./decisions.ts";
 import { compileSchedule, Occurrence, type Recurrence } from "./recurrence.ts";
-import { AutomationStore, type Job } from "./store.ts";
+import { AutomationStore, type JobMetadata } from "./store.ts";
 import { pollGithub } from "./github.ts";
 import type { GhClient } from "./gh-process.ts";
 
@@ -41,7 +41,7 @@ export class AutomationService {
     this.generation++;
     this.controller = new AbortController();
     try {
-      for (const job of this.store.list()) {
+      for (const job of this.store.jobs()) {
         this.configure(job.automation);
         if (
           job.automation.trigger.kind === "schedule" &&
@@ -50,7 +50,7 @@ export class AutomationService {
         ) {
           const recurrence = this.recurrences.get(job.automation.id);
           if (!recurrence) throw new Error("Missing recurrence");
-          const cursor = Occurrence.parse(job.state);
+          const cursor = Occurrence.parse(this.store.readState(job.automation.id));
           const occurrence = recoverOccurrence(
             job.automation,
             recurrence,
@@ -133,8 +133,8 @@ export class AutomationService {
   }
   put(input: unknown): Automation {
     const automation = Automation.parse(input);
-    const existing = this.store.get(automation.id);
-    if (existing && JSON.stringify(existing.automation) === JSON.stringify(automation))
+    const existing = this.store.definition(automation.id);
+    if (existing && JSON.stringify(existing) === JSON.stringify(automation))
       return automation;
     const recurrence =
       automation.trigger.kind === "schedule"
@@ -171,10 +171,10 @@ export class AutomationService {
   }
   trigger(id: string, input: unknown, kind: AutomationRun["trigger"] = "manual"): AutomationRun {
     if (!this.live) throw new Error("Automation service is stopped");
-    const job = this.store.get(id);
-    if (!job || !job.automation.enabled) throw new Error("Automation is disabled or missing");
+    const automation = this.store.definition(id);
+    if (!automation || !automation.enabled) throw new Error("Automation is disabled or missing");
     const event = AutomationEvent.parse(input);
-    const admission = this.store.transaction(() => this.admit(job.automation, event, kind));
+    const admission = this.store.transaction(() => this.admit(automation, event, kind));
     if (admission.created) this.publish(admission.run);
     if (admission.admitted && admission.input) this.launch(admission.run, admission.input);
     return admission.run;
@@ -270,7 +270,7 @@ export class AutomationService {
       return operation;
     });
   }
-  private nextJob(): Job | undefined {
+  private nextJob(): JobMetadata | undefined {
     return this.polling.size >= 4 ? this.store.nextScheduled() : this.store.next([...this.polling]);
   }
   private async tick(): Promise<void> {
@@ -295,7 +295,7 @@ export class AutomationService {
       this.arm();
     }
   }
-  private scheduled(job: Job): void {
+  private scheduled(job: JobMetadata): void {
     const recurrence = this.recurrences.get(job.automation.id);
     if (!recurrence || job.nominal === null) throw new Error("Invalid scheduled job");
     // Compute before admission so any evaluation error cannot partially advance the cursor.
@@ -303,7 +303,7 @@ export class AutomationService {
     try {
       occurrence = recurrence.seek(
         Math.max(job.nominal, this.deps.now()),
-        Occurrence.parse(job.state),
+        Occurrence.parse(this.store.readState(job.automation.id)),
       );
     } catch (error) {
       this.store.advance(job.automation.id, undefined, undefined);
@@ -332,7 +332,7 @@ export class AutomationService {
     if (admission.created) this.publish(admission.run);
     if (admission.admitted && admission.input) this.launch(admission.run, admission.input);
   }
-  private async poll(job: Job): Promise<void> {
+  private async poll(job: JobMetadata): Promise<void> {
     const generation = this.generation;
     const revision = this.revisions.get(job.automation.id);
     const trigger = job.automation.trigger;
@@ -341,7 +341,7 @@ export class AutomationService {
     this.store.advance(job.automation.id, undefined, this.deps.now() + trigger.pollIntervalMs);
     try {
       if (!this.gh) throw new Error("GitHub client is not configured");
-      const result = await pollGithub(this.gh, trigger, job.state, this.controller.signal);
+      const result = await pollGithub(this.gh, trigger, this.store.readState(job.automation.id), this.controller.signal);
       if (!this.live || generation !== this.generation) return;
       // An edit/removal while gh was in flight invalidates this response.
       if (this.revisions.get(job.automation.id) !== revision) return;
