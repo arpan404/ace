@@ -1,9 +1,18 @@
-import { WebSocket, WebSocketServer } from "ws";
-import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
+import { randomUUID } from "node:crypto";
+import type { NotificationWorker } from "@ace/notify";
+import { WebSocket, WebSocketServer, type RawData } from "ws";
+import {
+  ClientMessage,
+  HostId,
+  type DeviceId,
+  type ServerMessage,
+  type Notification,
+} from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
 import { validToken } from "./local-files.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
+import { SocketInput } from "./socket-input.ts";
 import { subscribe } from "./subscription.ts";
 
 export interface ServerOptions {
@@ -16,11 +25,17 @@ export interface ServerOptions {
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
+  notifications?: Pick<
+    NotificationWorker,
+    "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
+  >;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
-export async function startServer(
-  options: ServerOptions,
-): Promise<{ url: string; close(): Promise<void> }> {
+export async function startServer(options: ServerOptions): Promise<{
+  url: string;
+  notify(device: DeviceId, notification: Notification): boolean;
+  close(): Promise<void>;
+}> {
   const hostId = HostId.parse(options.hostId);
   if (!/^[0-9a-f]{64}$/.test(options.token)) throw new Error("Invalid server token");
   const wss = new WebSocketServer({
@@ -28,9 +43,16 @@ export async function startServer(
     port: options.port,
     maxPayload: 1024 * 1024,
   });
+  const input = new SocketInput();
   const cleanups = new Map<WebSocket, () => void>();
+  const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket) => {
+    if (cleanups.size >= 256) {
+      socket.close(4009, "Connection limit");
+      return;
+    }
+    const sessionId = randomUUID();
     let device: DeviceId | undefined;
     let lastActivity = Date.now();
     const subscriptions = new Map<string, () => void>();
@@ -44,6 +66,12 @@ export async function startServer(
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
+      if (device) {
+        const connections = receivers.get(device);
+        connections?.delete(socket);
+        if (!connections?.size) receivers.delete(device);
+      }
+      void options.notifications?.disconnect(sessionId).catch(() => {});
       cleanups.delete(socket);
       ticks.delete(socket);
     };
@@ -61,7 +89,7 @@ export async function startServer(
       cleanup();
       options.onDisconnect?.(device);
     });
-    socket.on("message", (data, binary) => {
+    const receive = async (data: RawData, binary: boolean) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       lastActivity = Date.now();
       let message: ClientMessage;
@@ -81,7 +109,19 @@ export async function startServer(
           fail("unauthorized", "Valid hello required", true);
           return;
         }
+        try {
+          await options.notifications?.connectDevice(message.deviceId);
+        } catch {
+          fail("device_unavailable", "Device unavailable", true);
+          return;
+        }
         device = message.deviceId;
+        let connections = receivers.get(device);
+        if (!connections) {
+          connections = new Map();
+          receivers.set(device, connections);
+        }
+        connections.set(socket, send);
         send({
           type: "welcome",
           hostId,
@@ -91,6 +131,27 @@ export async function startServer(
         return;
       }
       switch (message.type) {
+        case "presence.update":
+        case "notification.register":
+        case "notification.preferences":
+        case "notification.snooze": {
+          if (!options.notifications) {
+            fail("notifications_unavailable", "Notifications unavailable");
+            break;
+          }
+          try {
+            if (message.type === "presence.update")
+              await options.notifications.updatePresence(sessionId, device, message);
+            else if (message.type === "notification.register")
+              await options.notifications.register(device, message.device);
+            else if (message.type === "notification.preferences")
+              await options.notifications.preferences(device, message.preferences);
+            else await options.notifications.snooze(message.threadId, message.until);
+          } catch {
+            fail("notification_rejected", "Notification update rejected");
+          }
+          break;
+        }
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;
@@ -124,6 +185,12 @@ export async function startServer(
           break;
         }
         case "command": {
+          try {
+            await options.notifications?.connectDevice(device);
+          } catch {
+            fail("device_unavailable", "Device unavailable", true);
+            break;
+          }
           if (message.command.deviceId !== device) {
             fail("device_mismatch", "Command device must match hello");
             break;
@@ -140,7 +207,8 @@ export async function startServer(
           break;
         }
       }
-    });
+    };
+    input.listen(socket, receive, (error) => options.log?.(error));
   });
   const timer = setInterval(
     () => {
@@ -164,6 +232,16 @@ export async function startServer(
   let closing: Promise<void> | undefined;
   return {
     url: `ws://127.0.0.1:${address.port}`,
+    notify(device, notification) {
+      let delivered = false;
+      for (const [socket, send] of receivers.get(device) ?? []) {
+        if (socket.readyState === WebSocket.OPEN) {
+          send({ type: "notification", notification });
+          delivered = true;
+        }
+      }
+      return delivered;
+    },
     close() {
       closing ??= new Promise<void>((resolve, reject) => {
         clearInterval(timer);

@@ -15,6 +15,7 @@
     "apps/daemon": {
       "name": "@ace/daemon",
       "dependencies": {
+        "@ace/notify": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "ws": "^8.18.3",
@@ -27,6 +28,16 @@
       "name": "@ace/core",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+      },
+    },
+    "packages/notify": {
+      "name": "@ace/notify",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.1.12",
+      },
+      "devDependencies": {
+        "@ace/core": "workspace:*",
       },
     },
     "packages/projection": {
@@ -56,6 +67,8 @@
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
+
+    "@ace/notify": ["@ace/notify@workspace:packages/notify"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
