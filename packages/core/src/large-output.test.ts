@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { harness } from "./test-helper.ts";
 
-it("emits bounded item states after ten MiB of output and preserves the stream through completion", () => {
+it("emits bounded item states after ten MiB of ASCII output and preserves the stream through completion", () => {
   const h = harness();
   h.see();
   h.start();
