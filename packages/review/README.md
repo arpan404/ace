@@ -2,7 +2,7 @@
 
 Local review sessions backed by SQLite and immutable git revisions. No provider CLI execution lives here.
 
-`ReviewWorker(path, executor?)` is the daemon-facing API. `handle(command, worktree?)` accepts the shared command envelope, owns retry receipts and returns `CommandResult.review`. Supply a host-resolved worktree only for `review.open`. `ReviewService` provides the same API directly for integration tests or hosts already running off the event loop. Clocks and ids are injected there.
+`ReviewWorker(path, executor?)` is the daemon-facing API. `handle(command, worktree?)` accepts the shared command envelope, owns effect retry receipts and returns `CommandResult.review`. Supply a host-resolved worktree only for `review.open`. `ReviewService` provides the same API directly for integration tests or hosts already running off the event loop. Clocks and ids are injected there.
 
 The protocol exports session sources, line positions, fingerprints, comments, replies, `ReviewerOutput`, `ReviewFixIntent` and `ReviewReviewerIntent`. Commands are open, comment, reply, resolve, applySuggestion, sendToAgent, askReviewer, refresh, status and list. List sessions without sessionId, comments with sessionId, and replies with both sessionId and commentId. The last id is the next cursor; an empty page ends iteration.
 
@@ -14,6 +14,8 @@ Limits: 1 MiB complete diff, 1,000 comments per session, 100 replies per comment
 
 SQLite and git cannot share an atomic transaction with filesystem effects or engine acceptance. A crash after an operation starts leaves a receipt that returns `review_recovery_required` on retry. This deliberately requires inspection rather than repeating an uncertain effect. Completed receipts survive restart. Session deletion and automatic recovery are future work. Suggestions on files without a final newline may fail Git's context check; they never rewrite the file with a guessed newline.
 
+Read-only list requests remain available while an executor is waiting. Mutations serialize, with bounded backpressure. `recover(command)` only reads an effect receipt and never begins unknown work. The authenticated daemon reserves ids in its main receipt store before dispatch, so retry ids are shared with ordinary commands.
+
 The daemon starts a worker in its private data directory. It resolves registered workspaces and validates thread ownership. `startDaemon` exposes `review.afterFix` and accepts `{ executor, threadWorktree }` as its sixth argument. `createDaemonReview` accepts the same options with a thread-worktree resolver for hosts with isolated thread worktrees. A read-scoped device can list; mutations require operate scope. Clients cannot choose filesystem paths.
 
-Run `bun run test packages/review/src --maxWorkers=2` and `bun run --filter @ace/review benchmark`. The benchmark covers 1,000 comments across a 10,000-line transition without a timing assertion.
+Tests and benchmarks run at merge, per the repository owner's rule. At merge, run `bun run test packages/review/src --maxWorkers=2` and `bun run --filter @ace/review benchmark`. The benchmark covers 1,000 comments across a 10,000-line transition without a timing assertion. Mutation cases are documented in `bench/mutations.md`; final runtime behavior and measurements need run at merge.
