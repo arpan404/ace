@@ -106,6 +106,8 @@ test.each(["credit", "writer"])(
       releaseWriter?.();
     });
     const client = connect({ host: "127.0.0.1", port: Number(new URL(proxy.url).port) });
+    // Closing the accepted socket with unread bytes can reset its peer.
+    client.on("error", () => {});
     cleanup.push(() => {
       client.destroy();
     });
@@ -128,6 +130,7 @@ test.each(["credit", "writer"])(
     expect(channelClosed).toBe(false);
     expect(resets).toContain(1);
     const next = connect({ host: "127.0.0.1", port: Number(new URL(proxy.url).port) });
+    next.on("error", () => {});
     cleanup.push(() => {
       next.destroy();
     });

@@ -65,7 +65,6 @@ export function createMux(options: MuxOptions) {
     unsubscribe?.();
     options.channel.close();
     for (const stream of streams.values()) {
-      releasePayload(stream);
       stream.socket.destroy();
       stream.wake?.();
       stream.cancelSend?.();
@@ -73,14 +72,8 @@ export function createMux(options: MuxOptions) {
     streams.clear();
     options.onClosed?.();
   };
-  const send = async (kind: number, id: number, value = 0, data?: Uint8Array) => {
-    if (closed) return;
-    if (pendingSends >= maxPendingSends) {
-      close();
-      return;
-    }
+  const sendFrame = async (frame: Uint8Array) => {
     pendingSends++;
-    const frame = encodeFrame(kind, id, value, data);
     pendingFrameBytes += frame.byteLength;
     try {
       await options.channel.send(frame);
@@ -91,6 +84,16 @@ export function createMux(options: MuxOptions) {
       pendingFrameBytes -= frame.byteLength;
     }
   };
+  // Encode before entering an async writer, so a blocked writer retains only
+  // its admitted frame rather than the backing buffer of a socket chunk.
+  const send = (kind: number, id: number, value = 0, data?: Uint8Array): Promise<void> => {
+    if (closed) return Promise.resolve();
+    if (pendingSends >= maxPendingSends) {
+      close();
+      return Promise.resolve();
+    }
+    return sendFrame(encodeFrame(kind, id, value, data));
+  };
   const alive = (stream: Stream) => !closed && streams.get(stream.id) === stream;
   const releasePayload = (stream: Stream) => {
     pendingPayloadBytes -= stream.payloadBytes;
@@ -99,7 +102,6 @@ export function createMux(options: MuxOptions) {
   const remove = (stream: Stream) => {
     if (streams.get(stream.id) !== stream) return;
     streams.delete(stream.id);
-    releasePayload(stream);
     stream.wake?.();
     stream.cancelSend?.();
     stream.socket.destroy();
