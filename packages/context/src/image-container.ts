@@ -136,7 +136,11 @@ async function gif(reader: Reader, bytes: number): Promise<void> {
   }
   requireContext(false, "invalid_image", "GIF has no trailer");
 }
-async function webp(reader: Reader, bytes: number): Promise<void> {
+async function webp(
+  reader: Reader,
+  bytes: number,
+  canvas: { width: number; height: number },
+): Promise<void> {
   let position = 12,
     images = 0;
   while (position < bytes) {
@@ -148,7 +152,51 @@ async function webp(reader: Reader, bytes: number): Promise<void> {
       "invalid_image",
       "Invalid or animated WebP container",
     );
-    if (type === "VP8 " || type === "VP8L") images++;
+    if (type === "VP8 " || type === "VP8L") {
+      images++;
+      const size = type === "VP8L" ? 5 : 10;
+      requireContext(length >= size, "invalid_image", "Incomplete WebP frame header");
+      const frame = await reader.at(position + 8, size);
+      let width: number, height: number;
+      if (type === "VP8L") {
+        requireContext(
+          frame[0] === 47 && frame.readUInt32LE(1) >>> 29 === 0,
+          "invalid_image",
+          "Invalid WebP lossless header",
+        );
+        const bits = frame.readUInt32LE(1);
+        width = (bits & 16383) + 1;
+        height = ((bits >>> 14) & 16383) + 1;
+      } else {
+        requireContext(
+          (frame[0] ?? 1) % 2 === 0 && frame.subarray(3, 6).equals(Buffer.from([157, 1, 42])),
+          "invalid_image",
+          "Invalid WebP key frame",
+        );
+        width = frame.readUInt16LE(6) & 16383;
+        height = frame.readUInt16LE(8) & 16383;
+      }
+      requireContext(
+        width === canvas.width && height === canvas.height,
+        "invalid_image",
+        "WebP frame differs from validated canvas",
+      );
+    }
+    if (type === "VP8X") {
+      requireContext(
+        position === 12 && length === 10,
+        "invalid_image",
+        "Invalid WebP canvas header",
+      );
+      const extended = await reader.at(position + 8, 10);
+      requireContext(
+        ((extended[0] ?? 0) & 2) === 0 &&
+          extended.readUIntLE(4, 3) + 1 === canvas.width &&
+          extended.readUIntLE(7, 3) + 1 === canvas.height,
+        "invalid_image",
+        "Invalid or animated WebP canvas",
+      );
+    }
     position += 8 + length + (length & 1);
   }
   requireContext(
@@ -161,6 +209,7 @@ export async function validateImageContainer(
   path: string,
   mime: string,
   bytes: number,
+  canvas: { width?: number; height?: number },
 ): Promise<void> {
   if (mime !== "image/png" && mime !== "image/gif" && mime !== "image/webp") return;
   const file = await open(path, "r");
@@ -168,7 +217,10 @@ export async function validateImageContainer(
     const reader = new Reader(file, bytes);
     if (mime === "image/png") await png(reader, bytes);
     else if (mime === "image/gif") await gif(reader, bytes);
-    else await webp(reader, bytes);
+    else {
+      requireContext(canvas.width && canvas.height, "invalid_image", "Missing WebP dimensions");
+      await webp(reader, bytes, { width: canvas.width, height: canvas.height });
+    }
   } finally {
     await file.close();
   }

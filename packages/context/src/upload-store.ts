@@ -1,3 +1,5 @@
+import { beginUpload } from "./upload-admission.ts";
+import { BlobLeases, type BlobLease } from "./blob-leases.ts";
 import { constants } from "node:fs";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -20,6 +22,7 @@ export class UploadStore {
   private queued = 0;
   private closing = false;
   private maintenance: Maintenance;
+  private leases: BlobLeases;
   private constructor(options: UploadOptions) {
     this.options = options;
     this.limits = { ...defaultUploadLimits, ...options.limits };
@@ -35,6 +38,7 @@ export class UploadStore {
       "Thread reference cap cannot exceed wire limit",
     );
     this.metadata = new Metadata(join(options.root, "context.sqlite"));
+    this.leases = new BlobLeases(this.metadata);
     this.maintenance = new Maintenance(this.metadata, options.root, options.now, (row) =>
       this.removeUpload(row),
     );
@@ -83,60 +87,7 @@ export class UploadStore {
       requireContext(access(), "forbidden", "Device access revoked");
       if (op.op === "upload.begin") {
         await this.authorized(device, op.threadId);
-        requireContext(op.bytes <= this.limits.fileBytes, "quota", "Upload exceeds file quota");
-        const occupied = this.metadata.storage();
-        const thread = this.metadata.usage(op.threadId),
-          global = this.metadata.usage("*");
-        requireContext(
-          thread.bytes + op.bytes <= this.limits.threadBytes &&
-            global.bytes + op.bytes <= this.limits.globalBytes &&
-            occupied.bytes + op.bytes <= this.limits.globalBytes &&
-            occupied.count < this.limits.globalEntries &&
-            thread.count < this.limits.threadEntries &&
-            global.count < this.limits.globalEntries,
-          "quota",
-          "Attachment quota exceeded",
-        );
-        const count = z
-          .object({ count: z.number() })
-          .parse(this.metadata.get("SELECT COUNT(*) AS count FROM uploads"));
-        requireContext(
-          count.count < this.limits.uploads,
-          "quota",
-          "Upload reservation limit reached",
-        );
-        const id = z
-          .string()
-          .regex(/^[\w-]{1,128}$/)
-          .parse(this.options.id());
-        const file = await open(this.temp(id), "wx", 0o600);
-        await file.close();
-        const directory = await open(join(this.options.root, "uploads"), "r");
-        try {
-          await directory.sync();
-        } finally {
-          await directory.close();
-        }
-        try {
-          this.metadata.transaction(() => {
-            this.metadata.run(
-              "INSERT INTO uploads VALUES(?,?,?,?,?,?,0,?,0)",
-              id,
-              device,
-              op.threadId,
-              op.sha256,
-              op.bytes,
-              op.name,
-              this.options.now() + this.limits.ttlMs,
-            );
-            this.metadata.adjust(op.threadId, op.bytes, 1);
-            this.metadata.adjustStorage(op.bytes, 1);
-          });
-        } catch (error) {
-          await rm(this.temp(id), { force: true });
-          throw error;
-        }
-        return { kind: "upload", uploadId: id, offset: 0, bytes: op.bytes };
+        return beginUpload(this.metadata, this.options, this.limits, device, op);
       }
       if (op.op === "attachment.list" || op.op === "attachment.release") {
         await this.authorized(device, op.threadId);
@@ -210,7 +161,7 @@ export class UploadStore {
             );
             written += result.bytesWritten;
           }
-          await file.sync();
+          await (this.options.syncChunk ? this.options.syncChunk(file) : file.sync());
           row.offset += bytes.length;
           this.metadata.run(
             "UPDATE uploads SET offset=?,expires=? WHERE id=?",
@@ -369,6 +320,28 @@ export class UploadStore {
       return { attachment: Attachment.parse({ ...blob, name }), path: this.path(hash) };
     });
   }
+  /** Atomically validate and pin every reference before asynchronous preparation. */
+  async acquire(device: string, thread: string, hashes: readonly string[]): Promise<BlobLease> {
+    const parsed = z.array(BlobHash).max(64).parse(hashes);
+    return this.serialize(async () => {
+      await this.authorized(device, thread);
+      const blobs = parsed.map((hash) => {
+        const name = this.metadata.get(
+          "SELECT name FROM refs WHERE thread=? AND sha256=?",
+          thread,
+          hash,
+        )?.name;
+        const blob = this.metadata.blob(hash);
+        requireContext(
+          name !== undefined && blob,
+          "not_found",
+          "Thread does not reference attachment",
+        );
+        return { attachment: Attachment.parse({ ...blob, name }), path: this.path(hash) };
+      });
+      return this.leases.acquire(blobs);
+    });
+  }
   async releaseThread(thread: string): Promise<void> {
     requireContext(
       thread !== "*" && thread.length <= 128,
@@ -389,6 +362,7 @@ export class UploadStore {
     this.closing = true;
     await this.tail;
     await this.maintenance.close();
+    this.leases.close();
     this.metadata.close();
   }
 }

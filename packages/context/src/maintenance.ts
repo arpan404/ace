@@ -38,7 +38,7 @@ export class Maintenance {
     ))
       await this.removeUpload(UploadRow.parse(value));
     for (const row of this.metadata.all(
-      "SELECT sha256 FROM blobs WHERE refs=0 AND NOT EXISTS(SELECT 1 FROM uploads WHERE uploads.sha256=blobs.sha256 AND done=0) LIMIT ?",
+      "SELECT sha256 FROM blobs WHERE refs=0 AND NOT EXISTS(SELECT 1 FROM leases WHERE leases.sha256=blobs.sha256) AND NOT EXISTS(SELECT 1 FROM uploads WHERE uploads.sha256=blobs.sha256 AND done=0) LIMIT ?",
       limit,
     )) {
       const hash = BlobHash.parse(row.sha256);

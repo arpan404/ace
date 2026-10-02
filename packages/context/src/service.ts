@@ -81,7 +81,7 @@ export class ContextService {
     thread: string,
     value: MessageContext,
     settings: ProjectionCapabilities,
-  ): Promise<{ projection: Projection; diagnostics: ContextDiagnostic[] }> {
+  ): Promise<{ projection: Projection; diagnostics: ContextDiagnostic[]; release(): void }> {
     const context = MessageContext.parse(value);
     const capabilities = ProjectionCapabilities.parse(settings);
     requireContext(
@@ -89,59 +89,72 @@ export class ContextService {
       "forbidden",
       "Thread access denied",
     );
-    const workspace = context.mentions.length ? await this.workspace(device, thread) : undefined;
-    const mentions = workspace
-      ? await resolveMentions(workspace, context.mentions)
-      : { entries: [], diagnostics: [] };
-    const prepared: PreparedAttachment[] = mentions.entries.map((entry) => ({
-      path: join(workspace?.root ?? "", entry.path),
-      name: entry.path,
-      mimeType: "text/plain",
-      text: entry.text,
-    }));
-    let remaining = capabilities.maxInlineBytes;
-    for (const reference of context.attachments) {
-      const blob = await this.uploads.attachment(device, thread, reference.sha256);
-      const attachment: PreparedAttachment = {
-        path: blob.path,
-        name: blob.attachment.name,
-        mimeType: blob.attachment.mimeType,
-      };
-      const needsInline = capabilities.provider === "claude" || capabilities.provider === "acp";
-      if (
-        needsInline &&
-        blob.attachment.bytes <= remaining &&
-        (capabilities.images.includes(attachment.mimeType) ||
-          capabilities.documents.includes(attachment.mimeType))
-      ) {
-        remaining -= blob.attachment.bytes;
-        const file = await open(blob.path, "r");
-        try {
-          const bytes = Buffer.alloc(blob.attachment.bytes);
-          let offset = 0;
-          while (offset < bytes.length) {
-            const read = await file.read(bytes, offset, bytes.length - offset, offset);
-            requireContext(read.bytesRead > 0, "not_found", "Attachment bytes unavailable");
-            offset += read.bytesRead;
+    const lease = await this.uploads.acquire(
+      device,
+      thread,
+      context.attachments.map((reference) => reference.sha256),
+    );
+    try {
+      const workspace = context.mentions.length ? await this.workspace(device, thread) : undefined;
+      const mentions = workspace
+        ? await resolveMentions(workspace, context.mentions)
+        : { entries: [], diagnostics: [] };
+      const prepared: PreparedAttachment[] = mentions.entries.map((entry) => ({
+        path: join(workspace?.root ?? "", entry.path),
+        name: entry.path,
+        mimeType: "text/plain",
+        text: entry.text,
+      }));
+      let remaining = capabilities.maxInlineBytes;
+      for (const blob of lease.blobs) {
+        const attachment: PreparedAttachment = {
+          path: blob.path,
+          name: blob.attachment.name,
+          mimeType: blob.attachment.mimeType,
+        };
+        const needsInline = capabilities.provider === "claude" || capabilities.provider === "acp";
+        if (
+          needsInline &&
+          blob.attachment.bytes <= remaining &&
+          (capabilities.images.includes(attachment.mimeType) ||
+            capabilities.documents.includes(attachment.mimeType))
+        ) {
+          remaining -= blob.attachment.bytes;
+          const file = await open(blob.path, "r");
+          try {
+            const bytes = Buffer.alloc(blob.attachment.bytes);
+            let offset = 0;
+            while (offset < bytes.length) {
+              const read = await file.read(bytes, offset, bytes.length - offset, offset);
+              requireContext(read.bytesRead > 0, "not_found", "Attachment bytes unavailable");
+              offset += read.bytesRead;
+            }
+            attachment.base64 = bytes.toString("base64");
+          } finally {
+            await file.close();
           }
-          attachment.base64 = bytes.toString("base64");
-        } finally {
-          await file.close();
         }
+        prepared.push(attachment);
       }
-      prepared.push(attachment);
+      // Binary mentions still carry a usable, validated workspace path.
+      for (const diagnostic of mentions.diagnostics) {
+        if (diagnostic.code === "binary" && diagnostic.path)
+          prepared.push({
+            path: join(workspace?.root ?? "", diagnostic.path),
+            name: diagnostic.path,
+            mimeType: "application/octet-stream",
+          });
+      }
+      const projection = projectAttachments(prepared, capabilities);
+      return {
+        projection,
+        diagnostics: [...mentions.diagnostics, ...projection.diagnostics],
+        release: lease.release,
+      };
+    } catch (error) {
+      lease.release();
+      throw error;
     }
-    // Binary mentions still carry a usable, validated workspace path.
-    for (const diagnostic of mentions.diagnostics) {
-      if (diagnostic.code === "binary" && diagnostic.path)
-        prepared.push({
-          path: join(workspace?.root ?? "", diagnostic.path),
-          name: diagnostic.path,
-          mimeType: "application/octet-stream",
-        });
-    }
-    const projection = projectAttachments(prepared, capabilities);
-    return { projection, diagnostics: [...mentions.diagnostics, ...projection.diagnostics] };
   }
   async close(): Promise<void> {
     await this.workspaces.close();

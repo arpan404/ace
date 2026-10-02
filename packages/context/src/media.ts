@@ -100,7 +100,7 @@ export async function inspectBlob(
     await file.read(header, 0, header.length, 0);
     await file.read(trailer, 0, trailer.length, bytes - trailer.length);
     const image = inspectImage(header, trailer, bytes, limits);
-    await validateImageContainer(path, image.mimeType, bytes);
+    await validateImageContainer(path, image.mimeType, bytes, image);
     return { sha256: hash.digest("hex"), bytes, ...image };
   } finally {
     await file.close();

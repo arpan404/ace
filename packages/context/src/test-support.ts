@@ -5,7 +5,7 @@ import { mkdtemp, realpath, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { ThreadId, type ContextResult } from "@ace/protocol";
-import { GitWorkspace, UploadStore, type UploadLimits } from "./index.ts";
+import { GitWorkspace, UploadStore, type UploadLimits, type UploadOptions } from "./index.ts";
 
 export const run = promisify(execFile);
 export const thread = ThreadId.parse("thread");
@@ -33,12 +33,16 @@ export async function repository() {
     },
   };
 }
-export async function uploads(limits: Partial<UploadLimits> = {}) {
+export async function uploads(
+  limits: Partial<UploadLimits> = {},
+  storage: Pick<UploadOptions, "syncChunk"> = {},
+) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-uploads-")));
   let counter = 0,
     now = 1000;
   const allowed = new Set([thread, otherThread]);
   const options = {
+    ...storage,
     root,
     id: () => `upload-${++counter}`,
     now: () => now,

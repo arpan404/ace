@@ -333,3 +333,87 @@ test("deduplication republishes bytes missing after an interrupted collection", 
     bytes,
   );
 });
+
+function webpFrame(type: "VP8L" | "VP8 ", width: number, height: number) {
+  const payload = Buffer.alloc(type === "VP8L" ? 6 : 10);
+  if (type === "VP8L") {
+    payload[0] = 47;
+    payload.writeUInt32LE(((width - 1) | ((height - 1) << 14)) >>> 0, 1);
+  } else {
+    payload.set([0x9d, 1, 0x2a], 3);
+    payload.writeUInt16LE(width, 6);
+    payload.writeUInt16LE(height, 8);
+  }
+  const bytes = Buffer.alloc(30 + 8 + payload.length);
+  bytes.write("RIFF");
+  bytes.writeUInt32LE(bytes.length - 8, 4);
+  bytes.write("WEBPVP8X", 8);
+  bytes.writeUInt32LE(10, 16);
+  bytes.write(type, 30);
+  bytes.writeUInt32LE(payload.length, 34);
+  payload.copy(bytes, 38);
+  return bytes;
+}
+test("WebP frame dimensions must agree with the validated canvas before retention", async () => {
+  const f = await fixture();
+  for (const type of ["VP8L", "VP8 "] as const) {
+    const bytes = webpFrame(type, 10000, 10000);
+    const id = await f.begin(bytes);
+    await f.chunk(id, bytes);
+    await expect(f.commit(id)).rejects.toMatchObject({ code: "invalid_image" });
+  }
+  expect(await f.store.handle("device", { op: "attachment.list", threadId: thread })).toEqual({
+    kind: "attachments",
+    attachments: [],
+  });
+});
+
+test("a failed durability barrier never acknowledges volatile chunk bytes", async () => {
+  let durable = false;
+  const f = await uploads(
+    {},
+    {
+      syncChunk: async (file) => {
+        if (!durable) throw new Error("storage durability failed");
+        await file.sync();
+      },
+    },
+  );
+  cleanups.push(f.close);
+  const bytes = Buffer.from("durable bytes"),
+    id = await f.begin(bytes);
+  await expect(f.chunk(id, bytes)).rejects.toThrow("storage durability failed");
+  await f.restart();
+  expect(await f.store.handle("device", { op: "upload.status", uploadId: id })).toMatchObject({
+    offset: 0,
+  });
+  durable = true;
+  await f.chunk(id, bytes);
+  expect(attachment(await f.commit(id)).sha256).toBe(hash(bytes));
+});
+test("oversized PNG dimensions take precedence over corrupt compressed pixels", async () => {
+  const f = await fixture();
+  const bytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgABhqAAAYagCAQAAAACW8NDAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=",
+    "base64",
+  );
+  // Invalid deflate data makes premature inflation observable through the result,
+  // without decoding a large raster or imposing a wall-clock budget.
+  bytes.fill(0, 41, 52);
+  const id = await f.begin(bytes);
+  await f.chunk(id, bytes);
+  await expect(f.commit(id)).rejects.toMatchObject({
+    code: "invalid_image",
+    message: expect.stringContaining("dimensions"),
+  });
+});
+test("WebP framing rejects a missing image chunk even with a valid canvas", async () => {
+  const f = await fixture();
+  const bytes = webpFrame("VP8L", 1, 1);
+  bytes.write("JUNK", 30);
+  const id = await f.begin(bytes);
+  await f.chunk(id, bytes);
+  await expect(f.commit(id)).rejects.toMatchObject({ code: "invalid_image" });
+  expect(attachment(await f.put(webpFrame("VP8L", 1, 1))).width).toBe(1);
+  expect(attachment(await f.put(webpFrame("VP8 ", 1, 1))).height).toBe(1);
+});

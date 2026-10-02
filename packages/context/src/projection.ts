@@ -1,3 +1,4 @@
+import { canonicalBase64 } from "./base64.ts";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { ContextDiagnostic, type ContextDiagnostic as Diagnostic } from "@ace/protocol";
@@ -14,7 +15,7 @@ export const PreparedAttachment = z.object({
   base64: z
     .string()
     .max(44 * 1024 * 1024)
-    .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/)
+    .refine(canonicalBase64, "Invalid canonical base64")
     .optional(),
 });
 export type PreparedAttachment = z.infer<typeof PreparedAttachment>;

@@ -22,3 +22,5 @@ export {
   type OpenCodeInput,
   type AcpInput,
 } from "./projection.ts";
+
+export type { BlobLease } from "./blob-leases.ts";

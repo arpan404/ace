@@ -1,3 +1,4 @@
+import type { FileHandle } from "node:fs/promises";
 import type { ImageLimits } from "./media.ts";
 
 export interface UploadLimits {
@@ -27,4 +28,6 @@ export interface UploadOptions {
   authorize(device: string, thread: string): boolean | Promise<boolean>;
   limits?: Partial<UploadLimits>;
   imageLimits?: ImageLimits;
+  /** Trusted storage boundary; resolves only once chunk bytes are durable. */
+  syncChunk?: (file: FileHandle) => Promise<void>;
 }
