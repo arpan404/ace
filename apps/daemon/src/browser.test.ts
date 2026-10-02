@@ -12,6 +12,7 @@ import { startDaemon } from "./index.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread } from "./commands.ts";
 import { BrowserClient } from "./browser-test-client.ts";
+import { ownedBrowserPids, waitForBrowserExit } from "./browser-test-process.ts";
 
 const executablePath = await detectChromium();
 const exec = promisify(execFile);
@@ -123,63 +124,73 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
     }
   }, 30_000);
 
-  it("kills its owned Chromium before the daemon process exits on SIGTERM", async () => {
-    const home = await mkdtemp(join(tmpdir(), "ace-browser-exit-"));
-    const daemon = spawn(process.execPath, ["apps/daemon/src/cli.ts"], {
-      env: { ...process.env, ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent", ACE_DEV: "1" },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const exited = once(daemon, "close");
-    let output = "",
-      errors = "";
-    daemon.stderr.on("data", (chunk: Buffer) => {
-      errors += chunk.toString();
-    });
-    const ready = new Promise<string>((resolve) =>
-      daemon.stdout.on("data", (chunk: Buffer) => {
-        output += chunk.toString();
-        const url = /ace daemon: (ws:\/\/127\.0\.0\.1:\d+)/.exec(output)?.[1];
-        if (url) resolve(url);
-      }),
-    );
-    let client: BrowserClient | undefined;
-    try {
-      const url = await Promise.race([
-        ready,
-        exited.then(() => {
-          throw new Error(errors);
-        }),
-      ]);
-      client = new BrowserClient(url);
-      await client.hello(await readFile(join(home, "daemon-token"), "utf8"));
-      client.send({ type: "subscribe", subscriptionId: "threads", scope: { kind: "threads" } });
-      const snapshot = await client.next((message) => message.type === "snapshot");
-      const threads = z
-        .object({
-          view: z.object({
-            threads: z.record(z.string(), z.object({ id: z.string(), workspaceId: z.string() })),
-          }),
-        })
-        .parse(snapshot);
-      const thread = Object.values(threads.view.threads)[0];
-      if (!thread) throw new Error("Missing dev thread");
-      const response = await client.request({
-        type: "browser.open",
-        requestId: "open",
-        options: { threadId: thread.id, workspaceId: thread.workspaceId },
+  it.each(["SIGTERM", "SIGKILL"] as const)(
+    "leaves no owned Chromium after daemon exit on %s",
+    async (signal) => {
+      const home = await mkdtemp(join(tmpdir(), "ace-browser-exit-"));
+      const daemon = spawn(process.execPath, ["apps/daemon/src/cli.ts"], {
+        env: {
+          ...process.env,
+          ACE_HOME: home,
+          ACE_PORT: "0",
+          ACE_LOG_LEVEL: "silent",
+          ACE_DEV: "1",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
       });
-      expect(response).toMatchObject({ ok: true });
-      expect((await exec("ps", ["-axo", "command"])).stdout).toContain(`--user-data-dir=${home}`);
-      daemon.kill("SIGTERM");
-      expect((await exited)[0]).toBe(0);
-      expect((await exec("ps", ["-axo", "command"])).stdout).not.toContain(
-        `--user-data-dir=${home}`,
+      const exited = once(daemon, "close");
+      let output = "",
+        errors = "";
+      daemon.stderr.on("data", (chunk: Buffer) => {
+        errors += chunk.toString();
+      });
+      const ready = new Promise<string>((resolve) =>
+        daemon.stdout.on("data", (chunk: Buffer) => {
+          output += chunk.toString();
+          const url = /ace daemon: (ws:\/\/127\.0\.0\.1:\d+)/.exec(output)?.[1];
+          if (url) resolve(url);
+        }),
       );
-    } finally {
-      if (daemon.exitCode === null && daemon.signalCode === null) daemon.kill("SIGKILL");
-      await exited;
-      await client?.close();
-      await rm(home, { recursive: true, force: true });
-    }
-  }, 30_000);
+      let client: BrowserClient | undefined;
+      try {
+        const url = await Promise.race([
+          ready,
+          exited.then(() => {
+            throw new Error(errors);
+          }),
+        ]);
+        client = new BrowserClient(url);
+        await client.hello(await readFile(join(home, "daemon-token"), "utf8"));
+        client.send({ type: "subscribe", subscriptionId: "threads", scope: { kind: "threads" } });
+        const snapshot = await client.next((message) => message.type === "snapshot");
+        const threads = z
+          .object({
+            view: z.object({
+              threads: z.record(z.string(), z.object({ id: z.string(), workspaceId: z.string() })),
+            }),
+          })
+          .parse(snapshot);
+        const thread = Object.values(threads.view.threads)[0];
+        if (!thread) throw new Error("Missing dev thread");
+        const response = await client.request({
+          type: "browser.open",
+          requestId: "open",
+          options: { threadId: thread.id, workspaceId: thread.workspaceId },
+        });
+        expect(response).toMatchObject({ ok: true });
+        const pids = await ownedBrowserPids(home);
+        expect(pids.length).toBeGreaterThan(0);
+        daemon.kill(signal);
+        expect((await exited)[0]).toBe(signal === "SIGTERM" ? 0 : null);
+        await waitForBrowserExit(pids);
+        expect(await ownedBrowserPids(home)).toEqual([]);
+      } finally {
+        if (daemon.exitCode === null && daemon.signalCode === null) daemon.kill("SIGKILL");
+        await exited;
+        await client?.close();
+        await rm(home, { recursive: true, force: true });
+      }
+    },
+    30_000,
+  );
 });
