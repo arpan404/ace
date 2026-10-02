@@ -33,6 +33,7 @@ export type DiscoveryOptions = {
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   signal?: AbortSignal;
+  probe?: typeof probeOutput;
 };
 const specs = {
   claude: {
@@ -119,8 +120,8 @@ export async function discoverProviders(
           ...(options.signal ? { signal: options.signal } : {}),
         };
         const [version, auth] = await Promise.allSettled([
-          probeOutput(path, ["--version"], probeOptions),
-          probeOutput(path, spec.authArgs, probeOptions),
+          (options.probe ?? probeOutput)(path, ["--version"], probeOptions),
+          (options.probe ?? probeOutput)(path, spec.authArgs, probeOptions),
         ]);
         const errors: string[] = [];
         if (version.status === "fulfilled" && version.value.code === 0) {
@@ -164,7 +165,7 @@ export async function discoverAntigravity(
   if (!path) return result;
   result.path = path;
   try {
-    const output = await probeOutput(path, ["--version"], {
+    const output = await (options.probe ?? probeOutput)(path, ["--version"], {
       env,
       timeoutMs: options.timeoutMs ?? 4000,
       ...(options.signal ? { signal: options.signal } : {}),

@@ -18,7 +18,7 @@ import {
 import { temporary, unpack, systemProbeRuntime } from "./test-support.ts";
 import { controlledWorker } from "./test-support.ts";
 const report = { at: 0, checks: [] };
-const record = (message: string): LogRecord => ({
+const fixtureRecord = (message: string): LogRecord => ({
   at: 0,
   level: "info",
   component: "fixture",
@@ -164,7 +164,7 @@ it("a first-run data directory under a writable ancestor reports usable disk wit
     dataDir = join(root, "new/nested/data");
   const probes = createSystemProbes({ dataDir, port: 0, env: {} }, systemProbeRuntime);
   const checks = createDoctorChecks(probes).filter((check) => check.id === "disk");
-  const result = (await runDoctor(checks, { now: () => 0 })).checks[0];
+  const result = (await runDoctor(checks, { now: () => 0, schedule: () => () => {} })).checks[0];
   expect(result?.status).toBe("ok");
   expect(result?.message).toContain("MiB free");
   await expect(stat(join(root, "new"))).rejects.toThrow();
@@ -236,7 +236,9 @@ it("a support archive stays readable while the real log worker rotates recent re
   );
   let writing: Promise<void> | undefined;
   try {
-    await sink.write(Array.from({ length: 6 }, (_, n) => record(`seed-${n}-${"x".repeat(128)}`)));
+    await sink.write(
+      Array.from({ length: 6 }, (_, n) => fixtureRecord(`seed-${n}-${"x".repeat(128)}`)),
+    );
     await writeSupportBundle({
       logsDirectory: logs,
       temporaryRoot: root,
@@ -247,7 +249,7 @@ it("a support archive stays readable while the real log worker rotates recent re
       redact(line) {
         if (line.includes("seed-") && !writing)
           writing = sink.write(
-            Array.from({ length: 16 }, (_, n) => record(`during-${n}-${"x".repeat(128)}`)),
+            Array.from({ length: 16 }, (_, n) => fixtureRecord(`during-${n}-${"x".repeat(128)}`)),
           );
         return line;
       },
@@ -263,7 +265,10 @@ it("a support archive stays readable while the real log worker rotates recent re
     }
     expect(await readFile(join(logs, "ace.jsonl"), "utf8")).toContain("during-");
   } finally {
-    await writing;
-    await sink.close();
+    try {
+      await writing;
+    } finally {
+      await sink.close();
+    }
   }
 });

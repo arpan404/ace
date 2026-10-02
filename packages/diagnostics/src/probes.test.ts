@@ -11,10 +11,10 @@ it("port probing distinguishes an occupied loopback port and releases its own li
   await once(server, "listening");
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("missing address");
-  expect(await portAvailable(address.port, AbortSignal.timeout(5000))).toBe(false);
+  expect(await portAvailable(address.port, new AbortController().signal)).toBe(false);
   await new Promise<void>((resolve) => server.close(() => resolve()));
-  expect(await portAvailable(address.port, AbortSignal.timeout(5000))).toBe(true);
-  expect(await portAvailable(address.port, AbortSignal.timeout(5000))).toBe(true);
+  expect(await portAvailable(address.port, new AbortController().signal)).toBe(true);
+  expect(await portAvailable(address.port, new AbortController().signal)).toBe(true);
   await expect(portAvailable(address.port, AbortSignal.abort())).rejects.toThrow("Aborted");
 });
 it("system discovery uses only version and login-status commands on fake provider CLIs", async () => {
@@ -35,7 +35,10 @@ it("system discovery uses only version and login-status commands on fake provide
     },
     systemProbeRuntime,
   );
-  const report = await runDoctor(createDoctorChecks(probes), { now: () => 0 });
+  const report = await runDoctor(createDoctorChecks(probes), {
+    now: () => 0,
+    schedule: () => () => {},
+  });
   expect(report.checks.find((check) => check.id === "provider.codex")?.status).toBe("ok");
   expect(report.checks.find((check) => check.id === "git")?.status).toBe("fail");
   expect(report.checks.find((check) => check.id === "chromium")?.status).toBe("ok");
@@ -48,11 +51,14 @@ it("Antigravity discovery reports an installed version and unknown login without
     '#!/bin/sh\ncase "$*" in\n"--version") echo "agy 1.2.3";;\n*) exit 99;;\nesac\n',
   );
   await chmod(join(root, "agy"), 0o700);
-  const probes = createSystemProbes({ dataDir: root, port: 0, env: { PATH: root } });
+  const probes = createSystemProbes(
+    { dataDir: root, port: 0, env: { PATH: root } },
+    systemProbeRuntime,
+  );
   const check = (
     await runDoctor(
       createDoctorChecks(probes).filter((item) => item.id === "provider.antigravity"),
-      { now: () => 0 },
+      { now: () => 0, schedule: () => () => {} },
     )
   ).checks[0];
   expect(check?.status).toBe("warn");
@@ -71,7 +77,7 @@ it("first-run creation needs write/search permission on the ancestor without req
     const check = (
       await runDoctor(
         createDoctorChecks(probes).filter((item) => item.id === "disk"),
-        { now: () => 0 },
+        { now: () => 0, schedule: () => () => {} },
       )
     ).checks[0];
     expect(check?.status).toBe("ok");

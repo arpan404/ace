@@ -46,10 +46,16 @@ export function createSystemProbes(
   return {
     node: async () => process.version,
     provider: async (provider, signal) => {
-      discovery ??= discoverProviders({ env: options.env, timeoutMs, signal });
+      discovery ??= discoverProviders({
+        env: options.env,
+        timeoutMs,
+        signal,
+        probe: runtime.probe,
+      });
       return (await discovery)[provider];
     },
-    antigravity: (signal) => discoverAntigravity({ env: options.env, timeoutMs, signal }),
+    antigravity: (signal) =>
+      discoverAntigravity({ env: options.env, timeoutMs, signal, probe: runtime.probe }),
     git: async (signal) => {
       const git = await findExecutable("git", options.env);
       if (!git) return undefined;
