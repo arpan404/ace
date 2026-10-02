@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { CommandLibrary, type ProviderInstance } from "@ace/commands";
-import { ThreadId } from "@ace/protocol";
+import { ThreadId, type Thread } from "@ace/protocol";
 import type { Store } from "./store.ts";
 const homes = z.object({
   CLAUDE_CONFIG_DIR: z.string().optional(),
@@ -15,6 +15,7 @@ export function createDaemonCommandLibrary(
   aceHome: string,
   instances?: readonly ProviderInstance[],
   env: NodeJS.ProcessEnv = process.env,
+  instanceForThread: (thread: Thread) => string = (thread) => thread.provider,
 ): CommandLibrary {
   const home = homedir(),
     settings = homes.parse(env);
@@ -43,7 +44,7 @@ export function createDaemonCommandLibrary(
       if (!thread) throw new Error("Unknown thread");
       const workspace = store.getWorkspacePath(thread.workspaceId);
       if (!workspace) throw new Error("Unknown workspace");
-      return { workspace, provider: thread.provider, instance: thread.provider };
+      return { workspace, provider: thread.provider, instance: instanceForThread(thread) };
     },
   });
 }

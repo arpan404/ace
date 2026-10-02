@@ -1,5 +1,7 @@
 import { createDaemonCommandLibrary } from "./command-library.ts";
-import type { CommandLibrary } from "@ace/commands";
+import type { CommandLibrary, ProviderInstance } from "@ace/commands";
+import type { Thread } from "@ace/protocol";
+import { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
@@ -24,6 +26,12 @@ export {
 } from "./commands.ts";
 export { readConfig } from "./config.ts";
 export { createDaemonCommandLibrary } from "./command-library.ts";
+export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
+export interface DaemonCommandIntegration {
+  instances?: readonly ProviderInstance[];
+  instanceForThread?: (thread: Thread) => string;
+  events?: CommandEventSource;
+}
 const noop = () => {};
 
 export async function startDaemon(
@@ -32,6 +40,7 @@ export async function startDaemon(
   toolkits: readonly Toolkit[] = [],
   notificationChannels?: Omit<NotificationChannels, "websocket">,
   modelInstances: readonly InstanceInput[] = [],
+  commandIntegration: DaemonCommandIntegration = {},
 ): Promise<{
   url: string;
   tokenPath: string;
@@ -51,12 +60,17 @@ export async function startDaemon(
   let notifications: DaemonNotifications | undefined;
   let commands: CommandLibrary | undefined;
   let closeChannels = noop;
+  let disconnectCommands = noop;
   let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let endpointPath: string | undefined;
   const closeResources = async () => {
     try {
-      await commands?.close();
+      try {
+        disconnectCommands();
+      } finally {
+        await commands?.close();
+      }
     } finally {
       try {
         await mcp?.close();
@@ -107,7 +121,15 @@ export async function startDaemon(
       () => log("error", "Notification service failure"),
       configured.channels,
     );
-    commands = createDaemonCommandLibrary(store, config.dataDir);
+    commands = createDaemonCommandLibrary(
+      store,
+      config.dataDir,
+      commandIntegration.instances,
+      process.env,
+      commandIntegration.instanceForThread,
+    );
+    if (commandIntegration.events)
+      disconnectCommands = connectDaemonCommandEvents(commands, commandIntegration.events);
     const remote = await remoteListener(config);
     server = await startServer({
       ...(remote ? { remote } : {}),
