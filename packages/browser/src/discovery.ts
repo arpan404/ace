@@ -1,8 +1,9 @@
 import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { delimiter, join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawnProcess, type ProcessSpawner } from "./io.ts";
 import { createRequire } from "node:module";
+import { z } from "zod";
 import { chromium } from "playwright-core";
 
 export async function detectChromium(
@@ -11,6 +12,7 @@ export async function detectChromium(
     dataDir?: string;
     platform?: NodeJS.Platform;
     env?: NodeJS.ProcessEnv;
+    spawn?: ProcessSpawner;
   } = {},
 ): Promise<string | undefined> {
   const env = options.env ?? process.env;
@@ -40,7 +42,7 @@ export async function detectChromium(
     }
   }
   if (options.dataDir) {
-    const path = await cacheExecutable(options.dataDir);
+    const path = await cacheExecutable(options.dataDir, options.spawn);
     try {
       await access(path, constants.X_OK);
       return path;
@@ -66,7 +68,7 @@ export async function detectFfmpeg(
   return undefined;
 }
 
-function cacheExecutable(dataDir: string): Promise<string> {
+function cacheExecutable(dataDir: string, spawn: ProcessSpawner = spawnProcess): Promise<string> {
   const require = createRequire(import.meta.url);
   return new Promise((resolve, reject) => {
     const child = spawn(
@@ -84,18 +86,34 @@ function cacheExecutable(dataDir: string): Promise<string> {
       },
     );
     let output = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      if (output.length < 8192) output += chunk.toString();
+    let overflow = false;
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (raw: unknown) => {
+      const chunk = z.string().max(8192).safeParse(raw);
+      if (!chunk.success || output.length + chunk.data.length > 8192) {
+        overflow = true;
+        child.kill();
+      } else output += chunk.data;
     });
     child.once("error", reject);
-    child.once("exit", (code) =>
-      code === 0 ? resolve(output) : reject(new Error("Chromium cache lookup failed")),
-    );
+    child.once("close", (code) => {
+      const path = z
+        .string()
+        .min(1)
+        .max(8192)
+        .refine((value) => !/[\0\r\n]/.test(value))
+        .safeParse(output);
+      if (code === 0 && !overflow && path.success) resolve(path.data);
+      else reject(new Error("Chromium cache lookup failed"));
+    });
   });
 }
 
 /** Explicit opt-in; never downloads during detection or service startup. */
-export async function installChromium(dataDir: string): Promise<string> {
+export async function installChromium(
+  dataDir: string,
+  spawn: ProcessSpawner = spawnProcess,
+): Promise<string> {
   const cache = join(dataDir, "chromium");
   await mkdir(cache, { recursive: true, mode: 0o700 });
   const require = createRequire(import.meta.url);
@@ -118,5 +136,5 @@ export async function installChromium(dataDir: string): Promise<string> {
       code === 0 ? resolve() : reject(new Error(`Chromium install exited ${code}`)),
     );
   });
-  return cacheExecutable(dataDir);
+  return cacheExecutable(dataDir, spawn);
 }

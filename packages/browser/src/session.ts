@@ -12,6 +12,8 @@ import { SessionLogs } from "./logs.ts";
 import { SnapshotRefs } from "./refs.ts";
 import { Recording } from "./recording.ts";
 import { CallResult } from "./cdp.ts";
+import { keyEvent } from "./keyboard.ts";
+import type { ProcessSpawner } from "./io.ts";
 
 export type Actor = { kind: "agent" } | { kind: "human"; connectionId: string };
 export interface SessionOptions {
@@ -23,6 +25,8 @@ export interface SessionOptions {
   now: () => number;
   id: () => string;
   ffmpeg?: string;
+  spawn?: ProcessSpawner;
+  cancelPolicy: () => void;
   navigatePolicy: (url: string) => Promise<boolean>;
   evaluatePolicy?: (threadId: string, url: string) => boolean | Promise<boolean>;
   artifact: (artifact: BrowserArtifact) => void | Promise<void>;
@@ -216,7 +220,7 @@ export class BrowserSession {
             returnByValue: true,
             expression: `(async () => { let timer; try { const value = await Promise.race([(0,eval)(${JSON.stringify(command.expression)}),
             new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('evaluate timeout')),10000)})]);
-          const text = JSON.stringify(value ?? null); if (text.length > 262144) throw new Error('evaluate result exceeds limit');
+          const text = JSON.stringify(value ?? null); if (new TextEncoder().encode(text).byteLength > 262144) throw new Error('evaluate result exceeds limit');
           return JSON.parse(text); } finally { clearTimeout(timer); } })()`,
           }),
         );
@@ -250,13 +254,7 @@ export class BrowserSession {
           });
           break;
         case "key":
-          await cdp.send("Input.dispatchKeyEvent", {
-            type: input.event,
-            key: input.key,
-            ...(input.code ? { code: input.code } : {}),
-            ...(input.text ? { text: input.text } : {}),
-            modifiers: input.modifiers,
-          });
+          await cdp.send("Input.dispatchKeyEvent", keyEvent(input));
           break;
         case "touch":
           await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });
@@ -274,6 +272,8 @@ export class BrowserSession {
       this.recording = await Recording.start(
         join(this.options.dir, this.options.id()),
         this.options.ffmpeg,
+        undefined,
+        this.options.spawn,
       );
       const data = await this.options.page.screenshot({
         type: "jpeg",
@@ -303,6 +303,7 @@ export class BrowserSession {
   close(): Promise<void> {
     this.closing ??= (async () => {
       this.closed = true;
+      this.options.cancelPolicy();
       this.controller = "none";
       this.owner = undefined;
       this.emit();

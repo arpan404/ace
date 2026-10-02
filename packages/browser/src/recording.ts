@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawnProcess, type ProcessSpawner } from "./io.ts";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -36,8 +36,15 @@ export class Recording {
   private exhausted = false;
   private dir: string;
   private limit: number;
+  private spawn: ProcessSpawner;
   private ffmpeg: string | undefined;
-  private constructor(dir: string, ffmpeg: string | undefined, limit: number) {
+  private constructor(
+    dir: string,
+    ffmpeg: string | undefined,
+    limit: number,
+    spawn: ProcessSpawner,
+  ) {
+    this.spawn = spawn;
     this.dir = dir;
     this.ffmpeg = ffmpeg;
     this.limit = limit;
@@ -54,10 +61,11 @@ export class Recording {
     dir: string,
     ffmpeg: string | undefined,
     limit = 256 * 1024 * 1024,
+    spawn: ProcessSpawner = spawnProcess,
   ): Promise<Recording> {
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await writeFile(join(dir, "player.html"), player, { mode: 0o600 });
-    const recording = new Recording(dir, ffmpeg, limit);
+    const recording = new Recording(dir, ffmpeg, limit, spawn);
     await append(recording.concat, "ffconcat version 1.0\n");
     return recording;
   }
@@ -140,7 +148,7 @@ export class Recording {
         "+faststart",
         "recording.mp4",
       ];
-      const encoder = spawn(
+      const encoder = this.spawn(
         process.execPath,
         [
           fileURLToPath(new URL("./encoder-process.ts", import.meta.url)),
@@ -149,7 +157,7 @@ export class Recording {
         { stdio: ["pipe", "ignore", "ignore"] },
       );
       // The helper kills ffmpeg on stdin EOF if the daemon dies.
-      encoder.stdin.on("error", () => {});
+      encoder.stdin?.on("error", () => {});
       const timer = setTimeout(() => encoder.kill("SIGTERM"), 120_000);
       encoder.once("error", () => {
         clearTimeout(timer);

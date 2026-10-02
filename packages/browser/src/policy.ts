@@ -2,6 +2,7 @@ export interface OriginRequest {
   threadId: string;
   origin: string;
   url: string;
+  signal?: AbortSignal;
 }
 export type OriginPolicy = (request: OriginRequest) => boolean | Promise<boolean>;
 

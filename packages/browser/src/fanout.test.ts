@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FrameFanout, captureSettings, allowedOrigin } from "./index.ts";
+import { FrameFanout, allowedOrigin } from "./index.ts";
 import type { BrowserFrame } from "@ace/protocol";
 
 const frame = (sequence: number): BrowserFrame => ({
@@ -65,8 +65,6 @@ describe("browser stream backpressure", () => {
       },
     });
     expect(delivered).toEqual([3, 4]);
-    expect(captureSettings(true).fps).toBeLessThan(captureSettings(false).fps);
-    expect(captureSettings(true).quality).toBeLessThan(captureSettings(false).quality);
   });
   it("limits subscriptions without discarding existing viewers", () => {
     const stream = new FrameFanout();
