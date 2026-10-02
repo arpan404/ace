@@ -1,6 +1,6 @@
 # Review verification
 
-Review fixes were developed against the merged `origin/main` (merge commit `78afa40`). Before fixes, the new public-service regression suite had 11 failing cases and one passing case. Every blocker reproduced its reported behavior with real files or an injected uncontrollable boundary; the tests then passed after correction. A scalar-offset regression was added with the performance change. Settings/package/daemon coverage now contains 44 tests, including 17 added during this review.
+Review fixes were developed against the merged `origin/main` (merge commit `78afa40`). Relay and notifications subsequently landed and were merged in `f1a80fe`, preserving both settings and notification wire/lifecycle integration. Before fixes, the new public-service regression suite had 11 failing cases and one passing case. Every blocker reproduced its reported behavior with real files or an injected uncontrollable boundary; the tests then passed after correction. A scalar-offset regression was added with the performance change. Settings/package/daemon coverage now contains 44 tests, including 17 added during this review.
 
 ## Regressions
 
@@ -40,7 +40,7 @@ The original 14 mutation results remain in [verification](VERIFICATION.md).
 
 ## Local gate
 
-Unmodified `bun run check` passed: formatting, lint, all 181 source files within 1,500 lines, workspace typechecks, 59 test files passed and one skipped, 494 tests passed and four skipped. No provider prompts were sent. GitHub CI is disabled and was not run.
+Unmodified `bun run check` passed: formatting, lint, all 262 source files within 1,500 lines, workspace typechecks, 78 test files passed and one skipped, 593 tests passed and four skipped. No provider prompts were sent. GitHub CI is disabled and was not run.
 
 ## Benchmark
 
