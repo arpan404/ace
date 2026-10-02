@@ -1,6 +1,10 @@
 import { stripVTControlCharacters } from "node:util";
 
-export type AuthStatus = { auth: "logged_in" | "logged_out" | "unknown"; authDetail?: string };
+export type AuthStatus = {
+  auth: "logged_in" | "logged_out" | "unknown";
+  authDetail?: string;
+  authEvidence?: "credentials_configured";
+};
 const unknown: AuthStatus = { auth: "unknown" };
 
 function record(text: string): Record<string, unknown> | undefined {
@@ -56,7 +60,7 @@ export function parseOpenCodeAuth(text: string): AuthStatus {
   const clean = stripVTControlCharacters(text);
   const count = /\b(\d+) credentials?\b/i.exec(clean)?.[1];
   if (count === undefined) return unknown;
-  if (Number(count) === 0) return { auth: "logged_out" };
+  if (Number(count) === 0) return { auth: "logged_out", authEvidence: "credentials_configured" };
   // Future vendors still count as configured. Never expose arbitrary CLI text.
   const names = [
     "Anthropic",
@@ -75,6 +79,7 @@ export function parseOpenCodeAuth(text: string): AuthStatus {
   );
   return {
     auth: "logged_in",
+    authEvidence: "credentials_configured",
     authDetail: connected.length ? connected.join(", ") : `${Number(count)} configured credentials`,
   };
 }

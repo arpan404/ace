@@ -1,13 +1,31 @@
 {
-  "capturedAt": "2026-10-02",
+  "capturedAt": "2026-10-02T12:34:01.833Z",
+  "command": "agent",
+  "resolvedPath": "<HOME><PATH>",
   "version": {
+    "code": 0,
+    "signal": null,
+    "reason": "exit",
     "stdout": "2026.09.26-dd393fe",
     "stderr": "",
-    "code": 0
+    "lines": [
+      {
+        "stream": "stdout",
+        "text": "2026.09.26-dd393fe"
+      }
+    ]
   },
   "auth": {
+    "code": 0,
+    "signal": null,
+    "reason": "exit",
     "stdout": "✓ Logged in as <EMAIL>",
     "stderr": "",
-    "code": 0
+    "lines": [
+      {
+        "stream": "stdout",
+        "text": "✓ Logged in as <EMAIL>"
+      }
+    ]
   }
 }

@@ -1,12 +1,18 @@
 # Read-only CLI captures
 
-Captured on 2026-10-02 from this machine, without starting agent sessions. Each JSON file contains stdout, stderr and exit code for `--version` and the provider's read-only status command:
+Recaptured on 2026-10-02 from the current user's PATH after checking `command -v` and running `--version` first. No sessions or prompts ran during capture.
 
-- Claude: `claude auth status`
-- Codex: `codex login status`
-- OpenCode: `opencode auth list`
-- Cursor: `agent status`
+| CLI        | Version            | Version stream | Status command       | Auth stream                  |
+| ---------- | ------------------ | -------------- | -------------------- | ---------------------------- |
+| `claude`   | 2.1.286            | stdout         | `claude auth status` | stdout                       |
+| `codex`    | 0.159.1            | stdout         | `codex login status` | stderr, stdout empty         |
+| `opencode` | 1.18.33            | stdout         | `opencode auth list` | stdout, ANSI reset on stderr |
+| `agent`    | 2026.09.26-dd393fe | stdout         | `agent status`       | stdout                       |
 
-Emails, usernames, paths and organization identifiers are replaced with placeholders. ANSI codes remain in the OpenCode capture so its parser exercises the real terminal output. No credential files were read.
+Each capture keeps exit code, signal, stdout, stderr, and an ordered `lines` array with a `stream` tag for every line. Emails, usernames, paths and organization identifiers are redacted before writing the files. ANSI codes are preserved. No credential files were read.
 
-Codex's PATH wrapper could not launch its target binary, so its captured version and auth output are errors. The tests cover successful Codex status responses with explicitly synthetic strings. The other captures show Claude 2.1.286, OpenCode 1.18.4 and Cursor 2026.09.26-dd393fe logged in. Configured OpenCode credentials do not establish that every upstream provider will accept them.
+All four CLIs succeeded. Codex and the other status commands report logged in. OpenCode reports configured credentials for GitHub Copilot, OpenCode Go and LMStudio; remote access is unvalidated.
+
+`codex-broken-install.json` is a labelled error-case capture retained from the prior run. That environment resolved the Homebrew wrapper instead of the user's Bun-installed Codex. Its attempt to spawn the packaged executable failed with ENOENT. It does not describe the working user installation. The previous OpenCode capture likewise used the Homebrew binary instead of the user's `.opencode/bin` binary. The current captures use the user's working PATH selections.
+
+Tests replay these stream-specific captures through real shell CLI stand-ins and `discoverProviders`, including Codex's empty stdout with stderr status. Extra ANSI tests put escape sequences inside meaningful words so removing ANSI stripping changes the observed auth result.

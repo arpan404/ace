@@ -1,0 +1,15 @@
+{
+  "capturedAt": "2026-10-02",
+  "version": {
+    "stdout": "",
+    "stderr": "Error: spawn <PATH> ENOENT\n    at ChildProcess._handle.onexit (node:internal<PATH>\n    at onErrorNT (node:internal<PATH>\n    at process.processTicksAndRejections (node:internal<PATH> {\n  errno: -2,\n  code: 'ENOENT',\n  syscall: 'spawn <PATH>',\n  path: '<PATH>',\n  spawnargs: [ '--version' ]\n}",
+    "code": 1
+  },
+  "auth": {
+    "stdout": "",
+    "stderr": "Error: spawn <PATH> ENOENT\n    at ChildProcess._handle.onexit (node:internal<PATH>\n    at onErrorNT (node:internal<PATH>\n    at process.processTicksAndRejections (node:internal<PATH> {\n  errno: -2,\n  code: 'ENOENT',\n  syscall: 'spawn <PATH>',\n  path: '<PATH>',\n  spawnargs: [ 'login', 'status' ]\n}",
+    "code": 1
+  },
+  "kind": "prior_environment_broken_install_error_case",
+  "context": "The earlier environment selected a system wrapper that failed to spawn its packaged target with ENOENT. This is an error-case fixture, not the working user Codex installation."
+}

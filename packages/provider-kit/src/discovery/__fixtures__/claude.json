@@ -1,13 +1,75 @@
 {
-  "capturedAt": "2026-10-02",
+  "capturedAt": "2026-10-02T12:34:00.772Z",
+  "command": "claude",
+  "resolvedPath": "<HOME><PATH>",
   "version": {
+    "code": 0,
+    "signal": null,
+    "reason": "exit",
     "stdout": "2.1.286 (Claude Code)",
     "stderr": "",
-    "code": 0
+    "lines": [
+      {
+        "stream": "stdout",
+        "text": "2.1.286 (Claude Code)"
+      }
+    ]
   },
   "auth": {
+    "code": 0,
+    "signal": null,
+    "reason": "exit",
     "stdout": "{\n  \"loggedIn\": true,\n  \"authMethod\": \"claude.ai\",\n  \"apiProvider\": \"firstParty\",\n  \"analyticsDisabled\": false,\n  \"projectsDirectory\": \"<HOME><PATH>\",\n  \"configDirectory\": \"<HOME><PATH>\",\n  \"email\": \"<EMAIL>\",\n  \"orgId\": \"<ORG_ID>\",\n  \"orgName\": \"<EMAIL>'s Organization\",\n  \"subscriptionType\": \"max\"\n}",
     "stderr": "",
-    "code": 0
+    "lines": [
+      {
+        "stream": "stdout",
+        "text": "{"
+      },
+      {
+        "stream": "stdout",
+        "text": "  \"loggedIn\": true,"
+      },
+      {
+        "stream": "stdout",
+        "text": "  \"authMethod\": \"claude.ai\","
+      },
+      {
+        "stream": "stdout",
+        "text": "  \"apiProvider\": \"firstParty\","
+      },
+      {
+        "stream": "stdout",
+        "text": "  \"analyticsDisabled\": false,"
+      },
+      {
+        "stream": "stdout",
+        "text": "  \"projectsDirectory\": \"<HOME><PATH>\","
+      },
+      {
+        "stream": "stdout",
+        "text": "  \"configDirectory\": \"<HOME><PATH>\","
+      },
+      {
+        "stream": "stdout",
+        "text": "  \"email\": \"<EMAIL>\","
+      },
+      {
+        "stream": "stdout",
+        "text": "  \"orgId\": \"<ORG_ID>\","
+      },
+      {
+        "stream": "stdout",
+        "text": "  \"orgName\": \"<EMAIL>'s Organization\","
+      },
+      {
+        "stream": "stdout",
+        "text": "  \"subscriptionType\": \"max\""
+      },
+      {
+        "stream": "stdout",
+        "text": "}"
+      }
+    ]
   }
 }

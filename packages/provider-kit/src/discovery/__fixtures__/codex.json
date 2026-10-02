@@ -1,13 +1,31 @@
 {
-  "capturedAt": "2026-10-02",
+  "capturedAt": "2026-10-02T12:34:00.822Z",
+  "command": "codex",
+  "resolvedPath": "<HOME><PATH>",
   "version": {
-    "stdout": "",
-    "stderr": "Error: spawn <PATH> ENOENT\n    at ChildProcess._handle.onexit (node:internal<PATH>\n    at onErrorNT (node:internal<PATH>\n    at process.processTicksAndRejections (node:internal<PATH> {\n  errno: -2,\n  code: 'ENOENT',\n  syscall: 'spawn <PATH>',\n  path: '<PATH>',\n  spawnargs: [ '--version' ]\n}",
-    "code": 1
+    "code": 0,
+    "signal": null,
+    "reason": "exit",
+    "stdout": "codex-cli 0.159.1",
+    "stderr": "",
+    "lines": [
+      {
+        "stream": "stdout",
+        "text": "codex-cli 0.159.1"
+      }
+    ]
   },
   "auth": {
+    "code": 0,
+    "signal": null,
+    "reason": "exit",
     "stdout": "",
-    "stderr": "Error: spawn <PATH> ENOENT\n    at ChildProcess._handle.onexit (node:internal<PATH>\n    at onErrorNT (node:internal<PATH>\n    at process.processTicksAndRejections (node:internal<PATH> {\n  errno: -2,\n  code: 'ENOENT',\n  syscall: 'spawn <PATH>',\n  path: '<PATH>',\n  spawnargs: [ 'login', 'status' ]\n}",
-    "code": 1
+    "stderr": "Logged in using ChatGPT",
+    "lines": [
+      {
+        "stream": "stderr",
+        "text": "Logged in using ChatGPT"
+      }
+    ]
   }
 }
