@@ -3,11 +3,17 @@ import { once } from "node:events";
 import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { afterEach, expect, it } from "vitest";
 import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
+
+const directories: string[] = [];
+afterEach(async () => {
+  await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
 
 it("rejecting a sparse oversized identity keeps buffer allocation below 1 MiB", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ace-key-resource-"));
+  directories.push(dir);
   const file = await open(join(dir, "noise-static.key"), "wx", 0o600);
   try {
     await file.truncate(64 * 1024 * 1024);
@@ -56,6 +62,5 @@ it("rejecting a sparse oversized identity keeps buffer allocation below 1 MiB", 
     clearTimeout(timeout);
     child.kill();
     await closed;
-    await rm(dir, { recursive: true, force: true });
   }
 });

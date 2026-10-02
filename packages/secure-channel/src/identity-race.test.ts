@@ -70,8 +70,8 @@ it("a trailing byte observed during reading rejects even when the file returns t
   const { dir, path, bytes } = await identity();
   const opener = orderedIdentityReader({
     afterFirstStat: () => appendFile(path, new Uint8Array([42])),
-    async afterRead(length) {
-      if (length === 33) await truncate(path, 32);
+    async afterRead(_length, position) {
+      if (position === 0) await truncate(path, 32);
     },
   });
   await expect(loadOrCreateHostKeys(dir, opener)).rejects.toThrow("Invalid stored static key");
