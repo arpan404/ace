@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ConductorCommandPayload } from "./conductor.ts";
 import {
   AgentId,
   BackgroundTaskId,
@@ -13,6 +14,7 @@ import { ContentPart } from "./items.ts";
 import { ProviderKind } from "./provider.ts";
 
 export const CommandPayload = z.discriminatedUnion("type", [
+  ...ConductorCommandPayload.options,
   z.object({
     type: z.literal("thread.create"),
     workspaceId: WorkspaceId,
