@@ -2,7 +2,7 @@
 
 `bun run check` passes format, lint, the 1,500-line source limit, TypeScript and Vitest: 619 passed, four existing opt-in provider tests skipped. The feature has 70 behavior tests through public APIs using real Git repositories, files, symlinks, temporary SQLite, WS and paired pinned WSS. The latest main merge includes relay and notifications. No provider prompts, recorder sessions or GitHub CI runs were used.
 
-An unmodified full gate passed. Later overloaded rechecks hit existing daemon, notification and core timeouts. Final validation uses `bun run check -- --maxWorkers=2` to reduce test-worker contention without changing timeouts or assertions. The earlier focused daemon lifecycle rerun also passed. Tests add no gating performance budgets or synchronization sleeps.
+An unmodified full gate passed. Later overloaded rechecks hit existing daemon, notification and core timeouts. Final validation uses `bun run check -- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000` to reduce test-worker contention and allow loaded subprocess startup with unchanged assertions and no repository timeout changes. The earlier focused daemon lifecycle rerun also passed. Tests add no gating performance budgets or synchronization sleeps.
 
 ## Review regressions
 
