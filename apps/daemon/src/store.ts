@@ -12,10 +12,12 @@ import {
   WorkspaceId,
 } from "@ace/protocol";
 import { applyEvent, createThreadView, updateThread } from "@ace/projection";
+import { Devices } from "./devices.ts";
 import { migrate } from "./migrations.ts";
 
 type Listener = (events: Event[]) => void;
 export class Store {
+  readonly devices: Devices;
   private readonly db: DatabaseSync;
   private statements = new Map<string, StatementSync>();
   private closed = false;
@@ -33,6 +35,7 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
+      this.devices = new Devices(this.db);
     } catch (error) {
       this.db.close();
       throw error;
