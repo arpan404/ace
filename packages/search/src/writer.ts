@@ -5,6 +5,7 @@ import { SearchKind } from "@ace/protocol";
 import { acceptsDelta } from "@ace/projection";
 import { appendWindow, capText, itemText, windowText } from "./text.ts";
 import { outputText, type OutputReader } from "./output.ts";
+import { StoredText, storeText } from "./encoding.ts";
 
 const Stage = z.object({
   id: z.number(),
@@ -15,8 +16,8 @@ const Stage = z.object({
   tool_kind: z.string().nullable(),
   at: z.number(),
   title: z.string(),
-  head: z.string(),
-  tail: z.string(),
+  head: StoredText,
+  tail: StoredText,
   size: z.number(),
 });
 const Document = Stage.omit({ head: true, tail: true, size: true, tool_kind: true }).extend({
@@ -126,8 +127,8 @@ export class SearchWriter {
       const window = appendWindow(row, p.append);
       this.sql.run(
         "UPDATE search_stage SET head=?,tail=?,size=?,dirty_since=CASE WHEN dirty=0 THEN ? ELSE dirty_since END,dirty=1 WHERE id=?",
-        window.head,
-        window.tail,
+        storeText(window.head),
+        storeText(window.tail),
         window.size,
         event.seq,
         row.id,
@@ -172,8 +173,8 @@ export class SearchWriter {
       kind,
       at,
       title,
-      head,
-      tail,
+      storeText(head),
+      storeText(tail),
       size,
       Number(complete),
       seq,

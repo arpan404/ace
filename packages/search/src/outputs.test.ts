@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { Item } from "@ace/protocol";
-import { Log, shell, thread, agent } from "./test-support.ts";
+import { FIELD_CAP } from "./index.ts";
+import { Log, message, shell, thread, agent } from "./test-support.ts";
 
 let directory: string;
 let log: Log;
@@ -28,6 +29,93 @@ test("bounded output reads keep whole Unicode characters at both ends", () => {
     expect(hit?.snippet.text).not.toContain("�");
   }
   expect(log.query("中間検索", { mode: "substring" }).hits).toEqual([]);
+});
+
+test("completed and streamed text retain Unicode across head and tail cap boundaries", () => {
+  const text = "x".repeat(FIELD_CAP - 4) + "foo😀bar";
+  const completed = message(text);
+  const streamed = message("", false);
+  log.append([
+    { type: "item.created", item: completed },
+    { type: "item.created", item: streamed },
+    {
+      type: "item.delta",
+      itemId: streamed.id,
+      agentId: streamed.agentId,
+      field: "text",
+      append: text,
+    },
+  ]);
+  log.index.flush();
+  expect(log.query("foo😀bar", { mode: "substring" }).hits.map((hit) => hit.itemId)).toEqual([
+    completed.id,
+    streamed.id,
+  ]);
+});
+
+test("a Unicode character split across JSON deltas survives staging, restart and flush", () => {
+  const item = message("", false);
+  log.append([
+    { type: "item.created", item },
+    {
+      type: "item.delta",
+      itemId: item.id,
+      agentId: item.agentId,
+      field: "text",
+      append: "prefix\ud83d",
+    },
+  ]);
+  log.close();
+  log = new Log(join(directory, "events.sqlite"));
+  log.append([
+    {
+      type: "item.delta",
+      itemId: item.id,
+      agentId: item.agentId,
+      field: "text",
+      append: "\ude00suffix",
+    },
+  ]);
+  log.index.flush();
+  expect(log.query("prefix😀suffix", { mode: "substring" }).hits[0]?.itemId).toBe(item.id);
+});
+
+test("trimming a character across both caps preserves the entire retained tail", () => {
+  const head = "headerneedle ";
+  const tail = " tailneedle";
+  const item = message(
+    head +
+      "x".repeat(FIELD_CAP - head.length - 1) +
+      "😀" +
+      "y".repeat(FIELD_CAP - 1 - tail.length) +
+      tail,
+  );
+  log.append([{ type: "item.created", item }]);
+  for (const text of ["headerneedle", "tailneedle"]) {
+    const hit = log.query(text).hits[0];
+    expect(hit?.itemId).toBe(item.id);
+    expect(hit?.snippet.text).not.toContain("�");
+  }
+});
+
+test("text streamed after an attachment keeps the path and first word searchable", () => {
+  const item = Item.parse({
+    ...message("", false),
+    parts: [{ type: "file", path: "src/widget.ts" }],
+  });
+  log.append([
+    { type: "item.created", item },
+    {
+      type: "item.delta",
+      itemId: item.id,
+      agentId: item.agentId,
+      field: "text",
+      append: "firstword",
+    },
+  ]);
+  log.index.flush();
+  for (const text of ["src/widget.ts", "firstword"])
+    expect(log.query(text).hits[0]?.itemId).toBe(item.id);
 });
 
 test("notice and reasoning accept both text fields and reject unrelated output", () => {

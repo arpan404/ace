@@ -9,22 +9,29 @@ export interface TextWindow {
 }
 export function appendWindow(window: TextWindow, text: string): TextWindow {
   const size = window.size + text.length;
-  const head =
+  let head =
     window.size < FIELD_CAP
       ? (window.head + text.slice(0, FIELD_CAP)).slice(0, FIELD_CAP)
       : window.head;
   // Small documents store their text once. Tail allocation begins at overflow.
-  const tail =
+  let tail =
     size <= FIELD_CAP
       ? ""
       : text.length >= FIELD_CAP
         ? text.slice(-FIELD_CAP)
         : ((window.tail || window.head) + text).slice(-FIELD_CAP);
+  if (size > FIELD_CAP) {
+    // SQLite stores UTF-8: never persist half a character at a cap boundary.
+    const last = head.charCodeAt(head.length - 1);
+    if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1);
+    const first = tail.charCodeAt(0);
+    if (first >= 0xdc00 && first <= 0xdfff) tail = tail.slice(1);
+  }
   return { head, tail, size };
 }
 export function windowText(window: TextWindow): string {
   if (window.size <= FIELD_CAP) return window.head;
-  if (window.size <= FIELD_CAP * 2)
+  if (window.size <= FIELD_CAP * 2 && window.head.length + window.tail.length >= window.size)
     return window.head + window.tail.slice(window.head.length + window.tail.length - window.size);
   return window.head + GAP + window.tail;
 }
@@ -66,6 +73,9 @@ export function itemText(item: Item, output?: string): { title: string; window: 
         if (part.type === "text") add(part.text);
         else if (part.type === "file") add(part.path);
       }
+      // Projection creates a new text part after an attachment. Keep its first
+      // streamed token separate from the preceding path or text part.
+      if (window.size && item.parts.at(-1)?.type !== "text") window = appendWindow(window, "\n");
       break;
     case "reasoning":
     case "notice":

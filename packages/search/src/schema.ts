@@ -30,9 +30,9 @@ export function migrateSearch(db: DatabaseSync, trigrams: boolean): void {
     CREATE VIRTUAL TABLE IF NOT EXISTS search_titles USING fts5(title,content='search_docs',content_rowid='id',tokenize='unicode61',prefix='2 3 4');
   `);
   const row = db.prepare("SELECT version,trigrams FROM search_meta WHERE id=1").get();
-  if (row && (row.version !== 3 || row.trigrams !== Number(trigrams)))
+  if (row && (row.version !== 4 || row.trigrams !== Number(trigrams)))
     throw new Error("Search configuration differs from database");
-  db.prepare("INSERT OR IGNORE INTO search_meta VALUES (1,3,0,0,0,?,0)").run(Number(trigrams));
+  db.prepare("INSERT OR IGNORE INTO search_meta VALUES (1,4,0,0,0,?,0)").run(Number(trigrams));
   db.exec(`
     CREATE TRIGGER IF NOT EXISTS search_pending_insert AFTER INSERT ON search_stage WHEN NEW.dirty=1
       BEGIN UPDATE search_meta SET pending=pending+1 WHERE id=1; END;
