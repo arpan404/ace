@@ -16,6 +16,7 @@
     "bench:payloads": "node --expose-gc bench/payloads.ts",
     "bench:mcp": "node bench/mcp.ts",
     "bench:remote": "node --expose-gc src/remote.bench.ts",
+    "bench:context": "node bench/context.ts",
     "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "@ace/diagnostics": "workspace:*",
     "@ace/engine-api": "workspace:*",
     "@ace/browser": "workspace:*",
+    "@ace/context": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",

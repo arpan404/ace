@@ -1,0 +1,19 @@
+{
+  "name": "@ace/context",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "bench": "node bench/context.ts"
+  },
+  "dependencies": {
+    "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
+    "image-size": "^2.0.2",
+    "zod": "^4.1.12"
+  }
+}

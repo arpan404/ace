@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DiagnosticsHealthCommand } from "./diagnostics.ts";
+import { MessageContext } from "./context.ts";
 import { ConductorCommandPayload } from "./conductor.ts";
 import {
   AgentId,
@@ -33,11 +34,13 @@ export const CommandPayload = z.discriminatedUnion("type", [
     model: z.string().optional(),
     title: z.string().optional(),
     input: z.array(ContentPart).min(1),
+    context: MessageContext.optional(),
   }),
   z.object({
     type: z.literal("thread.send"),
     threadId: ThreadId,
     input: z.array(ContentPart).min(1),
+    context: MessageContext.optional(),
     /**
      * `steer` injects into the running turn when the provider supports it;
      * `queue` waits for the thread to settle. Unsupported steer falls back to queue.

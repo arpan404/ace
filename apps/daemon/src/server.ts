@@ -23,6 +23,8 @@ import {
   type ServerMessage,
   type DiagnosticsHealth,
   type Notification,
+  type ContextRequest,
+  type ContextResult,
 } from "@ace/protocol";
 import {
   PluginClientMessage,
@@ -74,6 +76,9 @@ export interface ServerOptions {
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
   health?: () => Promise<DiagnosticsHealth>;
+  context?: {
+    handle(device: string, request: ContextRequest, access?: () => boolean): Promise<ContextResult>;
+  };
   /** Local-token clients can read all threads by default. */
   canReadThread?: (deviceId: DeviceId, threadId: ThreadId) => boolean;
   notifications?: Pick<
@@ -187,6 +192,7 @@ export async function startServer(options: ServerOptions): Promise<{
     let device: DeviceId | undefined;
     let healthPending = false;
     let pluginPending = false;
+    let contextBusy = false;
     let hasPresence = false;
     let cleaned = false;
     let lastActivity = auth.now();
@@ -385,6 +391,63 @@ export async function startServer(options: ServerOptions): Promise<{
           })();
           pluginTasks.add(task);
           void task.finally(() => pluginTasks.delete(task));
+          break;
+        }
+        case "context.request": {
+          const op = message.operation.op;
+          const scope =
+            op === "attachment.list" || op === "upload.status" || op.startsWith("mention.")
+              ? "read"
+              : "operate";
+          if (!allows(authenticated.get(socket), scope)) {
+            send({
+              type: "context.result",
+              requestId: message.requestId,
+              result: { kind: "error", code: "forbidden", message: `${scope} scope required` },
+            });
+            break;
+          }
+          if (!options.context || contextBusy) {
+            send({
+              type: "context.result",
+              requestId: message.requestId,
+              result: {
+                kind: "error",
+                code: options.context ? "busy" : "unsupported",
+                message: options.context
+                  ? "Wait for the previous context result"
+                  : "Context service unavailable",
+              },
+            });
+            break;
+          }
+          contextBusy = true;
+          void options.context
+            .handle(device, message, () => {
+              const actor = authenticated.get(socket);
+              if (!actor) return false;
+              return (
+                !actor.revocable ||
+                (allows(options.store.devices.get(actor.id), scope) &&
+                  options.store.devices.get(actor.id)?.revokedAt === null)
+              );
+            })
+            .then(send)
+            .catch((error: unknown) => {
+              options.log?.(error);
+              send({
+                type: "context.result",
+                requestId: message.requestId,
+                result: {
+                  kind: "error",
+                  code: "invalid_request",
+                  message: "Context operation failed",
+                },
+              });
+            })
+            .finally(() => {
+              contextBusy = false;
+            });
           break;
         }
         case "models.list":

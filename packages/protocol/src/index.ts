@@ -12,6 +12,7 @@ export * from "./terminal.ts";
 export * from "./tools.ts";
 export * from "./wire.ts";
 export * from "./diagnostics.ts";
+export * from "./context.ts";
 export * from "./conductor.ts";
 export * from "./automations.ts";
 export * from "./models.ts";

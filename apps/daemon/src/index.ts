@@ -22,6 +22,7 @@ import {
 } from "@ace/plugins";
 import type { SpawnOptions } from "@ace/provider-kit/process";
 import type { Provider } from "@ace/plugins";
+import { ContextService } from "@ace/context";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
@@ -74,6 +75,7 @@ export async function startDaemon(
     options: SpawnOptions,
   ): ReturnType<typeof launchPluginProcess>;
   browser: BrowserService;
+  context: ContextService;
   models: ModelCatalog;
   notifications: NotificationWorker;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
@@ -84,7 +86,7 @@ export async function startDaemon(
   const engineOptions = isToolkitList(options) ? {} : options;
   const toolkits = isToolkitList(options) ? options : (options.toolkits ?? []);
   const unlock = acquireLock(config.dataDir);
-  const context = { home: homedir(), env: process.env };
+  const loggingContext = { home: homedir(), env: process.env };
   let log: ReturnType<typeof createLogger> | undefined;
   let health: ReturnType<typeof createHealthMonitor> | undefined;
   let store: Store | undefined;
@@ -92,6 +94,8 @@ export async function startDaemon(
   let plugins: PluginManager | undefined;
   let launches: PluginLaunches | undefined;
   let browser: BrowserService | undefined;
+  let context: ContextService | undefined;
+  let maintenance: ReturnType<typeof setInterval> | undefined;
   let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
@@ -99,6 +103,7 @@ export async function startDaemon(
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let endpointPath: string | undefined;
   const closeResources = async () => {
+    if (maintenance) clearInterval(maintenance);
     try {
       try {
         await launches?.close();
@@ -122,7 +127,11 @@ export async function startDaemon(
           } finally {
             try {
               try {
-                await models?.close();
+                try {
+                  await context?.close();
+                } finally {
+                  await models?.close();
+                }
               } finally {
                 try {
                   plugins?.close();
@@ -152,7 +161,7 @@ export async function startDaemon(
       directory: join(config.dataDir, "logs"),
       fileBytes: 1024 * 1024,
       totalBytes: 8 * 1024 * 1024,
-      context,
+      context: loggingContext,
     }).catch(() => ({
       async write() {
         throw new Error("File logging unavailable");
@@ -162,7 +171,7 @@ export async function startDaemon(
     log = createLogger({
       sink,
       now: Date.now,
-      redact: createRedactor(context),
+      redact: createRedactor(loggingContext),
       level: config.logLevel,
     });
     const ownedLog = log;
@@ -231,6 +240,17 @@ export async function startDaemon(
         ]);
       },
     });
+    context = await ContextService.open({
+      root: join(config.dataDir, "context"),
+      now: Date.now,
+      id: randomUUID,
+      authorize: (_device, thread) => ownedStore.getThread(ThreadId.parse(thread)) !== undefined,
+      workspace: (thread) => {
+        const entity = ownedStore.getThread(ThreadId.parse(thread));
+        return entity ? ownedStore.getWorkspacePath(entity.workspaceId) : undefined;
+      },
+    });
+    const ownedContext = context;
     models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
@@ -245,6 +265,7 @@ export async function startDaemon(
     );
     const remote = await remoteListener(config);
     server = await startServer({
+      context,
       ...(remote ? { remote } : {}),
       port: config.port,
       token,
@@ -264,6 +285,20 @@ export async function startDaemon(
     const path = join(config.dataDir, "daemon-endpoint");
     writeFileSync(path, server.httpUrl, { mode: 0o600 });
     endpointPath = path;
+    let maintaining = false;
+    const maintain = () => {
+      if (maintaining) return;
+      maintaining = true;
+      void ownedContext.uploads
+        .collect()
+        .catch((error: unknown) => ownedLog.log("error", "Attachment maintenance failed", error))
+        .finally(() => {
+          maintaining = false;
+        });
+    };
+    maintain();
+    maintenance = setInterval(maintain, 60_000);
+    maintenance.unref();
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
@@ -275,6 +310,7 @@ export async function startDaemon(
       preparePlugins: (provider, root) => preparePluginSession(ownedPlugins, provider, root),
       launchPlugins: (provider, root, options) => ownedLaunches.launch(provider, root, options),
       browser,
+      context: ownedContext,
       models,
       notifications: notifications.service,
       mcp,

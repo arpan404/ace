@@ -19,4 +19,7 @@ export const processTestSuites = [
   // Main advanced during this audit; these match after the model catalog merges.
   "apps/daemon/src/models.server.test.ts",
   "packages/models/src/{catalog,deletion-isolation,discover,persistence-cap,review,storage,streaming}.test.ts",
+  // Context uses real Git/CLI processes and authenticated WS/WSS peers.
+  "packages/context/src/{delivery,mentions,service,workspace-review}.test.ts",
+  "apps/daemon/src/context.{server,remote}.test.ts",
 ];
