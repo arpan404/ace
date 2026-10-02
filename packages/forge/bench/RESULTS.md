@@ -2,7 +2,7 @@
 
 ## Current owner policy
 
-Tests run once at merge. No tests, probes, mutation runs, flakiness runs or benchmarks are executed during this delivery phase. The preceding policy’s in-flight check was stopped when this rule arrived. All execution results below are historical evidence recorded before the rule; current runtime validation **needs run at merge**. Static formatting, lint, size (387 source files) and every package typecheck passed after the rule arrived.
+Tests run once at merge. No tests, probes, mutation runs, flakiness runs or benchmarks are executed during this delivery phase. The preceding policy’s in-flight check was stopped when this rule arrived. All execution results below are historical evidence recorded before the rule; current runtime validation **needs run at merge**. Static formatting, lint, size and package typechecks are the available checks; the latest follow-up records their results below.
 
 | Mutation case designed to be caught  | Public behaviour guard                            | Current execution                 |
 | ------------------------------------ | ------------------------------------------------- | --------------------------------- |
@@ -125,3 +125,13 @@ The baseline was an archive of `origin/main` inside this worktree, with its own 
 | Revoked-device ticket-cap case (5 seconds)       | Passed on both main and branch retries; no source or assertion change                  |
 
 Load ranged above 220–360 during these runs. Every repository failure in the completed first run was a completion timeout, not a behaviour assertion. This evidence establishes unrelated baseline/load failures rather than a forge regression; it does not claim a green repository gate. Logs were retained in `/tmp/ace-forge-final-check.log`, `/tmp/ace-forge-main-{load,remote,lifecycle,retry,boundaries-full}.log`, and `/tmp/ace-forge-after-merge.log`. No unrelated code or test deadline was changed.
+
+## Static verifier follow-up
+
+The owner proxy approved the B3/R2 bounded page-processing departure. ADR 0016 records the actual costs and caps, including full current collection materialization and GraphQL traversal. No implementation restructuring is required by that decision.
+
+The missing legacy pending-review location guard is now written in `upgrade-regressions.test.ts`, using a pre-generation file-SQLite fixture and the public `ReviewLoop.poll` API. File-only, line-only and combined edits keep the body, timestamp and head unchanged. Each case expects only the current review context, a fresh executor key, an empty pending outbox and no repeat delivery on the next poll.
+
+Mutation F9, removing `legacyChanged` from pending discard conditions, is intended to fail this exact-context guard because the old alias still resolves when only its location changes. Ignoring either file or line during stale legacy comparison is also covered by the separate cases. All three mutation cases: not executed (tests run at merge). Their runtime results need run at merge.
+
+The follow-up merged main through `5494e21` without rebasing. Permitted static checks passed: formatting, lint, all 17 package typechecks, and size for all 425 source files. No integration-rehearsal comment was present on PR #20 when checked. No test, probe, benchmark, mutation or CI operation was executed for this follow-up.
