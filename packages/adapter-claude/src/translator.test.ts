@@ -280,3 +280,36 @@ test("late background result origin preserves the child wake trigger", () => {
       .find((r) => r.agentId === h.state.agents["root"]?.agent.id)?.trigger,
   ).toBe("subagent_result");
 });
+
+// Browser artifact entries broaden Item, while provider output remains AgentItem.
+test("provider notices keep their source payload through subsequent assistant output", () => {
+  const h = harness();
+  h.init();
+  const unknown = { type: "future-provider-frame", marker: "browser-integration-raw" };
+  h.send(unknown);
+  h.send({
+    type: "assistant",
+    message: { id: "next", content: [{ type: "text", text: "next answer" }] },
+  });
+  h.result();
+  const notice = h
+    .items()
+    .find(
+      (item) =>
+        item.type === "notice" &&
+        item.raw.some(
+          (payload) =>
+            "data" in payload && JSON.stringify(payload.data).includes("browser-integration-raw"),
+        ),
+    );
+  expect(notice).toMatchObject({ type: "notice", complete: true, raw: [{ data: unknown }] });
+  expect(
+    h
+      .items()
+      .find(
+        (item) =>
+          item.type === "message" &&
+          item.parts.some((part) => part.type === "text" && part.text === "next answer"),
+      ),
+  ).toMatchObject({ type: "message", complete: true });
+});
