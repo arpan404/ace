@@ -133,8 +133,11 @@ command saturation, sustained approval floods and per-thread cancellation.
 Capture adaptation is checked through real JPEG quantization coefficients and
 delivered frame timestamps, including recovery when pressure clears. Non-gating benchmarks measure frame
 fan-out, validation/serialization, recording writes and log ingestion, including
-RSS. Before delivery, at least eight production mutations
-must each make a behavior test fail, then be reverted. Vitest runs one worker
+RSS. The owner requires tests to run once at merge: workers write behavior tests
+and list their mutation cases as "not executed (tests run at merge)". Runtime and
+performance claims on the final tree need run at merge; workers use only fast
+static checks. Earlier mutation/benchmark records remain historical evidence.
+Vitest runs one worker
 to bound real browser, CLI, TLS and notification fixture processes on shared hosts.
 Fixture deadlock ceilings are 60 seconds, or 120 for the profile test's three
 process lifetimes; tests synchronize on events and assert behavior, without
