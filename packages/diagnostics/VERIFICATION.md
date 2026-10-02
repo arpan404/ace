@@ -4,7 +4,7 @@
 
 The repo owner stopped the continuation and deferred all tests, mutation runs, probes and benchmarks to merge time. The delivered head has static review only. Runtime behavior, mutation outcomes and final performance numbers need run at merge. No provider prompts or recorder sessions were used. GitHub CI was neither run nor awaited.
 
-Allowed static checks pass after merging main through `19a7e14`: `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size`. Newly merged workspaces required local dependency links for static resolution. No production logic was executed to validate the final merge.
+Allowed static checks pass after merging main through `50c725f`: `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size`. Newly merged workspaces required local dependency links for static resolution. No production logic was executed to validate the final merge.
 
 ## Written behavior coverage
 
@@ -71,3 +71,24 @@ Historical follow-up measurements, taken before the no-execution rule and before
 ## Limits
 
 Antigravity's documented CLI has interactive sign-in but no established read-only login-status command, so doctor reports unknown login with a verification hint. Main now includes orchestrator contracts but the daemon still has no live provider-session registry. `startDaemon` accepts workload counters as its sixth argument; sessions default to null while daemon queues are measured. Support logs are a best-effort descriptor snapshot rather than an atomic snapshot. Active handles count Node active resources rather than every OS file descriptor.
+
+## Independent-verifier follow-up
+
+The verifier of `44d9017` identified an extra JSON-string encoding that still reached lexical redaction. Quoted wrappers now enter the existing bounded recursive parser. Written public tests cover repeated wrappers with preserved normal arrays and extracted raw-log tar contents containing wrappers, colliding keys and deep records.
+
+Archive tests now parse the result after deterministic disappearance and during concurrent real-worker rotation. PTY coverage has valid and invalid installation paths independent of cwd. A proxy that throws during prototype inspection must produce a normalization marker, and the next record must still persist. First-run storage tests inject 2 GiB capacity while preserving real statfs path checks and permissions, so they do not depend on host free space.
+
+Provider-kit now forwards the probe byte cap to raw supervision before readline, and reports an output-limit exit as a failed probe. Its new newline-free real-child test also checks the exit reason. Probe schedulers and discovery subprocess boundaries are injected; direct SQLite/PTY/discovery edge tests disable production deadlines in favor of the suite watchdog. The native SQLite barrier races child completion/failure, so a startup failure rejects rather than waiting indefinitely for a missing signal. Deadline behavior still has explicit injected-clock coverage.
+
+A public daemon socket test reads changing session/queue measurements from the engine workload port and verifies daemon-owned counters cannot be overwritten, with no event-log writes. No live provider registry exists in the merged daemon. Antigravity login is still unknown because its safe version command does not establish authentication. These remain disclosed integration limits, not fabricated measurements or prompts.
+
+| Additional mutation case                           | Behavioral assertion                                                           | Current status                    |
+| -------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------- |
+| Bypass quoted JSON wrappers                        | Wrapped opaque token absent from redactor output and extracted raw logs        | not executed (tests run at merge) |
+| Return false for every PTY probe                   | Valid installed module returns true despite broken cwd module                  | not executed (tests run at merge) |
+| Remove normalization catch                         | Throwing prototype proxy emits marker; subsequent record persists              | not executed (tests run at merge) |
+| Remove raw probe byte cap                          | Newline-free child rejects for output limit and exits with output-limit reason | not executed (tests run at merge) |
+| Emit an invalid archive after rotation             | Extracted metadata and JSONL remain readable during real-worker rotation       | not executed (tests run at merge) |
+| Cache workload rather than sample current counters | Two authenticated health responses reflect changed sessions/queues             | not executed (tests run at merge) |
+
+No tests, mutations, flakiness runs, probes, benchmarks, full check or CI were executed in this follow-up. All behavior and final performance conclusions **need run at merge**. Historical numbers above remain historical; quoted-wrapper work is capped by the existing maximum record length, 32 levels and 10,000 visited values. Raw probe capture stops after the byte budget with at most one transport chunk in flight. Newline-free output has no unbounded line accumulation.
