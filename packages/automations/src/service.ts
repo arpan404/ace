@@ -318,8 +318,12 @@ export class AutomationService {
       if (!this.live || generation !== this.generation) return;
       // An edit/removal while gh was in flight invalidates this response.
       if (this.runtime.current(job.automation.id) !== revision) return;
-      for (const event of result.events) this.trigger(job.automation.id, event, "github");
-      if (result.changed) this.store.savePoll(job.automation.id, result.state);
+      for (const event of result.events) {
+        if (!this.live || generation !== this.generation || this.runtime.current(job.automation.id) !== revision) return;
+        this.trigger(job.automation.id, event, "github");
+      }
+      if (result.changed && this.live && generation === this.generation && this.runtime.current(job.automation.id) === revision)
+        this.store.savePoll(job.automation.id, result.state);
     } catch (error) {
       this.report(error);
     }
