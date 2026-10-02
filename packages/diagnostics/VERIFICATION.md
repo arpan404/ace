@@ -1,62 +1,73 @@
 # Diagnostics verification
 
-Local runtime: macOS, Node v26.8.1, Bun v1.4.0. Provider prompts and recorder sessions were never run. Fake CLI fixtures accept only version and authentication-status requests.
+## Current validation policy
 
-## Behavioral checks
+The repo owner stopped the continuation and deferred all tests, mutation runs, probes and benchmarks to merge time. The delivered head has static review only. Runtime behavior, mutation outcomes and final performance numbers need run at merge. No provider prompts or recorder sessions were used. GitHub CI was neither run nor awaited.
 
-- Known provider, GitHub, AWS, Google, Slack, npm, Stripe, JWT and authorization tokens never reach the JSONL file or exported recent ring.
-- Home paths and opaque environment values are removed; structured secret keys are stripped even for arrays and numeric values.
-- JSON stays parseable when short environment values overlap version numbers or timestamps.
-- Child loggers share level filtering, queue capacity and failure/drop counters.
-- A blocked sink retains its outstanding batch inside capacity; a full queue drops synchronously without waiting for it.
-- Rotation preserves complete recent records and enforces both per-file and total byte caps after restart.
-- Circular data and getters cannot throw from ordinary log calls.
-- Every doctor machine/provider probe has healthy and unhealthy outcomes with fix hints.
-- A hung doctor probe hits its injected deadline, aborts and does not gate healthy checks.
-- Real read-only SQLite integrity checks accept valid data and reject a deliberately overwritten SQLite header without repairing it.
-- Loop delay is converted from nanoseconds to milliseconds and reset between measured intervals.
-- An unavailable log directory leaves daemon operations available and increments health failure counters.
-- Health includes real page/WAL sizes, memory, workload counters and logger failures; simultaneous collection shares one sample.
-- Authenticated retries get current health without events or receipts; one pending request per socket bounds waiting responses.
-- A paired device with read scope can request health without operate permission.
-- Support archives contain the report, versions, settings and recent logs, excluding conversation content by default.
-- Explicit thread export redacts secrets crossing chunk boundaries, omits oversized lines and respects the archive byte cap.
-- Thread reads cap history at 2,000 events, pull one batch of 16 at a time and reject oversized ASCII and multibyte payloads before transfer.
-- Symlinked logs and arbitrary credential files are excluded; staging files are removed after success and source failure.
-- Doctor creates no writable daemon state. The support CLI creates a gzip archive and refuses to replace existing output.
-- An aborted provider-kit probe stops its real child without waiting for output.
+Allowed static checks pass after merging main through `19a7e14`: `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size`. Newly merged workspaces required local dependency links for static resolution. No production logic was executed to validate the final merge.
 
-## Mutation checks
+## Written behavior coverage
 
-Each mutation was applied to production code alone, made its named public behavioral test fail, and was restored byte-for-byte before the next mutation. Vitest used one worker. Every run exited 1 with a test failure, not a parser failure.
+Each item below describes assertions in public API tests, not an execution claim. All need run at merge.
 
-| Mutation                                | Test that failed                                      |
-| --------------------------------------- | ----------------------------------------------------- |
-| Remove API-key format redaction         | no known token reaches file or ring                   |
-| Skip environment-value redaction        | no known token reaches file or ring                   |
-| Reverse child logger level filtering    | child loggers share filtering and failed-write counts |
-| Accept an entry beyond full capacity    | full queue drops while the sink owns a batch          |
-| Stop counting failed disk batches       | failed writes do not escape and are counted           |
-| Rotate only after twice the file cap    | size rotation and total retention across restart      |
-| Retain one hundred times the total cap  | size rotation and total retention across restart      |
-| Accept unsupported Node 23              | unhealthy Node probe explains failure                 |
-| Treat a hung probe as only a warning    | hung probe times out and aborts                       |
-| Report a corrupt SQLite file as healthy | deliberately corrupted SQLite reports corruption      |
-| Export threads without explicit opt-in  | archive excludes threads by default                   |
+- Durable JSONL and recent logs omit known token formats, case-insensitive authorization, home paths and environment values.
+- Embedded SQLite JSON payloads strip array-valued refresh tokens and object-valued passwords; ordinary arrays survive.
+- Scrubbed key collisions, deeply nested JSON and damaged structured records cannot select a weaker redaction fallback.
+- Child loggers share level filtering, queue capacity and failed-write/drop counters.
+- A blocked sink counts its outstanding batch inside capacity; overflow drops without waiting for disk.
+- Rotation preserves complete recent records and obeys per-file and total byte limits across restart.
+- Arbitrary producer objects are never enumerated; array and Error accessors are replaced without invoking getters.
+- Explicit fields obey visited-value, depth, key-size and total character limits before copying.
+- Every unhealthy doctor verdict has a specific explanation and fix hint, including low disk.
+- Hung doctor checks abort on injected deadlines while independent checks complete.
+- PTY resolution follows the daemon installation even when an unrelated cwd supplies another module.
+- Missing first-run storage uses a writable/searchable ancestor without creating directories or requiring listing permission.
+- Provider discovery uses version and login-status commands only; Antigravity reports installed version and unknown login.
+- Real read-only integrity checks distinguish intact and deliberately corrupted SQLite files without changing them.
+- SQLite cancellation after a native-work stdout barrier stops the real child and preserves database bytes.
+- Health records a nonzero active-resource count while a real loopback listener is open.
+- Injected memory, workload and delay measurements reach health; delay values convert to milliseconds and reset per interval.
+- An injected health deadline aborts an in-flight SQLite measurement and returns unavailable sizes.
+- A stalled real log worker is terminated by an injected deadline.
+- Authenticated read-scope health requests avoid receipts/events, coalesce measurement and bound pending requests per socket.
+- Daemon socket input and pending health queues use incremental counters.
+- Archives contain redacted report, versions, settings and recent logs; threads require explicit opt-in.
+- Rotation deletion between listing and opening is skipped, and opened descriptors bound file reads.
+- Input byte budgets stop newline-free sources and close the source; abort removes private staging files.
+- Unicode secrets remain redacted across internal chunk boundaries; oversized lines are omitted whole.
+- SQLite byte metadata limits both payload and event-type columns before worker transfer.
+- Symlinked logs and arbitrary credential files are excluded; success and failure remove staging files.
+- CLI doctor creates no daemon state; support export refuses to replace existing output.
 
-## Non-gating benchmark
+## Mutation cases for the delivered head
 
-Command: `node packages/diagnostics/bench/logger.ts`. The benchmark enqueues and persists 100,000 representative records through the real redacting file worker in batches, while rotating and enforcing retention. It reports parent-process peak RSS, which includes the worker thread.
+These cases are designed to exercise the revised public behavior tests. The status of each on the final merged head is **not executed (tests run at merge)**. Earlier runs preceded the owner's new rule and do not validate the final integration.
 
-Most recent run on the shared machine:
+| Mutation                                   | Behavioral assertion                                            | Current status                    |
+| ------------------------------------------ | --------------------------------------------------------------- | --------------------------------- |
+| Review #17: omit normal arrays             | Exact array contents in recent and persisted JSONL              | not executed (tests run at merge) |
+| Review #19: return zero handles            | Active-resource count is positive with a real listener          | not executed (tests run at merge) |
+| Review #20: erase low-disk explanation     | Low-disk message and fix contain actionable facts               | not executed (tests run at merge) |
+| Match authorization case-sensitively       | Lowercase opaque bearer token absent from durable file          | not executed (tests run at merge) |
+| Skip structural redaction of embedded JSON | Array/object secrets absent from archive                        | not executed (tests run at merge) |
+| Disable recursion cap                      | Excessive nesting yields a safe omission without leaking        | not executed (tests run at merge) |
+| Reject disappeared rotated files           | Export still produces a readable archive                        | not executed (tests run at merge) |
+| Resolve PTY relative to cwd                | Unrelated compatible module cannot mask invalid installed addon | not executed (tests run at merge) |
+| Reject missing data directory              | Writable ancestor produces usable first-run disk facts          | not executed (tests run at merge) |
+| Disable export input cap                   | Newline-free source consumption stays within its budget         | not executed (tests run at merge) |
+| Invoke array accessors                     | Public output contains omission marker and no getter result     | not executed (tests run at merge) |
+| Transfer oversized type column             | Exported line contains bounded type omission marker             | not executed (tests run at merge) |
 
-- Enqueue: 3,190,187 entries/sec, 0.313 microseconds per entry.
-- Persisted: 28,353 entries/sec.
-- Peak RSS: 163.61 MiB.
-- Drops and failed writes: zero.
+Existing tests also cover API-key/env scrubbing, level filtering, overflow, failed-write counts, rotation, retention, Node minimum, timeout severity, integrity verdict, thread opt-in, payload bytes, histogram conversion/reset, recent-history selection, archive cap, provider discovery, health coalescing, read authorization and pending-request bounds.
 
-The machine was running other workstreams, so throughput varies with load. Earlier runs reached 63,844 persisted entries/sec. No throughput or elapsed-time assertion gates tests.
+## Performance design and historical measurements
 
-## Local gate
+Producer work has fixed caps: 64 visited values, depth four, 32 fields per container, 128 characters per key, 2,048 per string and 4,096 total key/value characters. Unprepared objects become a fixed marker. Queues and rings have fixed capacity; only one worker batch is outstanding. Bundle reads and writes have separate byte budgets; sanitized output is batched and streamed. Thread SQL checks byte lengths before transfer. Email matching prevents repeated scans starting inside an alphanumeric run.
 
-`VITEST_MAX_WORKERS=1 bun run check` passes format, lint, source size, all package typechecks and the full test suite. The worker cap avoids oversubscribing this shared machine. This feature changes no test assertions or harness deadlines to obtain a pass. Imported main includes its own remote CLI harness deadline adjustment. The final suite, including remote access and MCP, has 493 passing tests and four skipped tests. Existing opt-in live-provider tests remain skipped, and GitHub CI was neither run nor awaited.
+Non-gating benchmarks are `bench/logger.ts`, `bench/producer.ts` and `bench/bundle.ts` in this package. They cover durable logging, huge-object producer handling and streamed redaction/export. Do not execute them before merge under the owner's rule.
+
+Historical follow-up measurements, taken before the no-execution rule and before the final integrated head, were 504,807 enqueues/s, 2,820 persisted records/s, 1.981 microseconds/enqueue and 177.89 MiB peak RSS with zero drops; streamed bundle redaction reached 2.794 MiB/s with 120.42 MiB peak RSS for 14.694 MiB input. The shared host was heavily loaded. These numbers are historical observations, not performance validation of this head. Final throughput and peak RSS need run at merge.
+
+## Limits
+
+Antigravity's documented CLI has interactive sign-in but no established read-only login-status command, so doctor reports unknown login with a verification hint. Main now includes orchestrator contracts but the daemon still has no live provider-session registry. `startDaemon` accepts workload counters as its sixth argument; sessions default to null while daemon queues are measured. Support logs are a best-effort descriptor snapshot rather than an atomic snapshot. Active handles count Node active resources rather than every OS file descriptor.
