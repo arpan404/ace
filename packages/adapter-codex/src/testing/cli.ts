@@ -355,7 +355,15 @@ for await (const line of createInterface({ input: process.stdin })) {
     if (p["threadId"] === "overflow-child") {
       if (!discoveryFailed) {
         discoveryFailed = true;
-        write({ id, error: { code: -32000, message: "read failed" } });
+        if (process.env["ACE_FAKE_RESUME"] === "omitted-history")
+          respond({
+            thread: {
+              id: "overflow-child",
+              parentThreadId: "native",
+              status: { type: "idle" },
+            },
+          });
+        else write({ id, error: { code: -32000, message: "read failed" } });
         continue;
       }
       respond({

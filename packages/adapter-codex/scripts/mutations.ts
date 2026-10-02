@@ -233,11 +233,12 @@ const cases = [
     test: "verifier-translator.test.ts",
   },
   {
-    name: "hide active background children from thread working status",
+    name: "hide active background descendants from thread working status",
     file: "../../core/src/status.ts",
-    before: 'status.state === "working" ||',
-    after: '(status.state === "working" && !record.agent.background) ||',
-    test: "verifier-translator.test.ts",
+    before: "const working = records.filter((record) => {",
+    after:
+      "const working = records.filter((record) => { if (record.agent.background || records.some(parent => parent.agent.id === record.agent.parentId && parent.agent.background)) return false;",
+    test: "packages/core/src/background-precedence.test.ts",
   },
   {
     name: "remove native subagent wait declaration",
@@ -288,6 +289,63 @@ const cases = [
       "            parents.set(child, thread);\n            if (!recovered.has(child)) scheduleRecovery(child);",
     after: "            parents.set(child, thread);",
     test: "verifier-session.test.ts",
+  },
+  {
+    name: "reset eviction evidence when an unknown buffer is recreated",
+    file: "retention.ts",
+    before: "thread = { frames: [], lost: overflow };",
+    after: "thread = { frames: [], lost: false };",
+    test: "recovery-ordering.test.ts",
+  },
+  {
+    name: "accept a read without authoritative turn history",
+    file: "session.ts",
+    before:
+      'if (!Array.isArray(thread["turns"])) throw new Error("Codex read omitted turn history");',
+    after: "// Accept omitted history without scheduling a retry",
+    test: "verifier-session.test.ts",
+  },
+  {
+    name: "prevent admitted recovery beyond the unknown timer cap",
+    file: "session.ts",
+    before: "if (closed || timers.has(threadId)) return;",
+    after: "if (closed || timers.has(threadId) || timers.size >= 256) return;",
+    test: "verifier-session.test.ts",
+  },
+  {
+    name: "measure canonical output tails in UTF-16 instead of bytes",
+    file: "../../core/src/output-snapshot.ts",
+    before: "const tailSize = new TextEncoder().encode(tail).length;",
+    after: "const tailSize = tail.length;",
+    test: "packages/core/src/legacy-output.test.ts",
+  },
+  {
+    name: "reject growing native output aggregates",
+    file: "../../core/src/output-snapshot.ts",
+    before: "bytes.length >= size &&",
+    after: "bytes.length <= size &&",
+    test: "packages/core/src/reconciled-item.test.ts",
+  },
+  {
+    name: "reject nonextending reconciliation snapshots before preserving completion",
+    file: "../../core/src/validate.ts",
+    before: 'fact.type !== "item.reconciled" &&',
+    after: "",
+    test: "packages/core/src/reconciled-item.test.ts",
+  },
+  {
+    name: "reapply global eviction to already known child metadata",
+    file: "agent-registry.ts",
+    before: "const retained = wasKnown ? { frames: [], lost: false } : config.takeBuffer(id);",
+    after: "const retained = config.takeBuffer(id);",
+    test: "recovery-ordering.test.ts",
+  },
+  {
+    name: "retain recovered buffer loss after direct snapshot admission",
+    file: "agent-registry.ts",
+    before: 'if (Array.isArray(p["turns"])) delete agent.bufferLost;',
+    after: "// Retain obsolete buffer loss after complete snapshot",
+    test: "recovery-ordering.test.ts",
   },
 ];
 const first = Number(process.argv[2] ?? 0);

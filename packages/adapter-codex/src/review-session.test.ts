@@ -6,7 +6,10 @@ const note = (event: string) => (f: { dir: string; data: unknown }) =>
   f.dir === "note" && obj(f.data)["event"] === event;
 const received = (method: string) => (f: { dir: string; data: unknown }) =>
   f.dir === "recv" && obj(f.data)["method"] === method;
-test("answering one of two async questions leaves the other pending", async () => {
+test.each([
+  { answered: "q", pending: "q2" },
+  { answered: "q2", pending: "q" },
+])("answering $answered leaves the other async question pending", async ({ answered, pending }) => {
   const h = await sessionHarness();
   try {
     await h.session.send(text("two-questions"), "steer");
@@ -14,9 +17,9 @@ test("answering one of two async questions leaves the other pending", async () =
       (f) =>
         received("item/completed")(f) && obj(obj(obj(f.data)["params"])["item"])["id"] === "q2",
     );
-    await h.session.resolve("async:q", { kind: "question", answers: { q0: ["Tabs"] } });
-    expect(h.replay.state.interactions["async:q"]?.state).toBe("resolved");
-    expect(h.replay.state.interactions["async:q2"]?.state).toBe("pending");
+    await h.session.resolve(`async:${answered}`, { kind: "question", answers: { q0: ["Tabs"] } });
+    expect(h.replay.state.interactions[`async:${answered}`]?.state).toBe("resolved");
+    expect(h.replay.state.interactions[`async:${pending}`]?.state).toBe("pending");
   } finally {
     await h.dispose();
   }
