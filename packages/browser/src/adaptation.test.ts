@@ -1,3 +1,4 @@
+import { chromium } from "playwright-core";
 import { describe, expect, it } from "vitest";
 import type { BrowserFrame } from "@ace/protocol";
 import { executablePath, fixture } from "./test-support.ts";
@@ -19,19 +20,43 @@ function quantization(frame: BrowserFrame): number {
 describe.skipIf(!executablePath)("capture adaptation in real Chromium", () => {
   it("reduces encoded JPEG quality and delivered frame cadence under pressure and recovers", async () => {
     let clock = 0;
-    const f = await fixture({ now: () => (clock += 100) });
+    const f = await fixture({
+      now: () => clock,
+      launchContext: async (profile, options) => {
+        const context = await chromium.launchPersistentContext(profile, options);
+        const createSession = context.newCDPSession.bind(context);
+        context.newCDPSession = async (page) => {
+          const session = await createSession(page);
+          // Advance only on incoming Chrome frames, before capture receives them.
+          // Interval clock reads cannot fabricate gaps in delivered timestamps.
+          session.on("Page.screencastFrame", () => {
+            clock += 100;
+          });
+          return session;
+        };
+        return context;
+      },
+    });
     await f.navigate();
+    let phase: "baseline" | "pressure" | "recovery" = "baseline";
+    let normalQuality = 0;
     let batch: BrowserFrame[] = [];
-    let target = 8;
     let signal = Promise.withResolvers<void>();
     const stopFast = f.service.subscribe(
       "thread",
       "fast",
       {
         send(frame) {
-          batch.push(frame);
+          const quality = quantization(frame);
+          const matches =
+            phase === "baseline" ||
+            (phase === "pressure" ? quality > normalQuality : quality === normalQuality);
+          if (matches) {
+            batch.push(frame);
+            if (batch.length > 8) batch.shift();
+            if (batch.length >= (phase === "baseline" ? 2 : 8)) signal.resolve();
+          } else batch = [];
           f.service.acknowledge("thread", "fast", frame.sequence);
-          if (batch.length >= target) signal.resolve();
           return true;
         },
       },
@@ -43,25 +68,25 @@ describe.skipIf(!executablePath)("capture adaptation in real Chromium", () => {
     await signal.promise;
     const normal = batch.at(-1);
     if (!normal) throw new Error("No baseline frame");
+    normalQuality = quantization(normal);
+    phase = "pressure";
     batch = [];
-    target = 32;
     signal = Promise.withResolvers<void>();
     const stopSlow = f.service.subscribe("thread", "slow", { send: () => true }, () => {});
+    // Eight consecutive frames encoded at reduced quality prove adaptation has
+    // happened, rather than guessing how many frames the interval will need.
     await signal.promise;
-    const pressured = batch.slice(-8);
-    expect(pressured.every((frame) => quantization(frame) > quantization(normal))).toBe(true);
-    const gaps = pressured
-      .slice(1)
-      .map((frame, i) => frame.timestamp - (pressured[i]?.timestamp ?? 0));
+    expect(batch).toHaveLength(8);
+    expect(batch.every((frame) => quantization(frame) > normalQuality)).toBe(true);
+    const gaps = batch.slice(1).map((frame, i) => frame.timestamp - (batch[i]?.timestamp ?? 0));
     expect(gaps.every((gap) => gap >= 1000 / 6)).toBe(true);
-    stopSlow();
+    phase = "recovery";
     batch = [];
-    target = 48;
     signal = Promise.withResolvers<void>();
+    stopSlow();
     await signal.promise;
-    expect(batch.slice(-8).every((frame) => quantization(frame) === quantization(normal))).toBe(
-      true,
-    );
+    expect(batch).toHaveLength(8);
+    expect(batch.every((frame) => quantization(frame) === normalQuality)).toBe(true);
     await f.evaluate("window.animate=false");
     stopFast();
   }, 60_000);

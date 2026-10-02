@@ -73,10 +73,17 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
       ),
     ).toEqual([224, 256]);
     expect(approvals).toBe(32);
+    await f.service.open({ threadId: "other", workspaceId: "other" });
+    const otherNavigation = () =>
+      f.service.execute("other", { action: "navigate", url: "https://example.invalid" });
+    await expect(otherNavigation()).rejects.toThrow("admission limit");
     await expect(f.evaluate("1")).rejects.toThrow("admission limit");
     await expect(f.execute({ action: "navigate", url: "https://example.invalid" })).rejects.toThrow(
       "admission limit",
     );
+    expect(approvals).toBe(32);
+    await f.service.closeThread("thread");
+    await expect(otherNavigation()).rejects.toThrow("admission limit");
     expect(approvals).toBe(32);
     await f.service.close();
     expect(() => f.service.state("thread")).toThrow("not open");
@@ -85,9 +92,11 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
   it("cancels only the closing thread's pending approval", async () => {
     const { promise: entered, resolve: notify } = Promise.withResolvers<void>();
     const { promise: pending } = Promise.withResolvers<boolean>();
+    const aborted = Promise.withResolvers<void>();
     const f = await fixture({
-      evaluatePolicy: (threadId) => {
+      evaluatePolicy: (threadId, _url, signal) => {
         if (threadId !== "thread") return true;
+        signal?.addEventListener("abort", () => aborted.resolve(), { once: true });
         notify();
         return pending;
       },
@@ -95,7 +104,7 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     await f.service.open({ threadId: "other", workspaceId: "other" });
     const failure = expect(f.evaluate("1")).rejects.toThrow("shutting down");
     await entered;
-    await Promise.all([f.service.closeThread("thread"), failure]);
+    await Promise.all([f.service.closeThread("thread"), failure, aborted.promise]);
     expect(await f.service.execute("other", { action: "evaluate", expression: "2+2" })).toBe(4);
   }, 60_000);
 
@@ -130,6 +139,24 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     const f = await fixture();
     expect(await f.evaluate("'😀'.repeat(1000)")).toBe("😀".repeat(1000));
     await expect(f.evaluate("'😀'.repeat(130000)")).rejects.toThrow("evaluate failed");
+  }, 60_000);
+
+  it("bounds evaluation output when page code replaces encoding and parsing builtins", async () => {
+    const f = await fixture();
+    await f.evaluate(
+      "globalThis.TextEncoder=class{encode(){return new Uint8Array(0)}}; JSON.parse=()=> '😀'.repeat(130000); String.prototype.charCodeAt=()=>0; void 0",
+    );
+    expect(await f.evaluate("'safe' ")).toBe("safe");
+    await expect(f.evaluate("'😀'.repeat(130000)")).rejects.toThrow("evaluate failed");
+  }, 60_000);
+
+  it("bounds evaluation output when the expression itself replaces the encoder", async () => {
+    const f = await fixture();
+    await expect(
+      f.evaluate(
+        "globalThis.TextEncoder=class{encode(){return new Uint8Array(0)}}; '😀'.repeat(130000)",
+      ),
+    ).rejects.toThrow("evaluate failed");
   }, 60_000);
 
   it("rejects a snapshot of an oversized DOM before building its accessibility tree", async () => {
@@ -169,42 +196,35 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
       f.execute({ action: "wait_for", ref: name, state: "visible", timeout: 30 }),
     ).rejects.toThrow();
     const held = Promise.withResolvers<ServerResponse>();
-    const server = createServer((_request, response) => {
+    const measured = Promise.withResolvers<void>();
+    const server = createServer((request, response) => {
       response.setHeader("Access-Control-Allow-Origin", "*");
-      held.resolve(response);
+      if (request.url === "/measure") {
+        measured.resolve();
+        response.end();
+      } else held.resolve(response);
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("No transition server");
     let response: ServerResponse | undefined;
-    let stop = noop;
     try {
       await f.evaluate(
-        `window.painting=true;let tick=0;function paint(){if(!window.painting)return;document.body.style.background=\`rgb(20,30,\${++tick%255})\`;requestAnimationFrame(paint)}paint();fetch('http://127.0.0.1:${address.port}').then(()=>{document.querySelector('input').style.visibility='visible';window.painting=false});void 0`,
+        `const element=document.querySelector('input');
+         const rectangle=element.getBoundingClientRect.bind(element); let reported=false;
+         element.getBoundingClientRect=()=>{if(!reported){reported=true;fetch('http://127.0.0.1:${address.port}/measure')}return rectangle()};
+         fetch('http://127.0.0.1:${address.port}/transition').then(()=>{element.style.visibility='visible'});void 0`,
       );
       response = await held.promise;
-      const painted = Promise.withResolvers<void>();
       const waiting = f.execute({ action: "wait_for", ref: name, state: "visible" });
-      let seed = true;
-      stop = f.service.subscribe(
-        "thread",
-        "wait-observer",
-        {
-          send(frame) {
-            f.service.acknowledge("thread", "wait-observer", frame.sequence);
-            if (!seed) painted.resolve();
-            return true;
-          },
-        },
-        () => {},
-      );
-      seed = false;
+      // The page reports a rectangle measurement by the pending wait itself.
+      // A painted frame alone would not establish that the command dispatched.
       expect(
         await Promise.race([
-          waiting.then(() => "returned before transition"),
-          painted.promise.then(() => "still waiting"),
+          waiting.then(() => "returned before hidden measurement"),
+          measured.promise.then(() => "measured while hidden"),
         ]),
-      ).toBe("still waiting");
+      ).toBe("measured while hidden");
       response.end();
       await waiting;
       expect(await f.evaluate("getComputedStyle(document.querySelector('input')).visibility")).toBe(
@@ -212,7 +232,6 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
       );
     } finally {
       response?.end();
-      stop();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
