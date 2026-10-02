@@ -141,13 +141,21 @@ export async function probeOutput(
     timeoutMs?: number;
     env?: NodeJS.ProcessEnv;
     maxBytes?: number;
+    signal?: AbortSignal;
   } = {},
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  if (options.signal?.aborted) throw new Error("Probe aborted");
   const proc = spawnSupervised({ command, args, env: options.env ?? {}, name: "cli-probe" });
   let stdout = "";
   let stderr = "";
   let bytes = 0;
   let failure: Error | undefined;
+  const abort = () => {
+    failure ??= new Error("Probe aborted");
+    void proc.stop({ graceMs: 0 });
+  };
+  options.signal?.addEventListener("abort", abort, { once: true });
+  if (options.signal?.aborted) abort();
   const collect = (target: "stdout" | "stderr", line: string) => {
     bytes += Buffer.byteLength(line) + 1;
     if (bytes > (options.maxBytes ?? 1_048_576)) {
@@ -171,6 +179,7 @@ export async function probeOutput(
     return { stdout: stdout.trim(), stderr: stderr.trim(), code: exit.code };
   } finally {
     clearTimeout(timer);
+    options.signal?.removeEventListener("abort", abort);
   }
 }
 export async function probe(command: string, args: readonly string[]): Promise<string> {
