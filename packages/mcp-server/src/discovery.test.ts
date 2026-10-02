@@ -115,3 +115,37 @@ it("reports invalid and oversized files, continues discovery and honors cancella
   cancel.abort();
   await expect(discoverMcpServers({ ...options, signal: cancel.signal })).rejects.toThrow();
 });
+
+it("honors Claude project opt-outs across config and API scopes without changing files", async () => {
+  const root = await roots();
+  const path = join(root.home, ".claude.json");
+  const text = JSON.stringify({
+    mcpServers: { global: { command: "node" }, regular: { command: "node" } },
+    projects: {
+      [root.cwd]: {
+        mcpServers: { local: { command: "node" } },
+        disabledMcpServers: ["global", "local", "api-server"],
+        enabledMcpServers: ["global"],
+      },
+      "/other": { disabledMcpServers: ["regular"] },
+    },
+  });
+  await writeFile(path, text);
+  const result = await discoverMcpServers({
+    ...root,
+    provider: "claude",
+    api: {
+      async read() {
+        return [{ name: "api-server", status: "connected" }];
+      },
+    },
+  });
+  expect(result.issues).toEqual([]);
+  expect(result.servers).toMatchObject([
+    { name: "global", enabled: false },
+    { name: "regular", enabled: true },
+    { name: "local", enabled: false },
+    { name: "api-server", enabled: false },
+  ]);
+  expect(await readFile(path, "utf8")).toBe(text);
+});

@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
@@ -67,6 +68,7 @@ export async function discoverMcpServers(options: DiscoveryOptions) {
   ];
   if (paths.length > 32) throw new Error("Discovery file capacity reached");
   const servers: DiscoveredMcpServer[] = [];
+  const disabled = new Set<string>();
   const issues: { source: string; code: "unreadable" | "invalid" | "oversize" }[] = [];
   const append = (map: unknown, source: string) => {
     const decoded = record.parse(map);
@@ -101,7 +103,9 @@ export async function discoverMcpServers(options: DiscoveryOptions) {
     options.signal.throwIfAborted();
     let text: string;
     try {
-      const file = await open(path, "r");
+      // Nonblocking open prevents FIFOs from retaining a filesystem worker while waiting
+      // for a writer. Inspect the opened descriptor, avoiding a stat/open race.
+      const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
       try {
         if (!(await file.stat()).isFile()) throw new Error("Expected regular file");
         const buffer = Buffer.alloc(1024 * 1024 + 1);
@@ -145,8 +149,18 @@ export async function discoverMcpServers(options: DiscoveryOptions) {
       if (map !== undefined) append(map, path);
       if (options.provider === "claude" && root.projects !== undefined) {
         const project = record.safeParse(record.parse(root.projects)[options.cwd]);
-        if (project.success && project.data.mcpServers !== undefined)
-          append(project.data.mcpServers, `${path}#project`);
+        if (project.success) {
+          if (project.data.disabledMcpServers !== undefined) {
+            const names = z
+              .array(z.string().max(256))
+              .max(512)
+              .parse(project.data.disabledMcpServers);
+            for (const name of names) disabled.add(name);
+            if (disabled.size > 512) throw new Error("Discovery server capacity reached");
+          }
+          if (project.data.mcpServers !== undefined)
+            append(project.data.mcpServers, `${path}#project`);
+        }
       }
     } catch {
       issues.push({ source: path, code: "invalid" });
@@ -173,5 +187,7 @@ export async function discoverMcpServers(options: DiscoveryOptions) {
     }
   }
   options.signal.throwIfAborted();
+  // Project opt-outs apply to regular servers across config scopes and native API rows.
+  for (const server of servers) if (disabled.has(server.name)) server.enabled = false;
   return { servers, issues };
 }
