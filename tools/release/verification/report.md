@@ -13,7 +13,7 @@ The repo owner changed worker policy during this task: final verification is sta
 - Installation, update and uninstall share an OS-backed SQLite mutex. Uninstall preserves databases and configuration. Service tests use owned fake executables; no real user service is operated.
 - Local maintenance requires the host token; remote HTTP listeners do not expose it. Approval answers and explicit stop commands remain admitted during drain.
 
-Fast static checks: formatting, lint, package typechecking and source-size checks passed. Main was merged without rebasing; a subsequent fetch found no additional main commits.
+Fast static checks: formatting, lint, package typechecking and source-size checks passed. Latest origin/main, including remote access, relay, model persistence and automations, was merged without rebasing. The new automations workspace required its local protocol/provider-kit dependency links before static typechecking.
 
 ## Behaviour tests awaiting merge
 
