@@ -15,8 +15,8 @@ export function createProcessTable() {
     const { stdout } = await run(
       "ps",
       [
-        "ww",
-        "-axo",
+        "-e",
+        "-o",
         darwin ? "pid=,pgid=,stat=,comm=" : "pid=,pgid=,stat=,sid=",
         "-U",
         String(process.getuid?.()),

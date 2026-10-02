@@ -1,8 +1,17 @@
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { accessSync, constants } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fixture, collect } from "./test-support.ts";
+
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => {
+  const results = await Promise.allSettled(cleanups.splice(0).map((cleanup) => cleanup()));
+  const failures = results.flatMap((result) =>
+    result.status === "rejected" ? [result.reason as unknown] : [],
+  );
+  if (failures.length) throw new AggregateError(failures, "Shell fixture cleanup failed");
+});
 
 function restoreShell(value: string | undefined): void {
   if (value === undefined) delete process.env.SHELL;
@@ -10,7 +19,7 @@ function restoreShell(value: string | undefined): void {
 }
 
 test("the user's SHELL is launched with login and interactive arguments", async () => {
-  const context = await fixture();
+  const context = await fixture({}, (cleanup) => cleanups.push(cleanup));
   const original = process.env.SHELL;
   try {
     const shell = join(context.home, "shell");
@@ -45,7 +54,7 @@ test("the user's SHELL is launched with login and interactive arguments", async 
 });
 
 test("without SHELL the first installed fallback shell executes commands", async () => {
-  const context = await fixture();
+  const context = await fixture({}, (cleanup) => cleanups.push(cleanup));
   const original = process.env.SHELL;
   try {
     let expected = "/bin/bash";

@@ -5,7 +5,11 @@ import { fixture, runNode } from "./test-support.ts";
 // Run in an isolated Node process with --expose-gc. Output/read handshakes let
 // every sample measure live retained allocations, independent of GC timing.
 if (!global.gc) throw new Error("Run the memory probe with --expose-gc");
-const context = await fixture({ scrollbackBytes: 64 * 1024 });
+const context = await fixture({ scrollbackBytes: 64 * 1024 }, (cleanup) => {
+  process.once("SIGTERM", () => {
+    void cleanup().finally(() => process.exit(143));
+  });
+});
 try {
   context.attachment.detach();
   const offset = context.terminal.snapshot().nextOffset;
