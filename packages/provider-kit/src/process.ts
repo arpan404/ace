@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
+import { byteLimit } from "./byte-limit.ts";
+import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 export { installShutdownHandlers } from "./process-owner.ts";
 
@@ -34,28 +36,21 @@ export type SpawnOptions = {
   name: string;
   /** Natural exit kills descendants by default, including agent-started dev servers. */
   killGroupOnExit?: boolean;
-  /** Kill the owned group if stdout/stderr produces an oversized unterminated line. */
+  /** UTF-8 bytes per stdout/stderr line, checked before framing. Defaults to 16 MiB. */
   maxLineBytes?: number;
-  /** Stop before readline can accumulate unbounded metadata from a probe. */
+  /** Optional aggregate raw stdout/stderr budget, primarily for probes. */
   maxOutputBytes?: number;
 };
 
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
-export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess {
-  if (
-    options.maxOutputBytes !== undefined &&
-    (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 1)
-  )
-    throw new RangeError("Invalid maxOutputBytes");
+function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): RawSupervisedProcess {
   if (process.platform === "win32") {
     throw new Error("Process-group supervision requires POSIX; Windows needs a Job Object owner");
   }
-  if (
-    options.maxLineBytes !== undefined &&
-    (!Number.isSafeInteger(options.maxLineBytes) || options.maxLineBytes < 1)
-  ) {
-    throw new RangeError("Invalid maxLineBytes");
-  }
+  const maxOutputBytes =
+    options.maxOutputBytes === undefined
+      ? undefined
+      : byteLimit(options.maxOutputBytes, "maxOutputBytes");
   const child = spawn(options.command, [...(options.args ?? [])], {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     env: { ...process.env, ...options.env },
@@ -63,41 +58,29 @@ export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess 
     stdio: ["pipe", "pipe", "pipe"],
   });
   const controller = new AbortController();
+  const pid = child.pid;
   let outputBytes = 0;
   let outputLimited = false;
-  const limitOutput = () => {
-    if (outputLimited) return;
+  const admit = (bytes: number) => {
+    if (maxOutputBytes === undefined) return true;
+    outputBytes += bytes;
+    return outputBytes <= maxOutputBytes;
+  };
+  const failOutput = (error: Error) => {
     outputLimited = true;
-    controller.abort();
-    if (child.pid !== undefined) killGroup(child.pid, "SIGKILL");
-    child.stdout.destroy();
-    child.stderr.destroy();
+    controller.abort(error);
+    if (pid !== undefined) killGroup(pid, "SIGKILL");
   };
-  // Byte guards attach before the line facade, so readline never holds an oversized line.
-  if (options.maxLineBytes !== undefined) {
-    const limit = options.maxLineBytes;
-    for (const pipe of [child.stdout, child.stderr]) {
-      let pending = 0;
-      pipe.on("data", (chunk: Buffer) => {
-        for (const byte of chunk) {
-          pending = byte === 10 || byte === 13 ? 0 : pending + 1;
-          if (pending > limit) {
-            limitOutput();
-            return;
-          }
-        }
-      });
-    }
-  }
-  const capOutput = (chunk: Buffer) => {
-    outputBytes += chunk.length;
-    if (options.maxOutputBytes !== undefined && outputBytes > options.maxOutputBytes) limitOutput();
+  const gateOutput = (input: Readable): Readable => {
+    if (maxLineBytes === undefined && maxOutputBytes === undefined) return input;
+    const gate = outputGate(maxLineBytes, admit, failOutput);
+    // Spawn failure can close a pipe without emitting end. Finish framing there too.
+    input.once("close", () => gate.end());
+    gate.once("close", () => input.destroy());
+    return input.pipe(gate);
   };
-  if (options.maxOutputBytes !== undefined) {
-    child.stdout.on("data", capOutput);
-    child.stderr.on("data", capOutput);
-  }
-  const pid = child.pid;
+  const stdout = gateOutput(child.stdout);
+  const stderr = gateOutput(child.stderr);
 
   let stopped = false;
   let failed = false;
@@ -145,8 +128,8 @@ export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess 
   });
   const handle: RawSupervisedProcess = {
     stdin: child.stdin,
-    stdout: child.stdout,
-    stderr: child.stderr,
+    stdout,
+    stderr,
     exited,
     signal: controller.signal,
     stop({ graceMs = 5_000 } = {}) {
@@ -170,9 +153,15 @@ export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess 
   return handle;
 }
 
+/** Raw bytes share the aggregate budget without imposing line framing on binary data. */
+export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess {
+  return spawnOwned(options, undefined);
+}
+
 /** Line-oriented facade over the same process-group owner. */
 export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
-  const raw = spawnRawSupervised(options);
+  const maxLineBytes = byteLimit(options.maxLineBytes ?? 16 * 1024 * 1024, "maxLineBytes");
+  const raw = spawnOwned(options, maxLineBytes);
   return {
     ...raw,
     stdout: createInterface({ input: raw.stdout, crlfDelay: Infinity }),
@@ -193,13 +182,14 @@ export async function probeOutput(
     schedule?: (callback: () => void, milliseconds: number) => () => void;
   } = {},
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  const maxBytes = byteLimit(options.maxBytes ?? 1_048_576, "maxBytes");
   if (options.signal?.aborted) throw new Error("Probe aborted");
   const proc = (options.spawn ?? spawnSupervised)({
     command,
     args,
     env: options.env ?? {},
     name: "cli-probe",
-    maxOutputBytes: options.maxBytes ?? 1_048_576,
+    maxOutputBytes: maxBytes,
   });
   let stdout = "";
   let stderr = "";
@@ -236,7 +226,8 @@ export async function probeOutput(
   try {
     const exit = await proc.exited;
     if (failure) throw failure;
-    if (exit.reason === "output-limit") throw new Error("Probe output exceeded limit");
+    if (proc.signal.reason instanceof OutputLimitError) throw proc.signal.reason;
+    if (exit.reason === "output-limit") throw new OutputLimitError("Probe output exceeded limit");
     if (exit.reason === "spawn-error") throw new Error("Probe failed to start");
     return { stdout: stdout.trim(), stderr: stderr.trim(), code: exit.code };
   } finally {

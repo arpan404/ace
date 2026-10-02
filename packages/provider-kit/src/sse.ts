@@ -1,8 +1,9 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { SseParser, type SseEvent } from "./sse-parser.ts";
+import { SseParser, SseLimitError, type SseLimits, type SseEvent } from "./sse-parser.ts";
+export { SseLimitError } from "./sse-parser.ts";
 export type { SseEvent } from "./sse-parser.ts";
 
-export type SseOptions = {
+export type SseOptions = SseLimits & {
   signal: AbortSignal;
   headers?: ConstructorParameters<typeof Headers>[0];
   onEvent: (event: SseEvent) => void;
@@ -64,20 +65,24 @@ export async function readSse(url: string | URL, options: SseOptions): Promise<v
         armHeartbeat();
       }, heartbeat.gapMs);
     };
-    const parser = new SseParser((event) => {
-      if (signal.aborted) return;
-      try {
-        failures = 0;
-        if (heartbeat && (!heartbeat.isHeartbeat || heartbeat.isHeartbeat(event))) {
-          lastHeartbeat = performance.now();
-          armHeartbeat();
+    const parser = new SseParser(
+      (event) => {
+        if (signal.aborted) return;
+        try {
+          failures = 0;
+          if (heartbeat && (!heartbeat.isHeartbeat || heartbeat.isHeartbeat(event))) {
+            lastHeartbeat = performance.now();
+            armHeartbeat();
+          }
+          options.onEvent(event);
+        } catch (error) {
+          hookFailure = error instanceof Error ? error : new Error(String(error));
+          throw hookFailure;
         }
-        options.onEvent(event);
-      } catch (error) {
-        hookFailure = error instanceof Error ? error : new Error(String(error));
-        throw hookFailure;
-      }
-    }, lastEventId);
+      },
+      lastEventId,
+      options,
+    );
     let body: ReadableStream<Uint8Array> | null = null;
     try {
       armHeartbeat();
@@ -101,6 +106,7 @@ export async function readSse(url: string | URL, options: SseOptions): Promise<v
       if (reconnect === false) return;
     } catch (error) {
       if (hookFailure) throw hookFailure;
+      if (error instanceof SseLimitError) throw error;
       if (signal.aborted) return;
       failure = error instanceof Error ? error : new Error(String(error));
       if (reconnect === false) throw failure;
