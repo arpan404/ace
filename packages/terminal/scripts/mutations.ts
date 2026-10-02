@@ -1,0 +1,161 @@
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+
+// Run sequentially in this worktree, with no other tests or edits in flight.
+// Each mutant changes production behaviour, runs its guarding real-PTY test,
+// and restores the original source even when the runner fails.
+const root = resolve(import.meta.dirname, "../../..");
+const directory = mkdtempSync(join(root, ".terminal-mutations-"));
+const mutations = [
+  {
+    name: "resize swaps columns and rows",
+    file: "terminal.ts",
+    before: "this.#backend.resize(cols, rows)",
+    after: "this.#backend.resize(rows, cols)",
+    test: "stty size reports",
+  },
+  {
+    name: "environment overrides are dropped",
+    file: "pty.ts",
+    before: "...options.env,",
+    after: "",
+    test: "environment overrides reach",
+  },
+  {
+    name: "exit codes are replaced with zero",
+    file: "pty.ts",
+    before: "code: event.exitCode",
+    after: "code: 0",
+    test: "late attachers receive final output",
+  },
+  {
+    name: "delivered byte offsets are off by one",
+    file: "attachment.ts",
+    before: "endOffset: end,",
+    after: "endOffset: end + 1,",
+    test: "two concurrent attachers receive",
+  },
+  {
+    name: "old replays omit the truncation flag",
+    file: "attachment.ts",
+    before: "let truncated = cursor !== fromOffset",
+    after: "let truncated = false",
+    test: "an old offset replays",
+  },
+  {
+    name: "partial UTF-8 characters are emitted immediately",
+    file: "ring.ts",
+    before: "return limit - lead < width ? lead : limit",
+    after: "return limit",
+    test: "a UTF-8 character split across",
+  },
+  {
+    name: "mid-character offsets are no longer aligned",
+    file: "ring.ts",
+    before: "while (offset < this.end && (this.byte(offset) & 0xc0) === 0x80) offset++;",
+    after: "",
+    test: "offsets inside a UTF-8 character",
+  },
+  {
+    name: "lagging readers no longer receive resync",
+    file: "attachment.ts",
+    before: "if (cursor < ring.start)",
+    after: "if (false)",
+    test: "20 MiB drains",
+  },
+  {
+    name: "truncation is repeated on every replay chunk",
+    file: "attachment.ts",
+    before: "truncated = false;",
+    after: "truncated = true;",
+    test: "an old offset replays",
+  },
+  {
+    name: "shutdown omits background process groups",
+    file: "pty.ts",
+    before: "if (group > 0) groups.add(group)",
+    after: "if (group > 0) groups.add(pty.pid)",
+    test: "closeAll kills a background child",
+  },
+  {
+    name: "output strings accumulate outside the ring",
+    file: "ring.ts",
+    before: "append(bytes: Buffer): void {",
+    after:
+      'append(bytes: Buffer): void { Object.defineProperty(this, "retained", { value: [...((Reflect.get(this, "retained") as string[] | undefined) ?? []), bytes.toString("utf8")], configurable: true });',
+    test: "20 MiB drains",
+  },
+];
+
+const results: Array<{ mutation: string; test: string; failures: string[] }> = [];
+try {
+  for (const mutation of mutations) {
+    const path = join(root, "packages/terminal/src", mutation.file);
+    const original = readFileSync(path, "utf8");
+    if (!original.includes(mutation.before))
+      throw new Error(`Mutation no longer applies: ${mutation.name}`);
+    const report = join(directory, "report.json");
+    let failures: string[];
+    try {
+      writeFileSync(path, original.replace(mutation.before, mutation.after));
+      const run = spawnSync(
+        "bun",
+        [
+          "run",
+          "test",
+          "packages/terminal/src/terminal.test.ts",
+          "-t",
+          mutation.test,
+          "--reporter=json",
+          `--outputFile=${report}`,
+        ],
+        { cwd: root, encoding: "utf8" },
+      );
+      if (run.error) throw run.error;
+      if (run.signal || run.status === 137)
+        throw new Error("Runner was killed; rerun the mutation audit");
+      const output: unknown = JSON.parse(readFileSync(report, "utf8"));
+      if (
+        typeof output !== "object" ||
+        output === null ||
+        !("testResults" in output) ||
+        !Array.isArray(output.testResults)
+      )
+        throw new Error("Invalid Vitest report");
+      failures = output.testResults.flatMap((result: unknown) => {
+        if (
+          typeof result !== "object" ||
+          result === null ||
+          !("assertionResults" in result) ||
+          !Array.isArray(result.assertionResults)
+        )
+          return [];
+        return result.assertionResults.flatMap((assertion: unknown) => {
+          if (
+            typeof assertion !== "object" ||
+            assertion === null ||
+            !("status" in assertion) ||
+            assertion.status !== "failed" ||
+            !("fullName" in assertion) ||
+            typeof assertion.fullName !== "string"
+          )
+            return [];
+          return [assertion.fullName];
+        });
+      });
+      if (run.status === 0 || !failures.some((name) => name.includes(mutation.test))) {
+        throw new Error(
+          `Mutation survived or did not fail its guarding test: ${mutation.name}\n${run.stdout}\n${run.stderr}`,
+        );
+      }
+    } finally {
+      writeFileSync(path, original);
+    }
+    results.push({ mutation: mutation.name, test: mutation.test, failures });
+    console.log(`Killed: ${mutation.name} -> ${failures.join(", ")}`);
+  }
+  console.log(`${results.length}/${mutations.length} mutations killed; all source files restored.`);
+} finally {
+  rmSync(directory, { recursive: true, force: true });
+}
