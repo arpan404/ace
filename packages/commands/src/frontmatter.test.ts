@@ -15,3 +15,16 @@ it("accepts empty YAML frontmatter and expands the body without metadata", () =>
     plan: { kind: "prompt", provider: "codex", text: "Hello" },
   });
 });
+
+it("expands declared variables with namespace separators consistently with their schema", () => {
+  const parsed = parseMarkdown(
+    "---\narguments:\n  issue:id: {type: string, required: true}\n---\nIssue {{issue:id}}",
+    { source: "namespaced", name: "issue", scope: "user", format: "library" },
+  );
+  const command = parsed.commands[0];
+  if (!command) throw new Error("Missing snippet");
+  expect(resolveCommand(command, { "issue:id": "42" }, [], "claude")).toMatchObject({
+    ok: true,
+    plan: { text: "Issue 42" },
+  });
+});

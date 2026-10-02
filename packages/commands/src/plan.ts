@@ -51,14 +51,18 @@ export function resolveCommand(
   else if (command.format === "library") {
     if (pos.data.length) return failure("invalid_argument");
     let missing: string | undefined;
-    const text = expandTemplate(command.body, /\\\{\{([\w.-]+)\}\}|\{\{([\w.-]+)\}\}/g, (match) => {
-      const escaped = match[1],
-        key = match[2];
-      if (escaped !== undefined) return `{{${escaped}}}`;
-      if (key === undefined) return "";
-      if (!Object.hasOwn(command.arguments, key)) missing = key;
-      return values.get(key) === undefined ? "" : String(values.get(key));
-    });
+    const text = expandTemplate(
+      command.body,
+      /\\\{\{([\w.:-]+)\}\}|\{\{([\w.:-]+)\}\}/g,
+      (match) => {
+        const escaped = match[1],
+          key = match[2];
+        if (escaped !== undefined) return `{{${escaped}}}`;
+        if (key === undefined) return "";
+        if (!Object.hasOwn(command.arguments, key)) missing = key;
+        return values.get(key) === undefined ? "" : String(values.get(key));
+      },
+    );
     if (missing !== undefined) return failure("invalid_argument", missing);
     if (text === undefined) return failure("limit_exceeded");
     plan = { kind: "prompt", provider, text };
