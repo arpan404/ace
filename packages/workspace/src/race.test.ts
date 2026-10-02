@@ -60,4 +60,5 @@ it("never returns outside bytes while a real child swaps a parent directory for 
     const [code] = await exited;
     expect(code, errors.join("")).toBe(0);
   }
+  expect(await inside.service.read({ path: "changing/file" })).toMatchObject({ text: "inside" });
 });

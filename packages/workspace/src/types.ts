@@ -1,3 +1,4 @@
+import type { WorkspaceFileSystem, WorkspaceRuntime } from "./runtime.ts";
 export type WorkspaceErrorCode =
   | "INVALID_PATH"
   | "PATH_ESCAPE"
@@ -34,7 +35,7 @@ export function failure(error: unknown): WorkspaceError {
         ? "NOT_DIRECTORY"
         : code === "EACCES" || code === "EPERM"
           ? "PERMISSION_DENIED"
-          : code === "ELOOP"
+          : code === "ELOOP" || code === "EINVAL"
             ? "PATH_CHANGED"
             : "IO_ERROR";
   return new WorkspaceError(mapped, error instanceof Error ? error.message : String(error), error);
@@ -119,6 +120,8 @@ export interface WorkspaceWatcher {
   dispose(): Promise<void>;
 }
 export interface WorkspaceOptions {
+  filesystem?: WorkspaceFileSystem;
+  runtime?: Partial<WorkspaceRuntime>;
   /** null forces the pure Node backend; otherwise resolved from PATH by default. */
   ripgrep?: string | null;
   watchMode?: "native" | "polling";
