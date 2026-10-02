@@ -142,6 +142,23 @@ function itemError(state: ThreadState, fact: Fields, now: number): string | unde
   }
   if (detail?.kind === "agent.message" && !optionalString(detail.targetAgent))
     return "target agent key must be a string";
+  if (
+    detail?.kind === "shell" &&
+    typeof detail.output === "string" &&
+    previous?.type === "tool_call" &&
+    previous.call.detail.kind === "shell"
+  ) {
+    const bytes = new TextEncoder().encode(detail.output);
+    const prior = previous.call.detail.output;
+    const size = prior?.bytes ?? 0;
+    const tail = prior?.tail ?? "";
+    const tailSize = new TextEncoder().encode(tail).length;
+    if (
+      bytes.length < size ||
+      new TextDecoder().decode(bytes.subarray(size - tailSize, size)) !== tail
+    )
+      return "legacy output must extend the existing stream";
+  }
   const input = itemInput(
     previous,
     {

@@ -18,6 +18,7 @@
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "ws": "^8.18.3",
+        "zod": "^4.6.5",
       },
       "devDependencies": {
         "@types/ws": "^8.18.1",
@@ -26,6 +27,7 @@
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
+        "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
       },
     },

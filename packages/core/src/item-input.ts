@@ -1,5 +1,6 @@
 import type { AgentId, Item, ItemId, RunId, ToolDetail } from "@ace/protocol";
-import type { ItemDraft } from "./facts.ts";
+import { summarizeOutput } from "@ace/projection";
+import type { ToolDetailDraft, ItemDraft } from "./facts.ts";
 
 export interface ItemIdentity {
   id: ItemId;
@@ -14,12 +15,20 @@ export function itemInput(
   base: ItemIdentity,
   patch: ItemDraft,
   now: number,
-  detailPatch?: Partial<ToolDetail>,
+  detailPatch?: Partial<ToolDetail> | ToolDetailDraft,
 ): unknown {
   if (patch.type === "tool_call") {
     const priorCall = previous?.type === "tool_call" ? previous.call : undefined;
     const detail = patch.call?.detail;
     const kind = patch.call?.kind ?? detail?.kind ?? priorCall?.kind ?? "custom";
+    const mergedDetail: Record<string, unknown> = {
+      ...(priorCall?.detail.kind === (detail?.kind ?? kind) ? priorCall.detail : { kind }),
+      ...detailPatch,
+    };
+    if (mergedDetail.kind === "shell" && typeof mergedDetail.output === "string")
+      mergedDetail.output = summarizeOutput(base.id, mergedDetail.output);
+    if (mergedDetail.kind === "shell" && typeof mergedDetail.outputTruncated === "boolean")
+      delete mergedDetail.outputTruncated;
     return {
       ...(previous?.type === patch.type ? previous : { complete: false }),
       ...patch,
@@ -34,10 +43,7 @@ export function itemInput(
         id: base.id,
         agentId: base.agentId,
         kind,
-        detail: {
-          ...(priorCall?.detail.kind === (detail?.kind ?? kind) ? priorCall.detail : { kind }),
-          ...detailPatch,
-        },
+        detail: mergedDetail,
       },
     };
   }

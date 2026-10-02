@@ -1,3 +1,4 @@
+import { applyDelta } from "@ace/projection";
 import type {
   Agent,
   BackgroundTask,
@@ -50,19 +51,7 @@ export function foldPayload(view: ClientView, payload: EventPayload): void {
       break;
     case "item.delta": {
       const item = view.items[event.itemId]!;
-      if (
-        item.type === "tool_call" &&
-        item.call.detail.kind === "shell" &&
-        event.field === "output"
-      )
-        item.call.detail.output = (item.call.detail.output ?? "") + event.append;
-      else if ((item.type === "reasoning" || item.type === "notice") && event.field !== "output")
-        item.text += event.append;
-      else if (item.type === "message" && event.field === "text") {
-        const last = item.parts.at(-1);
-        if (last?.type === "text") last.text += event.append;
-        else item.parts.push({ type: "text", text: event.append });
-      } else throw new Error("Client cannot apply delta to this item");
+      applyDelta(item, event.field, event.append);
       break;
     }
     case "interaction.opened":

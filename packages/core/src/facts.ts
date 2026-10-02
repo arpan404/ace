@@ -18,15 +18,21 @@ import type {
 /** Adapter-owned identity, unique within an entity kind and provider process. */
 export type Key = string;
 
-type PartialDetail<T> = T extends { kind: "agent.spawn" }
-  ? Partial<Omit<T, "kind" | "childAgentId">> & { kind: "agent.spawn"; childAgent?: Key }
-  : T extends { kind: "agent.message" }
-    ? Partial<Omit<T, "kind" | "targetAgentId">> & { kind: "agent.message"; targetAgent?: Key }
-    : T extends { kind: string }
-      ? Partial<Omit<T, "kind">> & Pick<T, "kind">
-      : never;
+type PartialDetail<T> = T extends { kind: "shell"; output?: infer O }
+  ? Partial<Omit<T, "kind" | "output">> & {
+      kind: "shell";
+      output?: O | string;
+      outputTruncated?: boolean;
+    }
+  : T extends { kind: "agent.spawn" }
+    ? Partial<Omit<T, "kind" | "childAgentId">> & { kind: "agent.spawn"; childAgent?: Key }
+    : T extends { kind: "agent.message" }
+      ? Partial<Omit<T, "kind" | "targetAgentId">> & { kind: "agent.message"; targetAgent?: Key }
+      : T extends { kind: string }
+        ? Partial<Omit<T, "kind">> & Pick<T, "kind">
+        : never;
 
-/** Updates may omit existing fields; the first upsert must form a valid item. */
+/** Updates may omit existing fields. Legacy output strings become suffix deltas. */
 export type ToolDetailDraft = PartialDetail<ToolDetail>;
 export type ToolCallDraft = Partial<
   Omit<ToolCall, "id" | "agentId" | "detail" | "backgroundTaskId">
