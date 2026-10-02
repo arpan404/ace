@@ -2,7 +2,7 @@ import type { Fact, Key } from "@ace/core";
 import type { RawPayload } from "@ace/protocol";
 import type { Translator, Frame } from "@ace/engine-api";
 import { ClaudeState } from "./state.ts";
-import { message, stream, tool, type StreamState } from "./content.ts";
+import { message, stream, tool, finishStream, type StreamState } from "./content.ts";
 import { taskFrame, taskTick } from "./tasks.ts";
 import { requestFor, resolutionFor } from "./interactions.ts";
 import { number, object, string, type Data } from "./native.ts";
@@ -89,6 +89,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       return true;
     }
     if (type === "result") {
+      finishStream(state, streams, state.root);
       const aborted = string(data["terminal_reason"]).startsWith("aborted_");
       const lastError = state.errors.get(state.root);
       const failed = !aborted && (data["is_error"] === true || lastError !== undefined);

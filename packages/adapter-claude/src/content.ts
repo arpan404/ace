@@ -85,6 +85,11 @@ export function message(
           },
         },
       });
+      state.emit({
+        type: "activity",
+        agent: state.toolOwners.get(toolId) ?? agent,
+        activity: "thinking",
+      });
       const output = text(block["content"]);
       if (output && state.toolKinds.get(toolId) === "shell")
         state.emit({
@@ -215,6 +220,22 @@ export function stream(state: ClaudeState, data: Data, streams: Map<string, Stre
         type: "item.upsert",
         agent,
         item,
+        draft: { type: block.kind === "text" ? "message" : "reasoning", complete: true },
+      });
+  }
+}
+
+export function finishStream(
+  state: ClaudeState,
+  streams: Map<string, StreamState>,
+  agent: string,
+): void {
+  for (const block of streams.get(agent)?.blocks.values() ?? []) {
+    if (block.kind === "text" || block.kind === "thinking")
+      state.emit({
+        type: "item.upsert",
+        agent,
+        item: block.item,
         draft: { type: block.kind === "text" ? "message" : "reasoning", complete: true },
       });
   }

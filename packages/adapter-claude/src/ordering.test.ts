@@ -143,3 +143,49 @@ test("requesting stays at starting-turn until content arrives, then returns to t
     activity: "thinking",
   });
 });
+test("an aborted result finalizes partial text even without a content-block stop", () => {
+  const h = harness();
+  h.init();
+  h.send({ type: "stream_event", event: { type: "message_start", message: { id: "partial" } } });
+  h.send({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+  });
+  h.send({
+    type: "stream_event",
+    event: {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: "partial" },
+    },
+  });
+  h.result({ is_error: true, terminal_reason: "aborted_streaming" });
+  expect(h.items().find((item) => item.type === "message")).toMatchObject({
+    parts: [{ type: "text", text: "partial" }],
+    complete: true,
+  });
+  expect(h.state.status.state).toBe("done");
+});
+test("a child returns to thinking between tool completion and its next content", () => {
+  const h = harness();
+  h.init();
+  h.tool("spawn", "Agent");
+  h.system("task_started", { task_id: "a", tool_use_id: "spawn", task_type: "local_agent" });
+  h.send({
+    type: "assistant",
+    parent_tool_use_id: "spawn",
+    message: {
+      id: "child-m",
+      content: [{ type: "tool_use", id: "read", name: "Read", input: { file_path: "a" } }],
+    },
+  });
+  h.send({
+    type: "user",
+    parent_tool_use_id: "spawn",
+    message: { content: [{ type: "tool_result", tool_use_id: "read", content: "ok" }] },
+  });
+  expect(
+    Object.values(h.state.agents).find((record) => record.agent.native.nativeId === "a")?.agent
+      .status,
+  ).toMatchObject({ state: "working", activity: "thinking" });
+});
