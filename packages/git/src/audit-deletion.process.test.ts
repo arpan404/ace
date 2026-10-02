@@ -44,6 +44,9 @@ async function withDeletionGate<T>(
           if (name === 'release') { watcher.close(); process.exit(result.status ?? 71); }
         });
         fs.writeFileSync(${JSON.stringify(join(directory, "ready"))}, 'ready');
+        if (fs.existsSync(${JSON.stringify(join(directory, "release"))})) {
+          watcher.close(); process.exit(result.status ?? 71);
+        }
         return;
       }
     `);

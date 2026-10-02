@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { flattenNested, nestedPaths, ownedChildren, type SnapshotOwnership } from "./nested.ts";
 import { textOutput } from "./cli.ts";
-import { decode, hash, malformed } from "./decode.ts";
+import { decode, hash, malformed, nul, pathSchema } from "./decode.ts";
 import {
   checkpoint,
   checkpointIdentity,
@@ -34,11 +34,35 @@ export async function snapshot(
         env,
         input: gitlinks.map((entry) => entry.path).join("\0") + "\0",
       });
-    await cli.call(root, ["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"], {
-      write: true,
-      env,
-      input: [".", ...nested.map((path) => `:(exclude,literal)${path}`)].join("\0") + "\0",
-    });
+    // Git can reject an excluded, ignored directory as an explicit ignored
+    // pathspec. Select only this root's tracked/unignored files instead; child
+    // repositories retain exclusive filter and index ownership.
+    const paths = nested.length
+      ? [
+          ...new Set(
+            nul(
+              (
+                await cli.call(
+                  root,
+                  ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+                  { env },
+                )
+              ).stdout,
+            ),
+          ),
+        ]
+          .map((path) =>
+            decode(pathSchema, path.endsWith("/") ? path.slice(0, -1) : path, "snapshot path"),
+          )
+          .filter((path) => !nested.some((child) => path === child || path.startsWith(child + "/")))
+          .map((path) => `:(literal)${path}`)
+      : ["."];
+    if (paths.length)
+      await cli.call(root, ["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"], {
+        write: true,
+        env,
+        input: paths.join("\0") + "\0",
+      });
     await flattenNested(
       repository,
       root,

@@ -40,13 +40,8 @@ export async function nestedPaths(
     for (const ancestor of pathAncestors(entry.path).slice(0, -1)) paths.add(ancestor);
   }
   const untracked = nul(
-    (
-      await repository.cli.call(
-        root,
-        ["ls-files", "--others", "--modified", "--exclude-standard", "-z"],
-        { env },
-      )
-    ).stdout,
+    (await repository.cli.call(root, ["ls-files", "--others", "--exclude-standard", "-z"], { env }))
+      .stdout,
   );
   for (const record of untracked) {
     const path = decode(
