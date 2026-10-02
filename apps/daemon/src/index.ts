@@ -110,7 +110,17 @@ export async function startDaemon(
     health = createHealthMonitor({
       database: join(config.dataDir, "events.sqlite"),
       now: Date.now,
-      workload,
+      workload: () => {
+        const engine = workload();
+        return {
+          ...engine,
+          queues: {
+            ...engine.queues,
+            "daemon.socketInput": server?.diagnosticsQueues().socketInput ?? 0,
+            "daemon.healthRequests": server?.diagnosticsQueues().healthRequests ?? 0,
+          },
+        };
+      },
       logs: ownedLog.stats,
     });
     const { token, tokenPath } = loadToken(config.dataDir);

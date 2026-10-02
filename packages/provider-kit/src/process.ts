@@ -116,10 +116,16 @@ export async function probeOutput(
     env?: NodeJS.ProcessEnv;
     maxBytes?: number;
     signal?: AbortSignal;
+    spawn?: typeof spawnSupervised;
   } = {},
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   if (options.signal?.aborted) throw new Error("Probe aborted");
-  const proc = spawnSupervised({ command, args, env: options.env ?? {}, name: "cli-probe" });
+  const proc = (options.spawn ?? spawnSupervised)({
+    command,
+    args,
+    env: options.env ?? {},
+    name: "cli-probe",
+  });
   let stdout = "";
   let stderr = "";
   let bytes = 0;

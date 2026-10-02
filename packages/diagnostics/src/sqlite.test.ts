@@ -3,7 +3,7 @@ import { open, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { checkIntegrity, sqliteSizes, recentThreadEvents, createHealthMonitor } from "./index.ts";
-import { temporary } from "./test-support.ts";
+import { temporary, measuredHealth } from "./test-support.ts";
 it("read-only integrity checking accepts a real database and does not alter it", async () => {
   const path = join(await temporary(), "events.sqlite");
   const db = new DatabaseSync(path);
@@ -39,12 +39,15 @@ it("health includes real SQLite/WAL sizes, process metrics, workload and drop co
   const path = join(await temporary(), "events.sqlite");
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode=WAL; CREATE TABLE sample(value TEXT)");
-  const monitor = createHealthMonitor({
-    database: path,
-    now: () => 42,
-    workload: () => ({ activeSessions: 3, queues: { pending: 7 } }),
-    logs: () => ({ dropped: 4, failed: 1, queued: 2 }),
-  });
+  const monitor = createHealthMonitor(
+    {
+      database: path,
+      now: () => 42,
+      workload: () => ({ activeSessions: 3, queues: { pending: 7 } }),
+      logs: () => ({ dropped: 4, failed: 1, queued: 2 }),
+    },
+    measuredHealth,
+  );
   try {
     const [first, second] = await Promise.all([monitor.collect(), monitor.collect()]);
     expect(first).toEqual(second);
@@ -53,7 +56,7 @@ it("health includes real SQLite/WAL sizes, process metrics, workload and drop co
     expect(first.queues.pending).toBe(7);
     expect(first.memory.rssBytes).toBeGreaterThan(0);
     expect(first.memory.heapUsedBytes).toBeGreaterThan(0);
-    expect(first.openHandles).toBeGreaterThanOrEqual(0);
+    expect(first.openHandles).toBeGreaterThan(0);
     expect(first.sqlite.pageBytes).toBe(8192);
     expect(first.sqlite.walBytes).toBe((await stat(path + "-wal")).size);
     expect(first.logs).toEqual({ dropped: 4, failed: 1, queued: 2 });
@@ -91,25 +94,28 @@ it("health converts loop delay to milliseconds and resets the measured interval 
   db.exec("CREATE TABLE example(value TEXT)");
   db.close();
   let samples = 2;
-  const monitor = createHealthMonitor({
-    database: path,
-    now: () => 0,
-    workload: () => ({ activeSessions: 0, queues: {} }),
-    logs: () => ({ dropped: 0, failed: 0, queued: 0 }),
-    delay: {
-      get count() {
-        return samples;
-      },
-      mean: 1500000,
-      max: 3000000,
-      percentile: () => 2500000,
-      enable() {},
-      disable() {},
-      reset() {
-        samples = 0;
+  const monitor = createHealthMonitor(
+    {
+      database: path,
+      now: () => 0,
+      workload: () => ({ activeSessions: 0, queues: {} }),
+      logs: () => ({ dropped: 0, failed: 0, queued: 0 }),
+      delay: {
+        get count() {
+          return samples;
+        },
+        mean: 1500000,
+        max: 3000000,
+        percentile: () => 2500000,
+        enable() {},
+        disable() {},
+        reset() {
+          samples = 0;
+        },
       },
     },
-  });
+    measuredHealth,
+  );
   try {
     expect((await monitor.collect()).eventLoop).toEqual({ meanMs: 1.5, p99Ms: 2.5, maxMs: 3 });
     expect((await monitor.collect()).eventLoop).toEqual({ meanMs: null, p99Ms: null, maxMs: null });

@@ -1,13 +1,13 @@
 import { z } from "zod";
 import type { DiscoveryResult, Provider } from "@ace/provider-kit/discovery";
 export const CheckResult = z.object({
-  id: z.string(),
+  id: z.string().max(128),
   status: z.enum(["ok", "warn", "fail"]),
-  message: z.string(),
-  fix: z.string(),
+  message: z.string().max(2048),
+  fix: z.string().max(2048),
 });
 export type CheckResult = z.infer<typeof CheckResult>;
-export const DoctorReport = z.object({ at: z.number(), checks: z.array(CheckResult) });
+export const DoctorReport = z.object({ at: z.number(), checks: z.array(CheckResult).max(64) });
 export type DoctorReport = z.infer<typeof DoctorReport>;
 export type Verdict = Omit<CheckResult, "id">;
 export interface Check {
@@ -18,6 +18,7 @@ export interface Check {
 export interface DoctorProbes {
   node(signal: AbortSignal): Promise<string>;
   provider(provider: Provider, signal: AbortSignal): Promise<DiscoveryResult>;
+  antigravity?(signal: AbortSignal): Promise<DiscoveryResult>;
   git(signal: AbortSignal): Promise<string | undefined>;
   pty(signal: AbortSignal): Promise<boolean>;
   chromium(signal: AbortSignal): Promise<string | undefined>;
@@ -84,7 +85,9 @@ export function integrityVerdict(value: "ok" | "corrupt" | "missing" | "unavaila
   return verdict(
     value === "corrupt" ? "fail" : value === "missing" ? "warn" : "ok",
     `SQLite integrity: ${value}`,
-    "Stop ace, preserve events.sqlite and its WAL, then restore a known-good backup. Do not delete the only copy.",
+    value === "missing"
+      ? "Start ace to initialize a new database, or restore a backup if you expected existing data."
+      : "Stop ace, preserve events.sqlite and its WAL, then restore a known-good backup. Do not delete the only copy.",
   );
 }
 export function createDoctorChecks(probes: DoctorProbes): Check[] {
@@ -102,13 +105,15 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
     })),
     {
       id: "provider.antigravity",
-      fix: "Configure the installed ACP server manually; discovery is not yet supported.",
-      run: async () =>
-        verdict(
-          "warn",
-          "Antigravity/ACP discovery is unavailable",
-          "Configure the installed ACP server manually; discovery is not yet supported.",
-        ),
+      fix: "Install agy or open it interactively to verify your Google account login.",
+      run: async (signal) =>
+        probes.antigravity
+          ? providerVerdict("antigravity", await probes.antigravity(signal))
+          : verdict(
+              "warn",
+              "Antigravity login status is unknown",
+              "Open agy interactively to verify your Google account login.",
+            ),
     },
     {
       id: "git",
@@ -125,22 +130,28 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
     {
       id: "node-pty",
       fix: "Reinstall/rebuild node-pty for this Node or Electron ABI.",
-      run: async (signal) =>
-        verdict(
-          (await probes.pty(signal)) ? "ok" : "fail",
-          "node-pty load for running ABI",
+      run: async (signal) => {
+        const loadable = await probes.pty(signal);
+        return verdict(
+          loadable ? "ok" : "fail",
+          loadable
+            ? "node-pty loads for running ABI"
+            : "node-pty is missing or cannot load for running ABI",
           "Reinstall/rebuild node-pty for this Node or Electron ABI.",
-        ),
+        );
+      },
     },
     {
       id: "chromium",
       fix: "Install Chrome/Chromium or set ACE_CHROMIUM to its executable.",
-      run: async (signal) =>
-        verdict(
-          (await probes.chromium(signal)) ? "ok" : "warn",
-          "Chromium executable discovery",
+      run: async (signal) => {
+        const browser = await probes.chromium(signal);
+        return verdict(
+          browser ? "ok" : "warn",
+          browser ? "Chromium executable found" : "Chromium executable not found",
           "Install Chrome/Chromium or set ACE_CHROMIUM to its executable.",
-        ),
+        );
+      },
     },
     {
       id: "disk",
@@ -155,12 +166,16 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
     {
       id: "port",
       fix: "Stop the existing daemon or set ACE_PORT to an unused port.",
-      run: async (signal) =>
-        verdict(
-          (await probes.port(signal)) ? "ok" : "warn",
-          "Daemon loopback port availability",
+      run: async (signal) => {
+        const available = await probes.port(signal);
+        return verdict(
+          available ? "ok" : "warn",
+          available
+            ? "Daemon loopback port is available"
+            : "Daemon loopback port is already in use",
           "Stop the existing daemon or set ACE_PORT to an unused port.",
-        ),
+        );
+      },
     },
   ];
   return checks;

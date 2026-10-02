@@ -1,5 +1,6 @@
+const noop = () => {};
 import { constants, createReadStream, createWriteStream } from "node:fs";
-import { lstat, mkdtemp, opendir, rm, stat, open } from "node:fs/promises";
+import { mkdtemp, opendir, rm, stat, open } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable, type Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -19,12 +20,17 @@ export interface BundleOptions {
   includeThreads?: boolean;
   threads?: () => AsyncIterable<string>;
   maxBytes?: number;
+  /** Cap input work independently of compressed or redacted output size. */
+  maxInputBytes?: number;
+  signal?: AbortSignal;
 }
 /** Keep complete lines across chunks. Drop oversized lines whole, never export prefixes. */
 async function* sanitized(
   source: AsyncIterable<unknown>,
   redact: (line: string) => string,
   limit: number,
+  budget: { remaining: number },
+  signal?: AbortSignal,
 ) {
   const decoder = new StringDecoder("utf8");
   let pending = "",
@@ -37,28 +43,70 @@ async function* sanitized(
     bytes += size;
     return clean;
   }
-  for await (const chunk of source) {
-    if (typeof chunk !== "string" && !Buffer.isBuffer(chunk))
-      throw new Error("Invalid text source");
-    const text = typeof chunk === "string" ? chunk : decoder.write(chunk);
-    let offset = 0;
-    while (offset < text.length) {
-      const end = text.indexOf("\n", offset);
-      const fragment = text.slice(offset, end < 0 ? undefined : end);
-      if (!oversized) {
-        if (pending.length + fragment.length > 65536) {
-          pending = "";
-          oversized = true;
-        } else pending += fragment;
+  const iterator = source[Symbol.asyncIterator]();
+  try {
+    for (;;) {
+      if (signal?.aborted) throw new Error("Bundle aborted");
+      if (budget.remaining <= 0) return;
+      let abort = noop;
+      const interrupted = new Promise<never>((_resolve, reject) => {
+        abort = () => reject(new Error("Bundle aborted"));
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+      let next: IteratorResult<unknown>;
+      try {
+        next = await Promise.race([iterator.next(), interrupted]);
+      } finally {
+        signal?.removeEventListener("abort", abort);
       }
-      if (end < 0) break;
-      const clean = line(oversized ? "<OVERSIZED LINE OMITTED>" : pending);
-      if (clean === undefined) return;
-      yield clean;
-      pending = "";
-      oversized = false;
-      offset = end + 1;
+      if (next.done) break;
+      const chunk: unknown = next.value;
+      if (typeof chunk !== "string" && !Buffer.isBuffer(chunk))
+        throw new Error("Invalid text source");
+      let inputOffset = 0;
+      while (inputOffset < chunk.length) {
+        // Decode bounded pieces even if a caller supplies a very large chunk.
+        let count = Math.min(chunk.length - inputOffset, budget.remaining, 65536);
+        if (typeof chunk === "string" && count > 1 && inputOffset + count < chunk.length) {
+          const last = chunk.charCodeAt(inputOffset + count - 1);
+          if (last >= 0xd800 && last <= 0xdbff) count--;
+        }
+        const input =
+          typeof chunk === "string"
+            ? Buffer.from(chunk.slice(inputOffset, inputOffset + count))
+            : chunk.subarray(inputOffset, inputOffset + count);
+        inputOffset += count;
+        const available = Math.min(input.length, budget.remaining);
+        const exhausted = input.length >= budget.remaining;
+        budget.remaining -= available;
+        const text = decoder.write(input.subarray(0, available));
+        let offset = 0;
+        while (offset < text.length) {
+          const end = text.indexOf("\n", offset);
+          const fragment = text.slice(offset, end < 0 ? undefined : end);
+          if (!oversized) {
+            if (pending.length + fragment.length > 65536) {
+              pending = "";
+              oversized = true;
+            } else pending += fragment;
+          }
+          if (end < 0) break;
+          const clean = line(oversized ? "<OVERSIZED LINE OMITTED>" : pending);
+          if (clean === undefined) return;
+          yield clean;
+          pending = "";
+          oversized = false;
+          offset = end + 1;
+        }
+        if (exhausted) {
+          const clean = line("<INPUT LIMIT: REMAINDER OMITTED>");
+          if (clean !== undefined) yield clean;
+          return;
+        }
+      }
     }
+  } finally {
+    void iterator.return?.().catch(() => {});
   }
   pending += decoder.end();
   if (pending || oversized) {
@@ -66,10 +114,35 @@ async function* sanitized(
     if (clean !== undefined) yield clean;
   }
 }
+/** Batch filesystem writes without accumulating an entire entry. */
+async function* batched(source: AsyncIterable<string>) {
+  let lines: string[] = [],
+    bytes = 0;
+  for await (const line of source) {
+    const size = Buffer.byteLength(line);
+    if (bytes + size > 65536 && lines.length) {
+      yield lines.join("");
+      lines = [];
+      bytes = 0;
+    }
+    lines.push(line);
+    bytes += size;
+    if (lines.length >= 128) {
+      yield lines.join("");
+      lines = [];
+      bytes = 0;
+    }
+  }
+  if (lines.length) yield lines.join("");
+}
 export async function writeSupportBundle(options: BundleOptions): Promise<void> {
   const maxBytes = options.maxBytes ?? 16 * 1024 * 1024;
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1024 || maxBytes > 256 * 1024 * 1024)
     throw new RangeError("Invalid bundle cap");
+  const maxInputBytes = options.maxInputBytes ?? maxBytes * 4;
+  if (!Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1 || maxInputBytes > 1024 ** 3)
+    throw new RangeError("Invalid input cap");
+  const budget = { remaining: maxInputBytes };
   const staging = await mkdtemp(join(options.temporaryRoot, "ace-support-"));
   const pack = tar.pack();
   const output = pipeline(pack, createGzip(), options.output);
@@ -81,7 +154,10 @@ export async function writeSupportBundle(options: BundleOptions): Promise<void> 
     if (remaining <= 0) return;
     const path = join(staging, String(index++));
     await pipeline(
-      Readable.from(sanitized(source, options.redact, remaining)),
+      Readable.from(batched(sanitized(source, options.redact, remaining, budget, options.signal)), {
+        objectMode: false,
+        highWaterMark: 65536,
+      }),
       createWriteStream(path, { mode: 0o600, flags: "wx" }),
     );
     const size = (await stat(path)).size;
@@ -97,8 +173,14 @@ export async function writeSupportBundle(options: BundleOptions): Promise<void> 
       "doctor.json",
       Readable.from([JSON.stringify(DoctorReport.parse(options.report)) + "\n"]),
     );
-    await entry("versions.json", Readable.from([JSON.stringify(boundedMetadata(options.versions)) + "\n"]));
-    await entry("settings.json", Readable.from([JSON.stringify(boundedMetadata(options.settings)) + "\n"]));
+    await entry(
+      "versions.json",
+      Readable.from([JSON.stringify(boundedMetadata(options.versions)) + "\n"]),
+    );
+    await entry(
+      "settings.json",
+      Readable.from([JSON.stringify(boundedMetadata(options.settings)) + "\n"]),
+    );
     const logs: string[] = [];
     const directory = await opendir(options.logsDirectory).catch((error: unknown) => {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
@@ -119,10 +201,26 @@ export async function writeSupportBundle(options: BundleOptions): Promise<void> 
       }
     for (const name of logs.slice(0, 1025)) {
       const path = join(options.logsDirectory, name);
-      if (!(await lstat(path)).isFile()) continue;
-      const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const file = await open(
+        path,
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      ).catch((error: unknown) => {
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          ["ENOENT", "ELOOP"].includes(String(error.code))
+        )
+          return undefined;
+        throw error;
+      });
+      if (!file) continue;
       try {
-        await entry(`logs/${name}`, file.createReadStream());
+        const info = await file.stat();
+        if (!info.isFile() || info.size === 0) continue;
+        await entry(
+          `logs/${name}`,
+          file.createReadStream({ autoClose: false, end: info.size - 1 }),
+        );
       } finally {
         await file.close();
       }

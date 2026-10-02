@@ -70,6 +70,7 @@ it("one pending health request per socket bounds waiting responses and a failed 
       ok: false,
       error: "diagnostics_busy",
     });
+    expect(f.server.diagnosticsQueues().healthRequests).toBe(1);
     reject(new Error("secret"));
     expect(await client.next()).toMatchObject({
       type: "commandResult",
@@ -77,6 +78,7 @@ it("one pending health request per socket bounds waiting responses and a failed 
       ok: false,
       error: "diagnostics_failed",
     });
+    expect(f.server.diagnosticsQueues()).toEqual({ socketInput: 0, healthRequests: 0 });
   } finally {
     await f.close();
   }

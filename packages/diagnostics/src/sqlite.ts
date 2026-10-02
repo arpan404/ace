@@ -2,15 +2,21 @@ import { stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { probeOutput } from "@ace/provider-kit/process";
 import { z } from "zod";
+export interface SqliteRuntime {
+  probe: typeof probeOutput;
+  deadlineMs: number;
+}
+const systemSqlite: SqliteRuntime = { probe: probeOutput, deadlineMs: 5000 };
 export async function sqliteProbe(
   path: string,
   task: "integrity" | "pages",
   signal: AbortSignal,
+  runtime: SqliteRuntime = systemSqlite,
 ): Promise<unknown> {
-  const result = await probeOutput(
+  const result = await runtime.probe(
     process.execPath,
     [fileURLToPath(new URL("./sqlite-process.ts", import.meta.url)), path, task],
-    { signal, timeoutMs: 5000, maxBytes: 1024 },
+    { signal, timeoutMs: runtime.deadlineMs, maxBytes: 1024 },
   );
   if (result.code !== 0) throw new Error("SQLite probe failed");
   const value: unknown = JSON.parse(result.stdout);
@@ -19,6 +25,7 @@ export async function sqliteProbe(
 export async function checkIntegrity(
   path: string,
   signal: AbortSignal,
+  runtime: SqliteRuntime = systemSqlite,
 ): Promise<"ok" | "corrupt" | "missing" | "unavailable"> {
   try {
     await stat(path);
@@ -27,7 +34,7 @@ export async function checkIntegrity(
     throw error;
   }
   try {
-    return z.enum(["ok", "corrupt"]).parse(await sqliteProbe(path, "integrity", signal));
+    return z.enum(["ok", "corrupt"]).parse(await sqliteProbe(path, "integrity", signal, runtime));
   } catch (error) {
     if (signal.aborted) throw error;
     return "unavailable";

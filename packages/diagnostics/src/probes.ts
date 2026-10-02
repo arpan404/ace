@@ -2,7 +2,11 @@ import { constants } from "node:fs";
 import { access, statfs } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
-import { discoverProviders, findExecutable } from "@ace/provider-kit/discovery";
+import {
+  discoverProviders,
+  discoverAntigravity,
+  findExecutable,
+} from "@ace/provider-kit/discovery";
 import { probeOutput } from "@ace/provider-kit/process";
 import type { DoctorProbes } from "./doctor.ts";
 import { checkIntegrity } from "./sqlite.ts";
@@ -26,6 +30,8 @@ export function createSystemProbes(options: {
   port: number;
   env: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  /** Module origin in the daemon installation, independent of the invoking cwd. */
+  moduleOrigin?: URL;
 }): DoctorProbes {
   const timeoutMs = options.timeoutMs ?? 4000;
   let discovery: ReturnType<typeof discoverProviders> | undefined;
@@ -35,6 +41,7 @@ export function createSystemProbes(options: {
       discovery ??= discoverProviders({ env: options.env, timeoutMs, signal });
       return (await discovery)[provider];
     },
+    antigravity: (signal) => discoverAntigravity({ env: options.env, timeoutMs, signal }),
     git: async (signal) => {
       const git = await findExecutable("git", options.env);
       if (!git) return undefined;
@@ -44,8 +51,7 @@ export function createSystemProbes(options: {
         : undefined;
     },
     pty: async (signal) => {
-      const source =
-        'const {createRequire}=await import("node:module");const require=createRequire(process.cwd()+"/package.json");require("node-pty")';
+      const source = `const {createRequire}=await import("node:module");const require=createRequire(${JSON.stringify((options.moduleOrigin ?? import.meta.url).toString())});const pty=require("node-pty");if(typeof pty.spawn!=="function")process.exit(1)`;
       return (
         (
           await probeOutput(process.execPath, ["--input-type=module", "-e", source], {
@@ -74,21 +80,21 @@ export function createSystemProbes(options: {
       return undefined;
     },
     disk: async () => {
-      let writable = true;
-      try {
-        await access(options.dataDir, constants.R_OK | constants.W_OK | constants.X_OK);
-      } catch {
-        writable = false;
-      }
-      // A first-run directory may not exist; diagnose it without creating anything.
       let directory = options.dataDir;
       for (;;) {
         try {
           const fs = await statfs(directory);
+          let writable = true;
+          try {
+            await access(directory, constants.R_OK | constants.W_OK | constants.X_OK);
+          } catch {
+            writable = false;
+          }
           return { writable, freeBytes: fs.bavail * fs.bsize };
-        } catch {
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
           const parent = dirname(directory);
-          if (parent === directory) throw new Error("Cannot inspect disk");
+          if (parent === directory) throw new Error("Cannot inspect disk", { cause: error });
           directory = parent;
         }
       }

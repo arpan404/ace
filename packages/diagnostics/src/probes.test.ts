@@ -38,3 +38,22 @@ it("system discovery uses only version and login-status commands on fake provide
   expect(report.checks.find((check) => check.id === "chromium")?.status).toBe("ok");
   expect(report.checks.find((check) => check.id === "disk")?.status).toBe("ok");
 });
+it("Antigravity discovery reports an installed version and unknown login without entering a session", async () => {
+  const root = await temporary();
+  await writeFile(
+    join(root, "agy"),
+    '#!/bin/sh\ncase "$*" in\n"--version") echo "agy 1.2.3";;\n*) exit 99;;\nesac\n',
+  );
+  await chmod(join(root, "agy"), 0o700);
+  const probes = createSystemProbes({ dataDir: root, port: 0, env: { PATH: root } });
+  const check = (
+    await runDoctor(
+      createDoctorChecks(probes).filter((item) => item.id === "provider.antigravity"),
+      { now: () => 0 },
+    )
+  ).checks[0];
+  expect(check?.status).toBe("warn");
+  expect(check?.message).toContain("1.2.3, unknown");
+  expect(check?.message).toContain("interactive verification");
+  expect(check?.fix).toContain("agy interactively");
+});

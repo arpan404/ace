@@ -3,24 +3,40 @@ import { z } from "zod";
 import type { RedactionContext } from "@ace/redaction";
 import type { BatchSink, LogRecord } from "./logger.ts";
 import type { FileSinkOptions } from "./file-sink.ts";
+export interface LogWorkerRuntime {
+  spawn(url: URL, data: unknown): Pick<Worker, "on" | "postMessage" | "terminate">;
+  schedule(callback: () => void, milliseconds: number): () => void;
+  deadlineMs: number;
+}
+const systemWorker: LogWorkerRuntime = {
+  spawn: (url, data) => new Worker(url, { workerData: data }),
+  schedule(callback, ms) {
+    const timer = setTimeout(callback, ms);
+    return () => clearTimeout(timer);
+  },
+  deadlineMs: 5000,
+};
 export async function createFileSink(
   options: FileSinkOptions & { context: RedactionContext },
+  runtime: LogWorkerRuntime = systemWorker,
 ): Promise<BatchSink> {
-  const worker = new Worker(new URL("./log-worker.ts", import.meta.url), { workerData: options });
+  if (!Number.isFinite(runtime.deadlineMs) || runtime.deadlineMs < 1)
+    throw new RangeError("Invalid worker deadline");
+  const worker = runtime.spawn(new URL("./log-worker.ts", import.meta.url), options);
   let pending: { resolve: () => void; reject: (error: Error) => void } | undefined;
   let failure: Error | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancel: (() => void) | undefined;
   const arm = () => {
-    timer = setTimeout(() => {
+    cancel = runtime.schedule(() => {
       fail(new Error("Log worker timed out"));
       void worker.terminate();
-    }, 5000);
+    }, runtime.deadlineMs);
   };
   const ready = new Promise<void>((resolve, reject) => {
     pending = { resolve, reject };
   });
   const fail = (error: Error) => {
-    if (timer) clearTimeout(timer);
+    cancel?.();
     failure = error;
     pending?.reject(error);
     pending = undefined;
@@ -31,7 +47,7 @@ export async function createFileSink(
   });
   arm();
   worker.on("message", (input: unknown) => {
-    if (timer) clearTimeout(timer);
+    cancel?.();
     const parsed = z
       .object({ ready: z.boolean().optional(), ok: z.boolean().optional() })
       .safeParse(input);
@@ -60,7 +76,7 @@ export async function createFileSink(
       });
     },
     async close() {
-      if (timer) clearTimeout(timer);
+      cancel?.();
       await worker.terminate();
     },
   };

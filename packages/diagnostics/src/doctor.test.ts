@@ -43,23 +43,72 @@ it("healthy probes report machine checks and provider versions/login with action
   expect(formatDoctor(value)).toContain("WARN provider.antigravity");
   expect(formatDoctor(value)).toContain("Fix:");
 });
-const unhealthy: readonly (readonly [string, Partial<DoctorProbes>, "warn" | "fail"])[] = [
-  ["node", { node: async () => "v23.9.0" }, "fail"],
-  ["node", { node: async () => "not a version" }, "fail"],
-  ["git", { git: async () => undefined }, "fail"],
-  ["node-pty", { pty: async () => false }, "fail"],
-  ["chromium", { chromium: async () => undefined }, "warn"],
-  ["disk", { disk: async () => ({ writable: false, freeBytes: 2 * 1024 ** 3 }) }, "fail"],
-  ["disk", { disk: async () => ({ writable: true, freeBytes: 1024 }) }, "fail"],
-  ["disk", { disk: async () => ({ writable: true, freeBytes: 128 * 1024 ** 2 }) }, "warn"],
-  ["sqlite", { integrity: async () => "corrupt" as const }, "fail"],
-  ["sqlite", { integrity: async () => "missing" as const }, "warn"],
-  ["sqlite", { integrity: async () => "unavailable" as const }, "fail"],
-  ["port", { port: async () => false }, "warn"],
+const unhealthy: readonly (readonly [
+  string,
+  Partial<DoctorProbes>,
+  "warn" | "fail",
+  string,
+  string,
+])[] = [
+  ["node", { node: async () => "v23.9.0" }, "fail", "Node v23.9.0", "Node 24"],
+  ["node", { node: async () => "not a version" }, "fail", "not a version", "Node 24"],
+  ["git", { git: async () => undefined }, "fail", "git not found", "Install git"],
+  ["node-pty", { pty: async () => false }, "fail", "cannot load", "Reinstall/rebuild node-pty"],
+  ["chromium", { chromium: async () => undefined }, "warn", "not found", "Install Chrome/Chromium"],
+  [
+    "disk",
+    { disk: async () => ({ writable: false, freeBytes: 2 * 1024 ** 3 }) },
+    "fail",
+    "not readable and writable",
+    "permissions",
+  ],
+  [
+    "disk",
+    { disk: async () => ({ writable: true, freeBytes: 1024 }) },
+    "fail",
+    "0 MiB free",
+    "Free disk space",
+  ],
+  [
+    "disk",
+    { disk: async () => ({ writable: true, freeBytes: 128 * 1024 ** 2 }) },
+    "warn",
+    "128 MiB free",
+    "Free disk space",
+  ],
+  ["sqlite", { integrity: async () => "corrupt" as const }, "fail", "corrupt", "known-good backup"],
+  [
+    "sqlite",
+    { integrity: async () => "missing" as const },
+    "warn",
+    "missing",
+    "initialize a new database",
+  ],
+  [
+    "sqlite",
+    { integrity: async () => "unavailable" as const },
+    "fail",
+    "could not be read",
+    "lock contention",
+  ],
+  ["port", { port: async () => false }, "warn", "already in use", "unused port"],
 ];
-it.each(unhealthy)("%s explains an unhealthy machine probe", async (id, change, status) => {
-  expect(result((await report({ ...healthy(), ...change })).checks, id).status).toBe(status);
-});
+it.each(unhealthy)(
+  "%s explains an unhealthy machine probe",
+  async (id, change, status, message, fix) => {
+    const check = result((await report({ ...healthy(), ...change })).checks, id);
+    expect(check.status).toBe(status);
+    expect(check.message).toContain(message);
+    expect(check.fix).toContain(fix);
+    expect(check.message.length).toBeGreaterThan(5);
+    expect(check.fix.length).toBeGreaterThan(10);
+    expect(formatDoctor({ at: 0, checks: [check] })).toContain(check.message);
+    if (id === "disk") {
+      expect(check.fix).toContain("ACE_HOME");
+      if (check.message.includes("MiB")) expect(check.fix).toContain("Free disk space");
+    }
+  },
+);
 it.each(["claude", "codex", "opencode", "cursor"] as const)(
   "%s distinguishes absent, logged-out and unknown CLI status",
   async (id) => {

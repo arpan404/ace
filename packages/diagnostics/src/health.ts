@@ -10,6 +10,25 @@ export interface DelayProbe {
   disable(): unknown;
   reset(): void;
 }
+export interface HealthRuntime {
+  createDelay(): DelayProbe;
+  memory(): { rss: number; heapUsed: number; heapTotal: number };
+  resources(): readonly string[];
+  sqlite: typeof sqliteSizes;
+  schedule(callback: () => void, milliseconds: number): () => void;
+  deadlineMs: number;
+}
+const systemHealth: HealthRuntime = {
+  createDelay: () => monitorEventLoopDelay({ resolution: 20 }),
+  memory: process.memoryUsage,
+  resources: process.getActiveResourcesInfo,
+  sqlite: sqliteSizes,
+  schedule(callback, ms) {
+    const timer = setTimeout(callback, ms);
+    return () => clearTimeout(timer);
+  },
+  deadlineMs: 1000,
+};
 export interface HealthOptions {
   /** Inject time measurements without sleeps in tests. */
   delay?: DelayProbe;
@@ -18,8 +37,10 @@ export interface HealthOptions {
   workload: () => { activeSessions: number | null; queues: Record<string, number> };
   logs: () => { dropped: number; failed: number; queued: number };
 }
-export function createHealthMonitor(options: HealthOptions) {
-  const histogram = options.delay ?? monitorEventLoopDelay({ resolution: 20 });
+export function createHealthMonitor(options: HealthOptions, runtime: HealthRuntime = systemHealth) {
+  if (!Number.isFinite(runtime.deadlineMs) || runtime.deadlineMs < 1)
+    throw new RangeError("Invalid health deadline");
+  const histogram = options.delay ?? runtime.createDelay();
   histogram.enable();
   let collecting: Promise<DiagnosticsHealth> | undefined;
   let closed = false;
@@ -29,10 +50,10 @@ export function createHealthMonitor(options: HealthOptions) {
       if (closed) return Promise.reject(new Error("Health monitor closed"));
       collecting ??= (async () => {
         controller = new AbortController();
-        const timer = setTimeout(() => controller?.abort(), 1000);
+        const cancel = runtime.schedule(() => controller?.abort(), runtime.deadlineMs);
         try {
-          const sqlite = await sqliteSizes(options.database, controller.signal);
-          const memory = process.memoryUsage();
+          const sqlite = await runtime.sqlite(options.database, controller.signal);
+          const memory = runtime.memory();
           const delay = (value: number) =>
             histogram.count > 0 && Number.isFinite(value) ? value / 1e6 : null;
           const health = DiagnosticsHealth.parse({
@@ -47,7 +68,7 @@ export function createHealthMonitor(options: HealthOptions) {
               heapUsedBytes: memory.heapUsed,
               heapTotalBytes: memory.heapTotal,
             },
-            openHandles: process.getActiveResourcesInfo().length,
+            openHandles: runtime.resources().length,
             sqlite,
             ...options.workload(),
             logs: options.logs(),
@@ -55,7 +76,7 @@ export function createHealthMonitor(options: HealthOptions) {
           histogram.reset();
           return health;
         } finally {
-          clearTimeout(timer);
+          cancel();
         }
       })().finally(() => {
         collecting = undefined;

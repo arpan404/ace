@@ -20,7 +20,12 @@ export async function diagnosticsCli(args: string[], config: Config): Promise<bo
   const report = await runDoctor(
     [
       ...createDoctorChecks(
-        createSystemProbes({ dataDir: config.dataDir, port: config.port, env: process.env }),
+        createSystemProbes({
+          moduleOrigin: new URL("./index.ts", import.meta.url),
+          dataDir: config.dataDir,
+          port: config.port,
+          env: process.env,
+        }),
       ),
       ...remoteDoctorChecks(config, process.env),
     ],

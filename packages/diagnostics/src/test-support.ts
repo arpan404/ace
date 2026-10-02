@@ -1,3 +1,5 @@
+import { monitorEventLoopDelay } from "node:perf_hooks";
+import { sqliteSizes, type HealthRuntime } from "./index.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,3 +23,13 @@ export function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+/** Real measurements; tests advance deadlines separately instead of budgeting machine speed. */
+export const measuredHealth: HealthRuntime = {
+  createDelay: () => monitorEventLoopDelay({ resolution: 20 }),
+  memory: process.memoryUsage,
+  resources: process.getActiveResourcesInfo,
+  sqlite: sqliteSizes,
+  schedule: () => noop,
+  deadlineMs: 1000,
+};

@@ -71,6 +71,7 @@ export async function startServer(options: ServerOptions): Promise<{
   url: string;
   notify(device: DeviceId, notification: Notification): boolean;
   httpUrl: string;
+  diagnosticsQueues(): { socketInput: number; healthRequests: number };
   remoteUrl?: string;
   fingerprint?: string;
   close(): Promise<void>;
@@ -137,6 +138,7 @@ export async function startServer(options: ServerOptions): Promise<{
       }
   });
   const input = new SocketInput();
+  let healthRequests = 0;
   const cleanups = new Map<WebSocket, () => void>();
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   const ticks = new Map<WebSocket, () => void>();
@@ -156,7 +158,13 @@ export async function startServer(options: ServerOptions): Promise<{
       send({ type: "error", code, message });
       if (close) socket.close(4001, code);
     };
+    const releaseHealth = () => {
+      if (!healthPending) return;
+      healthPending = false;
+      healthRequests--;
+    };
     const cleanup = () => {
+      releaseHealth();
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -353,6 +361,7 @@ export async function startServer(options: ServerOptions): Promise<{
               break;
             }
             healthPending = true;
+            healthRequests++;
             void Promise.resolve()
               .then(options.health)
               .then(
@@ -367,7 +376,7 @@ export async function startServer(options: ServerOptions): Promise<{
                   }),
               )
               .finally(() => {
-                healthPending = false;
+                releaseHealth();
               });
             break;
           }
@@ -412,6 +421,7 @@ export async function startServer(options: ServerOptions): Promise<{
   return {
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
+    diagnosticsQueues: () => ({ socketInput: input.depth(), healthRequests }),
     ...(remoteOrigin && options.remote
       ? {
           remoteUrl: remoteOrigin.replace("https:", "wss:"),
