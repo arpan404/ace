@@ -30,6 +30,10 @@ type Listener = (events: Event[]) => void;
 export class Store {
   readonly devices: Devices;
   private readonly db: DatabaseSync;
+  private readonly payloads: PayloadStore;
+  private readonly status: StatusStore;
+  private readonly nextId: () => string;
+  private readonly now: () => number;
   private readonly mcp: McpData;
   private readonly payloads: PayloadStore;
   private readonly status: StatusStore;
@@ -59,13 +63,13 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
-      this.mcp = new McpData(this.db, (id) => this.getThread(id));
       this.payloads.initialize();
       this.status.initialize((id) => this.getThread(id));
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
       });
+      this.mcp = new McpData(this.db, (id) => this.getThread(id));
     } catch (error) {
       this.db.close();
       throw error;
@@ -248,6 +252,7 @@ export class Store {
           event.payload.type,
           JSON.stringify(event.payload),
         );
+        this.statement("UPDATE host_sequence SET seq = ? WHERE id = 1").run(seq);
         this.mcp.apply(event, thread);
         this.statement("UPDATE host_sequence SET seq = ? WHERE id = 1").run(seq);
         events.push(event);
@@ -363,6 +368,7 @@ export class Store {
   }
   deleteThread(id: ThreadId): void {
     this.transaction(() => {
+      this.mcp.deleteThread(id);
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);
     });

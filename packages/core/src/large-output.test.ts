@@ -118,7 +118,9 @@ it.each(["\0", '"', "\\", "\n"])(
     h.see();
     h.start();
     h.shell();
-    const text = character.repeat(10 * 1024 * 1024);
+    // Size/escaping boundaries need multiple chunks; the separate ASCII case covers ten MiB.
+    const bytes = 64 * 1024;
+    const text = character.repeat(bytes);
     const deltas = h.send({
       type: "item.delta",
       agent: "root",
@@ -141,7 +143,7 @@ it.each(["\0", '"', "\\", "\n"])(
     for (const event of h.history)
       expect(Buffer.byteLength(JSON.stringify(event))).toBeLessThan(8192);
     expect(h.item("shell")).toMatchObject({
-      call: { detail: { output: { bytes: 10 * 1024 * 1024, truncated: true } } },
+      call: { detail: { output: { bytes, truncated: true } } },
     });
   },
 );

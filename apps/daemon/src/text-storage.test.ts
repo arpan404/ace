@@ -241,3 +241,37 @@ it("budgets a surrogate pair completed across the authoritative body and an appe
       Buffer.byteLength(JSON.stringify(view.itemOrder)),
   ).toBeLessThanOrEqual(1024 * 1024);
 });
+it("budgets a near-limit surrogate pair split across two appended chunks and retains it after reopen", async () => {
+  const f = await fixture();
+  cleanups.push(() => f.close());
+  const empty = message("m", "");
+  const overhead =
+    Buffer.byteLength(JSON.stringify({ m: empty })) + Buffer.byteLength(JSON.stringify(["m"]));
+  const text = "x".repeat(1024 * 1024 - overhead - 5);
+  const item = message("m", text);
+  const append = (value: string) =>
+    f.store.appendEvents(f.thread.id, [
+      {
+        type: "item.delta",
+        itemId: item.id,
+        agentId: item.agentId,
+        field: "text",
+        append: value,
+      },
+    ]);
+  f.store.appendEvents(f.thread.id, [{ type: "item.created", item }]);
+  append("\ud83d");
+  expect(f.store.snapshotThread(f.thread.id).itemOrder).toEqual([]);
+  append("\ude00");
+  const view = f.store.snapshotThread(f.thread.id);
+  expect(view.itemOrder).toEqual(["m"]);
+  expect(view.items.m).toMatchObject({ parts: [{ text: text + "😀" }] });
+  expect(
+    Buffer.byteLength(JSON.stringify(view.items)) +
+      Buffer.byteLength(JSON.stringify(view.itemOrder)),
+  ).toBe(1_048_575);
+  const reopened = new Store(join(f.home, "events.sqlite"));
+  cleanups.push(() => reopened.close());
+  expect(reopened.snapshotThread(f.thread.id)).toEqual(view);
+  expect(reopened.readItems(f.thread.id, reopened.headSeq() + 1, 1).items[0]).toEqual(view.items.m);
+});
