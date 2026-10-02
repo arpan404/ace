@@ -163,7 +163,10 @@ export class ItemStore {
       if (!row) break;
       const size =
         Number(row.size) + 2 * Buffer.byteLength(JSON.stringify(row.id)) + 1 + (count ? 2 : 0);
-      if (bytes + size > (byteLimit ?? Infinity)) break;
+      // Snapshots use a strict explicit budget. History pages allow only their
+      // first item to exceed the default budget, so an oversized item cannot stall paging.
+      if (bytes + size > (byteLimit ?? 1024 * 1024) && (count > 0 || byteLimit !== undefined))
+        break;
       bytes += size;
       count++;
     }
