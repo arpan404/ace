@@ -1,0 +1,179 @@
+#!/usr/bin/env node
+// Synthetic provider boundary. No model, auth service, or installed CLI is invoked.
+import { list, object } from "../native.ts";
+import { createInterface } from "node:readline";
+if (process.argv.includes("--version")) {
+  console.log("2.1.286 (Claude Code)");
+  process.exit(0);
+}
+const session = process.argv[process.argv.indexOf("--session-id") + 1] ?? "fake-session";
+const write = (data: unknown) => console.log(JSON.stringify(data));
+const lines = createInterface({ input: process.stdin });
+let id = 0;
+let childText = false;
+for await (const line of lines) {
+  const data = object(JSON.parse(line) as unknown);
+  if (data["type"] === "control_request") {
+    const request = object(data["request"]);
+    if (request["subtype"] === "initialize") childText = request["forwardSubagentText"] === true;
+    write({ type: "system", subtype: "fake_control", request, argv: process.argv });
+    write({
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: data["request_id"],
+        response:
+          request["subtype"] === "initialize"
+            ? { commands: [], agents: [], models: [] }
+            : request["subtype"] === "interrupt"
+              ? { still_queued: [] }
+              : {},
+      },
+    });
+    if (request["subtype"] === "interrupt")
+      write({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        errors: [],
+        terminal_reason: "aborted_streaming",
+        session_id: session,
+      });
+  } else if (data["type"] === "user") {
+    const message = object(data["message"]);
+    const parts = list(message["content"]);
+    const text = parts.map((p) => object(p)["text"] ?? "image").join(" ");
+    write({ type: "system", subtype: "init", session_id: session, cwd: process.cwd() });
+    write({ type: "system", subtype: "fake_input", input: data });
+    if (text === "crash") process.exit(3);
+    if (text === "future") {
+      console.log("malformed JSON");
+      console.log("null");
+      write({ type: "future_frame", novel: { value: 42 } });
+    }
+    if (text === "stream-probe") {
+      if (process.argv.includes("--include-partial-messages")) {
+        for (const event of [
+          { type: "message_start", message: { id: "partial" } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "partial answer" },
+          },
+        ])
+          write({
+            type: "stream_event",
+            event,
+            parent_tool_use_id: null,
+            uuid: `event-${++id}`,
+            session_id: session,
+          });
+      }
+      write({
+        type: "system",
+        subtype: "task_started",
+        task_id: "child-text",
+        tool_use_id: "spawn-text",
+        task_type: "local_agent",
+      });
+      if (childText)
+        write({
+          type: "assistant",
+          parent_tool_use_id: "spawn-text",
+          message: {
+            id: "child-text",
+            role: "assistant",
+            content: [{ type: "text", text: "child answer" }],
+          },
+          session_id: session,
+        });
+    }
+    if (text === "nested-tasks") {
+      for (const [task_id, tool_use_id] of [
+        ["child-one", "spawn-one"],
+        ["grandchild", "spawn-two"],
+      ])
+        write({
+          type: "system",
+          subtype: "task_started",
+          task_id,
+          tool_use_id,
+          task_type: "local_agent",
+          is_backgrounded: true,
+        });
+      write({
+        type: "assistant",
+        parent_tool_use_id: "spawn-one",
+        message: {
+          id: "nested",
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: "spawn-two", name: "Agent", input: { prompt: "nested" } },
+          ],
+        },
+      });
+      write({ type: "system", subtype: "nested-ready" });
+    }
+    if (text === "tasks") {
+      write({
+        type: "system",
+        subtype: "task_started",
+        task_id: "child-one",
+        tool_use_id: "spawn-one",
+        task_type: "local_agent",
+        is_backgrounded: true,
+      });
+      write({
+        type: "system",
+        subtype: "task_started",
+        task_id: "shell-one",
+        tool_use_id: "shell-tool",
+        task_type: "local_bash",
+        is_backgrounded: true,
+      });
+    }
+    if (["approval", "question", "plan", "cancel"].includes(text)) {
+      const tool =
+        text === "question" ? "AskUserQuestion" : text === "plan" ? "ExitPlanMode" : "Edit";
+      const input =
+        tool === "AskUserQuestion"
+          ? { questions: [{ question: "Tabs?", options: [{ label: "Tabs" }] }] }
+          : tool === "ExitPlanMode"
+            ? { plan: "# Plan", planFilePath: "plan.md" }
+            : { file_path: "fake.ts" };
+      const requestId = `request-${++id}`;
+      write({
+        type: "control_request",
+        request_id: requestId,
+        request: {
+          subtype: "can_use_tool",
+          tool_name: tool,
+          input,
+          tool_use_id: `tool-${id}`,
+          permission_suggestions: [
+            { type: "setMode", mode: "acceptEdits", destination: "session" },
+          ],
+          requires_user_interaction: tool !== "Edit",
+        },
+      });
+      if (text === "cancel") write({ type: "control_cancel_request", request_id: requestId });
+    } else
+      write({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        terminal_reason: "completed",
+        session_id: session,
+      });
+  } else if (data["type"] === "control_response") {
+    write({ type: "system", subtype: "fake_resolution", response: data["response"] });
+    write({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      terminal_reason: "completed",
+      session_id: session,
+    });
+  }
+}
