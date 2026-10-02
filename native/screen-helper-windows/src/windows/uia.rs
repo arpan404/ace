@@ -124,10 +124,20 @@ impl Automation {
                             "Password values are not exposed",
                         ));
                     }
-                    element
+                    match element
                         .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
-                        .and_then(|pattern| pattern.SetValue(&BSTR::from(text)))
-                        .map_err(Into::into)
+                    {
+                        Ok(pattern) => {
+                            if pattern.CurrentIsReadOnly()?.as_bool() {
+                                return Err(Error::new(
+                                    Code::PermissionDenied,
+                                    "Value is read-only",
+                                ));
+                            }
+                            pattern.SetValue(&BSTR::from(text)).map_err(Into::into)
+                        }
+                        Err(error) => Err(error.into()),
+                    }
                 }
                 "scroll" => {
                     let dx = value

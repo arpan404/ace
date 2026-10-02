@@ -1,5 +1,6 @@
 use super::{gpu::Gpu, pipe::Writer, target::Target};
 use crate::{
+    capture_wait::{Pending, Wait},
     errors::{Code, Error, Result},
     stream::Stream,
 };
@@ -22,7 +23,7 @@ use windows::{
 };
 #[derive(Default)]
 struct Signal {
-    arrived: bool,
+    pending: Pending,
     closed: bool,
     stop: bool,
 }
@@ -134,7 +135,10 @@ fn initialize(target: &Target, signal: &Arc<(Mutex<Signal>, Condvar)>) -> Result
     let arrival = signal.clone();
     let frame_token = pool.FrameArrived(&TypedEventHandler::new(move |_, _| {
         let (lock, wake) = &*arrival;
-        lock.lock().unwrap_or_else(|e| e.into_inner()).arrived = true;
+        lock.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pending
+            .arrived();
         wake.notify_one();
         Ok(())
     }))?;
@@ -181,27 +185,30 @@ fn run(
     loop {
         let (lock, wake) = &**signal;
         let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
-        while !state.arrived && !state.stop && !state.closed {
-            state = wake.wait(state).unwrap_or_else(|e| e.into_inner());
+        loop {
+            if state.stop {
+                return Ok(());
+            }
+            if state.closed {
+                return Err(Error::new(Code::TargetGone, "Capture item closed"));
+            }
+            let delay = stream
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .due_in(clock());
+            match state.pending.next(delay) {
+                Wait::Idle => {
+                    state = wake.wait(state).unwrap_or_else(|e| e.into_inner());
+                }
+                Wait::After(delay) => {
+                    let (next, _) = wake
+                        .wait_timeout(state, Duration::from_secs_f64((delay / 1000.0).min(1.0)))
+                        .unwrap_or_else(|e| e.into_inner());
+                    state = next;
+                }
+                Wait::Frame => break,
+            }
         }
-        if state.stop {
-            return Ok(());
-        }
-        if state.closed {
-            return Err(Error::new(Code::TargetGone, "Capture item closed"));
-        }
-        let delay = stream
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .due_in(clock());
-        if delay > 0.0 {
-            let (next, _) = wake
-                .wait_timeout(state, Duration::from_secs_f64((delay / 1000.0).min(1.0)))
-                .unwrap_or_else(|e| e.into_inner());
-            drop(next);
-            continue;
-        }
-        state.arrived = false;
         drop(state);
         target.validate(allowlist)?;
         let mut newest: Option<Direct3D11CaptureFrame> = None;
@@ -254,7 +261,11 @@ fn run(
         )?;
         frame.Close()?;
         if let Some(packet) = packet {
-            writer.publish(packet);
+            let generation = stream
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .capture_generation();
+            writer.publish(generation, packet);
         }
     }
 }

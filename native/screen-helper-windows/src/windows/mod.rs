@@ -92,7 +92,11 @@ impl Host {
                 if self.target.is_some() {
                     return Err(Error::new(Code::Busy, "One active target per host"));
                 }
-                let stream = Arc::new(Mutex::new(Stream::new(session, request.version, fps)));
+                let generation = capture_generation(request)?;
+                let mut state = Stream::new(session, request.version, fps);
+                state.generation(generation);
+                let stream = Arc::new(Mutex::new(state));
+                self.writer.activate(generation);
                 self.capture = Some(Capture::start(
                     target.clone(),
                     allowed.clone(),
@@ -107,6 +111,7 @@ impl Host {
             }
             "stop" => {
                 self.capture = None;
+                self.writer.retire();
                 self.target = None;
                 self.stream = None;
                 self.allowed.clear();
@@ -122,7 +127,12 @@ impl Host {
                         .as_ref()
                         .ok_or_else(|| Error::new(Code::Internal, "Missing stream"))?
                         .clone();
-                    stream.lock().unwrap_or_else(|e| e.into_inner()).refresh();
+                    let generation = capture_generation(request)?;
+                    stream
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .generation(generation);
+                    self.writer.activate(generation);
                     self.capture = Some(Capture::start(
                         target,
                         self.allowed.clone(),
@@ -131,6 +141,7 @@ impl Host {
                     )?);
                 } else if !active {
                     self.capture = None;
+                    self.writer.retire();
                 }
                 Ok(Value::Null)
             }
@@ -207,4 +218,16 @@ impl Drop for Apartment {
             RoUninitialize();
         }
     }
+}
+
+fn capture_generation(request: &Request) -> Result<u64> {
+    let generation = if request.fields.contains_key("captureGeneration") {
+        request.get::<u64>("captureGeneration")?
+    } else {
+        1
+    };
+    if generation == 0 || generation > 9_007_199_254_740_991 {
+        return Err(Error::new(Code::Bounds, "Invalid capture generation"));
+    }
+    Ok(generation)
 }

@@ -66,6 +66,7 @@ fn frame_packets_delimit_exact_jpeg_bytes_and_preserve_scale() {
         version: 2,
         session_id: "s".into(),
         seq: 7,
+        capture_generation: Some(1),
         ts: 123.0,
         width: 2,
         height: 2,

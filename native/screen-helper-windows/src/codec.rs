@@ -97,6 +97,8 @@ pub struct Header {
     pub version: u8,
     pub session_id: String,
     pub seq: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capture_generation: Option<u64>,
     pub ts: f64,
     pub width: u32,
     pub height: u32,
@@ -118,6 +120,9 @@ pub fn packet(header: &Header, payload: &[u8]) -> Result<Vec<u8>> {
         || header.ts < 0.0
         || !header.scale.is_finite()
         || header.scale <= 0.0
+        || header
+            .capture_generation
+            .is_some_and(|g| g == 0 || g > 9_007_199_254_740_991)
         || header.seq > 9_007_199_254_740_991
         || header.codec != "jpeg"
         || ![1, 2].contains(&header.version)

@@ -1,4 +1,7 @@
-use crate::errors::{Code, Error, Result};
+use crate::{
+    errors::{Code, Error, Result},
+    mailbox::Mailbox,
+};
 use std::{
     fs::File,
     os::windows::io::{AsRawHandle, FromRawHandle},
@@ -16,7 +19,7 @@ use windows::{
 /// One pending packet plus one being written. Replacing pending data cannot truncate a packet.
 #[derive(Clone)]
 pub struct Writer {
-    slot: Arc<(Mutex<Option<Vec<u8>>>, Condvar)>,
+    slot: Arc<(Mutex<Mailbox>, Condvar)>,
 }
 impl Writer {
     pub fn open(endpoint: &str) -> Result<Self> {
@@ -28,7 +31,7 @@ impl Writer {
             return Err(Error::new(Code::Bounds, "Invalid pipe name"));
         }
         let mut file = create(path)?;
-        let slot = Arc::new((Mutex::new(None::<Vec<u8>>), Condvar::new()));
+        let slot = Arc::new((Mutex::new(Mailbox::default()), Condvar::new()));
         let worker = slot.clone();
         std::thread::spawn(move || {
             use std::io::Write;
@@ -42,23 +45,45 @@ impl Writer {
             loop {
                 let (lock, wake) = &*worker;
                 let mut pending = lock.lock().unwrap_or_else(|e| e.into_inner());
-                while pending.is_none() {
-                    pending = wake.wait(pending).unwrap_or_else(|e| e.into_inner());
-                }
-                if let Some(packet) = pending.take() {
-                    drop(pending);
-                    if file.write_all(&packet).is_err() {
-                        std::process::exit(1);
+                let packet = loop {
+                    if let Some(packet) = pending.take() {
+                        break packet;
                     }
+                    pending = wake.wait(pending).unwrap_or_else(|e| e.into_inner());
+                };
+                drop(pending);
+                // An already-started write finishes intact. Its retired generation is discarded
+                // by the daemon, including after stop/restart or pause/resume.
+                if file.write_all(&packet.bytes).is_err() {
+                    std::process::exit(1);
                 }
             }
         });
         Ok(Self { slot })
     }
-    pub fn publish(&self, packet: Vec<u8>) {
+    pub fn activate(&self, generation: u64) {
+        self.slot
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .activate(generation);
+    }
+    pub fn retire(&self) {
+        self.slot
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retire();
+    }
+    pub fn publish(&self, generation: u64, packet: Vec<u8>) {
         let (lock, wake) = &*self.slot;
-        *lock.lock().unwrap_or_else(|e| e.into_inner()) = Some(packet);
-        wake.notify_one();
+        if lock
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .publish(generation, packet)
+        {
+            wake.notify_one();
+        }
     }
 }
 fn create(path: &str) -> Result<File> {

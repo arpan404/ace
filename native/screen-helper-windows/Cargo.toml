@@ -55,3 +55,6 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# This helper is independently cross-checked outside any parent Cargo workspace.
+[workspace]

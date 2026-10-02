@@ -2,6 +2,7 @@ use ace_screen_helper_windows::{
     codec,
     coordinates::Bounds,
     errors::Result,
+    mailbox::Mailbox,
     references::References,
     tiles::Tiles,
     tree::{self, Node, Query, Source},
@@ -41,6 +42,13 @@ impl Source for App {
     }
 }
 fn main() {
+    let mut queue = Mailbox::default();
+    measure("retire and replace frame mailbox", 100000, || {
+        queue.activate(1);
+        queue.publish(1, vec![0; 128]);
+        black_box(queue.take());
+        queue.retire();
+    });
     let rgb: Vec<u8> = (0..1280 * 720 * 3)
         .map(|i| ((i / 3 * 17 + i / 3840 * 29) % 256) as u8)
         .collect();
@@ -77,6 +85,7 @@ fn main() {
         version: 2,
         session_id: "s".into(),
         seq: 0,
+        capture_generation: Some(1),
         ts: 1000.0,
         width: 1280,
         height: 720,
