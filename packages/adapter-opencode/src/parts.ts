@@ -10,13 +10,13 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
   if (!partId) return state.notice(p, "part without id");
   const item = p.type === "tool" ? string(p.callID, partId) : partId;
   const previous = state.getPart(partId);
-  const nativeStatus = string(object(p.state).status);
+  const statusHint = p.type === "tool" ? toolStatus(object(p.state), false) : "";
   state.rememberPart(
     partId,
     item,
     p,
     p.type === "tool"
-      ? ["pending", "running"].includes(nativeStatus)
+      ? ["pending", "running"].includes(statusHint)
       : (p.type === "text" || p.type === "reasoning") && typeof object(p.time).end !== "number",
   );
   const facts: Fact[] = [];
@@ -86,7 +86,7 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
     const nativeState = object(p.state);
     const live = state.liveTools.get(id) ?? new Set<string>();
     const previousSize = live.size;
-    if (["pending", "running"].includes(string(nativeState.status))) live.add(partId);
+    if (["pending", "running"].includes(statusHint)) live.add(partId);
     else live.delete(partId);
     state.liveToolCount += live.size - previousSize;
     if (live.size) state.liveTools.set(id, live);

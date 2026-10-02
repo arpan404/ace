@@ -2,7 +2,7 @@
 
 Offline verification on this branch uses Vitest, the public adapter contract, core facts and projected client views. Session tests start a boundary double for the installed CLI as a real child process with a real authenticated HTTP/SSE server. They synchronize on received frames and HTTP responses, without sleeps or elapsed-time assertions. No provider prompt or recorder was run.
 
-The review follow-up merged `origin/main` before changes. The nine fixture expectation files remain unchanged. The package now has 77 passing tests and one skipped health-only live test. `bun run check` passed format, lint, the 1,500-line size limit, all workspace typechecks and 527 tests after the latest origin/main merge; five live tests were skipped. Session regressions use the exported adapter factory, real authenticated HTTP/SSE and child processes; the shutdown deadline is driven through an injected scheduler.
+The review follow-up merged `origin/main` before changes. The nine fixture expectation files remain unchanged. The package now has 78 passing tests and one skipped health-only live test. `bun run check` passed format, lint, the 1,500-line size limit, all workspace typechecks and 528 tests after the latest origin/main merge; five live tests were skipped. Session regressions use the exported adapter factory, real authenticated HTTP/SSE and child processes; the shutdown deadline is driven through an injected scheduler.
 
 ## Fixture timelines
 
@@ -78,6 +78,7 @@ Each blocking finding was reproduced before its production fix. The first transl
 - Heartbeat-gap recovery reconnects SSE before reporting transport restored.
 - An early grace callback rearms instead of stranding queued delivery.
 - Injected task results settle the background job even before their user-message announcement.
+- Unknown native tool states remain pending and hold settlement until a terminal update.
 
 ## Performance
 
@@ -85,8 +86,8 @@ Measured offline on darwin arm64, Node v26.8.1. Benchmarks are reproducible scri
 
 | Completed messages | Ingest    | Retained translator heap | Delta + settlement |
 | ------------------ | --------- | ------------------------ | ------------------ |
-| 20,000             | 226.27 ms | 0.50 MiB                 | 2.58 µs/frame      |
-| 40,000             | 403.15 ms | 0.22 MiB                 | 2.58 µs/frame      |
+| 20,000             | 223.48 ms | 0.22 MiB                 | 2.90 µs/frame      |
+| 40,000             | 404.97 ms | 0.19 MiB                 | 2.43 µs/frame      |
 
 The review measured 50.52/100.97 MiB at those sizes before this fix. The new caches retain compact metadata only, bounded by live work and fixed reconciliation windows. Delta processing never concatenates cached history; settlement uses indexes updated for the changed session and tool.
 
@@ -126,12 +127,14 @@ All 22 review production mutations failed named behavior tests in the whole adap
 | 21       | close resolves queued work           | cancels local queued work even when the abort endpoint never replies               |
 | 22       | raw evidence defensive clone removed | keeps raw nested tool input independent of later provider buffer reuse             |
 
-Three additional production faults also failed their public behavior tests and were reverted:
+Four additional production faults also failed their public behavior tests and were reverted:
 
-| #   | Production fault                     | Failing behavior                                                            |
-| --- | ------------------------------------ | --------------------------------------------------------------------------- |
-| 23  | ignore snapshot receipt watermark    | older buffered idle cannot overwrite a newer busy REST snapshot             |
-| 24  | do not rearm an early grace callback | queued delivery remains held before, and proceeds at, the injected deadline |
+| #   | Production fault                              | Failing behavior                                                            |
+| --- | --------------------------------------------- | --------------------------------------------------------------------------- |
+| 23  | ignore snapshot receipt watermark             | older buffered idle cannot overwrite a newer busy REST snapshot             |
+| 24  | do not rearm an early grace callback          | queued delivery remains held before, and proceeds at, the injected deadline |
+| 25  | recover without reconnecting a stalled stream | opens a new SSE connection before restoring heartbeat-gap recovery          |
+| 26  | ignore unfamiliar native live tool states     | holds the tool pending until a terminal update                              |
 
 After the watermark and pure resolution refactors, the buffered-delta and question-dismissal mutations were rerun and still failed.
 

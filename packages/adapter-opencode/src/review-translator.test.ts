@@ -203,3 +203,23 @@ it("settles an accepted native message ID even if its user announcement is missi
     { nativeId: "accepted_user", state: "failed" },
   ]);
 });
+it("keeps an unfamiliar native tool status live until a terminal update", () => {
+  const h = setup();
+  h.event("message.updated", { sessionID: "root_native", info: { id: "user", role: "user" } });
+  h.event("session.status", { sessionID: "root_native", status: { type: "busy" } });
+  const part = {
+    id: "shell",
+    callID: "shell_call",
+    sessionID: "root_native",
+    type: "tool",
+    tool: "bash",
+    state: { status: "future_pending_state", input: { command: "offline" } },
+  };
+  h.event("message.part.updated", { part });
+  h.event("session.status", { sessionID: "root_native", status: { type: "idle" } });
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
+  h.event("message.part.updated", {
+    part: { ...part, state: { ...part.state, status: "completed" } },
+  });
+  expect(h.view.thread.status.state).toBe("done");
+});

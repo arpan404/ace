@@ -116,7 +116,7 @@ export class TranslationState {
         type: data.type,
         tool: data.tool,
         state: {
-          status: native.status,
+          status: data.type === "tool" && live ? "running" : native.status,
           title: native.title,
           metadata: { background: meta.background, sessionId: meta.sessionId },
         },
