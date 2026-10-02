@@ -124,6 +124,34 @@ export class SafeRoot {
       throw failure(error);
     }
   }
+  /** Mutation endpoints never follow links, including links within the workspace. */
+  async target(input: string): Promise<{ path: string; verify(): Promise<void> }> {
+    const path = this.path(input);
+    if (!path || path.split("/").some((part) => part === ".git" || part.startsWith(".ace-upload-")))
+      throw new WorkspaceError("INVALID_PATH", "Reserved mutation path");
+    const parts = path.split("/");
+    const name = parts.pop();
+    if (!name) throw new WorkspaceError("INVALID_PATH", "Missing filename");
+    let prefix = "";
+    for (const part of parts) {
+      prefix = prefix ? `${prefix}/${part}` : part;
+      const info = await lstat(join(this.root, prefix));
+      if (info.isSymbolicLink())
+        throw new WorkspaceError("PATH_ESCAPE", "Mutation crosses a symlink");
+    }
+    const parent = parts.join("/");
+    const resolved = await this.resolve(parent);
+    const expected = await lstat(resolved);
+    if (!expected.isDirectory()) throw new WorkspaceError("NOT_DIRECTORY", "Invalid parent");
+    const destination = join(resolved, name);
+    try {
+      if ((await lstat(destination)).isSymbolicLink())
+        throw new WorkspaceError("PATH_ESCAPE", "Mutation target is a symlink");
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") throw error;
+    }
+    return { path: destination, verify: () => this.verify(parent, resolved, expected) };
+  }
   async names(input: string): Promise<string[]> {
     let handle: FileHandle | undefined;
     try {

@@ -71,3 +71,8 @@ export async function createWorkspace(root: string, options: WorkspaceOptions = 
   };
 }
 export type Workspace = Awaited<ReturnType<typeof createWorkspace>>;
+
+// Shared filesystem boundary for services that stream or mutate workspace files.
+export { SafeRoot } from "./safety.ts";
+export { GitIgnore } from "./ignore.ts";
+export { tree as walkWorkspace } from "./tree.ts";
