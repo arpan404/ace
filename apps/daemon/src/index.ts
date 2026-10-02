@@ -6,6 +6,8 @@ import {
   createHealthMonitor,
   type HealthOptions,
 } from "@ace/diagnostics";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { remoteListener } from "./network.ts";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, readConfig } from "./config.ts";
@@ -24,7 +26,14 @@ export async function startDaemon(
   config: Config = readConfig(),
   handler: CommandHandler = stubHandler(),
   workload: HealthOptions["workload"] = () => ({ activeSessions: null, queues: {} }),
-): Promise<{ url: string; tokenPath: string; store: Store; close(): Promise<void> }> {
+): Promise<{
+  url: string;
+  tokenPath: string;
+  store: Store;
+  remoteUrl?: string;
+  fingerprint?: string;
+  close(): Promise<void>;
+}> {
   const unlock = acquireLock(config.dataDir);
   const context = { home: homedir(), env: process.env };
   let log: ReturnType<typeof createLogger> | undefined;
@@ -62,7 +71,9 @@ export async function startDaemon(
       ownedLog.child("store").log("error", "Event subscriber failed", error),
     );
     const ownedStore = store;
+    const remote = await remoteListener(config);
     const server = await startServer({
+      ...(remote ? { remote } : {}),
       port: config.port,
       token,
       hostId,
@@ -72,9 +83,19 @@ export async function startDaemon(
       log: (error) => ownedLog.child("websocket").log("error", "WebSocket failure", error),
     });
     ownedLog.log("info", "Daemon listening", { url: server.url });
+    const endpointPath = join(config.dataDir, "daemon-endpoint");
+    try {
+      writeFileSync(endpointPath, server.httpUrl, { mode: 0o600 });
+    } catch (error) {
+      await server.close();
+      throw error;
+    }
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
+      ...(server.remoteUrl && server.fingerprint
+        ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
+        : {}),
       tokenPath,
       store,
       close() {
@@ -89,7 +110,11 @@ export async function startDaemon(
               try {
                 await ownedLog.close();
               } finally {
-                unlock();
+                try {
+                  unlinkSync(endpointPath);
+                } finally {
+                  unlock();
+                }
               }
             }
           }

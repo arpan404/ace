@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
 import { z } from "zod";
-/** Pull one bounded event at a time. The bundle owns this generator's lifetime. */
+/** Pull one bounded batch at a time. The bundle owns this generator's lifetime. */
 export async function* recentThreadEvents(path: string): AsyncIterable<string> {
   const worker = new Worker(new URL("./thread-worker.ts", import.meta.url), {
     workerData: { path },
@@ -30,11 +30,10 @@ export async function* recentThreadEvents(path: string): AsyncIterable<string> {
         worker.postMessage("next", []);
       });
       const result = z
-        .object({ done: z.boolean().optional(), line: z.string().max(128000).optional() })
+        .object({ done: z.boolean(), lines: z.array(z.string().max(128000)).max(16) })
         .parse(input);
+      for (const line of result.lines) yield line;
       if (result.done) return;
-      if (result.line === undefined) throw new Error("Invalid thread export reply");
-      yield result.line;
     }
   } finally {
     await worker.terminate();

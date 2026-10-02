@@ -11,15 +11,19 @@ import {
   writeSupportBundle,
   recentThreadEvents,
 } from "@ace/diagnostics";
+import { remoteDoctorChecks } from "./doctor.ts";
 import type { Config } from "./config.ts";
 export async function diagnosticsCli(args: string[], config: Config): Promise<boolean> {
   if (args[0] === "--") args = args.slice(1);
   if (args[0] !== "doctor" && args[0] !== "support-bundle") return false;
   const redact = createRedactor({ home: homedir(), env: process.env });
   const report = await runDoctor(
-    createDoctorChecks(
-      createSystemProbes({ dataDir: config.dataDir, port: config.port, env: process.env }),
-    ),
+    [
+      ...createDoctorChecks(
+        createSystemProbes({ dataDir: config.dataDir, port: config.port, env: process.env }),
+      ),
+      ...remoteDoctorChecks(config, process.env),
+    ],
     { now: Date.now },
   );
   if (args[0] === "doctor") {

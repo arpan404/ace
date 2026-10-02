@@ -41,6 +41,7 @@ it("no known token, home path or environment value reaches the file or recent ri
     }
     expect(file).not.toContain("/Users/someone");
     const record = JSON.parse(file);
+    expect(record.message).not.toContain(context.env.CUSTOM);
     expect(record.at).toBe(123);
     expect(record.level).toBe("warn");
     expect(record.component).toBe("ace.provider");

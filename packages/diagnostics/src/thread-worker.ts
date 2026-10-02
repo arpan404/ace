@@ -16,15 +16,22 @@ port.on("message", (input: unknown) => {
     db.close();
     return;
   }
-  const next = iterator.next();
-  if (next.done) {
-    port.postMessage({ done: true });
-    port.close();
-    db.close();
-  } else {
+  const lines: string[] = [];
+  let done = false;
+  for (let index = 0; index < 16; index++) {
+    const next = iterator.next();
+    if (next.done) {
+      done = true;
+      break;
+    }
     const row = z
       .object({ seq: z.number(), at: z.number(), type: z.string(), payload: z.string() })
       .parse(next.value);
-    port.postMessage({ line: JSON.stringify(row) + "\n" });
+    lines.push(JSON.stringify(row) + "\n");
+  }
+  port.postMessage({ lines, done });
+  if (done) {
+    port.close();
+    db.close();
   }
 });

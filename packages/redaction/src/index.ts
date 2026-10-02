@@ -6,7 +6,8 @@ export type RedactionContext = {
   env?: Record<string, string | undefined> | undefined;
 };
 
-const SECRET_KEY = /token|secret|password|api[_-]?key|authorization|cookie|credential/i;
+const SECRET_KEY =
+  /token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code/i;
 export function isSecretKey(key: string): boolean {
   return SECRET_KEY.test(key);
 }
@@ -50,23 +51,31 @@ export function createRedactor(ctx: RedactionContext): (line: string) => string 
   ];
   const user = username.length >= 3 ? new RegExp(`\\b${escape(username)}\\b`, "g") : undefined;
 
+  const environmentValues = Object.entries(ctx.env ?? {}).filter(
+    (entry): entry is [string, string] => Boolean(entry[1]),
+  );
+  const shortValues = new Set(
+    environmentValues.map(([, value]) => value).filter((value) => value.length < 4),
+  );
   const values = [
     ...new Set(
-      Object.values(ctx.env ?? {})
-        .filter((value): value is string => Boolean(value))
-        .flatMap((value) => [value, JSON.stringify(value).slice(1, -1)]),
+      environmentValues
+        .filter(([key, value]) => value.length >= 4 || isSecretKey(key))
+        .flatMap(([, value]) => [value, JSON.stringify(value).slice(1, -1)]),
     ),
   ].toSorted((a, b) => b.length - a.length);
   const environment = values.length ? new RegExp(values.map(escape).join("|"), "g") : undefined;
   const scrub = (line: string): string => {
+    if (shortValues.has(line)) return "<ENV>";
     let out = line;
     for (const [pattern, replacement] of paths) {
       if (pattern.source !== "(?:)") out = out.replace(pattern, replacement);
     }
     if (environment) out = out.replace(environment, "<ENV>");
+    out = out.replace(/([#&](?:code|ticket|token)=)[^&#\s]+/gi, "$1<SECRET>");
     for (const pattern of SECRETS) out = out.replace(pattern, "<SECRET>");
     out = out.replace(
-      /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential)[^"\n]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi,
+      /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi,
       '$1"<SECRET>"',
     );
     out = out.replace(/\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi, "<SECRET>");

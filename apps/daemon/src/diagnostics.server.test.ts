@@ -1,5 +1,6 @@
 import { Command, DiagnosticsHealth } from "@ace/protocol";
 import { expect, it } from "vitest";
+import { setup as remoteFixture } from "./remote-test-support.ts";
 import { fixture } from "./socket-test-support.ts";
 function health(at: number) {
   return DiagnosticsHealth.parse({
@@ -79,4 +80,21 @@ it("one pending health request per socket bounds waiting responses and a failed 
   } finally {
     await f.close();
   }
+});
+
+it("a paired read-only device can request health through its authenticated socket ticket", async () => {
+  const f = await remoteFixture({ health: async () => health(7) });
+  const paired = await f.pair(["read"]);
+  const issued = await f.ticket(paired.token);
+  const client = await f.connectTicket(paired.device.id, issued.ticket);
+  await client.next();
+  client.send({
+    type: "command",
+    command: Command.parse({
+      id: "reader-health",
+      deviceId: paired.device.id,
+      payload: { type: "diagnostics.health" },
+    }),
+  });
+  expect(await client.next()).toMatchObject({ type: "commandResult", ok: true, health: { at: 7 } });
 });
