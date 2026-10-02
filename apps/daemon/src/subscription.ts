@@ -4,6 +4,7 @@ import type { Store } from "./store.ts";
 
 export type SubscriptionStore = Pick<
   Store,
+  | "getThread"
   | "snapshotThread"
   | "subscribe"
   | "headSeq"
@@ -80,25 +81,32 @@ export function subscribe(
     if (acquired) store.releaseThread(acquired);
   };
   try {
-    const view =
-      scope.kind === "thread"
-        ? store.acquireThread(scope.threadId)
-        : createThreadListView(store.listThreads());
-    if (scope.kind === "thread") acquired = scope.threadId;
-    const snapshotView =
-      scope.kind === "thread" ? store.snapshotThread(scope.threadId) : structuredClone(view);
-    const head = store.headSeq();
-    snapshotView.seq = head;
-    if (afterSeq !== undefined && afterSeq > head) throw new Error("Cursor ahead of log");
-    if (afterSeq === undefined || head - afterSeq > replayLimit) {
+    const initialHead = afterSeq === undefined ? undefined : store.headSeq();
+    if (afterSeq !== undefined && initialHead !== undefined && afterSeq > initialHead)
+      throw new Error("Cursor ahead of log");
+    if (afterSeq === undefined || (initialHead ?? 0) - afterSeq > replayLimit) {
+      const view =
+        scope.kind === "thread"
+          ? store.acquireThread(scope.threadId)
+          : createThreadListView(store.listThreads());
+      if (scope.kind === "thread") acquired = scope.threadId;
+      const snapshotView =
+        scope.kind === "thread" ? store.snapshotThread(scope.threadId) : structuredClone(view);
+      const head = store.headSeq();
+      snapshotView.seq = head;
       cursor = head;
       progressHead = head;
       send({ type: "snapshot", subscriptionId: id, seq: head, view: snapshotView });
     } else {
-      const events = store
-        .readEvents({ afterSeq, limit: replayLimit })
-        .filter((event) => event.seq <= head);
-      deliver(events, head, true);
+      if (scope.kind === "thread" && !store.getThread(scope.threadId))
+        throw new Error("Unknown thread");
+      const head = initialHead ?? 0;
+      if (head > afterSeq) {
+        const events = store
+          .readEvents({ afterSeq, limit: replayLimit })
+          .filter((event) => event.seq <= head);
+        deliver(events, head, true);
+      }
     }
     initializing = false;
     const pending = queued;
