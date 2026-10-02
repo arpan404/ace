@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SettingsService, fileIO } from "@ace/settings";
 import { Command, DiagnosticsHealth } from "@ace/protocol";
 import { expect, it } from "vitest";
 import { setup as remoteFixture } from "./remote-test-support.ts";
@@ -147,5 +151,67 @@ it("shutdown removes notification presence and releases pending health exactly o
   } finally {
     sample.resolve(health(1));
     await f.close();
+  }
+});
+
+it("settings and pending health share a socket and release their capacity on shutdown", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ace-health-settings-"));
+  const settings = new SettingsService({
+    dataDir: directory,
+    io: { ...fileIO, watch: async () => () => {} },
+  });
+  const entered = Promise.withResolvers<void>();
+  const sample = Promise.withResolvers<ReturnType<typeof health>>();
+  const stops: (() => void)[] = [];
+  let f: Awaited<ReturnType<typeof fixture>> | undefined;
+  try {
+    f = await fixture({
+      settings,
+      health: () => {
+        entered.resolve();
+        return sample.promise;
+      },
+    });
+    const client = await f.connect();
+    await client.next();
+    client.send({
+      type: "settings.subscribe",
+      requestId: "prefs",
+      subscriptionId: "prefs",
+      keys: ["notifications.sound"],
+      scope: {},
+    });
+    expect(await client.next()).toMatchObject({ type: "settings.result", ok: true });
+    for (let index = 0; index < 1023; index++)
+      stops.push(await settings.subscribe({ keys: ["notifications.sound"], scope: {} }, noop));
+    await expect(
+      settings.subscribe({ keys: ["notifications.sound"], scope: {} }, noop),
+    ).rejects.toMatchObject({ code: "limit" });
+    client.send({
+      type: "command",
+      command: Command.parse({
+        id: "waiting-health",
+        deviceId: "device",
+        payload: { type: "diagnostics.health" },
+      }),
+    });
+    await entered.promise;
+    client.send({ type: "settings.get", requestId: "read", key: "notifications.sound", scope: {} });
+    expect(await client.next()).toMatchObject({
+      type: "settings.result",
+      requestId: "read",
+      entries: [{ value: false }],
+    });
+    expect(f.server.diagnosticsQueues().healthRequests).toBe(1);
+    await f.server.close();
+    expect(f.server.diagnosticsQueues().healthRequests).toBe(0);
+    // The socket's subscription must release a real service admission slot.
+    stops.push(await settings.subscribe({ keys: ["notifications.sound"], scope: {} }, noop));
+  } finally {
+    sample.resolve(health(1));
+    for (const stop of stops) stop();
+    await f?.close();
+    await settings.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });

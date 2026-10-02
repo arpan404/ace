@@ -33,6 +33,7 @@
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/redaction": "workspace:*",
+        "@ace/settings": "workspace:*",
         "qrcode-generator": "2.0.4",
         "ws": "^8.18.3",
         "zod": "^4.6.5",
@@ -283,6 +284,14 @@
         "@noble/hashes": "2.0.1",
       },
     },
+    "packages/settings": {
+      "name": "@ace/settings",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "jsonc-parser": "^3.3.1",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/terminal": {
       "name": "@ace/terminal",
       "dependencies": {
@@ -366,6 +375,8 @@
     "@ace/relay": ["@ace/relay@workspace:apps/relay"],
 
     "@ace/secure-channel": ["@ace/secure-channel@workspace:packages/secure-channel"],
+
+    "@ace/settings": ["@ace/settings@workspace:packages/settings"],
 
     "@ace/terminal": ["@ace/terminal@workspace:packages/terminal"],
 

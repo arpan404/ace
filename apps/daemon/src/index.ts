@@ -2,6 +2,7 @@ import { discoverAdapters } from "./engine/adapters.ts";
 import type { discoverProviders } from "@ace/provider-kit/discovery";
 import { Engine, type EngineOptions } from "./engine/index.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
+import { SettingsService } from "@ace/settings";
 import { homedir } from "node:os";
 import { createRedactor } from "@ace/redaction";
 import {
@@ -76,6 +77,7 @@ export async function startDaemon(
   ): ReturnType<typeof launchPluginProcess>;
   browser: BrowserService;
   context: ContextService;
+  settings: SettingsService;
   models: ModelCatalog;
   notifications: NotificationWorker;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
@@ -96,6 +98,7 @@ export async function startDaemon(
   let browser: BrowserService | undefined;
   let context: ContextService | undefined;
   let maintenance: ReturnType<typeof setInterval> | undefined;
+  let settings: SettingsService | undefined;
   let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
@@ -129,6 +132,7 @@ export async function startDaemon(
               try {
                 try {
                   await context?.close();
+                  await settings?.close();
                 } finally {
                   await models?.close();
                 }
@@ -251,6 +255,7 @@ export async function startDaemon(
       },
     });
     const ownedContext = context;
+    settings = new SettingsService({ dataDir: config.dataDir });
     models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
@@ -266,6 +271,7 @@ export async function startDaemon(
     const remote = await remoteListener(config);
     server = await startServer({
       context,
+      settings,
       ...(remote ? { remote } : {}),
       port: config.port,
       token,
@@ -311,6 +317,7 @@ export async function startDaemon(
       launchPlugins: (provider, root, options) => ownedLaunches.launch(provider, root, options),
       browser,
       context: ownedContext,
+      settings,
       models,
       notifications: notifications.service,
       mcp,

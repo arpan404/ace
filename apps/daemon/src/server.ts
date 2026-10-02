@@ -1,3 +1,5 @@
+import type { SettingsService } from "@ace/settings";
+import { settingsSession } from "./settings.ts";
 import type { ModelCatalogApi } from "@ace/models";
 import { handleModelRequest } from "./models.ts";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
@@ -57,6 +59,7 @@ const closeListener = (listener: Server) =>
   });
 
 export interface ServerOptions {
+  settings?: SettingsService;
   models?: ModelCatalogApi;
   port: number;
   remote?: RemoteListener;
@@ -227,6 +230,12 @@ export async function startServer(options: ServerOptions): Promise<{
       send({ type: "error", code, message, ...scope });
       if (close) socket.close(4001, code);
     };
+    const settings = settingsSession({
+      service: options.settings,
+      store: options.store,
+      subscriptions,
+      send,
+    });
     const releaseHealth = () => {
       if (!healthPending) return;
       healthPending = false;
@@ -235,6 +244,7 @@ export async function startServer(options: ServerOptions): Promise<{
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
+      settings.close();
       releaseHealth();
       browser?.close();
       for (const stop of subscriptions.values()) stop();
@@ -451,6 +461,21 @@ export async function startServer(options: ServerOptions): Promise<{
             });
           break;
         }
+        case "settings.get":
+        case "settings.subscribe":
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
+          settings.accept(message);
+          break;
+        case "settings.set":
+          if (!allows(authenticated.get(socket), "operate")) {
+            fail("forbidden", "Operate scope required");
+            break;
+          }
+          settings.accept(message);
+          break;
         case "models.list":
         case "models.resolve":
         case "models.refresh": {

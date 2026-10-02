@@ -101,7 +101,16 @@ export class Outbox {
     this.tick();
   }
   private write(message: ServerMessage | PluginServerMessage): void {
-    this.writeSerialized(JSON.stringify(message));
+    if (this.socket.readyState !== WebSocket.OPEN) return;
+    const encoded = JSON.stringify(message);
+    if (
+      message.type.startsWith("settings.") &&
+      this.socket.bufferedAmount + Buffer.byteLength(encoded) > this.options.hardLimit
+    ) {
+      this.resync();
+      return;
+    }
+    this.writeSerialized(encoded);
   }
   private writeSerialized(message: string): void {
     if (this.socket.readyState === WebSocket.OPEN)

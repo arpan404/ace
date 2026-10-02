@@ -23,6 +23,15 @@ import { Interaction } from "./interactions.ts";
 import { Item } from "./items.ts";
 import { Run, Thread } from "./thread.ts";
 
+import {
+  SettingsGet,
+  SettingsSet,
+  SettingsSubscribe,
+  SettingsResult,
+  SettingsChanged,
+  SettingsDiagnosticMessage,
+} from "./settings.ts";
+
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 // Zod records intentionally strip __proto__. Validate entries before rebuilding
 // with own data properties so every supported opaque ID survives decoding.
@@ -88,6 +97,9 @@ export const ItemsPage = z.object({
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
   ContextRequest,
+  SettingsGet,
+  SettingsSet,
+  SettingsSubscribe,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -140,6 +152,9 @@ export const CommandResult = z.object({
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
   ContextResult,
+  SettingsResult,
+  SettingsChanged,
+  SettingsDiagnosticMessage,
   ModelsResult,
   NotificationMessage,
   z.object({
