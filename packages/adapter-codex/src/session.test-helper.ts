@@ -27,10 +27,8 @@ export async function sessionHarness(resume = false) {
   const replay = replayHarness();
   const frames: Frame[] = [];
   const waiters = new Set<{ match(frame: Frame): boolean; resolve(frame: Frame): void }>();
-  let exitResolve: (exit: { deliberate: boolean; message?: string }) => void = () => {};
-  const exited = new Promise<{ deliberate: boolean; message?: string }>((resolve) => {
-    exitResolve = resolve;
-  });
+  const exit = Promise.withResolvers<{ deliberate: boolean; message?: string }>();
+  const exited = exit.promise;
   const session = await adapter.openSession({
     threadId: ThreadId.parse("fixture"),
     cwd: directory,
@@ -45,9 +43,9 @@ export async function sessionHarness(resume = false) {
           waiter.resolve(frame);
         }
     },
-    onExit(exit) {
-      replay.feedFact({ type: "process.exited", ...exit }, frames.at(-1)?.t ?? 0);
-      exitResolve(exit);
+    onExit(result) {
+      replay.feedFact({ type: "process.exited", ...result }, frames.at(-1)?.t ?? 0);
+      exit.resolve(result);
     },
   });
   return {

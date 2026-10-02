@@ -9,7 +9,7 @@ import {
 } from "@ace/adapter-testkit";
 import { createCodexTranslator } from "./translator.ts";
 const directory = new URL("../../../fixtures/codex/0.159.1/", import.meta.url);
-for (const name of readdirSync(directory).filter((name) => name.endsWith(".jsonl")))
+for (const name of readdirSync(directory).filter((file) => file.endsWith(".jsonl")))
   test(`preserves the status timeline in ${name}`, async () => {
     const fixture = await readFixture(fileURLToPath(new URL(name, directory)));
     const expected = await readExpectations(

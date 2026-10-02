@@ -60,13 +60,14 @@ export function turnError(
   const info = str(error["codexErrorInfo"], Object.keys(obj(error["codexErrorInfo"]))[0]);
   const message = str(error["message"], "Codex turn failed");
   return {
-    kind: /usageLimit|rateLimit/.test(info)
-      ? "quota"
-      : /auth/i.test(info)
-        ? "auth"
-        : /Stream|network|Connection/.test(info)
-          ? "network"
-          : "provider",
+    kind:
+      /usageLimit|rateLimit/.test(info) || /usage limit|rate limit/i.test(message)
+        ? "quota"
+        : /auth/i.test(info) || /authentication failed|not logged in/i.test(message)
+          ? "auth"
+          : /Stream|network|Connection/.test(info)
+            ? "network"
+            : "provider",
     message,
   };
 }

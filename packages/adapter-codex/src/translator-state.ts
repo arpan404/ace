@@ -7,13 +7,15 @@ export type Agent = {
   key: Key;
   parent?: string;
   known: boolean;
+  unknownTask?: boolean;
   buffer: Frame[];
   turn?: string;
   hadTurn: boolean;
   mode: string;
   open: Map<string, OpenItem>;
   items: Set<string>;
-  requests: Map<string, string>;
+  requests: Map<string, { item: string; turn: string }>;
+  ended: Set<string>;
   async: Set<string>;
   children: Set<string>;
   plan?: { id: string; text: string };

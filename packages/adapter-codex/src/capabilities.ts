@@ -6,10 +6,9 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
     ?.match(/^(\d+)\.(\d+)\.(\d+)/)
     ?.slice(1)
     .map(Number);
+  const [major = -1, minor = -1, patch = -1] = parts ?? [];
   const supported =
-    cli.installed &&
-    !!parts &&
-    (parts[0]! > 0 || parts[1]! > 159 || (parts[1] === 159 && parts[2]! >= 1));
+    cli.installed && !!parts && (major > 0 || minor > 159 || (minor === 159 && patch >= 1));
   return {
     steer: supported,
     interruptCascades: false,

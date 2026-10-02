@@ -69,21 +69,49 @@ export function translateItem(
       if (!agent.turn) agent.childResult = true;
     }
   } else {
+    if (type === "collabAgentToolCall" && item["tool"] === "spawnAgent") {
+      for (const receiver of list(item["receiverThreadIds"])) {
+        const child = str(receiver);
+        if (!child) continue;
+        const childAgent = discover(child, item, facts, now, native, itemId);
+        const task = childKey(child);
+        if (childAgent.turn || !childAgent.hadTurn) {
+          tasks.add(task);
+          facts.push({
+            type: "background.started",
+            agent: agent.key,
+            task,
+            childAgent: childAgent.key,
+            item: itemId,
+            kind: "subagent",
+            title: str(item["prompt"], "Subagent"),
+            stoppable: true,
+          });
+        }
+      }
+    }
     const previous = agent.open.get(itemId);
     if (!complete)
       agent.open.set(itemId, { data: item, turn: str(p["turnId"], agent.turn), output: "" });
     else agent.open.delete(itemId);
-    facts.push({
-      type: "item.upsert",
-      agent: agent.key,
-      item: itemId,
-      draft: itemDraft(item, complete),
-    });
+    const draft = itemDraft(item, complete);
+    if (previous && complete) {
+      const earlier = raw(
+        str(previous.data["type"]),
+        previous.data,
+        previous.data["tool"] ?? previous.data["name"],
+      );
+      if (draft.type === "tool_call" && draft.call)
+        draft.call.raw = [...earlier, ...(draft.call.raw ?? [])];
+      else if (draft.type === "message" || draft.type === "reasoning" || draft.type === "notice")
+        draft.raw = [...earlier, ...(draft.raw ?? [])];
+    }
+    facts.push({ type: "item.upsert", agent: agent.key, item: itemId, draft });
     const output = str(item["aggregatedOutput"]);
     if (
       output &&
-      itemDraft(item, complete).type === "tool_call" &&
-      obj(obj(itemDraft(item, complete))["call"])["kind"] === "shell" &&
+      draft.type === "tool_call" &&
+      draft.call?.kind === "shell" &&
       output !== previous?.output
     )
       facts.push({

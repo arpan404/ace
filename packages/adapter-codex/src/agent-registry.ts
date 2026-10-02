@@ -30,6 +30,7 @@ export function createAgentRegistry(config: {
         open: new Map(),
         items: new Set(),
         requests: new Map(),
+        ended: new Set(),
         async: new Set(),
         children: new Set(),
         backgroundResult: false,
@@ -85,7 +86,13 @@ export function createAgentRegistry(config: {
         name: str(p["agentNickname"], str(p["agentPath"]).split("/").at(-1) ?? id),
       });
     }
-    if (p["status"] && agent.buffer.length === 0 && !agent.hadTurn) {
+    if (
+      p["status"] &&
+      !agent.buffer.some((frame) =>
+        ["turn/started", "turn/completed"].includes(str(obj(frame.data)["method"])),
+      ) &&
+      !agent.hadTurn
+    ) {
       const turns = list(p["turns"]);
       for (const turn of turns) {
         const t = obj(turn);
@@ -125,6 +132,10 @@ export function createAgentRegistry(config: {
     }
     const buffered = agent.buffer.splice(0);
     for (const frame of buffered) facts.push(...config.replay(frame, now));
+    if (agent.unknownTask) {
+      facts.push({ type: "background.ended", task: `unknown:${id}`, status: "completed" });
+      delete agent.unknownTask;
+    }
     return agent;
   }
   return { ensure, discover };

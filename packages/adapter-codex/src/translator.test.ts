@@ -1,36 +1,6 @@
 import { expect, test } from "vitest";
-import { replayHarness } from "./replay.test-helper.ts";
+import { setup, shell } from "./translator.test-helper.ts";
 import { requestKey } from "./native.ts";
-function setup() {
-  const h = replayHarness();
-  let seq = 0;
-  const recv = (method: string, params: unknown, id?: number) =>
-    h.feed({
-      seq: seq++,
-      t: seq,
-      dir: "recv",
-      channel: "stdio",
-      data: { method, params, ...(id === undefined ? {} : { id }) },
-    });
-  const send = (method: string, params: unknown, id = 90) =>
-    h.feed({ seq: seq++, t: seq, dir: "send", channel: "stdio", data: { id, method, params } });
-  const start = (threadId = "native", id = "turn") =>
-    recv("turn/started", { threadId, turn: { id } });
-  const end = (status = "completed", threadId = "native", id = "turn") =>
-    recv("turn/completed", { threadId, turn: { id, status } });
-  const item = (data: unknown, complete = false, threadId = "native", turnId = "turn") =>
-    recv(complete ? "item/completed" : "item/started", { threadId, turnId, item: data });
-  recv("thread/started", { thread: { id: "native", cwd: "/repo" } });
-  return { ...h, recv, send, start, end, item };
-}
-const shell = {
-  id: "exec",
-  type: "commandExecution",
-  command: "loop",
-  status: "inProgress",
-  commandActions: [],
-};
-
 test("a late child registration retains its earlier turn and transcript", () => {
   const h = setup();
   h.start();
@@ -113,7 +83,8 @@ test("async final-answer questions stay non-blocking and become actionable after
     true,
   );
   expect(h.state.status.state).toBe("working");
-  const question = Object.values(h.state.interactions)[0]!;
+  const question = Object.values(h.state.interactions)[0];
+  if (!question) throw new Error("Question was not emitted");
   expect(question.blocking).toBe(false);
   expect(question.request).toMatchObject({
     kind: "question",
@@ -189,6 +160,12 @@ test("a question without a backing item emits an ask-user tool and resolves once
     (i) => i.type === "tool_call" && i.call.kind === "ask_user",
   );
   expect(Object.values(h.state.interactions)[0]?.toolCallId).toBe(tool?.id);
+  expect(tool?.type === "tool_call" && tool.call.raw).toMatchObject([
+    {
+      type: "item/tool/requestUserInput",
+      data: { itemId: "missing", questions: [{ id: "q", question: "Continue?" }] },
+    },
+  ]);
   h.recv("serverRequest/resolved", { threadId: "native", requestId: 7 });
   h.end();
   expect(h.state.status.state).toBe("done");

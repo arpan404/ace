@@ -10,6 +10,7 @@ const message = (text: string, id = "proof") =>
 const active = new Map<string, string>();
 const terminals = new Map<string, { itemId: string; processId: string }[]>();
 let pendingKind = "";
+let queued = 0;
 function end(threadId = "native", status = "completed"): void {
   const id = active.get(threadId) ?? "turn";
   active.delete(threadId);
@@ -97,9 +98,9 @@ for await (const line of createInterface({ input: process.stdin })) {
       for (const [thread, entries] of terminals)
         item(
           thread,
-          active.get(thread)!,
+          active.get(thread) ?? "turn",
           {
-            id: entries[0]!.itemId,
+            id: entries[0]?.itemId ?? "",
             type: "commandExecution",
             command: "loop",
             status: "inProgress",
@@ -108,6 +109,14 @@ for await (const line of createInterface({ input: process.stdin })) {
           },
           false,
         );
+    } else if (text === "orphan") {
+      active.set("orphan", "orphan-turn");
+      notify("thread/status/changed", { threadId: "orphan", status: { type: "idle" } });
+      item("orphan", "orphan-turn", {
+        id: "orphan-text",
+        type: "agentMessage",
+        text: "early transcript",
+      });
     } else if (text === "hidden-child") {
       active.set("hidden", "hidden-turn");
       end();
@@ -126,9 +135,15 @@ for await (const line of createInterface({ input: process.stdin })) {
       if (pendingKind === "question") end();
     }
   } else if (method === "thread/queue/add") {
+    queued++;
     respond({});
     message(`queued: ${str(obj(list(p["input"])[0])["text"])}`, "queue-proof");
-  } else if (method === "turn/interrupt") {
+  } else if (method === "thread/queue/list")
+    respond({
+      data: Array.from({ length: queued }, (_, i) => ({ id: `queued-${i}` })),
+      nextCursor: null,
+    });
+  else if (method === "turn/interrupt") {
     respond({});
     end(str(p["threadId"]), "interrupted");
   } else if (method === "thread/backgroundTerminals/list") {

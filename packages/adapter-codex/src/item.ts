@@ -3,7 +3,29 @@ import type { ContentPart, FileChange, ToolStatus } from "@ace/protocol";
 import type { ThreadItem } from "./generated/v2/ThreadItem.ts";
 import { list, obj, raw, str, type Obj } from "./native.ts";
 
-type NativeType = ThreadItem["type"];
+const messages = {
+  user: "userMessage",
+  assistant: "agentMessage",
+  reasoning: "reasoning",
+} satisfies Record<string, ThreadItem["type"]>;
+function fileChange(entry: unknown): FileChange {
+  const c = obj(entry);
+  const k = obj(c["kind"]);
+  const movePath = str(k["move_path"]);
+  const kind = movePath
+    ? "move"
+    : k["type"] === "add"
+      ? "add"
+      : k["type"] === "delete"
+        ? "delete"
+        : "update";
+  return {
+    path: str(c["path"]),
+    kind,
+    ...(movePath ? { movePath } : {}),
+    ...(typeof c["diff"] === "string" ? { diff: c["diff"] } : {}),
+  };
+}
 export function content(value: unknown): ContentPart[] {
   return list(value).flatMap((entry): ContentPart[] => {
     const p = obj(entry);
@@ -31,8 +53,8 @@ export function toolDraft(
 export function itemDraft(item: Obj, complete: boolean): ItemDraft {
   const type = str(item["type"]);
   // The generated union documents known variants; decoding remains open to new ones.
-  switch (type as NativeType) {
-    case "userMessage":
+  switch (type) {
+    case messages.user:
       return {
         type: "message",
         role: "user",
@@ -40,7 +62,7 @@ export function itemDraft(item: Obj, complete: boolean): ItemDraft {
         complete,
         raw: raw(type, item),
       };
-    case "agentMessage":
+    case messages.assistant:
       if (item["delivery"] === "async" && list(item["questions"]).length)
         return toolDraft(
           { kind: "ask_user" },
@@ -56,7 +78,7 @@ export function itemDraft(item: Obj, complete: boolean): ItemDraft {
         complete,
         raw: raw(type, item),
       };
-    case "reasoning":
+    case messages.reasoning:
       return {
         type: "reasoning",
         text: [...list(item["summary"]), ...list(item["content"])]
@@ -99,24 +121,7 @@ export function itemDraft(item: Obj, complete: boolean): ItemDraft {
             };
     title = str(item["command"]);
   } else if (type === "fileChange") {
-    const changes: FileChange[] = list(item["changes"]).map((entry) => {
-      const c = obj(entry);
-      const k = obj(c["kind"]);
-      const movePath = str(k["move_path"]);
-      const kind = movePath
-        ? "move"
-        : k["type"] === "add"
-          ? "add"
-          : k["type"] === "delete"
-            ? "delete"
-            : "update";
-      return {
-        path: str(c["path"]),
-        kind,
-        ...(movePath ? { movePath } : {}),
-        ...(typeof c["diff"] === "string" ? { diff: c["diff"] } : {}),
-      };
-    });
+    const changes = list(item["changes"]).map(fileChange);
     const kind = changes[0]?.kind;
     detail = {
       kind:

@@ -13,13 +13,18 @@ export function completeTurn(
   const { agents, tasks } = ctx;
   const turn = obj(p["turn"]);
   const turnId = str(turn["id"]);
-  const outcome = agent.failureText
-    ? "failed"
-    : turn["status"] === "interrupted"
-      ? "interrupted"
-      : turn["status"] === "failed"
-        ? "failed"
-        : "completed";
+  if (agent.ended.has(turnId)) return;
+  agent.ended.add(turnId);
+  agent.hadTurn = true;
+  const current = !agent.turn || agent.turn === turnId;
+  const outcome =
+    current && agent.failureText
+      ? "failed"
+      : turn["status"] === "interrupted"
+        ? "interrupted"
+        : turn["status"] === "failed"
+          ? "failed"
+          : "completed";
   for (const [itemId, open] of agent.open) {
     if (open.turn !== turnId) continue;
     if (open.data["type"] === "commandExecution") {
@@ -43,23 +48,37 @@ export function completeTurn(
       agent.open.delete(itemId);
     }
   }
-  for (const child of agent.children)
-    if (agents.get(child)?.turn)
-      facts.push({ type: "agent.linked", agent: agents.get(child)!.key, background: true });
-  for (const key of agent.requests.keys())
-    facts.push({ type: "interaction.closed", interaction: key, state: "cancelled" });
-  agent.requests.clear();
+  if (current)
+    for (const child of agent.children) {
+      const childAgent = agents.get(child);
+      if (
+        childAgent?.turn ||
+        (childAgent &&
+          (!childAgent.hadTurn ||
+            [...childAgent.open.keys()].some((item) => tasks.has(shellKey(item)))))
+      )
+        facts.push({ type: "agent.linked", agent: childAgent.key, background: true });
+    }
+  for (const [key, request] of agent.requests)
+    if (request.turn === turnId) {
+      facts.push({ type: "interaction.closed", interaction: key, state: "cancelled" });
+      agent.requests.delete(key);
+    }
   facts.push({
     type: "turn.ended",
     agent: agent.key,
     nativeTurnId: turnId,
     outcome,
     ...(outcome === "failed"
-      ? { error: turnError(agent.failureText ? { message: agent.failureText } : turn["error"]) }
+      ? {
+          error: turnError(
+            current && agent.failureText ? { message: agent.failureText } : turn["error"],
+          ),
+        }
       : {}),
   });
   if (agent.turn === turnId) delete agent.turn;
-  if (agent.parent && tasks.has(childKey(native))) {
+  if (current && agent.parent && tasks.has(childKey(native))) {
     tasks.delete(childKey(native));
     facts.push({
       type: "background.ended",
@@ -67,7 +86,7 @@ export function completeTurn(
       status: outcome === "failed" ? "failed" : "completed",
     });
   }
-  if (outcome === "completed" && agent.mode === "plan" && agent.plan)
+  if (current && outcome === "completed" && agent.mode === "plan" && agent.plan)
     facts.push({
       type: "interaction.opened",
       agent: agent.key,

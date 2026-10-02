@@ -115,6 +115,7 @@ test("cascade interrupts children and terminates surviving terminals by listed p
     await h.session.send(text("tree"), "queue");
     await h.wait(received("item/started"));
     await h.session.interrupt({ cascade: true });
+    expect(Object.values(h.replay.state.runs).every((r) => r.state === "interrupted")).toBe(true);
     await h.wait((f) => proof("root-exec")(f));
     await h.wait((f) => proof("child-exec")(f));
     expect(Object.values(h.replay.state.tasks).every((t) => t.status === "completed")).toBe(true);
@@ -174,6 +175,45 @@ test("unexpected process exit reports failure and releases active work", async (
     const exit = await h.exited;
     expect(exit.deliberate).toBe(false);
     expect(h.replay.state.status.state).toBe("failed");
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("non-cascading interruption leaves child turns and background terminals live", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send(text("tree"), "queue");
+    await h.wait(received("item/started"));
+    await h.session.interrupt({ cascade: false });
+    await h.wait(received("turn/completed"));
+    expect(h.replay.state.status.state).not.toBe("done");
+    expect(Object.values(h.replay.state.runs).filter((r) => r.state === "active")).toHaveLength(1);
+    expect(Object.values(h.replay.state.tasks).some((t) => t.status === "running")).toBe(true);
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("an unknown thread without a spawn item is adopted from thread-read metadata", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send(text("orphan"), "queue");
+    await h.wait(
+      (f) => f.dir === "recv" && obj(obj(obj(f.data)["result"])["thread"])["id"] === "orphan",
+    );
+    const orphan = Object.values(h.replay.state.agents).find(
+      (a) => a.agent.native.nativeId === "orphan",
+    );
+    expect(orphan?.agent.fidelity).toBe("full");
+    expect(orphan?.agent.status.state).toBe("working");
+    expect(
+      Object.values(h.replay.state.items).some(
+        (i) =>
+          i.type === "message" &&
+          i.parts.some((p) => p.type === "text" && p.text === "early transcript"),
+      ),
+    ).toBe(true);
   } finally {
     await h.dispose();
   }

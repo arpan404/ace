@@ -1,7 +1,10 @@
 import type { RawPayload, Question, ApprovalOption } from "@ace/protocol";
+import { z } from "zod";
+const objectSchema = z.record(z.string(), z.unknown());
 export type Obj = Record<string, unknown>;
 export function obj(value: unknown): Obj {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Obj) : {};
+  const decoded = objectSchema.safeParse(value);
+  return decoded.success ? decoded.data : {};
 }
 export function str(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
@@ -17,26 +20,28 @@ export const asyncKey = (item: string): string => `async:${item}`;
 export const planKey = (turn: string): string => `plan:${turn}`;
 export const shellKey = (item: string): string => `shell:${item}`;
 export const childKey = (thread: string): string => `subagent:${thread}`;
+function option(value: unknown): Question["options"][number] {
+  const native = obj(value);
+  const label = str(value, str(native["label"]));
+  const result: Question["options"][number] = { id: label, label };
+  if (typeof native["description"] === "string") result.description = native["description"];
+  return result;
+}
 export function questions(value: unknown, async: boolean): Question[] {
-  return list(value).map((entry, i) => {
+  const result: Question[] = [];
+  for (const [i, entry] of list(value).entries()) {
     const q = obj(entry);
-    return {
+    const question: Question = {
       id: str(q["id"], `q${i}`),
       text: str(q["question"], str(q["title"])),
-      ...(typeof q["header"] === "string" ? { header: q["header"] } : {}),
-      options: list(q["options"]).map((entry) => {
-        const o = obj(entry);
-        const label = str(entry, str(o["label"]));
-        return {
-          id: label,
-          label,
-          ...(typeof o["description"] === "string" ? { description: o["description"] } : {}),
-        };
-      }),
+      options: list(q["options"]).map(option),
       multiSelect: q["multiSelect"] === true,
       allowOther: async || q["isOther"] === true,
     };
-  });
+    if (typeof q["header"] === "string") question.header = q["header"];
+    result.push(question);
+  }
+  return result;
 }
 export function decisions(value: unknown): ApprovalOption[] {
   return list(value ?? ["accept", "acceptForSession", "decline", "cancel"]).map((entry) => {

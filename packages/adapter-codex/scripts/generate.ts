@@ -35,7 +35,8 @@ try {
     let source = await readFile(path, "utf8");
     const imports = [...source.matchAll(/from "([^"]+)"/g)];
     for (const match of imports) {
-      const specifier = match[1]!;
+      const specifier = match[1];
+      if (!specifier) continue;
       const dependency = resolve(dirname(path), specifier).slice(scratch.length + 1);
       await copy(dependency);
     }
@@ -46,6 +47,8 @@ try {
   }
   for (const root of roots) await copy(root);
   await writeFile(resolve(destination, "VERSION"), `${version}\n`);
+  const formatter = fileURLToPath(new URL("../../../node_modules/.bin/oxfmt", import.meta.url));
+  await probe(formatter, [destination]);
 } finally {
   await rm(scratch, { recursive: true, force: true });
 }

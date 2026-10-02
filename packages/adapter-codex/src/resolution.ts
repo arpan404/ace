@@ -6,9 +6,11 @@ export function approvalResult(request: ServerRequest, resolution: InteractionRe
   if (request.method === "item/tool/requestUserInput" && resolution.kind === "question")
     return {
       answers: Object.fromEntries(
-        Object.entries(resolution.answers).map(([id, answers]) => [id, { answers }]),
+        Object.entries(resolution.answers).map(([id, answers]) => [
+          id,
+          { answers: resolution.dismissed ? [] : answers },
+        ]),
       ),
-      ...(resolution.dismissed ? { dismissed: true } : {}),
     };
   if (request.method === "mcpServer/elicitation/request" && resolution.kind === "elicitation")
     return {

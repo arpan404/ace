@@ -5,7 +5,7 @@ import type { Agent, TranslationContext } from "./translator-state.ts";
 import { createAgentRegistry } from "./agent-registry.ts";
 import { completeTurn } from "./translate-turn.ts";
 import { translateItem } from "./translate-item.ts";
-import { itemDraft } from "./item.ts";
+import { isKnownDelta, translateDelta } from "./translate-delta.ts";
 import { openRequest, turnError } from "./interactions.ts";
 import { asyncKey, list, obj, raw, requestKey, str, type Obj } from "./native.ts";
 
@@ -17,6 +17,11 @@ const requestMethods = new Set([
   "mcpServer/elicitation/request",
 ]);
 
+function resolveAsync(agent: Agent, facts: Fact[]): void {
+  for (const item of agent.async)
+    facts.push({ type: "interaction.closed", interaction: asyncKey(item), state: "resolved" });
+  agent.async.clear();
+}
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
   const agents = new Map<string, Agent>();
   const sent = new Map<string, { method: string; params: Obj }>();
@@ -39,17 +44,21 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
   };
   let synthetic = 0;
   let deliberate = false;
+  const beforeRoot: { type: string; data: unknown; text?: string }[] = [];
+  function retainEarly(type: string, data: unknown, text?: string): void {
+    beforeRoot.push({ type, data, ...(text ? { text } : {}) });
+  }
+  function flushEarly(facts: Fact[]): void {
+    if (root)
+      for (const entry of beforeRoot.splice(0))
+        facts.push(note(init.rootKey, entry.type, entry.data, entry.text));
+  }
   const note = (agent: Key, type: string, data: unknown, text = type): Fact => ({
     type: "item.upsert",
     agent,
     item: `codex:raw:${++synthetic}`,
     draft: { type: "notice", level: "info", text, complete: true, raw: raw(type, data) },
   });
-  function resolveAsync(agent: Agent, facts: Fact[]): void {
-    for (const item of agent.async)
-      facts.push({ type: "interaction.closed", interaction: asyncKey(item), state: "resolved" });
-    agent.async.clear();
-  }
   function handle(frame: Frame, now: number): Fact[] {
     const facts: Fact[] = [];
     const message = obj(frame.data),
@@ -61,13 +70,19 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
         facts.push({
           type: "background.started",
           agent: init.rootKey,
-          task: "codex:discovery",
+          task: str(message["task"], "codex:discovery"),
           kind: "other",
           title: "Discovering loaded descendants",
           stoppable: false,
         });
       if (message["event"] === "discovery-finished")
-        facts.push({ type: "background.ended", task: "codex:discovery", status: "completed" });
+        facts.push({
+          type: "background.ended",
+          task: str(message["task"], "codex:discovery"),
+          status: "completed",
+        });
+      if (message["event"] === "queue-state" && typeof message["count"] === "number")
+        facts.push({ type: "queue.changed", count: message["count"] });
       if (message["event"] === "stop") deliberate = true;
       if (message["event"] === "process-exit")
         facts.push({ type: "process.exited", deliberate, message: "Codex app-server exited" });
@@ -88,10 +103,14 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           agent.mode = str(obj(p["collaborationMode"])["mode"], agent.mode);
       }
       if (root) facts.push(note(init.rootKey, method || "rpc.response.sent", frame.data));
+      else retainEarly(method || "rpc.response.sent", frame.data);
       return facts;
     }
-    if (frame.dir === "stderr")
-      return root ? [note(init.rootKey, "stderr", frame.data, str(frame.data))] : [];
+    if (frame.dir === "stderr") {
+      if (root) return [note(init.rootKey, "stderr", frame.data, str(frame.data))];
+      retainEarly("stderr", frame.data, str(frame.data));
+      return [];
+    }
     if (!method && id !== undefined) {
       const pending = sent.get(requestKey(id));
       sent.delete(requestKey(id));
@@ -122,7 +141,9 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
         const agent = agents.get(str(pending.params["threadId"]));
         if (agent) resolveAsync(agent, facts);
       }
+      flushEarly(facts);
       if (root) facts.push(note(init.rootKey, "rpc.response", frame.data));
+      else retainEarly("rpc.response", frame.data);
       return facts;
     }
     if (method === "thread/started") {
@@ -131,22 +152,51 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       if (!native) return root ? [note(init.rootKey, method, frame.data)] : [];
       if (!root) root = native;
       discover(native, thread, facts, now, str(thread["parentThreadId"]) || undefined);
+      flushEarly(facts);
+      facts.push(note(init.rootKey, method, frame.data));
       return facts;
     }
     const native = str(p["threadId"], root);
-    if (!native) return [];
+    if (!native) {
+      retainEarly(method || "unknown", frame.data);
+      return [];
+    }
     const agent = ensure(native, native === root, facts);
     facts.push({ type: "signal", agent: agent.key });
     if (!agent.known) {
+      if (!agent.unknownTask) {
+        agent.unknownTask = true;
+        facts.push({
+          type: "background.started",
+          agent: init.rootKey,
+          task: `unknown:${native}`,
+          kind: "other",
+          title: "Discovering an unknown Codex thread",
+          stoppable: false,
+        });
+      }
       agent.buffer.push(frame);
       return facts;
     }
+    if (
+      [
+        "turn/started",
+        "turn/completed",
+        "thread/status/changed",
+        "thread/settings/updated",
+        "thread/tokenUsage/updated",
+        "thread/queue/changed",
+        "thread/goal/updated",
+        "thread/goal/cleared",
+      ].includes(method)
+    )
+      facts.push(note(agent.key, method, frame.data));
     if (requestMethods.has(method) && id !== undefined) {
       const key = requestKey(id);
       const item = str(p["itemId"]);
       facts.push(...openRequest(agent.key, key, method, p, agent.items.has(item)));
       if (item) agent.items.add(item);
-      agent.requests.set(key, item);
+      agent.requests.set(key, { item, turn: str(p["turnId"], agent.turn) });
       delete agent.unmatchedFlag;
       facts.push({
         type: "interaction.closed",
@@ -156,7 +206,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     } else if (method === "serverRequest/resolved") {
       const key = requestKey(p["requestId"]);
       facts.push({ type: "interaction.closed", interaction: key, state: "resolved" });
-      const item = agent.requests.get(key);
+      const item = agent.requests.get(key)?.item;
       if (item && !agent.open.has(item))
         facts.push({
           type: "item.upsert",
@@ -189,41 +239,41 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       completeTurn(agent, native, p, translation, facts);
     } else if (method === "item/started" || method === "item/completed") {
       translateItem(agent, native, p, method, frame, now, translation, facts);
-    } else if (method.endsWith("/delta") || method.endsWith("/outputDelta")) {
-      facts.push({ type: "retry.cleared", agent: agent.key });
-      const item = str(p["itemId"]);
-      const append = str(p["delta"]);
-      if (method === "item/plan/delta") {
-        const open = agent.open.get(item);
-        if (open) {
-          open.data = { ...open.data, text: str(open.data["text"]) + append };
-          facts.push({
-            type: "item.upsert",
-            agent: agent.key,
-            item,
-            draft: itemDraft(open.data, false),
-          });
-        } else facts.push(note(agent.key, method, frame.data));
-      } else if (
-        method.includes("commandExecution") &&
-        agent.open.has(item) &&
-        obj(obj(itemDraft(agent.open.get(item)!.data, false))["call"])["kind"] !== "shell"
-      )
-        facts.push(note(agent.key, method, frame.data));
-      else
-        facts.push({
-          type: "item.delta",
-          agent: agent.key,
-          item,
-          field: method.includes("commandExecution")
-            ? "output"
-            : method.includes("reasoning")
-              ? "reasoning"
-              : "text",
-          append,
-        });
-      const open = agent.open.get(item);
-      if (open && method.includes("commandExecution")) open.output += append;
+    } else if (
+      isKnownDelta(method) ||
+      method.endsWith("/delta") ||
+      method.endsWith("/outputDelta")
+    ) {
+      translateDelta(agent, p, method, frame, translation, facts);
+    } else if (method === "turn/plan/updated") {
+      const todos = list(p["plan"]).map((entry) => {
+        const step = obj(entry);
+        return {
+          content: str(step["step"]),
+          status:
+            step["status"] === "completed"
+              ? ("completed" as const)
+              : step["status"] === "inProgress" || step["status"] === "in_progress"
+                ? ("in_progress" as const)
+                : ("pending" as const),
+        };
+      });
+      facts.push({
+        type: "item.upsert",
+        agent: agent.key,
+        item: `codex:plan-update:${str(p["turnId"], agent.turn)}`,
+        draft: {
+          type: "tool_call",
+          complete: true,
+          call: {
+            kind: "todo",
+            title: str(p["explanation"], "Update plan"),
+            status: "succeeded",
+            detail: { kind: "todo", todos },
+            raw: raw(method, frame.data),
+          },
+        },
+      });
     } else if (method === "error") {
       const error = turnError(p["error"]);
       facts.push(note(agent.key, method, frame.data, error?.message));
@@ -241,6 +291,10 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     } else if (method === "thread/status/changed") {
       const status = obj(p["status"]);
       const flags = list(status["activeFlags"]);
+      if (status["type"] === "active" && !agent.turn)
+        facts.push({ type: "wake.expected", agent: agent.key, until: now + 2_000 });
+      if ((status["type"] === "idle" || status["type"] === "notLoaded") && !agent.turn)
+        facts.push({ type: "wake.expected", agent: agent.key, until: now });
       const key = `status:${native}`;
       if (flags.length && agent.requests.size === 0) agent.unmatchedFlag = { data: p, since: now };
       else delete agent.unmatchedFlag;
@@ -257,10 +311,8 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     } else if (method === "thread/settings/updated")
       agent.mode = str(obj(p["collaborationMode"])["mode"], agent.mode);
     else if (method.startsWith("thread/goal/")) agent.pendingTrigger = "goal";
-    else if (method === "thread/queue/changed") {
-      agent.pendingTrigger = "queue";
-      facts.push({ type: "queue.changed", count: list(p["items"]).length });
-    } else if (method === "thread/tokenUsage/updated") {
+    else if (method === "thread/queue/changed") agent.pendingTrigger = "queue";
+    else if (method === "thread/tokenUsage/updated") {
       const usage = obj(obj(p["tokenUsage"])["last"]);
       if (typeof usage["inputTokens"] === "number" && typeof usage["outputTokens"] === "number")
         facts.push({
@@ -280,7 +332,9 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       try {
         return handle(frame, now);
       } catch {
-        return root ? [note(init.rootKey, "malformed", frame.data)] : [];
+        if (root) return [note(init.rootKey, "malformed", frame.data)];
+        retainEarly("malformed", frame.data);
+        return [];
       }
     },
     tick(now) {
