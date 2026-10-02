@@ -22,3 +22,7 @@ an assertion failure. No mutation depended on lint or typecheck failures.
 After reverting all twelve mutations, `bun run check` passed with 401 tests
 passing and four existing tests skipped.
 No GitHub CI is used.
+
+After integrating remote access from `origin/main`, the full gate passed again
+with 444 tests passing and four existing tests skipped, including paired-device
+scope checks for the catalog queries.

@@ -70,7 +70,8 @@ with `ACE_MODEL_INSTANCES`, a JSON array of the instance objects above. Embedder
 may pass instances as the third argument to `startDaemon`; its returned `models`
 object supports local registration and login-change notifications. The account
 manager workstream must call these hooks. No credentials or launch configuration
-are accepted from wire clients. Catalog queries do not append thread events.
+are accepted from wire clients. Catalog queries do not append thread events. Remote list/resolve require read
+scope; explicit refresh requires operate scope.
 
 Each probe is capped at 4 MiB, each raw row at 2 KiB, each instance at 512 models,
 and the catalog at 64 registered instances and 64 outstanding refresh flights.

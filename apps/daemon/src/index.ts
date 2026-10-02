@@ -1,5 +1,7 @@
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { openDaemonModels } from "./models.ts";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { remoteListener } from "./network.ts";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
@@ -23,6 +25,8 @@ export async function startDaemon(
   tokenPath: string;
   store: Store;
   models: ModelCatalog;
+  remoteUrl?: string;
+  fingerprint?: string;
   close(): Promise<void>;
 }> {
   const unlock = acquireLock(config.dataDir);
@@ -38,7 +42,9 @@ export async function startDaemon(
     const ownedStore = store;
     models = openDaemonModels(config.dataDir, modelInstances);
     const ownedModels = models;
+    const remote = await remoteListener(config);
     const server = await startServer({
+      ...(remote ? { remote } : {}),
       port: config.port,
       token,
       hostId,
@@ -47,9 +53,19 @@ export async function startDaemon(
       models,
       log: (error) => log("error", "WebSocket failure", error),
     });
+    const endpointPath = join(config.dataDir, "daemon-endpoint");
+    try {
+      writeFileSync(endpointPath, server.httpUrl, { mode: 0o600 });
+    } catch (error) {
+      await server.close();
+      throw error;
+    }
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
+      ...(server.remoteUrl && server.fingerprint
+        ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
+        : {}),
       tokenPath,
       store,
       models,
@@ -65,7 +81,11 @@ export async function startDaemon(
                 ownedStore.close();
               }
             } finally {
-              unlock();
+              try {
+                unlinkSync(endpointPath);
+              } finally {
+                unlock();
+              }
             }
           }
         })();

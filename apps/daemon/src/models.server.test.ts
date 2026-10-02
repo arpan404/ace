@@ -6,6 +6,7 @@ import {
   ModelInstance,
   type CatalogModel,
 } from "@ace/models";
+import { setup as remoteSetup } from "./remote-test-support.ts";
 import { fixture } from "./socket-test-support.ts";
 function noRelease(): never {
   throw new Error("Provider not started");
@@ -166,4 +167,54 @@ test("an unavailable catalog returns a correlated failure without breaking the s
   });
   client.send({ type: "ping" });
   expect(await client.next()).toEqual({ type: "pong" });
+});
+
+test("paired read devices can inspect model choices but cannot launch explicit refreshes", async () => {
+  const { catalog } = await setup();
+  const f = await remoteSetup({ models: catalog });
+  const paired = await f.pair(["read"]);
+  const ticket = await f.ticket(paired.token);
+  const client = await f.connectTicket(paired.device.id, ticket.ticket);
+  await client.next();
+  client.send({ type: "models.list", requestId: "read", options: { offset: 0, limit: 100 } });
+  expect(await client.next()).toMatchObject({
+    type: "models.result",
+    requestId: "read",
+    result: { models: [{ id: "coder" }] },
+  });
+  client.send({ type: "models.refresh", requestId: "denied", filter: {} });
+  expect(await client.next()).toMatchObject({
+    type: "models.result",
+    requestId: "denied",
+    result: { ok: false, reason: "operate scope required" },
+  });
+});
+
+test("paired devices need read scope to list or resolve model choices", async () => {
+  const { catalog } = await setup();
+  const f = await remoteSetup({ models: catalog });
+  const paired = await f.pair(["operate"]);
+  const ticket = await f.ticket(paired.token);
+  const client = await f.connectTicket(paired.device.id, ticket.ticket);
+  await client.next();
+  client.send({
+    type: "models.list",
+    requestId: "list-denied",
+    options: { offset: 0, limit: 100 },
+  });
+  expect(await client.next()).toMatchObject({
+    type: "models.result",
+    requestId: "list-denied",
+    result: { ok: false, reason: "read scope required" },
+  });
+  client.send({
+    type: "models.resolve",
+    requestId: "resolve-denied",
+    roleSpec: { role: "coder", selection: "default", imageInput: false, preferenceOrder: [] },
+  });
+  expect(await client.next()).toMatchObject({
+    type: "models.result",
+    requestId: "resolve-denied",
+    result: { ok: false, reason: "read scope required" },
+  });
 });

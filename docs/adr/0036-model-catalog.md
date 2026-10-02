@@ -88,6 +88,9 @@ idempotent and coalesced. No provider launch configuration arrives over the wire
 The daemon accepts a catalog interface so account/settings work can register
 instances and call loginChanged without coupling this package to their storage.
 The CLI opens the persisted catalog; account registration is a local API.
+After merging remote access, list/resolve require read scope and explicit
+refresh requires operate scope. Tickets and local admin authentication keep
+using the existing remote-access checks.
 
 ## Security and resource limits
 
@@ -99,14 +102,13 @@ explicit truncation flag. Errors are fixed codes, never provider stderr.
 Cap instances at 64, models at 512 per instance, metadata output at 4 MiB per
 probe and raw data at 2 KiB per model. A normalized model row is limited to 8 KiB,
 so a 100-row wire page remains below 1 MiB. Persisted instance rows are capped
-at 4 MiB. Refuse over-limit refreshes instead of
-silently presenting incomplete results. Bound concurrent probes, pending wire
+at 4 MiB. Refuse over-limit refreshes instead of silently presenting incomplete
+results. Bound concurrent probes, pending wire
 queries and pagination. Process owners stop probes on timeout, replacement and
 shutdown. SQLite writes touch only the changed instance; prepared statements
 are reused. Cached reads use instance/provider indexes and slice only the
-requested page. Resolution walks compatible rows once without constructing a full intermediate
-model list; it is
-not on stream-delta paths. Benchmark cached listing and policy resolution in
+requested page. Resolution walks compatible rows once without constructing a
+full intermediate model list; it is not on stream-delta paths. Benchmark cached listing and policy resolution in
 `packages/models/bench` and report throughput and peak RSS in the PR.
 
 ## Testing
