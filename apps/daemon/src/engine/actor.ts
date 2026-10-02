@@ -198,6 +198,9 @@ export class ThreadActor {
       Math.max(0, Math.min(...deadlines) - this.clock.now()),
     );
   }
+  backlog(): { frames: number; bytes: number } {
+    return { frames: this.queued, bytes: this.queuedBytes };
+  }
   async flush(): Promise<void> {
     await this.tail;
   }

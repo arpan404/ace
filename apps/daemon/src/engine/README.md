@@ -13,6 +13,9 @@ CLIs through provider-kit and registers the shipped Claude adapter with the disc
 An explicit registry bypasses discovery; `adapterDiscovery` injects metadata probes. No session
 opens during discovery. Other provider adapters can be registered as they land.
 
+`workload()` reports live sessions, mailbox frames/bytes and indexed held-input counts to
+daemon health. The existing sixth-argument workload port still overrides these metrics.
+
 Options accept a registry, clock, core and thread id sources, `idleMs`, `silenceMs`, an error
 reporter and `limits`. `flush()` drains accepted frames and active delivery workers without
 waiting for held sends to become runnable. `close()` refuses new commands, closes sessions,

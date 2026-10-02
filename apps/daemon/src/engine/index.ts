@@ -106,6 +106,19 @@ export class Engine {
     }
     return actor;
   }
+  /** On-demand metrics visit bounded live actors and indexed outstanding intents only. */
+  workload(): { activeSessions: number; queues: Record<string, number> } {
+    let activeSessions = 0;
+    const queues = { "engine.frames": 0, "engine.frameBytes": 0, "engine.queuedSends": 0 };
+    for (const actor of this.actors.values()) {
+      if (actor.session) activeSessions++;
+      const backlog = actor.backlog();
+      queues["engine.frames"] += backlog.frames;
+      queues["engine.frameBytes"] += backlog.bytes;
+      queues["engine.queuedSends"] += this.repo.queuedCount(actor.id);
+    }
+    return { activeSessions, queues };
+  }
   private recover(): void {
     const uncertain = new Set<ThreadId>();
     for (const state of this.repo.states()) {

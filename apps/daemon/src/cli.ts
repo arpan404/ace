@@ -8,7 +8,6 @@ import { readModelInstances } from "./models.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread, stubHandler } from "./commands.ts";
 import { accessRequest } from "./client-access.ts";
-import { doctor } from "./doctor.ts";
 
 const HostConnection = z.object({
   origin: z.url().refine((value) => {
@@ -53,12 +52,18 @@ function terminalQr(value: string): string {
   return lines.join("\n") + "\n";
 }
 async function main(args: string[]): Promise<void> {
+  if (args[0] === "--") args = args.slice(1);
   const config = readConfig();
+  if (args[0] === "doctor" || args[0] === "support-bundle") {
+    const { diagnosticsCli } = await import("./diagnostics-cli.ts");
+    await diagnosticsCli(args, config);
+    return;
+  }
   const command = args[0] ?? "start";
   if (command === "start") {
     if (args.length > 1) throw new Error("Usage: ace start");
-    const { startDaemon } = await import("./index.ts");
     const development = process.env.ACE_DEV === "1";
+    const { startDaemon } = await import("./index.ts");
     const daemon = await startDaemon(
       config,
       development ? stubHandler({ development }) : undefined,
@@ -91,10 +96,6 @@ async function main(args: string[]): Promise<void> {
     process.once("SIGTERM", stop);
     return;
   }
-  if (command === "doctor") {
-    process.stdout.write(JSON.stringify(await doctor(), null, 2) + "\n");
-    return;
-  }
   if (command === "status") {
     if (args.length !== 1) throw new Error("Usage: ace status");
     let status: unknown;
@@ -115,7 +116,7 @@ async function main(args: string[]): Promise<void> {
   }
   if (command !== "pair" && command !== "devices")
     throw new Error(
-      "Usage: ace start|status|pair [scopes]|devices list|devices revoke <id>|doctor",
+      "Usage: ace start|status|pair [scopes]|devices list|devices revoke <id>|doctor [--json]|support-bundle PATH [--include-threads]",
     );
   const { origin, token } = hostConnection(config.dataDir);
   if (command === "pair") {
@@ -149,7 +150,9 @@ async function main(args: string[]): Promise<void> {
     );
     return;
   }
-  throw new Error("Usage: ace start|status|pair [scopes]|devices list|devices revoke <id>|doctor");
+  throw new Error(
+    "Usage: ace start|status|pair [scopes]|devices list|devices revoke <id>|doctor [--json]|support-bundle PATH [--include-threads]",
+  );
 }
 await main(process.argv.slice(2)).catch((error: unknown) => {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

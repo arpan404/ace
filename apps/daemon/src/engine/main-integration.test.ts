@@ -185,7 +185,7 @@ test("targeted root interrupts use the same native root identity as the opened s
   const id = await h.create();
   const root = Object.values(h.store.snapshotThread(id).agents)[0];
   if (!root) throw new Error("Missing root");
-  h.command({ type: "thread.interrupt", threadId: id, agentId: root.id });
+  h.command({ type: "thread.interrupt", threadId: id, agentId: root.id, cascade: false });
   await h.engine.flush();
   expect(Object.values(h.store.snapshotThread(id).runs).map((run) => run.state)).toEqual([
     "interrupted",
