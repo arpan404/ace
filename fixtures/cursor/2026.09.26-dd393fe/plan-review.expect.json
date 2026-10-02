@@ -18,6 +18,9 @@
     "agents": 1,
     "interactions": {
       "resolved": 1
+    },
+    "agentStates": {
+      "root": "idle"
     }
   }
 }

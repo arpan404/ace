@@ -6,11 +6,18 @@
     },
     {
       "t": 15790,
-      "thread": "working"
+      "thread": "working",
+      "agentStates": {
+        "root": "blocked"
+      },
+      "note": "Parent waits for the background child; core counts the active child as working."
     },
     {
       "t": 25209,
-      "thread": "working"
+      "thread": "working",
+      "agentStates": {
+        "root": "working"
+      }
     },
     {
       "t": 32565,
@@ -19,6 +26,9 @@
   ],
   "final": {
     "thread": "done",
-    "agents": 2
+    "agents": 2,
+    "agentStates": {
+      "root": "idle"
+    }
   }
 }

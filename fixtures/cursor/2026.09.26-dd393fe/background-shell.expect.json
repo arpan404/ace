@@ -6,11 +6,15 @@
     },
     {
       "t": 16262,
-      "thread": "done"
+      "thread": "done",
+      "note": "ACP cannot observe the background shell. Done is qualified by backgroundVisibility none."
     }
   ],
   "final": {
     "thread": "done",
-    "agents": 1
+    "agents": 1,
+    "agentStates": {
+      "root": "idle"
+    }
   }
 }

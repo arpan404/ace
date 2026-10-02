@@ -11,6 +11,9 @@
   ],
   "final": {
     "thread": "done",
-    "agents": 1
+    "agents": 1,
+    "agentStates": {
+      "root": "idle"
+    }
   }
 }

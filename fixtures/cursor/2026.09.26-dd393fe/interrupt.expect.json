@@ -14,7 +14,8 @@
     },
     {
       "t": 17950,
-      "thread": "done"
+      "thread": "done",
+      "note": "The shell has no terminal update. Its task is unknown; current core permits completion."
     }
   ],
   "final": {
@@ -22,6 +23,9 @@
     "agents": 1,
     "interactions": {
       "resolved": 1
+    },
+    "agentStates": {
+      "root": "interrupted"
     }
   }
 }
