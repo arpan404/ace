@@ -71,7 +71,9 @@ jobs:
         run: bun run typecheck
 
       - name: Tests
-        run: bun run test
+        # Chromium keeps its sandbox; only this disposable runner enables userns.
+        # Set up before tests because runner images can include Chromium already.
+        run: node packages/browser/ci/sandbox.ts && bun run test
 
   browser:
     name: Real Chromium browser tests
@@ -88,4 +90,4 @@ jobs:
       - name: Install Chromium and system libraries
         run: bun run --cwd packages/browser playwright-core install --with-deps chromium
       - name: Browser tests
-        run: bun run test -- packages/browser apps/daemon/src/browser.test.ts
+        run: node packages/browser/ci/sandbox.ts && bun run test -- packages/browser apps/daemon/src/browser.test.ts

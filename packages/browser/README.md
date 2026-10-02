@@ -113,6 +113,10 @@ Run `bun run test -- packages/browser apps/daemon/src/browser.test.ts` for real
 Chromium plus public API tests, or `bun run check` for the repository checks.
 Browser suites skip if discovery finds no executable. CI has a separate Linux
 job that installs Chromium and its system dependencies.
+The disposable Ubuntu CI runners enable user namespaces for their lifetime so
+Chromium's sandbox can run. The CI helper refuses to run outside GitHub Actions.
+Ubuntu hosts can need an AppArmor profile for downloaded Chromium; follow
+[Chromium's sandbox setup guidance](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md).
 
 Run `bun run --filter @ace/browser bench` for non-gating fan-out and log-ingestion
 measurements, CDP validation with shared frame serialization, and recording writes.
