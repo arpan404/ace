@@ -182,3 +182,45 @@ it("revoked capture permission discards the shared helper before a replacement s
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("the last Linux viewer releases capture after input drains while retaining the helper", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "screen-v2-demand-"));
+  const manager = new ScreenManager({
+    ...command,
+    nextId: ids(),
+    recordingDirectory: directory,
+    publishArtifact: async () => {},
+  });
+  try {
+    await manager.enable(true);
+    await manager.approve(target.bundleId, true);
+    const identity = await manager.capabilities();
+    const state = await manager.start(target);
+    const stopped = deferred<string>();
+    const unwatch = manager.watch((next) => {
+      if (next.lifecycle === "stopped") stopped.resolve(next.sessionId);
+    });
+    const agentViewer = manager.subscribe(state.sessionId, async () => {});
+    manager.controller(state.sessionId, "agent", "agent");
+    agentViewer();
+    await manager.capabilities();
+    expect(manager.state(state.sessionId).lifecycle).toBe("live");
+    const unsubscribe = manager.subscribe(state.sessionId, async () => {});
+    manager.controller(state.sessionId, "human", "viewer");
+    const input = manager.action(
+      state.sessionId,
+      "human",
+      { kind: "type", text: "finish before stop" },
+      "viewer",
+    );
+    unsubscribe();
+    unsubscribe();
+    await input;
+    expect(await stopped.promise).toBe(state.sessionId);
+    expect(await manager.capabilities()).toEqual(identity);
+    unwatch();
+  } finally {
+    await manager.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

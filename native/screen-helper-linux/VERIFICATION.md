@@ -4,6 +4,7 @@ The repository owner's latest instruction prohibits executing tests, probes, ben
 
 ## Static checks
 
+- `cargo check --tests` for host-testable code: passed without executing tests.
 - Workspace TypeScript typecheck: passed.
 - Workspace lint: passed.
 - Formatting: applied with `bun run fmt`.
@@ -22,12 +23,13 @@ All entries are **not executed (tests run at merge)**.
 - Portal source/device masks and version control advertised support and persistence.
 - Protocol caps reject oversized commands, invalid fps and unsupported versions while preserving v1 commands.
 - Binary packets preserve JPEG payloads and reject oversized headers.
-- Private restore tokens rotate atomically; public files and symlinks are rejected.
+- Private restore tokens rotate atomically and recover private staging left by a crash; public files and symlinks are rejected.
 - Tree node/depth/byte caps prune work and report truncation.
 - Tree queries reject a different target and semantic fallback uses current window geometry.
 - Private frame sockets require a private parent and reject symlink endpoints.
 - Fake helper processes negotiate platform, deliver v2 frame metadata and return typed errors over real Unix sockets.
 - One helper survives inspections and sequential captures; semantic tools enforce controller ownership and negotiated support.
+- The last viewer releases Linux capture after input drains, retaining the helper process.
 - Failed stop removes the session and replaces its unusable helper.
 - Revoked capture permission drops the helper before an explicitly requested replacement session.
 - Paired viewers cannot enable, approve or control; paired operators still cannot change approvals.
@@ -55,13 +57,13 @@ These are designed test failures, **not executed (tests run at merge)**. The mac
 
 No numbers are claimed for this revision. All measurements **need run at merge**.
 
-| Metric | Measurement path | Status |
-| --- | --- | --- |
+| Metric                                   | Measurement path                          | Status             |
+| ---------------------------------------- | ----------------------------------------- | ------------------ |
 | Idle CPU / changing-window CPU at 10 fps | `bench/session.py` through Docker harness | needs run at merge |
-| Encode latency | `bench/encode.rs` | needs run at merge |
-| UI tree latency on a large GTK app | Docker integration harness | needs run at merge |
-| RSS | Docker integration harness | needs run at merge |
-| TypeScript frame fan-out | `packages/screen/bench/stream.ts` | needs run at merge |
+| Encode latency                           | `bench/encode.rs`                         | needs run at merge |
+| UI tree latency on a large GTK app       | Docker integration harness                | needs run at merge |
+| RSS                                      | Docker integration harness                | needs run at merge |
+| TypeScript frame fan-out                 | `packages/screen/bench/stream.ts`         | needs run at merge |
 
 ## Scope and remaining limitations
 
@@ -69,7 +71,7 @@ No numbers are claimed for this revision. All measurements **need run at merge**
 - Wayland loads the desktop's installed PipeWire library and SPA modules. Static CRT linkage is requested by the release build, but the Wayland runtime is not self-contained. Both native architecture release builds need run at merge.
 - Wayland downscaling uses bounded software conversion. X11 uses server-side XRender before XShm readback.
 - The portal chooser owns capture identity; AT-SPI independently targets one approved executable/window. Their identity can differ and capabilities state this limitation. Pointer fallback is disabled on Wayland.
-- Capture ends on explicit stop. Automatic suspension after the last viewer leaves is not implemented; viewer disconnect releases controller ownership.
+- Linux capture ends after its last viewer leaves and queued input drains. Agent-owned sessions, recordings and bootstrap sessions retain demand until explicit stop. Automatic per-action suspend/resume is not implemented.
 - The existing macOS helper remains v1-compatible. This Linux change does not implement macOS AX v2 or Windows UI Automation.
 - Tool schemas and a session/owner-scoped handler are exported. The MCP host must bind an approved session to authenticated agent attribution before registering them.
 - Docker cleanup removes only task-named containers/images. The earlier disposable task VM was removed; no task-owned Docker image or container was created. Build caches are managed by Docker, without pruning the user's resources.

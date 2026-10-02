@@ -1,4 +1,4 @@
-# 0012: Linux capture and accessibility helper
+# 0037: Linux capture and accessibility helper
 
 Date: 2026-10-02. Status: accepted.
 
@@ -28,7 +28,7 @@ The executable is installed once, never rewritten during a session. macOS releas
 
 ## Performance
 
-Damage notifications wake X11 capture. A pending change coalesces until the fps deadline; unchanged windows produce no frames. PipeWire frames use bounded buffers and content comparison because compositors may deliver repeated frames. JPEG encoding and frame writing have fixed size limits and bounded backpressure. Capture is released on explicit stop. Viewer disconnect currently releases control ownership; automatic capture suspension needs an explicit demand lifecycle in a follow-up. Accessibility traversal caps work rather than collecting an entire app before pruning. Benchmarks report idle CPU, changing-window CPU, JPEG latency, tree latency and RSS without gating on elapsed time.
+Damage notifications wake X11 capture. A pending change coalesces until the fps deadline; unchanged windows produce no frames. PipeWire frames use bounded buffers and content comparison because compositors may deliver repeated frames. JPEG encoding and frame writing have fixed size limits and bounded backpressure. Capture is released on explicit stop and after the last Linux viewer leaves, once queued input drains. Agent delegation and recording retain demand; bootstrap sessions await a viewer or explicit stop. This ends the capture session rather than silently reacquiring portal consent. Accessibility traversal caps work rather than collecting an entire app before pruning. Benchmarks report idle CPU, changing-window CPU, JPEG latency, tree latency and RSS without gating on elapsed time.
 
 ## Testing
 

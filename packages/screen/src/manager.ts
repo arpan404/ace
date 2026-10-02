@@ -36,6 +36,9 @@ type Session = {
   actionTail: Promise<void>;
   queuedActions: number;
   recordingStarting: boolean;
+  viewers: number;
+  hadViewer: boolean;
+  releasing: boolean;
 };
 export class ScreenManager {
   private shared: Promise<Helper> | undefined;
@@ -188,6 +191,9 @@ export class ScreenManager {
         actionTail: Promise.resolve(),
         queuedActions: 0,
         recordingStarting: false,
+        viewers: 0,
+        hadViewer: false,
+        releasing: false,
         state: {
           sessionId: id,
           lifecycle: "starting",
@@ -250,7 +256,16 @@ export class ScreenManager {
   subscribe(id: string, sink: FrameSink): () => void {
     const session = this.live(id);
     const stop = session.hub.subscribe(sink, session.latest);
-    return stop;
+    session.viewers++;
+    session.hadViewer = true;
+    let closed = false;
+    return () => {
+      if (closed) return;
+      closed = true;
+      stop();
+      session.viewers--;
+      this.releaseUnused(session);
+    };
   }
   screenshot(id: string): Frame {
     const session = this.live(id);
@@ -264,6 +279,37 @@ export class ScreenManager {
     session.owner = controller === "none" ? undefined : owner;
     session.state = { ...session.state, controller };
     this.emit(session);
+    if (controller === "none") this.releaseUnused(session);
+  }
+  private releaseUnused(session: Session): void {
+    if (
+      this.options.protocolVersion !== 2 ||
+      !session.hadViewer ||
+      session.viewers !== 0 ||
+      session.state.controller === "agent" ||
+      session.recording ||
+      session.recordingStarting ||
+      session.releasing ||
+      session.state.lifecycle !== "live"
+    )
+      return;
+    session.releasing = true;
+    void session.actionTail
+      .then(async () => {
+        // Subscription/control can change while queued input drains.
+        if (
+          session.viewers === 0 &&
+          session.state.controller !== "agent" &&
+          !session.recording &&
+          !session.recordingStarting &&
+          session.state.lifecycle === "live"
+        )
+          await this.stop(session.state.sessionId);
+      })
+      .catch(() => {})
+      .finally(() => {
+        session.releasing = false;
+      });
   }
   async action(
     id: string,
@@ -390,7 +436,11 @@ export class ScreenManager {
     const recording = session.recording;
     if (!recording) throw new Error("No recording active");
     session.recording = undefined;
-    return recording.stop();
+    try {
+      return await recording.stop();
+    } finally {
+      this.releaseUnused(session);
+    }
   }
   async stop(id: string): Promise<void> {
     const session = this.get(id);

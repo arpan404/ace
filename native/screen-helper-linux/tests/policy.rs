@@ -101,7 +101,11 @@ fn restore_tokens_are_rotated_privately_and_insecure_files_are_rejected() {
     assert_eq!(read_token(&path).unwrap(), None);
     save_token(&path, "first").unwrap();
     assert_eq!(read_token(&path).unwrap().as_deref(), Some("first"));
+    let staging = path.with_extension("new");
+    std::fs::write(&staging, "incomplete after crash").unwrap();
+    std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o600)).unwrap();
     save_token(&path, "replacement").unwrap();
+    assert!(!staging.exists());
     assert_eq!(read_token(&path).unwrap().as_deref(), Some("replacement"));
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(read_token(&path).is_err());
