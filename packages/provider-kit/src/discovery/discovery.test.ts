@@ -13,6 +13,22 @@ const healthy = {
 };
 
 describe("provider discovery", () => {
+  it("discovers CommonJS stand-ins when the temporary directory inherits an ESM package", async () => {
+    const parent = await directory();
+    await writeFile(join(parent, "package.json"), JSON.stringify({ type: "module" }));
+    const root = await directory(parent);
+    await writeFile(
+      join(root, "codex"),
+      `#!${process.execPath}\nrequire('node:fs'); console.log(process.argv[2]==='--version'?'codex-cli 1.2.3':'Logged in using ChatGPT');\n`,
+      { mode: 0o755 },
+    );
+    expect((await discoverProviders({ env: { PATH: root } })).codex).toMatchObject({
+      installed: true,
+      version: "1.2.3",
+      auth: "logged_in",
+      authDetail: "ChatGPT",
+    });
+  });
   it("reports missing binaries independently without probing installed CLIs", async () => {
     const root = await directory();
     expect(await discoverProviders({ env: { PATH: root } })).toEqual({
