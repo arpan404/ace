@@ -58,7 +58,12 @@ it("deferred rejection warnings survive snapshots and preserve the first valid i
   const notices = events.flatMap((event) =>
     event.type === "item.created" && event.item.type === "notice" ? [event.item] : [],
   );
-  expect(notices.map((notice) => notice.raw?.[0]?.data)).toEqual(facts);
+  expect(
+    notices.map((notice) => {
+      const raw = notice.raw[0];
+      return raw && "data" in raw ? raw.data : undefined;
+    }),
+  ).toEqual(facts);
   expect(notices.map((notice) => notice.createdAt)).toEqual([100, 101]);
   expect(
     notices.every((notice) => notice.agentId === h.agent("root")!.id && notice.runId === undefined),
