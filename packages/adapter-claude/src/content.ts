@@ -13,6 +13,8 @@ export function tool(
 ): void {
   const id = string(block["id"]);
   if (!id) return;
+  const settled = state.terminalChildren.has(agent);
+  const existing = state.rawItems.get(agent)?.has(state.key("tool", id)) === true;
   const name = string(block["name"], "Unknown tool");
   const input = object(block["input"]);
   state.toolOwners.set(id, agent);
@@ -24,15 +26,14 @@ export function tool(
     item: state.key("tool", id),
     draft: {
       type: "tool_call",
-      complete: state.terminalChildren.has(agent),
+      complete: settled,
       call: {
         title: name,
         kind: detail.kind,
-        status: state.terminalChildren.has(agent)
-          ? "cancelled"
-          : awaiting
-            ? "awaiting_approval"
-            : "running",
+        // Late inputs enrich settled tools without replacing their persisted outcome.
+        ...(settled && existing
+          ? {}
+          : { status: settled ? "cancelled" : awaiting ? "awaiting_approval" : "running" }),
         detail,
         ...state.keepToolRaw(id, frame, name),
       },
@@ -202,13 +203,13 @@ export function stream(state: ClaudeState, data: Data, streams: Map<string, Stre
                 type: "message",
                 role: "assistant",
                 parts: [{ type: "text", text: string(block["text"]) }],
-                complete: false,
+                complete: state.terminalChildren.has(agent),
                 ...state.keepMessageRaw(item, data, agent),
               }
             : {
                 type: "reasoning",
                 text: string(block["thinking"]),
-                complete: false,
+                complete: state.terminalChildren.has(agent),
                 ...state.keepMessageRaw(item, data, agent),
               },
       });
