@@ -28,6 +28,7 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
     [],
     undefined,
     [],
+    undefined,
     screen,
   );
   try {
