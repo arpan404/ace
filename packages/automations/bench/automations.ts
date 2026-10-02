@@ -122,12 +122,33 @@ try {
   bench("durable dedup over 10k records", 10_000, (i) => {
     service.trigger("bench", { key: String(i), variables: {} });
   });
-  for (let i = 0; i < 1000; i++)
-    store.put({ ...automation, id: `schedule-${i}` }, start + i, start + i);
+  service.put({ ...automation, id: "execution", prompt: "Review {{path}}" });
+  const executionStart = performance.now();
+  for (let i = 0; i < 5000; i++) {
+    service.trigger("execution", { key: String(i), variables: { path: "src/main.ts" } }, "file");
+    await service.settled();
+  }
+  const elapsed = performance.now() - executionStart;
+  console.log(
+    `file admission + executor + outcome: ${((5000 / elapsed) * 1000).toFixed(0)} ops/s, ${((elapsed / 5000) * 1000).toFixed(2)} us/op, peak RSS ${(process.resourceUsage().maxRSS / 1024).toFixed(1)} MiB`,
+  );
+  for (let i = 0; i < 998; i++)
+    store.put(
+      {
+        ...automation,
+        id: `schedule-${i}`,
+        trigger: {
+          kind: "schedule",
+          schedule: { kind: "cron", expression: "0 9 * * *", timezone: "UTC", startAt: start },
+        },
+      },
+      start + i,
+      start + i,
+    );
   bench("indexed next deadline / 1000 jobs", 10000, () => {
     store.next();
   });
-  bench("indexed inbox page over 10k records", 10_000, () => {
+  bench("indexed inbox page over 15k records", 10_000, () => {
     service.inbox(20);
   });
 } finally {
