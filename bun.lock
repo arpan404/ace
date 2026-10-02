@@ -5,6 +5,7 @@
     "": {
       "name": "@ace/monorepo",
       "devDependencies": {
+        "@ace/provider-kit": "workspace:*",
         "@types/node": "^26.6.4",
         "oxfmt": "^0.71.0",
         "oxlint": "^1.86.0",
@@ -55,6 +56,21 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/automations": {
+      "name": "@ace/automations",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
+    "packages/conductor": {
+      "name": "@ace/conductor",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
@@ -74,6 +90,9 @@
       "name": "@ace/git",
       "dependencies": {
         "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/provider-kit": "workspace:*",
       },
     },
     "packages/mcp-server": {
@@ -113,6 +132,9 @@
         "@ace/git": "workspace:*",
         "@ace/protocol": "workspace:*",
         "zod": "^4.1.12",
+      },
+      "devDependencies": {
+        "@ace/provider-kit": "workspace:*",
       },
     },
     "packages/projection": {
@@ -159,6 +181,10 @@
   ],
   "packages": {
     "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],
+
+    "@ace/automations": ["@ace/automations@workspace:packages/automations"],
+
+    "@ace/conductor": ["@ace/conductor@workspace:packages/conductor"],
 
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
