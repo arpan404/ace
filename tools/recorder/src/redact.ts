@@ -32,6 +32,8 @@ export function createRedactor(ctx: RedactionContext): (line: string) => string 
   // Longest first so the workspace path wins over its home-directory prefix.
   const paths: Array<[RegExp, string]> = [
     [new RegExp(escape(ctx.workspace), "g"), "<WORKSPACE>"],
+    // Claude encodes paths as directory names by replacing "/" with "-".
+    [new RegExp(escape(ctx.workspace.replaceAll("/", "-")), "g"), "-<WORKSPACE>"],
     [new RegExp(escape(home), "g"), "<HOME>"],
     [new RegExp(escape(host), "g"), "<HOST>"],
     [new RegExp(escape(shortHost), "g"), "<HOST>"],

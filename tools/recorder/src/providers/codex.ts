@@ -60,6 +60,21 @@ export const codex: Driver = {
         const item = p["item"] as Params | undefined;
         if (item?.["type"] === "commandExecution" && threadId === rootThreadId) triggerInterrupt();
       }
+      // Async questions arrive as an agent message, not a server request. The
+      // answer goes back as steering input on the running turn.
+      if (method === "item/completed") {
+        const item = (p["item"] ?? {}) as Params;
+        const questions = item["questions"] as Array<{ options?: string[] }> | undefined;
+        if (item["delivery"] === "async" && questions?.length && threadId === rootThreadId) {
+          const answer = questions.map((q) => q.options?.[0] ?? "Tabs").join("; ");
+          rec.note("async-question-answered", { answer });
+          void rpc.request("turn/steer", {
+            threadId: rootThreadId,
+            expectedTurnId: rootTurnId,
+            input: [{ type: "text", text: answer, text_elements: [] }],
+          });
+        }
+      }
     };
     rpc.onRequest = async (request) => {
       ctx.interactions.open();
