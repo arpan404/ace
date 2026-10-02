@@ -39,6 +39,19 @@ describe("scoped projection delivery", () => {
     expect(view.thread.title).toBe("After");
     expect(applyDelivery(view, progress).kind).toBe("ignored");
   });
+  it("rejects an out-of-scope batch atomically before any item or thread mutation", () => {
+    const view = createThreadView(thread, 2);
+    const outside = {
+      ...event(6, "Outside"),
+      threadId: Thread.parse({ ...thread, id: "other" }).id,
+    };
+    expect(applyDelivery(view, batch(2, 8, [event(5, "Partial"), outside])).kind).toBe("gap");
+    expect(view.seq).toBe(2);
+    expect(view.thread.title).toBe("Before");
+    expect(applyEvent(view, { ...outside, seq: 3 }).kind).toBe("gap");
+    expect(view.seq).toBe(2);
+    expect(view.thread.title).toBe("Before");
+  });
   it("refuses missing or partially overlapping intervals without changing the view", () => {
     const view = createThreadView(thread, 2);
     expect(applyDelivery(view, batch(4, 8, [event(5, "Lost predecessor")]))).toEqual({
