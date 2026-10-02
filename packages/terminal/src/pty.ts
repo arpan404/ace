@@ -1,12 +1,15 @@
 import { accessSync, constants } from "node:fs";
 import { setTimeout } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
+import { constants as osConstants, tmpdir } from "node:os";
 import { spawn } from "node-pty";
 import type { ExitStatus, OpenTerminalOptions } from "./types.ts";
 import { decodeBytes, decodeExit } from "./decode.ts";
 import { sessionOwnership } from "./ownership.ts";
 import type { ProcessControl, ShutdownScheduler } from "./ownership.ts";
 import { createProcessTable } from "./process-table.ts";
+import { createGroupLease } from "./group-lease.ts";
+import type { GroupLease } from "./group-lease.ts";
 
 export interface PtyBackend {
   readonly pid: number;
@@ -37,6 +40,7 @@ export interface NativePty {
 export interface PosixPorts {
   spawn: (shell: string, args: string[], options: Parameters<typeof spawn>[2]) => NativePty;
   processes: ProcessControl;
+  createLease: () => GroupLease;
 }
 
 export const shutdownScheduler: ShutdownScheduler = {
@@ -61,22 +65,56 @@ export function resolveShell(shell?: string): string {
 }
 
 /** Each manager gets its own I/O context; overlapping shutdowns share a ps read. */
-export function createPosixBackendFactory(ports?: PosixPorts): BackendFactory {
+export function createPosixBackendFactory(
+  ports?: PosixPorts,
+  leaseRoot = tmpdir(),
+): BackendFactory {
   const read = createProcessTable();
   return (options, shell, context) => {
     if (process.platform === "win32") throw new Error("Terminal service currently requires POSIX");
-    const pty = (ports?.spawn ?? spawn)(shell, ["-l", "-i"], {
-      cwd: options.cwd,
-      cols: options.cols,
-      rows: options.rows,
-      name: "xterm-256color",
-      env: { ...process.env, ...options.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
-      encoding: null,
-      handleFlowControl: false,
-    });
+    const lease = ports ? ports.createLease() : createGroupLease(leaseRoot);
+    const ignored = [...new Set(Object.values(osConstants.signals))]
+      .filter(
+        (signal) =>
+          signal !== osConstants.signals.SIGKILL && signal !== osConstants.signals.SIGSTOP,
+      )
+      .join(" ");
+    // The helper retains the ORIGINAL group ID, which cannot be reused while a
+    // member remains. It inherits ignored catchable signals and exits on FIFO EOF.
+    const launcher = `trap '' ${ignored}; /bin/sh -c 'printf ready >"$1"; while IFS= read -r line; do :; done' ace-lease "$2" <"$1" >/dev/null 2>&1 & keeper=$!; while [ ! -f "$2" ]; do kill -0 "$keeper" 2>/dev/null || exit 1; /bin/sleep 0.01; done; trap - ${ignored}; shift 2; exec "$@"`;
+    const loginArgs = ["-l", "-i"];
+    let pty: NativePty;
+    try {
+      pty = (ports?.spawn ?? spawn)(
+        "/bin/sh",
+        ["-c", launcher, "ace-terminal", lease.path, lease.readyPath, shell, ...loginArgs],
+        {
+          cwd: options.cwd,
+          cols: options.cols,
+          rows: options.rows,
+          name: "xterm-256color",
+          env: { ...process.env, ...options.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
+          encoding: null,
+          handleFlowControl: false,
+        },
+      );
+    } catch (error) {
+      lease.dispose();
+      throw error;
+    }
     let exited = false;
-    const control: ProcessControl = ports?.processes ?? {
+    let leaseReleaseRequested = false;
+    const base: ProcessControl = ports?.processes ?? {
       async read() {
+        const deadline = context.scheduler.now() + 5000;
+        for (let attempt = 0; !lease.ready() && !exited; attempt++) {
+          if (attempt === 128 || context.scheduler.now() >= deadline)
+            throw new Error("Terminal ownership lease did not start");
+          await context.scheduler.delay(0);
+        }
+        if (!lease.ready()) return []; // The launcher exited before running user code.
+        if (!leaseReleaseRequested && !lease.alive())
+          throw new Error("Terminal ownership lease was lost");
         const rows = await read();
         // Once reaped, a new live leader with this ID belongs to a new session.
         const reused =
@@ -92,7 +130,14 @@ export function createPosixBackendFactory(ports?: PosixPorts): BackendFactory {
         process.kill(-group, signal);
       },
     };
-    const ownership = sessionOwnership(context.owner, control, context.scheduler);
+    const control: ProcessControl = {
+      read: () => base.read(),
+      signal(group, signal) {
+        base.signal(group, signal);
+        if (group === pty.pid && signal === "SIGKILL") leaseReleaseRequested = true;
+      },
+    };
+    const ownership = sessionOwnership(context.owner, control, context.scheduler, pty.pid);
     return {
       pid: pty.pid,
       write: (data) => pty.write(data),
@@ -116,8 +161,12 @@ export function createPosixBackendFactory(ports?: PosixPorts): BackendFactory {
       },
       kill: async (signal) => {
         await ownership.kill(signal);
+        if (signal === "SIGKILL") lease.dispose();
       },
-      close: (graceMs) => ownership.close(graceMs),
+      close: async (graceMs) => {
+        await ownership.close(graceMs);
+        lease.dispose();
+      },
     };
   };
 }

@@ -9,6 +9,20 @@ const root = resolve(import.meta.dirname, "../../..");
 const directory = mkdtempSync(join(root, ".terminal-mutations-"));
 const mutations = [
   {
+    name: "trust a recycled session without its reserved group",
+    file: "ownership.ts",
+    before: "!leaseEnded && !live.has(leaseGroup)",
+    after: "false",
+    test: "an orphan in a recycled session",
+  },
+  {
+    name: "kill the reserved group before forkable jobs",
+    file: "ownership.ts",
+    before: "[...live].filter((group) => group !== leaseGroup)",
+    after: "[...live]",
+    test: "SIGKILL waits for the configured grace",
+  },
+  {
     name: "swap resize axes",
     file: "terminal.ts",
     before: "this.#backend.resize(cols, rows)",

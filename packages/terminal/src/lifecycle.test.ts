@@ -28,7 +28,10 @@ function boundary(graceMs = 37, unkillable = false) {
       });
     },
   };
-  const rows = [{ pid: 42, group: 42, state: "R", owner }];
+  const rows = [
+    { pid: 42, group: 42, state: "R", owner },
+    { pid: 41, group: 42, state: "R", owner },
+  ];
   let termSeen = noop;
   const stopping = new Promise<void>((resolve) => {
     termSeen = resolve;
@@ -51,6 +54,9 @@ function boundary(graceMs = 37, unkillable = false) {
     signal(group, signal) {
       if (signal === "SIGTERM") termSeen();
       if (signal !== "SIGKILL" || unkillable) return;
+      // A still-running job can fork when the reserved group is killed too early.
+      if (group === 42 && rows.some((row) => row.group !== 42 && row.state === "R"))
+        rows.push({ pid: 45, group: 45, state: "R", owner });
       for (const row of rows) if (row.group === group) row.state = "Z";
       if (group === 42) onExit({ exitCode: 0, signal: 9 });
     },
@@ -58,7 +64,17 @@ function boundary(graceMs = 37, unkillable = false) {
   const manager = new TerminalManager({
     graceMs,
     dependencies: {
-      backendFactory: createPosixBackendFactory({ spawn: () => native, processes }),
+      backendFactory: createPosixBackendFactory({
+        spawn: () => native,
+        processes,
+        createLease: () => ({
+          path: "/controlled-fifo",
+          readyPath: "/controlled-ready",
+          ready: () => true,
+          alive: () => true,
+          dispose: noop,
+        }),
+      }),
       createSessionId: () => owner,
       resolveShell: () => "/test-shell",
       shutdownScheduler: scheduler,
@@ -147,6 +163,8 @@ test("a reused process group without current ownership is never killed", async (
   const row = context.rows[0];
   if (!row) throw new Error("Missing process");
   row.owner = foreign;
+  const anchor = context.rows[1];
+  if (anchor) anchor.state = "Z";
   context.advance(37);
   await closing;
   expect(row.state).toBe("R");
@@ -177,4 +195,13 @@ test("explicit release drops replay handles while other terminals stay usable", 
   context.exit({ exitCode: 0 });
   expect(await next.exited).toEqual({ code: 0, signal: null });
   await context.manager.closeAll();
+});
+
+test("an orphan in a recycled session is never mistaken for an exited terminal", async () => {
+  const context = boundary(0);
+  context.exit({ exitCode: 0 });
+  // A reused numeric session ID can be present even after its new leader exits.
+  context.rows.splice(0, context.rows.length, { pid: 43, group: 43, state: "R", owner });
+  await context.manager.closeAll();
+  expect(context.rows[0]?.state).toBe("R");
 });
