@@ -3,6 +3,8 @@ import type { discoverProviders } from "@ace/provider-kit/discovery";
 import { Engine, type EngineOptions } from "./engine/index.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 import { SettingsService } from "@ace/settings";
+import type { DaemonPreview, DaemonPreviewOptions } from "./preview.ts";
+export type { DaemonPreview, DaemonPreviewOptions } from "./preview.ts";
 import { homedir } from "node:os";
 import { createRedactor } from "@ace/redaction";
 import {
@@ -65,9 +67,11 @@ export async function startDaemon(
   modelInstances: readonly InstanceInput[] = [],
   workload?: HealthOptions["workload"],
   browserOptions: Omit<BrowserServiceOptions, "dataDir" | "onArtifact"> = {},
+  previewOptions?: DaemonPreviewOptions,
 ): Promise<{
   url: string;
   tokenPath: string;
+  preview?: DaemonPreview;
   store: Store;
   preparePlugins(provider: Provider, root: string): ReturnType<typeof preparePluginSession>;
   launchPlugins(
@@ -282,6 +286,7 @@ export async function startDaemon(
       browser,
       models,
       notifications: notifications.service,
+      ...(previewOptions ? { preview: previewOptions } : {}),
       health: health.collect,
       log: (error) => ownedLog.log("error", "WebSocket failure", error),
     });
@@ -312,6 +317,7 @@ export async function startDaemon(
         ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
         : {}),
       tokenPath,
+      ...(server.preview ? { preview: server.preview } : {}),
       store,
       preparePlugins: (provider, root) => preparePluginSession(ownedPlugins, provider, root),
       launchPlugins: (provider, root, options) => ownedLaunches.launch(provider, root, options),

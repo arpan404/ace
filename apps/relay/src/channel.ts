@@ -2,15 +2,23 @@ import { ClientMessage, ServerMessage } from "@ace/protocol";
 import type { Transport } from "@ace/secure-channel";
 import { MAX_MESSAGE } from "@ace/secure-channel";
 import type WebSocket from "ws";
-import type { z } from "zod";
+import { z } from "zod";
 import { FrameReader, sendFrame } from "./socket.ts";
 export type WireMessage = ClientMessage | ServerMessage;
 export const LOGICAL_MESSAGE_LIMIT = 16 * 1024 * 1024;
 const REKEY_INTERVAL = 1 << 20;
-export interface MessageChannel<
-  Incoming extends WireMessage,
-  Outgoing extends WireMessage,
-> extends AsyncIterable<Incoming> {
+export interface BinaryChannel {
+  sendBinary(frame: Uint8Array): Promise<void>;
+  receiveBinary(): Promise<Uint8Array>;
+  close(): void;
+  readonly closed: Promise<Error | undefined>;
+}
+const BinaryPayload = z
+  .instanceof(Uint8Array)
+  .refine((data) => data.length > 0 && data.length <= MAX_MESSAGE - 17);
+
+export interface MessageChannel<Incoming extends WireMessage, Outgoing extends WireMessage>
+  extends AsyncIterable<Incoming>, BinaryChannel {
   send(message: Outgoing): Promise<void>;
   receive(): Promise<Incoming>;
   close(): void;
@@ -71,6 +79,32 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   };
   socket.once("close", (code) => end(new Error(`Channel connection closed (${code})`)));
   socket.once("error", end);
+  const writeEncrypted = async (plain: Uint8Array) => {
+    if (ended) throw new Error("Channel closed");
+    await sendFrame(socket, transport.send.encrypt(plain));
+    if (++sendCount % REKEY_INTERVAL === 0) transport.send.rekey();
+  };
+  const readEncrypted = async () => {
+    const plain = transport.receive.decrypt(await reader.next());
+    if (++receiveCount % REKEY_INTERVAL === 0) transport.receive.rekey();
+    return plain;
+  };
+  const enqueue = async (size: number, write: () => Promise<void>) => {
+    if (ended) throw new Error("Channel closed");
+    if (size > LOGICAL_MESSAGE_LIMIT || pendingBytes + size > LOGICAL_MESSAGE_LIMIT)
+      throw new Error("Logical message or send queue too large");
+    pendingBytes += size;
+    const task = sending.then(write);
+    sending = task.catch(() => {});
+    try {
+      await task;
+    } catch (error) {
+      end(error instanceof Error ? error : new Error("Send failed"));
+      throw error;
+    } finally {
+      pendingBytes -= size;
+    }
+  };
   const channel: MessageChannel<Incoming, Outgoing> = {
     closed,
     get bufferedReceiveBytes() {
@@ -86,10 +120,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     async send(message) {
       if (ended) throw new Error("Channel closed");
       const data = new TextEncoder().encode(JSON.stringify(outgoing.parse(message)));
-      if (data.length > LOGICAL_MESSAGE_LIMIT || pendingBytes + data.length > LOGICAL_MESSAGE_LIMIT)
-        throw new Error("Logical message or send queue too large");
-      pendingBytes += data.length;
-      const task = sending.then(async () => {
+      await enqueue(data.length, async () => {
         const chunkSize = MAX_MESSAGE - 17;
         for (let offset = 0; offset < data.length; offset += chunkSize) {
           if (ended) throw new Error("Channel closed");
@@ -97,18 +128,30 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
           const plain = new Uint8Array(chunk.length + 1);
           plain[0] = offset + chunk.length === data.length ? 1 : 0;
           plain.set(chunk, 1);
-          await sendFrame(socket, transport.send.encrypt(plain));
-          if (++sendCount % REKEY_INTERVAL === 0) transport.send.rekey();
+          await writeEncrypted(plain);
         }
       });
-      sending = task.catch(() => {});
+    },
+    async sendBinary(frame) {
+      const data = BinaryPayload.parse(frame);
+      // Copy before queuing: caller-owned buffers cannot change admitted plaintext.
+      const plain = new Uint8Array(data.length + 1);
+      plain[0] = 2;
+      plain.set(data, 1);
+      await enqueue(plain.length, () => writeEncrypted(plain));
+    },
+    async receiveBinary() {
+      if (receiving) throw new Error("Concurrent receive is unsupported");
+      receiving = true;
       try {
-        await task;
+        const plain = await readEncrypted();
+        if (plain[0] !== 2) throw new Error("Expected encrypted binary frame");
+        return BinaryPayload.parse(plain.subarray(1));
       } catch (error) {
-        end(error instanceof Error ? error : new Error("Send failed"));
+        end(error instanceof Error ? error : new Error("Invalid binary frame"));
         throw error;
       } finally {
-        pendingBytes -= data.length;
+        receiving = false;
       }
     },
     async receive() {
@@ -118,8 +161,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
         const chunks: Uint8Array[] = [];
         let size = 0;
         while (true) {
-          const plain = transport.receive.decrypt(await reader.next());
-          if (++receiveCount % REKEY_INTERVAL === 0) transport.receive.rekey();
+          const plain = await readEncrypted();
           if (
             plain.length < 2 ||
             (plain[0] !== 0 && plain[0] !== 1) ||

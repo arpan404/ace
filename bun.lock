@@ -29,6 +29,7 @@
         "@ace/models": "workspace:*",
         "@ace/notify": "workspace:*",
         "@ace/plugins": "workspace:*",
+        "@ace/preview": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
@@ -255,6 +256,21 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/preview": {
+      "name": "@ace/preview",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/relay": "workspace:*",
+        "@ace/secure-channel": "workspace:*",
+        "@types/ws": "^8.18.1",
+        "tough-cookie": "^6.0.0",
+        "ws": "^8.18.3",
+      },
+    },
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
@@ -361,6 +377,8 @@
     "@ace/orchestrator": ["@ace/orchestrator@workspace:packages/orchestrator"],
 
     "@ace/plugins": ["@ace/plugins@workspace:packages/plugins"],
+
+    "@ace/preview": ["@ace/preview@workspace:packages/preview"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
@@ -874,7 +892,13 @@
 
     "tinypool": ["tinypool@2.2.0", "", {}, "sha512-jBrmx4lYmaC9k/mgPbylxs7kBUxHtD8256up+HjLaDFfXScKJQyil+SWXSvhAtT7XHo+yTVlpB81PGmHP8oLSQ=="],
 
+    "tldts": ["tldts@7.4.16", "", { "dependencies": { "tldts-core": "^7.4.16" }, "bin": { "tldts": "bin/cli.js" } }, "sha512-QwBER5KMR86IIjpIiO7H/Z3IMJPsZ1A6RKPAqzTTgOyUQUSt9FdnKcqhTaJmkY6HVrgouZHZR0ncK5QxvmnQeg=="],
+
+    "tldts-core": ["tldts-core@7.4.16", "", {}, "sha512-MDolfaSJtlSK5Y0A1xl3277ekubZwobpBjugknDizI9O5Rm60a1m8k4ICK+MRsCDzPygT81mp3BBf5RKDlFRfA=="],
+
     "toidentifier": ["toidentifier@1.0.1", "", {}, "sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA=="],
+
+    "tough-cookie": ["tough-cookie@6.0.2", "", { "dependencies": { "tldts": "^7.0.5" } }, "sha512-exgYmnmL/sJpR3upZfXG5PoatXQii55xAiXGXzY+sROLZ/Y+SLcp9PgJNI9Vz37HpQ74WvDcLT8eqm+kV3FzrA=="],
 
     "ts-algebra": ["ts-algebra@2.0.0", "", {}, "sha512-FPAhNPFMrkwz76P7cdjdmiShwMynZYN6SgOujD1urY4oNm80Ou9oMdmbR45LotcKOXoy7wSmHkRFE6Mxbrhefw=="],
 

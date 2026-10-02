@@ -30,6 +30,7 @@
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
     "@ace/plugins": "workspace:*",
+    "@ace/preview": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",

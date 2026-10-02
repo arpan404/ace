@@ -34,6 +34,8 @@ export type SpawnOptions = {
   name: string;
   /** Natural exit kills descendants by default, including agent-started dev servers. */
   killGroupOnExit?: boolean;
+  /** Kill the owned group if stdout/stderr produces an oversized unterminated line. */
+  maxLineBytes?: number;
   /** Stop before readline can accumulate unbounded metadata from a probe. */
   maxOutputBytes?: number;
 };
@@ -48,6 +50,12 @@ export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess 
   if (process.platform === "win32") {
     throw new Error("Process-group supervision requires POSIX; Windows needs a Job Object owner");
   }
+  if (
+    options.maxLineBytes !== undefined &&
+    (!Number.isSafeInteger(options.maxLineBytes) || options.maxLineBytes < 1)
+  ) {
+    throw new RangeError("Invalid maxLineBytes");
+  }
   const child = spawn(options.command, [...(options.args ?? [])], {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     env: { ...process.env, ...options.env },
@@ -57,19 +65,33 @@ export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess 
   const controller = new AbortController();
   let outputBytes = 0;
   let outputLimited = false;
+  const limitOutput = () => {
+    if (outputLimited) return;
+    outputLimited = true;
+    controller.abort();
+    if (child.pid !== undefined) killGroup(child.pid, "SIGKILL");
+    child.stdout.destroy();
+    child.stderr.destroy();
+  };
+  // Byte guards attach before the line facade, so readline never holds an oversized line.
+  if (options.maxLineBytes !== undefined) {
+    const limit = options.maxLineBytes;
+    for (const pipe of [child.stdout, child.stderr]) {
+      let pending = 0;
+      pipe.on("data", (chunk: Buffer) => {
+        for (const byte of chunk) {
+          pending = byte === 10 || byte === 13 ? 0 : pending + 1;
+          if (pending > limit) {
+            limitOutput();
+            return;
+          }
+        }
+      });
+    }
+  }
   const capOutput = (chunk: Buffer) => {
     outputBytes += chunk.length;
-    if (
-      options.maxOutputBytes !== undefined &&
-      outputBytes > options.maxOutputBytes &&
-      child.pid !== undefined
-    ) {
-      outputLimited = true;
-      controller.abort();
-      killGroup(child.pid, "SIGKILL");
-      child.stdout.destroy();
-      child.stderr.destroy();
-    }
+    if (options.maxOutputBytes !== undefined && outputBytes > options.maxOutputBytes) limitOutput();
   };
   if (options.maxOutputBytes !== undefined) {
     child.stdout.on("data", capOutput);
@@ -200,6 +222,7 @@ export async function probeOutput(
     void proc.stop({ graceMs: 0 });
   };
   options.signal?.addEventListener("abort", abort, { once: true });
+  if (options.signal?.aborted) abort();
   const schedule =
     options.schedule ??
     ((callback: () => void, ms: number) => {

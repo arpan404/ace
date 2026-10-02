@@ -1,5 +1,7 @@
 import type { SettingsService } from "@ace/settings";
 import { settingsSession } from "./settings.ts";
+import { previewHttp } from "./preview-http.ts";
+import { createDaemonPreview, type DaemonPreview, type DaemonPreviewOptions } from "./preview.ts";
 import type { ModelCatalogApi } from "@ace/models";
 import { handleModelRequest } from "./models.ts";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
@@ -60,6 +62,7 @@ const closeListener = (listener: Server) =>
 
 export interface ServerOptions {
   settings?: SettingsService;
+  preview?: DaemonPreviewOptions;
   models?: ModelCatalogApi;
   port: number;
   remote?: RemoteListener;
@@ -94,6 +97,7 @@ export interface ServerOptions {
 export async function startServer(options: ServerOptions): Promise<{
   url: string;
   notify(device: DeviceId, notification: Notification): boolean;
+  preview?: DaemonPreview;
   httpUrl: string;
   diagnosticsQueues(): { socketInput: number; healthRequests: number };
   remoteUrl?: string;
@@ -127,13 +131,20 @@ export async function startServer(options: ServerOptions): Promise<{
     options.remote && remoteOrigin
       ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
       : undefined;
+  let preview: DaemonPreview | undefined;
   const local = httpServer(
-    accessHttp(auth, auth.localBearer.bind(auth), pairing, options.pairingAddress),
+    previewHttp(
+      () => preview,
+      accessHttp(auth, auth.localBearer.bind(auth), pairing, options.pairingAddress),
+    ),
   );
   const remote = options.remote
     ? httpsServer(
         { ...options.remote.identity, minVersion: "TLSv1.2" },
-        accessHttp(auth, auth.deviceBearer.bind(auth), pairing, options.pairingAddress),
+        previewHttp(
+          () => preview,
+          accessHttp(auth, auth.deviceBearer.bind(auth), pairing, options.pairingAddress),
+        ),
       )
     : undefined;
   for (const listener of [local, remote])
@@ -163,6 +174,7 @@ export async function startServer(options: ServerOptions): Promise<{
   if (remote) attach(remote, false);
   const authenticated = new Map<WebSocket, Device & { revocable: boolean }>();
   const stopRevocation = auth.onRevoke((id) => {
+    preview?.revokeDevice(id);
     void options.notifications
       ?.revoke?.(DeviceId.parse(id))
       .catch(() => options.log?.(new Error("Notification revocation failed")));
@@ -728,8 +740,11 @@ export async function startServer(options: ServerOptions): Promise<{
       const remotePort = await bind(remote, options.remote.host, options.remote.port);
       remoteOrigin = `https://${urlHost(options.remote.advertisedHost)}:${remotePort}`;
     }
+    if (options.preview)
+      preview = await createDaemonPreview(options.store, options.preview, auth.now);
   } catch (error) {
     stopTimer();
+    await preview?.close();
     stopRevocation();
     await closeListener(local);
     if (remote) await closeListener(remote);
@@ -738,6 +753,7 @@ export async function startServer(options: ServerOptions): Promise<{
   }
   let closing: Promise<void> | undefined;
   return {
+    ...(preview ? { preview } : {}),
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
     diagnosticsQueues: () => ({ socketInput: input.depth(), healthRequests }),
@@ -766,7 +782,11 @@ export async function startServer(options: ServerOptions): Promise<{
           socket.close(1001, "Daemon shutdown");
           socket.terminate();
         }
-        void Promise.all([closeListener(local), ...(remote ? [closeListener(remote)] : [])]).then(
+        void Promise.all([
+          closeListener(local),
+          ...(remote ? [closeListener(remote)] : []),
+          preview?.close(),
+        ]).then(
           () =>
             wss.close((error) => {
               void Promise.all([Promise.allSettled(pluginTasks), disconnects]).then(() => {
@@ -775,6 +795,7 @@ export async function startServer(options: ServerOptions): Promise<{
                 else resolve();
               }, reject);
             }),
+          reject,
         );
       });
       return closing;
