@@ -8,6 +8,14 @@ import { Interaction } from "./interactions.ts";
 import { Item } from "./items.ts";
 import { Run, Thread } from "./thread.ts";
 
+import {
+  SearchQueryRequest,
+  SearchStatusRequest,
+  SearchQueryResponse,
+  SearchStatusResponse,
+  SearchErrorResponse,
+} from "./search.ts";
+
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const records = <T extends z.ZodType>(schema: T) => z.record(z.string(), schema);
 export const ThreadView = z.object({
@@ -47,6 +55,8 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
 );
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  SearchQueryRequest,
+  SearchStatusRequest,
   z.object({
     type: z.literal("hello"),
     protocolVersion: z.literal(1),
@@ -71,6 +81,9 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  SearchQueryResponse,
+  SearchStatusResponse,
+  SearchErrorResponse,
   z.object({
     type: z.literal("welcome"),
     hostId: HostId,

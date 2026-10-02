@@ -161,6 +161,10 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       put(view.items, p.item.id, structuredCopy(p.item));
       break;
     }
+    case "item.deleted":
+      delete view.items[p.itemId];
+      view.itemOrder = view.itemOrder.filter((id) => id !== p.itemId);
+      break;
     case "item.delta": {
       const item = get(view.items, p.itemId);
       if (item?.type === "message" && p.field === "text") {
