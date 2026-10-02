@@ -23,6 +23,13 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/conductor": {
+      "name": "@ace/conductor",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
@@ -53,6 +60,8 @@
     },
   },
   "packages": {
+    "@ace/conductor": ["@ace/conductor@workspace:packages/conductor"],
+
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],

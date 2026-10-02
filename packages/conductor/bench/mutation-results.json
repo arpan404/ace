@@ -1,0 +1,62 @@
+[
+  {
+    "mutation": "completion without tree done",
+    "file": "packages/conductor/src/completion.ts",
+    "failingTest": "completion and integration a worker artifact cannot finish a lane while its tree is working or waiting"
+  },
+  {
+    "mutation": "dependencies satisfied before verification",
+    "file": "packages/conductor/src/scheduler.ts",
+    "failingTest": "completion and integration passing review waits for merge and checks before dependent work can start"
+  },
+  {
+    "mutation": "parallel cap permits another lane",
+    "file": "packages/conductor/src/scheduler.ts",
+    "failingTest": "capacity counts live reviews and external sessions while quota includes reservations"
+  },
+  {
+    "mutation": "quota reservations ignored",
+    "file": "packages/conductor/src/scheduler.ts",
+    "failingTest": "capacity counts live reviews and external sessions while quota includes reservations"
+  },
+  {
+    "mutation": "reviewer prefers worker model",
+    "file": "packages/conductor/src/scheduler.ts",
+    "failingTest": "allowlists constrain dispatch and migration and reviewers prefer another provider"
+  },
+  {
+    "mutation": "fix round cap permits an extra round",
+    "file": "packages/conductor/src/completion.ts",
+    "failingTest": "review rounds and user gates review exhaustion asks the user and an explicit retry forks one more fix"
+  },
+  {
+    "mutation": "budget reservation always allowed",
+    "file": "packages/conductor/src/transition.ts",
+    "failingTest": "pause, cancel, budgets and conflicts budget reservations stop dispatch until the user raises the budget"
+  },
+  {
+    "mutation": "migration does not advance generation",
+    "file": "packages/conductor/src/advance.ts",
+    "failingTest": "migration and liveness usage limits migrate full-history sessions within provider and account constraints"
+  },
+  {
+    "mutation": "failed verification marks integrated",
+    "file": "packages/conductor/src/reducer.ts",
+    "failingTest": "completion and integration verification failure reaches the user and prevents dependency dispatch"
+  },
+  {
+    "mutation": "wrong review revision accepted",
+    "file": "packages/conductor/src/completion.ts",
+    "failingTest": "completion and integration a review of another revision or incomplete requirements is rejected atomically"
+  },
+  {
+    "mutation": "pause allows dispatch",
+    "file": "packages/conductor/src/advance.ts",
+    "failingTest": "pause, cancel, budgets and conflicts pause settles incoming facts but defers new work until resume"
+  },
+  {
+    "mutation": "review protocol accepts fourteen mutations",
+    "file": "packages/protocol/src/conductor.ts",
+    "failingTest": "passing reviews require all evidence and fifteen distinct caught mutations"
+  }
+]
