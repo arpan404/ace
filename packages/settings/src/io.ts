@@ -16,13 +16,17 @@ export const scheduler: Scheduler = {
 };
 export interface FileIO {
   read(path: string): Promise<string | undefined>;
-  write(path: string, text: string): Promise<void>;
+  /** Await beforeCommit immediately before publishing the destination. */
+  write(path: string, text: string, beforeCommit?: () => Promise<void>): Promise<void>;
   watch(path: string, changed: () => void, failed: () => void): Promise<() => void>;
 }
 function missing(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
-export async function readBounded(path: string): Promise<string | undefined> {
+export async function readBounded(
+  path: string,
+  allocate: (bytes: number) => Buffer = Buffer.alloc,
+): Promise<string | undefined> {
   let file;
   try {
     file = await open(path, "r");
@@ -34,15 +38,13 @@ export async function readBounded(path: string): Promise<string | undefined> {
     const size = (await file.stat()).size;
     if (size > MAX_DOCUMENT_BYTES)
       throw new SettingsError("size", "Settings document exceeds 1 MiB");
-    let buffer = Buffer.alloc(Math.max(1, size + 1));
+    let buffer = allocate(Math.max(1, size + 1));
     let length = 0;
     while (true) {
       if (length === buffer.length) {
         if (length > MAX_DOCUMENT_BYTES)
           throw new SettingsError("size", "Settings document exceeds 1 MiB");
-        const grown = Buffer.alloc(
-          Math.min(MAX_DOCUMENT_BYTES + 1, Math.max(4096, buffer.length * 2)),
-        );
+        const grown = allocate(Math.min(MAX_DOCUMENT_BYTES + 1, Math.max(4096, buffer.length * 2)));
         buffer.copy(grown);
         buffer = grown;
       }
@@ -67,10 +69,11 @@ export async function atomicWrite(
   path: string,
   text: string,
   beforeRename?: () => Promise<void>,
+  openFile: typeof open = open,
 ): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
-  const file = await open(temp, "wx", 0o600);
+  const file = await openFile(temp, "wx", 0o600);
   try {
     try {
       await file.writeFile(text, "utf8");
@@ -80,7 +83,7 @@ export async function atomicWrite(
     }
     await beforeRename?.();
     await rename(temp, path);
-    const directory = await open(dirname(path), "r");
+    const directory = await openFile(dirname(path), "r");
     try {
       await directory.sync();
     } finally {

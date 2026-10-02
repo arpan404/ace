@@ -5,7 +5,7 @@ import {
   type SettingsDiagnostic,
   type SettingsProvenance,
 } from "@ace/protocol";
-import { decode, edit, emptyText, SettingsError } from "./document.ts";
+import { decode, assign, emptyText, SettingsError, type DecodedDocument } from "./document.ts";
 import type { FileIO, Scheduler } from "./io.ts";
 
 export function freeze<T>(value: T): T {
@@ -17,8 +17,13 @@ export function freeze<T>(value: T): T {
 }
 export type FileChange = { keys: SettingsKey[]; diagnostic?: SettingsDiagnostic };
 export class SettingsFile {
-  document: SettingsDocument = freeze(decode(emptyText).document);
-  diagnostic: SettingsDiagnostic | undefined;
+  private prepared = decode(emptyText);
+  document: SettingsDocument = freeze(this.prepared.document);
+  private documentDiagnostic: SettingsDiagnostic | undefined;
+  private watcherDiagnostic: SettingsDiagnostic | undefined;
+  get diagnostic(): SettingsDiagnostic | undefined {
+    return this.documentDiagnostic ?? this.watcherDiagnostic;
+  }
   private tail: Promise<void> = Promise.resolve();
   private queued = 0;
   private stopWatch: (() => void) | undefined;
@@ -29,6 +34,7 @@ export class SettingsFile {
   private io: FileIO;
   private timers: Scheduler;
   private delay: number;
+  private validate: (() => Promise<void>) | undefined;
   private changed: (change: FileChange) => void;
   constructor(options: {
     path: string;
@@ -36,6 +42,7 @@ export class SettingsFile {
     io: FileIO;
     timers: Scheduler;
     delay: number;
+    validate?: () => Promise<void>;
     changed(change: FileChange): void;
   }) {
     this.path = options.path;
@@ -44,6 +51,7 @@ export class SettingsFile {
     this.timers = options.timers;
     this.delay = options.delay;
     this.changed = options.changed;
+    this.validate = options.validate;
   }
   private enqueue<T>(run: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new SettingsError("io", "Settings service is closed"));
@@ -66,23 +74,37 @@ export class SettingsFile {
       error instanceof SettingsError
         ? error
         : new SettingsError("io", "Cannot read or write settings file");
-    this.diagnostic = freeze({
+    this.documentDiagnostic = freeze({
       layer: this.layer,
       code: known.code,
       message: known.message,
       ...(known.offset === undefined ? {} : { offset: known.offset }),
     });
-    this.changed({ keys: [], diagnostic: this.diagnostic });
+    this.changed({ keys: [], diagnostic: this.documentDiagnostic });
   }
-  private publish(document: SettingsDocument): void {
+  private publish(prepared: DecodedDocument): void {
+    const document = prepared.document;
+    this.prepared = { ...prepared, migrated: false };
     const keys = SettingsKey.options.filter(
       (key) =>
         !isDeepStrictEqual(this.document.settings[key], document.settings[key]) ||
         Object.hasOwn(this.document.settings, key) !== Object.hasOwn(document.settings, key),
     );
     this.document = freeze(document);
-    this.diagnostic = undefined;
+    this.documentDiagnostic = undefined;
     if (keys.length) this.changed({ keys });
+  }
+  private watchFailed(): void {
+    const diagnostic = freeze({
+      layer: this.layer,
+      code: "io" as const,
+      message: "Settings watcher failed",
+    });
+    if (!isDeepStrictEqual(this.watcherDiagnostic, diagnostic)) {
+      this.watcherDiagnostic = diagnostic;
+      this.changed({ keys: [], diagnostic });
+    }
+    this.schedule();
   }
   private async rewatch(): Promise<void> {
     if (this.closed) return;
@@ -90,13 +112,16 @@ export class SettingsFile {
       const stop = await this.io.watch(
         this.path,
         () => this.schedule(),
-        () => this.report(new SettingsError("io", "Settings watcher failed")),
+        () => this.watchFailed(),
       );
       this.stopWatch?.();
       if (this.closed) stop();
-      else this.stopWatch = stop;
-    } catch (error) {
-      this.report(error);
+      else {
+        this.stopWatch = stop;
+        this.watcherDiagnostic = undefined;
+      }
+    } catch {
+      this.watchFailed();
     }
   }
   private schedule(): void {
@@ -111,23 +136,27 @@ export class SettingsFile {
     return this.enqueue(async () => {
       await this.rewatch();
       try {
+        await this.validate?.();
         const source = (await this.io.read(this.path)) ?? emptyText;
-        const result = decode(source);
-        if (result.migrated) await this.io.write(this.path, result.text);
-        this.publish(result.document);
+        const result = source === this.prepared.text ? this.prepared : decode(source);
+        if (result.migrated) await this.io.write(this.path, result.text, this.validate);
+        this.publish(result);
       } catch (error) {
         this.report(error);
       }
     });
   }
-  set(key: SettingsKey, value: unknown): Promise<void> {
+  set(key: SettingsKey, value: unknown, beforeCommit = this.validate): Promise<void> {
     return this.enqueue(async () => {
       try {
-        const source = decode((await this.io.read(this.path)) ?? emptyText);
-        const text = edit(source.text, ["settings", key], value);
-        const result = decode(text);
-        if (source.migrated || text !== source.text) await this.io.write(this.path, text);
-        this.publish(result.document);
+        await beforeCommit?.();
+        const raw = (await this.io.read(this.path)) ?? emptyText;
+        const source = raw === this.prepared.text ? this.prepared : decode(raw);
+        const result = assign(source, key, value);
+        const text = result.text;
+        if (source.migrated || text !== source.text)
+          await this.io.write(this.path, text, beforeCommit);
+        this.publish(result);
         await this.rewatch();
       } catch (error) {
         this.report(error);

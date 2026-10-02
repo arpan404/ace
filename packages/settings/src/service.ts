@@ -1,3 +1,4 @@
+import { FileCache, type FileLease } from "./cache.ts";
 import { resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -7,6 +8,7 @@ import {
   type SettingsProvenance,
   type SettingsEntry,
 } from "@ace/protocol";
+import { workspaceGuard } from "./workspace.ts";
 import { defaults } from "./defaults.ts";
 import { SettingsError, validateValue } from "./document.ts";
 import { SettingsFile, freeze, type FileChange } from "./file.ts";
@@ -27,9 +29,12 @@ export interface Selector {
 export type Notification =
   | { type: "changed"; entries: SettingsEntry[] }
   | { type: "diagnostic"; diagnostic: SettingsDiagnostic };
+interface LayerFile extends FileLease {
+  layer: SettingsProvenance;
+}
 interface Subscription {
   keys: SettingsKey[];
-  files: SettingsFile[];
+  files: LayerFile[];
   last: Map<SettingsKey, SettingsEntry>;
   listener(notification: Notification): void;
 }
@@ -41,7 +46,7 @@ export interface SettingsOptions {
   onListenerError?: (error: unknown) => void;
 }
 export class SettingsService {
-  private files = new Map<string, { file: SettingsFile; ready: Promise<void> }>();
+  private cache = new FileCache();
   private index = new Map<SettingsFile, Map<SettingsKey, Set<Subscription>>>();
   private subscriptions = new Set<Subscription>();
   private options: SettingsOptions;
@@ -58,17 +63,13 @@ export class SettingsService {
       throw new SettingsError("validation", "Invalid thread settings ID");
     return resolve(this.options.dataDir, "threads", layer.thread, "settings.json");
   }
-  private async file(layer: Layer): Promise<SettingsFile> {
+  private async file(layer: Layer): Promise<LayerFile> {
     if (this.closed) throw new SettingsError("io", "Settings service is closed");
     const path = this.path(layer);
-    let entry = this.files.get(path);
-    if (!entry) {
-      if (this.files.size >= 64)
-        throw new SettingsError(
-          "limit",
-          "Settings file limit reached; restart to release inactive scopes",
-        );
+    const lease = await this.cache.acquire(path, async () => {
+      const guard = layer.kind === "workspace" ? await workspaceGuard(layer.workspace) : undefined;
       const file = new SettingsFile({
+        ...(guard ? { validate: guard } : {}),
         path,
         layer: layer.kind,
         io: this.options.io ?? fileIO,
@@ -76,31 +77,35 @@ export class SettingsService {
         delay: this.options.debounceMs ?? 75,
         changed: (change) => this.notify(file, change),
       });
-      entry = { file, ready: file.reload() };
-      this.files.set(path, entry);
-    }
-    await entry.ready;
-    return entry.file;
+      return file;
+    });
+    return { ...lease, layer: layer.kind };
   }
-  private async scope(scope: Scope): Promise<SettingsFile[]> {
-    const files = [await this.file({ kind: "global" })];
-    if (scope.workspace !== undefined)
-      files.push(await this.file({ kind: "workspace", workspace: scope.workspace }));
-    if (scope.thread !== undefined)
-      files.push(await this.file({ kind: "thread", thread: scope.thread }));
-    return files;
+  private async scope(scope: Scope): Promise<LayerFile[]> {
+    const files: LayerFile[] = [];
+    try {
+      files.push(await this.file({ kind: "global" }));
+      if (scope.workspace !== undefined)
+        files.push(await this.file({ kind: "workspace", workspace: scope.workspace }));
+      if (scope.thread !== undefined)
+        files.push(await this.file({ kind: "thread", thread: scope.thread }));
+      return files;
+    } catch (error) {
+      for (const file of files) file.release();
+      throw error;
+    }
   }
   private resolve<K extends SettingsKey>(
     key: K,
-    files: SettingsFile[],
+    files: LayerFile[],
   ): { key: K; value: SettingsValues[K]; provenance: SettingsProvenance } {
     for (let index = files.length - 1; index >= 0; index--) {
       const file = files[index];
-      if (file && Object.hasOwn(file.document.settings, key)) {
+      if (file && Object.hasOwn(file.file.document.settings, key)) {
         // Every known document value has been validated by SettingsDocument.
         return freeze({
           key,
-          value: file.document.settings[key] as SettingsValues[K],
+          value: file.file.document.settings[key] as SettingsValues[K],
           provenance: file.layer,
         });
       }
@@ -109,22 +114,40 @@ export class SettingsService {
   }
   async get<K extends SettingsKey>(key: K, scope: Scope = {}) {
     SettingsKey.parse(key);
-    return this.resolve(key, await this.scope(scope));
+    const files = await this.scope(scope);
+    try {
+      return this.resolve(key, files);
+    } finally {
+      for (const file of files) file.release();
+    }
   }
   async read(
     selector: Selector,
   ): Promise<{ entries: SettingsEntry[]; diagnostics: SettingsDiagnostic[] }> {
     const keys = this.keys(selector.keys);
     const files = await this.scope(selector.scope);
-    return {
-      entries: keys.map((key) => this.resolve(key, files)),
-      diagnostics: files.flatMap((file) => (file.diagnostic ? [file.diagnostic] : [])),
-    };
+    try {
+      return {
+        entries: keys.map((key) => this.resolve(key, files)),
+        diagnostics: files.flatMap(({ file, layer }) =>
+          file.diagnostic ? [{ ...file.diagnostic, layer }] : [],
+        ),
+      };
+    } finally {
+      for (const file of files) file.release();
+    }
   }
+
   async set<K extends SettingsKey>(key: K, value: SettingsValues[K], layer: Layer): Promise<void> {
     SettingsKey.parse(key);
     const parsed = validateValue(key, value);
-    await (await this.file(layer)).set(key, parsed);
+    const guard = layer.kind === "workspace" ? await workspaceGuard(layer.workspace) : undefined;
+    const lease = await this.file(layer);
+    try {
+      await lease.file.set(key, parsed, guard);
+    } finally {
+      lease.release();
+    }
   }
   private keys(keys: SettingsKey[]): SettingsKey[] {
     if (keys.length < 1 || keys.length > 32)
@@ -141,7 +164,10 @@ export class SettingsService {
     try {
       const keys = this.keys(selector.keys);
       const files = await this.scope(selector.scope);
-      if (this.closed) throw new SettingsError("io", "Settings service is closed");
+      if (this.closed) {
+        for (const file of files) file.release();
+        throw new SettingsError("io", "Settings service is closed");
+      }
       const sub: Subscription = {
         keys,
         files,
@@ -149,7 +175,7 @@ export class SettingsService {
         last: new Map(keys.map((key) => [key, this.resolve(key, files)])),
       };
       this.subscriptions.add(sub);
-      for (const file of files) {
+      for (const { file } of files) {
         let index = this.index.get(file);
         if (!index) {
           index = new Map();
@@ -165,8 +191,9 @@ export class SettingsService {
         }
       }
       return () => {
-        this.subscriptions.delete(sub);
-        for (const file of files)
+        if (!this.subscriptions.delete(sub)) return;
+        for (const file of files) file.release();
+        for (const { file } of files)
           for (const key of keys) {
             const index = this.index.get(file);
             const bucket = index?.get(key);
@@ -214,22 +241,38 @@ export class SettingsService {
       const subscribers = new Set<Subscription>();
       for (const bucket of index.values()) for (const sub of bucket) subscribers.add(sub);
       for (const sub of subscribers)
-        this.deliver(sub, { type: "diagnostic", diagnostic: change.diagnostic });
+        this.deliver(sub, {
+          type: "diagnostic",
+          diagnostic: {
+            ...change.diagnostic,
+            layer:
+              sub.files.findLast((entry) => entry.file === file)?.layer ?? change.diagnostic.layer,
+          },
+        });
     }
   }
   /** Deterministic reconciliation hook for callers that already observed a file change. */
   async refresh(layer: Layer): Promise<void> {
-    await (await this.file(layer)).reload();
+    const lease = await this.file(layer);
+    try {
+      await lease.file.reload();
+    } finally {
+      lease.release();
+    }
   }
   /** Wait for already queued file work without causing another read. */
   async settled(layer: Layer): Promise<void> {
-    await (await this.file(layer)).settled();
+    const lease = await this.file(layer);
+    try {
+      await lease.file.settled();
+    } finally {
+      lease.release();
+    }
   }
   async close(): Promise<void> {
     this.closed = true;
-    await Promise.all([...this.files.values()].map(({ file }) => file.close()));
+    await this.cache.close();
     this.subscriptions.clear();
     this.index.clear();
-    this.files.clear();
   }
 }

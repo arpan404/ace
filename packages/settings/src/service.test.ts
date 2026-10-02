@@ -191,12 +191,16 @@ test("secret-looking fields and values are rejected without echoing their conten
     { nested: { password: "sensitive" } },
     { apiKey: "sensitive" },
     { key: "sensitive" },
+    { passwd: "sensitive" },
     { auth: "Bearer sensitive-value" },
     { provider: "sk-1234567890abcdefgh" },
   ]) {
-    await expect(f.service.set("plugins.preferences", value, { kind: "global" })).rejects.toThrow(
-      /Secret|Credentials/,
-    );
+    const assignment = f.service.set("plugins.preferences", value, { kind: "global" });
+    await expect(assignment).rejects.toThrow(/Secret|Credentials/);
+    await expect(assignment).rejects.toMatchObject({
+      code: "secret",
+      message: expect.not.stringMatching(/sensitive|1234567890abcdefgh/),
+    });
   }
   await expect(readFile(f.globalPath)).rejects.toMatchObject({ code: "ENOENT" });
   await f.service.set("clients.keybindings", { save: "cmd+s" }, { kind: "global" });

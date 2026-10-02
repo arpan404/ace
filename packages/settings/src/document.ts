@@ -1,50 +1,10 @@
-import { applyEdits, modify, parse, visit, type ParseError } from "jsonc-parser";
-import {
-  SettingsDocument,
-  SettingsValues,
-  SettingsKey,
-  type SettingsDiagnostic,
-} from "@ace/protocol";
+import { guardSecrets, MAX_CLIENT_BYTES, MAX_DOCUMENT_BYTES, SettingsError } from "./validation.ts";
+import { parseDocument, type ScalarRange } from "./jsonc.ts";
+export { MAX_DOCUMENT_BYTES, MAX_CLIENT_BYTES, SettingsError } from "./validation.ts";
+import { applyEdits, modify } from "jsonc-parser";
+import { SettingsDocument, SettingsValues, SettingsKey } from "@ace/protocol";
 import { z } from "zod";
 
-export const MAX_DOCUMENT_BYTES = 1024 * 1024;
-export const MAX_CLIENT_BYTES = 64 * 1024;
-export class SettingsError extends Error {
-  readonly code: SettingsDiagnostic["code"];
-  readonly offset: number | undefined;
-  constructor(code: SettingsDiagnostic["code"], message: string, offset?: number) {
-    super(message);
-    this.name = "SettingsError";
-    this.code = code;
-    this.offset = offset;
-  }
-}
-export function guardSecrets(value: unknown, depth = 0): void {
-  if (depth > 64) throw new SettingsError("size", "Settings nesting exceeds 64 levels");
-  if (typeof value === "string") {
-    if (
-      /(?:\bBearer\s+\S+|\b(?:sk-|ghp_|github_pat_|AKIA)[a-zA-Z0-9_-]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i.test(
-        value,
-      )
-    )
-      throw new SettingsError("secret", "Credentials cannot be stored in settings");
-  } else if (Array.isArray(value)) {
-    for (const item of value) guardSecrets(item, depth + 1);
-  } else if (value !== null && typeof value === "object") {
-    for (const [key, item] of Object.entries(value)) {
-      const words = key.replace(/([a-z])([A-Z])/g, "$1_$2");
-      if (
-        /(?:^|[._\-\s])(?:tokens?|keys?|passwords?|secrets?|credentials?|authorization)(?:$|[._\-\s])/i.test(
-          words,
-        ) ||
-        /(?:api|access|refresh|private|secret)(?:key|token)/i.test(key) ||
-        ["__proto__", "constructor", "prototype"].includes(key)
-      )
-        throw new SettingsError("secret", "Secret-looking fields cannot be stored in settings");
-      guardSecrets(item, depth + 1);
-    }
-  }
-}
 export function validateAssignment(
   key: string,
   value: unknown,
@@ -83,30 +43,15 @@ const envelope = z.object({ version: z.number().int() }).passthrough();
 const v1 = z
   .object({ version: z.literal(1), values: z.record(z.string(), z.json()) })
   .passthrough();
-export function decode(text: string): {
+export interface DecodedDocument {
   document: SettingsDocument;
   text: string;
   migrated: boolean;
-} {
-  if (Buffer.byteLength(text) > MAX_DOCUMENT_BYTES)
-    throw new SettingsError("size", "Settings document exceeds 1 MiB");
-  let depth = 0;
-  const begin = () => {
-    if (++depth > 64) throw new SettingsError("size", "Settings nesting exceeds 64 levels");
-  };
-  const end = () => {
-    depth--;
-  };
-  visit(
-    text,
-    { onObjectBegin: begin, onArrayBegin: begin, onObjectEnd: end, onArrayEnd: end },
-    { allowTrailingComma: true },
-  );
-  const errors: ParseError[] = [];
-  const raw: unknown = parse(text, errors, { allowTrailingComma: true });
-  if (errors.length) throw new SettingsError("parse", "Invalid JSONC settings", errors[0]?.offset);
-  guardSecrets(raw);
-  guardSecrets(text);
+  ranges: Map<SettingsKey, ScalarRange>;
+}
+export function decode(text: string): DecodedDocument {
+  let scanned = parseDocument(text);
+  const raw = scanned.value;
   const header = envelope.safeParse(raw);
   if (!header.success)
     throw new SettingsError("validation", "Settings require a versioned document");
@@ -126,13 +71,45 @@ export function decode(text: string): {
   }
   if (Buffer.byteLength(text) > MAX_DOCUMENT_BYTES)
     throw new SettingsError("size", "Migrated settings document exceeds 1 MiB");
-  const data: unknown = migrated ? parse(text) : raw;
+  if (migrated) scanned = parseDocument(text);
+  const data: unknown = scanned.value;
   const result = SettingsDocument.safeParse(data);
   if (!result.success)
     throw new SettingsError("validation", "Settings document has invalid known values");
   for (const key of ["clients.theme", "clients.keybindings"] as const) {
     if (Object.hasOwn(result.data.settings, key)) validateValue(key, result.data.settings[key]);
   }
-  return { document: result.data, text, migrated };
+  return { document: result.data, text, migrated, ranges: scanned.ranges };
 }
 export const emptyText = '{\n  "version": 2,\n  "settings": {}\n}\n';
+
+/** Reuse only validated offsets and primitive values. Complex insertions use the full decoder. */
+export function assign(source: DecodedDocument, key: SettingsKey, value: unknown): DecodedDocument {
+  const parsed = validateValue(key, value);
+  const range = source.ranges.get(key);
+  if (!range || (parsed !== null && typeof parsed === "object"))
+    return decode(edit(source.text, ["settings", key], parsed));
+  const content = JSON.stringify(parsed);
+  const text =
+    source.text.slice(0, range.offset) + content + source.text.slice(range.offset + range.length);
+  if (Buffer.byteLength(text) > MAX_DOCUMENT_BYTES)
+    throw new SettingsError("size", "Settings document exceeds 1 MiB");
+  const shift = content.length - range.length;
+  const ranges = new Map<SettingsKey, ScalarRange>();
+  for (const [other, position] of source.ranges)
+    ranges.set(
+      other,
+      other === key
+        ? { offset: range.offset, length: content.length }
+        : {
+            offset: position.offset > range.offset ? position.offset + shift : position.offset,
+            length: position.length,
+          },
+    );
+  return {
+    text,
+    migrated: source.migrated,
+    ranges,
+    document: { ...source.document, settings: { ...source.document.settings, [key]: parsed } },
+  };
+}

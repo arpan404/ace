@@ -17,7 +17,7 @@ export class ManualEdges {
     watch: async (path, changed) => {
       this.watchers.set(path, changed);
       return () => {
-        this.watchers.delete(path);
+        if (this.watchers.get(path) === changed) this.watchers.delete(path);
       };
     },
   };

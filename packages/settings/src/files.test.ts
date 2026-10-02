@@ -43,22 +43,25 @@ test("ace rereads earlier external edits and the last rename wins without torn f
   await f.write(f.globalPath, { "notifications.sound": true, "future.before": "retained" });
   intercept = true;
   const writing = f.service.set("notifications.sound", false, { kind: "global" });
-  await entered.promise;
-  expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
-    settings: { "notifications.sound": true, "future.before": "retained" },
-  });
-  await atomicWrite(
-    f.globalPath,
-    JSON.stringify({
-      version: 2,
-      settings: { "notifications.sound": true, "future.during": "external" },
-    }),
-  );
-  expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
-    settings: { "future.during": "external" },
-  });
-  release.resolve();
-  await writing;
+  try {
+    await entered.promise;
+    expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
+      settings: { "notifications.sound": true, "future.before": "retained" },
+    });
+    await atomicWrite(
+      f.globalPath,
+      JSON.stringify({
+        version: 2,
+        settings: { "notifications.sound": true, "future.during": "external" },
+      }),
+    );
+    expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
+      settings: { "future.during": "external" },
+    });
+  } finally {
+    release.resolve();
+    await writing;
+  }
   expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toEqual({
     version: 2,
     settings: { "notifications.sound": false, "future.before": "retained" },
@@ -129,7 +132,7 @@ test("oversized files, deep JSON, invalid known values and credentials preserve 
   }
 });
 
-test("serialized concurrent sets preserve both changes and close drains in-flight writes", async () => {
+test("serialized concurrent sets preserve both changes", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
   await Promise.all([
@@ -192,7 +195,10 @@ test("file and subscription capacity refuse growth and released subscriptions ca
   );
   replacement();
   for (let count = 0; count < 63; count++)
-    await f.service.get("notifications.sound", { thread: `thread-${count}` });
+    await f.service.subscribe(
+      { keys: ["notifications.sound"], scope: { thread: `thread-${count}` } },
+      () => {},
+    );
   await expect(f.service.get("notifications.sound", { thread: "overflow" })).rejects.toThrow(
     "limit",
   );
