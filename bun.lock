@@ -72,6 +72,7 @@
       "dependencies": {
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
       },
     },
     "packages/engine-api": {
