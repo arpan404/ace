@@ -29,26 +29,26 @@ Four independent `bun run test` invocations ran concurrently, with live mode uns
 Only version/status probes and initialize/initialized handshakes ran. No sessions, threads or prompts were created. Every started process was stopped. The OpenCode server used an ephemeral port and a fresh password.
 
 ```text
-$ vitest run packages/provider-kit/src/live.test.ts "--reporter=verbose"
+$ vitest run packages/provider-kit/src/live.process.test.ts "--reporter=verbose"
 
  RUN  v5.0.3 <WORKSPACE>
 
-stdout | packages/provider-kit/src/live.test.ts > installed CLI handshakes (no sessions or prompts)
+stdout | packages/provider-kit/src/live.process.test.ts > installed CLI handshakes (no sessions or prompts)
 Live discovery: claude 2.1.286 logged_in; codex 0.159.1 logged_in; opencode 1.18.33 logged_in credentials_configured; cursor 2026.09.26-dd393fe logged_in
 
- ✓ packages/provider-kit/src/live.test.ts > installed CLI handshakes (no sessions or prompts) > discovers a version and read-only auth status for every installed CLI 1ms
-stdout | packages/provider-kit/src/live.test.ts > installed CLI handshakes (no sessions or prompts) > OpenCode global SSE emits connected and heartbeat without creating a session
+ ✓ packages/provider-kit/src/live.process.test.ts > installed CLI handshakes (no sessions or prompts) > discovers a version and read-only auth status for every installed CLI 1ms
+stdout | packages/provider-kit/src/live.process.test.ts > installed CLI handshakes (no sessions or prompts) > OpenCode global SSE emits connected and heartbeat without creating a session
 Live OpenCode: connected + heartbeat; stopped
 
- ✓ packages/provider-kit/src/live.test.ts > installed CLI handshakes (no sessions or prompts) > OpenCode global SSE emits connected and heartbeat without creating a session 10501ms
-stdout | packages/provider-kit/src/live.test.ts > installed CLI handshakes (no sessions or prompts) > Codex app-server initializes over stdio without starting a thread
+ ✓ packages/provider-kit/src/live.process.test.ts > installed CLI handshakes (no sessions or prompts) > OpenCode global SSE emits connected and heartbeat without creating a session 10501ms
+stdout | packages/provider-kit/src/live.process.test.ts > installed CLI handshakes (no sessions or prompts) > Codex app-server initializes over stdio without starting a thread
 Live Codex: initialize + initialized; stopped
 
- ✓ packages/provider-kit/src/live.test.ts > installed CLI handshakes (no sessions or prompts) > Codex app-server initializes over stdio without starting a thread 104ms
-stdout | packages/provider-kit/src/live.test.ts > installed CLI handshakes (no sessions or prompts) > Cursor ACP initializes without creating a session
+ ✓ packages/provider-kit/src/live.process.test.ts > installed CLI handshakes (no sessions or prompts) > Codex app-server initializes over stdio without starting a thread 104ms
+stdout | packages/provider-kit/src/live.process.test.ts > installed CLI handshakes (no sessions or prompts) > Cursor ACP initializes without creating a session
 Live Cursor: initialize; stopped
 
- ✓ packages/provider-kit/src/live.test.ts > installed CLI handshakes (no sessions or prompts) > Cursor ACP initializes without creating a session 383ms
+ ✓ packages/provider-kit/src/live.process.test.ts > installed CLI handshakes (no sessions or prompts) > Cursor ACP initializes without creating a session 383ms
 
  Test Files  1 passed (1)
       Tests  4 passed (4)

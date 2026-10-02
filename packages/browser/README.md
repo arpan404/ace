@@ -123,7 +123,7 @@ contain page data and remain in private directories on the host.
 
 ## Verification
 
-Run `bun run test -- packages/browser apps/daemon/src/browser.test.ts` for real
+Run `bun run test -- packages/browser apps/daemon/src/browser.process.test.ts` for real
 Chromium plus public API tests, or `bun run check` for the repository checks.
 Browser suites skip if discovery finds no executable. CI has a separate Linux
 job that installs Chromium and its system dependencies.

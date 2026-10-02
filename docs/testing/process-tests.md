@@ -41,7 +41,7 @@ including OpenSSL signing, provider discovery, GitService, NotificationWorker,
 MCP harnesses, daemon socket/remote fixtures and relay peers. The branch's starting
 main commit was `709f66d`. Its 56 real-edge suites below are selected by
 `scripts/process-test-suites.ts`; mixed suites stay together. The SQLite capacity
-suite `packages/notify/src/review.test.ts` adds one integration workload, bringing
+suite `packages/notify/src/review.process.test.ts` adds one integration workload, bringing
 the project's total on this branch to 57 files.
 
 Main advanced to `19a7e14` during verification. Static inspection of that commit
@@ -50,76 +50,76 @@ already includes them for merge, bringing the merged project's expected total
 to 63 files. The model catalog stays external to the CLI bundle so its SQLite
 worker resolves beside the real source. That merged behavior needs run at merge.
 
-| Test file                                               | Real edge                                                 |
-| ------------------------------------------------------- | --------------------------------------------------------- |
-| `apps/daemon/src/auth.server.test.ts`                   | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/client-limits.test.ts`                 | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/device-creation.server.test.ts`        | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/items-window.test.ts`                  | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/lifecycle.test.ts`                     | Daemon/CLI processes and sockets                          |
-| `apps/daemon/src/mcp.test.ts`                           | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/notification-race.test.ts`             | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/notifications.remote.test.ts`          | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/notifications.server.test.ts`          | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/ownership.server.test.ts`              | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/payloads.test.ts`                      | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/pressure.test.ts`                      | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/remote-boundaries.server.test.ts`      | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/remote-cli.test.ts`                    | Daemon/CLI processes and sockets                          |
-| `apps/daemon/src/remote-payloads.test.ts`               | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/remote.server.test.ts`                 | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/settings.remote.test.ts`               | TLS HTTP/WebSocket servers and settings authorization     |
-| `apps/daemon/src/server.test.ts`                        | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/subscription.test.ts`                  | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/text-storage.test.ts`                  | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/daemon/src/ticket-allocation.server.test.ts`      | HTTP/WebSocket servers; remote fixtures also sign TLS     |
-| `apps/relay/src/abuse.test.ts`                          | Real WebSocket relay and peers                            |
-| `apps/relay/src/availability.test.ts`                   | Real WebSocket relay and peers                            |
-| `apps/relay/src/relay.test.ts`                          | Real WebSocket relay and peers                            |
-| `apps/relay/src/throttling.test.ts`                     | Real WebSocket relay and peers                            |
-| `apps/relay/src/validation.test.ts`                     | Real WebSocket relay and peers                            |
-| `packages/adapter-testkit/src/cli.test.ts`              | Bun workspace command and real Node CLI processes         |
-| `packages/git/src/checkpoints.test.ts`                  | Real Git processes and temporary repositories             |
-| `packages/git/src/diff-resources.test.ts`               | Real Git processes and temporary repositories             |
-| `packages/git/src/diff.test.ts`                         | Real Git processes and temporary repositories             |
-| `packages/git/src/lifecycle.test.ts`                    | Real Git processes and temporary repositories             |
-| `packages/git/src/malformed.test.ts`                    | Real Git processes and temporary repositories             |
-| `packages/git/src/nested.test.ts`                       | Real Git processes and temporary repositories             |
-| `packages/git/src/numbering.test.ts`                    | Real Git processes and temporary repositories             |
-| `packages/git/src/process-runtime.test.ts`              | Real Git processes and temporary repositories             |
-| `packages/git/src/repository.test.ts`                   | Real Git processes and temporary repositories             |
-| `packages/git/src/review-regressions.test.ts`           | Real Git processes and temporary repositories             |
-| `packages/git/src/worktrees.test.ts`                    | Real Git processes and temporary repositories             |
-| `packages/mcp-server/src/admission.test.ts`             | Real HTTP/MCP server and clients                          |
-| `packages/mcp-server/src/discovery-apis.test.ts`        | Real HTTP/MCP server and clients                          |
-| `packages/mcp-server/src/discovery-fifo.test.ts`        | mkfifo process                                            |
-| `packages/mcp-server/src/http-boundaries.test.ts`       | Real HTTP/MCP server and clients                          |
-| `packages/mcp-server/src/http.test.ts`                  | Real HTTP/MCP server and clients                          |
-| `packages/mcp-server/src/lifetime.test.ts`              | Real HTTP/MCP server and clients                          |
-| `packages/notify/src/apns.test.ts`                      | HTTP/2 server                                             |
-| `packages/notify/src/ipc.test.ts`                       | Real Node notification worker                             |
-| `packages/notify/src/webpush.test.ts`                   | HTTP server                                               |
-| `packages/notify/src/worker.test.ts`                    | Real Node notification worker                             |
-| `packages/orchestrator/src/git-boundary.test.ts`        | Real Git processes and temporary repositories             |
-| `packages/orchestrator/src/git.test.ts`                 | Real Git processes and temporary repositories             |
-| `packages/provider-kit/src/discovery/discovery.test.ts` | Real Node/shell processes; discovery also uses a TCP gate |
-| `packages/provider-kit/src/jsonrpc.test.ts`             | Real Node/shell processes; discovery also uses a TCP gate |
-| `packages/provider-kit/src/live.test.ts`                | Opt-in installed CLI handshakes and local server          |
-| `packages/provider-kit/src/process.test.ts`             | Real Node/shell processes; discovery also uses a TCP gate |
-| `packages/provider-kit/src/sse-recovery.test.ts`        | Real HTTP/SSE server                                      |
-| `packages/provider-kit/src/sse.test.ts`                 | Real HTTP/SSE server                                      |
-| `tools/recorder/src/stdio.test.ts`                      | Synthetic Node CLI processes; no subscription use         |
+| Test file                                                       | Real edge                                                 |
+| --------------------------------------------------------------- | --------------------------------------------------------- |
+| `apps/daemon/src/auth.server.process.test.ts`                   | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/client-limits.process.test.ts`                 | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/device-creation.server.process.test.ts`        | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/items-window.process.test.ts`                  | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/lifecycle.process.test.ts`                     | Daemon/CLI processes and sockets                          |
+| `apps/daemon/src/mcp.process.test.ts`                           | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/notification-race.process.test.ts`             | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/notifications.remote.process.test.ts`          | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/notifications.server.process.test.ts`          | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/ownership.server.process.test.ts`              | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/payloads.process.test.ts`                      | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/pressure.process.test.ts`                      | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/remote-boundaries.server.process.test.ts`      | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/remote-cli.process.test.ts`                    | Daemon/CLI processes and sockets                          |
+| `apps/daemon/src/remote-payloads.process.test.ts`               | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/remote.server.process.test.ts`                 | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/settings.remote.process.test.ts`               | TLS HTTP/WebSocket servers and settings authorization     |
+| `apps/daemon/src/server.process.test.ts`                        | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/subscription.process.test.ts`                  | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/text-storage.process.test.ts`                  | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/daemon/src/ticket-allocation.server.process.test.ts`      | HTTP/WebSocket servers; remote fixtures also sign TLS     |
+| `apps/relay/src/abuse.process.test.ts`                          | Real WebSocket relay and peers                            |
+| `apps/relay/src/availability.process.test.ts`                   | Real WebSocket relay and peers                            |
+| `apps/relay/src/relay.process.test.ts`                          | Real WebSocket relay and peers                            |
+| `apps/relay/src/throttling.process.test.ts`                     | Real WebSocket relay and peers                            |
+| `apps/relay/src/validation.process.test.ts`                     | Real WebSocket relay and peers                            |
+| `packages/adapter-testkit/src/cli.process.test.ts`              | Bun workspace command and real Node CLI processes         |
+| `packages/git/src/checkpoints.process.test.ts`                  | Real Git processes and temporary repositories             |
+| `packages/git/src/diff-resources.process.test.ts`               | Real Git processes and temporary repositories             |
+| `packages/git/src/diff.process.test.ts`                         | Real Git processes and temporary repositories             |
+| `packages/git/src/lifecycle.process.test.ts`                    | Real Git processes and temporary repositories             |
+| `packages/git/src/malformed.process.test.ts`                    | Real Git processes and temporary repositories             |
+| `packages/git/src/nested.process.test.ts`                       | Real Git processes and temporary repositories             |
+| `packages/git/src/numbering.process.test.ts`                    | Real Git processes and temporary repositories             |
+| `packages/git/src/process-runtime.process.test.ts`              | Real Git processes and temporary repositories             |
+| `packages/git/src/repository.process.test.ts`                   | Real Git processes and temporary repositories             |
+| `packages/git/src/review-regressions.process.test.ts`           | Real Git processes and temporary repositories             |
+| `packages/git/src/worktrees.process.test.ts`                    | Real Git processes and temporary repositories             |
+| `packages/mcp-server/src/admission.process.test.ts`             | Real HTTP/MCP server and clients                          |
+| `packages/mcp-server/src/discovery-apis.process.test.ts`        | Real HTTP/MCP server and clients                          |
+| `packages/mcp-server/src/discovery-fifo.process.test.ts`        | mkfifo process                                            |
+| `packages/mcp-server/src/http-boundaries.process.test.ts`       | Real HTTP/MCP server and clients                          |
+| `packages/mcp-server/src/http.process.test.ts`                  | Real HTTP/MCP server and clients                          |
+| `packages/mcp-server/src/lifetime.process.test.ts`              | Real HTTP/MCP server and clients                          |
+| `packages/notify/src/apns.process.test.ts`                      | HTTP/2 server                                             |
+| `packages/notify/src/ipc.process.test.ts`                       | Real Node notification worker                             |
+| `packages/notify/src/webpush.process.test.ts`                   | HTTP server                                               |
+| `packages/notify/src/worker.process.test.ts`                    | Real Node notification worker                             |
+| `packages/orchestrator/src/git-boundary.process.test.ts`        | Real Git processes and temporary repositories             |
+| `packages/orchestrator/src/git.process.test.ts`                 | Real Git processes and temporary repositories             |
+| `packages/provider-kit/src/discovery/discovery.process.test.ts` | Real Node/shell processes; discovery also uses a TCP gate |
+| `packages/provider-kit/src/jsonrpc.process.test.ts`             | Real Node/shell processes; discovery also uses a TCP gate |
+| `packages/provider-kit/src/live.process.test.ts`                | Opt-in installed CLI handshakes and local server          |
+| `packages/provider-kit/src/process.process.test.ts`             | Real Node/shell processes; discovery also uses a TCP gate |
+| `packages/provider-kit/src/sse-recovery.process.test.ts`        | Real HTTP/SSE server                                      |
+| `packages/provider-kit/src/sse.process.test.ts`                 | Real HTTP/SSE server                                      |
+| `tools/recorder/src/stdio.process.test.ts`                      | Synthetic Node CLI processes; no subscription use         |
 
 The additional suites from `19a7e14` are:
 
-| Test file                               | Real edge                                                          |
-| --------------------------------------- | ------------------------------------------------------------------ |
-| `apps/daemon/src/models.server.test.ts` | HTTP/WebSocket servers, private TLS files and model SQLite workers |
-| `packages/models/src/catalog.test.ts`   | Model SQLite workers and restart persistence                       |
-| `packages/models/src/discover.test.ts`  | Real Node CLI processes and model SQLite workers                   |
-| `packages/models/src/review.test.ts`    | Real Node CLI processes and model SQLite workers                   |
-| `packages/models/src/storage.test.ts`   | Model SQLite workers                                               |
-| `packages/models/src/streaming.test.ts` | Real Node CLI processes                                            |
+| Test file                                       | Real edge                                                          |
+| ----------------------------------------------- | ------------------------------------------------------------------ |
+| `apps/daemon/src/models.server.process.test.ts` | HTTP/WebSocket servers, private TLS files and model SQLite workers |
+| `packages/models/src/catalog.process.test.ts`   | Model SQLite workers and restart persistence                       |
+| `packages/models/src/discover.process.test.ts`  | Real Node CLI processes and model SQLite workers                   |
+| `packages/models/src/review.process.test.ts`    | Real Node CLI processes and model SQLite workers                   |
+| `packages/models/src/storage.process.test.ts`   | Model SQLite workers                                               |
+| `packages/models/src/streaming.process.test.ts` | Real Node CLI processes                                            |
 
 The live-provider suite remains opt-in through `ACE_LIVE_CLI=1`. Ordinary runs
 skip it and use controlled stand-ins; the recorder itself is never invoked.
@@ -200,8 +200,16 @@ then passed all three files and all 11 tests afterward. Existing stdout, process
 exit and socket barriers were retained; no assertions or timing budgets changed.
 
 ```sh
-bunx vitest run apps/daemon/src/settings.remote.test.ts apps/daemon/src/lifecycle.test.ts apps/daemon/src/remote-cli.test.ts
+bunx vitest run apps/daemon/src/settings.remote.process.test.ts apps/daemon/src/lifecycle.process.test.ts apps/daemon/src/remote-cli.process.test.ts
 ```
 
 No other tests, full suite, benchmark or mutation run was executed. The complete
 merge gate still needs run at merge.
+
+## Filename-based process discovery
+
+Suites using owned child processes or local transport peers end in `.process.test.ts`.
+Vitest selects these files by glob, applies the shared process hang guards and setup,
+and excludes them from the unit project. New suites register by filename; there is
+no shared inventory file to edit. This train preserves the prior inventory and also
+classifies newly integrated client, engine and history transport/process suites.

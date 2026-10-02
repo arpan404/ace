@@ -2,56 +2,56 @@
   {
     "mutation": "omit frame publication",
     "file": "packages/browser/src/fanout.ts",
-    "test": "packages/browser/src/fanout.test.ts > browser stream backpressure > lets a fast viewer progress while a slow viewer receives only the latest pending frame",
+    "test": "packages/browser/src/fanout.process.test.ts > browser stream backpressure > lets a fast viewer progress while a slow viewer receives only the latest pending frame",
     "killed": true,
     "exitCode": 1
   },
   {
     "mutation": "accept the wrong frame acknowledgement",
     "file": "packages/browser/src/fanout.ts",
-    "test": "packages/browser/src/fanout.test.ts > browser stream backpressure > lets a fast viewer progress while a slow viewer receives only the latest pending frame",
+    "test": "packages/browser/src/fanout.process.test.ts > browser stream backpressure > lets a fast viewer progress while a slow viewer receives only the latest pending frame",
     "killed": true,
     "exitCode": 1
   },
   {
     "mutation": "treat every HTTP host as localhost",
     "file": "packages/browser/src/policy.ts",
-    "test": "packages/browser/src/fanout.test.ts > browser stream backpressure > allows exact localhost names and delegates other sites to the approval hook",
+    "test": "packages/browser/src/fanout.process.test.ts > browser stream backpressure > allows exact localhost names and delegates other sites to the approval hook",
     "killed": true,
     "exitCode": 1
   },
   {
     "mutation": "change refs on every snapshot",
     "file": "packages/browser/src/refs.ts",
-    "test": "packages/browser/src/actions.test.ts > agent browser API with real Chromium > keeps refs stable across snapshots and DOM edits and rejects detached or navigated refs",
+    "test": "packages/browser/src/actions.process.test.ts > agent browser API with real Chromium > keeps refs stable across snapshots and DOM edits and rejects detached or navigated refs",
     "killed": true,
     "exitCode": 1
   },
   {
     "mutation": "let agents type while a human owns control",
     "file": "packages/browser/src/session.ts",
-    "test": "packages/browser/src/live.test.ts > live Chromium and controller ownership > blocks agent input during human control and binds human input and hand-back to its owner",
+    "test": "packages/browser/src/live.process.test.ts > live Chromium and controller ownership > blocks agent input during human control and binds human input and hand-back to its owner",
     "killed": true,
     "exitCode": 1
   },
   {
     "mutation": "discard accepted console log writes",
     "file": "packages/browser/src/logs.ts",
-    "test": "packages/browser/src/logs.test.ts > bounds log disk usage and preserves accepted grep-able entries",
+    "test": "packages/browser/src/logs.process.test.ts > bounds log disk usage and preserves accepted grep-able entries",
     "killed": true,
     "exitCode": 1
   },
   {
     "mutation": "bypass the redirect origin approval hook",
     "file": "packages/browser/src/origin-guard.ts",
-    "test": "packages/browser/src/actions.test.ts > agent browser API with real Chromium > checks redirect hops initiated by a cross-site iframe",
+    "test": "packages/browser/src/actions.process.test.ts > agent browser API with real Chromium > checks redirect hops initiated by a cross-site iframe",
     "killed": true,
     "exitCode": 1
   },
   {
     "mutation": "write empty recording JPEGs",
     "file": "packages/browser/src/recording.ts",
-    "test": "packages/browser/src/lifecycle.test.ts > browser lifecycle and recordings > saves a timestamped frame manifest and a player and reports the recording artifact",
+    "test": "packages/browser/src/lifecycle.process.test.ts > browser lifecycle and recordings > saves a timestamped frame manifest and a player and reports the recording artifact",
     "killed": true,
     "exitCode": 1
   }

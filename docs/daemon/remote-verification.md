@@ -29,7 +29,7 @@ Each change below was applied alone to production code. Its focused Vitest test 
 | revoked bearer accepted             | revokes a device immediately, closes all its sockets and rejects outstanding tickets and tokens                 |
 | outstanding revoked ticket accepted | revokes a device immediately, closes all its sockets and rejects outstanding tickets and tokens                 |
 
-Commands were `bun run test apps/daemon/src/remote.server.test.ts -t <behavior>` or, for the QR mutation, `bun run test apps/daemon/src/remote-cli.test.ts -t "starts in the foreground"`. The clean full suite was rerun after restoration.
+Commands were `bun run test apps/daemon/src/remote.server.process.test.ts -t <behavior>` or, for the QR mutation, `bun run test apps/daemon/src/remote-cli.process.test.ts -t "starts in the foreground"`. The clean full suite was rerun after restoration.
 
 ## Review regression checks
 

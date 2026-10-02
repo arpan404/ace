@@ -1,7 +1,7 @@
 {
   "mainRevision": "19a7e143665bab061ab2c18078520bd83f00bc7d",
   "branchRevision": "8db7af52ec1798f5814346be812c5963270aca6e",
-  "command": "bun run test apps/daemon/src/lifecycle.test.ts apps/daemon/src/remote-boundaries.server.test.ts packages/notify/src/review.test.ts packages/git/src/nested.test.ts -t 'prevents a second process|enforces a global pairing budget|a full disk spool|checkpoints capture and restore dirty'",
+  "command": "bun run test apps/daemon/src/lifecycle.process.test.ts apps/daemon/src/remote-boundaries.server.process.test.ts packages/notify/src/review.process.test.ts packages/git/src/nested.process.test.ts -t 'prevents a second process|enforces a global pairing budget|a full disk spool|checkpoints capture and restore dirty'",
   "conditions": "Both runs use VITEST_MAX_WORKERS=1, NODE_COMPILE_CACHE and 96 CPU-bound Node worker threads. A message from every worker signals readiness before tests start. Load lifetime caps at 120 seconds; finally terminates and reaps the load process. Tests retain their existing 5000/30000 ms timeouts. All affected sources match main.",
   "fullIsolatedRun": {
     "passed": 981,

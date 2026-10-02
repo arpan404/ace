@@ -12,7 +12,7 @@ New and revised public behavior tests were written before their fixes, using the
 
 - `terminal-lines.test.ts` expects independent byte columns for `a*` and `$` at ASCII/Unicode EOF, LF/CR, a complete-character budget cut and an incomplete UTF-8 budget cut. It checks physical byte accounting, truncation and empty-file behavior in both real backends.
 - `directory-limits.test.ts` retains the 10,001-file scan rejection and page-cap assertions through `createWorkspace`. Setup is outside the assertion body, creates the directory once, and drains every issued write before cancellation/cleanup. Workspace suites join the shared process project, whose scheduling allowance applies to setup, tests and teardown.
-- `apps/relay/src/docker.test.ts`, enabled by `ACE_RELAY_DOCKER_TEST=1` at merge, verifies production image installation and encrypted protocol traffic. Default runs skip this Docker prerequisite.
+- `apps/relay/src/docker.process.test.ts`, enabled by `ACE_RELAY_DOCKER_TEST=1` at merge, verifies production image installation and encrypted protocol traffic. Default runs skip this Docker prerequisite.
 
 The common search input adds at most one LF to a nonempty unterminated decoded line. It retains one character of state, does no growing-prefix or per-match work, and leaves physical byte budgets unchanged. Existing benchmark measurements below are historical; no new performance execution occurred.
 

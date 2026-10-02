@@ -87,7 +87,7 @@ The orchestrator reported an empty retry queue where the watcher-error test expe
 
 Empty drains now return immediately. The settling drain hands pending work to a new drain while preserving backoff, and a fired retry waits for the previous drain to settle. Retry tests wait for the injected scheduler to register work rather than using `setImmediate`. A new public behavior test queues a notification as the replacement watcher starts and waits for the real Git update to publish before asserting completion.
 
-`bunx vitest run packages/context/src/workspace-review.test.ts` passes all **8 tests**. No other test file, full suite, mutation run, benchmark or probe was executed for this follow-up. The new guard is designed to reject omission of the final drain handoff; that mutation is **not executed (tests run at merge)**. The existing retry mutation target follows the updated callback, without executing its runner.
+`bunx vitest run packages/context/src/workspace-review.process.test.ts` passes all **8 tests**. No other test file, full suite, mutation run, benchmark or probe was executed for this follow-up. The new guard is designed to reject omission of the final drain handoff; that mutation is **not executed (tests run at merge)**. The existing retry mutation target follows the updated callback, without executing its runner.
 
 ## Main merge validation
 

@@ -62,7 +62,7 @@ await checkMutations([
     file: "apps/daemon/src/server.ts",
     before: "!options.context || contextBusy",
     after: "!options.context",
-    test: "apps/daemon/src/context.server.test.ts",
+    test: "apps/daemon/src/context.server.process.test.ts",
     behavior: "socket rejects overlapping",
   },
   {

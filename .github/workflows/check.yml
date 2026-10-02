@@ -112,4 +112,4 @@ jobs:
       - name: Install Chromium and system libraries
         run: bun run --cwd packages/browser playwright-core install --with-deps chromium
       - name: Browser tests
-        run: node packages/browser/ci/sandbox.ts && bun run test -- packages/browser apps/daemon/src/browser.test.ts apps/daemon/src/browser-remote.test.ts
+        run: node packages/browser/ci/sandbox.ts && bun run test -- packages/browser apps/daemon/src/browser.process.test.ts apps/daemon/src/browser-remote.process.test.ts

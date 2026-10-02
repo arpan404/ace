@@ -99,7 +99,7 @@ The read-only captures and their redaction policy are in [captured CLI fixtures]
 The owner requires tests to run only at merge. Development verification uses static checks. At merge, run `bun run check` for the offline suite. Live tests are skipped by default. Opt in with:
 
 ```sh
-ACE_LIVE_CLI=1 bun run test packages/provider-kit/src/live.test.ts --reporter=verbose
+ACE_LIVE_CLI=1 bun run test packages/provider-kit/src/live.process.test.ts --reporter=verbose
 ```
 
 The live suite probes versions and auth, starts only `opencode serve`, `codex app-server` and `agent acp`, and sends only initialize/initialized handshakes. It never creates sessions or sends prompts. All started processes are stopped. The OpenCode test uses a fresh local password and an ephemeral port, then waits for connected and heartbeat events.

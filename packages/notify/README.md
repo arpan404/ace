@@ -38,4 +38,4 @@ FCM and the encrypted relay are interfaces and endpoint designs in [ADR 0012](..
 
 ## Verification
 
-`bun run test packages/notify apps/daemon/src/notifications.server.test.ts` exercises core-derived alerts, real SQLite restart/replay, websocket authorization, RFC encryption, real HTTP delivery and a credential-free HTTP/2 APNs peer. `bun run --filter @ace/notify bench` measures ingestion, fan-out and indexed presence; `bun run --filter @ace/notify bench:backlog` measures overload, eligible-link lookup and giant unused metadata without gating CI on timing. See [mutation evidence](../../docs/notifications-mutations.md).
+`bun run test packages/notify apps/daemon/src/notifications.server.process.test.ts` exercises core-derived alerts, real SQLite restart/replay, websocket authorization, RFC encryption, real HTTP delivery and a credential-free HTTP/2 APNs peer. `bun run --filter @ace/notify bench` measures ingestion, fan-out and indexed presence; `bun run --filter @ace/notify bench:backlog` measures overload, eligible-link lookup and giant unused metadata without gating CI on timing. See [mutation evidence](../../docs/notifications-mutations.md).
