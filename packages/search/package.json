@@ -1,5 +1,5 @@
 {
-  "name": "@ace/daemon",
+  "name": "@ace/search",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -8,15 +8,10 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "dev": "node src/cli.ts"
+    "bench": "node bench/search.ts"
   },
   "dependencies": {
-    "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
-    "@ace/search": "workspace:*",
-    "ws": "^8.18.3"
-  },
-  "devDependencies": {
-    "@types/ws": "^8.18.1"
+    "zod": "^4.6.5"
   }
 }

@@ -1,0 +1,57 @@
+[
+  {
+    "mutation": "skip item ingestion",
+    "test": "append, authoritative update",
+    "killed": true
+  },
+  {
+    "mutation": "retain obsolete FTS postings",
+    "test": "append, authoritative update",
+    "killed": true
+  },
+  {
+    "mutation": "ignore item deletion",
+    "test": "append, authoritative update",
+    "killed": true
+  },
+  {
+    "mutation": "index every stream delta",
+    "test": "stream deltas write",
+    "killed": true
+  },
+  {
+    "mutation": "drop capped output tail",
+    "test": "huge completed and streamed",
+    "killed": true
+  },
+  {
+    "mutation": "ignore query filters",
+    "test": "workspace, provider, date",
+    "killed": true
+  },
+  {
+    "mutation": "remove title rank weight",
+    "test": "title matches rank above",
+    "killed": true
+  },
+  {
+    "mutation": "accept stale pagination",
+    "test": "pagination keeps tied",
+    "killed": true
+  },
+  {
+    "mutation": "broaden token queries with OR",
+    "test": "FTS operators and SQL",
+    "killed": true
+  },
+  {
+    "mutation": "lose durable high-water mark",
+    "test": "backfill yields in bounded",
+    "killed": true
+  },
+  {
+    "mutation": "starve dirty documents by row id",
+    "test": "continuously dirty",
+    "killed": true
+  }
+]
