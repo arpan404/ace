@@ -65,6 +65,13 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/conductor": {
+      "name": "@ace/conductor",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/context": {
       "name": "@ace/context",
       "dependencies": {
@@ -176,6 +183,8 @@
     "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],
 
     "@ace/automations": ["@ace/automations@workspace:packages/automations"],
+
+    "@ace/conductor": ["@ace/conductor@workspace:packages/conductor"],
 
     "@ace/context": ["@ace/context@workspace:packages/context"],
 
