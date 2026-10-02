@@ -99,6 +99,10 @@ export class Store {
     this.publish(events);
     return result;
   }
+  /** Extend a receipt or event transaction on the same connection. No async I/O. */
+  atomic<T>(run: (db: DatabaseSync) => T): T {
+    return this.transaction(() => run(this.db));
+  }
   private publish(events: Event[]): void {
     if (!events.length) return;
     this.publications.push(events);
