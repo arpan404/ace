@@ -15,11 +15,13 @@
     "dev": "node src/cli.ts",
     "bench:mcp": "node bench/mcp.ts",
     "bench:remote": "node --expose-gc src/remote.bench.ts",
-    "bench:context": "node bench/context.ts"
+    "bench:context": "node bench/context.ts",
+    "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {
     "@ace/context": "workspace:*",
     "@ace/mcp-server": "workspace:*",
+    "@ace/notify": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
