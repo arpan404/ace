@@ -20,11 +20,14 @@ import {
 } from "./files.ts";
 import { snapshotDatabases, restoreDatabases } from "./migration.ts";
 import type { Fetcher } from "./feed.ts";
-const Journal = z.object({
-  old: ReleaseDirectory,
-  candidate: ReleaseDirectory,
-  version: ReleaseVersion,
-});
+const Journal = z
+  .object({
+    old: ReleaseDirectory,
+    candidate: ReleaseDirectory,
+    version: ReleaseVersion,
+    stage: z.enum(["prepared", "snapshotted"]).default("snapshotted"),
+  })
+  .refine((journal) => journal.old !== journal.candidate, "Recovery generations must differ");
 export interface UpdatePorts {
   maintenance(method: "GET" | "POST" | "DELETE"): Promise<unknown>;
   stop(): Promise<void>;
@@ -63,7 +66,7 @@ async function rollback(
   journal: z.infer<typeof Journal>,
 ) {
   await ports.stop();
-  await restoreDatabases(dataDir, join(root, ".rollback-db"));
+  if (journal.stage === "snapshotted") await restoreDatabases(dataDir, join(root, ".rollback-db"));
   await atomicPointer(join(root, "current"), journal.old);
   await ports.start();
   if (!(await ports.health(journal.version)))
@@ -93,6 +96,7 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
   const manifest = verifyManifest(request.bytes, request.signature, request.publicKey);
   return withInstallLock<"updated">(root, async () => {
     let stopped = false;
+    let ownsJournal = false;
     try {
       await recoverUpdate(root, dataDir, ports);
       const old = await releasePointer(root);
@@ -115,40 +119,37 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
       await unpackArchive(archive, staging);
       await durableJson(join(staging, "release.json"), manifest);
       await acquire(ports, request.drain);
+      // Persist intent before stopping. A partial snapshot must never replace live data.
+      let journal = Journal.parse({
+        old,
+        candidate,
+        version: oldManifest.version,
+        stage: "prepared",
+      });
+      await durableJson(join(root, "update.json"), journal);
+      ownsJournal = true;
       await ports.stop();
       stopped = true;
       const snapshot = join(root, ".rollback-db"),
         check = join(root, ".migration-check");
-      try {
-        await rm(snapshot, { recursive: true, force: true });
-        await rm(check, { recursive: true, force: true });
-        await snapshotDatabases(dataDir, snapshot);
-        await syncTree(snapshot);
-        await cp(snapshot, check, { recursive: true });
-        await ports.migrate(staging, check);
-      } catch (e) {
-        await ports.start();
-        stopped = false;
-        throw e;
-      }
+      await rm(snapshot, { recursive: true, force: true });
+      await rm(check, { recursive: true, force: true });
+      await snapshotDatabases(dataDir, snapshot);
+      await syncTree(snapshot);
+      journal = { ...journal, stage: "snapshotted" };
+      await durableJson(join(root, "update.json"), journal);
+      await cp(snapshot, check, { recursive: true });
+      await ports.migrate(staging, check);
       await mkdir(join(root, "releases"), { recursive: true });
       await syncTree(staging);
       await rename(staging, join(root, candidate));
       await syncDirectory(join(root, "releases"));
-      const journal = Journal.parse({ old, candidate, version: oldManifest.version });
-      await durableJson(join(root, "update.json"), journal);
-      try {
-        await atomicPointer(join(root, "previous"), old);
-        await atomicPointer(join(root, "current"), candidate);
-        await ports.start();
-        stopped = false;
-        if (!(await ports.health(manifest.version)))
-          throw new Error("Candidate health check failed");
-        await durableRemove(join(root, "update.json"));
-      } catch (e) {
-        await rollback(root, dataDir, ports, journal);
-        throw e;
-      }
+      await atomicPointer(join(root, "previous"), old);
+      await atomicPointer(join(root, "current"), candidate);
+      await ports.start();
+      stopped = false;
+      if (!(await ports.health(manifest.version))) throw new Error("Candidate health check failed");
+      await durableRemove(join(root, "update.json"));
       // Bound retained artifacts to current and previous after successful health.
       const { readdir } = await import("node:fs/promises");
       for (const name of await readdir(join(root, "releases")))
@@ -157,7 +158,9 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
       await rm(snapshot, { recursive: true, force: true });
       return "updated";
     } catch (error) {
-      if (stopped && !existsSync(join(root, "update.json"))) await ports.start();
+      if (ownsJournal && existsSync(join(root, "update.json")))
+        await recoverUpdate(root, dataDir, ports);
+      else if (stopped) await ports.start();
       throw error;
     } finally {
       if (!existsSync(join(root, "update.json"))) await ports.maintenance("DELETE").catch(() => {});

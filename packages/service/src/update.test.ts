@@ -12,6 +12,7 @@ import {
   MaintenanceGate,
   recoverUpdate,
   snapshotDatabases,
+  restoreDatabases,
   type UpdatePorts,
   type UpdateRequest,
 } from "./index.ts";
@@ -295,4 +296,62 @@ test("an unsafe recovery target is rejected before stopping or removing installa
   await expect(recoverUpdate(f.root, f.root, f.request.ports)).rejects.toThrow();
   expect(f.running).toBe(true);
   expect(await readFile(join(f.root, "current/marker"), "utf8")).toBe("old");
+});
+test("an interrupted snapshot restarts the old generation without overwriting live data", async () => {
+  const f = await fixture();
+  await mkdir(join(f.root, ".rollback-db"));
+  await writeFile(join(f.root, ".rollback-db/events.sqlite"), "incomplete snapshot");
+  await writeFile(
+    join(f.root, "update.json"),
+    JSON.stringify({
+      old: "releases/1.0.0-linux-x64",
+      candidate: "releases/1.1.0-linux-x64",
+      version: "1.0.0",
+      stage: "prepared",
+    }),
+  );
+  await f.request.ports.stop();
+  await recoverUpdate(f.root, f.root, f.request.ports);
+  expect(f.running).toBe(true);
+  expect(await readlink(join(f.root, "current"))).toBe("releases/1.0.0-linux-x64");
+  const db = new DatabaseSync(join(f.root, "events.sqlite"));
+  try {
+    expect(db.prepare("SELECT value FROM data").get()?.value).toBe("original");
+  } finally {
+    db.close();
+  }
+  await expect(readFile(join(f.root, "update.json"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+test("missing or corrupt rollback snapshots never delete live databases", async () => {
+  const f = await fixture();
+  const missing = join(f.root, "missing-snapshot");
+  await expect(restoreDatabases(f.root, missing)).rejects.toThrow();
+  await mkdir(missing);
+  await writeFile(join(missing, "events.sqlite"), "corrupt");
+  await expect(restoreDatabases(f.root, missing)).rejects.toThrow();
+  const db = new DatabaseSync(join(f.root, "events.sqlite"));
+  try {
+    expect(db.prepare("SELECT value FROM data").get()?.value).toBe("original");
+  } finally {
+    db.close();
+  }
+});
+test("a failed stop leaves recoverable intent and restarts the unchanged generation", async () => {
+  const f = await fixture();
+  const stop = f.request.ports.stop;
+  let fail = true;
+  f.request.ports.stop = async () => {
+    await stop();
+    if (fail) {
+      fail = false;
+      expect(JSON.parse(await readFile(join(f.root, "update.json"), "utf8"))).toMatchObject({
+        stage: "prepared",
+      });
+      throw new Error("stop acknowledgement lost");
+    }
+  };
+  await expect(applyUpdate(f.request)).rejects.toThrow("stop acknowledgement lost");
+  expect(f.running).toBe(true);
+  expect(await readFile(join(f.root, "current/marker"), "utf8")).toBe("old");
+  expect(f.gate.admit()).toBe(true);
 });

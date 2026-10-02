@@ -121,7 +121,9 @@ export async function updateCli(args: string[]) {
     ports = updatePorts();
   if (command !== "check") {
     await withInstallLock(root, async () => {
-      if (await recoverUpdate(root, root, ports)) await ports.maintenance("DELETE");
+      await recoverUpdate(root, root, ports);
+      // A crash after committing can leave only the in-memory admission barrier.
+      await ports.maintenance("DELETE");
     });
     if (command === "recover") return;
   }
