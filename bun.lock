@@ -68,6 +68,12 @@
         "@ace/provider-kit": "workspace:*",
       },
     },
+    "packages/git": {
+      "name": "@ace/git",
+      "dependencies": {
+        "zod": "^4.6.5",
+      },
+    },
     "packages/mcp-server": {
       "name": "@ace/mcp-server",
       "dependencies": {
@@ -131,6 +137,8 @@
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
 
     "@ace/engine-api": ["@ace/engine-api@workspace:packages/engine-api"],
+
+    "@ace/git": ["@ace/git@workspace:packages/git"],
 
     "@ace/mcp-server": ["@ace/mcp-server@workspace:packages/mcp-server"],
 
