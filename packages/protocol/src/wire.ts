@@ -59,12 +59,17 @@ export const ClientMessage = z.discriminatedUnion("type", [
   SettingsGet,
   SettingsSet,
   SettingsSubscribe,
-  z.object({
-    type: z.literal("hello"),
-    protocolVersion: z.literal(1),
-    deviceId: DeviceId,
-    token: z.string(),
-  }),
+  z
+    .object({
+      type: z.literal("hello"),
+      protocolVersion: z.literal(1),
+      deviceId: DeviceId,
+      token: z.string().optional(),
+      ticket: z.string().optional(),
+    })
+    .refine((hello) => (hello.token !== undefined) !== (hello.ticket !== undefined), {
+      message: "Exactly one credential is required",
+    }),
   z.object({
     type: z.literal("subscribe"),
     subscriptionId: z.string().min(1),

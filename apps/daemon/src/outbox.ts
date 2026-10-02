@@ -78,10 +78,18 @@ export class Outbox {
     this.tick();
   }
   private write(message: ServerMessage): void {
-    if (this.socket.readyState === WebSocket.OPEN)
-      this.socket.send(JSON.stringify(message), (error) => {
-        if (error) this.socket.terminate();
-      });
+    if (this.socket.readyState !== WebSocket.OPEN) return;
+    const encoded = JSON.stringify(message);
+    if (
+      message.type.startsWith("settings.") &&
+      this.socket.bufferedAmount + Buffer.byteLength(encoded) > this.options.hardLimit
+    ) {
+      this.resync();
+      return;
+    }
+    this.socket.send(encoded, (error) => {
+      if (error) this.socket.terminate();
+    });
   }
   private flush(): void {
     const pending = this.pending;

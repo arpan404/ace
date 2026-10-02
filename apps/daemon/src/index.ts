@@ -1,4 +1,6 @@
 import { SettingsService } from "@ace/settings";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { remoteListener } from "./network.ts";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
@@ -21,6 +23,8 @@ export async function startDaemon(
   tokenPath: string;
   store: Store;
   settings: SettingsService;
+  remoteUrl?: string;
+  fingerprint?: string;
   close(): Promise<void>;
 }> {
   const unlock = acquireLock(config.dataDir);
@@ -36,8 +40,10 @@ export async function startDaemon(
     const ownedStore = store;
     settings = new SettingsService({ dataDir: config.dataDir });
     const ownedSettings = settings;
+    const remote = await remoteListener(config);
     const server = await startServer({
       settings,
+      ...(remote ? { remote } : {}),
       port: config.port,
       token,
       hostId,
@@ -45,9 +51,19 @@ export async function startDaemon(
       handler,
       log: (error) => log("error", "WebSocket failure", error),
     });
+    const endpointPath = join(config.dataDir, "daemon-endpoint");
+    try {
+      writeFileSync(endpointPath, server.httpUrl, { mode: 0o600 });
+    } catch (error) {
+      await server.close();
+      throw error;
+    }
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
+      ...(server.remoteUrl && server.fingerprint
+        ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
+        : {}),
       tokenPath,
       store,
       settings,
@@ -60,7 +76,11 @@ export async function startDaemon(
               await ownedSettings.close();
               ownedStore.close();
             } finally {
-              unlock();
+              try {
+                unlinkSync(endpointPath);
+              } finally {
+                unlock();
+              }
             }
           }
         })();

@@ -41,7 +41,7 @@ Writes reread disk immediately before editing. External changes completed before
 
 ## Wire API
 
-The daemon accepts these requests after its existing authenticated `hello`:
+The daemon accepts these requests after its existing authenticated `hello`. Reads and subscriptions require device `read` scope; assignments require `operate`. Local host credentials and `admin` include both:
 
 - `settings.get { requestId, key, scope }`
 - `settings.set { requestId, key, value, layer }`
@@ -49,7 +49,7 @@ The daemon accepts these requests after its existing authenticated `hello`:
 
 Scope contains optional `workspaceId` and `threadId`. Thread scopes inherit the daemon's recorded workspace; mismatches fail. Layers are `{ kind: "global" }`, `{ kind: "workspace", workspaceId }` or `{ kind: "thread", threadId }`. Paths never come from the wire. Set requests accept a string key so unknown or forbidden keys receive a typed validation/secret diagnostic.
 
-Responses are `settings.result { requestId, ok, entries, diagnostics }`; entries contain `key`, `value` and `provenance`. Subscriptions receive the initial result, then `settings.changed { subscriptionId, entries }` and `settings.diagnostic { subscriptionId, diagnostic }`. Existing `unsubscribe` releases them. Fetch or subscribe again on reconnect. These settings operations are asynchronous assignments outside the synchronous command receipt transaction; request IDs correlate replies and are not durable idempotency receipts.
+Responses are `settings.result { requestId, ok, entries, diagnostics }`; entries contain `key`, `value` and `provenance`. Subscriptions receive the initial result, then `settings.changed { subscriptionId, entries }` and `settings.diagnostic { subscriptionId, diagnostic }`. Existing `unsubscribe` releases them. Fetch or subscribe again on reconnect. Settings delivery over the configured transport byte cap closes with code 4009; reconnect and read or subscribe again. These settings operations are asynchronous assignments outside the synchronous command receipt transaction; request IDs correlate replies and are not durable idempotency receipts.
 
 ## Limits
 

@@ -22,7 +22,7 @@ Watch parent directories, including the nearest existing ancestor when `.ace` ha
 
 ## Protocol additions
 
-Add authenticated `settings.get`, `settings.set` and `settings.subscribe` requests beside existing commands. Async file operations stay outside synchronous SQLite receipt transactions. Request IDs correlate `settings.result` responses. Sets are assignments and safe to retry, but have no durable receipt deduplication. `settings.subscribe` sends an initial result then `settings.changed` messages for selected keys whose value or provenance changed. Existing `unsubscribe` releases either kind of subscription. Reconnect by fetching/subscribing again; settings notifications are not event-log replay. Diagnostics are included in reads and delivered to active selectors as `settings.diagnostic`.
+Add authenticated `settings.get`, `settings.set` and `settings.subscribe` requests beside existing commands. Remote reads/subscriptions require `read`; assignments require `operate`, and `admin` includes both. Settings deliveries exceeding the configured socket byte cap close with 4009 and require a fresh subscription. Async file operations stay outside synchronous SQLite receipt transactions. Request IDs correlate `settings.result` responses. Sets are assignments and safe to retry, but have no durable receipt deduplication. `settings.subscribe` sends an initial result then `settings.changed` messages for selected keys whose value or provenance changed. Existing `unsubscribe` releases either kind of subscription. Reconnect by fetching/subscribing again; settings notifications are not event-log replay. Diagnostics are included in reads and delivered to active selectors as `settings.diagnostic`.
 
 ## Security
 

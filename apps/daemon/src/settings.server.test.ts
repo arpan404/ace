@@ -256,7 +256,14 @@ test("daemon startup exposes the same settings service used by its sockets and c
   const { startDaemon } = await import("./index.ts");
   const { Client } = await import("./socket-test-support.ts");
   const dataDir = await mkdtemp(join(tmpdir(), "ace-settings-daemon-"));
-  const daemon = await startDaemon({ dataDir, host: "127.0.0.1", port: 0, logLevel: "silent" });
+  const daemon = await startDaemon({
+    dataDir,
+    host: "127.0.0.1",
+    port: 0,
+    listen: "local",
+    remotePort: 0,
+    logLevel: "silent",
+  });
   const client = new Client(daemon.url);
   cleanups.push(async () => {
     await client.close();
@@ -281,4 +288,27 @@ test("daemon startup exposes the same settings service used by its sockets and c
   await client.close();
   await daemon.close();
   await expect(daemon.settings.get("notifications.sound")).rejects.toThrow("closed");
+});
+
+test("settings deliveries exceeding the socket byte cap request a reconnect", async () => {
+  const { once } = await import("node:events");
+  const f = await fixture({ pressure: { hardLimit: 64 } });
+  cleanups.push(() => f.close());
+  const client = await f.connect();
+  await client.next();
+  const closed = once(client.socket, "close");
+  client.send({
+    type: "settings.get",
+    requestId: "oversized",
+    key: "notifications.sound",
+    scope: {},
+  });
+  const first = await Promise.race([
+    closed.then((args) => args[0]),
+    client.next().then(
+      (message) => message.type,
+      () => closed.then((args) => args[0]),
+    ),
+  ]);
+  expect(first).toBe(4009);
 });
