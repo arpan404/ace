@@ -97,6 +97,43 @@ function retention(): number {
   translator.tick(20_000);
   return retained / 1024 / 1024;
 }
+function childRetention(): number {
+  const translator = createTranslator({ rootKey: "root" });
+  let seq = 0;
+  const send = (data: unknown) => {
+    const frame: Frame = { seq: seq++, t: seq, dir: "recv", channel: "sdk", data };
+    translator.translate(frame, seq);
+  };
+  send({ type: "system", subtype: "init", session_id: "s" });
+  send({
+    type: "system",
+    subtype: "task_started",
+    task_id: "C",
+    tool_use_id: "launch",
+    task_type: "local_agent",
+  });
+  global.gc?.();
+  const before = process.memoryUsage().heapUsed;
+  for (let message = 0; message < 4000; message++)
+    send({
+      type: "assistant",
+      parent_tool_use_id: "launch",
+      uuid: `block-${message}`,
+      message: {
+        id: `message-${message}`,
+        content: [
+          { type: "text", text: Buffer.from(`${message}:` + "x".repeat(8192)).toString("utf8") },
+        ],
+        usage: { input_tokens: 11, output_tokens: 7 },
+      },
+    });
+  send({ type: "system", subtype: "task_updated", task_id: "C", patch: { status: "completed" } });
+  send({ type: "result", is_error: false });
+  global.gc?.();
+  const retained = process.memoryUsage().heapUsed - before;
+  translator.tick(20_000);
+  return retained / 1024 / 1024;
+}
 const median = (run: () => number): number =>
   [run(), run(), run()].toSorted((a, b) => a - b)[1] ?? 0;
 repeated(2000);
@@ -108,6 +145,7 @@ console.log(
       repeatedMs: [5000, 10000, 20000].map((n) => ({ frames: n, ms: median(() => repeated(n)) })),
       streamedMs: [5000, 10000, 20000].map((n) => ({ blocks: n, ms: median(() => streamed(n)) })),
       retainedMiB: retention(),
+      retainedChildMiB: childRetention(),
     },
     null,
     2,
