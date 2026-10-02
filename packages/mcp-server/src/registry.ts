@@ -86,6 +86,12 @@ export class ToolRegistry {
       if (allowed(entry, principal)) tools.push(entry.descriptor);
     return tools;
   }
+  inputSchema(name: string, principal: Principal): Record<string, unknown> | undefined {
+    const entry = this.entries.get(name);
+    return !principal.signal.aborted && entry && allowed(entry, principal)
+      ? entry.descriptor.inputSchema
+      : undefined;
+  }
   async call(
     name: string,
     input: unknown,

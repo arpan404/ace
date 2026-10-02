@@ -29,10 +29,11 @@ export function scope(agentId = "root", capabilities: McpScope["capabilities"] =
 export async function harness(
   cleanups: (() => void | Promise<void>)[],
   scheduler: Scheduler = nodeScheduler,
+  limits: { maxTools?: number; maxCalls?: number; maxRequests?: number } = {},
 ) {
-  const registry = new ToolRegistry({ scheduler });
+  const registry = new ToolRegistry({ scheduler, ...limits });
   const credentials = new CredentialRegistry(() => randomBytes(32).toString("hex"));
-  const server = await startMcpServer({ registry, credentials });
+  const server = await startMcpServer({ registry, credentials, ...limits });
   cleanups.push(() => server.close());
   async function connect(input = scope(), mode: "modern" | "legacy" = "modern") {
     const lifetime = new AbortController();
@@ -50,4 +51,31 @@ export async function harness(
     return { client, lease, lifetime };
   }
   return { registry, credentials, server, connect };
+}
+
+export function toolRequest(name: string, args: unknown = {}) {
+  return {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: {
+      name,
+      arguments: args,
+      _meta: {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": { name: "test", version: "1" },
+        "io.modelcontextprotocol/clientCapabilities": {},
+      },
+    },
+  };
+}
+export function toolHeaders(bearer: string, name: string) {
+  return {
+    Authorization: `Bearer ${bearer}`,
+    "Content-Type": "application/json",
+    Accept: "application/json, text/event-stream",
+    "MCP-Protocol-Version": "2026-07-28",
+    "Mcp-Method": "tools/call",
+    "Mcp-Name": name,
+  };
 }

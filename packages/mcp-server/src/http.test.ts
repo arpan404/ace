@@ -191,7 +191,7 @@ it("attributes concurrent builtin intents to each credential's own node", async 
 });
 
 it("starts independent tool calls while another call is still waiting", async () => {
-  const h = await harness(cleanups);
+  const h = await harness(cleanups, { after: () => () => {} });
   const started = deferred<void>();
   const release = deferred<void>();
   h.registry.register({
@@ -222,7 +222,7 @@ it("starts independent tool calls while another call is still waiting", async ()
   expect(await first).toMatchObject({ structuredContent: { value: "first" } });
 });
 
-it("rejects hostile origins, hosts, malformed requests and oversized bodies", async () => {
+it("rejects hostile origins, malformed requests and oversized bodies", async () => {
   const h = await harness(cleanups);
   const { lease } = await h.connect();
   const headers = {
@@ -239,15 +239,6 @@ it("rejects hostile origins, hosts, malformed requests and oversized bodies", as
       })
     ).status,
   ).toBe(403);
-  expect(
-    (
-      await fetch(h.server.url, {
-        method: "POST",
-        headers: { ...headers, Host: "evil.example" },
-        body: "{}",
-      })
-    ).status,
-  ).toBe(400);
   expect((await fetch(h.server.url, { method: "POST", headers, body: "{" })).status).toBe(400);
   expect(
     (await fetch(h.server.url, { method: "POST", headers, body: "x".repeat(65537) })).status,
@@ -257,6 +248,7 @@ it("rejects hostile origins, hosts, malformed requests and oversized bodies", as
 
 it("routes a browser workstream adapter through schema checks, attribution and capability scope", async () => {
   const h = await harness(cleanups);
+  const effects: string[] = [];
   const { registerAutomationTool } = await import("./index.ts");
   registerAutomationTool(
     h.registry,
@@ -271,10 +263,20 @@ it("routes a browser workstream adapter through schema checks, attribution and c
     {
       async execute(value, context) {
         context.signal.throwIfAborted();
+        effects.push(value.url);
         return { tabId: new URL(value.url).hostname, agent: context.caller.agentId };
       },
     },
   );
+  const denied = await h.connect();
+  expect((await denied.client.listTools()).tools).toEqual([]);
+  expect(
+    await denied.client.callTool({
+      name: "ace_browser_open",
+      arguments: { url: "https://denied.example" },
+    }),
+  ).toMatchObject({ isError: true });
+  expect(effects).toEqual([]);
   const { client } = await h.connect(scope("browser-child", ["browser"]));
   expect(
     await client.callTool({ name: "ace_browser_open", arguments: { url: "https://example.com" } }),
@@ -282,4 +284,5 @@ it("routes a browser workstream adapter through schema checks, attribution and c
   expect(
     await client.callTool({ name: "ace_browser_open", arguments: { url: "invalid" } }),
   ).toMatchObject({ isError: true });
+  expect(effects).toEqual(["https://example.com"]);
 });

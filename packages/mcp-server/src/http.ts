@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
-import { Server, createMcpHandler } from "@modelcontextprotocol/server";
+import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
 import {
   localhostHostValidation,
   localhostOriginValidation,
@@ -26,7 +26,19 @@ export async function startMcpServer(options: McpServerOptions) {
         bearer(requestInfo?.headers.get("authorization") ?? undefined),
       );
       if (!principal) throw new Error("Unauthorized");
-      const server = new Server({ name: "ace", version: "0.1.0" }, { capabilities: { tools: {} } });
+      const caller = principal;
+      // The HTTP SDK validates mirrored parameters only for McpServer products. Reuse
+      // our prepared schema by name instead of registering/scanning every tool per call.
+      class RegistryServer extends McpServer {
+        override toolInputSchemaJson(name: string) {
+          return options.registry.inputSchema(name, caller);
+        }
+      }
+      const product = new RegistryServer(
+        { name: "ace", version: "0.1.0" },
+        { capabilities: { tools: {} } },
+      );
+      const server = product.server;
       server.setRequestHandler("tools/list", async () => ({
         tools: options.registry.list(principal),
       }));
@@ -61,7 +73,7 @@ export async function startMcpServer(options: McpServerOptions) {
         const id = notification.params.requestId;
         if (id !== undefined) calls.get(principal)?.get(id)?.abort();
       });
-      return server;
+      return product;
     },
     {
       legacy: "stateless",
