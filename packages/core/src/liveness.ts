@@ -1,12 +1,29 @@
 import type { Key } from "./facts.ts";
 import { get } from "./emit.ts";
-import type { ThreadState } from "./state.ts";
+import type { AgentRecord, ThreadState } from "./state.ts";
 
 export function transportSignalAt(state: ThreadState): number {
   return (
     state.lastTransportSignalAt ??
     Object.values(state.agents).reduce((latest, record) => Math.max(latest, record.lastSignalAt), 0)
   );
+}
+
+/** A known delta can revive an ancestor even when its own owner is idle. */
+export function hasUnresponsiveAncestor(state: ThreadState, key: Key): boolean {
+  const visited = new Set<Key>();
+  let current: Key | undefined = key;
+  while (current !== undefined && !visited.has(current)) {
+    visited.add(current);
+    const record: AgentRecord | undefined = get(state.agents, current);
+    if (!record) return false;
+    if (record.agent.status.state === "unresponsive") return true;
+    current =
+      record.agent.parentId === null
+        ? undefined
+        : get(state.indexes.agentKeysById, record.agent.parentId);
+  }
+  return false;
 }
 
 /** Ephemeral memoization shares one subtree walk across a status/deadline derivation. */

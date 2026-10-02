@@ -4,7 +4,8 @@ import { lookup, type AgentRecord, type ThreadState } from "./state.ts";
 import { emit } from "./emit.ts";
 import { isActionableInteraction } from "./human.ts";
 import { liveToolKeys, pendingInteractionKeys, runningTaskKeys } from "./indexes.ts";
-import { subtreeSignalReader, transportSignalAt } from "./liveness.ts";
+import { isLiveTool, statusInputs, suppressesActiveSilence } from "./status-inputs.ts";
+export { isLiveTool } from "./status-inputs.ts";
 
 export function isSettled(status: AgentStatus): boolean {
   return status.state === "idle" || status.state === "interrupted" || status.state === "failed";
@@ -35,37 +36,21 @@ function equal(left: unknown, right: unknown): boolean {
 
 type ToolItem = Extract<Item, { type: "tool_call" }>;
 
-function byAgent<T extends { agentId: string }>(values: T[]): Map<string, T[]> {
-  const grouped = new Map<string, T[]>();
-  for (const value of values) {
-    const group = grouped.get(value.agentId) ?? [];
-    group.push(value);
-    grouped.set(value.agentId, group);
-  }
-  return grouped;
-}
-
-export function isLiveTool(item: Item): item is ToolItem {
-  return (
-    item.type === "tool_call" &&
-    (item.call.status === "running" ||
-      item.call.status === "pending" ||
-      item.call.status === "awaiting_approval")
-  );
-}
-
 /** Unstarted silent children are visible diagnostics, not evidence of live work.
  * Explicit work or a live descendant keeps such an agent relevant to completion.
  */
-function completionRelevance(state: ThreadState, statusOf: (key: Key) => AgentStatus) {
-  const waitingOwners = new Set([
+function completionRelevance(
+  state: ThreadState,
+  statusOf: (key: Key) => AgentStatus,
+  waitingOwners: Set<string> = new Set([
     ...liveToolKeys(state).map((key) => lookup(state.items, key)!.agentId),
     ...pendingInteractionKeys(state).map((key) => lookup(state.interactions, key)!.agentId),
     ...runningTaskKeys(state)
       .map((key) => lookup(state.tasks, key)!)
       .filter((task) => !task.ambient)
       .map((task) => task.agentId),
-  ]);
+  ]),
+) {
   const cached = new Map<Key, boolean>();
   const visiting = new Set<Key>();
   function relevant(key: Key): boolean {
@@ -96,27 +81,53 @@ function completionRelevance(state: ThreadState, statusOf: (key: Key) => AgentSt
   return relevant;
 }
 
+/** Deadline eligibility uses current completion relevance, memoized bottom-up.
+ * A descendant's wake/silence transition is scheduled before an ancestor can
+ * become newly eligible. No future timestamp needs a second tree derivation.
+ */
+export function silenceDeadlineReader(state: ThreadState) {
+  const { waitingOwners, children, lastSubtreeSignal } = statusInputs(state);
+  const relevant = completionRelevance(
+    state,
+    (key) => {
+      const record = lookup(state.agents, key);
+      if (!record) throw new Error(`Unknown agent key: ${key}`);
+      return record.agent.status;
+    },
+    waitingOwners,
+  );
+  return (key: Key, record: AgentRecord): number | undefined => {
+    const phase = record.agent.status.state;
+    if (phase !== "working" && phase !== "starting") return undefined;
+    if (
+      !record.activeRun &&
+      (phase === "working" ||
+        (key === state.rootKey && !state.hasRun && record.agent.fidelity !== "placeholder"))
+    )
+      return undefined;
+    if (record.activeRun) {
+      const liveChildren = Object.keys(lookup(children, record.agent.id) ?? {}).filter(relevant);
+      if (suppressesActiveSilence(waitingOwners, record.agent.id, liveChildren.length))
+        return undefined;
+    }
+    return Math.floor(lastSubtreeSignal(key) + state.config.silenceMs) + 1;
+  };
+}
+
 function statusResolver(state: ThreadState, now: number) {
-  const lastTransportSignalAt = transportSignalAt(state);
-  const byId = state.indexes.agentKeysById;
-  const interactionsByAgent = byAgent(
-    pendingInteractionKeys(state).map((key) => lookup(state.interactions, key)!),
-  );
-  const tasksByAgent = byAgent(
-    runningTaskKeys(state)
-      .map((key) => lookup(state.tasks, key)!)
-      .filter((task) => !task.ambient),
-  );
-  const toolsByAgent = byAgent(
-    liveToolKeys(state)
-      .map((key) => lookup(state.items, key)!)
-      .filter(isLiveTool),
-  );
-  const children = state.indexes.childrenByParent;
+  const {
+    lastTransportSignalAt,
+    byId,
+    interactionsByAgent,
+    tasksByAgent,
+    toolsByAgent,
+    children,
+    lastSubtreeSignal,
+    waitingOwners,
+  } = statusInputs(state);
   const resolved = new Map<Key, AgentStatus>();
   const visiting = new Set<Key>();
-  const lastSubtreeSignal = subtreeSignalReader(state);
-  const holdsCompletion = completionRelevance(state, resolve);
+  const holdsCompletion = completionRelevance(state, resolve, waitingOwners);
 
   function resolve(key: Key): AgentStatus {
     const cached = resolved.get(key);
@@ -212,10 +223,7 @@ function statusResolver(state: ThreadState, now: number) {
         return { state: "blocked", on: "subagents", refs: [...new Set(foreground)] };
       if (
         state.config.liveness !== "transport" &&
-        tools.length === 0 &&
-        tasks.length === 0 &&
-        liveChildren.length === 0 &&
-        interactions.length === 0 &&
+        !suppressesActiveSilence(waitingOwners, agent.id, liveChildren.length) &&
         now - lastSubtreeSignal(key) > state.config.silenceMs
       ) {
         return { state: "unresponsive", lastSignalAt: lastSubtreeSignal(key) };

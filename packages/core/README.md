@@ -94,8 +94,9 @@ provider timestamp can still be supplied as `call.startedAt`.
 shell tool details. The protocol has no generic output field for other tool
 kinds; those results belong in a typed detail or raw data via upsert. A delta
 without an item creates a minimal streaming item. Known deltas update only the
-item and its owner's liveness. Tree and status derivation run only for creation,
-a change in current-run activity, or recovery from `unresponsive`.
+item and its owner's liveness. Ordinary deltas check only their changed ancestry. Tree and status derivation
+run for creation, a change in current-run activity, an unresponsive ancestor,
+or the first delta after transport silence, which can revive other thread agents.
 
 ## Status decisions from fixtures
 
@@ -149,3 +150,21 @@ delta events, so an unnecessary status derivation fails deterministically.
 Run `bun run packages/core/bench/activity.ts` or
 `node packages/core/bench/activity.ts` for a non-gating activity benchmark across
 growing transcript histories. It reports timings without a machine-load budget.
+
+Run `node packages/core/bench/deadlines.ts` for non-gating scheduler timings
+and agent/item read counts across same-time shells, staggered shells and nested
+staggered wakes. Deadline passes share live-work grouping and memoize current
+completion relevance bottom-up. They select actual wake/silence transitions
+without deriving a descendant tree for each candidate timestamp. If a descendant
+transition can unblock ancestor silence, that descendant transition is scheduled
+first and eligibility is recomputed after its tick. Retained summaries are linear
+in the current tree and live work.
+
+Pass the translator's `nextDeadline?.()` as the second argument to
+`nextDeadline(state, providerDeadline)` when provider maintenance needs its own
+tick. Core selects the earliest valid provider or core deadline, including when
+live tools suppress silence. Provider deadlines must be nonnegative safe
+integers. A process exit stops both kinds of scheduling.
+
+The deferred pre-root diagnostic admission limit is tracked in
+[the follow-up contract](../../docs/follow-ups/diagnostic-admission.md).
