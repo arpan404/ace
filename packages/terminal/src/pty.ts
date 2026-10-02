@@ -47,7 +47,19 @@ async function processes(): Promise<ProcessRow[]> {
     .split("\n")
     .map((line) => {
       const [pid, parent, group, state = ""] = line.trim().split(/\s+/);
-      return { pid: Number(pid), parent: Number(parent), group: Number(group), state };
+      const row = { pid: Number(pid), parent: Number(parent), group: Number(group), state };
+      if (
+        !Number.isSafeInteger(row.pid) ||
+        row.pid < 1 ||
+        !Number.isSafeInteger(row.parent) ||
+        row.parent < 0 ||
+        !Number.isSafeInteger(row.group) ||
+        row.group < 0 ||
+        !row.state
+      ) {
+        throw new Error("Malformed POSIX process table row");
+      }
+      return row;
     });
 }
 
@@ -99,13 +111,7 @@ export function openPosixPty(options: OpenTerminalOptions, shell: string): PtyBa
     while (changed) {
       changed = false;
       for (const { pid, parent, group } of rows) {
-        if (
-          pid !== undefined &&
-          parent !== undefined &&
-          group !== undefined &&
-          descendants.has(parent) &&
-          !descendants.has(pid)
-        ) {
+        if (descendants.has(parent) && !descendants.has(pid)) {
           descendants.add(pid);
           if (group > 0) groups.add(group);
           changed = true;

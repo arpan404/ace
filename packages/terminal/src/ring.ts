@@ -28,7 +28,9 @@ export class ByteRing {
   }
 
   byte(offset: number): number {
-    return this.#bytes[offset % this.capacity]!;
+    const value = this.#bytes[offset % this.capacity];
+    if (value === undefined) throw new RangeError("Invalid ring byte offset");
+    return value;
   }
 
   alignStart(offset: number): number {

@@ -101,9 +101,11 @@ test("two concurrent attachers receive identical bytes and byte offsets", async 
   expect(left.at(-1)).toEqual(right.at(-1));
   expect(text(left)).toContain("SHARED:漢字🙂\r\n");
   const data = left.filter((event) => event.type === "data");
-  for (let i = 0; i < data.length; i++) {
-    expect(data[i]!.endOffset - data[i]!.offset).toBe(Buffer.byteLength(data[i]!.data));
-    if (i) expect(data[i]!.offset).toBe(data[i - 1]!.endOffset);
+  let previousEnd: number | undefined;
+  for (const event of data) {
+    expect(event.endOffset - event.offset).toBe(Buffer.byteLength(event.data));
+    if (previousEnd !== undefined) expect(event.offset).toBe(previousEnd);
+    previousEnd = event.endOffset;
   }
 });
 
