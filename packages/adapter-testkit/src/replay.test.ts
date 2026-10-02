@@ -72,6 +72,7 @@ describe("recorded replay", () => {
     const result = await replay([55, 60]);
     expect(result.final.agents).toBe(2);
     expect(result.final.items).toEqual({
+      artifact: 0,
       message: 1,
       notice: 1,
       reasoning: 0,

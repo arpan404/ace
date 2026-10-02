@@ -1,0 +1,69 @@
+[
+  {
+    "path": "frame fan-out with immediate ack",
+    "subscribers": 1,
+    "iterations": 100000,
+    "opsPerSecond": 5231687,
+    "microseconds": 0.19114292000000205,
+    "peakRssMiB": 174.328125
+  },
+  {
+    "path": "frame fan-out with immediate ack",
+    "subscribers": 8,
+    "iterations": 100000,
+    "opsPerSecond": 4984641,
+    "microseconds": 0.2006162500000005,
+    "peakRssMiB": 183.6875
+  },
+  {
+    "path": "frame fan-out with immediate ack",
+    "subscribers": 64,
+    "iterations": 100000,
+    "opsPerSecond": 321724,
+    "microseconds": 3.108252499999999,
+    "peakRssMiB": 183.734375
+  },
+  {
+    "path": "log ingestion and disk flush",
+    "accepted": 10000,
+    "opsPerSecond": 43608,
+    "microseconds": 22.931358299999967,
+    "peakRssMiB": 185.5
+  },
+  {
+    "path": "CDP validation and shared 100 KB JSON for eight viewers",
+    "iterations": 2000,
+    "opsPerSecond": 10133,
+    "microseconds": 98.68593750000002,
+    "peakRssMiB": 200.9375
+  },
+  {
+    "path": "75 KB recording frames and streamed manifests to disk",
+    "offered": 11655,
+    "accepted": 1000,
+    "framesPerSecond": 608,
+    "microseconds": 1645.633958,
+    "peakRssMiB": 265.296875
+  },
+  {
+    "path": "validated key translation",
+    "iterations": 100000,
+    "opsPerSecond": 3688914,
+    "microseconds": 0.2710825,
+    "peakRssMiB": 96.171875
+  },
+  {
+    "path": "approval admission and settled hook",
+    "iterations": 100000,
+    "opsPerSecond": 220972,
+    "microseconds": 4.52545166,
+    "peakRssMiB": 115.8125
+  },
+  {
+    "path": "approval overload rejection without hook/timer",
+    "iterations": 100000,
+    "opsPerSecond": 99455,
+    "microseconds": 10.054823339999999,
+    "peakRssMiB": 130.796875
+  }
+]

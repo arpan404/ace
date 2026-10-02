@@ -28,6 +28,8 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
 import { join } from "node:path";
+import { BrowserService, type BrowserServiceOptions } from "@ace/browser";
+import { ItemId, ThreadId } from "@ace/protocol";
 import { remoteListener } from "./network.ts";
 import { startDaemonMcp } from "./mcp.ts";
 import { loadNotificationChannels } from "./notification-config.ts";
@@ -60,6 +62,7 @@ export async function startDaemon(
   notificationChannels?: Omit<NotificationChannels, "websocket">,
   modelInstances: readonly InstanceInput[] = [],
   workload?: HealthOptions["workload"],
+  browserOptions: Omit<BrowserServiceOptions, "dataDir" | "onArtifact"> = {},
 ): Promise<{
   url: string;
   tokenPath: string;
@@ -70,6 +73,7 @@ export async function startDaemon(
     root: string,
     options: SpawnOptions,
   ): ReturnType<typeof launchPluginProcess>;
+  browser: BrowserService;
   models: ModelCatalog;
   notifications: NotificationWorker;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
@@ -87,6 +91,7 @@ export async function startDaemon(
   let engine: Engine | undefined;
   let plugins: PluginManager | undefined;
   let launches: PluginLaunches | undefined;
+  let browser: BrowserService | undefined;
   let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
@@ -107,6 +112,7 @@ export async function startDaemon(
         try {
           try {
             await engine?.close();
+            await browser?.close();
           } finally {
             await notifications?.close();
           }
@@ -201,6 +207,30 @@ export async function startDaemon(
       launchPluginProcess(ownedPlugins, provider, root, options),
     );
     const ownedLaunches = launches;
+    const ownedStore = store;
+    browser = new BrowserService({
+      ...browserOptions,
+      dataDir: config.dataDir,
+      onArtifact: (rawThreadId, artifact) => {
+        const threadId = ThreadId.parse(rawThreadId);
+        const thread = ownedStore.getThread(threadId);
+        if (!thread) throw new Error("Recording thread no longer exists");
+        ownedStore.appendEvents(threadId, [
+          {
+            type: "item.created",
+            item: {
+              type: "artifact",
+              id: ItemId.parse(randomUUID()),
+              ...(thread.rootAgentId ? { agentId: thread.rootAgentId } : {}),
+              createdAt: Date.now(),
+              complete: true,
+              source: "browser",
+              ...artifact,
+            },
+          },
+        ]);
+      },
+    });
     models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
@@ -222,6 +252,7 @@ export async function startDaemon(
       store,
       handler,
       plugins: new PluginService(plugins),
+      browser,
       models,
       notifications: notifications.service,
       health: health.collect,
@@ -243,6 +274,7 @@ export async function startDaemon(
       store,
       preparePlugins: (provider, root) => preparePluginSession(ownedPlugins, provider, root),
       launchPlugins: (provider, root, options) => ownedLaunches.launch(provider, root, options),
+      browser,
       models,
       notifications: notifications.service,
       mcp,

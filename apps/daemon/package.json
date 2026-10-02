@@ -23,6 +23,7 @@
     "@ace/core": "workspace:*",
     "@ace/diagnostics": "workspace:*",
     "@ace/engine-api": "workspace:*",
+    "@ace/browser": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",

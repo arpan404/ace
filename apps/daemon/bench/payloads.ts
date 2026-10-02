@@ -1,7 +1,7 @@
 import { Store, createDevThread } from "../src/index.ts";
-import { Item, type EventPayload } from "@ace/protocol";
+import { AgentItem, type EventPayload } from "@ace/protocol";
 const message = (id: string, text: string) =>
-  Item.parse({
+  AgentItem.parse({
     id,
     agentId: "a",
     type: "message",
@@ -47,7 +47,7 @@ for (const size of [0, 1, 8]) {
 }
 {
   const { store, thread } = setup();
-  const item = Item.parse({
+  const item = AgentItem.parse({
     id: "s",
     agentId: "a",
     type: "tool_call",

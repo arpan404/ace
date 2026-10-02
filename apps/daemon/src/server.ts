@@ -13,14 +13,16 @@ import { allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost, type RemoteListener } from "./network.ts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
+import { connectBrowser, type BrowserService } from "@ace/browser";
 import {
+  BrowserClientMessage,
+  ThreadId,
   ClientMessage,
   HostId,
   DeviceId,
   type ServerMessage,
   type DiagnosticsHealth,
   type Notification,
-  type ThreadId,
 } from "@ace/protocol";
 import {
   PluginClientMessage,
@@ -66,6 +68,7 @@ export interface ServerOptions {
   store: Store;
   handler: CommandHandler;
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
+  browser?: BrowserService;
   replayLimit?: number;
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
@@ -188,6 +191,29 @@ export async function startServer(options: ServerOptions): Promise<{
     let cleaned = false;
     let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
+    const browser = options.browser
+      ? connectBrowser(options.browser, {
+          connectionId: sessionId,
+          authorize: (threadId, workspaceId, access) => {
+            const thread = options.store.getThread(ThreadId.parse(threadId));
+            return (
+              device !== undefined &&
+              thread !== undefined &&
+              allows(authenticated.get(socket), access) &&
+              (workspaceId === undefined || thread.workspaceId === workspaceId)
+            );
+          },
+          send: (message, serialized) => {
+            if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 256 * 1024) {
+              if (message.type !== "browser.frame")
+                socket.close(4009, "Browser transport backpressure");
+              return false;
+            }
+            socket.send(serialized ?? JSON.stringify(message));
+            return true;
+          },
+        })
+      : undefined;
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure }, runtime.now);
     const send = (message: ServerMessage | PluginServerMessage) => outbox.send(message);
     const fail = (code: string, message: string, close = false) => {
@@ -203,6 +229,7 @@ export async function startServer(options: ServerOptions): Promise<{
       if (cleaned) return;
       cleaned = true;
       releaseHealth();
+      browser?.close();
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -244,6 +271,13 @@ export async function startServer(options: ServerOptions): Promise<{
       try {
         if (binary) throw new Error("Text required");
         const decoded: unknown = JSON.parse(data.toString());
+        if (device && browser) {
+          const request = BrowserClientMessage.safeParse(decoded);
+          if (request.success) {
+            void browser.handle(request.data).catch((error: unknown) => options.log?.(error));
+            return;
+          }
+        }
         const standard = ClientMessage.safeParse(decoded);
         message = standard.success ? standard.data : PluginClientMessage.parse(decoded);
       } catch {

@@ -43,7 +43,10 @@ function completionRelevance(
   state: ThreadState,
   statusOf: (key: Key) => AgentStatus,
   waitingOwners: Set<string> = new Set([
-    ...liveToolKeys(state).map((key) => lookup(state.items, key)!.agentId),
+    ...liveToolKeys(state).flatMap((key) => {
+      const item = lookup(state.items, key);
+      return item?.type === "tool_call" ? [item.agentId] : [];
+    }),
     ...pendingInteractionKeys(state).map((key) => lookup(state.interactions, key)!.agentId),
     ...runningTaskKeys(state)
       .map((key) => lookup(state.tasks, key)!)

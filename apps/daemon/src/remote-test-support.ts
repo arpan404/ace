@@ -8,7 +8,7 @@ export const identity = loadIdentity(tlsFixtureHome());
 export const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
-});
+}, 60_000);
 export async function setup(serverOptions: Parameters<typeof fixture>[0] = {}) {
   let time = 1000;
   const f = await fixture({

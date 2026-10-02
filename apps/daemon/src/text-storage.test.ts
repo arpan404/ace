@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { applyDelivery } from "@ace/projection";
-import { Item } from "@ace/protocol";
+import { AgentItem } from "@ace/protocol";
 import { Store } from "./index.ts";
 import { fixture } from "./socket-test-support.ts";
 import { message } from "./payload-test-support.ts";
@@ -19,7 +19,7 @@ it.each(["message", "reasoning", "notice"])(
     const item =
       type === "message"
         ? message("large", text)
-        : Item.parse({
+        : AgentItem.parse({
             id: "large",
             agentId: "root",
             type,
@@ -56,7 +56,7 @@ it.each(["message", "reasoning", "notice"])(
 it("appends after non-text message parts, replaces earlier chunks on authoritative updates and rolls failed appends back", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
-  const item = Item.parse({ ...message("m"), parts: [{ type: "file", path: "/repo/file" }] });
+  const item = AgentItem.parse({ ...message("m"), parts: [{ type: "file", path: "/repo/file" }] });
   const delta = (append: string) => ({
     type: "item.delta" as const,
     itemId: item.id,
@@ -100,7 +100,7 @@ it.each(["message", "reasoning", "notice"])(
     const item =
       type === "message"
         ? message("split", "")
-        : Item.parse({
+        : AgentItem.parse({
             id: "split",
             agentId: "root",
             type,

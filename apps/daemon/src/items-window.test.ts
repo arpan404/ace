@@ -1,4 +1,4 @@
-import { Agent, BackgroundTask, Interaction, ThreadId, Run, Item } from "@ace/protocol";
+import { Agent, BackgroundTask, Interaction, ThreadId, Run, AgentItem } from "@ace/protocol";
 import { applyDelivery, applyItemsPage, trackItem } from "@ace/projection";
 import { afterEach, expect, it } from "vitest";
 import { fixture } from "./socket-test-support.ts";
@@ -312,7 +312,7 @@ it("accounts for item record keys and ordering ids within the snapshot byte budg
 
 it("budgets appended message text including a newly created text part and JSON escaping", async () => {
   const f = await setup();
-  const item = Item.parse({ ...message("m"), parts: [{ type: "file", path: "/repo/file" }] });
+  const item = AgentItem.parse({ ...message("m"), parts: [{ type: "file", path: "/repo/file" }] });
   const initialBytes =
     Buffer.byteLength(JSON.stringify({ m: item })) + Buffer.byteLength(JSON.stringify(["m"]));
   f.store.appendEvents(f.thread.id, [
