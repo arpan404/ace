@@ -1,0 +1,59 @@
+import { z } from "zod";
+import { AgentId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
+import { ProviderKind } from "./provider.ts";
+
+/** What started a run. Agents can start runs without anyone asking. */
+export const RunTrigger = z.enum([
+  "user",
+  "background_completion",
+  "subagent_result",
+  "goal",
+  "queue",
+  "schedule",
+  "unknown",
+]);
+export type RunTrigger = z.infer<typeof RunTrigger>;
+
+/** One turn of one agent: from its first output to the provider's turn end. */
+export const Run = z.object({
+  id: RunId,
+  threadId: ThreadId,
+  agentId: AgentId,
+  trigger: RunTrigger,
+  state: z.enum(["active", "completed", "interrupted", "failed"]),
+  startedAt: Timestamp,
+  endedAt: Timestamp.optional(),
+});
+export type Run = z.infer<typeof Run>;
+
+/**
+ * Thread status as shown in lists. Derived by the daemon from every agent,
+ * interaction, background task and queued input in the thread.
+ */
+export const ThreadStatus = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("needs_you"), interactions: z.number().int().positive() }),
+  z.object({ state: z.literal("working"), agents: z.number().int().positive() }),
+  z.object({
+    state: z.literal("waiting"),
+    on: z.enum(["background_task", "rate_limit", "network", "queue"]),
+  }),
+  z.object({ state: z.literal("failed") }),
+  z.object({ state: z.literal("unresponsive") }),
+  /** Every agent idle, nothing pending, nothing running in the background. */
+  z.object({ state: z.literal("done") }),
+  z.object({ state: z.literal("new") }),
+]);
+export type ThreadStatus = z.infer<typeof ThreadStatus>;
+
+export const Thread = z.object({
+  id: ThreadId,
+  workspaceId: WorkspaceId,
+  title: z.string(),
+  provider: ProviderKind,
+  rootAgentId: AgentId.optional(),
+  status: ThreadStatus,
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+  archivedAt: Timestamp.optional(),
+});
+export type Thread = z.infer<typeof Thread>;

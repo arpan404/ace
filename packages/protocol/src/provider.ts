@@ -1,0 +1,51 @@
+import { z } from "zod";
+
+export const ProviderKind = z.enum(["claude", "codex", "opencode", "cursor", "antigravity", "acp"]);
+export type ProviderKind = z.infer<typeof ProviderKind>;
+
+/**
+ * Where an entity came from on the provider side. `nativeId` is the
+ * provider's own id (Codex thread id, OpenCode session id, Claude task id…),
+ * kept so adapters can route commands and so imports can be de-duplicated.
+ */
+export const NativeRef = z.object({
+  provider: ProviderKind,
+  nativeId: z.string().optional(),
+});
+export type NativeRef = z.infer<typeof NativeRef>;
+
+/**
+ * The provider's original payload, stored verbatim. Never interpreted by
+ * clients except for debugging views; adapters can re-derive from it.
+ */
+export const RawPayload = z.object({
+  /** Native type or method name, e.g. `commandExecution`, `tool_use`, `session/update`. */
+  type: z.string(),
+  /** Native tool name when the provider sends one (`Bash`, `apply_patch`, `bash`…). */
+  name: z.string().optional(),
+  data: z.unknown(),
+});
+export type RawPayload = z.infer<typeof RawPayload>;
+
+/**
+ * What an adapter can do. Clients read these to decide which controls to
+ * show, instead of checking provider names.
+ */
+export const Capabilities = z.object({
+  /** Inject input into a running turn. When false, ace queues it client-side. */
+  steer: z.boolean(),
+  /** Interrupting a parent also stops its children. */
+  interruptCascades: z.boolean(),
+  resume: z.boolean(),
+  fork: z.boolean(),
+  /** Subagent transcripts are visible live. */
+  subagentTranscripts: z.boolean(),
+  /** Background tasks can be listed and stopped individually. */
+  backgroundTaskControl: z.boolean(),
+  planMode: z.boolean(),
+  tokenUsage: z.boolean(),
+  imageInput: z.boolean(),
+  /** File changes can be rewound by the provider itself. */
+  rewindFiles: z.boolean(),
+});
+export type Capabilities = z.infer<typeof Capabilities>;

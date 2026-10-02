@@ -1,0 +1,93 @@
+import { z } from "zod";
+import { Agent, AgentStatus } from "./agent.ts";
+import { BackgroundTask } from "./background.ts";
+import {
+  AgentId,
+  BackgroundTaskId,
+  DeviceId,
+  EventId,
+  InteractionId,
+  ItemId,
+  RunId,
+  ThreadId,
+  Timestamp,
+} from "./ids.ts";
+import { Interaction, InteractionResolution, InteractionState } from "./interactions.ts";
+import { Item } from "./items.ts";
+import { Run, Thread, ThreadStatus } from "./thread.ts";
+
+export const EventPayload = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("thread.created"), thread: Thread }),
+  z.object({
+    type: z.literal("thread.updated"),
+    title: z.string().optional(),
+    status: ThreadStatus.optional(),
+    archivedAt: Timestamp.nullable().optional(),
+  }),
+  z.object({ type: z.literal("agent.created"), agent: Agent }),
+  z.object({ type: z.literal("agent.status"), agentId: AgentId, status: AgentStatus }),
+  z.object({
+    type: z.literal("agent.updated"),
+    agentId: AgentId,
+    name: z.string().optional(),
+    model: z.string().optional(),
+    endedAt: Timestamp.optional(),
+  }),
+  z.object({ type: z.literal("run.started"), run: Run }),
+  z.object({
+    type: z.literal("run.ended"),
+    runId: RunId,
+    state: z.enum(["completed", "interrupted", "failed"]),
+    endedAt: Timestamp,
+  }),
+  z.object({ type: z.literal("item.created"), item: Item }),
+  /** Streaming append. Clients concatenate; the next `item.updated` is authoritative. */
+  z.object({
+    type: z.literal("item.delta"),
+    itemId: ItemId,
+    agentId: AgentId,
+    field: z.enum(["text", "reasoning", "output"]),
+    append: z.string(),
+  }),
+  z.object({ type: z.literal("item.updated"), item: Item }),
+  z.object({ type: z.literal("interaction.opened"), interaction: Interaction }),
+  z.object({
+    type: z.literal("interaction.closed"),
+    interactionId: InteractionId,
+    state: InteractionState.exclude(["pending"]),
+    resolution: InteractionResolution.optional(),
+    resolvedBy: DeviceId.optional(),
+    closedAt: Timestamp,
+  }),
+  z.object({ type: z.literal("background_task.started"), task: BackgroundTask }),
+  z.object({
+    type: z.literal("background_task.updated"),
+    taskId: BackgroundTaskId,
+    status: BackgroundTask.shape.status,
+    endedAt: Timestamp.optional(),
+  }),
+  z.object({
+    type: z.literal("usage.updated"),
+    agentId: AgentId,
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    cachedInputTokens: z.number().int().nonnegative().optional(),
+    contextWindow: z.number().int().positive().optional(),
+    costUsd: z.number().nonnegative().optional(),
+  }),
+]);
+export type EventPayload = z.infer<typeof EventPayload>;
+export type EventType = EventPayload["type"];
+
+/**
+ * One entry in the host's append-only log. `seq` is gap-free and increasing
+ * per host; clients resume a subscription with "everything after seq N".
+ */
+export const Event = z.object({
+  seq: z.number().int().nonnegative(),
+  id: EventId,
+  at: Timestamp,
+  threadId: ThreadId,
+  payload: EventPayload,
+});
+export type Event = z.infer<typeof Event>;
