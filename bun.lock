@@ -23,6 +23,17 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/accounts": {
+      "name": "@ace/accounts",
+      "bin": {
+        "ace": "./src/cli.ts",
+      },
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
@@ -53,6 +64,8 @@
     },
   },
   "packages": {
+    "@ace/accounts": ["@ace/accounts@workspace:packages/accounts"],
+
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
