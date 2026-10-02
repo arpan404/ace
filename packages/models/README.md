@@ -57,6 +57,10 @@ starts background discovery. An expired list returns stale rows immediately.
 Failed discovery keeps those rows and retries after a cooldown; explicit refresh
 bypasses the cooldown. Refresh returns statuses, so partial failure is visible.
 SQLite writes run on a dedicated worker with a 128-request queue cap.
+Refresh also retries pending deletions for other accounts, but only a failed
+deletion of the refreshed account prevents its update. SQLite rejects new
+accounts at 64 durable rows; a failed unrelated removal cannot block a valid
+update or insertion below capacity.
 SQLite corruption fails startup rather than silently trusting invalid rows.
 The caller owns the catalog and must await close during shutdown. Injected
 discovery implementations must settle after abort only after releasing owned

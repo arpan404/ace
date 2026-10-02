@@ -15,5 +15,5 @@ export const processTestSuites = [
   "packages/adapter-testkit/src/cli.test.ts",
   // Main advanced during this audit; these match after the model catalog merges.
   "apps/daemon/src/models.server.test.ts",
-  "packages/models/src/{catalog,discover,review,storage,streaming}.test.ts",
+  "packages/models/src/{catalog,deletion-isolation,discover,persistence-cap,review,storage,streaming}.test.ts",
 ];
