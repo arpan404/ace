@@ -2,8 +2,13 @@ import { FilesService } from "@ace/files";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { writeFileSync, unlinkSync } from "node:fs";
-import { remoteListener } from "./network.ts";
+import type { NotificationWorker, NotificationChannels } from "@ace/notify";
+import type { Toolkit } from "@ace/mcp-server";
 import { join } from "node:path";
+import { remoteListener } from "./network.ts";
+import { startDaemonMcp } from "./mcp.ts";
+import { loadNotificationChannels } from "./notification-config.ts";
+import { createDaemonNotifications, type DaemonNotifications } from "./notifications.ts";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
@@ -17,14 +22,20 @@ export {
   type CommandContext,
 } from "./commands.ts";
 export { readConfig } from "./config.ts";
+const noop = () => {};
+
 export async function startDaemon(
   config: Config = readConfig(),
   handler: CommandHandler = stubHandler(),
+  toolkits: readonly Toolkit[] = [],
+  notificationChannels?: Omit<NotificationChannels, "websocket">,
 ): Promise<{
   url: string;
   tokenPath: string;
   store: Store;
   files?: FilesService;
+  notifications: NotificationWorker;
+  mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   remoteUrl?: string;
   fingerprint?: string;
   close(): Promise<void>;
@@ -34,13 +45,49 @@ export async function startDaemon(
   let store: Store | undefined;
   let files: FilesService | undefined;
   let maintenance: ReturnType<typeof setInterval> | undefined;
+  let notifications: DaemonNotifications | undefined;
+  let closeChannels = noop;
+  let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
+  let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  let endpointPath: string | undefined;
+  const closeResources = async () => {
+    try {
+      await mcp?.close();
+    } finally {
+      try {
+        await server?.close();
+      } finally {
+        try {
+          await notifications?.close();
+        } finally {
+          try {
+            closeChannels();
+          } finally {
+            try {
+              if (maintenance) clearInterval(maintenance);
+              try {
+                await files?.close();
+              } finally {
+                store?.close();
+              }
+            } finally {
+              try {
+                if (endpointPath) unlinkSync(endpointPath);
+              } finally {
+                unlock();
+              }
+            }
+          }
+        }
+      }
+    }
+  };
   try {
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
     store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
       log("error", "Event subscriber failed", error),
     );
-    const ownedStore = store;
     if (config.workspaceRoot) {
       const artifacts = join(config.dataDir, "artifacts");
       await mkdir(artifacts, { recursive: true, mode: 0o700 });
@@ -62,8 +109,19 @@ export async function startDaemon(
       }, 60_000);
       maintenance.unref();
     }
+    mcp = await startDaemonMcp(store, toolkits);
+    const configured = notificationChannels
+      ? { channels: notificationChannels, close: closeChannels }
+      : await loadNotificationChannels();
+    closeChannels = configured.close;
+    notifications = createDaemonNotifications(
+      config.dataDir,
+      store,
+      () => log("error", "Notification service failure"),
+      configured.channels,
+    );
     const remote = await remoteListener(config);
-    const server = await startServer({
+    server = await startServer({
       ...(remote ? { remote } : {}),
       port: config.port,
       token,
@@ -71,15 +129,14 @@ export async function startDaemon(
       store,
       handler,
       ...(files ? { files } : {}),
+      notifications: notifications.service,
       log: (error) => log("error", "WebSocket failure", error),
     });
-    const endpointPath = join(config.dataDir, "daemon-endpoint");
-    try {
-      writeFileSync(endpointPath, server.httpUrl, { mode: 0o600 });
-    } catch (error) {
-      await server.close();
-      throw error;
-    }
+    notifications.setSender(server.notify);
+    await notifications.start();
+    const path = join(config.dataDir, "daemon-endpoint");
+    writeFileSync(path, server.httpUrl, { mode: 0o600 });
+    endpointPath = path;
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
@@ -89,35 +146,15 @@ export async function startDaemon(
       tokenPath,
       store,
       ...(files ? { files } : {}),
+      notifications: notifications.service,
+      mcp,
       close() {
-        closing ??= (async () => {
-          try {
-            await server.close();
-          } finally {
-            try {
-              if (maintenance) clearInterval(maintenance);
-              await files?.close();
-              ownedStore.close();
-            } finally {
-              try {
-                unlinkSync(endpointPath);
-              } finally {
-                unlock();
-              }
-            }
-          }
-        })();
+        closing ??= closeResources();
         return closing;
       },
     };
   } catch (error) {
-    try {
-      if (maintenance) clearInterval(maintenance);
-      await files?.close();
-      store?.close();
-    } finally {
-      unlock();
-    }
+    await closeResources().catch(() => {});
     throw error;
   }
 }
