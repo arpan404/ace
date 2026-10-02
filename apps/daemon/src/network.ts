@@ -20,7 +20,26 @@ export interface RemoteListener {
 export function urlHost(host: string): string {
   return isIP(host) === 6 ? `[${host}]` : host;
 }
-export async function remoteListener(config: Config): Promise<RemoteListener | undefined> {
+export interface NetworkRuntime {
+  interfaces(): ReturnType<typeof networkInterfaces>;
+  status(): Promise<string>;
+  identity(home: string): TlsIdentity;
+}
+export const systemNetwork: Readonly<NetworkRuntime> = {
+  interfaces: networkInterfaces,
+  status: async () =>
+    (
+      await promisify(execFile)("tailscale", ["status", "--json"], {
+        timeout: 5000,
+        maxBuffer: 1024 * 1024,
+      })
+    ).stdout,
+  identity: loadIdentity,
+};
+export async function remoteListener(
+  config: Config,
+  runtime: NetworkRuntime = systemNetwork,
+): Promise<RemoteListener | undefined> {
   if (config.listen === "local") return undefined;
   let host: string;
   let advertisedHost: string;
@@ -28,7 +47,7 @@ export async function remoteListener(config: Config): Promise<RemoteListener | u
     host = "0.0.0.0";
     advertisedHost =
       config.advertiseHost ??
-      Object.values(networkInterfaces())
+      Object.values(runtime.interfaces())
         .flat()
         .find((entry) => entry && !entry.internal && entry.family === "IPv4")?.address ??
       "";
@@ -36,11 +55,7 @@ export async function remoteListener(config: Config): Promise<RemoteListener | u
       throw new Error("No LAN address found. Set ACE_ADVERTISE_HOST to the host's LAN address.");
   } else {
     try {
-      const result = await promisify(execFile)("tailscale", ["status", "--json"], {
-        timeout: 5000,
-        maxBuffer: 1024 * 1024,
-      });
-      const status = TailscaleStatus.parse(JSON.parse(result.stdout));
+      const status = TailscaleStatus.parse(JSON.parse(await runtime.status()));
       const address = status.TailscaleIPs.find((value) => isIP(value) === 4);
       if (!address) throw new Error("No Tailscale IPv4 address");
       host = address;
@@ -52,5 +67,10 @@ export async function remoteListener(config: Config): Promise<RemoteListener | u
       );
     }
   }
-  return { host, advertisedHost, port: config.remotePort, identity: loadIdentity(config.dataDir) };
+  return {
+    host,
+    advertisedHost,
+    port: config.remotePort,
+    identity: runtime.identity(config.dataDir),
+  };
 }

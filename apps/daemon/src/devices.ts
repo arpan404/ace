@@ -1,10 +1,10 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { generateSecret, type CredentialRuntime } from "./credential-runtime.ts";
+import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { DeviceId, Device, type DeviceScope } from "@ace/protocol";
 
 export type { Device } from "@ace/protocol";
 export type Scope = DeviceScope;
-export const secret = () => randomBytes(32).toString("hex");
 export const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 export const allows = (device: Pick<Device, "scopes"> | undefined, scope: Scope) =>
   device !== undefined && (device.scopes.includes("admin") || device.scopes.includes(scope));
@@ -12,26 +12,33 @@ export const allows = (device: Pick<Device, "scopes"> | undefined, scope: Scope)
 /** Shares the event store's SQLite connection; credentials never leave this module. */
 export class Devices {
   private db: DatabaseSync;
-  constructor(db: DatabaseSync) {
+  private runtime: CredentialRuntime;
+  constructor(db: DatabaseSync, runtime: CredentialRuntime) {
     this.db = db;
+    this.runtime = runtime;
   }
   create(name: string, granted: Scope[], at: number): { device: Device; token: string } {
-    const token = secret();
-    const id = DeviceId.parse(randomUUID());
+    const token = generateSecret(this.runtime.randomBytes);
+    const id = DeviceId.parse(this.runtime.id());
+    const device = Device.parse({
+      id,
+      name,
+      scopes: granted,
+      createdAt: at,
+      lastSeenAt: at,
+      revokedAt: null,
+    });
     this.db
       .prepare("INSERT INTO devices VALUES (?, ?, ?, ?, ?, ?, NULL)")
-      .run(id, name, hash(token), JSON.stringify(granted), at, at);
-    return {
-      device: Device.parse({
-        id,
-        name,
-        scopes: granted,
-        createdAt: at,
-        lastSeenAt: at,
-        revokedAt: null,
-      }),
-      token,
-    };
+      .run(
+        device.id,
+        device.name,
+        hash(token),
+        JSON.stringify(device.scopes),
+        device.createdAt,
+        device.lastSeenAt,
+      );
+    return { device, token };
   }
   get(id: string): Device | undefined {
     const row = this.db.prepare("SELECT * FROM devices WHERE id = ?").get(id);
@@ -54,6 +61,7 @@ export class Devices {
     return this.get(String(row.id));
   }
   touch(id: string, at: number): void {
+    Device.shape.lastSeenAt.parse(at);
     this.db
       .prepare("UPDATE devices SET last_seen_at = ? WHERE id = ? AND revoked_at IS NULL")
       .run(at, id);
@@ -69,6 +77,7 @@ export class Devices {
       });
   }
   revoke(id: string, at: number): boolean {
+    Device.shape.revokedAt.parse(at);
     return (
       this.db
         .prepare("UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")

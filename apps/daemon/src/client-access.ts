@@ -7,7 +7,7 @@ import { WebSocket } from "ws";
 import { publicKeyFingerprint } from "./tls-identity.ts";
 
 /** Handshake pinning happens before HTTP headers or credentials are written. */
-export function pinnedAgent(fingerprint: string): Agent {
+export function pinnedAgent(fingerprint: string, now: () => number = Date.now): Agent {
   if (!/^[0-9a-f]{64}$/.test(fingerprint)) throw new Error("Invalid public-key fingerprint");
   const agent = new Agent({ keepAlive: false });
   agent.createConnection = (options: ConnectionOptions, callback) => {
@@ -30,10 +30,8 @@ export function pinnedAgent(fingerprint: string): Agent {
         const certificate = new X509Certificate(socket.getPeerCertificate().raw);
         if (publicKeyFingerprint(certificate.raw) !== fingerprint)
           throw new Error("TLS public-key fingerprint mismatch");
-        if (
-          Date.now() < Date.parse(certificate.validFrom) ||
-          Date.now() >= Date.parse(certificate.validTo)
-        )
+        const at = now();
+        if (at < Date.parse(certificate.validFrom) || at >= Date.parse(certificate.validTo))
           throw new Error("TLS certificate expired or not yet valid");
         finish();
       } catch (error) {
@@ -47,7 +45,13 @@ export function pinnedAgent(fingerprint: string): Agent {
 export async function accessRequest(
   origin: string,
   path: string,
-  options: { method?: string; token?: string; body?: unknown; fingerprint?: string } = {},
+  options: {
+    method?: string;
+    token?: string;
+    body?: unknown;
+    fingerprint?: string;
+    now?: () => number;
+  } = {},
 ): Promise<unknown> {
   const url = new URL(path, origin);
   if (url.username || url.password || url.search || url.hash)
@@ -57,7 +61,8 @@ export async function accessRequest(
     throw new Error("Remote requests require pinned HTTPS");
   if (tls && !options.fingerprint)
     throw new Error("Remote requests require a public-key fingerprint");
-  const agent = tls && options.fingerprint ? pinnedAgent(options.fingerprint) : undefined;
+  const agent =
+    tls && options.fingerprint ? pinnedAgent(options.fingerprint, options.now) : undefined;
   const data = options.body === undefined ? undefined : JSON.stringify(options.body);
   try {
     return await new Promise<unknown>((resolve, reject) => {
@@ -117,7 +122,11 @@ export async function redeemPairing(url: string, name: string): Promise<DeviceCr
     }),
   );
 }
-export function ticketSocket(origin: string, fingerprint: string): WebSocket {
+export function ticketSocket(
+  origin: string,
+  fingerprint: string,
+  now: () => number = Date.now,
+): WebSocket {
   const url = new URL(origin);
   if (
     url.protocol !== "wss:" ||
@@ -128,7 +137,7 @@ export function ticketSocket(origin: string, fingerprint: string): WebSocket {
     url.password
   )
     throw new Error("Socket requires a pinned WSS origin without credentials");
-  const agent = pinnedAgent(fingerprint);
+  const agent = pinnedAgent(fingerprint, now);
   const socket = new WebSocket(url, { agent });
   socket.once("close", () => agent.destroy());
   return socket;

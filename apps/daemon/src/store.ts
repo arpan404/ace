@@ -1,3 +1,4 @@
+import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync, type StatementSync, type SQLOutputValue } from "node:sqlite";
 import {
@@ -27,7 +28,11 @@ export class Store {
   private caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
   private publications: Event[][] = [];
   private publishing = false;
-  constructor(path: string, onError: (error: unknown) => void = console.error) {
+  constructor(
+    path: string,
+    onError: (error: unknown) => void = console.error,
+    credentials: CredentialRuntime = systemCredentials,
+  ) {
     this.onError = onError;
     this.db = new DatabaseSync(path);
     try {
@@ -35,7 +40,7 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
-      this.devices = new Devices(this.db);
+      this.devices = new Devices(this.db, credentials);
     } catch (error) {
       this.db.close();
       throw error;

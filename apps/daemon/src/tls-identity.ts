@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { createHash, X509Certificate } from "node:crypto";
+import { createHash, X509Certificate, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -13,32 +13,38 @@ export interface TlsIdentity {
   fingerprint: string;
 }
 /** OpenSSL is used only to sign a locally generated TLS identity, never for provider auth. */
-export function loadIdentity(home: string): TlsIdentity {
+export interface IdentityRuntime {
+  id(): string;
+  sign(command: string, args: string[]): void;
+}
+export const systemIdentity: Readonly<IdentityRuntime> = {
+  id: randomUUID,
+  sign: (command, args) => {
+    execFileSync(command, args, { stdio: "ignore" });
+  },
+};
+export function loadIdentity(home: string, runtime: IdentityRuntime = systemIdentity): TlsIdentity {
   const directory = join(home, "tls");
   if (!existsSync(directory)) {
-    const temporary = join(home, `tls-${process.pid}`);
+    const temporary = join(home, `tls-${runtime.id()}`);
     mkdirSync(temporary, { mode: 0o700 });
     try {
-      execFileSync(
-        "openssl",
-        [
-          "req",
-          "-x509",
-          "-newkey",
-          "rsa:2048",
-          "-nodes",
-          "-sha256",
-          "-days",
-          "3650",
-          "-subj",
-          "/CN=ace",
-          "-keyout",
-          join(temporary, "key.pem"),
-          "-out",
-          join(temporary, "cert.pem"),
-        ],
-        { stdio: "ignore" },
-      );
+      runtime.sign("openssl", [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-sha256",
+        "-days",
+        "3650",
+        "-subj",
+        "/CN=ace",
+        "-keyout",
+        join(temporary, "key.pem"),
+        "-out",
+        join(temporary, "cert.pem"),
+      ]);
       chmodSync(join(temporary, "key.pem"), 0o600);
       renameSync(temporary, directory);
     } catch (error) {
