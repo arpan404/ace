@@ -185,3 +185,5 @@ remain deferred; the complete runtime gate needs run at merge.
 | Omit settings subscription disposal on socket cleanup | Joint shutdown restores a settings service admission slot       | not executed (tests run at merge) |
 | Block socket processing on the health promise         | Settings read completes while health is still pending           | not executed (tests run at merge) |
 | Drop settings or health wire handlers                 | Joint authenticated socket accepts both request families        | not executed (tests run at merge) |
+
+The final fetch also brought core audit `4c2d6fb`. It merged without conflicts; its protocol parsing changes coexist with the additive settings wire variants. Typechecking, lint and the size check passed again after that merge (625 source files). The nine-file/56-test result above predates this final core-only update; execution of the resulting full tree needs run at merge. No further tests or benchmarks were run.
