@@ -101,6 +101,8 @@ export class ThreadStore implements ThreadReader {
   snapshot(view: ThreadView): void {
     if (view.itemOrder.length > 200 || Object.keys(view.items).length > 200)
       throw new ClientError("limit", "Snapshot item capacity exceeded");
+    if (Object.keys(view.itemSeqs ?? {}).length > 200)
+      throw new ClientError("limit", "Item cursor capacity exceeded");
     const parentKeys = Object.keys(view.agentChildren);
     const parentReferences = Object.values(view.agentChildren).reduce(
       (count, children) => count + children.length,
@@ -128,6 +130,11 @@ export class ThreadStore implements ThreadReader {
     this.creation.clear();
     this.clipped.clear();
     this.counts = counts;
+    for (const id of view.itemOrder) {
+      const seq = view.itemSeqs?.[id];
+      if (seq !== undefined) this.creation.set(id, seq);
+    }
+    delete view.itemSeqs;
     this.trim();
     for (const id of view.itemOrder) this.clip(id);
     this.notifications.emitAll();
@@ -307,6 +314,8 @@ export class ThreadStore implements ThreadReader {
           configurable: true,
         });
         this.hydrated.set(item.id, Math.max(page.seq, view.seq));
+        const seq = page.itemSeqs?.[item.id];
+        if (seq !== undefined) this.creation.set(item.id, seq);
         added.push(item.id);
         keys.add(`item:${item.id}`);
         this.clip(item.id);

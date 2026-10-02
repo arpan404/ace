@@ -343,6 +343,7 @@ export class Store {
       view.items = Object.fromEntries(page.items.map((item) => [item.id, item]));
       view.itemOrder = page.items.map((item) => item.id);
       view.itemsBefore = page.itemsBefore;
+      if (page.itemSeqs) view.itemSeqs = page.itemSeqs;
       return view;
     } finally {
       this.releaseThread(id);

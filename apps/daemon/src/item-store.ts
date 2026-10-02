@@ -182,6 +182,13 @@ export class ItemStore {
           .all(threadId, oldest, before)
           .map((row) => this.materialize(String(row.id), row.item))
       : [];
-    return { threadId, items, itemsBefore: rows.length > count ? oldest : null };
+    return {
+      threadId,
+      items,
+      itemSeqs: Object.fromEntries(
+        rows.slice(0, count).map((row) => [String(row.id), Number(row.created_seq)]),
+      ),
+      itemsBefore: rows.length > count ? oldest : null,
+    };
   }
 }

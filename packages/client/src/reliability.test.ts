@@ -219,11 +219,10 @@ test("item and text windows are capped and older history is read on demand", asy
     Boolean,
   );
   expect(store.order).toEqual(["item-3", "item-4"]);
+  expect(store.itemsBefore).toBe(5);
   const page = await client.itemsPage({
     threadId: h.thread.id,
-    before: h.daemon.store
-      .readEvents({ afterSeq: 0, limit: 100 })
-      .find((e) => e.payload.type === "item.created" && e.payload.item.id === "item-3")?.seq,
+    before: store.itemsBefore ?? undefined,
     limit: 2,
   });
   expect(page.items.map((item) => item.id)).toEqual(["item-1", "item-2"]);
@@ -234,6 +233,13 @@ test("item and text windows are capped and older history is read on demand", asy
   expect(store.order).toHaveLength(2);
   expect(itemText(store.item(itemId))).toBe("f");
   expect(store.truncated(itemId)).toBe(true);
+  expect(store.itemsBefore).toBe(4);
+  const previous = await client.itemsPage({
+    threadId: h.thread.id,
+    before: store.itemsBefore ?? undefined,
+    limit: 1,
+  });
+  expect(previous.items.map((item) => item.id)).toEqual(["item-1"]);
 });
 
 test("filtered host sequences do not masquerade as dropped thread events", async () => {
