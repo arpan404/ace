@@ -45,7 +45,6 @@ describe("CLI auth parsing", () => {
     });
     expect(parseOpenCodeAuth("└  0 credentials")).toEqual({
       auth: "logged_out",
-      authEvidence: "credentials_configured",
     });
     for (const parse of [parseClaudeAuth, parseCodexAuth, parseCursorAuth, parseOpenCodeAuth]) {
       expect(parse("Error: broken CLI")).toEqual({ auth: "unknown" });

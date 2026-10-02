@@ -60,7 +60,7 @@ export function parseOpenCodeAuth(text: string): AuthStatus {
   const clean = stripVTControlCharacters(text);
   const count = /\b(\d+) credentials?\b/i.exec(clean)?.[1];
   if (count === undefined) return unknown;
-  if (Number(count) === 0) return { auth: "logged_out", authEvidence: "credentials_configured" };
+  if (Number(count) === 0) return { auth: "logged_out" };
   // Future vendors still count as configured. Never expose arbitrary CLI text.
   const names = [
     "Anthropic",
