@@ -12,6 +12,7 @@
     "prepare-native": "node scripts/prepare-native.ts"
   },
   "dependencies": {
+    "@ace/protocol": "workspace:*",
     "node-pty": "^1.1.0"
   }
 }

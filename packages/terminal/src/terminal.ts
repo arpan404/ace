@@ -9,6 +9,8 @@ import type {
   TerminalSnapshot,
 } from "./types.ts";
 
+function noSubscription(): void {}
+
 export class Terminal {
   readonly pid: number;
   readonly name: string;
@@ -18,6 +20,8 @@ export class Terminal {
   #options: Pick<OpenTerminalOptions, "cwd" | "cols" | "rows">;
   #shell: string;
   #exit: ExitStatus | null = null;
+  #failure: Error | undefined;
+  #released = false;
   #closing: Promise<void> | undefined;
   #listeners = new Set<() => void>();
 
@@ -33,14 +37,24 @@ export class Terminal {
       ring.append(bytes);
       this.#wake();
     });
-    this.exited = new Promise((resolve) => {
-      const stopExit = backend.onExit((status) => {
-        this.#exit = { ...status };
+    let stopExit = noSubscription;
+    let exitSeen = false;
+    this.exited = new Promise((resolve, reject) => {
+      stopExit = backend.onExit((status) => {
+        if (exitSeen) return;
+        exitSeen = true;
+        if (status instanceof Error) this.#failure = status;
+        else this.#exit = { ...status };
         stopData();
         stopExit();
         this.#wake();
-        resolve({ ...status });
+        if (status instanceof Error) reject(status);
+        else resolve({ ...status });
       });
+      if (exitSeen) stopExit();
+    });
+    void this.exited.catch(() => {
+      /* Rejection remains observable by callers. */
     });
   }
 
@@ -62,13 +76,17 @@ export class Terminal {
   }
 
   attach({ fromOffset = this.#ring.start }: { fromOffset?: number } = {}): TerminalAttachment {
+    this.#assertAvailable();
     if (!Number.isSafeInteger(fromOffset) || fromOffset < 0 || fromOffset > this.#ring.end) {
       throw new RangeError("Attachment offset must be a retained or past nonnegative byte offset");
     }
     return createAttachment(
       this.#ring,
       fromOffset,
-      () => this.#exit,
+      () => {
+        this.#assertAvailable();
+        return this.#exit;
+      },
       (wake) => {
         this.#listeners.add(wake);
         return () => {
@@ -79,6 +97,7 @@ export class Terminal {
   }
 
   snapshot(): TerminalSnapshot {
+    this.#assertAvailable();
     return {
       version: 1,
       name: this.name,
@@ -102,12 +121,26 @@ export class Terminal {
     return this.#closing;
   }
 
+  release(): void {
+    if (!this.#closing || !this.#exit) throw new Error("Close the terminal before releasing it");
+    this.#released = true;
+    this.#ring.release();
+    this.#wake();
+    this.#listeners.clear();
+  }
+
   #wake(): void {
     for (const wake of this.#listeners) wake();
   }
 
   #assertRunning(): void {
+    this.#assertAvailable();
     if (this.#closing) throw new Error("Terminal is closing");
     if (this.#exit) throw new Error("Terminal has exited");
+  }
+
+  #assertAvailable(): void {
+    if (this.#released) throw new Error("Terminal has been released");
+    if (this.#failure) throw this.#failure;
   }
 }

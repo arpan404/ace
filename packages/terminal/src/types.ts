@@ -1,7 +1,7 @@
 export interface OpenTerminalOptions {
   cwd: string;
-  shell?: string;
-  env?: Record<string, string | undefined>;
+  shell?: string | undefined;
+  env?: Record<string, string | undefined> | undefined;
   cols: number;
   rows: number;
   name: string;
@@ -45,7 +45,14 @@ export interface TerminalSnapshot {
 }
 
 export function validateDimensions(cols: number, rows: number): void {
-  if (!Number.isSafeInteger(cols) || !Number.isSafeInteger(rows) || cols < 1 || rows < 1) {
-    throw new RangeError("Terminal dimensions must be positive safe integers");
+  if (
+    !Number.isSafeInteger(cols) ||
+    !Number.isSafeInteger(rows) ||
+    cols < 1 ||
+    rows < 1 ||
+    cols > 65535 ||
+    rows > 65535
+  ) {
+    throw new RangeError("Terminal dimensions must be integers from 1 through 65535");
   }
 }

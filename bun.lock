@@ -47,6 +47,7 @@
     "packages/terminal": {
       "name": "@ace/terminal",
       "dependencies": {
+        "@ace/protocol": "workspace:*",
         "node-pty": "^1.1.0",
       },
     },

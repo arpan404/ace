@@ -1,19 +1,50 @@
 import { accessSync, constants } from "node:fs";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { setImmediate, setTimeout } from "node:timers/promises";
+import { setTimeout } from "node:timers/promises";
+import { performance } from "node:perf_hooks";
 import { spawn } from "node-pty";
 import type { ExitStatus, OpenTerminalOptions } from "./types.ts";
+import { decodeBytes, decodeExit } from "./decode.ts";
+import { sessionOwnership } from "./ownership.ts";
+import type { ProcessControl, ShutdownScheduler } from "./ownership.ts";
+import { createProcessTable } from "./process-table.ts";
 
 export interface PtyBackend {
   readonly pid: number;
   write(data: string): void;
   resize(cols: number, rows: number): void;
   onData(listener: (bytes: Buffer) => void): () => void;
-  onExit(listener: (status: ExitStatus) => void): () => void;
+  onExit(listener: (status: ExitStatus | Error) => void): () => void;
   kill(signal: NodeJS.Signals): Promise<void>;
   close(graceMs: number): Promise<void>;
 }
+export interface BackendContext {
+  owner: string;
+  scheduler: ShutdownScheduler;
+}
+export type BackendFactory = (
+  options: OpenTerminalOptions,
+  shell: string,
+  context: BackendContext,
+) => PtyBackend;
+
+export interface NativePty {
+  readonly pid: number;
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  onData(listener: (input: unknown) => void): { dispose(): void };
+  onExit(listener: (input: unknown) => void): { dispose(): void };
+}
+export interface PosixPorts {
+  spawn: (shell: string, args: string[], options: Parameters<typeof spawn>[2]) => NativePty;
+  processes: ProcessControl;
+}
+
+export const shutdownScheduler: ShutdownScheduler = {
+  now: () => performance.now(),
+  delay: async (ms) => {
+    await setTimeout(ms);
+  },
+};
 
 export function resolveShell(shell?: string): string {
   if (shell !== undefined) return shell;
@@ -29,130 +60,64 @@ export function resolveShell(shell?: string): string {
   throw new Error("No login shell found");
 }
 
-const run = promisify(execFile);
-
-interface ProcessRow {
-  pid: number;
-  parent: number;
-  group: number;
-  state: string;
-}
-
-async function processes(): Promise<ProcessRow[]> {
-  const { stdout } = await run("ps", ["-axo", "pid=,ppid=,pgid=,stat="], {
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  return stdout
-    .trim()
-    .split("\n")
-    .map((line) => {
-      const [pid, parent, group, state = ""] = line.trim().split(/\s+/);
-      const row = { pid: Number(pid), parent: Number(parent), group: Number(group), state };
-      if (
-        !Number.isSafeInteger(row.pid) ||
-        row.pid < 1 ||
-        !Number.isSafeInteger(row.parent) ||
-        row.parent < 0 ||
-        !Number.isSafeInteger(row.group) ||
-        row.group < 0 ||
-        !row.state
-      ) {
-        throw new Error("Malformed POSIX process table row");
-      }
-      return row;
+/** Each manager gets its own I/O context; overlapping shutdowns share a ps read. */
+export function createPosixBackendFactory(ports?: PosixPorts): BackendFactory {
+  const read = createProcessTable();
+  return (options, shell, context) => {
+    if (process.platform === "win32") throw new Error("Terminal service currently requires POSIX");
+    const pty = (ports?.spawn ?? spawn)(shell, ["-l", "-i"], {
+      cwd: options.cwd,
+      cols: options.cols,
+      rows: options.rows,
+      name: "xterm-256color",
+      env: { ...process.env, ...options.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
+      encoding: null,
+      handleFlowControl: false,
     });
-}
-
-async function signalGroups(groups: Set<number>, signal: NodeJS.Signals): Promise<void> {
-  const live = new Set(
-    (await processes()).filter((row) => !row.state.startsWith("Z")).map((row) => row.group),
-  );
-  for (const group of groups) {
-    if (!live.has(group)) continue;
-    try {
-      process.kill(-group, signal);
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error)) throw error;
-      if (error.code === "ESRCH") continue;
-      // macOS can report EPERM for a group containing only unreaped zombies.
-      if (
-        error.code === "EPERM" &&
-        !(await processes()).some((row) => row.group === group && !row.state.startsWith("Z"))
-      )
-        continue;
-      throw error;
-    }
-  }
-}
-
-/** POSIX backend. Job-control shells put foreground/background jobs in separate groups. */
-export function openPosixPty(options: OpenTerminalOptions, shell: string): PtyBackend {
-  if (process.platform === "win32") throw new Error("Terminal service currently requires POSIX");
-  const pty = spawn(shell, ["-l", "-i"], {
-    cwd: options.cwd,
-    cols: options.cols,
-    rows: options.rows,
-    name: "xterm-256color",
-    env: { ...process.env, ...options.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
-    encoding: null,
-    handleFlowControl: false,
-  });
-  const groups = new Set([pty.pid]);
-  let exited = false;
-  pty.onExit(() => {
-    exited = true;
-  });
-
-  async function discoverGroups(): Promise<void> {
-    if (exited) return;
-    const rows = await processes();
-    const descendants = new Set([pty.pid]);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const { pid, parent, group } of rows) {
-        if (descendants.has(parent) && !descendants.has(pid)) {
-          descendants.add(pid);
-          if (group > 0) groups.add(group);
-          changed = true;
-        }
-      }
-    }
-  }
-
-  return {
-    pid: pty.pid,
-    write: (data) => pty.write(data),
-    resize: (cols, rows) => pty.resize(cols, rows),
-    onData: (listener) => {
-      // node-pty's declarations say string even with encoding:null. Validate the boundary.
-      const subscription = pty.onData((data: unknown) => {
-        if (!Buffer.isBuffer(data)) throw new TypeError("Raw PTY output must be a Buffer");
-        listener(data);
-      });
-      return () => subscription.dispose();
-    },
-    onExit: (listener) => {
-      const subscription = pty.onExit((event) =>
-        listener({ code: event.exitCode, signal: event.signal || null }),
-      );
-      return () => subscription.dispose();
-    },
-    async kill(signal) {
-      if (exited && groups.size === 1) return;
-      await discoverGroups();
-      await signalGroups(groups, signal);
-    },
-    async close(graceMs) {
-      if (exited && groups.size === 1) return;
-      await discoverGroups();
-      await signalGroups(groups, "SIGTERM");
-      // Keep the captured job groups even if the shell exits before an ignoring child.
-      await setTimeout(graceMs);
-      await signalGroups(groups, "SIGKILL");
-      while ((await processes()).some((row) => groups.has(row.group) && !row.state.startsWith("Z")))
-        await setImmediate();
-      groups.clear();
-    },
+    let exited = false;
+    const control: ProcessControl = ports?.processes ?? {
+      async read() {
+        const rows = await read();
+        // Once reaped, a new live leader with this ID belongs to a new session.
+        const reused =
+          exited && rows.some((row) => row.pid === pty.pid && !row.state.startsWith("Z"));
+        return rows.map((row) => ({
+          pid: row.pid,
+          group: row.group,
+          state: row.state,
+          owner: !reused && row.session === pty.pid ? context.owner : null,
+        }));
+      },
+      signal: (group, signal) => {
+        process.kill(-group, signal);
+      },
+    };
+    const ownership = sessionOwnership(context.owner, control, context.scheduler);
+    return {
+      pid: pty.pid,
+      write: (data) => pty.write(data),
+      resize: (cols, rows) => pty.resize(cols, rows),
+      onData(listener) {
+        const subscription = pty.onData((input) => listener(decodeBytes(input)));
+        return () => subscription.dispose();
+      },
+      onExit(listener) {
+        const subscription = pty.onExit((input) => {
+          exited = true;
+          let status: ExitStatus | Error;
+          try {
+            status = decodeExit(input);
+          } catch (error) {
+            status = error instanceof Error ? error : new Error("Invalid native exit");
+          }
+          listener(status);
+        });
+        return () => subscription.dispose();
+      },
+      kill: async (signal) => {
+        await ownership.kill(signal);
+      },
+      close: (graceMs) => ownership.close(graceMs),
+    };
   };
 }

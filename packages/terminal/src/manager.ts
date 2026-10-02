@@ -1,5 +1,9 @@
 import { ByteRing } from "./ring.ts";
-import { openPosixPty, resolveShell } from "./pty.ts";
+import { createPosixBackendFactory, resolveShell, shutdownScheduler } from "./pty.ts";
+import type { BackendFactory } from "./pty.ts";
+import type { ShutdownScheduler } from "./ownership.ts";
+import { randomUUID } from "node:crypto";
+import { TerminalOpenSchema } from "@ace/protocol";
 import { Terminal } from "./terminal.ts";
 import { validateDimensions } from "./types.ts";
 import type { OpenTerminalOptions } from "./types.ts";
@@ -7,6 +11,14 @@ import type { OpenTerminalOptions } from "./types.ts";
 export interface TerminalManagerOptions {
   scrollbackBytes?: number;
   graceMs?: number;
+  dependencies?: Partial<TerminalDependencies>;
+}
+
+export interface TerminalDependencies {
+  backendFactory: BackendFactory;
+  resolveShell: (shell?: string) => string;
+  createSessionId: () => string;
+  shutdownScheduler: ShutdownScheduler;
 }
 
 export class TerminalManager {
@@ -14,22 +26,39 @@ export class TerminalManager {
   #graceMs: number;
   #terminals = new Set<Terminal>();
   #closing: Promise<void> | undefined;
+  #dependencies: TerminalDependencies;
 
-  constructor({ scrollbackBytes = 4 * 1024 * 1024, graceMs = 1000 }: TerminalManagerOptions = {}) {
+  constructor({
+    scrollbackBytes = 4 * 1024 * 1024,
+    graceMs = 1000,
+    dependencies,
+  }: TerminalManagerOptions = {}) {
     if (!Number.isSafeInteger(scrollbackBytes) || scrollbackBytes < 4)
       throw new RangeError("Invalid scrollback capacity");
     if (!Number.isSafeInteger(graceMs) || graceMs < 0 || graceMs > 2_147_483_647)
       throw new RangeError("Invalid shutdown grace period");
     this.#capacity = scrollbackBytes;
     this.#graceMs = graceMs;
+    this.#dependencies = {
+      backendFactory: createPosixBackendFactory(),
+      resolveShell,
+      createSessionId: randomUUID,
+      shutdownScheduler,
+      ...dependencies,
+    };
   }
 
   openTerminal(options: OpenTerminalOptions): Terminal {
     if (this.#closing) throw new Error("Terminal manager is closed");
     validateDimensions(options.cols, options.rows);
+    options = TerminalOpenSchema.parse(options);
     const ring = new ByteRing(this.#capacity);
-    const shell = resolveShell(options.shell);
-    const terminal = new Terminal(openPosixPty(options, shell), options, shell, ring);
+    const shell = this.#dependencies.resolveShell(options.shell);
+    const backend = this.#dependencies.backendFactory(options, shell, {
+      owner: this.#dependencies.createSessionId(),
+      scheduler: this.#dependencies.shutdownScheduler,
+    });
+    const terminal = new Terminal(backend, options, shell, ring);
     this.#terminals.add(terminal);
     return terminal;
   }
@@ -38,6 +67,14 @@ export class TerminalManager {
   closeAll(): Promise<void> {
     this.#closing ??= this.#close();
     return this.#closing;
+  }
+
+  /** Persist first if desired. Late replay is available until explicit release. */
+  async release(terminal: Terminal): Promise<void> {
+    if (!this.#terminals.has(terminal)) return;
+    await terminal.close(this.#graceMs);
+    terminal.release();
+    this.#terminals.delete(terminal);
   }
 
   async #close(): Promise<void> {
