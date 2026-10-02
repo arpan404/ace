@@ -228,9 +228,11 @@ export class OpenCodeServer {
       try {
         // A foreign project must never extend this thread's recovery. Two snapshot
         // passes bound work even when an owned stream remains continuously active.
+        let forwarded = 0;
         for (let pass = 0; pass < 2; pass++) {
           for (const c of this.consumers) await c.resync();
-          const buffered = this.buffered.splice(0);
+          const buffered = this.buffered.slice(forwarded);
+          forwarded = this.buffered.length;
           let changed = false;
           for (const data of buffered)
             for (const c of this.consumers) if (c.buffered(data.data)) changed = true;
@@ -238,9 +240,12 @@ export class OpenCodeServer {
             // Full settlement updates are idempotent. Deltas are raw evidence only:
             // the snapshot may already contain them. The next live full part update
             // reconciles content without an unbounded wait for a quiet global stream.
-            for (const c of this.consumers) c.finalizeSnapshots();
-            for (const data of buffered)
+            // Register newer work before applying an idle snapshot. A running
+            // tool uses a different event key than its owning session's status.
+            // Keep earlier-pass events too: a later snapshot may not cover them.
+            for (const data of this.buffered.splice(0))
               for (const c of this.consumers) c.reconcile(data.data, data.watermark);
+            for (const c of this.consumers) c.finalizeSnapshots();
             break;
           }
         }

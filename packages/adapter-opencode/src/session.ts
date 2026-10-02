@@ -91,7 +91,11 @@ export class OpenCodeSession implements ProviderSession {
         if (!session.owns(data)) return;
         const payload = object(object(data).payload);
         const type = string(payload.type);
-        if (session.watermarks.covers(data, watermark)) return;
+        if (
+          !session.watermarks.isLatest(data, watermark) ||
+          session.watermarks.covers(data, watermark)
+        )
+          return;
         if (
           type === "session.status" ||
           type === "session.error" ||
@@ -164,7 +168,7 @@ export class OpenCodeSession implements ProviderSession {
     this.ctx.onFrame(frame);
   };
   private snapshot(data: unknown, started: number): void {
-    if (this.watermarks.stage(data, started, this.server.eventWatermark)) this.receive(data);
+    if (this.watermarks.stage(data, started)) this.receive(data);
     else this.emit("recv", "snapshot.deferred", data);
   }
   private finalizeSnapshots(): void {
@@ -341,7 +345,7 @@ export class OpenCodeSession implements ProviderSession {
     for (const path of ["/permission", "/question"]) {
       const started = this.server.eventWatermark;
       const pending = await this.request("GET", path);
-      this.watermarks.category(path.slice(1), started, this.server.eventWatermark);
+      this.watermarks.category(path.slice(1), started);
       for (const p of array(pending))
         this.snapshot(
           {

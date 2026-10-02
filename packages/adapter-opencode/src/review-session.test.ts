@@ -4,6 +4,7 @@ import { readSse } from "@ace/provider-kit/sse";
 import { expect, it } from "vitest";
 import { object } from "./data.ts";
 import { setup } from "./testing/session-harness.ts";
+import { recoveryBarrier } from "./testing/recovery-barriers.ts";
 const sentPrompts = (frames: { dir: string; channel: string; data: unknown }[]) =>
   frames.filter(
     (f) =>
@@ -232,16 +233,16 @@ it("bounds recovery even when an owned project emits on every history read", asy
   expect(recovered).toBe(true);
 });
 it("does not replay an older buffered idle over a newer busy REST snapshot", async () => {
-  const h = await setup();
+  const h = await recoveryBarrier("status");
   const id = h.session.nativeSessionId;
   await h.session.send([{ type: "text", text: "first" }], "queue");
-  await h.control("/test/state", {
+  await h.recover({
     onMessage: {
       directory: "/one",
       payload: { type: "session.status", properties: { sessionID: id, status: { type: "idle" } } },
     },
   });
-  await h.control("/test/drop", {});
+  h.release();
   await h.wait((f) => f.channel === "lifecycle" && object(f.data).type === "resynced");
   expect(h.projection.view.thread.status.state).toBe("working");
   const queued = h.session.send([{ type: "text", text: "second" }], "queue");
