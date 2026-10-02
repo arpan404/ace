@@ -1,7 +1,7 @@
 import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { withDirectoryLock } from "./lock.ts";
-import { PluginInstall, PluginName, PluginReview } from "@ace/protocol/plugins";
+import { PluginInstall, PluginName, PluginReview, PluginReviewOffset } from "@ace/protocol/plugins";
 import { Marketplace, limits, normalizePath, parseJson } from "./manifest.ts";
 import {
   assertNoSymlinks,
@@ -13,6 +13,7 @@ import {
 import { extractPlugin, fetchRepository, readGitFile, gitRuntime, type GitRuntime } from "./git.ts";
 import { importPlugin } from "./import.ts";
 import { Registry } from "./registry.ts";
+import { jsonSize, reviewBytes, reviewPage } from "./review-pages.ts";
 import { reviewPlugin, validateComponents } from "./review.ts";
 import type { PluginSnapshot } from "./types.ts";
 
@@ -53,12 +54,12 @@ export class PluginManager {
   }
   private async collect(): Promise<void> {
     const installs = this.registry.installs();
-    const reviews = this.registry.reviews();
+    const reviews = this.registry.summaries();
     if (installs.length > limits.installs || reviews.length > limits.pending)
       throw new Error("Registry exceeds limits");
     for (const [directory, keep] of [
       ["versions", new Set(installs.map(({ install }) => install.hash))],
-      ["staging", new Set(reviews.map(({ review }) => review.id))],
+      ["staging", new Set(reviews.map((review) => review.id))],
       ["fetch", new Set<string>()],
     ] as const) {
       const root = join(this.root, directory);
@@ -71,9 +72,10 @@ export class PluginManager {
   async prepare(request: { repository: string; ref: string; name: string }): Promise<PluginReview> {
     const name = PluginName.parse(request.name);
     return this.lock(async () => {
-      if (this.registry.reviews().length >= limits.pending) throw new Error("Pending review limit");
+      if (this.registry.summaries().length >= limits.pending)
+        throw new Error("Pending review limit");
       const id = PluginReview.shape.id.parse(this.options.id());
-      if (this.registry.reviews().some((stored) => stored.review.id === id))
+      if (this.registry.summaries().some((review) => review.id === id))
         throw new Error("Duplicate review id");
       const temporary = join(this.root, "fetch", id);
       const stage = join(this.root, "staging", id);
@@ -81,6 +83,7 @@ export class PluginManager {
       await assertNoSymlinks(stage);
       await mkdir(temporary, { recursive: true, mode: 0o700 });
       await mkdir(stage, { recursive: true, mode: 0o700 });
+      let released = false;
       try {
         const { gitRoot, commit } = await fetchRepository(
           request.repository,
@@ -120,13 +123,20 @@ export class PluginManager {
         if (imported.manifest.name !== name) throw new Error("Catalog and manifest name mismatch");
         validateComponents(imported, text);
         const review = reviewPlugin(imported, { id, commit, hash: digest.hash });
+        jsonSize(review, reviewBytes);
+        await this.git.release(temporary);
+        released = true;
         this.registry.saveReview({ review, repository: request.repository, ref: request.ref });
         return review;
       } catch (error) {
         await rm(stage, { recursive: true, force: true });
         throw error;
       } finally {
-        await rm(temporary, { recursive: true, force: true });
+        try {
+          if (!released) await this.git.release(temporary);
+        } finally {
+          await rm(temporary, { recursive: true, force: true });
+        }
       }
     });
   }
@@ -171,6 +181,15 @@ export class PluginManager {
       await this.collect();
       return install;
     });
+  }
+  readReview(id: string, offset: number) {
+    return reviewPage(
+      this.registry.review(PluginReview.shape.id.parse(id)).review,
+      PluginReviewOffset.parse(offset),
+    );
+  }
+  pendingSummaries() {
+    return this.registry.summaries();
   }
   pending(): PluginReview[] {
     return this.registry.reviews().map((value) => value.review);

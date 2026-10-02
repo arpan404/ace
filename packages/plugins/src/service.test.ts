@@ -20,7 +20,17 @@ test("wire requests expose pending reviews and only install the explicitly accep
   expect(await service.handle({ type: "plugins.list" })).toEqual({
     type: "plugins.list",
     installs: [],
-    reviews: [response.review],
+    reviews: [
+      {
+        id: response.review.id,
+        name: response.review.name,
+        version: response.review.version,
+        commit: response.review.commit,
+        hash: response.review.hash,
+        executionCount: response.review.executions.length,
+        unsupportedCount: response.review.unsupported.length,
+      },
+    ],
   });
   await expect(
     service.handle({
@@ -80,4 +90,75 @@ test("malformed requests cannot mutate accepted installs or escape a package pat
   ).rejects.toThrow();
   await expect(service.handle({ type: "plugins.unknown" })).rejects.toThrow();
   expect(f.manager.list()).toEqual([]);
+});
+
+test("oversized execution reviews fail before persistence and leave the wire list usable", async () => {
+  const f = await fixture({
+    ".claude-plugin/plugin.json": JSON.stringify({
+      name: "sample",
+      hooks: Array(140).fill("hook.json"),
+    }),
+    "hook.json": JSON.stringify({ Stop: [{ command: "x".repeat(8192) }] }),
+  });
+  cleanups.push(f.close);
+  const service = new PluginService(f.manager);
+  await expect(
+    service.handle({ type: "plugins.prepare", repository: f.repo, ref: "main", name: "sample" }),
+  ).rejects.toThrow("Review exceeds byte limit");
+  expect(await service.handle({ type: "plugins.list" })).toMatchObject({ reviews: [] });
+  await f.reopen();
+  expect(f.manager.pending()).toEqual([]);
+});
+test("large collections expose bounded review summaries and complete paged consent details", async () => {
+  const f = await fixture({
+    ".claude-plugin/plugin.json": JSON.stringify({
+      name: "sample",
+      hooks: Array(30).fill("hook.json"),
+    }),
+    "hook.json": JSON.stringify({ Stop: [{ command: "x".repeat(8192) }] }),
+  });
+  cleanups.push(f.close);
+  const service = new PluginService(f.manager);
+  for (let index = 0; index < 5; index++) await f.prepare();
+  const list = await service.handle({ type: "plugins.list" });
+  expect(Buffer.byteLength(JSON.stringify(list))).toBeLessThan(128 * 1024);
+  expect(list).toMatchObject({
+    reviews: Array.from({ length: 5 }, () => ({ executionCount: 30 })),
+  });
+  const review = f.manager.pending()[0];
+  if (!review) throw new Error("Missing review");
+  const entries = [];
+  let offset: number | undefined = 0;
+  do {
+    const page = await service.handle({ type: "plugins.readReview", id: review.id, offset });
+    if (page.type !== "plugins.reviewPage") throw new Error("Missing review page");
+    expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(256 * 1024);
+    entries.push(...page.entries);
+    offset = page.nextOffset;
+  } while (offset !== undefined);
+  expect(entries).toEqual(review.executions.map((execution) => ({ type: "execution", execution })));
+  await service.handle({ type: "plugins.cancel", id: review.id });
+  expect(f.manager.pending()).toHaveLength(4);
+});
+
+test("a single large accepted execution remains completely readable after reopening", async () => {
+  const args = Array.from({ length: 25 }, (_, index) => `${index}:` + "x".repeat(8188));
+  const f = await fixture({
+    "ace-plugin.json": JSON.stringify({
+      schemaVersion: 1,
+      name: "sample",
+      version: "1",
+      mcpServers: { large: { type: "stdio", command: "echo", args } },
+    }),
+  });
+  cleanups.push(f.close);
+  const review = await f.prepare();
+  await f.reopen();
+  const service = new PluginService(f.manager);
+  const page = await service.handle({ type: "plugins.readReview", id: review.id });
+  expect(page).toMatchObject({
+    type: "plugins.reviewPage",
+    entries: [{ type: "execution", execution: { kind: "stdio", command: "echo", args } }],
+  });
+  expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(384 * 1024);
 });

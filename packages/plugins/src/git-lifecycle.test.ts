@@ -1,43 +1,44 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { z } from "zod";
-import { chmod, lstat, readFile, writeFile } from "node:fs/promises";
+import { createServer, type Socket } from "node:net";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { z } from "zod";
 import { PluginManager, gitRuntime } from "./index.ts";
-import { fixture, writeFiles } from "./test-support.ts";
+import { nodeBinary } from "@ace/provider-kit/testing";
+import { fixture } from "./test-support.ts";
 
 test.each(["overflow", "timeout", "exit"] as const)(
   "Git %s terminates descendants that retain stderr before completing",
   async (mode) => {
     const f = await fixture();
     let manager: PluginManager | undefined;
+    let connection: Socket | undefined;
+    let pid: number | undefined;
+    const disconnected = Promise.withResolvers<void>();
+    const server = createServer((socket) => {
+      connection = socket;
+      socket.once("close", () => disconnected.resolve());
+    });
     try {
-      const survived = join(f.root, "descendant-survived");
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Missing listener");
       const pidFile = join(f.root, "descendant-pid");
       const descendant = join(f.root, "descendant.cjs");
       await writeFile(
         descendant,
-        `const fs = require('node:fs');
-process.send(process.pid);
-function check() {
-  try { process.kill(process.ppid, 0); } catch {
-    fs.writeFileSync(${JSON.stringify(survived)}, 'survived'); process.exit(0);
-  }
-  if (process.ppid === 1) { fs.writeFileSync(${JSON.stringify(survived)}, 'survived'); process.exit(0); }
-  setImmediate(check);
-}
-check();`,
+        `const socket = require('node:net').connect(${address.port}, '127.0.0.1');
+socket.once('connect', () => process.send(process.pid));
+setInterval(() => {}, 1000);`,
       );
-      await writeFiles(join(f.root, "bin"), {
-        git: `#!${process.execPath}
-const { spawn } = require('node:child_process');
+      const command = await nodeBinary(
+        f.root,
+        "git-standin",
+        `const { spawn } = require('node:child_process');
 const child = spawn(process.execPath, [${JSON.stringify(descendant)}], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
 child.once('message', (pid) => { require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(pid)); ${mode === "exit" ? "process.exit(0);" : mode === "overflow" ? "process.stdout.write(Buffer.alloc(300000, 120));" : "process.stdout.write('ready\\n');"} });
-setInterval(() => {}, 1000);
-`,
-      });
-      await chmod(join(f.root, "bin/git"), 0o700);
+setInterval(() => {}, 1000);`,
+      );
       const runtime = gitRuntime();
       const ready = Promise.withResolvers<void>();
       let expire: (() => void) | undefined;
@@ -47,7 +48,7 @@ setInterval(() => {}, 1000);
         id: () => "overflow",
         git: {
           ...runtime,
-          command: join(f.root, "bin/git"),
+          command,
           ...(mode === "timeout"
             ? {
                 spawn(options) {
@@ -77,22 +78,22 @@ setInterval(() => {}, 1000);
         expire();
       }
       await rejection;
-      const pid = z.coerce
+      pid = z.coerce
         .number()
         .int()
         .positive()
         .parse(await readFile(pidFile, "utf8"));
-      const status = await promisify(execFile)("ps", ["-p", String(pid), "-o", "stat="]).then(
-        (result) => result.stdout.trim(),
-        (error: unknown) => {
-          const parsed = z.object({ code: z.literal(1) }).safeParse(error);
-          if (!parsed.success) throw error;
-          return "";
-        },
-      );
-      expect(status === "" || status.startsWith("Z")).toBe(true);
-      if (mode !== "exit") await expect(lstat(survived)).rejects.toMatchObject({ code: "ENOENT" });
+      // Kernel socket closure acknowledges termination; immediate ps samples race SIGKILL delivery.
+      await disconnected.promise;
+      expect(connection?.destroyed).toBe(true);
     } finally {
+      if (pid !== undefined) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {}
+      }
+      connection?.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
       manager?.close();
       await f.close();
     }

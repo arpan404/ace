@@ -93,6 +93,9 @@
     },
     "packages/provider-kit": {
       "name": "@ace/provider-kit",
+      "dependencies": {
+        "zod": "^4.6.5",
+      },
     },
     "tools/recorder": {
       "name": "@ace/recorder",

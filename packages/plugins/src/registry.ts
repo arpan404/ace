@@ -1,6 +1,7 @@
+import { reviewSummary } from "./review-pages.ts";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { PluginInstall, PluginReview } from "@ace/protocol/plugins";
+import { PluginInstall, PluginReview, PluginReviewSummary } from "@ace/protocol/plugins";
 
 export const StoredReview = z.strictObject({
   review: PluginReview,
@@ -23,17 +24,33 @@ export class Registry {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS installs (name TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, name TEXT NOT NULL, data TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, name TEXT NOT NULL, data TEXT NOT NULL, summary TEXT);`);
+    const columns = this.db
+      .prepare("PRAGMA table_info(reviews)")
+      .all()
+      .map((column) => z.string().parse(column.name));
+    if (!columns.includes("summary")) this.db.exec("ALTER TABLE reviews ADD COLUMN summary TEXT");
+    // Upgrade legacy rows once; listing never loads executable bodies into JavaScript.
+    this.db.exec(`UPDATE reviews SET summary = json_object(
+      'id', json_extract(data, '$.review.id'),
+      'name', json_extract(data, '$.review.name'),
+      'version', json_extract(data, '$.review.version'),
+      'commit', json_extract(data, '$.review.commit'),
+      'hash', json_extract(data, '$.review.hash'),
+      'executionCount', json_array_length(data, '$.review.executions'),
+      'unsupportedCount', json_array_length(data, '$.review.unsupported')
+    ) WHERE summary IS NULL`);
     this.selects = {
       installs: this.db.prepare("SELECT data FROM installs ORDER BY name LIMIT 257"),
       reviews: this.db.prepare("SELECT data FROM reviews ORDER BY id LIMIT 33"),
+      summaries: this.db.prepare("SELECT summary FROM reviews ORDER BY id LIMIT 33"),
       review: this.db.prepare("SELECT data FROM reviews WHERE id = ?"),
     };
     this.mutations = {
       install: this.db.prepare(
         "INSERT INTO installs VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET data = excluded.data",
       ),
-      review: this.db.prepare("INSERT INTO reviews VALUES (?, ?, ?)"),
+      review: this.db.prepare("INSERT INTO reviews (id, name, data, summary) VALUES (?, ?, ?, ?)"),
       remove: this.db.prepare("DELETE FROM installs WHERE name = ?"),
       deleteReview: this.db.prepare("DELETE FROM reviews WHERE id = ?"),
       deleteNamedReviews: this.db.prepare("DELETE FROM reviews WHERE name = ?"),
@@ -43,6 +60,11 @@ export class Registry {
     return this.selects.installs
       .all()
       .map((row) => StoredInstall.parse(JSON.parse(z.string().parse(row.data))));
+  }
+  summaries(): PluginReviewSummary[] {
+    return this.selects.summaries
+      .all()
+      .map((row) => PluginReviewSummary.parse(JSON.parse(z.string().parse(row.summary))));
   }
   reviews(): StoredReview[] {
     return this.selects.reviews
@@ -56,7 +78,12 @@ export class Registry {
   }
   saveReview(value: StoredReview): void {
     const data = StoredReview.parse(value);
-    this.mutations.review.run(data.review.id, data.review.name, JSON.stringify(data));
+    this.mutations.review.run(
+      data.review.id,
+      data.review.name,
+      JSON.stringify(data),
+      JSON.stringify(reviewSummary(data.review)),
+    );
   }
   accept(value: StoredInstall, reviewId: string): void {
     this.transaction(() => {

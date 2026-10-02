@@ -1,5 +1,6 @@
 import {
   spawnBytes,
+  terminateDirectoryProcesses,
   type ByteProcess,
   type ByteProcessOptions,
 } from "@ace/provider-kit/process-bytes";
@@ -24,6 +25,7 @@ export interface GitRuntime {
   spawn: (options: ByteProcessOptions) => ByteProcess;
   command: string;
   env: NodeJS.ProcessEnv;
+  release: (root: string) => Promise<void>;
   schedule: (callback: () => void, milliseconds: number) => () => void;
 }
 /** Resolve platform defaults at the I/O boundary; all Git operations accept this dependency. */
@@ -32,6 +34,9 @@ export function gitRuntime(): GitRuntime {
     spawn: spawnBytes,
     command: "git",
     env: { PATH: process.env.PATH },
+    async release(root) {
+      await terminateDirectoryProcesses([root, join(root, "repository.git")]);
+    },
     schedule: (callback, milliseconds) => {
       const timer = setTimeout(callback, milliseconds);
       return () => clearTimeout(timer);
@@ -60,6 +65,7 @@ async function runGit<T>(
       ...args,
     ],
     cwd,
+    ownedCwd: cwd,
     env: {
       ...runtime.env,
       GIT_CONFIG_NOSYSTEM: "1",
@@ -70,9 +76,14 @@ async function runGit<T>(
   });
   let stderr = "";
   let timedOut = false;
+  let stopping: Promise<void> | undefined;
+  const stop = () => {
+    stopping ??= Promise.resolve().then(() => child.stop());
+    return stopping;
+  };
   const cancel = runtime.schedule(() => {
     timedOut = true;
-    void child.stop();
+    void stop().catch(() => {});
   }, 120_000);
   child.stderr.on("data", (chunk: Buffer) => {
     if (stderr.length < 8192) stderr += chunk.toString("utf8").slice(0, 8192 - stderr.length);
@@ -85,9 +96,22 @@ async function runGit<T>(
     const [value] = await Promise.all([consume(child.stdout), completion]);
     return value;
   } catch (error) {
-    await child.stop();
+    let cleanupError: unknown;
+    try {
+      await stop();
+    } catch (failure) {
+      cleanupError = failure;
+    }
     await completion.catch(() => {});
-    if (timedOut) throw new Error("Git operation timed out", { cause: error });
+    if (timedOut) {
+      if (cleanupError)
+        throw new AggregateError([error, cleanupError], "Git operation timed out", {
+          cause: error,
+        });
+      throw new Error("Git operation timed out", { cause: error });
+    }
+    if (cleanupError)
+      throw new AggregateError([error, cleanupError], "Git cleanup failed", { cause: error });
     throw error;
   } finally {
     cancel();

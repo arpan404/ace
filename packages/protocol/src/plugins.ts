@@ -37,6 +37,19 @@ export const PluginReview = z.strictObject({
   unsupported: z.array(text).max(512),
 });
 export type PluginReview = z.infer<typeof PluginReview>;
+export const PluginReviewSummary = PluginReview.omit({
+  executions: true,
+  unsupported: true,
+}).extend({
+  executionCount: z.number().int().min(0).max(512),
+  unsupportedCount: z.number().int().min(0).max(512),
+});
+export type PluginReviewSummary = z.infer<typeof PluginReviewSummary>;
+export const PluginReviewEntry = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("execution"), execution: PluginExecution }),
+  z.strictObject({ type: z.literal("diagnostic"), message: text }),
+]);
+export type PluginReviewEntry = z.infer<typeof PluginReviewEntry>;
 export const PluginInstall = z.strictObject({
   name: PluginName,
   version: z.string().max(128),
@@ -45,6 +58,7 @@ export const PluginInstall = z.strictObject({
   acceptedAt: z.number().int().nonnegative(),
 });
 export type PluginInstall = z.infer<typeof PluginInstall>;
+export const PluginReviewOffset = z.number().int().min(0).max(1024);
 export const PluginRequest = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("plugins.update"), name: PluginName }),
   z.strictObject({ type: z.literal("plugins.cancel"), id: PluginReview.shape.id }),
@@ -62,6 +76,11 @@ export const PluginRequest = z.discriminatedUnion("type", [
   }),
   z.strictObject({ type: z.literal("plugins.remove"), name: PluginName }),
   z.strictObject({ type: z.literal("plugins.list") }),
+  z.strictObject({
+    type: z.literal("plugins.readReview"),
+    id: PluginReview.shape.id,
+    offset: PluginReviewOffset.default(0),
+  }),
 ]);
 export const PluginResponse = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("plugins.cancelled"), id: PluginReview.shape.id }),
@@ -70,9 +89,15 @@ export const PluginResponse = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("plugins.list"),
     installs: z.array(PluginInstall).max(256),
-    reviews: z.array(PluginReview).max(32),
+    reviews: z.array(PluginReviewSummary).max(32),
   }),
   z.strictObject({ type: z.literal("plugins.removed"), name: PluginName }),
+  z.strictObject({
+    type: z.literal("plugins.reviewPage"),
+    review: PluginReviewSummary,
+    entries: z.array(PluginReviewEntry).max(1024),
+    nextOffset: z.number().int().min(1).max(1024).optional(),
+  }),
 ]);
 
 export type PluginResponse = z.infer<typeof PluginResponse>;

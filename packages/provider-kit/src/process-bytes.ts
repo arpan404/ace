@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import type { Readable } from "node:stream";
+import { terminateDirectoryProcesses } from "./directory-processes.ts";
 import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+
+export { terminateDirectoryProcesses } from "./directory-processes.ts";
 
 export interface ByteProcess {
   stdout: Readable;
@@ -13,6 +16,9 @@ export interface ByteProcessOptions {
   args: readonly string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
+  /** Exclusive private Git directory used to identify helpers that detach from the group. */
+  ownedCwd?: string;
+  scheduleDrain?: (callback: () => void, milliseconds: number) => () => void;
 }
 /** Byte streams for binary CLI output; owns descendants and drains no unbounded line buffers. */
 export function spawnBytes(options: ByteProcessOptions): ByteProcess {
@@ -24,30 +30,68 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     stdio: ["ignore", "pipe", "pipe"],
   });
   const pid = child.pid;
-  const release = () => {
-    if (pid !== undefined) {
-      killGroup(pid, "SIGKILL");
-      unregisterGroup(pid);
-    }
-    // A descendant that escaped the group must not hold close hostage through inherited pipes.
+  let cleanup: Promise<void> | undefined;
+  let leaderExited = false;
+  let closed = false;
+  let cancelDrain: (() => void) | undefined;
+  const terminate = () => {
+    if (!cleanup)
+      cleanup = (async () => {
+        if (pid !== undefined) killGroup(pid, "SIGKILL");
+        if (options.ownedCwd) await terminateDirectoryProcesses([options.ownedCwd]);
+      })();
+    return cleanup;
+  };
+  const closePipes = () => {
     child.stdout.destroy();
     child.stderr.destroy();
   };
+  const schedule =
+    options.scheduleDrain ??
+    ((callback, milliseconds) => {
+      const timer = setTimeout(callback, milliseconds);
+      return () => clearTimeout(timer);
+    });
   const exited = new Promise<number | null>((resolve, reject) => {
     child.once("error", (error) => {
-      release();
+      closePipes();
       reject(error);
     });
+    const drain = () => {
+      if (!leaderExited || !child.stdout.readableEnded || closed || cancelDrain) return;
+      // Buffered stdout keeps its backpressure; bound stderr holders after stdout EOF.
+      cancelDrain = schedule(() => {
+        void terminate().then(
+          () => child.stderr.destroy(),
+          (error) => {
+            closePipes();
+            reject(error);
+          },
+        );
+      }, 100);
+    };
+    child.stdout.once("end", drain);
     child.once("exit", () => {
-      if (pid !== undefined) {
-        killGroup(pid, "SIGKILL");
-        unregisterGroup(pid);
-      }
+      leaderExited = true;
+      if (pid !== undefined) killGroup(pid, "SIGKILL");
+      drain();
     });
-    child.once("close", (code) => resolve(code));
+    child.once("close", (code) => {
+      closed = true;
+      cancelDrain?.();
+      void (cleanup ?? Promise.resolve())
+        .then(() => resolve(code), reject)
+        .finally(() => {
+          if (pid !== undefined) unregisterGroup(pid);
+        });
+    });
   });
   const stop = async () => {
-    release();
+    try {
+      await terminate();
+    } finally {
+      closePipes();
+    }
     await exited.catch(() => {});
   };
   if (pid !== undefined) registerGroup(pid, stop);

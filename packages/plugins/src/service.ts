@@ -31,11 +31,13 @@ export class PluginService {
       case "plugins.cancel":
         await this.manager.cancel(request.id);
         return PluginResponse.parse({ type: "plugins.cancelled", id: request.id });
+      case "plugins.readReview":
+        return PluginResponse.parse(this.manager.readReview(request.id, request.offset));
       case "plugins.list":
         return PluginResponse.parse({
           type: "plugins.list",
           installs: this.manager.list(),
-          reviews: this.manager.pending(),
+          reviews: this.manager.pendingSummaries(),
         });
     }
   }
