@@ -1,3 +1,9 @@
+import {
+  CommandsList,
+  CommandsResolve,
+  CommandsListResult,
+  CommandsResolveResult,
+} from "./command-library.ts";
 import { z } from "zod";
 import {
   PresenceUpdate,
@@ -54,6 +60,8 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
 );
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  CommandsList,
+  CommandsResolve,
   PresenceUpdate,
   NotificationRegister,
   NotificationSettings,
@@ -87,6 +95,8 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  CommandsListResult,
+  CommandsResolveResult,
   NotificationMessage,
   z.object({
     type: z.literal("welcome"),

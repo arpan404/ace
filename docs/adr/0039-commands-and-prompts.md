@@ -92,10 +92,13 @@ Each file is an independent source. A watcher event invalidates that path only;
 rename updates reconcile that subtree. Debounce uses a bounded pending set and
 falls back to a bounded root reconciliation on overflow or unnamed events.
 Missing roots are watched through their nearest existing ancestor. File reads
-use a fixed byte limit, never unbounded `readFile`. Source, command, runtime,
+use a fixed byte limit, never unbounded `readFile`. A catalog admits at most 8 MiB of estimated definition data. Native directory
+watches are capped at 128 per context and never recurse over an entire home.
+Contexts with runtime sources stay pinned until their sessions clear them.
+Source, command, runtime,
 usage, context, watcher and traversal counts have admission limits. Disposal
 closes watchers and drains pending work. Search scans the bounded active catalog
-and keeps only a bounded top result set. A non-gating benchmark measures source
+and keeps only a bounded top result set in a heap, O(n log k) work. A non-gating benchmark measures source
 replacement, resolution and ranking with process RSS.
 
 ## Tests
