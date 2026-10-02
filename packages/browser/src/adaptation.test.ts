@@ -64,5 +64,5 @@ describe.skipIf(!executablePath)("capture adaptation in real Chromium", () => {
     );
     await f.evaluate("window.animate=false");
     stopFast();
-  }, 30_000);
+  }, 60_000);
 });

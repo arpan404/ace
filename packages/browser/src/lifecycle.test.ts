@@ -28,7 +28,7 @@ describe.skipIf(!executablePath)("browser lifecycle and recordings", () => {
     expect((await exec("ps", ["-axo", "command"])).stdout).not.toContain(
       `--user-data-dir=${f.home}`,
     );
-  }, 30_000);
+  }, 60_000);
 
   it("limits active sessions without replacing the running browser", async () => {
     const f = await fixture({ maxSessions: 1 });
@@ -40,7 +40,7 @@ describe.skipIf(!executablePath)("browser lifecycle and recordings", () => {
     expect(await f.evaluate("document.querySelector('input').getAttribute('aria-label')")).toBe(
       "Name",
     );
-  }, 30_000);
+  }, 60_000);
   it("releases browser processes and ephemeral profiles on close", async () => {
     const f = await fixture();
     await f.navigate();
@@ -52,7 +52,7 @@ describe.skipIf(!executablePath)("browser lifecycle and recordings", () => {
     expect(
       (await readdir(`${f.home}/browser`)).filter((name) => name.startsWith("ephemeral-")),
     ).toEqual([]);
-  }, 30_000);
+  }, 60_000);
 
   it("keeps persistent workspace storage and prevents two threads from sharing its live profile", async () => {
     const f = await fixture();
@@ -67,7 +67,7 @@ describe.skipIf(!executablePath)("browser lifecycle and recordings", () => {
     await f.service.open({ threadId: "thread", workspaceId: "workspace", profile: "persistent" });
     await f.navigate();
     expect(await f.evaluate("localStorage.getItem('retained')")).toBe("yes");
-  }, 30_000);
+  }, 60_000);
 
   it("saves a timestamped frame manifest and a player and reports the recording artifact", async () => {
     const artifacts: BrowserArtifact[] = [];
@@ -116,7 +116,7 @@ describe.skipIf(!executablePath)("browser lifecycle and recordings", () => {
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
-  }, 30_000);
+  }, 60_000);
 
   it("encodes playable MP4 with ffmpeg when available", async (context) => {
     try {
@@ -133,5 +133,5 @@ describe.skipIf(!executablePath)("browser lifecycle and recordings", () => {
     const result = await exec("ffmpeg", ["-v", "error", "-i", artifact.path, "-f", "null", "-"]);
     expect(result.stderr).toBe("");
     expect(artifact.bytes).toBeGreaterThan(0);
-  }, 30_000);
+  }, 60_000);
 });

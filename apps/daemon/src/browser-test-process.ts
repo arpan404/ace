@@ -17,19 +17,29 @@ export async function ownedBrowserPids(home: string): Promise<number[]> {
 }
 
 /** After an abrupt parent exit, observe child process exit through the OS.
- * Each ps completion is an I/O boundary, with no timer or sleep synchronization. */
+ * Each ps completion is an I/O boundary, with no timer or sleep synchronization.
+ * A zombie has already exited; OS reaping is outside the daemon's ownership. */
 export async function waitForBrowserExit(pids: number[]): Promise<void> {
   let live = pids;
   while (live.length) {
     const output = await new Promise<string>((resolve, reject) => {
-      execFile("ps", ["-p", live.join(","), "-o", "pid="], (error, stdout) => {
+      execFile("ps", ["-p", live.join(","), "-o", "pid=,state="], (error, stdout) => {
         if (!error || error.code === 1) resolve(stdout);
         else reject(error);
       });
     });
     live = z
-      .array(z.number().int().positive())
+      .array(z.tuple([z.coerce.number().int().positive(), z.string().min(1).max(16)]))
       .max(128)
-      .parse(output.trim() ? output.trim().split(/\s+/).map(Number) : []);
+      .parse(
+        output.trim()
+          ? output
+              .trim()
+              .split("\n")
+              .map((line) => line.trim().split(/\s+/))
+          : [],
+      )
+      .filter(([, state]) => !state.startsWith("Z"))
+      .map(([pid]) => pid);
   }
 }

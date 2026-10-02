@@ -50,7 +50,7 @@ describe.skipIf(!executablePath)("live Chromium and controller ownership", () =>
       stopFast();
       stopSlow();
     }
-  }, 30_000);
+  }, 60_000);
 
   it("blocks agent input during human control and binds human input and hand-back to its owner", async () => {
     const f = await fixture();
@@ -82,7 +82,7 @@ describe.skipIf(!executablePath)("live Chromium and controller ownership", () =>
     await f.service.closeThread("thread");
     expect(states.at(-1)?.controller).toBe("none");
     stop();
-  }, 30_000);
+  }, 60_000);
 
   it("rejects queued agent input when take-over happens before dispatch", async () => {
     const { promise: gate, resolve: release } = Promise.withResolvers<boolean>();
@@ -106,5 +106,5 @@ describe.skipIf(!executablePath)("live Chromium and controller ownership", () =>
     await queuedFailure;
     f.service.handback("thread", "human");
     expect(await f.evaluate("document.querySelector('input').value")).toBe("");
-  }, 30_000);
+  }, 60_000);
 });

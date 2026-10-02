@@ -10,7 +10,7 @@ export const executablePath = await detectChromium();
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
-}, 30_000);
+}, 60_000);
 
 export const Snapshot = z.object({
   nodes: z.array(

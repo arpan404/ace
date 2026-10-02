@@ -134,8 +134,10 @@ Capture adaptation is checked through real JPEG quantization coefficients and
 delivered frame timestamps, including recovery when pressure clears. Non-gating benchmarks measure frame
 fan-out, validation/serialization, recording writes and log ingestion, including
 RSS. Before delivery, at least eight production mutations
-must each make a behavior test fail, then be reverted. Vitest runs at most four
-workers to bound real browser, CLI, TLS and notification fixture processes.
+must each make a behavior test fail, then be reverted. Vitest runs one worker
+to bound real browser, CLI, TLS and notification fixture processes on shared hosts.
+Fixture deadlock ceilings are 60 seconds; tests synchronize on events and assert
+behavior, without elapsed-time performance assertions.
 
 ## Consequences
 

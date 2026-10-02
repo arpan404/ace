@@ -124,7 +124,7 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
       await daemon.close();
       await rm(home, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 60_000);
 
   it.each(["SIGTERM", "SIGKILL"] as const)(
     "leaves no owned Chromium after daemon exit on %s",
@@ -193,6 +193,6 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
         await rm(home, { recursive: true, force: true });
       }
     },
-    30_000,
+    60_000,
   );
 });

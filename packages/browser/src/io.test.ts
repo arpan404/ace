@@ -22,7 +22,7 @@ describe.skipIf(!executablePath)("injected browser process boundaries", () => {
         }),
     });
     expect(await f.evaluate("[innerWidth,innerHeight]")).toEqual([640, 480]);
-  }, 30_000);
+  }, 60_000);
 
   it("falls back to a playable sequence when an injected encoder process fails", async () => {
     const f = await fixture({
@@ -37,7 +37,7 @@ describe.skipIf(!executablePath)("injected browser process boundaries", () => {
     const dir = artifact.path.replace(/\/player\.html$/, "");
     expect(await readFile(`${dir}/frames.jsonl`, "utf8")).toContain('"file":"1.jpg"');
     expect((await readFile(`${dir}/1.jpg`)).subarray(0, 2)).toEqual(Buffer.from([255, 216]));
-  }, 30_000);
+  }, 60_000);
 
   it("closes Chromium even when a screencast stop response is delayed until transport closure", async () => {
     const closed = Promise.withResolvers<void>();
@@ -66,7 +66,7 @@ describe.skipIf(!executablePath)("injected browser process boundaries", () => {
       (await readdir(`${f.home}/browser`)).filter((name) => name.startsWith("ephemeral-")),
     ).toEqual([]);
     expect(() => f.service.state("thread")).toThrow("not open");
-  }, 30_000);
+  }, 60_000);
 
   it("uses injected installer and cache lookup processes", async () => {
     const f = await fixture();
@@ -77,5 +77,5 @@ describe.skipIf(!executablePath)("injected browser process boundaries", () => {
       }),
     );
     expect(path).toBe(process.execPath);
-  }, 30_000);
+  }, 60_000);
 });

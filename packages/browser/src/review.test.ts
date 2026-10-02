@@ -57,7 +57,7 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
         { kind: "human", connectionId: "owner" },
       ),
     ).toBe("Save");
-  }, 30_000);
+  }, 60_000);
 
   it("bounds approval admission during repeated WebSocket floods and shuts down pending hooks", async () => {
     let approvals = 0;
@@ -80,7 +80,7 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     expect(approvals).toBe(32);
     await f.service.close();
     expect(() => f.service.state("thread")).toThrow("not open");
-  }, 30_000);
+  }, 60_000);
 
   it("cancels only the closing thread's pending approval", async () => {
     const { promise: entered, resolve: notify } = Promise.withResolvers<void>();
@@ -97,7 +97,7 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     await entered;
     await Promise.all([f.service.closeThread("thread"), failure]);
     expect(await f.service.execute("other", { action: "evaluate", expression: "2+2" })).toBe(4);
-  }, 30_000);
+  }, 60_000);
 
   it("rolls back a subscription whose initial state callback throws", async () => {
     const f = await fixture();
@@ -124,13 +124,13 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     }).not.toThrow();
     expect(received).toBe(true);
     stop();
-  }, 30_000);
+  }, 60_000);
 
   it("limits evaluate results in UTF-8 bytes", async () => {
     const f = await fixture();
     expect(await f.evaluate("'😀'.repeat(1000)")).toBe("😀".repeat(1000));
     await expect(f.evaluate("'😀'.repeat(130000)")).rejects.toThrow("evaluate failed");
-  }, 30_000);
+  }, 60_000);
 
   it("rejects a snapshot of an oversized DOM before building its accessibility tree", async () => {
     const f = await fixture();
@@ -139,7 +139,7 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
       "const fragment=document.createDocumentFragment();for(let i=0;i<21000;i++)fragment.append(document.createElement('span'));document.body.append(fragment)",
     );
     await expect(f.execute({ action: "snapshot" })).rejects.toThrow("snapshot node limit");
-  }, 30_000);
+  }, 60_000);
 
   it("rejects excess commands while preserving admitted commands", async () => {
     const { promise: entered, resolve: notify } = Promise.withResolvers<void>();
@@ -158,7 +158,7 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     await excess;
     expect(await active).toBe(42);
     expect(await Promise.all(queued)).toEqual(Array.from({ length: 31 }, (_, index) => index));
-  }, 30_000);
+  }, 60_000);
 
   it("waits for a delayed visibility transition and rejects an unmet visibility deadline", async () => {
     const f = await fixture();
@@ -216,5 +216,5 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
-  }, 30_000);
+  }, 60_000);
 });

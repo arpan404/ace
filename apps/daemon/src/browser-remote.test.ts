@@ -113,5 +113,5 @@ describe.skipIf(!executablePath)("paired remote browser clients", () => {
       command: { action: "snapshot" },
     });
     expect(browser.state(f.thread.id).controller).toBe("agent");
-  }, 30_000);
+  }, 60_000);
 });

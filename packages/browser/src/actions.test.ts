@@ -20,7 +20,7 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
     expect((await readFile(image.path)).subarray(0, 8)).toEqual(
       Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     );
-  }, 30_000);
+  }, 60_000);
 
   it("keeps refs stable across snapshots and DOM edits and rejects detached or navigated refs", async () => {
     const f = await fixture();
@@ -39,15 +39,11 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
     await f.navigate();
     await expect(f.execute({ action: "click", ref: name })).rejects.toThrow(/ref/);
     expect(ref(await f.execute({ action: "snapshot" }), "Name")).not.toBe(name);
-  }, 30_000);
+  }, 60_000);
 
-  it("waits for visibility and applies viewport, media and touch emulation", async () => {
+  it("applies viewport, media and touch emulation", async () => {
     const f = await fixture();
     await f.navigate();
-    const snapshot = await f.execute({ action: "snapshot" });
-    await f.execute({ action: "wait_for", ref: ref(snapshot, "Name"), state: "visible" });
-    await f.evaluate("document.querySelector('input').style.visibility='hidden'");
-    await f.execute({ action: "wait_for", ref: ref(snapshot, "Name"), state: "hidden" });
     await f.execute({ action: "resize", width: 480, height: 640 });
     expect(await f.evaluate("innerWidth")).toBe(480);
     await f.execute({
@@ -64,7 +60,7 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
         "[innerWidth, devicePixelRatio, matchMedia('(prefers-color-scheme: dark)').matches, navigator.maxTouchPoints]",
       ),
     ).toEqual([390, 2, true, 1]);
-  }, 30_000);
+  }, 60_000);
 
   it("captures console and network results in grep-able bounded log files", async () => {
     const f = await fixture();
@@ -79,7 +75,7 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
     expect(await readFile(logs.console, "utf8")).toContain("network-complete response-data");
     expect(await readFile(logs.network, "utf8")).toContain(`200 GET ${f.url}/data`);
     expect((await stat(logs.console)).mode & 0o777).toBe(0o600);
-  }, 30_000);
+  }, 60_000);
 
   it("denies evaluate separately from navigation and rejects external and file origins", async () => {
     const f = await fixture({ evaluatePolicy: () => false });
@@ -92,7 +88,7 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
       "requires approval",
     );
     await expect(f.execute({ action: "navigate", url: `${f.url}/redirect` })).rejects.toThrow();
-  }, 30_000);
+  }, 60_000);
 
   it("checks subresources and redirects against the origin hook before making network requests", async () => {
     const origins: string[] = [];
@@ -109,7 +105,7 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
     expect(origins).toContain("https://example.invalid/data");
     await expect(f.execute({ action: "navigate", url: `${f.url}/redirect` })).rejects.toThrow();
     expect(origins).toContain("https://example.invalid/");
-  }, 30_000);
+  }, 60_000);
 
   it("checks redirect hops initiated by a cross-site iframe", async () => {
     const origins: string[] = [];
@@ -125,5 +121,5 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
       `new Promise(resolve=>{addEventListener('message',()=>resolve(true),{once:true});const iframe=document.createElement('iframe');iframe.src=${JSON.stringify(frameUrl)};document.body.append(iframe)})`,
     );
     expect(origins).toContain("https://example.invalid/");
-  }, 30_000);
+  }, 60_000);
 });
