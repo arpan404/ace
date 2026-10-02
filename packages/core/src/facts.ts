@@ -1,4 +1,5 @@
 import type {
+  UsageMetadata,
   AgentActivity,
   AgentFidelity,
   AgentOrigin,
@@ -144,7 +145,7 @@ export type Fact =
     }
   | { type: "retry.cleared"; agent: Key }
   | { type: "wake.expected"; agent: Key; until: number }
-  | {
+  | ({
       type: "usage";
       agent: Key;
       inputTokens: number;
@@ -152,7 +153,7 @@ export type Fact =
       cachedInputTokens?: number;
       contextWindow?: number;
       costUsd?: number;
-    }
+    } & UsageMetadata)
   | { type: "signal"; agent?: Key }
   | { type: "process.started" }
   | { type: "process.exited"; deliberate: boolean; message?: string }

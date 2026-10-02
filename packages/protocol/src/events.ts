@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UsageMetadata } from "./usage.ts";
 import { Agent, AgentFidelity, AgentOrigin, AgentStatus } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import {
@@ -18,6 +19,7 @@ import { NativeRef } from "./provider.ts";
 import { Run, RunTrigger, Thread, ThreadStatus } from "./thread.ts";
 
 export const UsageUpdated = z.object({
+  ...UsageMetadata.shape,
   type: z.literal("usage.updated"),
   agentId: AgentId,
   inputTokens: z.number().int().nonnegative(),

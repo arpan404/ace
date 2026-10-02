@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UsageSummary, UsageSeries, UsageMessage } from "./usage.ts";
 import {
   PresenceUpdate,
   NotificationRegister,
@@ -54,6 +55,8 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
 );
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  UsageSummary,
+  UsageSeries,
   PresenceUpdate,
   NotificationRegister,
   NotificationSettings,
@@ -87,6 +90,7 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  UsageMessage,
   NotificationMessage,
   z.object({
     type: z.literal("welcome"),
