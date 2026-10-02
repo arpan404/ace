@@ -208,7 +208,17 @@ describe("GitHub CLI boundary", () => {
       sha,
       merge_method: "squash",
     });
-    expect(calls.find((call) => call.path === "auto-merge")?.args).toContain("--match-head-commit");
+    expect(calls.find((call) => call.path === "auto-merge")?.args).toEqual([
+      "pr",
+      "merge",
+      "7",
+      "--repo",
+      "github.com/octo/ace",
+      "--auto",
+      "--squash",
+      "--match-head-commit",
+      sha,
+    ]);
   });
   it("keeps only the latest legacy status per context and distinguishes issue and inline comments", async () => {
     const fixtures = standard();

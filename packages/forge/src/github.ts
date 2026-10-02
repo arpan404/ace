@@ -6,30 +6,19 @@ import {
   ForgePrStatus,
 } from "@ace/protocol/forge";
 import type { Forge, MergeMethod } from "./api.ts";
-import { ReadBudget } from "./read-budget.ts";
+import { GitHubStatusReader } from "./github-status.ts";
 import { GhApi } from "./http.ts";
-import {
-  CheckPage,
-  CommentPage,
-  GitHubPr,
-  StatusPage,
-  ReviewThreadsPage,
-  ReviewCommentConnection,
-} from "./github-schemas.ts";
-import { mapPr, mapCheck, mapComment, mapIssueComment, mapLegacyStatus } from "./status.ts";
+import { GitHubPr } from "./github-schemas.ts";
 import { ForgeError } from "./errors.ts";
 import type { CommandRunner } from "./command.ts";
 
 const positive = z.number().int().positive();
 const shaSchema = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
 const mergeSchema = z.enum(["merge", "squash", "rebase"]);
-const pageFields = `pageInfo { hasNextPage endCursor } nodes { databaseId body updatedAt author { login } }`;
-const threadsQuery = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line comments(first:100){${pageFields}}}}}}}`;
-const commentsQuery = `query($id:ID!,$cursor:String){node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$cursor){${pageFields}}}}}`;
-
 export class GitHubForge implements Forge {
   readonly repository: ForgeRepository;
   readonly #api: GhApi;
+  readonly #status = new GitHubStatusReader();
   readonly #root: string;
   constructor(options: {
     repository: ForgeRepository;
@@ -47,128 +36,7 @@ export class GitHubForge implements Forge {
     return ForgePrRef.parse({ repository: this.repository, number });
   }
   async status(number: number, signal: AbortSignal): Promise<ForgePrStatus> {
-    const budget = new ReadBudget();
-    const ref = this.#ref(number);
-    const response = await this.#api.request(`${this.#root}/pulls/${ref.number}`, signal);
-    budget.add(response.bytes);
-    const pr = GitHubPr.safeParse(response.body);
-    if (!pr.success || pr.data.number !== number) throw new ForgeError("invalid_data");
-    const sha = pr.data.head.sha;
-    // Serial calls avoid secondary rate limits; each resource has its own ETag.
-    const checks = await this.#api.list(
-      `${this.#root}/commits/${sha}/check-runs?per_page=100&filter=latest`,
-      CheckPage,
-      signal,
-      budget,
-    );
-    const statuses = await this.#api.list(
-      `${this.#root}/commits/${sha}/statuses?per_page=100`,
-      StatusPage,
-      signal,
-      budget,
-    );
-    const latest = new Map<string, z.infer<typeof StatusPage>[number]>();
-    for (const status of statuses)
-      if (!latest.has(status.context)) latest.set(status.context, status);
-    const result = mapPr(ref, pr.data, [
-      ...checks.map(mapCheck),
-      ...[...latest.values()].map(mapLegacyStatus),
-    ]);
-    const reviewComments = await this.#api.list(
-      `${this.#root}/pulls/${number}/comments?per_page=100`,
-      CommentPage,
-      signal,
-      budget,
-    );
-    const issueComments = await this.#api.list(
-      `${this.#root}/issues/${number}/comments?per_page=100`,
-      CommentPage,
-      signal,
-      budget,
-    );
-    result.comments = [...reviewComments.map(mapComment), ...issueComments.map(mapIssueComment)];
-    const review = await this.#reviewThreads(number, signal, budget);
-    result.raw = {
-      pr: response.body,
-      checks,
-      statuses,
-      reviewComments,
-      issueComments,
-      reviewThreads: review.raw,
-    };
-    result.reviewThreads = review.threads;
-    return ForgePrStatus.parse(result);
-  }
-  async #reviewThreads(
-    number: number,
-    signal: AbortSignal,
-    budget: ReadBudget,
-  ): Promise<{ threads: ForgePrStatus["reviewThreads"]; raw: unknown[] }> {
-    const result: ForgePrStatus["reviewThreads"] = [];
-    const raw: unknown[] = [];
-    let commentCount = 0;
-    let cursor: string | null = null;
-    let more = true;
-    for (let page = 0; more && page < 20; page++) {
-      const response = await this.#api.request("graphql", signal, {
-        query: threadsQuery,
-        variables: { owner: this.repository.owner, name: this.repository.name, number, cursor },
-      });
-      budget.add(response.bytes);
-      raw.push(response.body);
-      const parsed = ReviewThreadsPage.safeParse(response.body);
-      if (!parsed.success) throw new ForgeError("invalid_data");
-      const connection = parsed.data.data.repository.pullRequest.reviewThreads;
-      for (const thread of connection.nodes) {
-        const comments = [...thread.comments.nodes];
-        commentCount += comments.length;
-        if (commentCount > 2_000) throw new ForgeError("limit");
-        let info = thread.comments.pageInfo;
-        for (let count = 1; info.hasNextPage && count < 20; count++) {
-          if (!info.endCursor) throw new ForgeError("invalid_data");
-          const next = await this.#api.request("graphql", signal, {
-            query: commentsQuery,
-            variables: { id: thread.id, cursor: info.endCursor },
-          });
-          budget.add(next.bytes);
-          raw.push(next.body);
-          const decoded = ReviewCommentConnection.safeParse(next.body);
-          if (!decoded.success) throw new ForgeError("invalid_data");
-          const replies = decoded.data.data.node.comments;
-          commentCount += replies.nodes.length;
-          if (commentCount > 2_000) throw new ForgeError("limit");
-          comments.push(...replies.nodes);
-          if (replies.pageInfo.hasNextPage && replies.pageInfo.endCursor === info.endCursor)
-            throw new ForgeError("invalid_data");
-          info = replies.pageInfo;
-        }
-        if (info.hasNextPage) throw new ForgeError("limit");
-        result.push({
-          id: thread.id,
-          resolved: thread.isResolved,
-          outdated: thread.isOutdated,
-          file: thread.path,
-          line: thread.line,
-          comments: comments.map((comment) => ({
-            kind: "inline",
-            id: comment.databaseId,
-            body: comment.body,
-            author: comment.author?.login ?? "ghost",
-            file: thread.path,
-            line: thread.line,
-            updatedAt: comment.updatedAt,
-            replyTo: null,
-          })),
-        });
-      }
-      more = connection.pageInfo.hasNextPage;
-      if (more && (!connection.pageInfo.endCursor || connection.pageInfo.endCursor === cursor))
-        throw new ForgeError("invalid_data");
-      cursor = connection.pageInfo.endCursor;
-      if (result.length > 2_000) throw new ForgeError("limit");
-    }
-    if (more) throw new ForgeError("limit");
-    return { threads: result, raw };
+    return this.#status.read(this.#api, this.#root, this.repository, number, signal);
   }
   async createPr(
     threadId: string,

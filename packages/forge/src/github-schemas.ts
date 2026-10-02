@@ -98,3 +98,12 @@ export const ReviewCommentConnection = z.object({
     }),
   }),
 });
+
+export const GitHubReview = z.looseObject({
+  id: z.number().int().positive(),
+  body: str.nullable(),
+  state: str,
+  user: z.looseObject({ login: str }).nullable(),
+  submitted_at: str.nullable().optional(),
+});
+export const ReviewPage = z.array(GitHubReview).max(100);

@@ -34,7 +34,7 @@ export const ForgeCheck = z.object({
 });
 export type ForgeCheck = z.infer<typeof ForgeCheck>;
 export const ForgeComment = z.object({
-  kind: z.enum(["inline", "issue"]),
+  kind: z.enum(["inline", "issue", "review"]),
   id: z.number().int().positive(),
   body: text,
   author: text,
@@ -42,6 +42,7 @@ export const ForgeComment = z.object({
   line: z.number().int().nullable(),
   updatedAt: z.string(),
   replyTo: z.number().int().nullable(),
+  reviewState: z.string().max(256).optional(),
 });
 export type ForgeComment = z.infer<typeof ForgeComment>;
 export const ForgeReviewThread = z.object({
@@ -68,10 +69,16 @@ export const ForgePrStatus = z.object({
 export type ForgePrStatus = z.infer<typeof ForgePrStatus>;
 export const ForgeThreadLink = z.object({ threadId: z.string().min(1).max(256), pr: ForgePrRef });
 export type ForgeThreadLink = z.infer<typeof ForgeThreadLink>;
+export const ForgeLinkState = z.object({
+  link: ForgeThreadLink,
+  generation: z.number().int().positive(),
+});
+export type ForgeLinkState = z.infer<typeof ForgeLinkState>;
 export const ForgeAutoFixIntent = z.object({
   type: z.literal("auto-fix"),
   key: z.string().max(1_024),
   link: ForgeThreadLink,
+  linkGeneration: z.number().int().positive().default(1),
   headSha: z.string().max(256),
   context: z.discriminatedUnion("type", [
     z.object({

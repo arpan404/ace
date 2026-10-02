@@ -33,12 +33,16 @@ export async function watchPr(options: {
   maxMs?: number;
 }): Promise<void> {
   let failures = 0;
+  let published: ForgePrStatus | undefined;
   while (!options.signal.aborted) {
     let retryAt: number | undefined;
     try {
       const status = await options.loop.poll(options.threadId, options.signal);
       failures = 0;
-      await options.onStatus(status);
+      if (status !== published) {
+        await options.onStatus(status);
+        published = status;
+      }
       if (status.state === "closed" || status.state === "merged") return;
     } catch (error) {
       if (options.signal.aborted) return;

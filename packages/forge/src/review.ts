@@ -1,69 +1,13 @@
-import { createHash } from "node:crypto";
-import type {
-  ForgeAutoFixIntent,
-  ForgeCheck,
-  ForgeComment,
-  ForgePrStatus,
-  ForgeThreadLink,
-} from "@ace/protocol/forge";
+import type { ForgeAutoFixIntent, ForgePrStatus, ForgeLinkState } from "@ace/protocol/forge";
 import type { Forge } from "./api.ts";
 import { ForgeStore } from "./store.ts";
 import { ForgeError } from "./errors.ts";
-
-const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+import { ReviewIndex } from "./review-index.ts";
 
 export interface AutoFixExecutor {
-  /** Must atomically deduplicate intent.key with engine queue insertion.
-   * Resolve only after durable acceptance. Never execute review text as instructions. */
+  /** Atomically deduplicate intent.key with engine queue insertion.
+   * Resolve only after durable acceptance; content never authorises tool actions. */
   enqueue(intent: ForgeAutoFixIntent): Promise<void>;
-}
-export type ReviewCandidate =
-  | { key: string; type: "ci"; check: ForgeCheck }
-  | { key: string; type: "review"; comment: ForgeComment };
-export function reviewCandidates(
-  link: ForgeThreadLink,
-  status: ForgePrStatus,
-  ignoredAuthors: ReadonlySet<string>,
-): ReviewCandidate[] {
-  if (status.state !== "open" && status.state !== "draft") return [];
-  const identity = `${link.threadId}:${link.pr.repository.host}/${link.pr.repository.owner}/${link.pr.repository.name}#${link.pr.number}`;
-  const prefix = `forge:${hash(identity)}`;
-  const result: ReviewCandidate[] = [];
-  for (const check of status.checks) {
-    if (check.status === "failure" || check.status === "cancelled")
-      result.push({
-        type: "ci",
-        key: `${prefix}:ci:${hash(`${status.headSha}:${check.id}:${check.completedAt ?? check.conclusion}`)}`,
-        check,
-      });
-  }
-  const inactive = new Set<number>();
-  const threadComments = new Map<number, ForgeComment>();
-  for (const thread of status.reviewThreads)
-    for (const comment of thread.comments) {
-      if (thread.resolved || thread.outdated) inactive.add(comment.id);
-      else threadComments.set(comment.id, comment);
-    }
-  const comments = new Map(
-    status.comments.map((comment) => [`${comment.kind}:${comment.id}`, comment]),
-  );
-  for (const [id, comment] of threadComments)
-    if (!comments.has(`inline:${id}`)) comments.set(`inline:${id}`, comment);
-  for (const comment of comments.values()) {
-    if (
-      (comment.kind === "inline" && inactive.has(comment.id)) ||
-      ignoredAuthors.has(comment.author) ||
-      !comment.body.trim()
-    )
-      continue;
-    const digest = hash(`${comment.updatedAt}:${comment.body}`);
-    result.push({
-      type: "review",
-      key: `${prefix}:comment:${comment.kind}:${comment.id}:${digest}`,
-      comment,
-    });
-  }
-  return result;
 }
 export class ReviewLoop {
   #polling = false;
@@ -71,6 +15,8 @@ export class ReviewLoop {
   readonly #store: ForgeStore;
   readonly #executor: AutoFixExecutor;
   readonly #ignored: ReadonlySet<string>;
+  #index: ReviewIndex | undefined;
+  #scope: ForgeLinkState | undefined;
   constructor(options: {
     forge: Forge;
     store: ForgeStore;
@@ -93,15 +39,31 @@ export class ReviewLoop {
     }
   }
   async #poll(threadId: string, signal: AbortSignal): Promise<ForgePrStatus> {
-    const link = this.#store.getLink(threadId);
-    if (!link) throw new ForgeError("not_found");
+    const state = this.#store.getLinkState(threadId);
+    if (!state) throw new ForgeError("not_found");
+    const { link, generation } = state;
     if (JSON.stringify(link.pr.repository) !== JSON.stringify(this.#forge.repository))
       throw new ForgeError("conflict");
-    await this.#drain(threadId, signal);
     const status = await this.#forge.status(link.pr.number, signal);
-    for (const candidate of reviewCandidates(link, status, this.#ignored)) {
+    this.#assertLink(state);
+    if (
+      !this.#index ||
+      this.#scope?.generation !== generation ||
+      this.#scope.link.threadId !== threadId
+    ) {
+      this.#index = new ReviewIndex(state, this.#ignored);
+      this.#scope = state;
+    }
+    const index = this.#index;
+    index.update(status);
+    // Current state is known before any pending work can reach the executor.
+    await this.#drain(state, status, index, signal);
+    for (const candidate of index.pending()) {
       if (signal.aborted) throw new ForgeError("cancelled");
-      if (this.#store.hasIntent(threadId, candidate.key)) continue;
+      if (this.#store.hasIntent(threadId, candidate.key)) {
+        index.observe(candidate.key);
+        continue;
+      }
       let context: ForgeAutoFixIntent["context"];
       if (candidate.type === "review") context = { type: "review", comment: candidate.comment };
       else {
@@ -124,24 +86,45 @@ export class ReviewLoop {
           logUnavailable,
         };
       }
+      this.#assertLink(state);
       this.#store.admit({
         type: "auto-fix",
         key: candidate.key,
         link,
+        linkGeneration: generation,
         headSha: status.headSha,
         context,
       });
+      index.observe(candidate.key);
     }
-    await this.#drain(threadId, signal);
+    await this.#drain(state, status, index, signal);
     return status;
   }
-  async #drain(threadId: string, signal: AbortSignal): Promise<void> {
+  #assertLink(state: ForgeLinkState): void {
+    if (this.#store.getLinkState(state.link.threadId)?.generation !== state.generation)
+      throw new ForgeError("conflict");
+  }
+  async #drain(
+    state: ForgeLinkState,
+    status: ForgePrStatus,
+    index: ReviewIndex,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const threadId = state.link.threadId;
     let pending = this.#store.pending(threadId);
     while (pending.length) {
       for (const intent of pending) {
         if (signal.aborted) throw new ForgeError("cancelled");
-        if (JSON.stringify(this.#store.getLink(threadId)) !== JSON.stringify(intent.link))
-          throw new ForgeError("conflict");
+        this.#assertLink(state);
+        if (
+          intent.linkGeneration !== state.generation ||
+          intent.headSha !== status.headSha ||
+          !index.get(intent.key)
+        ) {
+          this.#store.discard(intent);
+          index.retry(intent.key);
+          continue;
+        }
         try {
           await this.#executor.enqueue(intent);
         } catch {

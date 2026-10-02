@@ -1,6 +1,12 @@
 import { ForgeCheck, ForgePrStatus, type ForgePrRef } from "@ace/protocol/forge";
 import { z } from "zod";
-import { GitHubPr, GitHubCheck, GitHubStatus, GitHubComment } from "./github-schemas.ts";
+import {
+  GitHubPr,
+  GitHubCheck,
+  GitHubStatus,
+  GitHubComment,
+  GitHubReview,
+} from "./github-schemas.ts";
 import { ForgeError } from "./errors.ts";
 import { redactData } from "./redact.ts";
 
@@ -115,4 +121,19 @@ export function mapPr(ref: ForgePrRef, input: unknown, checks: ForgeCheck[]): Fo
 
 export function mapIssueComment(input: unknown) {
   return { ...mapComment(input), kind: "issue" as const };
+}
+
+export function mapReviewComment(input: unknown) {
+  const value = parse(GitHubReview, input);
+  return {
+    kind: "review" as const,
+    id: value.id,
+    body: value.body ?? "",
+    author: value.user?.login ?? "ghost",
+    file: null,
+    line: null,
+    updatedAt: value.submitted_at ?? "",
+    replyTo: null,
+    reviewState: value.state,
+  };
 }

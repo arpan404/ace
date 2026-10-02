@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { immutable } from "./immutable.ts";
 import { z } from "zod";
 import { ForgeError } from "./errors.ts";
 import { redactData } from "./redact.ts";
@@ -9,7 +11,12 @@ const envelope = z.object({
   status: z.number().int().min(100).max(599),
   headers: z.record(z.string(), z.string()),
 });
-type Page = { body: unknown; headers: Record<string, string>; bytes: number };
+export type Page = {
+  body: unknown;
+  headers: Record<string, string>;
+  bytes: number;
+  version: string;
+};
 type Cached = Page;
 export class GhApi {
   readonly #runner: CommandRunner;
@@ -46,9 +53,17 @@ export class GhApi {
       "--header",
       "Accept: application/vnd.github+json",
     ];
-    const cached = method === "GET" ? this.#cache.get(path) : undefined;
-    if (cached?.headers.etag) args.push("--header", `If-None-Match: ${cached.headers.etag}`);
     const input = body === undefined ? undefined : JSON.stringify(body);
+    const reusable = method === "GET" || (path === "graphql" && method === "POST");
+    const cacheKey =
+      method === "GET"
+        ? path
+        : `graphql:${createHash("sha256")
+            .update(input ?? "")
+            .digest("hex")}`;
+    const cached = reusable ? this.#cache.get(cacheKey) : undefined;
+    if (method === "GET" && cached?.headers.etag)
+      args.push("--header", `If-None-Match: ${cached.headers.etag}`);
     if (input !== undefined) args.push("--input", "-");
     const output = await this.#runner({
       command: this.#command,
@@ -80,8 +95,8 @@ export class GhApi {
     }
     if (code === 304) {
       if (!cached) throw new ForgeError("invalid_data");
-      this.#cache.delete(path);
-      this.#cache.set(path, cached);
+      this.#cache.delete(cacheKey);
+      this.#cache.set(cacheKey, cached);
       return cached;
     }
     if (
@@ -105,57 +120,50 @@ export class GhApi {
     if (code === 401 || code === 403) throw new ForgeError("forbidden");
     if (code === 409 || code === 422) throw new ForgeError("conflict");
     if (code < 200 || code >= 300 || output.code !== 0) throw new ForgeError("cli");
+    const version = createHash("sha256").update(text).digest("hex");
+    const safeHeaders = {
+      ...(headers.etag && /^[\x20-\x7e]{1,512}$/.test(headers.etag) ? { etag: headers.etag } : {}),
+      ...(headers.link ? { link: headers.link } : {}),
+    };
+    if (cached?.version === version) {
+      cached.headers = safeHeaders;
+      this.#cache.delete(cacheKey);
+      this.#cache.set(cacheKey, cached);
+      return cached;
+    }
     let data: unknown;
     try {
-      data = text.trim() ? redactData(JSON.parse(text)) : null;
+      data = text.trim() ? immutable(redactData(JSON.parse(text))) : null;
     } catch {
       throw new ForgeError("invalid_data");
     }
-    const page = {
-      bytes: Buffer.byteLength(text),
-      body: data,
-      headers: {
-        ...(headers.etag && /^[\x20-\x7e]{1,512}$/.test(headers.etag)
-          ? { etag: headers.etag }
-          : {}),
-        ...(headers.link ? { link: headers.link } : {}),
-      },
-    };
-    if (method !== "GET" && path !== "graphql") {
+    const page = { version, bytes: Buffer.byteLength(text), body: data, headers: safeHeaders };
+    if (!reusable) {
       this.#cache.clear();
       this.#cacheBytes = 0;
-    } else if (method === "GET" && headers.etag && text.length <= 1_048_576) {
+    } else {
       if (cached) {
-        this.#cache.delete(path);
+        this.#cache.delete(cacheKey);
         this.#cacheBytes -= cached.bytes;
       }
-      const bytes = Buffer.byteLength(text);
-      while (this.#cache.size >= 128 || this.#cacheBytes + bytes > 8_388_608) {
+      while (this.#cache.size >= 128 || this.#cacheBytes + page.bytes > 8_388_608) {
         const oldest = this.#cache.entries().next().value;
         if (!oldest) break;
         this.#cache.delete(oldest[0]);
         this.#cacheBytes -= oldest[1].bytes;
       }
-      this.#cache.set(path, { ...page, bytes });
-      this.#cacheBytes += bytes;
+      this.#cache.set(cacheKey, page);
+      this.#cacheBytes += page.bytes;
     }
     return page;
   }
-  async list<T>(
-    path: string,
-    schema: z.ZodType<T[]>,
-    signal: AbortSignal,
-    budget: ReadBudget,
-  ): Promise<T[]> {
-    const result: T[] = [];
+  async pages(path: string, signal: AbortSignal, budget: ReadBudget): Promise<Page[]> {
+    const result: Page[] = [];
     let endpoint: string | undefined = path;
     for (let count = 0; endpoint && count < 20; count++) {
       const page = await this.request(endpoint, signal);
       budget.add(page.bytes);
-      const parsed = schema.safeParse(page.body);
-      if (!parsed.success) throw new ForgeError("invalid_data");
-      result.push(...parsed.data);
-      if (result.length > 2_000) throw new ForgeError("limit");
+      result.push(page);
       endpoint = this.#next(page.headers.link, path);
     }
     if (endpoint) throw new ForgeError("limit");

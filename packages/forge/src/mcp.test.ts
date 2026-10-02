@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
 import { ForgeStore, createForgeToolkit } from "./index.ts";
@@ -9,12 +10,13 @@ it("scopes MCP linking, creation and replies to the authorised thread and branch
   fixtures["repos/octo/ace/pulls"] = [{ body: pr }];
   fixtures["repos/octo/ace/pulls/7/comments/13/replies"] = [{ body: { id: 25 } }];
   const fake = await fakeGh(fixtures);
-  const db = new DatabaseSync(":memory:");
-  const store = new ForgeStore(db);
-  store.link(link);
+  const path = join(fake.dir, "mcp.sqlite");
+  let db = new DatabaseSync(path);
+  let store = new ForgeStore(db);
+  expect(store.getLink(link.threadId)).toBeUndefined();
   const forge = fake.forge;
   try {
-    const toolkit = createForgeToolkit({
+    let toolkit = createForgeToolkit({
       forge,
       store,
       threadId: link.threadId,
@@ -27,6 +29,11 @@ it("scopes MCP linking, creation and replies to the authorised thread and branch
       toolkit.call("forge_link_pr", { number: 7, threadId: "other" }, signal()),
     ).rejects.toMatchObject({ kind: "invalid_data" });
     expect(await toolkit.call("forge_link_pr", { number: 7 }, signal())).toEqual(link);
+    db.close();
+    db = new DatabaseSync(path);
+    store = new ForgeStore(db);
+    expect(store.getLink(link.threadId)).toEqual(link);
+    toolkit = createForgeToolkit({ forge, store, threadId: link.threadId, branch: "feat/fix" });
     expect(
       await toolkit.call(
         "forge_reply_comment",
@@ -34,6 +41,7 @@ it("scopes MCP linking, creation and replies to the authorised thread and branch
         signal(),
       ),
     ).toEqual({ ok: true });
+    store.unlink(link.threadId);
     const input = {
       branch: "other",
       base: "main",
@@ -47,6 +55,11 @@ it("scopes MCP linking, creation and replies to the authorised thread and branch
     expect(
       await toolkit.call("forge_create_pr", { ...input, branch: "feat/fix" }, signal()),
     ).toEqual(link);
+    db.close();
+    db = new DatabaseSync(path);
+    store = new ForgeStore(db);
+    expect(store.getLink(link.threadId)).toEqual(link);
+    toolkit = createForgeToolkit({ forge, store, threadId: link.threadId, branch: "feat/fix" });
     expect(await toolkit.call("forge_pr_status", { number: 7 }, signal())).toMatchObject({
       state: "open",
     });

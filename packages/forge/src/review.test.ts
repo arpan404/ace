@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ForgeStore, ReviewLoop, watchPr, mapPr, reviewCandidates } from "./index.ts";
+import { ForgeStore, ReviewLoop, watchPr, mapPr, ReviewIndex } from "./index.ts";
 import type { ForgeAutoFixIntent } from "@ace/protocol/forge";
 import {
   fakeGh,
@@ -172,16 +172,21 @@ describe("durable review loop", () => {
     status.reviewThreads = [
       { id: "t", resolved: true, outdated: false, file: "x", line: 1, comments: status.comments },
     ];
-    expect(reviewCandidates(link, status, new Set())).toEqual([]);
-    status.reviewThreads[0] = {
-      id: "t",
-      resolved: false,
-      outdated: true,
-      file: "x",
-      line: 1,
-      comments: status.comments,
-    };
-    expect(reviewCandidates(link, status, new Set())).toEqual([]);
+    const index = new ReviewIndex({ link, generation: 1 }, new Set());
+    index.update(status);
+    expect([...index.pending()]).toEqual([]);
+    status.reviewThreads = [
+      {
+        id: "t",
+        resolved: false,
+        outdated: true,
+        file: "x",
+        line: 1,
+        comments: status.comments,
+      },
+    ];
+    index.update({ ...status });
+    expect([...index.pending()]).toEqual([]);
   });
   it("delivers a failing external check even when no job logs are available", async () => {
     const fixtures = standard();
@@ -241,6 +246,7 @@ describe("durable review loop", () => {
     const intent: ForgeAutoFixIntent = {
       type: "auto-fix",
       key: "one",
+      linkGeneration: 1,
       link,
       headSha: sha,
       context: {
@@ -267,7 +273,8 @@ describe("durable review loop", () => {
     expect(store.pending(link.threadId)).toEqual([]);
     expect(store.hasIntent(link.threadId, "one")).toBe(false);
     store.link(link);
-    tiny.admit(intent);
+    expect(() => tiny.admit(intent)).toThrow("conflict");
+    tiny.admit({ ...intent, linkGeneration: 2 });
     expect(tiny.pending(link.threadId)[0]?.context).toMatchObject({ type: "review" });
   });
   it("queues general feedback even when an inline comment has the same numeric ID", async () => {

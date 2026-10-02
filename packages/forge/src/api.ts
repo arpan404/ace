@@ -7,6 +7,7 @@ import type {
 export type MergeMethod = "merge" | "squash" | "rebase";
 export interface Forge {
   readonly repository: ForgeRepository;
+  /** Immutable validated revisions; reuse unchanged collections and snapshot identity. */
   status(number: number, signal: AbortSignal): Promise<ForgePrStatus>;
   createPr(threadId: string, input: ForgeCreatePrInput, signal: AbortSignal): Promise<ForgePrRef>;
   replyComment(number: number, commentId: number, body: string, signal: AbortSignal): Promise<void>;
