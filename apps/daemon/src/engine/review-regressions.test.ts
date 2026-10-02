@@ -56,6 +56,13 @@ test("replayed and unrelated turn boundaries cannot acknowledge a new queued sen
       oldEnd,
       { type: "turn.started", agent: "child", trigger: "spawn", nativeTurnId: "child" },
       { type: "turn.ended", agent: "child", outcome: "completed", nativeTurnId: "child" },
+      {
+        type: "turn.started",
+        agent: "root",
+        trigger: "background_completion",
+        nativeTurnId: "unsolicited",
+      },
+      { type: "turn.ended", agent: "root", outcome: "completed", nativeTurnId: "unsolicited" },
     ),
   );
   await h.engine.flush();
@@ -295,4 +302,62 @@ test("late frames from a retired session cannot enter the resumed transcript", a
         item.parts.some((p) => p.type === "text" && p.text === "stale text"),
     ),
   ).toBe(false);
+});
+
+test("legacy untracked queue uncertainty is reported and reconciled on startup", async () => {
+  const frames = scriptFrames();
+  const h = track(
+    await harness([{ on: "send", frames: [frames.frame(start, end)] }, { on: "send" }], frames),
+  );
+  const id = await h.create();
+  h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
+  await h.engine.flush();
+  // Version 1 marked delivery done without persisting acknowledgement ownership.
+  h.store.atomic((db) => db.prepare("UPDATE intents SET awaiting=0").run());
+  const store = new Store(h.path);
+  const engine = new Engine(store, { registry: h.registry, clock: h.clock });
+  try {
+    await engine.flush();
+    const result = store.acquireThread(id);
+    store.releaseThread(id);
+    expect(store.getThread(id)?.status.state).toBe("done");
+    expect(
+      Object.values(result.items).some(
+        (item) =>
+          item.type === "notice" &&
+          item.text.includes("untracked queue") &&
+          item.text.includes("uncertain"),
+      ),
+    ).toBe(true);
+  } finally {
+    await engine.close();
+    store.close();
+  }
+});
+
+test("a valid answer with uncertain provider delivery retains its first-answer reservation", async () => {
+  const frames = scriptFrames();
+  const h = track(
+    await harness(
+      [{ on: "send", frames: [frames.frame(start, question)] }, { on: "interrupt" }],
+      frames,
+    ),
+  );
+  const id = await h.create();
+  const interactionId = Object.values(transcript(h, id).interactions)[0]?.id;
+  if (!interactionId) throw new Error("Missing interaction");
+  const payload = {
+    type: "interaction.resolve" as const,
+    interactionId,
+    resolution: { kind: "approval" as const, optionId: "yes" },
+  };
+  expect(h.command(payload, "phone").ok).toBe(true);
+  await h.engine.flush();
+  expect(h.command(payload, "desktop").error).toBe("already_resolved");
+  expect(transcript(h, id).interactions[interactionId]?.state).toBe("pending");
+  expect(
+    Object.values(transcript(h, id).items).some(
+      (item) => item.type === "notice" && item.text.includes("expected interrupt, got resolve"),
+    ),
+  ).toBe(true);
 });

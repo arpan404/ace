@@ -233,3 +233,25 @@ test("a resumed provider turn becomes working after an idle process exit", async
   await h.engine.flush();
   expect(h.store.getThread(id)?.status.state).toBe("working");
 });
+
+test("capable steering opens and resumes an idle provider before delivery", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    steer: true,
+    idleMs: 500,
+  });
+  cleanups.push(h.close);
+  const id = await h.create();
+  h.clock.advance(1500);
+  await h.engine.flush();
+  h.command({
+    type: "thread.send",
+    threadId: id,
+    input: [{ type: "text", text: "steer after idle" }],
+    delivery: "steer",
+  });
+  await h.engine.flush();
+  expect(h.contexts[1]?.resume).toEqual({ nativeSessionId: "native-1" });
+  expect(h.adapter.commands.at(-1)).toMatchObject({ type: "send", delivery: "steer" });
+  expect(h.store.getThread(id)?.status.state).toBe("done");
+});

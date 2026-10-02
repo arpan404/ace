@@ -7,7 +7,7 @@ import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
 import type { Fact } from "@ace/core";
 import type { Frame, SessionContext } from "@ace/engine-api";
 import { Command, Capabilities, type CommandPayload, type ServerMessage } from "@ace/protocol";
-import { Store, Engine, AdapterRegistry, type EngineClock } from "@ace/daemon";
+import { Store, Engine, AdapterRegistry, type EngineClock, type EngineOptions } from "@ace/daemon";
 import { startServer } from "../server.ts";
 import { Client, token } from "../socket-test-support.ts";
 
@@ -70,6 +70,7 @@ export async function harness(
   steps: ScriptedStep[],
   frames: ReturnType<typeof scriptFrames>,
   options: {
+    limits?: EngineOptions["limits"];
     steer?: boolean;
     idleMs?: number;
     tick?: (now: number) => Fact[];
@@ -122,6 +123,7 @@ export async function harness(
   const errors: unknown[] = [];
   const engine = new Engine(store, {
     registry,
+    ...(options.limits === undefined ? {} : { limits: options.limits }),
     clock,
     idleMs: options.idleMs ?? 30_000,
     silenceMs: 100,

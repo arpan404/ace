@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ThreadState } from "@ace/core";
+import type { AgentRecord, ThreadState } from "@ace/core";
 import {
   Agent,
   AgentActivity,
@@ -60,6 +60,23 @@ const record = z.object({
     })
     .optional(),
 });
+const itemLinks = z.object({
+  childAgent: z.string().optional(),
+  targetAgent: z.string().optional(),
+});
+export const recordSchemas = {
+  agents: z.custom<AgentRecord>((value) => record.safeParse(value).success),
+  items: Item,
+  runs: Run,
+  interactions: Interaction,
+  tasks: BackgroundTask,
+  itemLinks: z.custom<ThreadState["itemLinks"][string]>(
+    (value) => itemLinks.safeParse(value).success,
+  ),
+  keys: z.literal(true),
+  key: z.string(),
+  keySet: keys,
+};
 const snapshot = z.object({
   threadId: ThreadId,
   config: z.object({
@@ -97,9 +114,7 @@ const snapshot = z.object({
   pendingNotices: z.array(
     z.object({ createdAt: Timestamp, text: z.string(), raw: z.array(RawPayload) }),
   ),
-  itemLinks: records(
-    z.object({ childAgent: z.string().optional(), targetAgent: z.string().optional() }),
-  ),
+  itemLinks: records(itemLinks),
   queueCount: Timestamp,
   hasRun: z.boolean(),
   status: ThreadStatus,

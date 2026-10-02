@@ -1,63 +1,70 @@
-/** Non-gating benchmark for the full JSON snapshots required by ADR 0007. */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+/** Non-gating benchmark: real adapter callbacks -> translation -> core -> SQLite -> WS client. */
 import { performance } from "node:perf_hooks";
-import { createThreadState, type Fact } from "@ace/core";
-import { Store } from "../store.ts";
-import { createDevThread } from "../commands.ts";
-import { EngineRepository } from "./repository.ts";
+import type { Fact } from "@ace/core";
+import { harness, scriptFrames, start, until } from "./test-support.ts";
 
-for (const history of [10, 100, 1000]) {
-  const home = mkdtempSync(join(tmpdir(), "ace-engine-bench-"));
-  const store = new Store(join(home, "events.sqlite"));
+for (const history of [10, 100, 1000, 10000]) {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start)] }], frames);
   try {
-    const workspace = store.createWorkspace(home, "Benchmark");
-    const thread = createDevThread(store, workspace);
-    const repo = new EngineRepository(store);
-    repo.save(
-      createThreadState({
-        threadId: thread.id,
-        config: { provider: "codex", silenceMs: 60_000 },
-        rootAgent: { agent: "root", fidelity: "full", native: { provider: "codex" }, cwd: home },
-      }),
-      [],
-      1000,
-    );
-    const facts: Fact[] = [{ type: "turn.started", agent: "root", trigger: "user" }];
-    for (let index = 0; index < history; index++)
-      facts.push({
-        type: "item.upsert",
-        agent: "root",
-        item: `item:${index}`,
-        draft: {
-          type: "message",
-          role: "assistant",
-          parts: [{ type: "text", text: "a".repeat(100) }],
-          complete: false,
-        },
-      });
-    repo.apply(thread.id, facts, 1000);
-    const iterations = 50;
+    const id = await h.create();
+    const ctx = h.contexts[0];
+    if (!ctx) throw new Error("Missing session");
+    // Seed in batches, so preparation obeys the same mailbox bounds as real providers.
+    for (let offset = 0; offset < history; offset += 100) {
+      const facts: Fact[] = [];
+      for (let i = offset; i < Math.min(history, offset + 100); i++)
+        facts.push({
+          type: "item.upsert",
+          agent: "root",
+          item: `item:${i}`,
+          draft: {
+            type: "message",
+            role: "assistant",
+            parts: [{ type: "text", text: "a".repeat(100) }],
+            complete: false,
+          },
+        });
+      ctx.onFrame(frames.frame(...facts));
+      await h.engine.flush();
+    }
+    const client = await h.connect("benchmark");
+    client.send({
+      type: "subscribe",
+      subscriptionId: "bench",
+      scope: { kind: "thread", threadId: id },
+    });
+    await until(client, (message) => message.type === "snapshot");
+    const iterations = 30;
     const began = performance.now();
-    for (let index = 0; index < iterations; index++)
-      repo.apply(
-        thread.id,
-        [{ type: "item.delta", agent: "root", item: "item:0", field: "text", append: "x" }],
-        1001 + index,
+    for (let i = 0; i < iterations; i++) {
+      ctx.onFrame(
+        frames.frame({
+          type: "item.delta",
+          agent: "root",
+          item: "item:0",
+          field: "text",
+          append: "x",
+        }),
       );
-    const elapsed = performance.now() - began;
-    const snapshotBytes = store.atomic((db) =>
+      await h.engine.flush();
+      await until(
+        client,
+        (message) =>
+          message.type === "events" &&
+          message.events.some((event) => event.payload.type === "item.delta"),
+      );
+    }
+    const meanFrameMs = (performance.now() - began) / iterations;
+    const snapshotBytes = h.store.atomic((db) =>
       Number(
         db.prepare("SELECT length(CAST(state AS BLOB)) AS bytes FROM thread_state").get()?.bytes,
       ),
     );
     process.stdout.write(
-      JSON.stringify({ history, iterations, snapshotBytes, meanApplyMs: elapsed / iterations }) +
-        "\n",
+      JSON.stringify({ history, iterations, snapshotBytes, meanFrameMs }) + "\n",
     );
   } finally {
-    store.close();
-    rmSync(home, { recursive: true, force: true });
+    await h.close();
   }
 }

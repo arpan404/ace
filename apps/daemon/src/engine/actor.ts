@@ -1,8 +1,17 @@
 import { nextDeadline, type Fact } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
+import { z } from "zod";
+import type { EngineLimits } from "./limits.ts";
 import type { EngineRepository } from "./repository.ts";
 
+const frameSchema = z.object({
+  seq: z.number().int().nonnegative(),
+  t: z.number().nonnegative(),
+  dir: z.enum(["send", "recv", "stderr", "note"]),
+  channel: z.string(),
+  data: z.unknown(),
+});
 export interface EngineClock {
   now(): number;
   setTimer(callback: () => void, delay: number): () => void;
@@ -26,6 +35,9 @@ export class ThreadActor {
   poisoned = false;
   idleSince: number | undefined;
   idleDue = false;
+  private queued = 0;
+  private queuedBytes = 0;
+  private limits: EngineLimits;
   private tail: Promise<void> = Promise.resolve();
   private cancelTimer: (() => void) | undefined;
   private stopped = false;
@@ -41,7 +53,9 @@ export class ThreadActor {
     idleMs: number,
     wake: () => void,
     report: (error: unknown) => void,
+    limits: EngineLimits,
   ) {
+    this.limits = limits;
     this.id = id;
     this.repo = repo;
     this.clock = clock;
@@ -50,29 +64,92 @@ export class ThreadActor {
     this.report = report;
   }
   enqueue(run: () => void): void {
+    this.accept(run, 0);
+  }
+  private accept(run: () => void, bytes: number): void {
     if (this.stopped) return;
+    if (
+      this.queued >= this.limits.maxQueuedFrames ||
+      bytes > this.limits.maxFrameBytes ||
+      this.queuedBytes + bytes > this.limits.maxQueuedBytes
+    ) {
+      this.stop();
+      // Preserve the accepted prefix, then fail explicitly instead of silently dropping facts.
+      this.tail = this.tail
+        .then(() => {
+          throw new Error("Provider mailbox capacity exceeded");
+        })
+        .catch((error: unknown) => this.fail(error));
+      return;
+    }
+    this.queued++;
+    this.queuedBytes += bytes;
     this.tail = this.tail
       .then(() => {
         if (!this.poisoned) run();
       })
-      .catch((error: unknown) => {
-        // A translator cannot roll back. Stop this generation instead of folding more frames.
-        this.poisoned = true;
-        this.lifetime?.abort();
-        this.report(error);
-        this.wake();
+      .catch((error: unknown) => this.fail(error))
+      .finally(() => {
+        this.queued--;
+        this.queuedBytes -= bytes;
       });
   }
+  private fail(error: unknown): void {
+    this.poisoned = true;
+    this.repo.evict(this.id);
+    this.lifetime?.abort();
+    this.report(error);
+    try {
+      this.repo.apply(
+        this.id,
+        [
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: "engine:failure",
+            draft: {
+              type: "notice",
+              level: "error",
+              text: error instanceof Error ? error.message : String(error),
+              complete: true,
+            },
+          },
+        ],
+        this.clock.now(),
+      );
+    } catch (failure) {
+      this.report(failure);
+    }
+    this.wake();
+  }
   frame(frame: Frame, generation: number): void {
-    this.enqueue(() => {
+    if (this.stopped) return;
+    const result = frameSchema.safeParse(frame);
+    if (!result.success) {
+      this.enqueue(() => {
+        throw result.error;
+      });
+      return;
+    }
+    const decoded = result.data;
+    let bytes: number;
+    try {
+      bytes = Buffer.byteLength(JSON.stringify(decoded));
+    } catch (error) {
+      this.enqueue(() => {
+        throw error;
+      });
+      return;
+    }
+    this.accept(() => {
       if (generation !== this.generation) return;
-      const facts = this.translator?.translate(frame, this.clock.now()) ?? [];
+      const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
       this.repo.store.atomic(() => {
         this.apply(facts);
         this.syncQueue();
       });
       this.wake();
-    });
+    }, bytes);
   }
   private queueFact(): Extract<Fact, { type: "queue.changed" }> {
     return {

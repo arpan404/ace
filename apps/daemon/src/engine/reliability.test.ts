@@ -293,8 +293,8 @@ test("a frame persistence failure stops the session and reports later intents in
   const h = track(await harness([{ on: "send", frames: [frames.frame(start)] }], frames));
   const id = await h.create();
   h.store.atomic((db) =>
-    db.exec(`CREATE TRIGGER reject_bad_frame BEFORE UPDATE ON thread_state
-    WHEN json_extract(NEW.state, '$.items.bad') IS NOT NULL
+    db.exec(`CREATE TRIGGER reject_bad_frame BEFORE INSERT ON engine_state_records
+    WHEN NEW.section = 'items' AND NEW.key = 'bad'
     BEGIN SELECT RAISE(ABORT, 'frame persistence failed'); END`),
   );
   const context = h.contexts[0];

@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { Command, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
+import { capFact, readRawBlob } from "./raw.ts";
+import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 
 export interface Intent {
@@ -16,72 +18,115 @@ export interface Intent {
 export class EngineRepository {
   readonly store: Store;
   private ids: IdSource;
-  constructor(store: Store, ids: IdSource = { next: () => randomUUID() }) {
+  private capacity: number;
+  private snapshots = new Map<ThreadId, Snapshot>();
+  constructor(store: Store, ids: IdSource = { next: () => randomUUID() }, capacity = 64) {
+    this.capacity = capacity;
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    store.atomic((db) => db.exec("DELETE FROM engine_slots"));
   }
   state(id: ThreadId): ThreadState | undefined {
     return this.store.atomic((db) => {
       const row = db.prepare("SELECT state FROM thread_state WHERE thread_id = ?").get(id);
-      return row ? decodeSnapshot(String(row.state)) : undefined;
+      if (!row) {
+        this.snapshots.delete(id);
+        return undefined;
+      }
+      let snapshot = this.snapshots.get(id);
+      if (!snapshot) snapshot = new Snapshot(db, decodeSnapshot(String(row.state)));
+      this.snapshots.delete(id);
+      this.snapshots.set(id, snapshot);
+      this.trim();
+      return snapshot.state;
     });
+  }
+  evict(id: ThreadId): void {
+    this.snapshots.delete(id);
   }
   requireState(id: ThreadId): ThreadState {
     const state = this.state(id);
     if (!state) throw new Error("Missing engine state");
     return state;
   }
-  states(): ThreadState[] {
-    return this.store.atomic((db) =>
+  *states(): Iterable<ThreadState> {
+    const ids = this.store.atomic((db) =>
       db
-        .prepare("SELECT state FROM thread_state")
+        .prepare("SELECT thread_id FROM thread_state")
         .all()
-        .map((row) => decodeSnapshot(String(row.state))),
+        .map((row) => ThreadId.parse(row.thread_id)),
     );
+    for (const id of ids) yield this.requireState(id);
   }
   save(state: ThreadState, payloads: EventPayload[], at: number): void {
     this.store.atomic((db) => {
+      let snapshot = this.snapshots.get(state.threadId);
+      if (!snapshot || snapshot.state !== state) snapshot = new Snapshot(db, state);
+      snapshot.retainChanges(payloads);
       this.store.appendEvents(state.threadId, payloads, at);
       db.prepare(`INSERT INTO thread_state VALUES (?, ?, ?)
         ON CONFLICT(thread_id) DO UPDATE SET state=excluded.state, seq=excluded.seq`).run(
         state.threadId,
-        JSON.stringify(state),
+        snapshot.header(),
         this.store.headSeq(),
       );
+      snapshot.flush();
+      this.snapshots.set(state.threadId, snapshot);
+      this.trim();
     });
   }
+  private trim(): void {
+    if (this.snapshots.size > this.capacity) {
+      const oldest = this.snapshots.keys().next().value;
+      if (oldest !== undefined) this.snapshots.delete(oldest);
+    }
+  }
   apply(id: ThreadId, facts: Fact[], now: number): ThreadState {
-    return this.store.atomic(() => {
-      const state = this.state(id);
-      if (!state) throw new Error("Missing engine state");
-      const events = facts.flatMap((input) => {
-        let fact = input;
-        if (fact.type === "interaction.closed" && fact.state === "resolved") {
-          const interaction = Object.hasOwn(state.interactions, fact.interaction)
-            ? state.interactions[fact.interaction]
-            : undefined;
-          const answer = interaction ? this.answer(interaction.id) : undefined;
-          if (answer?.payload.type === "interaction.resolve")
-            fact = { ...fact, resolution: answer.payload.resolution, resolvedBy: answer.deviceId };
-        }
-        return apply(state, fact, { now, ids: this.ids });
-      });
-      for (const event of events)
-        if (
-          event.type === "run.started" &&
-          event.run.agentId === state.agents[state.rootKey ?? ""]?.agent.id
-        )
-          this.store.atomic((db) =>
-            db
-              .prepare(`UPDATE intents SET awaiting=0 WHERE id=(
+    try {
+      return this.store.atomic(() => {
+        const state = this.state(id);
+        if (!state) throw new Error("Missing engine state");
+        this.snapshots.get(id)?.begin();
+        const events = facts.flatMap((input) => {
+          let fact = this.store.atomic((db) => capFact(db, input));
+          if (fact.type === "interaction.closed" && fact.state === "resolved") {
+            const interaction = Object.hasOwn(state.interactions, fact.interaction)
+              ? state.interactions[fact.interaction]
+              : undefined;
+            const answer = interaction ? this.answer(interaction.id) : undefined;
+            if (answer?.payload.type === "interaction.resolve")
+              fact = {
+                ...fact,
+                resolution: answer.payload.resolution,
+                resolvedBy: answer.deviceId,
+              };
+          }
+          const emitted = apply(state, fact, { now, ids: this.ids });
+          if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
+            this.snapshots.get(id)?.delta(fact);
+          return emitted;
+        });
+        for (const event of events)
+          if (
+            event.type === "run.started" &&
+            ["user", "queue", "unknown"].includes(event.run.trigger) &&
+            event.run.agentId === state.agents[state.rootKey ?? ""]?.agent.id
+          )
+            this.store.atomic((db) =>
+              db
+                .prepare(`UPDATE intents SET awaiting=0 WHERE id=(
           SELECT id FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
         )`)
-              .run(id),
-          );
-      this.save(state, events, now);
-      return state;
-    });
+                .run(id),
+            );
+        this.save(state, events, now);
+        return state;
+      });
+    } catch (error) {
+      this.evict(id);
+      throw error;
+    }
   }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {
@@ -91,6 +136,26 @@ export class EngineRepository {
       (command_id, thread_id, kind, payload, status, resolution_id) VALUES (?, ?, ?, ?, 'pending', ?)`)
         .run(command.id, id, command.payload.type, JSON.stringify(command), resolutionId ?? null),
     );
+  }
+  reserve(id: ThreadId): boolean {
+    return this.store.atomic((db) => {
+      if (db.prepare("SELECT thread_id FROM engine_slots WHERE thread_id=?").get(id)) return true;
+      const count = Number(db.prepare("SELECT COUNT(*) AS count FROM engine_slots").get()?.count);
+      if (count >= this.capacity) return false;
+      db.prepare("INSERT INTO engine_slots VALUES (?)").run(id);
+      return true;
+    });
+  }
+  release(id: ThreadId): void {
+    this.store.atomic((db) => db.prepare("DELETE FROM engine_slots WHERE thread_id=?").run(id));
+  }
+  reservedSlot(id: ThreadId): boolean {
+    return this.store.atomic((db) =>
+      Boolean(db.prepare("SELECT thread_id FROM engine_slots WHERE thread_id=?").get(id)),
+    );
+  }
+  readRawBlob(id: string): Uint8Array | undefined {
+    return this.store.atomic((db) => readRawBlob(db, id));
   }
   answer(id: string): Command | undefined {
     return this.store.atomic((db) => {
@@ -109,14 +174,14 @@ export class EngineRepository {
         id === undefined
           ? db
               .prepare(
-                "SELECT * FROM intents WHERE (status IN ('pending', 'queued', 'running') OR awaiting=1) ORDER BY id",
+                "SELECT * FROM intents WHERE status IN ('pending', 'queued', 'running') UNION ALL SELECT * FROM intents WHERE awaiting=1 AND status NOT IN ('pending', 'queued', 'running') ORDER BY id",
               )
               .all()
           : db
               .prepare(
-                "SELECT * FROM intents WHERE thread_id = ? AND (status IN ('pending', 'queued', 'running') OR awaiting=1) ORDER BY id",
+                "SELECT * FROM intents WHERE thread_id=? AND status IN ('pending', 'queued', 'running') UNION ALL SELECT * FROM intents WHERE thread_id=? AND awaiting=1 AND status NOT IN ('pending', 'queued', 'running') ORDER BY id",
               )
-              .all(id);
+              .all(id, id);
       return rows.map((row) => ({
         id: Number(row.id),
         threadId: ThreadId.parse(row.thread_id),
@@ -132,9 +197,9 @@ export class EngineRepository {
       Number(
         db
           .prepare(
-            "SELECT COUNT(*) AS count FROM intents WHERE thread_id = ? AND (status = 'queued' OR awaiting=1)",
+            "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND status='queued') + (SELECT COUNT(*) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') AS count",
           )
-          .get(id)?.count,
+          .get(id, id)?.count,
       ),
     );
   }

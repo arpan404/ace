@@ -8,8 +8,8 @@ export function migrateEngine(db: DatabaseSync): void {
   const version = Number(
     db.prepare("SELECT version FROM engine_schema_version").get()?.version ?? 0,
   );
-  if (version > 2) throw new Error("Engine schema is newer than this daemon");
-  if (version === 2) return;
+  if (version > 6) throw new Error("Engine schema is newer than this daemon");
+  if (version === 6) return;
   if (version === 0) {
     db.exec(`CREATE TABLE thread_state (
     thread_id TEXT PRIMARY KEY REFERENCES threads(id), state JSON NOT NULL, seq INTEGER NOT NULL
@@ -27,6 +27,27 @@ export function migrateEngine(db: DatabaseSync): void {
   CREATE INDEX intents_pending ON intents(thread_id, status, id);
   INSERT INTO engine_schema_version VALUES (1, 1);`);
   }
-  db.exec(`ALTER TABLE intents ADD COLUMN awaiting INTEGER NOT NULL DEFAULT 0;
+  if (version < 2)
+    db.exec(`ALTER TABLE intents ADD COLUMN awaiting INTEGER NOT NULL DEFAULT 0;
     UPDATE engine_schema_version SET version=2 WHERE id=1;`);
+  if (version < 3)
+    db.exec(`CREATE TABLE engine_state_records (
+    thread_id TEXT NOT NULL REFERENCES thread_state(thread_id), section TEXT NOT NULL, key TEXT NOT NULL, value JSON NOT NULL,
+    PRIMARY KEY(thread_id, section, key)
+  );
+  UPDATE engine_schema_version SET version=3 WHERE id=1;`);
+  if (version < 4)
+    db.exec(`CREATE TABLE engine_slots (thread_id TEXT PRIMARY KEY);
+    CREATE TABLE engine_raw_blobs (id TEXT PRIMARY KEY, bytes BLOB NOT NULL);
+    UPDATE engine_schema_version SET version=4 WHERE id=1;`);
+  if (version < 5)
+    db.exec(`CREATE TABLE engine_state_appends (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL,
+    section TEXT NOT NULL, key TEXT NOT NULL, patch JSON NOT NULL
+  );
+  CREATE INDEX engine_state_appends_by_key ON engine_state_appends(thread_id,section,key,id);
+  UPDATE engine_schema_version SET version=5 WHERE id=1;`);
+  db.exec(`CREATE INDEX intents_waiting_ack ON intents(thread_id,id) WHERE awaiting=1;
+    CREATE INDEX intents_outstanding ON intents(status,id) WHERE status IN ('pending','queued','running');
+    UPDATE engine_schema_version SET version=6 WHERE id=1;`);
 }

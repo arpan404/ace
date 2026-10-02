@@ -43,6 +43,7 @@ export function engineHandler(
             updatedAt: at,
           });
           threadId = thread.id;
+          if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
           const state = createThreadState({
             threadId,
             config: { provider: p.provider, silenceMs },
@@ -99,6 +100,7 @@ export function engineHandler(
           if (!threadId)
             return fail(p.type === "interaction.resolve" ? "already_resolved" : "task_not_found");
         }
+        if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
         repo.add(command, threadId, resolutionId);
         // Microtasks execute only after the enclosing receipt transaction commits.
         queueMicrotask(() => wake(threadId));
