@@ -149,6 +149,7 @@ export async function startServer(options: ServerOptions): Promise<{
   });
   const input = new SocketInput();
   const cleanups = new Map<WebSocket, () => void>();
+  let disconnects = Promise.resolve();
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
@@ -163,6 +164,8 @@ export async function startServer(options: ServerOptions): Promise<{
     }
     const sessionId = randomUUID();
     let device: DeviceId | undefined;
+    let hasPresence = false;
+    let cleaned = false;
     let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
@@ -172,6 +175,8 @@ export async function startServer(options: ServerOptions): Promise<{
       if (close) socket.close(4001, code);
     };
     const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -180,7 +185,10 @@ export async function startServer(options: ServerOptions): Promise<{
         connections?.delete(socket);
         if (!connections?.size) receivers.delete(device);
       }
-      void options.notifications?.disconnect(sessionId).catch(() => {});
+      if (hasPresence)
+        disconnects = disconnects
+          .then(() => options.notifications?.disconnect(sessionId))
+          .catch((error: unknown) => options.log?.(error));
       cleanups.delete(socket);
       ticks.delete(socket);
       authenticated.delete(socket);
@@ -308,9 +316,10 @@ export async function startServer(options: ServerOptions): Promise<{
             break;
           }
           try {
-            if (message.type === "presence.update")
+            if (message.type === "presence.update") {
+              hasPresence = true;
               await options.notifications.updatePresence(sessionId, device, message);
-            else if (message.type === "notification.register")
+            } else if (message.type === "notification.register")
               await options.notifications.register(device, message.device);
             else if (message.type === "notification.preferences")
               await options.notifications.preferences(device, message.preferences);
@@ -492,7 +501,7 @@ export async function startServer(options: ServerOptions): Promise<{
           () =>
             wss.close((error) => {
               if (error) reject(error);
-              else resolve();
+              else disconnects.then(resolve, reject);
             }),
         );
       });

@@ -147,3 +147,27 @@ it("revocation aborts an in-flight worker delivery and prevents future sends", a
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+it("closes gracefully with all 64 RPC slots occupied and settles admitted calls", async () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-notify-close-"));
+  const worker = new NotificationWorker({
+    path: join(home, "notify.sqlite"),
+    transport: {
+      async send() {
+        return "accepted";
+      },
+    },
+  });
+  try {
+    const pending = Array.from({ length: 64 }, () => worker.cursor());
+    const results = Promise.allSettled(pending);
+    await expect(worker.close()).resolves.toBeUndefined();
+    expect(await results).toEqual(
+      Array.from({ length: 64 }, () => ({ status: "fulfilled", value: 0 })),
+    );
+    await expect(worker.cursor()).rejects.toThrow();
+  } finally {
+    await worker.close().catch(() => {});
+    rmSync(home, { recursive: true, force: true });
+  }
+});

@@ -81,12 +81,17 @@ export class NotificationWorker {
   }
   private call(call: WorkerCall): Promise<number | undefined> {
     if (this.failed) return Promise.reject(this.failed);
-    if (this.pending.size >= 64)
+    if (this.closing && call.method !== "close")
+      return Promise.reject(new Error("Notification worker closing"));
+    if (call.method !== "close" && this.pending.size >= 64)
       return Promise.reject(new Error("Notification worker backpressure"));
     const id = ++this.sequence;
     const message = ToWorker.parse({ type: "call", id, call });
     const bytes = Buffer.byteLength(JSON.stringify(message));
-    if (bytes > 128 * 1024 || this.pendingBytes + bytes > 8 * 1024 * 1024)
+    if (
+      call.method !== "close" &&
+      (bytes > 128 * 1024 || this.pendingBytes + bytes > 8 * 1024 * 1024)
+    )
       return Promise.reject(new Error("Notification worker byte backpressure"));
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, bytes });
