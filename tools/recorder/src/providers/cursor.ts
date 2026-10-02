@@ -1,5 +1,7 @@
-import { JsonRpcPeer, type ServerRequest } from "../jsonrpc.ts";
-import { interruptOnce, probe, spawnOwned } from "../process.ts";
+import { MethodNotFound, type ServerRequest } from "@ace/provider-kit/jsonrpc";
+import { probe, spawnSupervised } from "@ace/provider-kit/process";
+import { createRecordedPeer } from "../stdio.ts";
+import { interruptOnce } from "../interrupt.ts";
 import type { Scenario } from "../scenarios.ts";
 import type { Driver, RunContext } from "./types.ts";
 
@@ -39,7 +41,7 @@ function respond(request: ServerRequest, scenario: Scenario): unknown {
     case "cursor/generate_image":
       return {};
     default:
-      throw new Error(`recorder has no scripted answer for ${request.method}`);
+      throw new MethodNotFound(`recorder has no scripted answer for ${request.method}`);
   }
 }
 
@@ -48,8 +50,14 @@ export const cursor: Driver = {
   version: () => probe("agent", ["--version"]),
   async run(ctx: RunContext) {
     const { rec, scenario, workspace } = ctx;
-    const proc = spawnOwned("agent", ["acp"], { cwd: workspace });
-    const rpc = new JsonRpcPeer(proc.child, rec);
+    const proc = spawnSupervised({
+      command: "agent",
+      args: ["acp"],
+      cwd: workspace,
+      env: {},
+      name: "recorder-cursor",
+    });
+    const rpc = createRecordedPeer(proc, rec);
 
     let sessionId = "";
     const triggerInterrupt = interruptOnce(scenario.interruptAfterToolStartMs, () => {
