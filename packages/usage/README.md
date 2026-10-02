@@ -167,6 +167,7 @@ together. Daemon scheduling yields between batches and coalesces live wakeups;
 there is no in-memory history queue. Deleting a thread commits an analytics
 tombstone in `events.sqlite` using the host sequence and wakes replay. It
 removes that thread's counters, rollups, metadata and exact quota observations.
+Analytics subscription admission is capped at sixteen and unsubscribing returns capacity.
 Tombstones survive deletion/restart and rebuilds; they retain only the opaque
 thread id and time. Projection schema v1 upgrades by clearing derived data and
 resetting its cursor for replay into v2; pricing/timezone behavior stays fixed.

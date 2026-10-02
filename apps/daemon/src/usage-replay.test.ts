@@ -218,3 +218,23 @@ it("incompatible retained usage advances coverage and reports omissions while he
     f.close();
   }
 });
+
+it("analytics subscription admission stays bounded and capacity returns after unsubscribe", () => {
+  const f = fixture();
+  const subscriptions = Array.from({ length: 16 }, () => f.history.subscribeUsage(() => {}));
+  try {
+    expect(() => f.history.subscribeUsage(() => {})).toThrow("capacity");
+    subscriptions.pop()?.();
+    let changed = false;
+    subscriptions.push(
+      f.history.subscribeUsage(() => {
+        changed = true;
+      }),
+    );
+    f.add("new");
+    expect(changed).toBe(true);
+  } finally {
+    for (const unsubscribe of subscriptions) unsubscribe();
+    f.close();
+  }
+});

@@ -101,6 +101,8 @@ export class Store {
   }
   /** Wake analytics on committed events and durable deletion tombstones. */
   subscribeUsage(listener: () => void): () => void {
+    if (this.usageListeners.size >= 16 && !this.usageListeners.has(listener))
+      throw new Error("Usage subscription capacity reached");
     this.usageListeners.add(listener);
     return () => {
       this.usageListeners.delete(listener);

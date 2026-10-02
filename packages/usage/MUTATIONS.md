@@ -45,6 +45,7 @@ Prefixes below identify public behavior tests in `src/`, unless a path is given.
 | 34  | Keep replay pinned to incompatible retained facts           | daemon usage-replay: incompatible retained usage advances coverage                                    |
 | 35  | Hide quota overflow or forecast from saturated observations | queries: quota aggregates saturate numeric overflow                                                   |
 | 36  | Materialize an unrestricted query page                      | queries: query pages bound returned bytes                                                             |
+| 38  | Remove analytics subscription capacity                      | daemon usage-replay: analytics subscription admission stays bounded                                   |
 
 Each blocker received a public regression before the implementation changed.
 Failing/passing executions and all mutation kills **need run at merge**. No
