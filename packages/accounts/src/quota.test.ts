@@ -220,7 +220,9 @@ test("quota and login state survive reopening SQLite and remain isolated by inst
   const path = join(await temp(), "accounts.sqlite");
   let registry = await openRegistry(path);
   for (const id of ["a", "b"])
-    registry.register(createInstance({ id, provider: "codex", label: id, homeDir: `/tmp/${id}` }));
+    await registry.register(
+      createInstance({ id, provider: "codex", label: id, homeDir: `/tmp/${id}` }),
+    );
   registry.ingest("a", {
     provider: "codex",
     observedAt: now,

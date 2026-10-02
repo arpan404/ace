@@ -127,6 +127,11 @@ export async function discoverHomes(userHome: string): Promise<ProviderInstance[
     )
       continue;
     const home = join(userHome, entry.name);
+    if (
+      entry.name.length > 128 ||
+      !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(entry.name.slice(1).replaceAll(".", "_"))
+    )
+      continue;
     results.push(
       createInstance({
         id: entry.name.slice(1).replaceAll(".", "_"),

@@ -31,6 +31,9 @@ export const AccountQuota = z.object({
   auth: z.enum(["logged_in", "logged_out", "unknown"]),
   observedAt: z.number().finite().nonnegative(),
   windows: z.record(z.string().max(128), QuotaWindow).refine((w) => Object.keys(w).length <= 32),
+  blockers: z
+    .object({ overflow: z.literal(true).optional(), limitError: QuotaWindow.optional() })
+    .default({}),
   usage: z
     .object({
       inputTokens: z.number().nonnegative(),
@@ -55,15 +58,20 @@ export const AccountSummary = z.object({
   quota: AccountQuota,
   availability: AccountAvailability,
 });
+const cleanupWarnings = z
+  .array(z.enum(["lease_release_failed", "staging_cleanup_failed", "rollback_failed"]))
+  .max(3)
+  .optional();
 export const MigrationResult = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("migrated"),
     nativeSessionId: z.string().max(128),
     action: z.enum(["fork", "resume"]),
     copiedFiles: z.number().int().nonnegative(),
+    cleanupWarnings,
   }),
-  z.object({ status: z.literal("unsupported"), reason: z.string().max(512) }),
-  z.object({ status: z.literal("refused"), reason: z.string().max(512) }),
+  z.object({ status: z.literal("unsupported"), reason: z.string().max(512), cleanupWarnings }),
+  z.object({ status: z.literal("refused"), reason: z.string().max(512), cleanupWarnings }),
 ]);
 export type MigrationResult = z.infer<typeof MigrationResult>;
 export const AccountsRequest = z.discriminatedUnion("type", [
@@ -99,3 +107,6 @@ export const AccountsResponse = z.discriminatedUnion("type", [
     result: MigrationResult,
   }),
 ]);
+
+export type AccountsRequest = z.infer<typeof AccountsRequest>;
+export type AccountsResponse = z.infer<typeof AccountsResponse>;

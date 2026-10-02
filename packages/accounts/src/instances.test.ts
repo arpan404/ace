@@ -137,13 +137,13 @@ test("registry refuses credential fields, duplicate homes and retargeting an exi
   const root = await temp();
   const registry = await openRegistry(join(root, "registry.sqlite"));
   const a = createInstance({ id: "a", provider: "codex", label: "a", homeDir: join(root, "home") });
-  registry.register(a);
-  expect(() => registry.register({ ...a, id: "b" })).toThrow("distinct");
-  expect(() => registry.register(createInstance({ ...a, homeDir: join(root, "other") }))).toThrow(
-    "cannot change homes",
-  );
+  await registry.register(a);
+  await expect(registry.register({ ...a, id: "b" })).rejects.toThrow("distinct");
+  await expect(
+    registry.register(createInstance({ ...a, homeDir: join(root, "other") })),
+  ).rejects.toThrow("cannot change homes");
   const credentialInstance = { ...a, env: { ...a.env, OPENAI_API_KEY: "bad" } };
-  expect(() => registry.register(credentialInstance)).toThrow();
+  await expect(registry.register(credentialInstance)).rejects.toThrow();
   expect(registry.list()).toHaveLength(1);
   registry.close();
 });
@@ -153,7 +153,7 @@ test("the registry caps account inventory while allowing updates to existing lab
   const registry = await openRegistry(join(root, "registry.sqlite"));
   try {
     for (let index = 0; index < 256; index++)
-      registry.register(
+      await registry.register(
         createInstance({
           id: `account-${index}`,
           provider: "codex",
@@ -161,7 +161,7 @@ test("the registry caps account inventory while allowing updates to existing lab
           homeDir: join(root, `home-${index}`),
         }),
       );
-    expect(() =>
+    await expect(
       registry.register(
         createInstance({
           id: "overflow",
@@ -170,8 +170,8 @@ test("the registry caps account inventory while allowing updates to existing lab
           homeDir: join(root, "overflow"),
         }),
       ),
-    ).toThrow("Instance limit exceeded");
-    registry.register(
+    ).rejects.toThrow("Instance limit exceeded");
+    await registry.register(
       createInstance({
         id: "account-0",
         provider: "codex",

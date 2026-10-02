@@ -2,11 +2,26 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdir, open, chmod, lstat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import { AccountId, ProviderInstance, AccountQuota } from "@ace/protocol/accounts";
+import { AccountId, AccountEnvKey, ProviderInstance, AccountQuota } from "@ace/protocol/accounts";
+import { object } from "./quota-decode.ts";
 import { initialQuota, ingestQuota, availability, type QuotaFact } from "./quota.ts";
 import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
+import { canonicalHome } from "./paths.ts";
 const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16384) });
+
+async function canonicalInstance(input: ProviderInstance): Promise<ProviderInstance> {
+  const parsed = ProviderInstance.parse(input);
+  instanceEnv(parsed, {});
+  const homeDir = await canonicalHome(parsed.homeDir);
+  const env: ProviderInstance["env"] = {};
+  for (const key of Object.keys(parsed.env)) {
+    const name = AccountEnvKey.parse(key);
+    const value = parsed.env[name];
+    if (value !== undefined) env[name] = await canonicalHome(value);
+  }
+  return ProviderInstance.parse({ ...parsed, homeDir, env });
+}
 
 export class AccountRegistry {
   private db: DatabaseSync;
@@ -29,10 +44,19 @@ export class AccountRegistry {
   }
   private decode(value: unknown) {
     const parsed = row.parse(value);
-    return {
-      instance: ProviderInstance.parse(JSON.parse(parsed.instance)),
-      quota: AccountQuota.parse(JSON.parse(parsed.quota)),
-    };
+    const raw: unknown = JSON.parse(parsed.quota);
+    const legacy = !Object.hasOwn(object(raw), "blockers");
+    const quota = AccountQuota.parse(raw);
+    // The previous format placed local blockers in the provider name namespace.
+    if (legacy && quota.windows["quota_overflow"]?.usedPercent === 100) {
+      quota.blockers.overflow = true;
+      delete quota.windows["quota_overflow"];
+    }
+    if (legacy && quota.windows["limit_error"]) {
+      quota.blockers.limitError = quota.windows["limit_error"];
+      delete quota.windows["limit_error"];
+    }
+    return { instance: ProviderInstance.parse(JSON.parse(parsed.instance)), quota };
   }
   get(id: string) {
     const value = this.select.get(AccountId.parse(id));
@@ -43,9 +67,8 @@ export class AccountRegistry {
     if (rows.length > 256) throw new Error("Instance limit exceeded");
     return rows.map((value) => this.decode(value));
   }
-  register(input: ProviderInstance) {
-    const instance = ProviderInstance.parse(input);
-    instanceEnv(instance, {});
+  async register(input: ProviderInstance) {
+    const instance = await canonicalInstance(input);
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const accounts = this.list();
@@ -74,6 +97,38 @@ export class AccountRegistry {
       }
       const current = this.get(instance.id)?.quota ?? initialQuota();
       this.upsert.run(instance.id, JSON.stringify(instance), JSON.stringify(current));
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  /** Upgrade old lexical identities before accepting assignments or writes. */
+  async canonicalizeHomes() {
+    const accounts = this.list();
+    const normalized = [];
+    for (const account of accounts)
+      normalized.push({ ...account, instance: await canonicalInstance(account.instance) });
+    const roots = new Map<string, Set<string>>();
+    for (const { instance } of normalized) {
+      const used = roots.get(instance.provider) ?? new Set<string>();
+      const selectors = new Set([instance.homeDir, ...Object.values(instance.env)]);
+      for (const path of selectors)
+        if (used.has(path)) throw new Error("Instance homes must be distinct");
+      for (const path of selectors) used.add(path);
+      roots.set(instance.provider, used);
+    }
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const { instance } of normalized) {
+        const current = this.get(instance.id);
+        if (!current) throw new Error("Instance changed during canonicalization");
+        this.upsert.run(
+          instance.id,
+          JSON.stringify({ ...instance, label: current.instance.label }),
+          JSON.stringify(current.quota),
+        );
+      }
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -124,5 +179,12 @@ export async function openRegistry(path: string): Promise<AccountRegistry> {
   const stat = await lstat(path);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Registry must be a regular file");
   await chmod(path, 0o600);
-  return new AccountRegistry(new DatabaseSync(path));
+  const registry = new AccountRegistry(new DatabaseSync(path));
+  try {
+    await registry.canonicalizeHomes();
+    return registry;
+  } catch (error) {
+    registry.close();
+    throw error;
+  }
 }

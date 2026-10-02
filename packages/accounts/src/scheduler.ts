@@ -1,21 +1,12 @@
 import { z } from "zod";
 import type { ProviderInstance, AccountQuota } from "@ace/protocol/accounts";
 import { availability } from "./quota.ts";
+import { object } from "./quota-decode.ts";
 
 export type RolePolicy = Record<string, { speed: "standard" | "fast" }>;
 export type Candidate = { instance: ProviderInstance; quota: AccountQuota };
-const modelList = z
-  .object({
-    data: z.array(
-      z
-        .object({
-          model: z.string(),
-          serviceTiers: z.array(z.object({ id: z.string() }).passthrough()).optional(),
-        })
-        .passthrough(),
-    ),
-  })
-  .passthrough();
+const models = z.custom<unknown[]>(Array.isArray);
+const modelName = z.string().min(1).max(256);
 export function speedHint(
   provider: ProviderInstance["provider"],
   role: string,
@@ -25,15 +16,26 @@ export function speedHint(
 ): { service_tier?: "priority"; fastMode?: true } {
   if (policy[role]?.speed !== "fast") return {};
   if (provider === "codex") {
-    const models = modelList.safeParse(capabilities.codexModelList).data;
-    if (
-      models?.data
-        .find((m) => m.model === model)
-        ?.serviceTiers?.some((tier) => tier.id === "priority")
-    )
-      return { service_tier: "priority" };
+    const data = models.safeParse(object(capabilities.codexModelList)["data"]).data;
+    if (data && data.length <= 256)
+      for (const value of data) {
+        const row = object(value);
+        if (modelName.safeParse(row["model"]).data !== model) continue;
+        const tiers = models.safeParse(row["serviceTiers"]).data;
+        if (
+          tiers &&
+          tiers.length <= 16 &&
+          tiers.some((tier) => modelName.safeParse(object(tier)["id"]).data === "priority")
+        )
+          return { service_tier: "priority" };
+      }
   }
-  if (provider === "claude" && capabilities.claudeFastModels?.includes(model))
+  if (
+    provider === "claude" &&
+    capabilities.claudeFastModels &&
+    capabilities.claudeFastModels.length <= 256 &&
+    capabilities.claudeFastModels.includes(model)
+  )
     return { fastMode: true };
   return {};
 }
