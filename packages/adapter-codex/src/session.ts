@@ -59,6 +59,8 @@ export async function openCodexSession(
   const plans = new Map<string, { thread: string; markdown: string }>();
   const queueCounts = new Map<string, number>();
   const timers = new Map<string, () => void>();
+  const recovering = new Set<string>();
+  let unknownRecoveries = 0;
   const emit = (dir: "send" | "recv" | "stderr" | "note", data: unknown, channel = "stdio") =>
     ctx.onFrame({
       seq: sequence++,
@@ -191,11 +193,24 @@ export async function openCodexSession(
     );
   }
   async function recoverThread(threadId: string): Promise<void> {
+    if (recovering.has(threadId) || recovered.has(threadId) || closed) return;
+    const unknown = !known.has(threadId);
+    // Reserve capacity for admitted children and control commands. A saturated
+    // unknown-thread timer batch must not exhaust the peer's bounded RPC queue.
+    if (recovering.size >= 8 || (unknown && unknownRecoveries >= 4)) {
+      scheduleRecovery(threadId);
+      return;
+    }
+    recovering.add(threadId);
+    if (unknown) unknownRecoveries++;
     try {
       await readThread(threadId);
     } catch (error) {
       diagnostic(error);
       scheduleRecovery(threadId);
+    } finally {
+      recovering.delete(threadId);
+      if (unknown) unknownRecoveries--;
     }
   }
   async function readThread(threadId: string, ancestors = new Set<string>()): Promise<void> {

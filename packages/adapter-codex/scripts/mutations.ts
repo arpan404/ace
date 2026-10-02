@@ -114,7 +114,7 @@ const cases = [
     file: "session.ts",
     before: "count: [...queueCounts.values()].reduce((total, value) => total + value, 0),",
     after: "count: 0,",
-    test: "review-session.test.ts",
+    test: "review-session.process.test.ts",
   },
   {
     name: "skip loaded descendant hydration",
@@ -186,7 +186,7 @@ const cases = [
     before: '    model = str(result["model"], model);',
     after:
       '    hydrateControls(obj(result["thread"]), active, shells); model = str(result["model"], model);',
-    test: "verifier-session.test.ts",
+    test: "verifier-session.process.test.ts",
   },
   {
     name: "apply stale read controls after an observed completion",
@@ -194,14 +194,14 @@ const cases = [
     before:
       "if (revision === (revisions.get(threadId) ?? 0)) hydrateControls(thread, active, shells);",
     after: "hydrateControls(thread, active, shells);",
-    test: "verifier-session.test.ts",
+    test: "verifier-session.process.test.ts",
   },
   {
     name: "skip recovery retries once ancestry is known",
     file: "session.ts",
     before: "      scheduleRecovery(threadId);",
     after: "      if (!known.has(threadId)) scheduleRecovery(threadId);",
-    test: "verifier-session.test.ts",
+    test: "verifier-session.process.test.ts",
   },
   {
     name: "reopen completed tools from replayed starts",
@@ -259,7 +259,7 @@ const cases = [
     file: "session.ts",
     before: "if (id) active.set(control.thread, id);",
     after: "// Ignore turn/start acknowledgment",
-    test: "verifier-session.test.ts",
+    test: "verifier-session.process.test.ts",
   },
   {
     name: "retain resolved async owners",
@@ -273,7 +273,7 @@ const cases = [
     file: "session.ts",
     before: 'if (typeof entry === "string" && !recovered.has(entry)) await readThread(entry);',
     after: 'if (typeof entry === "string" && !known.has(entry)) await readThread(entry);',
-    test: "verifier-session.test.ts",
+    test: "verifier-session.process.test.ts",
   },
   {
     name: "lose complete eviction evidence",
@@ -288,7 +288,7 @@ const cases = [
     before:
       "            parents.set(child, thread);\n            if (!recovered.has(child)) scheduleRecovery(child);",
     after: "            parents.set(child, thread);",
-    test: "verifier-session.test.ts",
+    test: "verifier-session.process.test.ts",
   },
   {
     name: "reset eviction evidence when an unknown buffer is recreated",
@@ -303,14 +303,14 @@ const cases = [
     before:
       'if (!Array.isArray(thread["turns"])) throw new Error("Codex read omitted turn history");',
     after: "// Accept omitted history without scheduling a retry",
-    test: "verifier-session.test.ts",
+    test: "verifier-session.process.test.ts",
   },
   {
     name: "prevent admitted recovery beyond the unknown timer cap",
     file: "session.ts",
     before: "if (closed || timers.has(threadId)) return;",
     after: "if (closed || timers.has(threadId) || timers.size >= 256) return;",
-    test: "verifier-session.test.ts",
+    test: "verifier-session.process.test.ts",
   },
   {
     name: "measure canonical output tails in UTF-16 instead of bytes",
