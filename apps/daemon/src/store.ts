@@ -69,6 +69,9 @@ export class Store {
       );
       migrate(this.db);
       this.usageReplay = new UsageReplay(this.db);
+      this.db.exec(
+        `CREATE INDEX IF NOT EXISTS threads_update_blockers ON threads(id) WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')`,
+      );
       this.payloads.initialize();
       this.status.initialize((id) => this.getThread(id));
       this.devices = new Devices(this.db, {
@@ -286,6 +289,13 @@ export class Store {
       ...(row.imported == null ? {} : { imported: JSON.parse(String(row.imported)) }),
       ...(row.root_agent_id === null ? {} : { rootAgentId: row.root_agent_id }),
     });
+  }
+  updateBlockers(): number {
+    return Number(
+      this.statement(
+        "SELECT COUNT(*) AS n FROM threads WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')",
+      ).get()?.n,
+    );
   }
   listThreads(): Thread[] {
     return this.statement("SELECT * FROM threads ORDER BY updated_at DESC, id")

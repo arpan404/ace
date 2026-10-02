@@ -1,0 +1,181 @@
+[
+  {
+    "mutation": "login disabled",
+    "test": "LaunchAgent starts",
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "restart throttle removed",
+    "test": "LaunchAgent starts",
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "crash restart disabled",
+    "test": "user systemd unit",
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "signature verification bypassed",
+    "test": "a bad signature",
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "checksum verification bypassed",
+    "test": "a bad checksum",
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "active-tree barrier bypassed",
+    "test": "active trees block",
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "rollback points at candidate",
+    "test": "failed candidate health",
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "migration dry-run omitted",
+    "test": "a failed migration",
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "command admission left open",
+    "test": "maintenance closes websocket",
+    "historicalOutcome": "killed before the repo owner changed the execution policy",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "prepared journal restored as complete snapshot",
+    "test": "an interrupted snapshot restarts the old generation",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "snapshot validation moved after live database deletion",
+    "test": "missing or corrupt rollback snapshots never delete live databases",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "journal written only after service stop",
+    "test": "a failed stop leaves recoverable intent",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "Linux packaging requires the macOS-only spawn helper",
+    "test": "staging packages the checked PTY without requiring a macOS spawn helper",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "native input checksum verification bypassed",
+    "test": "a corrupt Linux native input cannot enter the artifact",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "stop before approved drain settles",
+    "test": "approved drain closes admission and waits for natural completion before stopping",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "skip database restoration",
+    "test": "failed candidate health restores the old executable and database schema",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "unlink current before replacement",
+    "test": "readers see either complete pointer while swaps race with reads",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "snapshot main file without WAL",
+    "test": "SQLite snapshots contain uncheckpointed WAL changes",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "accept unsafe journal paths",
+    "test": "an unsafe recovery target is rejected before stopping or removing installation data",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "accept incomplete snapshot inventory",
+    "test": "rollback inventory preserves all live databases",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "omit durable original database inventory",
+    "test": "rollback inventory preserves all live databases",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "leave supervisor timer referenced after spawn failure",
+    "test": "an asynchronous daemon spawn failure closes logs and lets the supervisor process terminate",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "disable recovery retries under manual update policy",
+    "test": "recovery retries after the transaction owner dies even with automatic updates disabled",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "skip restart when service configuration changes",
+    "test": "reinstall applies changed daemon ports and PATH to the running service",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "compare prerelease numbers lexically",
+    "test": "version 1.0.0-preview.10 compared with 1.0.0-preview.2 permits update=true",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "leave supervisor diagnostic files unbounded",
+    "test": "a failed supervisor startup caps both diagnostic files and exits without a live daemon",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "acknowledge saturated log writes without backpressure",
+    "test": "a saturated log refuses more producer data until accepted bytes reach disk",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "skip notification worker persistence",
+    "test": "the standalone daemon persists notifications, structured logs and exported diagnostics without a checkout",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "ignore drain deadline",
+    "test": "an approved drain deadline refuses restart and reopens admission while work remains active",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "forget admission recovery once the journal disappears",
+    "test": "committed recovery retries after the transaction owner dies even with automatic updates disabled",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "omit or misroute diagnostics log worker",
+    "test": "the standalone daemon persists notifications, structured logs and exported diagnostics without a checkout",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "omit or misroute diagnostics SQLite helper",
+    "test": "the standalone daemon persists notifications, structured logs and exported diagnostics without a checkout",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "omit or misroute diagnostics thread export worker",
+    "test": "the standalone daemon persists notifications, structured logs and exported diagnostics without a checkout",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "block read-only diagnostics during maintenance",
+    "test": "draining still serves read-only diagnostics without changing agent work",
+    "status": "not executed (tests run at merge)"
+  }
+]

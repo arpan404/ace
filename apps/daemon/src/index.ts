@@ -5,6 +5,7 @@ export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from ".
 import { SettingsService } from "@ace/settings";
 import type { DaemonPreview, DaemonPreviewOptions } from "./preview.ts";
 export type { DaemonPreview, DaemonPreviewOptions } from "./preview.ts";
+import type { MaintenanceGate } from "@ace/service";
 import { homedir } from "node:os";
 import { createRedactor } from "@ace/redaction";
 import {
@@ -76,6 +77,7 @@ export async function startDaemon(
   reviewOptions: DaemonReviewOptions = {},
   historyOptions?: DaemonHistoryOptions,
 ): Promise<{
+  maintenance: MaintenanceGate;
   url: string;
   tokenPath: string;
   preview?: DaemonPreview;
@@ -297,6 +299,8 @@ export async function startDaemon(
       context,
       settings,
       ...(remote ? { remote } : {}),
+      maintenance: process.env.ACE_MAINTENANCE === "1",
+      version: process.env.ACE_VERSION ?? "development",
       port: config.port,
       token,
       hostId,
@@ -335,6 +339,7 @@ export async function startDaemon(
     maintenance.unref();
     let closing: Promise<void> | undefined;
     return {
+      maintenance: server.maintenance,
       url: server.url,
       ...(server.remoteUrl && server.fingerprint
         ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }

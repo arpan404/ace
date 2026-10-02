@@ -4,6 +4,7 @@ import { previewHttp } from "./preview-http.ts";
 import { createDaemonPreview, type DaemonPreview, type DaemonPreviewOptions } from "./preview.ts";
 import { dispatchReviewCommand, type ReviewPort } from "./review.ts";
 import type { DaemonHistory } from "./history.ts";
+import { MaintenanceGate } from "@ace/service";
 import type { ModelCatalogApi } from "@ace/models";
 import { handleModelRequest } from "./models.ts";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
@@ -68,6 +69,8 @@ export interface ServerOptions {
   preview?: DaemonPreviewOptions;
   history?: Pick<DaemonHistory, "handle">;
   usage?: UsageCommands;
+  maintenance?: boolean;
+  version?: string;
   models?: ModelCatalogApi;
   port: number;
   remote?: RemoteListener;
@@ -101,6 +104,7 @@ export interface ServerOptions {
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
 export async function startServer(options: ServerOptions): Promise<{
+  maintenance: MaintenanceGate;
   url: string;
   notify(device: DeviceId, notification: Notification): boolean;
   preview?: DaemonPreview;
@@ -138,10 +142,12 @@ export async function startServer(options: ServerOptions): Promise<{
       ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
       : undefined;
   let preview: DaemonPreview | undefined;
+  const maintenance = new MaintenanceGate(() => options.store.updateBlockers());
+  if (options.maintenance) maintenance.enter();
   const local = httpServer(
     previewHttp(
       () => preview,
-      accessHttp(auth, auth.localBearer.bind(auth), pairing, options.pairingAddress),
+      accessHttp(auth, auth.localBearer.bind(auth), pairing, options.pairingAddress, maintenance, options.version),
     ),
   );
   const remote = options.remote
@@ -149,7 +155,7 @@ export async function startServer(options: ServerOptions): Promise<{
         { ...options.remote.identity, minVersion: "TLSv1.2" },
         previewHttp(
           () => preview,
-          accessHttp(auth, auth.deviceBearer.bind(auth), pairing, options.pairingAddress),
+          accessHttp(auth, auth.deviceBearer.bind(auth), pairing, options.pairingAddress, undefined, options.version),
         ),
       )
     : undefined;
@@ -768,6 +774,10 @@ export async function startServer(options: ServerOptions): Promise<{
               });
             break;
           }
+          if (!maintenance.admitCommand(message.command)) {
+            fail("maintenance", "Daemon is draining for an update");
+            break;
+          }
           try {
             if (message.command.payload.type.startsWith("review.")) {
               if (!options.review) {
@@ -824,6 +834,7 @@ export async function startServer(options: ServerOptions): Promise<{
   let closing: Promise<void> | undefined;
   return {
     ...(preview ? { preview } : {}),
+    maintenance,
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
     diagnosticsQueues: () => ({ socketInput: input.depth(), healthRequests }),

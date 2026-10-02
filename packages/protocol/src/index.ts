@@ -30,3 +30,12 @@ export * from "./remote.ts";
 
 export * from "./review.ts";
 export * from "./usage.ts";
+export {
+  ReleaseTarget,
+  ReleaseVersion,
+  ReleaseManifest,
+  InstalledRelease,
+  ReleaseDirectory,
+  MaintenanceStatus,
+  DaemonHealth,
+} from "./release.ts";

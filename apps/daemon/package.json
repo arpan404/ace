@@ -8,7 +8,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./client-access": "./src/client-access.ts"
+    "./client-access": "./src/client-access.ts",
+    "./cli": "./src/cli.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -39,6 +40,7 @@
     "@ace/settings": "workspace:*",
     "@ace/review": "workspace:*",
     "@ace/usage": "workspace:*",
+    "@ace/service": "workspace:*",
     "qrcode-generator": "2.0.4",
     "ws": "^8.18.3",
     "zod": "^4.6.5"

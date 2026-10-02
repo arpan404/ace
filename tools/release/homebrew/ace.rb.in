@@ -1,0 +1,41 @@
+class Ace < Formula
+  desc "Local daemon for your coding-agent CLIs"
+  homepage "https://github.com/arpan404/ace"
+  version "@VERSION@"
+  license "Apache-2.0"
+  on_macos do
+    on_arm do
+      url "@BASE@/ace-@VERSION@-darwin-arm64.tar.gz"
+      sha256 "@DARWIN_ARM64_SHA256@"
+    end
+    on_intel do
+      url "@BASE@/ace-@VERSION@-darwin-x64.tar.gz"
+      sha256 "@DARWIN_X64_SHA256@"
+    end
+  end
+  on_linux do
+    on_arm do
+      url "@BASE@/ace-@VERSION@-linux-arm64.tar.gz"
+      sha256 "@LINUX_ARM64_SHA256@"
+    end
+    on_intel do
+      url "@BASE@/ace-@VERSION@-linux-x64.tar.gz"
+      sha256 "@LINUX_X64_SHA256@"
+    end
+  end
+  def install
+    libexec.install Dir["*"]
+    (bin/"ace").write <<~SH
+      #!/bin/sh
+      exec "#{libexec}/bin/node" "#{libexec}/ace.mjs" "$@"
+    SH
+  end
+  def caveats
+    <<~EOS
+      Run `ace install-artifact #{libexec}` to install the managed user daemon.
+      The managed daemon uses `~/.ace/bin/ace` and its own signed updater.
+      Remove it with `~/.ace/bin/ace service uninstall` before `brew uninstall ace`.
+      Databases are preserved.
+    EOS
+  end
+end

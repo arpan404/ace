@@ -241,6 +241,7 @@ describe("remote access", () => {
     expect(f.server.remoteUrl).toBeUndefined();
     expect(await accessRequest(f.server.httpUrl, "/v1/status", { token })).toEqual({
       running: true,
+      version: "development",
       remote: null,
     });
     await expect(

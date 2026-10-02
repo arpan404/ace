@@ -12,3 +12,7 @@ coverage/
 
 # Locally compiled POSIX terminal guardian.
 packages/terminal/native/group-keeper
+# Reproducible release outputs and downloads
+tools/release/dist/
+tools/release/verification/*.log
+tools/release/.scratch/
