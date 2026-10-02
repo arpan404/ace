@@ -2,7 +2,7 @@
 
 Offline verification on this branch uses Vitest, the public adapter contract, core facts and projected client views. Session tests start a boundary double for the installed CLI as a real child process with a real authenticated HTTP/SSE server. They synchronize on received frames and HTTP responses, without sleeps or elapsed-time assertions. No provider prompt or recorder was run.
 
-The review follow-up merged `origin/main` before changes. The nine fixture expectation files remain unchanged. The package now has 76 passing tests and one skipped health-only live test. `bun run check` passed format, lint, the 1,500-line size limit, all workspace typechecks and 433 tests; five live tests were skipped. Session regressions use the exported adapter factory, real authenticated HTTP/SSE and child processes; the shutdown deadline is driven through an injected scheduler.
+The review follow-up merged `origin/main` before changes. The nine fixture expectation files remain unchanged. The package now has 77 passing tests and one skipped health-only live test. `bun run check` passed format, lint, the 1,500-line size limit, all workspace typechecks and 434 tests; five live tests were skipped. Session regressions use the exported adapter factory, real authenticated HTTP/SSE and child processes; the shutdown deadline is driven through an injected scheduler.
 
 ## Fixture timelines
 
@@ -75,6 +75,7 @@ Each blocking finding was reproduced before its production fix. The first transl
 - GET history requests never create pending-input wake.
 - Snapshot receipt watermarks prevent stale buffered idle from replacing newer busy REST status.
 - Injected receipt clocks also work through the live I/O shell.
+- Heartbeat-gap recovery reconnects SSE before reporting transport restored.
 - An early grace callback rearms instead of stranding queued delivery.
 - Injected task results settle the background job even before their user-message announcement.
 
@@ -125,7 +126,7 @@ All 22 review production mutations failed named behavior tests in the whole adap
 | 21       | close resolves queued work           | cancels local queued work even when the abort endpoint never replies               |
 | 22       | raw evidence defensive clone removed | keeps raw nested tool input independent of later provider buffer reuse             |
 
-Two additional production faults also failed their public behavior tests and were reverted:
+Three additional production faults also failed their public behavior tests and were reverted:
 
 | #   | Production fault                     | Failing behavior                                                            |
 | --- | ------------------------------------ | --------------------------------------------------------------------------- |
@@ -140,4 +141,6 @@ The optional real-CLI test was not enabled in this run. It starts only the serve
 
 The adapter drives v1 routes. `session.next.*` remains raw until a separate v2 translation contract is specified. Detached shells have no native task lifecycle, so capabilities report partial background visibility. Recovery uses at most two snapshot passes and cannot wait indefinitely for global traffic to stop. Buffered deltas are never appended to snapshot content; continuously streaming content converges at the provider's later full part updates. Provider I/O stays outside the translator.
 
-A core-owner request remains for immediate transport liveness override: add `transport.lost` / `transport.restored` facts so recoverable SSE loss reports `unresponsive` immediately and throughout resync. The current contract supports silence-based detection only. This adapter emits loss/restoration lifecycle evidence, expires stale interactions and blocks queued input during recovery. It does not fake clocks or misreport recoverable outages as process exits. See [the request on PR #17](https://github.com/arpan404/ace/pull/17#issuecomment-5954715415).
+A core-owner request remains for immediate transport liveness override: add `transport.lost` / `transport.restored` facts so recoverable SSE loss reports `unresponsive` immediately and throughout resync. The current contract supports silence-based detection only. This adapter emits loss/restoration lifecycle evidence, expires stale interactions and blocks queued input during recovery. It does not fake clocks or misreport recoverable outages as process exits. GitHub Actions did not start either matrix job on the pushed branch because recent account payments failed or the spending limit needs to increase. Retrying the failed jobs produced the same pre-run failure. Local full checks passed; green CI requires an account billing change outside this worktree.
+
+See [the request on PR #17](https://github.com/arpan404/ace/pull/17#issuecomment-5954715415).

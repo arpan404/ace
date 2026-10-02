@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { OpenCodeServer } from "./index.ts";
+import { readSse } from "@ace/provider-kit/sse";
 import { expect, it } from "vitest";
 import { object } from "./data.ts";
 import { setup } from "./testing/session-harness.ts";
@@ -353,4 +354,19 @@ it("does not disclose a foreign project event marked with global directory", asy
   await h.control("/test/drop", {});
   await h.wait((f) => f.channel === "lifecycle" && object(f.data).type === "resynced");
   expect(JSON.stringify(h.frames)).not.toContain("FOREIGN_PROJECT_SECRET");
+});
+
+it("reconnects the event stream before restoring a heartbeat-gap recovery", async () => {
+  let gap: ((elapsed: number) => void) | undefined;
+  const h = await setup({
+    runtime: {
+      stream: (url, options) => {
+        gap = options.heartbeat?.onGap;
+        return readSse(url, options);
+      },
+    },
+  });
+  gap?.(25_001);
+  await h.wait((f) => f.channel === "lifecycle" && object(f.data).type === "resynced");
+  expect(object(await h.control("/test/requests")).connections).toBe(2);
 });

@@ -152,8 +152,24 @@ export class OpenCodeServer {
         };
         this.controller.signal.addEventListener("abort", onAbort, { once: true });
       });
-      this.stream = this.runtime.stream(new URL("/global/event", this.base), {
-        signal: this.controller.signal,
+      this.stream = this.consumeEvents(() => connected?.());
+      void this.stream.catch(() => {
+        this.controller.abort();
+        void proc.stop({ graceMs: 0 });
+      });
+      await connection;
+    } catch (error) {
+      this.deliberate = true;
+      this.controller.abort();
+      await proc.stop({ graceMs: 0 });
+      throw error;
+    }
+  }
+  private async consumeEvents(onConnected: () => void): Promise<void> {
+    while (!this.controller.signal.aborted) {
+      const connection = new AbortController();
+      await this.runtime.stream(new URL("/global/event", this.base), {
+        signal: AbortSignal.any([this.controller.signal, connection.signal]),
         headers: { authorization: this.authorization },
         onEvent: ({ data }) => {
           const watermark = ++this.eventSequence;
@@ -164,7 +180,7 @@ export class OpenCodeServer {
             parsed = { payload: { type: "malformed", properties: { data } } };
           }
           const p = object(object(parsed).payload);
-          if (p.type === "server.connected") connected?.();
+          if (p.type === "server.connected") onConnected();
           const sync = object(p.syncEvent);
           if (
             p.type === "sync" &&
@@ -183,7 +199,7 @@ export class OpenCodeServer {
               this.buffered.push({ data: parsed, watermark });
             if (this.buffered.length > 4096) {
               this.controller.abort();
-              void proc.stop({ graceMs: 0 });
+              void this.process?.stop({ graceMs: 0 });
               return;
             }
             if (p.type === "server.connected") void this.recover();
@@ -194,20 +210,10 @@ export class OpenCodeServer {
           gapMs: 25_000,
           onGap: () => {
             this.beginRecovery();
-            void this.recover();
+            connection.abort();
           },
         },
       });
-      void this.stream.catch(() => {
-        this.controller.abort();
-        void proc.stop({ graceMs: 0 });
-      });
-      await connection;
-    } catch (error) {
-      this.deliberate = true;
-      this.controller.abort();
-      await proc.stop({ graceMs: 0 });
-      throw error;
     }
   }
   private beginRecovery(): void {
