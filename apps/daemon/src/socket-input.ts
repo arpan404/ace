@@ -8,6 +8,10 @@ function byteLength(data: RawData): number {
 /** Serializes authenticated async handlers with a global byte cap and per-socket frame cap. */
 export class SocketInput {
   private bytes = 0;
+  private queued = 0;
+  depth(): number {
+    return this.queued;
+  }
   listen(
     socket: WebSocket,
     receive: (data: RawData, binary: boolean) => Promise<void>,
@@ -22,6 +26,7 @@ export class SocketInput {
         return;
       }
       queued++;
+      this.queued++;
       this.bytes += bytes;
       messages = messages
         .then(() => receive(data, binary))
@@ -31,6 +36,7 @@ export class SocketInput {
         })
         .finally(() => {
           queued--;
+          this.queued--;
           this.bytes -= bytes;
         });
     });

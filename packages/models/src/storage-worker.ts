@@ -12,7 +12,7 @@ db.exec(
   "CREATE TABLE IF NOT EXISTS model_catalog (instance TEXT PRIMARY KEY, payload TEXT NOT NULL)",
 );
 const write = db.prepare(
-  "INSERT INTO model_catalog(instance, payload) VALUES (?, ?) ON CONFLICT(instance) DO UPDATE SET payload=excluded.payload",
+  "INSERT INTO model_catalog(instance, payload) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM model_catalog WHERE instance=?) OR (SELECT count(*) FROM model_catalog) < 64 ON CONFLICT(instance) DO UPDATE SET payload=excluded.payload",
 );
 const remove = db.prepare("DELETE FROM model_catalog WHERE instance=?");
 const Request = z.object({
@@ -29,7 +29,9 @@ port.on("message", (value: unknown) => {
         const payload = JSON.stringify(entry);
         if (Buffer.byteLength(payload) > 4 * 1024 * 1024)
           throw new Error("Cache entry exceeds limit");
-        write.run(entry.instance, payload);
+        // Admission and replacement are one statement, so failed deletions keep their durable slot.
+        if (write.run(entry.instance, payload, entry.instance).changes !== 1)
+          throw new Error("Persisted instance limit reached");
         break;
       }
       case "remove":
