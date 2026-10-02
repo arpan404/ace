@@ -210,7 +210,7 @@ describe("pause, cancel, budgets and conflicts", () => {
   });
 });
 
-it("failed planners and reviewers retry their own roles after user approval", () => {
+it("failed reviewers retry the review role after user approval", () => {
   const h = new Harness();
   h.worker();
   const lane = h.lane("reviewer");

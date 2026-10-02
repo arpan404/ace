@@ -1,0 +1,76 @@
+{
+  "environment": "macOS-26.2-arm64-arm-64bit-Mach-O",
+  "command": "bun run --filter @ace/conductor bench",
+  "results": [
+    {
+      "label": "whole-thread status, 6 workstreams",
+      "iterations": 10000,
+      "opsPerSecond": 1027133,
+      "usPerOperation": 0.97,
+      "peakRssMiB": 109.5
+    },
+    {
+      "label": "account assignment, 6 workstreams",
+      "iterations": 10000,
+      "opsPerSecond": 1971495,
+      "usPerOperation": 0.51,
+      "peakRssMiB": 109.9
+    },
+    {
+      "label": "DAG readiness, 6 workstreams",
+      "iterations": 10000,
+      "opsPerSecond": 8319758,
+      "usPerOperation": 0.12,
+      "peakRssMiB": 109.9
+    },
+    {
+      "label": "whole-thread status, 64 workstreams",
+      "iterations": 10000,
+      "opsPerSecond": 572343,
+      "usPerOperation": 1.75,
+      "peakRssMiB": 110.1
+    },
+    {
+      "label": "account assignment, 64 workstreams",
+      "iterations": 10000,
+      "opsPerSecond": 1836688,
+      "usPerOperation": 0.54,
+      "peakRssMiB": 110.1
+    },
+    {
+      "label": "DAG readiness, 64 workstreams",
+      "iterations": 10000,
+      "opsPerSecond": 836112,
+      "usPerOperation": 1.2,
+      "peakRssMiB": 110.1
+    },
+    {
+      "label": "whole-thread status, 256 workstreams",
+      "iterations": 10000,
+      "opsPerSecond": 579495,
+      "usPerOperation": 1.73,
+      "peakRssMiB": 110.7
+    },
+    {
+      "label": "account assignment, 256 workstreams",
+      "iterations": 10000,
+      "opsPerSecond": 1070721,
+      "usPerOperation": 0.93,
+      "peakRssMiB": 110.7
+    },
+    {
+      "label": "DAG readiness, 256 workstreams",
+      "iterations": 10000,
+      "opsPerSecond": 38947,
+      "usPerOperation": 25.68,
+      "peakRssMiB": 110.7
+    },
+    {
+      "label": "SQLite snapshot + receipt, planner heartbeat",
+      "iterations": 1000,
+      "opsPerSecond": 4652,
+      "usPerOperation": 214.96,
+      "peakRssMiB": 132.3
+    }
+  ]
+}

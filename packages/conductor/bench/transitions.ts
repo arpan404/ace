@@ -6,6 +6,7 @@ import type { Environment, State } from "../src/index.ts";
 import { accounts, plan, spec } from "../src/test-support.ts";
 
 let sequence = 0;
+let observations = 0;
 const env: Environment = {
   now: () => 100,
   id: () => `bench-${++sequence}`,
@@ -67,10 +68,11 @@ for (const size of [6, 64, 256]) {
     .filter((l) => l.live)
     .slice(0, 32);
   measure(`account assignment, ${size} workstreams`, 10000, () => {
-    selectAccount(state.spec, state.accounts, occupied, "reviewer", lane);
+    observations +=
+      selectAccount(state.spec, state.accounts, occupied, "reviewer", lane)?.model.quota ?? 0;
   });
   measure(`DAG readiness, ${size} workstreams`, 10000, () => {
-    readyWorkstreams(state);
+    observations += readyWorkstreams(state).length;
   });
 }
 const directory = mkdtempSync(join(tmpdir(), "ace-conductor-bench-"));
@@ -92,3 +94,5 @@ try {
   store.close();
   rmSync(directory, { recursive: true, force: true });
 }
+
+console.log(JSON.stringify({ observations }));
