@@ -12,6 +12,12 @@
         "vitest": "^5.0.3",
       },
     },
+    "packages/core": {
+      "name": "@ace/core",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+      },
+    },
     "packages/protocol": {
       "name": "@ace/protocol",
       "dependencies": {
@@ -26,6 +32,8 @@
     },
   },
   "packages": {
+    "@ace/core": ["@ace/core@workspace:packages/core"],
+
     "@ace/protocol": ["@ace/protocol@workspace:packages/protocol"],
 
     "@ace/recorder": ["@ace/recorder@workspace:tools/recorder"],
