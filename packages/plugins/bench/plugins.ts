@@ -6,6 +6,7 @@ import {
   materializeProjection,
   projectPlugins,
   limits,
+  PluginService,
 } from "../src/index.ts";
 import type { Provider } from "../src/index.ts";
 import { fixture, sampleFiles, sampleManifest, writeFiles, git } from "../src/test-support.ts";
@@ -117,3 +118,31 @@ console.log(
     peakRssMiB: Math.round(process.resourceUsage().maxRSS / 1024),
   }),
 );
+
+// Large pending collections exercise prepared summary reads and bounded consent pages.
+const reviews = await fixture({
+  ".claude-plugin/plugin.json": JSON.stringify({
+    name: "sample",
+    hooks: Array(30).fill("hook.json"),
+  }),
+  "hook.json": JSON.stringify({ Stop: [{ command: "x".repeat(8192) }] }),
+});
+try {
+  let id = "";
+  for (let index = 0; index < 5; index++) id = (await reviews.prepare()).id;
+  const service = new PluginService(reviews.manager);
+  const operations = 1000;
+  for (const request of [{ type: "plugins.list" }, { type: "plugins.readReview", id, offset: 0 }]) {
+    const started = performance.now();
+    for (let index = 0; index < operations; index++) await service.handle(request);
+    console.log(
+      JSON.stringify({
+        operation: request.type,
+        microsecondsPerOp: Math.round(((performance.now() - started) * 1000) / operations),
+        peakRssMiB: Math.round(process.resourceUsage().maxRSS / 1024),
+      }),
+    );
+  }
+} finally {
+  await reviews.close();
+}

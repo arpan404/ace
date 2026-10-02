@@ -38,4 +38,24 @@ The review's four survivors (22, 23, 25 and 26) and nine additional production f
 | cursor-selectors            | conditional Cursor rules      |
 | git-descendant-ownership    | Git overflow                  |
 
-The recovery test fails the replacement after restoring distinct previous content. Missing commands, agents and rules each have independent tests. The rename test takes its baseline after setting permissions, isolating path identity. Invocation tests cover both individual and aggregate override sizes. Concurrency now uses two actual managers during a real Git preparation; the injected stream gate provides deterministic synchronization. Git lifecycle tests synchronize descendant readiness, capture its PID and inspect whether it remains runnable after the API completes.
+The recovery test fails the replacement after restoring distinct previous content. Missing commands, agents and rules each have independent tests. The rename test takes its baseline after setting permissions, isolating path identity. Invocation tests cover both individual and aggregate override sizes. Concurrency now uses two actual managers during a real Git preparation; the injected stream gate provides deterministic synchronization. Git lifecycle tests synchronize descendant readiness and observe real socket closure after the API completes; detached helpers are additionally checked for non-runnable status.
+
+## Independent verifier follow-up
+
+All thirteen faults below were applied individually, caused the named public behavior to fail, and were reverted. Runs excluded transform errors and fixture timeouts. N13 is the verifier's sole surviving mutation.
+
+| ID  | Deliberate fault                             | Failed behavior                                                        |
+| --- | -------------------------------------------- | ---------------------------------------------------------------------- |
+| V1  | Persist reviews above the byte cap           | oversized execution reviews fail before persistence                    |
+| V2  | Return full bodies instead of list summaries | large collections expose bounded review summaries                      |
+| V3  | Skip the first paged entry                   | legacy pending reviews remain discoverable with complete details       |
+| V4  | Reject single entries above the page target  | a single large accepted execution remains completely readable          |
+| V5  | Replace Codex command instructions           | Codex commands remain explicitly invocable                             |
+| V6  | Drop Codex agent instructions                | Codex commands remain explicitly invocable and agents retain prompts   |
+| V7  | Omit projected process arguments             | claude native launch receives plugin overrides                         |
+| V8  | Omit projected process environment           | opencode native launch receives plugin overrides                       |
+| V9  | Send ACP parameters without plugin servers   | acp native session receives projected MCP servers                      |
+| V10 | Accept a relative ACP cwd                    | ACP sessions reject relative workspace directories                     |
+| V11 | Skip daemon launch shutdown                  | daemon shutdown stops an active plugin launch                          |
+| V12 | Skip successful private Git cwd release      | successful Git preparation reclaims detached helpers with closed pipes |
+| N13 | Activate an incompatible OpenCode cwd server | unsupported transport or cwd are reported instead of misconfigured     |
