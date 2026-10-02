@@ -1,10 +1,14 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdtemp, readFile, rm, cp } from "node:fs/promises";
+import { mkdtemp, readFile, rm, cp, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { checked, runProcess } from "@ace/service";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { extract } from "tar";
+import { z } from "zod";
+import { Store, createDevThread } from "@ace/daemon";
 import { once } from "node:events";
 import { generateKeyPairSync } from "node:crypto";
 import { bundleDaemon } from "@ace/release";
@@ -14,7 +18,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 test(
-  "the bundled daemon starts its notification worker and answers authenticated status without a checkout",
+  "the standalone daemon persists notifications, structured logs and exported diagnostics without a checkout",
   { timeout: 60_000 },
   async () => {
     const root = await mkdtemp(join(tmpdir(), "ace-bundle-"));
@@ -112,6 +116,47 @@ test(
       } finally {
         persisted.close();
       }
+      const records = (await readFile(join(root, "data/logs/ace.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => z.object({ message: z.string() }).parse(JSON.parse(line)));
+      expect(records.some((record) => record.message === "Daemon listening")).toBe(true);
+      const store = new Store(join(root, "data/events.sqlite"));
+      try {
+        createDevThread(store, store.createWorkspace(root, "Bundle fixture"));
+      } finally {
+        store.close();
+      }
+      const emptyPath = join(root, "empty-bin");
+      await mkdir(emptyPath);
+      const support = join(root, "support.tar.gz");
+      await promisify(execFile)(
+        process.execPath,
+        [join(root, "ace.mjs"), "support-bundle", support, "--include-threads"],
+        {
+          cwd: root,
+          env: {
+            HOME: root,
+            PATH: emptyPath,
+            ACE_HOME: join(root, "data"),
+            ACE_PORT: "0",
+            ACE_LISTEN: "local",
+          },
+          maxBuffer: 65536,
+        },
+      );
+      const exported = join(root, "exported");
+      await mkdir(exported);
+      await extract({ file: support, cwd: exported });
+      const report = z
+        .object({ checks: z.array(z.object({ id: z.string(), status: z.string() })) })
+        .parse(JSON.parse(await readFile(join(exported, "doctor.json"), "utf8")));
+      expect(report.checks.find((check) => check.id === "sqlite")?.status).toBe("ok");
+      const events = (await readFile(join(exported, "threads.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => z.object({ type: z.string() }).parse(JSON.parse(line)));
+      expect(events.some((event) => event.type === "thread.created")).toBe(true);
       const copy = join(root, "migration-copy");
       await cp(join(root, "data"), copy, { recursive: true });
       await checked(runProcess, process.execPath, [join(root, "ace.mjs"), "migrate-check", copy]);

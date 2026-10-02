@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { Command, ThreadId, type ThreadStatus } from "@ace/protocol";
+import { Command, DiagnosticsHealth, ThreadId, type ThreadStatus } from "@ace/protocol";
 import { fixture, token } from "./socket-test-support.ts";
 import { accessRequest } from "./client-access.ts";
 const cleanups: (() => Promise<void>)[] = [];
@@ -116,6 +116,42 @@ test("draining still accepts a human approval so existing work can settle", asyn
     }),
   });
   expect(await client.next()).toMatchObject({ type: "commandResult", ok: true });
+  expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
+    draining: true,
+    blockers: 0,
+  });
+});
+
+test("draining still serves read-only diagnostics without changing agent work", async () => {
+  const health = DiagnosticsHealth.parse({
+    at: 1,
+    eventLoop: { meanMs: null, p99Ms: null, maxMs: null },
+    memory: { rssBytes: 1, heapUsedBytes: 1, heapTotalBytes: 1 },
+    openHandles: 0,
+    sqlite: { pageBytes: 4096, walBytes: 0 },
+    activeSessions: 0,
+    queues: {},
+    logs: { dropped: 0, failed: 0, queued: 0 },
+  });
+  const f = await fixture({ maintenance: true, health: async () => health });
+  cleanups.push(() => f.close());
+  const client = await f.connect();
+  await client.next();
+  const before = f.store.headSeq();
+  client.send({
+    type: "command",
+    command: Command.parse({
+      id: "health-during-drain",
+      deviceId: "device",
+      payload: { type: "diagnostics.health" },
+    }),
+  });
+  expect(await client.next()).toMatchObject({
+    type: "commandResult",
+    ok: true,
+    health: { sqlite: { pageBytes: 4096 } },
+  });
+  expect(f.store.headSeq()).toBe(before);
   expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
     draining: true,
     blockers: 0,

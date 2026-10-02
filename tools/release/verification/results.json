@@ -145,7 +145,7 @@
   },
   {
     "mutation": "skip notification worker persistence",
-    "test": "the bundled daemon starts its notification worker and answers authenticated status without a checkout",
+    "test": "the standalone daemon persists notifications, structured logs and exported diagnostics without a checkout",
     "status": "not executed (tests run at merge)"
   },
   {
@@ -156,6 +156,26 @@
   {
     "mutation": "forget admission recovery once the journal disappears",
     "test": "committed recovery retries after the transaction owner dies even with automatic updates disabled",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "omit or misroute diagnostics log worker",
+    "test": "the standalone daemon persists notifications, structured logs and exported diagnostics without a checkout",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "omit or misroute diagnostics SQLite helper",
+    "test": "the standalone daemon persists notifications, structured logs and exported diagnostics without a checkout",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "omit or misroute diagnostics thread export worker",
+    "test": "the standalone daemon persists notifications, structured logs and exported diagnostics without a checkout",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "block read-only diagnostics during maintenance",
+    "test": "draining still serves read-only diagnostics without changing agent work",
     "status": "not executed (tests run at merge)"
   }
 ]
