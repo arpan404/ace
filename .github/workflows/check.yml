@@ -64,6 +64,9 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: File size limit
+        run: bun run check:size
+
       - name: Typecheck
         run: bun run typecheck
 
