@@ -20,6 +20,7 @@
       "dependencies": {
         "@ace/accounts": "workspace:*",
         "@ace/mcp-server": "workspace:*",
+        "@ace/models": "workspace:*",
         "@ace/notify": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
@@ -64,9 +65,18 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/automations": {
+      "name": "@ace/automations",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
+        "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
       },
     },
@@ -76,6 +86,12 @@
         "@ace/core": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+      },
+    },
+    "packages/git": {
+      "name": "@ace/git",
+      "dependencies": {
+        "zod": "^4.6.5",
       },
     },
     "packages/mcp-server": {
@@ -93,10 +109,26 @@
         "@modelcontextprotocol/sdk": "1.31.0",
       },
     },
+    "packages/models": {
+      "name": "@ace/models",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/notify": {
       "name": "@ace/notify",
       "dependencies": {
         "@ace/core": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.1.12",
+      },
+    },
+    "packages/orchestrator": {
+      "name": "@ace/orchestrator",
+      "dependencies": {
+        "@ace/git": "workspace:*",
         "@ace/protocol": "workspace:*",
         "zod": "^4.1.12",
       },
@@ -138,15 +170,23 @@
 
     "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],
 
+    "@ace/automations": ["@ace/automations@workspace:packages/automations"],
+
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
 
     "@ace/engine-api": ["@ace/engine-api@workspace:packages/engine-api"],
 
+    "@ace/git": ["@ace/git@workspace:packages/git"],
+
     "@ace/mcp-server": ["@ace/mcp-server@workspace:packages/mcp-server"],
 
+    "@ace/models": ["@ace/models@workspace:packages/models"],
+
     "@ace/notify": ["@ace/notify@workspace:packages/notify"],
+
+    "@ace/orchestrator": ["@ace/orchestrator@workspace:packages/orchestrator"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 

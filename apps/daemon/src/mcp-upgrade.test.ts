@@ -55,21 +55,15 @@ it("accepts repeated agent creation and publishes the replacement with later sta
 
 it("upgrades a pre-MCP database containing repeated creation and retains the latest agent", () => {
   const { path, store, thread, agent } = database();
-  const seq = store.headSeq() + 1;
+  store.appendEvents(
+    thread.id,
+    [{ type: "agent.created", agent: { ...agent, cwd: "/upgraded" } }],
+    2,
+  );
   store.close();
-  // A real pre-MCP event log has no MCP tables and allows repeated agent.created records.
+  // Remove the derived MCP tables to reproduce an event log awaiting MCP backfill.
   const legacy = new DatabaseSync(path);
   legacy.exec("DROP TABLE mcp_agents; DROP TABLE mcp_intents; DROP TABLE mcp_meta;");
-  legacy
-    .prepare("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)")
-    .run(
-      seq,
-      "repeated-creation",
-      thread.id,
-      2,
-      "agent.created",
-      JSON.stringify({ type: "agent.created", agent: { ...agent, cwd: "/upgraded" } }),
-    );
   legacy.close();
   const upgraded = new Store(path);
   cleanups.push(() => upgraded.close());
@@ -85,4 +79,38 @@ it("upgrades a pre-MCP database containing repeated creation and retains the lat
     cwd: "/upgraded",
     status: { state: "idle" },
   });
+});
+it("deleting a thread removes its MCP callers and pending intents while preserving other threads", () => {
+  const { path, store, thread, agent } = database();
+  const other = createDevThread(store, thread.workspaceId);
+  const otherAgent = Agent.parse({ ...agent, id: "other", threadId: other.id });
+  store.appendEvents(other.id, [{ type: "agent.created", agent: otherAgent }], 2);
+  for (const [id, owner] of [
+    ["deleted", agent],
+    ["retained", otherAgent],
+  ] as const)
+    store.enqueueMcpIntent(
+      id,
+      {
+        type: "mcp.spawn",
+        sessionId: "s",
+        threadId: owner.threadId,
+        agentId: owner.id,
+        input: { task: "Synthetic queued task" },
+      },
+      [],
+      3,
+    );
+  store.deleteThread(thread.id);
+  expect(store.getThread(thread.id)).toBeUndefined();
+  expect(store.getMcpAgent(thread.id, agent.id)).toBeUndefined();
+  expect(store.listMcpAgents(thread.id, "", 10)).toEqual([]);
+  expect(store.readMcpIntents().map((row) => row.id)).toEqual(["retained"]);
+  expect(store.getMcpAgent(other.id, otherAgent.id)).toEqual(otherAgent);
+  const reopened = new Store(path);
+  cleanups.push(() => reopened.close());
+  expect(reopened.listMcpAgents(thread.id, "", 10)).toEqual([]);
+  expect(reopened.readMcpIntents().map((row) => row.id)).toEqual(["retained"]);
+  expect(reopened.acknowledgeMcpIntent("retained")).toBe(true);
+  expect(reopened.readMcpIntents()).toEqual([]);
 });
