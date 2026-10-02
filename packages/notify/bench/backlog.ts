@@ -165,10 +165,11 @@ const worker = new NotificationWorker({
 });
 try {
   await worker.cursor(); // Exclude module startup from throughput.
-  const unused = "x".repeat(8 * 1024 * 1024);
+  const workspace = "w".repeat(8 * 1024 * 1024);
+  const rootAgent = "a".repeat(8 * 1024 * 1024);
   // Force source allocation before measuring notification copying.
   process.stdout.write(
-    `Giant input source: ${unused.charCodeAt(unused.length - 1)}, baseline peak RSS ${(process.resourceUsage().maxRSS / 1024).toFixed(1)} MiB.\n`,
+    `Giant input source: ${workspace.charCodeAt(workspace.length - 1) + rootAgent.charCodeAt(rootAgent.length - 1)}, baseline peak RSS ${(process.resourceUsage().maxRSS / 1024).toFixed(1)} MiB.\n`,
   );
   let seq = 0;
   const started = performance.now(),
@@ -178,15 +179,15 @@ try {
     await worker.ingest([
       Event.parse({
         seq: ++seq,
-        id: unused,
+        id: workspace,
         threadId,
         at,
         payload: {
           type: "thread.created",
           thread: {
             id: threadId,
-            workspaceId: unused,
-            rootAgentId: unused,
+            workspaceId: workspace,
+            rootAgentId: rootAgent,
             provider: "codex",
             title: "Safe",
             status: { state: "new" },

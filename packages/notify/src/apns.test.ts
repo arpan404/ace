@@ -13,7 +13,7 @@ import { createApnsTransport } from "./index.ts";
 
 it("sends APNs alert and deep link over HTTP2 with a verifiable ES256 provider token", async () => {
   const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
-  const time = Date.parse("2026-10-02T00:00:00Z");
+  let time = Date.parse("2026-10-02T00:00:00Z");
   const requests: { headers: IncomingHttpHeaders; body: Buffer }[] = [];
   let code = 200;
   const server = createServer();
@@ -120,6 +120,35 @@ it("sends APNs alert and deep link over HTTP2 with a verifiable ES256 provider t
     }
     expect(requests).toHaveLength(5);
     expect(requests[1]?.headers.authorization).toBe(received.headers.authorization);
+    code = 200;
+    await transport.send(
+      device,
+      { ...notification, threadId: Notification.shape.threadId.parse("other") },
+      new AbortController().signal,
+    );
+    expect(requests[5]?.headers["apns-collapse-id"]).not.toBe(received.headers["apns-collapse-id"]);
+    time += 49 * 60_000;
+    await transport.send(device, notification, new AbortController().signal);
+    expect(requests[6]?.headers.authorization).toBe(received.headers.authorization);
+    expect(requests[6]?.headers["apns-collapse-id"]).toBe(received.headers["apns-collapse-id"]);
+    time += 60_000;
+    await transport.send(device, notification, new AbortController().signal);
+    const refreshed = String(requests[7]?.headers.authorization).replace(/^bearer /, "");
+    expect(refreshed).not.toBe(String(received.headers.authorization).replace(/^bearer /, ""));
+    const [newHeader, newClaims, newSignature] = refreshed.split(".");
+    if (!newHeader || !newClaims || !newSignature) throw new Error("Missing rotated token");
+    expect(JSON.parse(Buffer.from(newClaims, "base64url").toString())).toEqual({
+      iss: "TEAM123456",
+      iat: time / 1000,
+    });
+    expect(
+      verify(
+        "sha256",
+        Buffer.from(`${newHeader}.${newClaims}`),
+        { key: keys.publicKey, dsaEncoding: "ieee-p1363" },
+        Buffer.from(newSignature, "base64url"),
+      ),
+    ).toBe(true);
   } finally {
     transport.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
