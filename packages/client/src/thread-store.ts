@@ -117,9 +117,17 @@ export class ThreadStore implements ThreadReader {
     if (!view) return "gap";
     if (message.throughSeq <= view.seq) return "ignored";
     if (message.afterSeq !== view.seq) return "gap";
+    const admitted = new Set<string>();
+    const sequential = message.type === "events" ? message.events.filter((event) => {
+      const payload = event.payload;
+      if (payload.type === "item.created") { admitted.add(payload.item.id); return true; }
+      if (payload.type === "item.updated") return !!this.item(payload.item.id) || admitted.has(payload.item.id);
+      if (payload.type === "item.delta") return !!this.item(payload.itemId) || admitted.has(payload.itemId);
+      return true;
+    }) : [];
     const keys = new Set<ThreadKey>(["cursor"]);
     const changedItems = new Set<string>();
-    for (const event of message.type === "events" ? message.events : []) {
+    for (const event of sequential) {
       const p = event.payload;
       switch (p.type) {
         case "thread.created":
@@ -196,18 +204,7 @@ export class ThreadStore implements ThreadReader {
           break;
       }
     }
-    // Authoritative updates for items outside the loaded window must not reinsert history.
-    const filtered =
-      message.type === "events"
-        ? message.events.filter(
-            (event) =>
-              event.payload.type !== "item.updated" || changedItems.has(event.payload.item.id),
-          )
-        : undefined;
-    const result = applyDelivery(
-      view,
-      filtered && message.type === "events" ? { ...message, events: filtered } : message,
-    );
+    const result = applyDelivery(view, message.type === "events" ? { ...message, events: sequential } : message);
     if (result.kind !== "applied") return result.kind;
     for (const id of changedItems) this.clip(id);
     const evicted = this.trim();

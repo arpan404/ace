@@ -4,6 +4,8 @@ import { ClientError, type Limits } from "./types.ts";
 
 interface Cached {
   store: ThreadStore;
+  threadId: string;
+  snapshotAllowed: boolean;
   refs: number;
   subscriptionId: string | undefined;
 }
@@ -38,7 +40,7 @@ export class Subscriptions {
         if (!evict) throw new ClientError("limit");
         this.cache.delete(evict[0]);
       }
-      entry = { store: new ThreadStore(this.limits), refs: 0, subscriptionId: undefined };
+      entry = { store: new ThreadStore(this.limits), threadId, snapshotAllowed: true, refs: 0, subscriptionId: undefined };
     }
     this.cache.delete(threadId);
     this.cache.set(threadId, entry);
@@ -64,6 +66,7 @@ export class Subscriptions {
   }
   private subscribe(threadId: string, entry: Cached): void {
     const id = this.id();
+    entry.snapshotAllowed = true;
     entry.subscriptionId = id;
     this.wires.set(id, entry);
     this.send({
@@ -87,11 +90,13 @@ export class Subscriptions {
     if (!entry) return;
     if (message.type === "snapshot") {
       if (message.view.kind !== "thread") throw new ClientError("protocol");
-      const owner = [...this.cache].find(([, value]) => value === entry)?.[0];
-      if (message.view.thread.id !== owner) throw new ClientError("protocol");
+      if (!entry.snapshotAllowed || (entry.store.cursor !== undefined && message.seq < entry.store.cursor)) return;
+      entry.snapshotAllowed = false;
+      if (message.view.thread.id !== entry.threadId) throw new ClientError("protocol");
       entry.store.snapshot(message.view);
       return;
     }
+    entry.snapshotAllowed = false;
     if (entry.store.delivery(message) !== "gap") return;
     this.send({ type: "unsubscribe", subscriptionId: message.subscriptionId });
     this.wires.delete(message.subscriptionId);
@@ -99,6 +104,7 @@ export class Subscriptions {
     if (!threadId) throw new ClientError("protocol");
     // A fresh id discards frames from the old replay. Omit cursor to force snapshot.
     const id = this.id();
+    entry.snapshotAllowed = true;
     entry.subscriptionId = id;
     this.wires.set(id, entry);
     this.send({ type: "subscribe", subscriptionId: id, scope: { kind: "thread", threadId } });

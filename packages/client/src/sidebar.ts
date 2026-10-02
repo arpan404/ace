@@ -17,6 +17,7 @@ export class Sidebar implements SidebarReader {
   private ready: () => boolean;
   private wire: string | undefined;
   private refs = 0;
+  private snapshotAllowed = true;
   constructor(
     limits: Limits,
     send: (message: ClientMessage) => boolean,
@@ -58,6 +59,7 @@ export class Sidebar implements SidebarReader {
     };
   }
   private subscribe(): void {
+    this.snapshotAllowed = true;
     this.wire = this.id();
     this.send({
       type: "subscribe",
@@ -80,6 +82,8 @@ export class Sidebar implements SidebarReader {
       return;
     if (message.type === "snapshot") {
       if (message.view.kind !== "threads") throw new ClientError("protocol");
+      if (!this.snapshotAllowed || (this.view && message.seq < this.view.seq)) return;
+      this.snapshotAllowed = false;
       const ids = Object.keys(message.view.threads);
       if (ids.length > this.limits.entities) throw new ClientError("limit");
       this.view = message.view;
@@ -87,6 +91,7 @@ export class Sidebar implements SidebarReader {
       this.notifications.emitAll();
       return;
     }
+    this.snapshotAllowed = false;
     const view = this.view;
     if (view && message.throughSeq <= view.seq) return;
     if (!view || message.afterSeq !== view.seq) {
@@ -116,6 +121,7 @@ export class Sidebar implements SidebarReader {
   }
   private resync(): void {
     if (this.wire) this.send({ type: "unsubscribe", subscriptionId: this.wire });
+    this.snapshotAllowed = true;
     this.wire = this.id();
     this.send({ type: "subscribe", subscriptionId: this.wire, scope: { kind: "threads" } });
   }
