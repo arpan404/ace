@@ -1,0 +1,44 @@
+{
+  "version": "2026-10-02.1",
+  "sources": [
+    "https://platform.claude.com/docs/en/about-claude/pricing",
+    "https://developers.openai.com/api/docs/models/gpt-5.3-codex"
+  ],
+  "models": {
+    "claude-opus-5-5": {
+      "input": 4,
+      "cached": 0.2,
+      "write": 5,
+      "write1h": 8,
+      "output": 20
+    },
+    "claude-sonnet-5-5": {
+      "input": 2,
+      "cached": 0.2,
+      "write": 2.5,
+      "write1h": 4,
+      "output": 10
+    },
+    "claude-sonnet-4-6": {
+      "input": 3,
+      "cached": 0.3,
+      "write": 3.75,
+      "write1h": 6,
+      "output": 15
+    },
+    "claude-haiku-4-5": {
+      "input": 1,
+      "cached": 0.1,
+      "write": 1.25,
+      "write1h": 2,
+      "output": 5
+    },
+    "gpt-5.3-codex": {
+      "input": 1.75,
+      "cached": 0.175,
+      "write": 1.75,
+      "write1h": 1.75,
+      "output": 14
+    }
+  }
+}

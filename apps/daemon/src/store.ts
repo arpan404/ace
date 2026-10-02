@@ -22,6 +22,7 @@ import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
 import { migrate } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
+import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
 
 export interface StoreOptions extends Partial<CredentialRuntime> {
@@ -34,6 +35,8 @@ type Listener = (events: Event[]) => void;
 export class Store {
   readonly devices: Devices;
   private readonly db: DatabaseSync;
+  private readonly usageReplay: UsageReplay;
+  private readonly usageListeners = new Set<() => void>();
   private readonly payloads: PayloadStore;
   private readonly status: StatusStore;
   private readonly nextId: () => string;
@@ -65,6 +68,7 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
+      this.usageReplay = new UsageReplay(this.db);
       this.payloads.initialize();
       this.status.initialize((id) => this.getThread(id));
       this.devices = new Devices(this.db, {
@@ -83,6 +87,7 @@ export class Store {
     this.closed = true;
     this.statements.clear();
     this.listeners.clear();
+    this.usageListeners.clear();
     this.caches.clear();
     this.db.close();
   }
@@ -98,6 +103,15 @@ export class Store {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+  /** Wake analytics on committed events and durable deletion tombstones. */
+  subscribeUsage(listener: () => void): () => void {
+    if (this.usageListeners.size >= 16 && !this.usageListeners.has(listener))
+      throw new Error("Usage subscription capacity reached");
+    this.usageListeners.add(listener);
+    return () => {
+      this.usageListeners.delete(listener);
     };
   }
   headSeq(): number {
@@ -138,6 +152,17 @@ export class Store {
       this.transactionEvents = undefined;
     }
     this.publish(events);
+    for (const listener of this.usageListeners) {
+      try {
+        listener();
+      } catch (error) {
+        try {
+          this.onError(error);
+        } catch {
+          /* committed */
+        }
+      }
+    }
     return result;
   }
   /** Extend a receipt or event transaction on the same connection. No async I/O. */
@@ -367,6 +392,10 @@ export class Store {
       }),
     );
   }
+  /** Usage replay skips transcript/output payloads while advancing host coverage. */
+  readUsagePage(options: { afterSeq: number; limit: number; maxBytes?: number }) {
+    return this.usageReplay.read(options, this.headSeq());
+  }
   recordCommand(commandId: CommandId, deviceId: DeviceId, run: () => CommandResult): CommandResult {
     return this.transaction(() => {
       const receipt = this.statement(
@@ -465,6 +494,11 @@ export class Store {
   }
   deleteThread(id: ThreadId): void {
     this.transaction(() => {
+      if (!this.getThread(id)) return;
+      const seq = this.headSeq() + 1;
+      if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
+      this.statement("INSERT INTO usage_deletions VALUES (?, ?, ?)").run(seq, id, this.now());
+      this.statement("UPDATE host_sequence SET seq=? WHERE id=1").run(seq);
       this.mcp.deleteThread(id);
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);

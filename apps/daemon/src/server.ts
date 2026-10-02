@@ -7,6 +7,7 @@ import type { DaemonHistory } from "./history.ts";
 import type { ModelCatalogApi } from "@ace/models";
 import { handleModelRequest } from "./models.ts";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
+import type { UsageCommands } from "./usage.ts";
 import type { NotificationWorker } from "@ace/notify";
 import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
 import { z } from "zod";
@@ -66,6 +67,7 @@ export interface ServerOptions {
   settings?: SettingsService;
   preview?: DaemonPreviewOptions;
   history?: Pick<DaemonHistory, "handle">;
+  usage?: UsageCommands;
   models?: ModelCatalogApi;
   port: number;
   remote?: RemoteListener;
@@ -522,6 +524,26 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         }
 
+        case "usage.summary":
+        case "usage.series": {
+          if (!allows(authenticated.get(socket), "read")) {
+            fail("forbidden", "Read scope required");
+            break;
+          }
+          if (!options.usage) {
+            fail("usage_unavailable", "Usage analytics unavailable");
+            break;
+          }
+          try {
+            const kind = message.type === "usage.summary" ? "summary" : "series";
+            const result = await options.usage[kind](message.query);
+            if (socket.readyState === WebSocket.OPEN && authenticated.has(socket))
+              send({ type: "usage.result", requestId: message.requestId, kind, result });
+          } catch {
+            fail("usage_failed", "Usage query rejected");
+          }
+          break;
+        }
         case "models.list":
         case "models.resolve":
         case "models.refresh": {

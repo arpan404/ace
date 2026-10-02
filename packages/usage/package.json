@@ -1,0 +1,20 @@
+{
+  "name": "@ace/usage",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "bench": "node bench/usage.ts"
+  },
+  "dependencies": {
+    "@ace/protocol": "workspace:*",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "fast-check": "^4.10.2"
+  }
+}

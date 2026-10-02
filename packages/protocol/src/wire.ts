@@ -12,6 +12,7 @@ import {
   HistoryContinueRequest,
   HistoryContinueResponse,
 } from "./history.ts";
+import { UsageSummary, UsageSeries, UsageMessage } from "./usage.ts";
 import {
   ModelsListRequest,
   ModelsRefreshRequest,
@@ -115,6 +116,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   HistoryImportRequest,
   HistoryScanRequest,
   HistoryContinueRequest,
+  UsageSummary,
+  UsageSeries,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -175,6 +178,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HistoryImportResponse,
   HistoryScanResponse,
   HistoryContinueResponse,
+  UsageMessage,
   ModelsResult,
   NotificationMessage,
   z.object({

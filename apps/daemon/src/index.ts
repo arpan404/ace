@@ -46,7 +46,9 @@ import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
 export { createDaemonReview, type ReviewPort, type DaemonReviewOptions } from "./review.ts";
+import { createDaemonUsage, loadUsageSettings } from "./usage.ts";
 export { Store, type StoreOptions } from "./store.ts";
+export { createDaemonUsage, loadUsageSettings, type UsageCommands } from "./usage.ts";
 export {
   createDevThread,
   stubHandler,
@@ -101,6 +103,7 @@ export async function startDaemon(
   const loggingContext = { home: homedir(), env: process.env };
   let log: ReturnType<typeof createLogger> | undefined;
   let health: ReturnType<typeof createHealthMonitor> | undefined;
+  let usage: ReturnType<typeof createDaemonUsage> | undefined;
   let store: Store | undefined;
   let engine: Engine | undefined;
   let plugins: PluginManager | undefined;
@@ -147,6 +150,7 @@ export async function startDaemon(
                   await context?.close();
                   await settings?.close();
                   await history?.close();
+                  await usage?.close();
                 } finally {
                   await models?.close();
                 }
@@ -272,6 +276,10 @@ export async function startDaemon(
     settings = new SettingsService({ dataDir: config.dataDir });
     review = createDaemonReview(config.dataDir, store, reviewOptions);
     if (historyOptions) history = await openDaemonHistory(config.dataDir, store, historyOptions);
+    usage = createDaemonUsage(config.dataDir, store, await loadUsageSettings(config.dataDir), () =>
+      ownedLog.log("error", "Usage analytics failure"),
+    );
+    await usage.start();
     models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
@@ -303,6 +311,7 @@ export async function startDaemon(
       ...(previewOptions ? { preview: previewOptions } : {}),
       health: health.collect,
       log: (error) => ownedLog.log("error", "WebSocket failure", error),
+      usage,
     });
     ownedLog.log("info", "Daemon listening", logFields([["url", server.url]]));
     notifications.setSender(server.notify);
