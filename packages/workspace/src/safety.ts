@@ -1,8 +1,18 @@
 import { constants, type Stats } from "node:fs";
 import { lstat, open, opendir, realpath, stat, type FileHandle } from "node:fs/promises";
-import { isAbsolute, join, relative, win32 } from "node:path";
+import { isAbsolute, join, relative, sep, win32 } from "node:path";
 import { failure, errorCode, DIRECTORY_CAP, WorkspaceError } from "./types.ts";
 
+/** Shared lexical schema for explicit requests and discovered filesystem names. */
+export function validRelativePath(input: string): boolean {
+  return !(
+    input.includes("\0") ||
+    input.includes("\\") ||
+    isAbsolute(input) ||
+    win32.isAbsolute(input) ||
+    input.split("/").includes("..")
+  );
+}
 function same(a: Stats, b: Stats): boolean {
   return a.dev === b.dev && a.ino === b.ino;
 }
@@ -25,18 +35,11 @@ export class SafeRoot {
     }
   }
   path(input: string): string {
-    if (
-      input.includes("\0") ||
-      input.includes("\\") ||
-      isAbsolute(input) ||
-      win32.isAbsolute(input) ||
-      input.split("/").includes("..")
-    ) {
+    if (!validRelativePath(input))
       throw new WorkspaceError(
         "INVALID_PATH",
         "Paths must be relative and contain no traversal segments",
       );
-    }
     return input
       .split("/")
       .filter((part) => part && part !== ".")
@@ -44,7 +47,7 @@ export class SafeRoot {
   }
   private contains(path: string): void {
     const rel = relative(this.root, path);
-    if (rel === ".." || rel.startsWith("../") || isAbsolute(rel)) {
+    if (rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel)) {
       throw new WorkspaceError("PATH_ESCAPE", "Path resolves outside the workspace");
     }
   }

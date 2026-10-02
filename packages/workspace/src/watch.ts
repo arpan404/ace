@@ -1,6 +1,7 @@
 import { watch as nativeWatch, type FSWatcher } from "node:fs";
+import { sep } from "node:path";
 import type { SafeRoot } from "./safety.ts";
-import { internal } from "./safety.ts";
+import { internal, validRelativePath } from "./safety.ts";
 import type { GitIgnore } from "./ignore.ts";
 import { changedSnapshot, fullSnapshot } from "./watch-snapshot.ts";
 import { VisibleTree } from "./visible-tree.ts";
@@ -89,7 +90,8 @@ export async function watch(
       try {
         native = nativeWatch(root, { recursive: true }, (_event, filename) => {
           if (filename !== null) {
-            const path = filename.toString().split("\\").join("/");
+            const path = filename.toString().split(sep).join("/");
+            if (!validRelativePath(path)) return;
             if (path === ".git/info/exclude") full = true;
             else if (internal(path)) return;
             if (!path || path.split("/").at(-1) === ".gitignore") full = true;

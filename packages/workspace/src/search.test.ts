@@ -5,6 +5,7 @@ import { createWorkspace } from "./index.ts";
 import { exec, fixture } from "./test-support.ts";
 
 describe("workspace search", () => {
+  // This contract launches many real processes; the watchdog is not a performance assertion.
   it("ripgrep and Node return identical literal, regex, case and glob results", async () => {
     await exec("rg", ["--version"]); // A real ripgrep is required for this contract test.
     const { root, service, file } = await fixture({}, true);
@@ -51,7 +52,7 @@ describe("workspace search", () => {
     expect(
       (await node.search({ query: "needle", limit: 100 })).matches.map((match) => match.path),
     ).toEqual([".hidden.ts", "a.ts", "a.ts", "c.txt", "sub/b.ts"]);
-  });
+  }, 30_000);
   it("uses the same shorthand classes and newline rules for Unicode and CRLF text", async () => {
     const { root, service, file } = await fixture();
     const node = await createWorkspace(root, { ripgrep: null });

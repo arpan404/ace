@@ -45,6 +45,29 @@ describe("workspace watching", () => {
     await watcher.dispose();
     expect(events.history).toHaveLength(count);
   });
+  it("omits unsupported discovered filenames without corrupting listing or watch paths", async () => {
+    const { service, file } = await fixture();
+    await file("existing\\name", "unsupported");
+    await file("new/name", "stable");
+    await file("valid.ts", "before");
+    expect((await service.list({ dir: "", depth: 2 })).entries.map((entry) => entry.path)).toEqual([
+      "new",
+      "new/name",
+      "valid.ts",
+    ]);
+    const events = batches();
+    const watcher = await service.watch({ onChange: events.onChange });
+    try {
+      const changed = events.next("valid.ts", "changed");
+      await file("new\\name", "unsupported");
+      await file("valid.ts", "after");
+      await changed;
+      await watcher.flush();
+      expect(events.history.flat().every((change) => change.path === "valid.ts")).toBe(true);
+    } finally {
+      await watcher.dispose();
+    }
+  });
   it("reports new directory contents and every removed descendant through native batches", async () => {
     const { service, root, file } = await fixture();
     await file("old/deep/a.ts", "a");

@@ -1,6 +1,6 @@
-import { relative } from "node:path";
+import { relative, sep } from "node:path";
 import type { SafeRoot } from "./safety.ts";
-import { internal, transient } from "./safety.ts";
+import { internal, transient, validRelativePath } from "./safety.ts";
 import type { GitIgnore } from "./ignore.ts";
 import { aborted, TREE_CAP, WorkspaceError, type Entry } from "./types.ts";
 
@@ -18,7 +18,9 @@ export async function* tree(
   let visited = 0;
   async function* descend(dir: string, depth: number): AsyncGenerator<Entry> {
     aborted(options.signal);
-    const actualDir = relative(safe.root, await safe.resolve(dir));
+    const actualDir = relative(safe.root, await safe.resolve(dir))
+      .split(sep)
+      .join("/");
     if (internal(actualDir)) return;
     const names = await safe.names(dir);
     for (let start = 0; start < names.length; start += 256) {
@@ -26,7 +28,7 @@ export async function* tree(
       const paths = names
         .slice(start, start + 256)
         .map((name) => (dir ? `${dir}/${name}` : name))
-        .filter((path) => !internal(path));
+        .filter((path) => !internal(path) && validRelativePath(path));
       const actualPath = (path: string) =>
         actualDir
           ? `${actualDir}/${path.slice(dir ? dir.length + 1 : 0)}`
