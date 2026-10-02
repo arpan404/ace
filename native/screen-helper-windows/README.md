@@ -1,6 +1,6 @@
 # Windows computer-use helper
 
-Rust source for Windows 10 1903+ and Windows 11, x64 and ARM64. Real Windows runtime behaviour is **untested**. macOS host tests and MSVC cross-checks do not verify WGC, GPU scaling, SendInput, UIA, named-pipe ACLs or Authenticode. See [ADR 0012](../../docs/adr/0012-windows-screen-helper.md).
+Rust source for Windows 10 1903+ and Windows 11, x64 and ARM64. Real Windows runtime behaviour is **untested**. macOS host tests and MSVC cross-checks do not verify WGC, GPU scaling, SendInput, UIA, named-pipe ACLs or Authenticode. See [ADR 0037](../../docs/adr/0037-windows-screen-helper.md).
 
 ## Build and install
 

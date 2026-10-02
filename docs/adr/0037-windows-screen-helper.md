@@ -1,4 +1,4 @@
-# 0012: Windows screen helper and protocol v2
+# 0037: Windows screen helper and protocol v2
 
 Date: 2026-10-02. Status: accepted, Windows runtime verification pending.
 
@@ -28,7 +28,7 @@ Frame packets retain the four-byte big-endian JSON header length and exact paylo
 
 ## Security and performance
 
-Human application approvals and controller ownership remain daemon policy. Windows application identities are full executable paths obtained from the OS, not names supplied by an agent. Window capture checks that identity again. Whole-monitor capture is rejected unless the human explicitly approves the monitor identity: Windows cannot redact unapproved overlapping windows using WGC. Monitor input remains view-only. Secure desktop access maps to busy or target_gone, never a fabricated permission prompt.
+Human application approvals and controller ownership remain daemon policy. After merging remote access, the screen WebSocket bridge requires admin scope, including observation and approval changes. The local host token has admin authority; a paired read/operate device cannot observe screen state or grant itself computer control. Windows application identities are full executable paths obtained from the OS, not names supplied by an agent. Window capture checks that identity again. Whole-monitor capture is rejected unless the human explicitly approves the monitor identity: Windows cannot redact unapproved overlapping windows using WGC. Monitor input remains view-only. Secure desktop access maps to busy or target_gone, never a fabricated permission prompt.
 
 Bound command lines, frame slots, tree references and input batches. Frame output retains one in-flight and one newest pending packet. Capture sessions close when no viewer or action needs them; the helper itself stays alive. Hash work is proportional to output pixels on a delivered frame, with no scan of prior frames. No frame files or temporary executables are created. Authenticode signing belongs to release packaging. macOS release packaging requires a stable `.app` bundle ID, Developer ID, hardened runtime and notarization; development builds should keep one signing identity rather than repeatedly changing it.
 
