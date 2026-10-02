@@ -1,0 +1,43 @@
+import { apply, createThreadState, type Fact } from "@ace/core";
+import { ThreadId, type Item } from "@ace/protocol";
+import type { Frame } from "@ace/engine-api";
+import { createTranslator } from "./translator.ts";
+export function harness() {
+  const state = createThreadState({
+    threadId: ThreadId.parse("test"),
+    config: { provider: "claude", silenceMs: 60_000 },
+  });
+  const translator = createTranslator({ rootKey: "root" });
+  let sequence = 0;
+  let time = 0;
+  let id = 0;
+  const ids = { next: (kind: string) => `${kind}_${++id}` };
+  function fold(facts: Fact[], now: number) {
+    for (const fact of facts) apply(state, fact, { now, ids });
+  }
+  function send(data: unknown, channel = "sdk", dir: Frame["dir"] = "recv", now = ++time) {
+    time = now;
+    fold(translator.translate({ seq: sequence++, t: now, dir, channel, data }, now), now);
+  }
+  function tick(now: number) {
+    time = now;
+    fold(translator.tick(now), now);
+  }
+  const items = (): Item[] => Object.values(state.items);
+  return {
+    state,
+    send,
+    tick,
+    items,
+    init: () => send({ type: "system", subtype: "init", session_id: "s", cwd: "/repo" }),
+    result: (extra = {}) =>
+      send({ type: "result", is_error: false, terminal_reason: "completed", ...extra }),
+    tool: (id: string, name = "Bash", input: unknown = {}) =>
+      send({
+        type: "assistant",
+        message: { id: `m:${id}`, content: [{ type: "tool_use", id, name, input }] },
+        parent_tool_use_id: null,
+      }),
+    system: (subtype: string, extra = {}) => send({ type: "system", subtype, ...extra }),
+  };
+}

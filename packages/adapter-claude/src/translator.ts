@@ -1,5 +1,5 @@
 import type { Fact, Key } from "@ace/core";
-import type { Translator, Frame } from "./contract.ts";
+import type { Translator, Frame } from "@ace/engine-api";
 import { ClaudeState } from "./state.ts";
 import { message, stream, tool, type StreamState } from "./content.ts";
 import { taskFrame, taskTick } from "./tasks.ts";
@@ -7,7 +7,7 @@ import { requestFor, resolutionFor } from "./interactions.ts";
 import { number, object, string, type Data } from "./native.ts";
 
 export function createTranslator(init: { rootKey: Key }): Translator {
-  const state = new ClaudeState(init.rootKey);
+  let state = new ClaudeState(init.rootKey);
   const streams = new Map<string, StreamState>();
   function sdk(data: Data, frame: Frame, now: number): boolean {
     const type = string(data["type"]);
@@ -16,6 +16,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       const subtype = string(data["subtype"]);
       if (subtype === "init") {
         state.start(state.root, state.sent ? "user" : (state.wake ?? "unknown"));
+        state.lastError = undefined;
         state.sent = false;
         state.wake = undefined;
         state.wakeDuringTurn = false;
@@ -46,7 +47,15 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         return true;
       }
       if (subtype === "session_state_changed") {
-        if (data["state"] !== "idle") state.expectWake(now);
+        state.sessionState = string(data["state"]);
+        if (state.sessionState === "idle") state.emit({ type: "retry.cleared", agent: state.root });
+        else if (!state.active.has(state.root))
+          state.emit({
+            type: "retry",
+            agent: state.root,
+            on: "upstream",
+            message: "Claude session has not settled",
+          });
         return true;
       }
       return false;
@@ -65,7 +74,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
     }
     if (type === "result") {
       const aborted = string(data["terminal_reason"]).startsWith("aborted_");
-      const failed = !aborted && data["is_error"] === true;
+      const failed = !aborted && (data["is_error"] === true || state.lastError !== undefined);
       if (state.wakeDuringTurn && object(data["origin"])["kind"] !== "task-notification")
         state.emit({ type: "wake.expected", agent: state.root, until: now + 5_000 });
       state.emit({
@@ -74,18 +83,30 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         outcome: aborted ? "interrupted" : failed ? "failed" : "completed",
         trigger:
           object(data["origin"])["kind"] === "task-notification"
-            ? (state.wake ?? "background_completion")
-            : "user",
+            ? state.runTrigger === "subagent_result"
+              ? "subagent_result"
+              : "background_completion"
+            : state.runTrigger === "unknown"
+              ? "user"
+              : state.runTrigger,
         ...(failed
           ? {
               error: {
-                kind: "provider" as const,
-                message: string(data["result"], "Claude execution failed"),
+                kind: state.lastError?.kind ?? ("provider" as const),
+                message:
+                  state.lastError?.message ?? string(data["result"], "Claude execution failed"),
               },
             }
           : {}),
       });
       state.active.delete(state.root);
+      if (state.sessionState && state.sessionState !== "idle")
+        state.emit({
+          type: "retry",
+          agent: state.root,
+          on: "upstream",
+          message: "Claude session has not settled",
+        });
       state.emit({ type: "queue.changed", count: Math.floor(number(data["queued_turn_count"])) });
       const usage = object(data["usage"]);
       state.emit({
@@ -164,6 +185,10 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       state.facts = [];
       // Frames are JSON data. Lenient readers never decode through a strict SDK union.
       const data = object(frame.data);
+      if (frame.channel === "lifecycle" && data["type"] === "process.started") {
+        state = new ClaudeState(init.rootKey);
+        streams.clear();
+      }
       state.ensureRoot(data);
       state.emit({ type: "signal", agent: state.agentFor(data) });
       if (frame.channel === "can_use_tool") permission(data, frame);
@@ -175,6 +200,8 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         });
         state.level.clear();
         state.missing.clear();
+      } else if (frame.channel === "lifecycle" && data["type"] === "process.started") {
+        // ensureRoot already emitted the startup fact.
       } else if (frame.channel !== "sdk" || !sdk(data, frame, now)) {
         state.notice(
           frame.data,
@@ -187,6 +214,10 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       return state.facts;
     },
     tick(now) {
+      if (state.wakeUntil !== undefined && now >= state.wakeUntil) {
+        state.wake = undefined;
+        state.wakeUntil = undefined;
+      }
       return [...taskTick(state, now), { type: "tick" }];
     },
   };

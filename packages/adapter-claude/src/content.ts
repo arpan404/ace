@@ -42,6 +42,8 @@ export function message(state: ClaudeState, data: Data, seq: number): void {
   const agent = state.agentFor(data);
   const m = object(data["message"]);
   const role = data["type"] === "assistant" ? "assistant" : "user";
+  if (role === "assistant")
+    state.start(agent, agent === state.root ? (state.wake ?? "unknown") : "spawn");
   const content =
     typeof m["content"] === "string" ? [{ type: "text", text: m["content"] }] : list(m["content"]);
   const id = string(m["id"], string(data["uuid"], `${seq}`));
@@ -117,6 +119,15 @@ export function message(state: ClaudeState, data: Data, seq: number): void {
   if (typeof data["error"] === "string") {
     const error = data["error"];
     // Provider error metadata is authoritative. Ordinary prose mentioning auth is not.
+    state.lastError = {
+      kind:
+        error === "authentication_failed"
+          ? "auth"
+          : error === "billing_error" || error === "rate_limit"
+            ? "quota"
+            : "provider",
+      message: text(m["content"]) || error,
+    };
     state.notice(data, `error:${seq}`, agent, "error", error);
   }
 }

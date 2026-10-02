@@ -14,6 +14,11 @@ export class ClaudeState {
   readonly root: Key;
   session = "initial";
   cwd = "";
+  processId = "";
+  sessionState: string | undefined;
+  lastError: { kind: "provider" | "auth" | "quota" | "network"; message: string } | undefined;
+  runTrigger: RunTrigger = "unknown";
+  wakeUntil: number | undefined;
   active = new Set<Key>();
   seen = new Set<Key>();
   toolOwners = new Map<string, Key>();
@@ -34,15 +39,19 @@ export class ClaudeState {
     this.root = root;
   }
   key(kind: string, id: string): Key {
-    return `claude:${this.session}:${kind}:${id}`;
+    return `claude:${this.session}${this.processId ? `:${this.processId}` : ""}:${kind}:${id}`;
   }
   emit(fact: Fact): void {
     this.facts.push(fact);
   }
   ensureRoot(data: Data): void {
-    if (this.seen.has(this.root)) return;
+    if (this.seen.has(this.root)) {
+      if (typeof data["cwd"] === "string") this.cwd = data["cwd"];
+      return;
+    }
     this.session = string(data["session_id"], this.session);
     this.cwd = string(data["cwd"]);
+    this.processId = string(data["process_id"]);
     this.seen.add(this.root);
     this.emit({ type: "process.started" });
     this.emit({
@@ -57,6 +66,10 @@ export class ClaudeState {
   start(agent: Key, trigger: RunTrigger): void {
     if (this.active.has(agent)) return;
     this.active.add(agent);
+    if (agent === this.root) {
+      this.runTrigger = trigger;
+      this.wakeUntil = undefined;
+    }
     this.emit({
       type: "turn.started",
       agent,
@@ -65,7 +78,11 @@ export class ClaudeState {
     });
   }
   child(spawn: string, owner = this.root, background = false, nativeId?: string): Key {
-    const agent = this.children.get(spawn) ?? this.key("child", spawn);
+    const agent =
+      this.children.get(spawn) ??
+      (nativeId ? this.nativeAgents.get(nativeId) : undefined) ??
+      this.key("child", spawn);
+    const fresh = !this.seen.has(agent);
     this.children.set(spawn, agent);
     this.emit({
       type: "agent.seen",
@@ -74,13 +91,16 @@ export class ClaudeState {
       spawnedBy: this.key("tool", spawn),
       origin: "provider_subagent",
       fidelity: "full",
-      native: { provider: "claude", nativeId: nativeId ?? spawn },
+      native: {
+        provider: "claude",
+        nativeId: nativeId ?? [...this.nativeAgents].find(([, key]) => key === agent)?.[0] ?? spawn,
+      },
       cwd: this.cwd,
       background,
     });
     this.seen.add(agent);
     if (nativeId) this.nativeAgents.set(nativeId, agent);
-    this.start(agent, "spawn");
+    if (fresh) this.start(agent, "spawn");
     return agent;
   }
   agentFor(data: Data): Key {
@@ -91,7 +111,10 @@ export class ClaudeState {
     if (task?.data["ambient"] === true) return;
     this.wake = task?.child ? "subagent_result" : (this.wake ?? "background_completion");
     if (this.active.has(this.root)) this.wakeDuringTurn = true;
-    else this.emit({ type: "wake.expected", agent: this.root, until: now + 5_000 });
+    else {
+      this.wakeUntil = now + 5_000;
+      this.emit({ type: "wake.expected", agent: this.root, until: this.wakeUntil });
+    }
   }
   notice(
     data: unknown,

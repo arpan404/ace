@@ -27,9 +27,13 @@
       "name": "@ace/adapter-claude",
       "dependencies": {
         "@ace/core": "workspace:*",
+        "@ace/engine-api": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@anthropic-ai/claude-agent-sdk": "0.3.287",
+      },
+      "devDependencies": {
+        "@ace/adapter-testkit": "workspace:*",
       },
     },
     "packages/adapter-testkit": {

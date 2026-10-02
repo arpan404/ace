@@ -37,7 +37,11 @@ const kinds: Record<string, ToolKind> = {
 };
 export function toolDetail(name: string, value: unknown): ToolDetailDraft {
   const input = object(value);
-  const kind = name.startsWith("mcp__") ? "mcp" : (kinds[name] ?? "custom");
+  const kind = name.startsWith("mcp__")
+    ? "mcp"
+    : Object.hasOwn(kinds, name)
+      ? kinds[name]!
+      : "custom";
   switch (kind) {
     case "shell":
       return { kind, command: string(input["command"]) };
