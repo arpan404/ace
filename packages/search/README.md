@@ -1,6 +1,6 @@
 # Local thread search
 
-`@ace/search` adds FTS5 indexes to the daemon's existing SQLite database. The daemon stages appended events in their transaction, coalesces streaming items, resumes backfill on startup and serves queries from one read-only worker. It never starts a provider CLI.
+`@ace/search` adds FTS5 indexes to the daemon's existing SQLite database. The daemon stages appended events in their transaction, coalesces streaming items, resumes backfill on startup and serves transcript and palette queries from independent read-only workers. It never starts a provider CLI.
 
 ## Wire API
 
@@ -40,19 +40,21 @@ Search requires the same `read` scope as subscriptions. Host/admin and read devi
 
 `rebuild(source, options)` clears derived documents and postings, invalidates existing cursors and runs the same resumable backfill. Current thread metadata remains available during replay. `deleteThread(id)` removes all of that thread's derived rows and postings, using bounded batches within one transaction. The daemon coordinates this with source-history deletion in its transaction. Progress uses a durable pending counter rather than scanning dirty rows.
 
-`query(input)` is a synchronous standalone reader useful for tests and benchmarks. The daemon uses `SearchQueries(databasePath).query(input)`, an asynchronous reader with a separate WAL snapshot per request and at most 16 outstanding requests. Excess admission and reader failures return `search_failed`. Close the reader and abort backfill before closing the owning database. The worker reader requires a file-backed database.
+`query(input)` is a synchronous standalone reader useful for tests and benchmarks. The daemon uses `SearchQueries(databasePath).query(input)`, an asynchronous reader with a separate WAL snapshot per request. Transcript and palette readers each admit at most 16 outstanding requests, with independent workers and queues; a broad transcript query cannot hold the palette queue. Excess admission and reader failures return `search_failed`. Close the reader and abort backfill before closing the owning database. The worker reader requires a file-backed database.
 
-Rendered fields retain at most 8,192 UTF-16 units of head and 8,192 of tail, plus an omission marker. Small staged bodies store their text once. Typed extraction visits at most 256 values, eight nesting levels and the first/last 64 array entries. Raw/native provider payloads, image data and blobs are not indexed. Typed output deltas remain searchable through the bounded stream accumulator. Pending documents live on disk, not in a history-sized memory queue.
+Rendered fields retain at most 8,192 UTF-16 units of head and 8,192 of tail, plus an omission marker. Small staged bodies store their text once. A tagged encoding preserves unmatched UTF-16 halves across split deltas and restart; cap boundaries retain whole characters. Typed extraction visits at most 256 values, eight nesting levels and the first/last 64 array entries. Raw/native provider payloads, image data and blobs are not indexed. Typed output deltas remain searchable through the bounded stream accumulator. Pending documents live on disk, not in a history-sized memory queue.
 
 ## Verification and benchmarks
 
 ```sh
-bun run test packages/search/src apps/daemon/src/search
-python3 packages/search/bench/mutations.py
-node packages/search/bench/outputs.ts
-bun run --filter @ace/search bench
+bun run fmt
+bun run lint
+bun run typecheck
+bun run check:size
 ```
 
-The benchmark defaults to one million items across 10,000 threads and 100 workspaces. It compares unicode61 alone with unicode61 plus trigram in separate Node processes, using 256-event transactions, a 16 MiB SQLite page cache and a bounded synthetic corpus. It measures ingestion, 10,000 individual streamed deltas followed by one flush, query p50/p99, title palette queries, final database size and process peak RSS. Each query uses 40 samples. Token queries receive one warmup; substring/palette samples include the first read. These are engine timings, without WebSocket or worker startup overhead. Common terms deliberately match nearly every item.
+Per the repo owner, tests, mutation experiments and benchmarks run only at merge. The behavior tests are written but final runtime verification **needs run at merge**. `bench/mutations.json` lists the cases the tests are designed to kill, marked **not executed (tests run at merge)**. `bench/mutations.py` is an opt-in merge-time runner, not a local gate.
 
-`SEARCH_BENCH_ITEMS` can reduce the corpus for local iteration. `SEARCH_BENCH_MODE=prose` or `dual` selects one configuration. Benchmarks have no gating latency threshold. Recorded results and the tokenizer trade-off are in [ADR 0035](../../docs/adr/0035-search.md). [mutations.json](bench/mutations.json) records the killed production mutations and their behavior tests.
+The non-gating `bench/search.ts` benchmark defaults to one million items across 10,000 threads and 100 workspaces. It compares unicode61 alone with unicode61 plus trigram in separate Node processes, using 256-event transactions, a 16 MiB SQLite page cache and a bounded synthetic corpus. It measures ingestion, 10,000 individual streamed deltas followed by one flush, query p50/p99, title palette queries, final database size and process peak RSS. Each query uses 40 samples. Token queries receive one warmup; substring/palette samples include the first read. These are engine timings, without WebSocket or worker startup overhead. Common terms deliberately match nearly every item.
+
+`SEARCH_BENCH_ITEMS` can reduce the corpus for local iteration. `SEARCH_BENCH_MODE=prose` or `dual` selects one configuration. Benchmarks have no gating latency threshold. Historical results from before the runtime-verification restriction and final query changes, and the tokenizer trade-off, are in [ADR 0035](../../docs/adr/0035-search.md). Updated measurements need run at merge. `bench/outputs.ts` additionally measures bounded output-summary completion reads and document writes.

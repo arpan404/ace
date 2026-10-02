@@ -2,66 +2,86 @@
   {
     "mutation": "skip item ingestion",
     "test": "append, authoritative update",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "retain obsolete FTS postings",
     "test": "append, authoritative update",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "ignore item deletion",
     "test": "append, authoritative update",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "index every stream delta",
     "test": "stream deltas write",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "drop capped output tail",
     "test": "huge completed and streamed",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "ignore query filters",
     "test": "workspace, provider, date",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "remove title rank weight",
     "test": "title matches rank above",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "accept stale pagination",
     "test": "pagination keeps tied",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "broaden token queries with OR",
     "test": "FTS operators and SQL",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "lose durable high-water mark",
     "test": "backfill yields in bounded",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "starve dirty documents by row id",
     "test": "continuously dirty",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "replace stored output heads with summary tails",
     "test": "huge completed and streamed",
-    "killed": true
+    "status": "not executed (tests run at merge)"
   },
   {
     "mutation": "fail to decrement durable pending count",
     "test": "backfill yields in bounded",
-    "killed": true
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "share palette admission with transcripts",
+    "test": "palette requests remain available",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "lose split Unicode during staging",
+    "test": "a Unicode character split",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "collapse a trimmed Unicode tail to its last characters",
+    "test": "trimming a character across both caps",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "mutation": "join attachment paths with streamed text",
+    "test": "text streamed after an attachment",
+    "status": "not executed (tests run at merge)"
   }
 ]
