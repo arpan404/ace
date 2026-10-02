@@ -12,7 +12,7 @@ const tracked = execFileSync("git", ["ls-files", "-z", "--", "*.ts", "*.tsx", "*
 const oversized = tracked
   .map((path) => ({ path, lines: readFileSync(path, "utf8").split("\n").length }))
   .filter(({ lines }) => lines > LIMIT)
-  .sort((a, b) => b.lines - a.lines);
+  .toSorted((a, b) => b.lines - a.lines);
 
 if (oversized.length > 0) {
   for (const { path, lines } of oversized) {
