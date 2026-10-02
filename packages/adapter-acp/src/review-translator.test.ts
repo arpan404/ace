@@ -198,7 +198,10 @@ it("emits a bounded raw change for each tool refresh while retaining its initial
       f.type === "item.upsert" && f.draft.type === "tool_call" ? f.draft.call?.raw : undefined,
     );
   expect(Math.max(...raws.map((raw) => raw?.length ?? 0))).toBeLessThanOrEqual(2);
-  expect(JSON.stringify(emitted)).toContain('"important":true');
+  for (const raw of raws) {
+    expect(JSON.stringify(raw)).toContain('"important":true');
+    expect(JSON.stringify(raw)).toContain('"path":"/original"');
+  }
 });
 
 it("releases an uncertain shell only when a later terminal update confirms its completion", () => {

@@ -1,3 +1,4 @@
+import { ShellSettlement } from "./shell-settlement.ts";
 import { cancellationGraceMs, promptStop } from "./settlement.ts";
 import type { ProviderSession, SessionContext } from "@ace/engine-api";
 import { encodeContent } from "./content.ts";
@@ -65,6 +66,7 @@ class AcpSession implements ProviderSession {
   readonly rpc: JsonRpcPeer;
   readonly pending = new Map<string, PendingInteraction>();
   readonly routing: SessionRouting;
+  readonly shells: ShellSettlement;
   readonly schedule: (delay: number, run: () => void) => () => void;
   cancelGrace?: () => void;
   fault?: Error;
@@ -83,6 +85,7 @@ class AcpSession implements ProviderSession {
   ) {
     this.now = runtime.now;
     this.started = runtime.now();
+    this.shells = new ShellSettlement(quirks);
     this.routing = new SessionRouting(ctx.threadId, ctx.resume?.nativeSessionId ?? "");
     this.schedule =
       runtime.schedule ??
@@ -103,6 +106,7 @@ class AcpSession implements ProviderSession {
     this.rpc.onNotification = (notification) => {
       if (notification.method !== "session/update") return;
       this.routing.receive(object(notification.params));
+      this.shells.receive(object(notification.params));
       if (!this.routing.hasLiveChildren) this.clearGrace();
       void this.drain();
     };
@@ -205,6 +209,7 @@ class AcpSession implements ProviderSession {
   }
   async send(input: ContentPart[], _delivery: "steer" | "queue"): Promise<void> {
     if (this.closed) throw new Error("ACP session closed");
+    if (this.shells.blocked) throw new Error("ACP shell execution completion is unconfirmed");
     await new Promise<void>((resolve, reject) => {
       this.queue.push({ input: structuredClone(input), resolve, reject });
       this.queueChanged();
@@ -232,6 +237,9 @@ class AcpSession implements ProviderSession {
         this.fail(error);
         throw error;
       }
+      this.shells.promptEnded(this.nativeSessionId, stop);
+      if (this.shells.blocked)
+        this.rejectQueue(new Error("ACP shell execution completion is unconfirmed"));
       if (stop === "cancelled" && this.routing.hasLiveChildren) {
         this.clearGrace();
         this.cancelGrace = this.schedule(cancellationGraceMs, () => {

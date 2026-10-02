@@ -122,3 +122,15 @@ export function todos(value: unknown): TodoEntry[] {
     return parsed.success ? [parsed.data] : [];
   });
 }
+
+/** Partial native input refreshes enrich placeholders without discarding earlier input fields. */
+export function mergeToolData(data: Data, update: Data): void {
+  for (const field of ["kind", "title", "name", "rawInput", "rawOutput", "content", "_meta"]) {
+    if (!Object.hasOwn(update, field)) continue;
+    const value = update[field];
+    data[field] =
+      field === "rawInput" && value !== null && typeof value === "object" && !Array.isArray(value)
+        ? { ...object(data[field]), ...object(value) }
+        : value;
+  }
+}

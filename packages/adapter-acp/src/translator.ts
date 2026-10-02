@@ -12,7 +12,7 @@ import { genericQuirks } from "./quirks/generic.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
 import { TranslationState, type AgentState } from "./state.ts";
 import { endPrompt } from "./lifecycle.ts";
-import { toolDetail, toolStatus, todos } from "./tools.ts";
+import { toolDetail, toolStatus, todos, mergeToolData } from "./tools.ts";
 
 export function createAcpTranslator(
   init: { threadId: ThreadId; rootKey: string; identity: TranslatorIdentity },
@@ -177,6 +177,7 @@ class AcpTranslator implements Translator {
       let tool = s.tool(agent, id);
       if (!tool) {
         tool = {
+          nativeId: id,
           key: s.key("tool"),
           owner: agent,
           data: {},
@@ -190,6 +191,7 @@ class AcpTranslator implements Translator {
       if (pendingChild) {
         tool.child = pendingChild;
         pendingChild.spawn = tool.key;
+        delete pendingChild.pendingSpawnKey;
         s.childTools.set(pendingChild.nativeId, tool);
         s.pendingChildren.delete(JSON.stringify([agent.key, id]));
         facts.push({
@@ -202,9 +204,7 @@ class AcpTranslator implements Translator {
       if (!tool.task) s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
       s.finishStream(agent, facts);
       agent.segment = "";
-      // Retain only fields needed to interpret subsequent partial refreshes.
-      for (const field of ["kind", "title", "name", "rawInput", "rawOutput", "content", "_meta"])
-        if (Object.hasOwn(update, field)) tool.data[field] = update[field];
+      mergeToolData(tool.data, update);
       tool.status = tool.declined ? "declined" : toolStatus(update, tool.status);
       retainToolRaw(
         tool,
@@ -246,7 +246,8 @@ class AcpTranslator implements Translator {
         tool.task &&
         ["succeeded", "failed", "declined", "cancelled"].includes(tool.status) &&
         !tool.child
-      )
+      ) {
+        s.settleShell(tool);
         facts.push({
           type: "background.ended",
           task: tool.task,
@@ -257,6 +258,7 @@ class AcpTranslator implements Translator {
                 ? "stopped"
                 : "failed",
         });
+      }
       if (["succeeded", "failed", "declined", "cancelled"].includes(tool.status))
         facts.push({ type: "activity", agent: agent.key, activity: "starting_turn" });
       return true;

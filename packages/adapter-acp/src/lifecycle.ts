@@ -1,4 +1,4 @@
-import { cancellationDeadline } from "./settlement.ts";
+import { cancellationDeadline, shellSurvivesPrompt } from "./settlement.ts";
 import type { Fact } from "@ace/core";
 import { string, type Data } from "./data.ts";
 import { TranslationState, type AgentState } from "./state.ts";
@@ -18,19 +18,22 @@ export function endPrompt(
     if (!["pending", "running", "awaiting_approval"].includes(tool.status)) continue;
     if (tool.owner !== agent && !cancelled) continue;
     const detail = toolDetail(tool.data, s.quirks);
-    if (detail.kind === "shell" && (cancelled || s.quirks.provider === "antigravity")) {
-      tool.task ??= s.key("background");
-      facts.push({
-        type: "background.started",
-        agent: tool.owner.key,
-        task: tool.task,
-        kind: "shell",
-        title: string(tool.data["title"]),
-        item: tool.key,
-        stoppable: false,
-        raw: [...tool.raw],
-      });
+    if (detail.kind === "shell" && shellSurvivesPrompt(s.quirks.provider, reason)) {
+      if (!tool.task) {
+        tool.task = s.key("background");
+        facts.push({
+          type: "background.started",
+          agent: tool.owner.key,
+          task: tool.task,
+          kind: "shell",
+          title: string(tool.data["title"]),
+          item: tool.key,
+          stoppable: false,
+          raw: [...tool.raw],
+        });
+      }
       if (!cancelled) continue;
+      s.retainUncertainShell(tool);
       facts.push({ type: "background.ended", task: tool.task, status: "unknown", uncertain: true });
     }
     if (!cancelled && tool.child && !tool.child.terminal) continue;

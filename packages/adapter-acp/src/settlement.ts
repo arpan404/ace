@@ -10,3 +10,7 @@ export const cancellationGraceMs = 12_000;
 export function cancellationDeadline(now: number): number {
   return now + cancellationGraceMs;
 }
+/** Cursor cancellation gives no shell termination proof; Antigravity also exposes surviving shells. */
+export function shellSurvivesPrompt(provider: string, reason: string): boolean {
+  return reason === "cancelled" || provider === "antigravity";
+}

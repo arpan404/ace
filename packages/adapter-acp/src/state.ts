@@ -17,8 +17,11 @@ export interface AgentState {
   stream?: { key: string; kind: string };
   cancelAt?: number;
   planTool?: ToolState;
+  pendingSpawnKey?: string;
 }
 export interface ToolState {
+  nativeId: string;
+  inputRaw?: RawPayload;
   key: string;
   owner: AgentState;
   data: Data;
@@ -40,7 +43,9 @@ export class TranslationState {
   readonly agents = new Map<string, AgentState>();
   readonly ownedTools = new Map<string, Map<string, ToolState>>();
   readonly tools = new Map<string, ToolState>();
+  readonly uncertainShells = new Map<string, ToolState>();
   readonly liveTools = new Set<ToolState>();
+  readonly childBackgroundTools = new Map<string, Set<ToolState>>();
   readonly backgroundTools = new Set<ToolState>();
   readonly pendingChildren = new Map<string, AgentState>();
   readonly childTools = new Map<string, ToolState>();
@@ -83,6 +88,7 @@ export class TranslationState {
     this.requests.clear();
     this.liveTools.clear();
     this.backgroundTools.clear();
+    this.childBackgroundTools.clear();
     this.tools.clear();
     this.ownedTools.clear();
     this.pendingChildren.clear();
@@ -99,7 +105,20 @@ export class TranslationState {
     this.agents.clear();
   }
   tool(owner: AgentState, id: string): ToolState | undefined {
-    return this.ownedTools.get(owner.key)?.get(id);
+    const current = this.ownedTools.get(owner.key)?.get(id);
+    if (current) return current;
+    const retained = this.uncertainShells.get(JSON.stringify([owner.nativeId, id]));
+    if (retained) {
+      retained.owner = owner;
+      this.registerTool(owner, id, retained);
+    }
+    return retained;
+  }
+  retainUncertainShell(tool: ToolState): void {
+    this.uncertainShells.set(JSON.stringify([tool.owner.nativeId, tool.nativeId]), tool);
+  }
+  settleShell(tool: ToolState): void {
+    this.uncertainShells.delete(JSON.stringify([tool.owner.nativeId, tool.nativeId]));
   }
   registerTool(owner: AgentState, id: string, tool: ToolState): void {
     let owned = this.ownedTools.get(owner.key);

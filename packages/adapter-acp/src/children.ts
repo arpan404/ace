@@ -4,13 +4,22 @@ import { object, string, type Data } from "./data.ts";
 import { TranslationState, type AgentState, type ToolState } from "./state.ts";
 export function backgroundChild(state: TranslationState, tool: ToolState, facts: Fact[]): void {
   const child = tool.child;
-  if (!child || child.terminal || object(tool.data["rawOutput"])["isBackground"] !== true) return;
+  if (
+    !child ||
+    child.parent !== tool.owner.key ||
+    child.terminal ||
+    object(tool.data["rawOutput"])["isBackground"] !== true
+  )
+    return;
   child.background = true;
   state.backgroundTools.add(tool);
   state.start(child, facts, "spawn");
   facts.push({ type: "agent.linked", agent: child.key, background: true });
   if (tool.task) return;
   tool.task = state.key("background");
+  const owned = state.childBackgroundTools.get(child.nativeId) ?? new Set<ToolState>();
+  owned.add(tool);
+  state.childBackgroundTools.set(child.nativeId, owned);
   facts.push({
     type: "background.started",
     agent: tool.owner.key,
@@ -36,9 +45,25 @@ export function childUpdate(
   const child = state.agent(id, facts);
   const meta = object(object(update["_meta"])["cursor"]);
   const nativeTool = string(meta["toolCallId"]);
-  const tool = state.tool(parent, nativeTool) ?? state.childTools.get(id);
-  if (nativeTool && !tool)
-    state.pendingChildren.set(JSON.stringify([parent.key, nativeTool]), child);
+  const previousTool = state.childTools.get(id);
+  const tool = nativeTool
+    ? state.tool(parent, nativeTool)
+    : previousTool?.owner === parent
+      ? previousTool
+      : undefined;
+  if (previousTool && previousTool !== tool) {
+    delete previousTool.child;
+    delete child.spawn;
+    state.childTools.delete(id);
+  }
+  if (child.pendingSpawnKey) {
+    state.pendingChildren.delete(child.pendingSpawnKey);
+    delete child.pendingSpawnKey;
+  }
+  if (nativeTool && !tool) {
+    child.pendingSpawnKey = JSON.stringify([parent.key, nativeTool]);
+    state.pendingChildren.set(child.pendingSpawnKey, child);
+  }
   const input = object(tool?.data["rawInput"]);
   // Draft association updates only patch metadata; null/omitted state never proves idle.
   child.parent = parent.key;
@@ -105,16 +130,11 @@ export function childUpdate(
       parent.suspended = false;
       state.start(parent, facts, "subagent_result");
     }
-    if (tool?.task)
-      facts.push({
-        type: "background.ended",
-        task: tool.task,
-        status: cancelled ? "stopped" : failed ? "failed" : "completed",
-      });
+    finishChildTasks(state, child, cancelled ? "stopped" : failed ? "failed" : "completed", facts);
   }
   if (status === "disconnected") {
     facts.push({ type: "agent.disconnected", agent: child.key });
-    if (tool?.task) facts.push({ type: "background.ended", task: tool.task, status: "unknown" });
+    finishChildTasks(state, child, "unknown", facts);
     state.notice(
       facts,
       frame,
@@ -178,11 +198,7 @@ export function expireChildren(state: TranslationState, now: number): Fact[] {
     state.end(child, facts, "interrupted");
     child.terminal = true;
     delete child.cancelAt;
-    for (const tool of state.backgroundTools)
-      if (tool.child === child && tool.task) {
-        facts.push({ type: "background.ended", task: tool.task, status: "unknown" });
-        state.backgroundTools.delete(tool);
-      }
+    finishChildTasks(state, child, "unknown", facts);
     state.notice(
       facts,
       { deadline: now, nativeId: child.nativeId },
@@ -192,4 +208,23 @@ export function expireChildren(state: TranslationState, now: number): Fact[] {
     );
   }
   return facts;
+}
+
+function finishChildTasks(
+  state: TranslationState,
+  child: AgentState,
+  status: "completed" | "failed" | "stopped" | "unknown",
+  facts: Fact[],
+): void {
+  const tools = state.childBackgroundTools.get(child.nativeId);
+  if (!tools) return;
+  for (const tool of tools) {
+    if (tool.task) facts.push({ type: "background.ended", task: tool.task, status });
+    state.backgroundTools.delete(tool);
+    if (status !== "unknown" && tool.owner.suspended) {
+      tool.owner.suspended = false;
+      state.start(tool.owner, facts, "subagent_result");
+    }
+  }
+  if (status !== "unknown") state.childBackgroundTools.delete(child.nativeId);
 }
