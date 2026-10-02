@@ -68,6 +68,19 @@ const migrations = [
     json_quote(append)
   );
   CREATE TABLE text_encoding_migration (id INTEGER PRIMARY KEY);`,
+  `CREATE TABLE item_previews (
+    id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE, item JSON NOT NULL, target INTEGER NOT NULL
+  );
+  CREATE TABLE item_text_streams (
+    id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+    item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE, part INTEGER NOT NULL, size INTEGER NOT NULL,
+    UNIQUE(item_id, part)
+  );
+  CREATE TABLE item_source_chunks (
+    stream_id TEXT NOT NULL REFERENCES item_text_streams(id) ON DELETE CASCADE,
+    offset INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(stream_id, offset)
+  );
+  CREATE TABLE item_preview_migration (id INTEGER PRIMARY KEY);`,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");

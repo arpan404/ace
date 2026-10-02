@@ -3,8 +3,15 @@ import { AgentId, ItemId, RunId, Timestamp } from "./ids.ts";
 import { RawPayload } from "./provider.ts";
 import { ToolCall } from "./tools.ts";
 
+export const TextSource = z.object({
+  streamId: z.string().min(1),
+  bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  encoding: z.literal("utf-16le"),
+});
+export type TextSource = z.infer<typeof TextSource>;
+
 export const ContentPart = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({ type: z.literal("text"), text: z.string(), source: TextSource.optional() }),
   z.object({ type: z.literal("image"), mimeType: z.string(), url: z.string() }),
   z.object({ type: z.literal("file"), path: z.string(), mimeType: z.string().optional() }),
 ]);
@@ -32,6 +39,7 @@ export const Item = z.discriminatedUnion("type", [
   ItemBase.extend({
     type: z.literal("reasoning"),
     text: z.string(),
+    source: TextSource.optional(),
     /** Provider only exposes a summary of the reasoning. */
     summary: z.boolean().default(false),
     raw: z.array(RawPayload).default([]),
@@ -41,6 +49,7 @@ export const Item = z.discriminatedUnion("type", [
     type: z.literal("notice"),
     level: z.enum(["info", "warning", "error"]),
     text: z.string(),
+    source: TextSource.optional(),
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({

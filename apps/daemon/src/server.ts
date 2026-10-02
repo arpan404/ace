@@ -406,7 +406,20 @@ export async function startServer(options: ServerOptions): Promise<{
             send({
               type: "items.page",
               requestId: message.requestId,
-              ...options.store.readItems(message.threadId, message.before, message.limit),
+              ...options.store.readItemPage(
+                message.threadId,
+                message.before,
+                message.limit,
+                1024 * 1024 -
+                  Buffer.byteLength(
+                    JSON.stringify({
+                      type: "items.page",
+                      requestId: message.requestId,
+                      threadId: message.threadId,
+                    }),
+                  ) -
+                  128,
+              ),
             });
           } catch {
             fail("read_denied", "Invalid item cursor", false, { requestId: message.requestId });

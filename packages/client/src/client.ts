@@ -1,5 +1,7 @@
+import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
+  TextSource,
   CommandResult,
   ClientMessage,
   ServerMessage,
@@ -218,6 +220,29 @@ export class Client {
       },
       options,
     );
+  }
+  /** Read exactly the text length described by a page, in bounded decoded chunks. */
+  async *text(source: TextSource, options: RequestOptions = {}): AsyncGenerator<string> {
+    const parsed = TextSource.safeParse(source);
+    if (!parsed.success || parsed.data.bytes % 2) throw new ClientError("protocol");
+    let offset = 0;
+    let carry = "";
+    while (offset < parsed.data.bytes) {
+      const result = await this.outputRead(
+        {
+          streamId: parsed.data.streamId,
+          offset,
+          limit: Math.min(256 * 1024, parsed.data.bytes - offset),
+        },
+        options,
+      );
+      if (!result.bytes.length || result.bytes.length % 2) throw new ClientError("stale");
+      offset = result.nextOffset;
+      const decoded = decodeUtf16(result.bytes, carry);
+      carry = offset === parsed.data.bytes ? "" : decoded.carry;
+      const text = offset === parsed.data.bytes ? decoded.text + decoded.carry : decoded.text;
+      if (text.length) yield text;
+    }
   }
   async *output(
     payload: { streamId: string; offset: number; limit: number },

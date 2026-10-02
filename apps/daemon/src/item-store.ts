@@ -1,6 +1,14 @@
+import { ItemTextStore } from "./item-text-store.ts";
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
-import { EventPayload, Item, type Event, type ItemsPage, type ThreadId } from "@ace/protocol";
+import {
+  EventPayload,
+  Item,
+  ItemId,
+  type Event,
+  type ItemsPage,
+  type ThreadId,
+} from "@ace/protocol";
 import { applyDelta } from "@ace/projection";
 
 function decodeAppend(value: unknown): string {
@@ -31,9 +39,11 @@ function appendSize(append: string, lastUnit: number): number {
 }
 /** Authoritative bodies plus append-only text: delta writes never read or rewrite history. */
 export class ItemStore {
+  private readonly texts: ItemTextStore;
   private readonly db: DatabaseSync;
   constructor(db: DatabaseSync) {
     this.db = db;
+    this.texts = new ItemTextStore(db);
   }
   /** Rebuild encoding metadata once after migration, recovering old chunks from the event log. */
   initialize(): void {
@@ -64,6 +74,9 @@ export class ItemStore {
       throw error;
     }
   }
+  initializePreviews(): void {
+    this.texts.initialize();
+  }
   upsert(event: Event, item: Item): void {
     const existing = this.db.prepare("SELECT thread_id FROM items WHERE id = ?").get(item.id);
     if (existing && existing.thread_id !== event.threadId) throw new Error("Item outside thread");
@@ -87,6 +100,7 @@ export class ItemStore {
         lastUnit,
       );
     this.db.prepare("DELETE FROM item_text_chunks WHERE item_id = ?").run(item.id);
+    this.texts.seed(item, event.seq);
   }
   append(event: Event, delta: Extract<EventPayload, { type: "item.delta" }>): void {
     const row = this.db
@@ -104,6 +118,7 @@ export class ItemStore {
     )
       return;
     if (!delta.append.length && !Number(row.text_prefix)) return;
+    this.texts.append(delta, event.seq);
     const size = appendSize(delta.append, Number(row.text_last_unit)) + Number(row.text_prefix);
     const lastUnit = delta.append.length
       ? delta.append.charCodeAt(delta.append.length - 1)
@@ -140,6 +155,58 @@ export class ItemStore {
       applyDelta(item, delta.field, delta.append);
     }
     return item;
+  }
+  wirePage(
+    threadId: ThreadId,
+    before: number,
+    limit: number,
+    byteLimit: number,
+  ): Omit<ItemsPage, "seq"> {
+    const rows = this.db
+      .prepare(
+        "SELECT id, created_seq, size, item_type FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
+      )
+      .all(threadId, before, limit + 1);
+    const decoded = z
+      .array(
+        z.object({
+          id: ItemId,
+          created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+          size: z.number().int().nonnegative(),
+          item_type: z.enum(["message", "reasoning", "notice", "tool_call", "compaction"]),
+        }),
+      )
+      .max(201)
+      .parse(rows);
+    const items: Item[] = [];
+    const cursors: [string, number][] = [];
+    let bytes = 512;
+    for (const row of decoded.slice(0, limit)) {
+      const id = String(row.id);
+      const item =
+        row.item_type === "message" || row.item_type === "notice" || row.item_type === "reasoning"
+          ? this.texts.read(id)
+          : this.materialize(
+              id,
+              this.db.prepare("SELECT item FROM items WHERE id = ?").get(id)?.item,
+            );
+      const size =
+        Buffer.byteLength(JSON.stringify(item)) + Buffer.byteLength(JSON.stringify(id)) + 64;
+      if (bytes + size > byteLimit) {
+        if (!items.length) throw new Error("Item detail exceeds page capacity");
+        break;
+      }
+      items.push(item);
+      cursors.push([id, Number(row.created_seq)]);
+      bytes += size;
+    }
+    items.reverse();
+    return {
+      threadId,
+      items,
+      itemSeqs: Object.fromEntries(cursors),
+      itemsBefore: rows.length > items.length ? (cursors.at(-1)?.[1] ?? before) : null,
+    };
   }
   page(
     threadId: ThreadId,

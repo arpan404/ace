@@ -164,3 +164,31 @@ test("an expired page journal rejects stale history and a fresh page recovers", 
   expect(itemText(store.item(itemId))).toBe("AB");
   expect(client.state).toBe("ready");
 });
+
+test("reconnecting resumes delivery even when the snapshot boundary cannot supply a view", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  h.daemon.store.appendEvents(h.thread.id, [message]);
+  const { client, faults, scheduler } = h.make();
+  await ready(client);
+  const { store } = client.thread(h.thread.id);
+  await barrier(client, h.thread.id);
+  faults.disconnect();
+  h.daemon.store.appendEvents(h.thread.id, [delta("replayed")]);
+  const snapshot = h.daemon.store.snapshotThread.bind(h.daemon.store);
+  h.daemon.store.snapshotThread = () => {
+    throw new Error("snapshot unavailable");
+  };
+  try {
+    scheduler.advance(125);
+    await when(
+      store.select([`item:${itemId}`], (s) => itemText(s.item(itemId))),
+      (text) => text === "replayed",
+    );
+    expect(client.state).toBe("ready");
+    expect(store.error).toBeUndefined();
+    expect(store.cursor).toBe(h.daemon.store.headSeq());
+  } finally {
+    h.daemon.store.snapshotThread = snapshot;
+  }
+});

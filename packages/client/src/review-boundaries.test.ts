@@ -1,3 +1,4 @@
+import { createDevThread } from "@ace/daemon";
 import { afterEach, expect, test } from "vitest";
 import { Agent, HostId, ItemId } from "@ace/protocol";
 import { setup, ready, barrier, when, message, agentId } from "./test-support.ts";
@@ -70,6 +71,9 @@ test("incremental entity overflow fails the affected subscription while other th
   cleanup = h.cleanup;
   const { client } = h.make({ limits: { entities: 1 } });
   await ready(client);
+  const healthyThread = createDevThread(h.daemon.store, h.workspaceId);
+  const healthy = client.thread(healthyThread.id);
+  await barrier(client, healthyThread.id);
   const { store } = client.thread(h.thread.id);
   await when(
     store.select(["thread"], (s) => s.thread),
@@ -92,6 +96,9 @@ test("incremental entity overflow fails the affected subscription while other th
   ]);
   await barrier(client, h.thread.id);
   expect(store.error?.code).toBe("limit");
+  h.daemon.store.appendEvents(healthyThread.id, [{ type: "thread.updated", title: "still live" }]);
+  await barrier(client, healthyThread.id);
+  expect(healthy.store.thread?.title).toBe("still live");
   expect(client.state).toBe("ready");
 });
 

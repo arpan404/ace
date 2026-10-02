@@ -1,3 +1,5 @@
+import { clipItem } from "./item-window.ts";
+import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
 import { applyDelivery } from "@ace/projection";
@@ -303,10 +305,11 @@ export class ThreadStore implements ThreadReader {
     if (!view) throw new ClientError("offline");
     if (page.threadId !== view.thread.id) throw new ClientError("protocol");
     const items = this.journal.reconcile(page, view.seq);
-    const keys = new Set<ThreadKey>(["order", "history"]);
-    const added: string[] = [];
+    const window = pageWindow(view.itemOrder, this.creation, page, this.limits.items);
+    const retained = new Set(window.order);
+    const keys = new Set<ThreadKey>();
     for (const item of items)
-      if (!this.item(item.id)) {
+      if (retained.has(item.id) && !this.item(item.id)) {
         Object.defineProperty(view.items, item.id, {
           value: item,
           writable: true,
@@ -316,22 +319,29 @@ export class ThreadStore implements ThreadReader {
         this.hydrated.set(item.id, Math.max(page.seq, view.seq));
         const seq = page.itemSeqs?.[item.id];
         if (seq !== undefined) this.creation.set(item.id, seq);
-        added.push(item.id);
         keys.add(`item:${item.id}`);
         this.clip(item.id);
       }
-    view.itemOrder = [...added, ...view.itemOrder];
-    view.itemsBefore = page.itemsBefore;
-    // History scrolling replaces the tail of the bounded window, never grows it.
-    while (view.itemOrder.length > this.limits.items) {
-      const id = view.itemOrder.pop();
-      if (id) {
+    for (const id of view.itemOrder)
+      if (!retained.has(id)) {
         delete view.items[id];
         this.clipped.delete(id);
         this.hydrated.delete(id);
         this.creation.delete(id);
         keys.add(`item:${id}`);
       }
+    if (
+      view.itemOrder.length !== window.order.length ||
+      view.itemOrder.some((id, index) => id !== window.order[index])
+    ) {
+      view.itemOrder = window.order;
+      keys.add("order");
+    }
+    // Null means the oldest item was reached. A duplicate response cannot undo that fact.
+    const before = view.itemsBefore === null ? null : window.before;
+    if (view.itemsBefore !== before) {
+      view.itemsBefore = before;
+      keys.add("history");
     }
     this.notifications.emit(keys);
   }
@@ -353,35 +363,6 @@ export class ThreadStore implements ThreadReader {
   }
   private clip(id: string): void {
     const item = this.item(id);
-    if (!item) return;
-    const cut = (text: string) => {
-      if (text.length <= this.limits.text) return text;
-      this.clipped.add(id);
-      return text.slice(-Math.max(1, Math.floor(this.limits.text / 2)));
-    };
-    if (item.type === "message") {
-      if (item.parts.length > this.limits.items) {
-        item.parts = item.parts.slice(-this.limits.items);
-        this.clipped.add(id);
-      }
-      const first = item.parts[0];
-      if (item.parts.length === 1 && first?.type === "text") {
-        first.text = cut(first.text);
-        return;
-      }
-      let remaining = this.limits.text;
-      for (let i = item.parts.length - 1; i >= 0; i--) {
-        const part = item.parts[i];
-        if (part?.type === "text") {
-          if (part.text.length > remaining) {
-            this.clipped.add(id);
-            part.text = remaining ? part.text.slice(-remaining) : "";
-          }
-          remaining -= part.text.length;
-        }
-      }
-    } else if (item.type === "reasoning" || item.type === "notice") item.text = cut(item.text);
-    else if (item.type === "tool_call" && item.call.detail.kind === "shell")
-      if (item.call.detail.output?.truncated) this.clipped.add(id);
+    if (item && clipItem(item, this.limits)) this.clipped.add(id);
   }
 }

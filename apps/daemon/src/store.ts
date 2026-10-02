@@ -359,6 +359,10 @@ export class Store {
   outputThread(streamId: string) {
     return this.payloads.streamThread(streamId);
   }
+  readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
+    if (!this.getThread(threadId)) throw new Error("Unknown thread");
+    return { ...this.payloads.wirePage(threadId, before, limit, byteLimit), seq: this.headSeq() };
+  }
   readOutput(streamId: string, offset: number, limit: number) {
     return this.payloads.readOutput(streamId, offset, limit);
   }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, StatementSync } from "node:sqlite";
 import {
   Event,
   Item,
@@ -39,6 +39,8 @@ const LegacyShellPayload = z.object({
 /** Event writes run inside Store's transaction. Startup conversion owns its transaction. */
 export class PayloadStore {
   private readonly db: DatabaseSync;
+  private readonly reads = new Map<string, StatementSync>();
+  private outputInsert: StatementSync | undefined;
   private readonly items: ItemStore;
   private readonly nextBlobId: () => string;
   constructor(db: DatabaseSync, nextBlobId: () => string) {
@@ -49,6 +51,7 @@ export class PayloadStore {
   /** Upgrade existing event logs once, preserving event ids and host sequences. */
   initialize(): void {
     this.items.initialize();
+    this.items.initializePreviews();
     if (this.db.prepare("SELECT id FROM payload_migration WHERE id = 1").get()) return;
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -165,14 +168,10 @@ export class PayloadStore {
         const stream = this.db.prepare("SELECT * FROM output_streams WHERE id = ?").get(streamId);
         if (stream?.thread_id !== event.threadId || stream.item_id !== item.id)
           throw new Error("Stream outside item scope");
-        const bytes = Buffer.from(p.append);
-        if (bytes.length)
-          this.db
-            .prepare("INSERT INTO output_chunks VALUES (?, ?, ?)")
-            .run(streamId, Number(stream.size), bytes);
+        const bytes = this.writeOutput(streamId, Number(stream.size), p.append);
         this.db
           .prepare("UPDATE output_streams SET size = size + ? WHERE id = ?")
-          .run(bytes.length, streamId);
+          .run(bytes, streamId);
       }
       if (!applyDelta(item, p.field, p.append)) return;
       const body = JSON.stringify(item);
@@ -182,9 +181,40 @@ export class PayloadStore {
         .run(Buffer.byteLength(body), item.id);
     }
   }
+  private writeOutput(streamId: string, offset: number, text: string): number {
+    const insert = (this.outputInsert ??= this.db.prepare(
+      "INSERT INTO output_chunks VALUES (?, ?, ?)",
+    ));
+    const initial = offset;
+    for (let start = 0; start < text.length;) {
+      let end = Math.min(text.length, start + 16384);
+      const high = text.charCodeAt(end - 1);
+      const low = text.charCodeAt(end);
+      if (end < text.length && high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff)
+        end--;
+      // At most 64 KiB, with no full-append Buffer allocation or split code point.
+      const bytes = Buffer.from(text.slice(start, end));
+      insert.run(streamId, offset, bytes);
+      offset += bytes.length;
+      start = end;
+    }
+    return offset - initial;
+  }
   streamThread(streamId: string): ThreadId | undefined {
-    const row = this.db.prepare("SELECT thread_id FROM output_streams WHERE id = ?").get(streamId);
+    const row = this.db
+      .prepare(
+        "SELECT thread_id FROM output_streams WHERE id = ? UNION ALL SELECT thread_id FROM item_text_streams WHERE id = ? LIMIT 1",
+      )
+      .get(streamId, streamId);
     return row ? ThreadId.parse(row.thread_id) : undefined;
+  }
+  private readStatement(sql: string): StatementSync {
+    let statement = this.reads.get(sql);
+    if (!statement) {
+      statement = this.db.prepare(sql);
+      this.reads.set(sql, statement);
+    }
+    return statement;
   }
   readOutput(streamId: string, offset: number, limit: number) {
     if (
@@ -195,29 +225,27 @@ export class PayloadStore {
       limit > 256 * 1024
     )
       throw new Error("Invalid output range");
-    const stream = this.db.prepare("SELECT size FROM output_streams WHERE id = ?").get(streamId);
+    const output = this.readStatement("SELECT size FROM output_streams WHERE id = ?").get(streamId);
+    const stream =
+      output ?? this.readStatement("SELECT size FROM item_text_streams WHERE id = ?").get(streamId);
+    // Table names are daemon constants, never interpolated from wire input.
+    const table = output ? "output_chunks" : "item_source_chunks";
     if (!stream) throw new Error("Unknown output stream");
     const size = Number(stream.size);
+    if (offset >= size) return { bytes: "", nextOffset: offset, eof: true };
     const end = Math.min(size, offset + limit);
     // Seek the predecessor using the primary key, then read only the intersecting range.
-    const predecessor = this.db
-      .prepare(
-        "SELECT offset FROM output_chunks WHERE stream_id = ? AND offset <= ? ORDER BY offset DESC LIMIT 1",
-      )
-      .get(streamId, offset);
+    const predecessor = this.readStatement(
+      `SELECT offset FROM ${table} WHERE stream_id = ? AND offset <= ? ORDER BY offset DESC LIMIT 1`,
+    ).get(streamId, offset);
     const start = predecessor ? Number(predecessor.offset) : offset;
-    const chunks = this.db
-      .prepare(
-        "SELECT offset, bytes FROM output_chunks WHERE stream_id = ? AND offset >= ? AND offset < ? ORDER BY offset",
-      )
-      .all(streamId, start, end);
+    const chunks = this.readStatement(
+      `SELECT substr(bytes, MAX(0, ? - offset) + 1, MIN(length(bytes), ? - offset) - MAX(0, ? - offset)) AS bytes FROM ${table} WHERE stream_id = ? AND offset >= ? AND offset < ? ORDER BY offset`,
+    ).all(offset, end, offset, streamId, start, end);
     const bytes = Buffer.concat(
       chunks.map((row) => {
         if (!(row.bytes instanceof Uint8Array)) throw new Error("Invalid output chunk");
-        return Buffer.from(row.bytes).subarray(
-          Math.max(0, offset - Number(row.offset)),
-          end - Number(row.offset),
-        );
+        return Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength);
       }),
     );
     return {
@@ -225,6 +253,9 @@ export class PayloadStore {
       nextOffset: offset + bytes.length,
       eof: offset + bytes.length >= size,
     };
+  }
+  wirePage(threadId: ThreadId, before: number, limit: number, byteLimit: number) {
+    return this.items.wirePage(threadId, before, limit, byteLimit);
   }
   page(threadId: ThreadId, before: number, limit: number, byteLimit?: number) {
     return this.items.page(threadId, before, limit, byteLimit);
