@@ -43,6 +43,8 @@ it("expires staggered background results in deadline order after a child resumes
   event("session.status", { sessionID: "first", status: { type: "busy" } });
   clock = 260;
   event("session.status", { sessionID: "first", status: { type: "idle" } });
+  // The engine can schedule the same public grace deadline as the session shell.
+  expect(h.translator.nextDeadline()).toBe(3200);
   const tasks = () =>
     Object.fromEntries(
       Object.values(h.view.backgroundTasks).map((task) => [task.title, task.status]),
@@ -51,6 +53,7 @@ it("expires staggered background results in deadline order after a child resumes
   expect(tasks()).toEqual({ first: "running", second: "running", third: "running" });
   h.tick(3200);
   expect(tasks()).toEqual({ first: "running", second: "completed", third: "running" });
+  expect(h.translator.nextDeadline()).toBe(3260);
   h.tick(3260);
   expect(tasks()).toEqual({ first: "completed", second: "completed", third: "running" });
   expect(h.view.thread.status.state).toBe("working");
@@ -60,6 +63,7 @@ it("expires staggered background results in deadline order after a child resumes
   expect(tasks()).toEqual({ first: "completed", second: "completed", third: "completed" });
   expect(h.view.thread.status.state).toBe("done");
   expect(h.translator.isSettled()).toBe(true);
+  expect(h.translator.nextDeadline()).toBeUndefined();
 });
 
 it("keeps late running tools visible after their owning turn has already idled", () => {

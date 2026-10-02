@@ -1,10 +1,32 @@
 # Verification
 
-The repository owner now requires static checks only during authoring. No tests, probes, benchmarks, mutations or CI are executed after that instruction. Final-head dynamic validation **needs run at merge**. The authoring gate is formatting, lint, typechecking and the 1,500-line size check. `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed after the final main merge. All 510 source files fit within 1,500 lines.
+The repository owner requires static checks during authoring, with an explicit exception for specific test files covering merge conflicts. The latest merge used that exception as recorded below. Full-suite validation, probes, benchmarks and mutation runs still **need run at merge**. CI remains disabled. `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed after integrating main at `46eb036`. All 669 source files fit within 1,500 lines.
 
 Behavior tests use the public adapter contract, core facts and projected client views. Session tests start a CLI double as a real child process with authenticated HTTP/SSE and synchronize through received frames and HTTP responses. Clocks and shutdown deadlines are injected. No installed provider received a prompt and no recorder ran.
 
 This follow-up merged main and the ACP branch that supplies the shared transport facts, then merged main through `50c725f`, including the model catalog, automations, process-test reliability and conductor work. The nine fixture expectation files remain unchanged. Earlier reviews recorded passing suites and mutation campaigns before the new owner instruction; those results do not validate the final integrated head.
+
+## Approved-main merge
+
+Main at `46eb036` adds Claude's shared queue-source contracts and deadline scheduling, workspace, forge and diagnostics packages. Both merge conflicts are resolved: core fact validation accepts disconnected/reconnected facts and uncertain unknown tasks while retaining main's nonnegative safe-integer queue count and engine/provider source validation. The lockfile starts from main's version and was regenerated with `bun install --ignore-scripts`, retaining ACP and OpenCode workspace dependencies alongside main's dependencies.
+
+OpenCode now consumes the shared `SessionContext.rootKey` and `Translator.nextDeadline()` APIs. Targeted root interrupts use engine identity even when it matches a native child key; stopping that child still addresses its native session. The previous grace-deadline method remains an alias.
+
+The owner's merge-conflict exception authorized this exact test selection:
+
+```sh
+bunx vitest run packages/core/src/adapter-contracts.test.ts packages/core/src/acp-lifecycle.test.ts packages/adapter-opencode/src/verifier-translator.test.ts packages/adapter-opencode/src/background-index.test.ts packages/adapter-opencode/src/fixture.test.ts packages/adapter-opencode/src/session.test.ts
+```
+
+Result: **6 files, 40 tests passed**. This covers queue sources and rejected invalid sources, connection uncertainty, uncertain tasks, all nine fixture expectations, background status precedence, grace deadlines and HTTP session behavior. New assertions cover the shared deadline hook, a root/child key collision and independent child stopping. No full suite, CI, probes, benchmarks or mutations were run. Other dynamic validation **needs run at merge**.
+
+Additional mutation cases designed for these public tests, all **not executed (tests run at merge)**:
+
+- Drop disconnect/reconnect cases while retaining queue validation: the approval-loss and child-recovery tests must fail.
+- Remove queue-source validation or ignore provider counts: the shared adapter-contract tests must fail.
+- Ignore the engine root key when choosing the abort target: the root/child collision test must fail.
+- Route native task stopping through engine root identity: the independent child-stop assertion must fail.
+- Return a stale or missing shared translator deadline: the staggered background deadline assertions must fail.
 
 ## Fixture timelines
 
@@ -217,9 +239,9 @@ The adapter drives v1 routes. `session.next.*` remains raw until a separate v2 t
 
 The second verifier follow-up merged `origin/feat/adapter-acp` to reuse core's `agent.disconnected` / `agent.reconnected` facts from PR #14. The original core-owner request is resolved. Known and newly recovered children remain unresponsive until resync; heartbeat/busy evidence cannot clear explicit loss. The owner's thread precedence remains authoritative, including waiting before unresponsive. No core/protocol implementation was written in this adapter branch.
 
-That dependency predates main's large-payload unions. Its inline raw reads now narrow the `data` variant, and its assertions accept streamed shell-output tails. These three ACP compatibility files are the only direct edits outside OpenCode in this follow-up.
+That dependency predates main's large-payload unions. Its inline raw reads now narrow the `data` variant, and its assertions accept streamed shell-output tails. These three ACP compatibility files were the only direct edits outside OpenCode before the latest explicitly authorized core validation conflict resolution.
 
-CI is disabled by the repository owner. This follow-up does not run, retry or watch CI. Only the permitted static checks gate authoring; tests, mutations and benchmark confirmation need run at merge.
+CI is disabled by the repository owner. This follow-up does not run, retry or watch CI. Static checks gate authoring; the approved-main merge above records the specific merge-conflict tests permitted by the owner. Other tests, mutations and benchmark confirmation need run at merge.
 
 ## Shared owner requests from I15 and F3
 

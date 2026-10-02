@@ -351,6 +351,9 @@ export class OpenCodeTranslator implements Translator {
     return this.state.settled();
   }
   nextGraceDeadline(): number | undefined {
+    return this.nextDeadline();
+  }
+  nextDeadline(): number | undefined {
     return this.state.graceDeadline;
   }
   tick(now: number): Fact[] {

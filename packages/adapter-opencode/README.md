@@ -10,6 +10,7 @@ const adapter = createOpenCodeAdapter();
 const translator = adapter.createTranslator({ threadId, rootKey });
 const session = await adapter.openSession({
   threadId,
+  rootKey, // same engine identity used to create the translator
   cwd,
   model: "provider/model", // optional; otherwise the CLI chooses its default
   onFrame,
@@ -26,7 +27,7 @@ Use `config: { provider: "opencode", liveness: "transport", silenceMs: 25_000 }`
 
 The translator uses core's shared `agent.disconnected` and `agent.reconnected` facts from PR #14. Disconnection immediately reports unresponsive for the affected agents, including children first discovered during recovery. Heartbeats and restored busy snapshots cannot clear that uncertainty; successful resync does. Core retains the owner's `needs_you > working > waiting > unresponsive > done` thread precedence. A live background task therefore keeps the thread waiting during transport loss, while the affected agents remain unresponsive.
 
-The translator creates children before task metadata arrives, then links their spawn item. Background jobs stay live until the parent receives the injected task result. A session-owned three-second timer supplies the translator's fallback tick when a child idles without delivering a result. Busy or retry cancels that deadline. Interrupted tools that remain running become background tasks before the turn ends; later terminal updates settle those tasks. Duplicate native idles do not create another run.
+The translator creates children before task metadata arrives, then links their spawn item. Background jobs stay live until the parent receives the injected task result. A session-owned three-second timer supplies the translator's fallback tick when a child idles without delivering a result. The shared `Translator.nextDeadline()` hook exposes this deadline to engine scheduling; `nextGraceDeadline()` remains a compatibility alias. Busy or retry cancels that deadline. Interrupted tools that remain running become background tasks before the turn ends; later terminal updates settle those tasks. Duplicate native idles do not create another run.
 
 OpenCode has no native steering. `send(..., "queue")` waits for the root, children, background results and human interactions to settle; `"steer"` rejects. The engine normally owns queueing, so this is a defensive queue for direct session consumers. Delivery uses the translator's pure settlement model, including live tools after abort. `interrupt` explicitly visits known descendants when cascade is requested. OpenCode's own abort can cascade even without that flag. `stopTask` aborts a native child session, or the owner of a surviving tool. Approval keys use native request IDs and options `once`, `always`, `reject`. Shutdown immediately cancels local requests, unsubscribes, and rejects queued work. It then attempts a cascade abort with a one-second bound before releasing the server. Question answers are keyed by `<requestId>#<index>`; dismissal uses `/reject`. Plan approval replies `Yes`, and rejection/cancellation use `/reject`.
 

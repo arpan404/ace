@@ -51,8 +51,9 @@ export async function setup(extra: ServerOptions = {}) {
       else waiters.add({ predicate, resolve });
     });
   const otherProjection = harness();
-  const open = (cwd: string, resume?: string) =>
+  const open = (cwd: string, resume?: string, rootKey = "root") =>
     adapter.openSession({
+      rootKey,
       threadId: ThreadId.parse(`thread_${cwd}`),
       cwd,
       model: "provider/model",

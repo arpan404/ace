@@ -44,7 +44,10 @@ export class OpenCodeSession implements ProviderSession {
   private constructor(ctx: SessionContext, server: OpenCodeServer, id: string) {
     this.ctx = ctx;
     this.startedAt = server.runtime.monotonic();
-    this.translator = new OpenCodeTranslator({ threadId: ctx.threadId, rootKey: "root" });
+    this.translator = new OpenCodeTranslator({
+      threadId: ctx.threadId,
+      rootKey: ctx.rootKey ?? "root",
+    });
     this.server = server;
     this.history = new HistoryReader(
       server,
@@ -195,7 +198,7 @@ export class OpenCodeSession implements ProviderSession {
     return !id || this.known.has(id);
   }
   private armGrace(): void {
-    const deadline = this.translator.nextGraceDeadline();
+    const deadline = this.translator.nextDeadline();
     if (deadline === this.graceDeadline) return;
     this.graceDeadline = deadline;
     this.cancelGrace?.();
@@ -292,7 +295,13 @@ export class OpenCodeSession implements ProviderSession {
     }
   }
   async interrupt(target: { agent?: Key; cascade: boolean }): Promise<void> {
-    const id = target.agent && this.known.has(target.agent) ? target.agent : this.nativeSessionId;
+    const id =
+      target.agent && target.agent !== this.ctx.rootKey && this.known.has(target.agent)
+        ? target.agent
+        : this.nativeSessionId;
+    await this.abortNative(id, target.cascade);
+  }
+  private async abortNative(id: string, cascade: boolean): Promise<void> {
     const visited = new Set<string>();
     const descendants = (parent: string): string[] =>
       [...this.parents]
@@ -301,7 +310,7 @@ export class OpenCodeSession implements ProviderSession {
           visited.add(child);
           return descendants(child).concat(child);
         });
-    for (const child of target.cascade ? descendants(id) : [])
+    for (const child of cascade ? descendants(id) : [])
       await this.request("POST", `/session/${child}/abort`, {});
     await this.request("POST", `/session/${id}/abort`, {});
   }
@@ -312,7 +321,7 @@ export class OpenCodeSession implements ProviderSession {
   async stopTask(task: Key): Promise<void> {
     const id = task.startsWith("survivor:") ? this.translator.taskOwner(task) : task;
     if (!id || !this.known.has(id)) throw new Error("Unknown OpenCode task");
-    await this.interrupt({ agent: id, cascade: true });
+    await this.abortNative(id, true);
   }
   async resync(): Promise<void> {
     if (this.closed || this.opening) return;

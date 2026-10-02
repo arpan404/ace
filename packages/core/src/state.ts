@@ -87,6 +87,7 @@ export interface ThreadState {
   pendingNotices: { createdAt: number; text: string; raw: RawPayload[] }[];
   itemLinks: Record<Key, { childAgent?: Key; targetAgent?: Key }>;
   queueCount: number;
+  queueSources: { engine: number; provider: number };
   hasRun: boolean;
   status: ThreadStatus;
 }
@@ -135,6 +136,7 @@ export function createThreadState(init: {
     pendingNotices: [],
     itemLinks: dictionary(),
     queueCount: 0,
+    queueSources: { engine: 0, provider: 0 },
     hasRun: false,
     status: { state: "new" },
   };

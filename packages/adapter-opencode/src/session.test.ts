@@ -2,6 +2,29 @@ import { describe, expect, it } from "vitest";
 import { object, array } from "./data.ts";
 import { setup } from "./testing/session-harness.ts";
 describe("OpenCode HTTP session", () => {
+  it("targets the engine root even when its key matches a native child session", async () => {
+    const h = await setup();
+    const session = await h.open("/two", undefined, "ses_child");
+    await h.publish(
+      "session.created",
+      { info: { id: "ses_child", parentID: session.nativeSessionId } },
+      "/two",
+    );
+    await h.wait(
+      (f) => object(object(object(object(f.data).payload).properties).info).id === "ses_child",
+    );
+    await session.interrupt({ agent: "ses_child", cascade: false });
+    await session.stopTask("ses_child");
+    const paths = array(object(await h.control("/test/requests")).requests)
+      .map(object)
+      .filter((r) => String(r.path).endsWith("/abort"))
+      .map((r) => r.path);
+    expect(paths).toEqual([
+      `/session/${session.nativeSessionId}/abort`,
+      "/session/ses_child/abort",
+    ]);
+    await session.close("shutdown");
+  });
   it("shares one authenticated server and addresses each project directory", async () => {
     const h = await setup();
     const other = await h.open("/two");

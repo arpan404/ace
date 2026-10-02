@@ -23,10 +23,11 @@ export class PendingDeletions {
     );
     return pending;
   }
+  retry(): Promise<PromiseSettledResult<void>[]> {
+    return Promise.allSettled([...this.#pending.keys()].map((instance) => this.remove(instance)));
+  }
   async flush(): Promise<void> {
-    const results = await Promise.allSettled(
-      [...this.#pending.keys()].map((instance) => this.remove(instance)),
-    );
+    const results = await this.retry();
     if (results.some((result) => result.status === "rejected"))
       throw new Error("Model persistence deletion failed");
   }
