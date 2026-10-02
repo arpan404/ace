@@ -1,34 +1,64 @@
 import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { hostId } from "@ace/secure-channel";
 import type { Transport } from "@ace/secure-channel";
+import { z } from "zod";
 import { FrameReader, sendFrame } from "./socket.ts";
-import { handshake, CONTROL_PROLOGUE } from "./handshake.ts";
-import { defaultLimits, IpLimits } from "./limits.ts";
-import type { Limits } from "./limits.ts";
-type Host = { socket: WebSocket; transport: Transport };
-type Ticket = { client: WebSocket; host: Host; expires: number };
+import { respondHandshake, CONTROL_PROLOGUE } from "./handshake.ts";
+import { LimitsSchema, HostControlMessage } from "./config.ts";
+import type { Limits } from "./config.ts";
+import { systemClock } from "./clock.ts";
+import type { Clock } from "./clock.ts";
+import { IpBudget } from "./limits.ts";
+import { Throttle } from "./throttle.ts";
+import { RelayRoutes } from "./routes.ts";
+import type { RouteAction } from "./routes.ts";
+import { pairStreams } from "./forward.ts";
+import type { RelayStats } from "./forward.ts";
+const noop = () => {};
 export type RelayOptions = {
   port?: number;
   bind?: string;
   limits?: Partial<Limits>;
+  allowedHostIds?: readonly string[];
+  clock?: Clock;
   now?: () => number;
-  onBackpressure?: (bufferedBytes: number) => void;
+  createTicket?: () => string;
+  createConnectionId?: () => string;
+  onBackpressure?: (bytes: number) => void;
+  onThrottle?: () => void;
 };
-/** No application payload is decrypted, parsed, or logged by this server. */
+type Connection = {
+  socket: WebSocket;
+  reader: FrameReader;
+  abort: AbortController;
+  lastActivity: number;
+  control?: Transport;
+};
+/** Thin socket shell: registration proof, actions, forwarding and owned deadlines. */
 export async function startRelay(options: RelayOptions = {}) {
-  const limits = { ...defaultLimits, ...options.limits };
-  for (const value of Object.values(limits))
-    if (!Number.isSafeInteger(value) || value <= 0) throw new Error("Invalid relay limit");
-  if (limits.maxFrameSize > 65535 || limits.highWaterBytes > limits.maxBufferedBytes)
-    throw new Error("Invalid relay buffer limits");
-  const now = options.now ?? (() => performance.now());
-  const ipLimits = new IpLimits(limits, now);
-  const hosts = new Map<string, Host>();
-  const tickets = new Map<string, Ticket>();
-  const activity = new Map<WebSocket, number>();
-  const stats = { peakBufferedBytes: 0, pausedReaders: 0, forwardedFrames: 0 };
+  const limits = LimitsSchema.parse(options.limits ?? {});
+  const clock = options.clock ?? systemClock(options.now);
+  const routing = new RelayRoutes({
+    ticketTimeoutMs: limits.ticketTimeoutMs,
+    ...(options.allowedHostIds ? { allowedHostIds: options.allowedHostIds } : {}),
+  });
+  const budget = new IpBudget(limits);
+  const stats: RelayStats = {
+    peakBufferedBytes: 0,
+    pausedReaders: 0,
+    forwardedFrames: 0,
+    throttledFrames: 0,
+    peakReaderBytes: 0,
+  };
+  const throttle = new Throttle(budget, clock, () => {
+    stats.throttledFrames++;
+    options.onThrottle?.();
+  });
+  const connections = new Map<string, Connection>();
+  const createTicket = options.createTicket ?? (() => randomBytes(32).toString("hex"));
+  const createId = options.createConnectionId ?? randomUUID;
   const http = createServer((_req, res) => {
     res.writeHead(404);
     res.end();
@@ -41,202 +71,192 @@ export async function startRelay(options: RelayOptions = {}) {
     maxFragments: 256,
     maxBufferedChunks: 256,
   });
+  async function apply(actions: RouteAction[]): Promise<void> {
+    for (const action of actions) {
+      if (action.type === "pair") {
+        const client = connections.get(action.client),
+          host = connections.get(action.host);
+        if (client && host) pairStreams(client, host, limits, stats, options.onBackpressure);
+        else {
+          client?.socket.terminate();
+          host?.socket.terminate();
+        }
+        continue;
+      }
+      const connection = connections.get(action.socket);
+      if (!connection) continue;
+      if (action.type === "close") {
+        connection.socket.close(action.code, action.reason);
+        if (action.code === 4001) connection.socket.terminate();
+        continue;
+      }
+      if (!connection.control) throw new Error("Control session missing");
+      if (connection.socket.bufferedAmount > limits.highWaterBytes) {
+        connection.socket.terminate();
+        continue;
+      }
+      await sendFrame(
+        connection.socket,
+        connection.control.send.encrypt(
+          new TextEncoder().encode(
+            JSON.stringify(
+              action.type === "registered"
+                ? { type: "registered", hostId: action.hostId }
+                : { type: "client", ticket: action.ticket },
+            ),
+          ),
+        ),
+      );
+    }
+  }
+  async function route(id: string, url: URL, connection: Connection): Promise<void> {
+    if (url.pathname === "/host") {
+      const control = await respondHandshake(connection.socket, connection.reader, {
+        prologue: CONTROL_PROLOGUE,
+        clock,
+        timeoutMs: limits.handshakeTimeoutMs,
+      });
+      connection.control = control;
+      if (connection.socket.readyState !== WebSocket.OPEN) {
+        control.destroy();
+        return;
+      }
+      await apply(routing.register(id, hostId(control.remoteStatic)));
+      while (connection.socket.readyState === WebSocket.OPEN) {
+        const input: unknown = JSON.parse(
+          new TextDecoder().decode(control.receive.decrypt(await connection.reader.next())),
+        );
+        const message = HostControlMessage.parse(input);
+        await apply(routing.reject(id, message.ticket));
+      }
+    } else if (url.pathname === "/client")
+      await apply(
+        routing.request(id, url.searchParams.get("hostId") ?? "", createTicket(), clock.now()),
+      );
+    else if (url.pathname === "/join")
+      await apply(routing.join(id, url.searchParams.get("ticket") ?? "", clock.now()));
+    else connection.socket.close(1008, "Unknown endpoint");
+  }
   http.on("upgrade", (request, socket, head) => {
-    const ip = request.socket.remoteAddress ?? "unknown";
-    if (wss.clients.size >= limits.maxConnections || !ipLimits.acquire(ip)) {
+    const ip = request.socket.remoteAddress ?? "";
+    if (!ip) {
+      socket.destroy();
+      return;
+    }
+    if (wss.clients.size >= limits.maxConnections || !budget.acquire(ip, clock.now())) {
       socket.end("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n");
       return;
     }
     let upgraded = false;
     socket.once("close", () => {
-      if (!upgraded) ipLimits.release(ip);
+      if (!upgraded) budget.release(ip, clock.now());
     });
     wss.handleUpgrade(request, socket, head, (ws) => {
       upgraded = true;
-      activity.set(ws, now());
-      ws.on("error", () => {
-        /* Payloads and protocol errors are intentionally not logged. */
-      });
-      ws.on("pong", () => {
-        if (!ipLimits.message(ip)) ws.close(1008, "Rate limit");
-        else activity.set(ws, now());
-      });
-      ws.on("ping", (data) => {
-        if (!ipLimits.message(ip)) ws.close(1008, "Rate limit");
-        else if (ws.bufferedAmount + data.length > limits.maxBufferedBytes) ws.terminate();
-        else {
-          activity.set(ws, now());
-          ws.pong(data);
+      const id = z.string().min(1).parse(createId());
+      if (connections.has(id)) {
+        ws.terminate();
+        budget.release(ip, clock.now());
+        return;
+      }
+      const abort = new AbortController();
+      const connection: Connection = {
+        socket: ws,
+        abort,
+        lastActivity: clock.now(),
+        reader: new FrameReader(ws, {
+          permit: () => throttle.wait(ip, abort.signal),
+          onFrame: () => {
+            connection.lastActivity = clock.now();
+            void apply(routing.premature(id)).catch(() => ws.terminate());
+          },
+        }),
+      };
+      connections.set(id, connection);
+      ws.on("error", () => {});
+      let controlQueue: Promise<void> = Promise.resolve();
+      let controls = 0;
+      function acceptControl(data: Buffer, reply: () => void): void {
+        if (++controls > 256) {
+          ws.terminate();
+          return;
         }
-      });
-      ws.on("message", (_data, binary) => {
-        activity.set(ws, now());
-        if (!binary) ws.close(1003, "Binary required");
-        else if (!ipLimits.message(ip)) ws.close(1008, "Rate limit");
-      });
+        controlQueue = controlQueue
+          .then(async () => {
+            const release = connection.reader.hold();
+            try {
+              await throttle.wait(ip, abort.signal);
+              connection.lastActivity = clock.now();
+              if (ws.bufferedAmount + data.length + 2 > limits.maxBufferedBytes) ws.terminate();
+              else reply();
+            } finally {
+              controls--;
+              release();
+            }
+          })
+          .catch(() => ws.terminate());
+      }
+      ws.on("ping", (data) => acceptControl(data, () => ws.pong(data)));
+      ws.on("pong", (data) => acceptControl(data, () => {}));
       ws.once("close", () => {
-        ipLimits.release(ip);
-        activity.delete(ws);
+        abort.abort();
+        connection.control?.destroy();
+        connections.delete(id);
+        budget.release(ip, clock.now());
+        void apply(routing.close(id)).catch(() => {});
       });
-      void route(ws, new URL(request.url ?? "/", "http://relay")).catch(() => ws.terminate());
+      void route(id, new URL(request.url ?? "/", "http://relay"), connection).catch(() =>
+        ws.terminate(),
+      );
     });
   });
-  const forward = (source: WebSocket, destination: WebSocket) => {
-    source.on("message", (data, binary) => {
-      if (!binary || source.readyState !== WebSocket.OPEN) return;
-      if (destination.readyState !== WebSocket.OPEN) {
-        source.terminate();
-        return;
-      }
-      const size = Array.isArray(data)
-        ? data.reduce((n, p) => n + p.length, 0)
-        : data instanceof ArrayBuffer
-          ? data.byteLength
-          : data.length;
-      if (destination.bufferedAmount + size > limits.maxBufferedBytes) {
-        source.terminate();
-        destination.terminate();
-        return;
-      }
-      destination.send(data, { binary: true }, (error) => {
-        if (error) {
-          source.terminate();
-          destination.terminate();
-        } else if (destination.bufferedAmount < limits.highWaterBytes / 2) source.resume();
-      });
-      stats.forwardedFrames++;
-      stats.peakBufferedBytes = Math.max(stats.peakBufferedBytes, destination.bufferedAmount);
-      if (destination.bufferedAmount >= limits.highWaterBytes) {
-        source.pause();
-        stats.pausedReaders++;
-        options.onBackpressure?.(destination.bufferedAmount);
-      }
-    });
-    source.once("close", () => destination.terminate());
-  };
-  function pair(client: WebSocket, host: WebSocket): void {
-    forward(client, host);
-    forward(host, client);
-    // This relay-level marker contains no daemon data. Client starts Noise only after pairing.
-    void sendFrame(client, new Uint8Array([1])).catch(() => client.terminate());
-  }
-  async function route(socket: WebSocket, url: URL): Promise<void> {
-    if (url.pathname === "/host") {
-      const reader = new FrameReader(socket);
-      const transport = await handshake(socket, reader, {
-        initiator: false,
-        prologue: CONTROL_PROLOGUE,
-      });
-      const id = hostId(transport.remoteStatic);
-      if (hosts.has(id) || socket.readyState !== WebSocket.OPEN) {
-        transport.destroy();
-        socket.close(1008, "Host already registered");
-        return;
-      }
-      const host = { socket, transport };
-      hosts.set(id, host);
-      socket.once("close", () => {
-        if (hosts.get(id) === host) hosts.delete(id);
-        transport.destroy();
-        for (const [ticket, entry] of tickets)
-          if (entry.host === host) {
-            tickets.delete(ticket);
-            entry.client.terminate();
-          }
-      });
-      await sendFrame(
-        socket,
-        transport.send.encrypt(
-          new TextEncoder().encode(JSON.stringify({ type: "registered", hostId: id })),
-        ),
-      );
-      // Control is server-to-host only after authentication. Unexpected traffic fails closed.
-      await reader.next();
-      socket.close(1008, "Unexpected control frame");
-    } else if (url.pathname === "/client") {
-      const host = hosts.get(url.searchParams.get("hostId") ?? "");
-      if (!host) {
-        socket.close(1008, "Host unavailable");
-        return;
-      }
-      const ticket = randomBytes(32).toString("hex");
-      tickets.set(ticket, { client: socket, host, expires: now() + 10000 });
-      const premature = () => socket.close(1008, "Stream not paired");
-      socket.on("message", premature);
-      socket.once("close", () => tickets.delete(ticket));
-      // Removed when consumed. No forwarding occurs before the authenticated host joins.
-      pendingListeners.set(socket, premature);
-      if (host.socket.bufferedAmount > limits.highWaterBytes) {
-        tickets.delete(ticket);
-        socket.close(1013, "Host busy");
-        return;
-      }
-      await sendFrame(
-        host.socket,
-        host.transport.send.encrypt(
-          new TextEncoder().encode(JSON.stringify({ type: "client", ticket })),
-        ),
-      );
-    } else if (url.pathname === "/join") {
-      const ticket = url.searchParams.get("ticket") ?? "";
-      const entry = tickets.get(ticket);
-      tickets.delete(ticket);
-      if (
-        !entry ||
-        entry.expires <= now() ||
-        entry.client.readyState !== WebSocket.OPEN ||
-        entry.host.socket.readyState !== WebSocket.OPEN
-      ) {
-        entry?.client.terminate();
-        socket.close(1008, "Invalid ticket");
-        return;
-      }
-      const listener = pendingListeners.get(entry.client);
-      if (listener) entry.client.removeListener("message", listener);
-      pendingListeners.delete(entry.client);
-      pair(entry.client, socket);
-    } else socket.close(1008, "Unknown endpoint");
-  }
-  const pendingListeners = new WeakMap<WebSocket, () => void>();
   function sweep(): void {
-    for (const [ticket, entry] of tickets)
-      if (entry.expires <= now()) {
-        tickets.delete(ticket);
-        entry.client.terminate();
-      }
-    for (const [socket, last] of activity)
-      if (now() - last >= limits.idleTimeoutMs) socket.terminate();
-    ipLimits.sweep();
+    void apply(routing.sweep(clock.now())).catch(() => {});
+    for (const connection of connections.values())
+      if (clock.now() - connection.lastActivity >= limits.idleTimeoutMs)
+        connection.socket.terminate();
+    budget.sweep(clock.now());
   }
-  const timer = setInterval(
-    () => {
-      sweep();
-      for (const socket of wss.clients) socket.ping();
-    },
-    Math.min(10000, limits.idleTimeoutMs / 2),
-  );
-  timer.unref();
-  await new Promise<void>((resolve, reject) => {
-    http.once("error", reject);
-    http.listen(options.port ?? 0, options.bind ?? "127.0.0.1", resolve);
-  });
+  let cancelled = false;
+  let cancelSweep: () => void = noop;
+  function probe(): void {
+    if (cancelled) return;
+    sweep();
+    for (const connection of connections.values())
+      if (connection.socket.readyState === WebSocket.OPEN) connection.socket.ping();
+    cancelSweep = clock.schedule(Math.min(10000, limits.idleTimeoutMs / 2), probe);
+  }
+  try {
+    await new Promise<void>((resolve, reject) => {
+      http.once("error", reject);
+      http.listen(options.port ?? 0, options.bind ?? "127.0.0.1", resolve);
+    });
+  } catch (error) {
+    throttle.close();
+    throw error;
+  }
+  cancelSweep = clock.schedule(Math.min(10000, limits.idleTimeoutMs / 2), probe);
   const address = http.address();
   if (!address || typeof address === "string") throw new Error("No relay address");
+  let closing: Promise<void> | undefined;
   return {
     url: `ws://${options.bind ?? "127.0.0.1"}:${address.port}`,
     port: address.port,
     stats,
-    /** Advances idle cleanup using the injected clock, without wall-clock sleeps in tests. */
     sweep,
-    async close(): Promise<void> {
-      clearInterval(timer);
-      for (const socket of wss.clients) socket.terminate();
-      await Promise.all([
+    close(): Promise<void> {
+      if (closing) return closing;
+      cancelled = true;
+      cancelSweep();
+      throttle.close();
+      for (const connection of connections.values()) connection.socket.terminate();
+      closing = Promise.all([
         new Promise<void>((resolve) => wss.close(() => resolve())),
         new Promise<void>((resolve, reject) =>
           http.close((error) => (error ? reject(error) : resolve())),
         ),
-      ]);
+      ]).then(() => {});
+      return closing;
     },
   };
 }

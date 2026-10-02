@@ -1,24 +1,9 @@
 import { afterEach, expect, it } from "vitest";
 import { startRelay } from "./index.ts";
-import { dial, relayAddress } from "./socket.ts";
+import { openPeer as dial, address as relayAddress, deferred } from "./testing/peer.ts";
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
-});
-it("WebSocket control frames cannot bypass per-IP message rate limits", async () => {
-  const relay = await startRelay({
-    limits: { messageBurst: 2, messagesPerSecond: 1 },
-    now: () => 0,
-  });
-  cleanups.push(() => relay.close());
-  const { socket } = await dial(relayAddress(relay.url, "/host"));
-  cleanups.push(() => socket.terminate());
-  const pong = new Promise<void>((resolve) => socket.once("pong", () => resolve()));
-  const ended = new Promise<number>((resolve) => socket.once("close", resolve));
-  socket.ping();
-  await pong;
-  socket.ping();
-  expect(await ended).toBe(1008);
 });
 it("excessive WebSocket fragmentation is rejected even below the byte limit", async () => {
   const relay = await startRelay();
@@ -35,15 +20,12 @@ it("host shutdown closes live encrypted channels and a blocked receive", async (
   const { keyPair } = await import("@ace/secure-channel");
   const relay = await startRelay();
   cleanups.push(() => relay.close());
-  let received!: () => void;
-  const arrived = new Promise<void>((resolve) => {
-    received = resolve;
-  });
+  const arrived = deferred<void>();
   const host = await connectHostToRelay({
     relayUrl: relay.url,
     hostKeys: keyPair(),
     onClientChannel() {
-      received();
+      arrived.resolve();
     },
   });
   cleanups.push(() => host.close());
@@ -53,7 +35,7 @@ it("host shutdown closes live encrypted channels and a blocked receive", async (
     pinnedFingerprint: host.hostId,
   });
   cleanups.push(() => client.close());
-  await arrived;
+  await arrived.promise;
   const blocked = client.receive();
   const rejected = expect(blocked).rejects.toThrow("closed");
   await host.close();

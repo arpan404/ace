@@ -8,10 +8,11 @@ import { NoiseXX, keyPair, fingerprint } from "@ace/secure-channel";
 const hostKeys = keyPair();
 const client = new NoiseXX({
   initiator: true,
+  ephemeralKey: keyPair(),
   staticKey: keyPair(),
   pinnedFingerprint: fingerprint(hostKeys.publicKey),
 });
-const host = new NoiseXX({ initiator: false, staticKey: hostKeys });
+const host = new NoiseXX({ initiator: false, staticKey: hostKeys, ephemeralKey: keyPair() });
 host.readMessage(client.writeMessage());
 client.readMessage(host.writeMessage());
 host.readMessage(client.writeMessage());
@@ -33,3 +34,5 @@ Nonce counters start at zero, use four zero bytes followed by a little-endian ui
 Noise XX's first handshake payload is plaintext by specification. The integration helpers always use empty handshake payloads and send daemon messages only after the handshake completes. Direct callers must apply the same rule for secrets. The client's pin is checked immediately after decrypting the responder static key, before it sends its final handshake message. XX proves the client's fresh static key as well, but device authorization still belongs to the daemon's existing wire `hello` message and device-token validation.
 
 The implementation is written from the specification. The [vendored fixture notes](fixtures/README.md) record test-data sources and licenses. This Noise state machine has not had an independent cryptographic audit.
+
+Generate fresh ephemerals with `keyPair()` at the I/O boundary and pass `ephemeralKey` to each `NoiseXX` instance. The state machine performs no random generation. `CipherState(key, initialNonce = 0n)` permits restoring an explicitly managed counter and testing exhaustion; ordinary sessions always start at zero. Never restore a key with a counter that could reuse a nonce.

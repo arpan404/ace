@@ -13,8 +13,8 @@ export type HandshakeOptions = {
   staticKey: KeyPair;
   prologue?: Uint8Array;
   pinnedFingerprint?: string;
-  /** Deterministic ephemeral injection for official vector validation only. Never reuse in production. */
-  ephemeralKey?: KeyPair;
+  /** Fresh ephemeral generated at the I/O boundary. Never reuse in production. */
+  ephemeralKey: KeyPair;
 };
 /** Noise revision 34, XX: -> e; <- e, ee, s, es; -> s, se. */
 export class NoiseXX {
@@ -40,7 +40,7 @@ export class NoiseXX {
         : {}),
     };
     this.#s = keyPair(options.staticKey.privateKey);
-    this.#e = options.ephemeralKey ? keyPair(options.ephemeralKey.privateKey) : keyPair();
+    this.#e = keyPair(options.ephemeralKey.privateKey);
     this.#mixHash(options.prologue ?? empty);
   }
   #mixHash(data: Uint8Array): void {
@@ -105,7 +105,7 @@ export class NoiseXX {
   writeMessage(payload: Uint8Array = empty): Uint8Array {
     this.#check(true);
     try {
-      const overhead = [32, 96, 64][this.#step]!;
+      const overhead = this.#step === 0 ? 32 : this.#step === 1 ? 96 : 64;
       if (payload.length + overhead > MAX_MESSAGE) throw new Error("Noise message too large");
       const parts: Uint8Array[] = [];
       if (this.#step < 2) {
@@ -132,7 +132,7 @@ export class NoiseXX {
   readMessage(message: Uint8Array): Uint8Array {
     this.#check(false);
     try {
-      const minimum = [32, 96, 64][this.#step]!;
+      const minimum = this.#step === 0 ? 32 : this.#step === 1 ? 96 : 64;
       if (message.length < minimum || message.length > MAX_MESSAGE)
         throw new Error("Invalid Noise message size");
       let offset = 0;

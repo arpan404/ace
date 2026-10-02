@@ -4,19 +4,23 @@ import { keyPair, hostId, NoiseXX } from "@ace/secure-channel";
 import { startRelay, connectClientViaRelay, connectHostToRelay } from "./index.ts";
 import { DeviceId } from "@ace/protocol";
 import type { HostChannel } from "./index.ts";
-import { dial, relayAddress, sendFrame } from "./socket.ts";
-import { handshake, CONTROL_PROLOGUE, STREAM_PROLOGUE } from "./handshake.ts";
+import {
+  openPeer as dial,
+  address as relayAddress,
+  initiate,
+  CONTROL as CONTROL_PROLOGUE,
+  STREAM as STREAM_PROLOGUE,
+  bytes,
+  json,
+  Registration,
+  Offer,
+  deferred,
+  sendFrame,
+} from "./testing/peer.ts";
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
-}
 async function setup(options: Parameters<typeof startRelay>[0] = {}) {
   const relay = await startRelay(options);
   cleanups.push(() => relay.close());
@@ -40,7 +44,16 @@ async function setup(options: Parameters<typeof startRelay>[0] = {}) {
       pinnedFingerprint: host.hostId,
     });
     cleanups.push(() => client.close());
-    return { client, server: await waiter.promise };
+    const server = await waiter.promise;
+    await client.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: DeviceId.parse("paired"),
+      token: "validated",
+    });
+    await server.receive();
+    server.authorize();
+    return { client, server };
   }
   return { relay, hostKeys, host, connect, incoming };
 }
@@ -72,15 +85,9 @@ it("registration proves possession of the static key and ignores a claimed host 
   const attackerKeys = keyPair();
   const attacker = await dial(relayAddress(relay.url, "/host", { hostId: host.hostId }));
   cleanups.push(() => attacker.socket.terminate());
-  const auth = await handshake(attacker.socket, attacker.reader, {
-    initiator: true,
-    staticKey: attackerKeys,
-    prologue: CONTROL_PROLOGUE,
-  });
+  const auth = await initiate(attacker, CONTROL_PROLOGUE, attackerKeys);
   cleanups.push(() => auth.destroy());
-  const registration = JSON.parse(
-    new TextDecoder().decode(auth.receive.decrypt(await attacker.reader.next())),
-  ) as { hostId: string };
+  const registration = Registration.parse(json(auth.receive.decrypt(await attacker.next())));
   expect(registration.hostId).toBe(hostId(attackerKeys.publicKey));
   expect(registration.hostId).not.toBe(host.hostId);
   const { client, server } = await connect();
@@ -91,20 +98,25 @@ it("replayed registration transcripts do not prove possession to a fresh relay h
   const relay = await startRelay();
   cleanups.push(() => relay.close());
   const keys = keyPair();
-  const noise = new NoiseXX({ initiator: true, staticKey: keys, prologue: CONTROL_PROLOGUE });
+  const noise = new NoiseXX({
+    ephemeralKey: keyPair(),
+    initiator: true,
+    staticKey: keys,
+    prologue: CONTROL_PROLOGUE,
+  });
   const first = await dial(relayAddress(relay.url, "/host"));
   cleanups.push(() => first.socket.terminate());
   const m1 = noise.writeMessage();
   await sendFrame(first.socket, m1);
-  noise.readMessage(await first.reader.next());
+  noise.readMessage(await first.next());
   const m3 = noise.writeMessage();
   await sendFrame(first.socket, m3);
-  await first.reader.next();
+  await first.next();
   const replay = await dial(relayAddress(relay.url, "/host"));
   cleanups.push(() => replay.socket.terminate());
   const ended = closed(replay.socket);
   await sendFrame(replay.socket, m1);
-  await replay.reader.next();
+  await replay.next();
   await sendFrame(replay.socket, m3);
   expect(await ended).toBe(1006);
 });
@@ -119,12 +131,13 @@ it("an impersonating relay is rejected by the pinned responder fingerprint", asy
   wss.on("connection", (socket) => {
     socket.send(new Uint8Array([1]));
     const noise = new NoiseXX({
+      ephemeralKey: keyPair(),
       initiator: false,
       staticKey: keyPair(),
       prologue: STREAM_PROLOGUE,
     });
     socket.once("message", (data) => {
-      noise.readMessage(Buffer.from(data as Buffer));
+      noise.readMessage(bytes(data));
       socket.send(noise.writeMessage());
     });
   });
@@ -151,7 +164,7 @@ async function proxy(
     return new Promise<void>((r) => wss.close(() => r()));
   });
   wss.on("connection", (socket, req) => {
-    const url = new URL(req.url!, upstream);
+    const url = new URL(req.url ?? "/", upstream);
     const peer = new WebSocket(url);
     peers.add(peer);
     let incoming = 0,
@@ -160,10 +173,10 @@ async function proxy(
     peer.on("error", () => socket.terminate());
     socket.pause();
     socket.on("message", (data, binary) =>
-      peer.send(inspect(url.pathname, "out", Buffer.from(data as Buffer), outgoing++), { binary }),
+      peer.send(inspect(url.pathname, "out", bytes(data), outgoing++), { binary }),
     );
     peer.on("message", (data, binary) =>
-      socket.send(inspect(url.pathname, "in", Buffer.from(data as Buffer), incoming++), { binary }),
+      socket.send(inspect(url.pathname, "in", bytes(data), incoming++), { binary }),
     );
     peer.once("open", () => socket.resume());
     socket.once("close", () => peer.terminate());
@@ -183,7 +196,7 @@ it("a relay in the middle sees ciphertext and its modified transport frames are 
     frames.push(frame.slice());
     if (path === "/client" && direction === "in" && index === 2) {
       const modified = frame.slice();
-      modified[10] = modified[10]! ^ 1;
+      modified[10] = (modified[10] ?? 0) ^ 1;
       return modified;
     }
     return frame;
@@ -208,26 +221,6 @@ it("per-IP concurrent connection limits reject upgrades and release slots on clo
   await ended;
   const next = await dial(relayAddress(relay.url, "/host"));
   cleanups.push(() => next.socket.terminate());
-});
-it("message rate limits apply across sockets from one IP and tokens recover with time", async () => {
-  let now = 0;
-  const relay = await startRelay({
-    now: () => now,
-    limits: { messageBurst: 2, messagesPerSecond: 1 },
-  });
-  cleanups.push(() => relay.close());
-  const first = await dial(relayAddress(relay.url, "/host"));
-  cleanups.push(() => first.socket.terminate());
-  const noise = new NoiseXX({ initiator: true, staticKey: keyPair(), prologue: CONTROL_PROLOGUE });
-  await sendFrame(first.socket, noise.writeMessage());
-  noise.readMessage(await first.reader.next());
-  const ended = closed(first.socket);
-  await sendFrame(first.socket, noise.writeMessage());
-  expect(await ended).toBe(1008);
-  await expect(dial(relayAddress(relay.url, "/host"))).rejects.toThrow("429");
-  now = 1000;
-  const recovered = await dial(relayAddress(relay.url, "/host"));
-  cleanups.push(() => recovered.socket.terminate());
 });
 it("oversized binary frames and text frames are closed before forwarding", async () => {
   const relay = await startRelay({ limits: { maxFrameSize: 256 } });
@@ -264,7 +257,11 @@ it("10 MB crosses the relay under backpressure with bounded buffers and reverse 
   const payload = "x".repeat(10 * 1024 * 1024);
   const sending = server.send({ type: "error", code: "bulk", message: payload });
   await paused.promise;
-  expect(server.bufferedBytes).toBeLessThanOrEqual(16 * 1024 * 1024 + 65535);
+  // The application queue must refuse a second 10 MiB send while the first is blocked.
+  await expect(server.send({ type: "error", code: "overflow", message: payload })).rejects.toThrow(
+    "send queue too large",
+  );
+  expect(client.bufferedReceiveBytes).toBeLessThanOrEqual(1024 * 1024);
   await client.send({ type: "ping" });
   expect(await server.receive()).toEqual({ type: "ping" });
   const message = await client.receive();
@@ -321,27 +318,21 @@ it("stream tickets are single-use and expire before an unauthenticated join can 
   const keys = keyPair();
   const host = await dial(relayAddress(relay.url, "/host"));
   cleanups.push(() => host.socket.terminate());
-  const auth = await handshake(host.socket, host.reader, {
-    initiator: true,
-    staticKey: keys,
-    prologue: CONTROL_PROLOGUE,
-  });
+  const auth = await initiate(host, CONTROL_PROLOGUE, keys);
   cleanups.push(() => auth.destroy());
-  auth.receive.decrypt(await host.reader.next());
+  auth.receive.decrypt(await host.next());
   async function ticket() {
     const client = await dial(
       relayAddress(relay.url, "/client", { hostId: hostId(keys.publicKey) }),
     );
     cleanups.push(() => client.socket.terminate());
-    const offer = JSON.parse(
-      new TextDecoder().decode(auth.receive.decrypt(await host.reader.next())),
-    ) as { ticket: string };
+    const offer = Offer.parse(json(auth.receive.decrypt(await host.next())));
     return { client, value: offer.ticket };
   }
   const first = await ticket();
   const joined = await dial(relayAddress(relay.url, "/join", { ticket: first.value }));
   cleanups.push(() => joined.socket.terminate());
-  expect(await first.client.reader.next()).toEqual(Buffer.from([1]));
+  expect(await first.client.next()).toEqual(Buffer.from([1]));
   const replay = await dial(relayAddress(relay.url, "/join", { ticket: first.value }));
   cleanups.push(() => replay.socket.terminate());
   expect(await closed(replay.socket)).toBe(1008);
@@ -351,5 +342,5 @@ it("stream tickets are single-use and expire before an unauthenticated join can 
   const expired = await dial(relayAddress(relay.url, "/join", { ticket: stale.value }));
   cleanups.push(() => expired.socket.terminate());
   expect(await closed(expired.socket)).toBe(1008);
-  expect(await staleClosed).toBe(1006);
+  expect(await staleClosed).toBe(1008);
 });

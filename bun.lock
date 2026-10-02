@@ -29,6 +29,7 @@
         "@ace/protocol": "workspace:*",
         "@ace/secure-channel": "workspace:*",
         "ws": "^8.18.3",
+        "zod": "^4.6.5",
       },
       "devDependencies": {
         "@types/ws": "^8.18.1",

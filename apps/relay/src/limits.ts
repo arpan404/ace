@@ -1,61 +1,113 @@
-export type Limits = {
-  maxConnectionsPerIp: number;
-  maxConnections: number;
-  messagesPerSecond: number;
-  messageBurst: number;
-  maxFrameSize: number;
-  idleTimeoutMs: number;
-  highWaterBytes: number;
-  maxBufferedBytes: number;
-};
-export const defaultLimits: Limits = {
-  maxConnectionsPerIp: 64,
-  maxConnections: 1024,
-  messagesPerSecond: 1000,
-  messageBurst: 2000,
-  maxFrameSize: 65535,
-  idleTimeoutMs: 60000,
-  highWaterBytes: 256 * 1024,
-  maxBufferedBytes: 1024 * 1024,
-};
-export class IpLimits {
-  #entries = new Map<string, { connections: number; tokens: number; updated: number }>();
-  #limits: Limits;
-  #now: () => number;
-  constructor(limits: Limits, now: () => number) {
-    this.#limits = limits;
-    this.#now = now;
+import { isIP } from "node:net";
+import { LimitsSchema } from "./config.ts";
+import type { Limits } from "./config.ts";
+export type { Limits } from "./config.ts";
+export const defaultLimits: Limits = LimitsSchema.parse({});
+/** IPv4-mapped IPv6 shares IPv4's quota. IPv6 hosts share their /64 budget. */
+export function ipKey(ip: string): string {
+  const version = isIP(ip);
+  if (version === 4) return "v4:" + ip;
+  if (version !== 6) throw new Error("Invalid peer IP");
+  let normalized = ip.toLowerCase().split("%")[0] ?? "";
+  if (normalized.includes(".")) {
+    const last = normalized.lastIndexOf(":");
+    const tail = normalized
+      .slice(last + 1)
+      .split(".")
+      .map(Number);
+    const [a, b, c, d] = tail;
+    if (a === undefined || b === undefined || c === undefined || d === undefined)
+      throw new Error("Invalid mapped IP");
+    normalized =
+      normalized.slice(0, last + 1) +
+      ((a << 8) | b).toString(16) +
+      ":" +
+      ((c << 8) | d).toString(16);
   }
-  acquire(ip: string): boolean {
-    let entry = this.#entries.get(ip);
+  const [left = "", right] = normalized.split("::");
+  const first = left === "" ? [] : left.split(":");
+  const last = right === undefined || right === "" ? [] : right.split(":");
+  const words =
+    right === undefined
+      ? first
+      : [...first, ...Array<string>(8 - first.length - last.length).fill("0"), ...last];
+  const n = words.map((value) => parseInt(value, 16));
+  if (n.slice(0, 5).every((value) => value === 0) && n[5] === 65535) {
+    const x = n[6],
+      y = n[7];
+    if (x === undefined || y === undefined) throw new Error("Invalid mapped IP");
+    return `v4:${x >>> 8}.${x & 255}.${y >>> 8}.${y & 255}`;
+  }
+  return (
+    "v6:" +
+    n
+      .slice(0, 4)
+      .map((value) => value.toString(16))
+      .join(":")
+  );
+}
+type Entry = { connections: number; tokens: number; updated: number; seen: number };
+/** Pure admission and token decisions. Inactive entries form an O(1) LRU. */
+export class IpBudget {
+  #entries = new Map<string, Entry>();
+  #idle = new Map<string, Entry>();
+  #limits: Limits;
+  constructor(limits: Partial<Limits> = {}) {
+    this.#limits = LimitsSchema.parse(limits);
+  }
+  acquire(ip: string, now: number): boolean {
+    const key = ipKey(ip);
+    let entry = this.#entries.get(key);
     if (!entry) {
-      if (this.#entries.size >= 4096) return false;
-      entry = { connections: 0, tokens: this.#limits.messageBurst, updated: this.#now() };
-      this.#entries.set(ip, entry);
+      if (this.#entries.size >= this.#limits.maxIpEntries) {
+        const oldest = this.#idle.keys().next();
+        if (oldest.done) return false;
+        this.#idle.delete(oldest.value);
+        this.#entries.delete(oldest.value);
+      }
+      entry = { connections: 0, tokens: this.#limits.messageBurst, updated: now, seen: now };
+      this.#entries.set(key, entry);
     }
-    if (entry.connections >= this.#limits.maxConnectionsPerIp || !this.message(ip)) return false;
+    if (entry.connections >= this.#limits.maxConnectionsPerIp) return false;
+    this.#idle.delete(key);
     entry.connections++;
+    entry.seen = now;
     return true;
   }
-  release(ip: string): void {
-    const e = this.#entries.get(ip);
-    if (e) e.connections--;
+  release(ip: string, now: number): void {
+    const key = ipKey(ip);
+    const e = this.#entries.get(key);
+    if (!e) return;
+    e.connections = Math.max(0, e.connections - 1);
+    if (e.connections === 0) {
+      e.seen = now;
+      this.#idle.delete(key);
+      this.#idle.set(key, e);
+    }
   }
-  message(ip: string): boolean {
-    const e = this.#entries.get(ip);
-    if (!e) return false;
-    const now = this.#now();
+  /** Returns zero after consuming a token, otherwise the delay until one is available. */
+  take(ip: string, now: number): number {
+    const key = ipKey(ip);
+    const e = this.#entries.get(key);
+    if (!e) throw new Error("IP not admitted");
     e.tokens = Math.min(
       this.#limits.messageBurst,
       e.tokens + (Math.max(0, now - e.updated) * this.#limits.messagesPerSecond) / 1000,
     );
     e.updated = now;
-    if (e.tokens < 1) return false;
+    if (e.connections === 0) {
+      this.#idle.delete(key);
+      this.#idle.set(key, e);
+    }
+    if (e.tokens < 1) return Math.ceil(((1 - e.tokens) * 1000) / this.#limits.messagesPerSecond);
     e.tokens--;
-    return true;
+    return 0;
   }
-  sweep(): void {
-    for (const [ip, e] of this.#entries)
-      if (e.connections === 0 && this.#now() - e.updated > 60000) this.#entries.delete(ip);
+  sweep(now: number): void {
+    for (const [key, e] of this.#idle) {
+      if (now - e.seen <= 60000) break;
+      this.#idle.delete(key);
+      this.#entries.delete(key);
+    }
   }
 }
