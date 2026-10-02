@@ -330,3 +330,12 @@ describe("supervised processes", () => {
     ).rejects.toThrow("Probe output exceeded limit");
   });
 });
+
+it("an aborted read-only probe stops its real child and rejects without waiting for output", async () => {
+  const controller = new AbortController();
+  const result = probeOutput(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    signal: controller.signal,
+  });
+  controller.abort();
+  await expect(result).rejects.toThrow("Probe aborted");
+});

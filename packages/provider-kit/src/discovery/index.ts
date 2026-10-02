@@ -32,6 +32,7 @@ export type DiscoveryOptions = {
   /** Explicit environment overrides, including PATH, for resolution and probes. */
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  signal?: AbortSignal;
 };
 const specs = {
   claude: {
@@ -112,7 +113,11 @@ export async function discoverProviders(
         if (!path) return [provider, result];
         result.installed = true;
         result.path = path;
-        const probeOptions = { env, timeoutMs: options.timeoutMs ?? 10_000 };
+        const probeOptions = {
+          env,
+          timeoutMs: options.timeoutMs ?? 10_000,
+          ...(options.signal ? { signal: options.signal } : {}),
+        };
         const [version, auth] = await Promise.allSettled([
           probeOutput(path, ["--version"], probeOptions),
           probeOutput(path, spec.authArgs, probeOptions),
