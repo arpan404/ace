@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { z } from "zod";
 
-// Non-gating review evidence. Every mutation is restored even if Vitest or reporting fails.
+// Merge-time verification only; do not run during feature or review work. Every mutation is restored even if Vitest or reporting fails.
 const cases = [
   {
     file: "scan.ts",
@@ -35,8 +35,8 @@ const cases = [
   },
   {
     file: "map-history.ts",
-    before: "raw: [ctx.raw],",
-    after: "raw: [],",
+    before: "return [ctx.raw];",
+    after: "return [];",
     test: "unknown native records survive",
     change: "Drop unknown raw records",
   },
@@ -69,12 +69,60 @@ const cases = [
     test: "source changes during import roll back",
     change: "Publish history after a source change",
   },
+  {
+    file: "provider-db.ts",
+    before: 'countAccuracy: "sampled",',
+    after: 'countAccuracy: "exact",',
+    testFile: "review.test.ts",
+    test: "database metadata remains listed",
+    change: "Invent an exact database-only count",
+  },
+  {
+    file: "archive-contracts.ts",
+    before: ".max(200)",
+    after: ".max(2000)",
+    testFile: "observed-reads.test.ts",
+    test: "item pages refuse limits above 200",
+    change: "Increase the page cap to 2000",
+  },
+  {
+    file: "scan.ts",
+    before: "if (fp !== (await databaseFingerprint(path)))",
+    after: "if (false && fp !== (await databaseFingerprint(path)))",
+    testFile: "observed-reads.test.ts",
+    test: "a database changed while scanning",
+    change: "Remove final scan stability verification",
+  },
+  {
+    file: "map-history.ts",
+    before: "const output = string(p.output);",
+    after: "const output = undefined;",
+    testFile: "review.test.ts",
+    test: "codex native results complete",
+    change: "Drop Codex result text",
+  },
+  {
+    file: "scan.ts",
+    before: "result.skipped++;",
+    after: "await readHeadTail(instance.homeDir, path, signal); result.skipped++;",
+    testFile: "observed-reads.test.ts",
+    test: "warm cached scans perform no actual",
+    change: "Reread cached files without reporting reads",
+  },
 ];
 const reportSchema = z.object({
   numFailedTests: z.number().positive(),
   numTotalTests: z.number().positive(),
   testResults: z.array(
-    z.object({ assertionResults: z.array(z.object({ title: z.string(), status: z.string() })) }),
+    z.object({
+      assertionResults: z.array(
+        z.object({
+          title: z.string(),
+          status: z.string(),
+          failureMessages: z.array(z.string()).default([]),
+        }),
+      ),
+    }),
   ),
 });
 const packageRoot = new URL("..", import.meta.url).pathname;
@@ -100,9 +148,10 @@ try {
           "run",
           "test",
           "--",
-          "packages/history-import/src/history.test.ts",
+          `packages/history-import/src/${mutation.testFile ?? "history.test.ts"}`,
           "-t",
           mutation.test,
+          "--testTimeout=30000",
           "--reporter=json",
           `--outputFile=${report}`,
         ],
@@ -113,6 +162,12 @@ try {
       const failed = parsed.testResults
         .flatMap((r) => r.assertionResults)
         .find((r) => r.status === "failed" && r.title.includes(mutation.test));
+      if (
+        failed?.failureMessages.some((message) =>
+          /timed out|Timeout|SyntaxError|Cannot find module/i.test(message),
+        )
+      )
+        throw new Error(`Invalid mutation failure: ${mutation.change}`);
       if (!failed) throw new Error(`Mutation did not fail its named behavior: ${mutation.change}`);
       console.log(`Killed: ${mutation.change}`);
       results.push(`| ${mutation.change} | ${failed.title} | Failed |`);
@@ -122,7 +177,7 @@ try {
   }
   await writeFile(
     join(packageRoot, "MUTATIONS.md"),
-    "# Mutation verification\n\nRun `node packages/history-import/bench/mutations.ts` from the repo root. Nine deliberate production changes each failed the named public behavior test. All source bytes were restored after each run. Syntax/import failures do not count; the reporter must contain a failed assertion for the selected behavior.\n\n| Production mutation | Behavior test | Result |\n| --- | --- | --- |\n" +
+    "# Mutation verification\n\nRun `node packages/history-import/bench/mutations.ts` from the repo root. Merge-time execution: fourteen deliberate production changes, including all five review survivors, each failed the named public behavior test. All source bytes were restored after each run. Syntax/import failures do not count; the reporter must contain a failed assertion for the selected behavior.\n\n| Production mutation | Behavior test | Result |\n| --- | --- | --- |\n" +
       results.join("\n") +
       "\n",
   );
