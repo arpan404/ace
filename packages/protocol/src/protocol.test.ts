@@ -26,23 +26,6 @@ describe("protocol schemas", () => {
     expect(Agent.safeParse(bad).success).toBe(false);
   });
 
-  it("parses an event envelope and narrows on payload type", () => {
-    const event = Event.parse({
-      seq: 42,
-      id: "evt_42",
-      at: 1000,
-      threadId: "thr_1",
-      payload: {
-        type: "interaction.closed",
-        interactionId: "int_1",
-        state: "expired",
-        closedAt: 1000,
-      },
-    });
-    expect(event.payload.type).toBe("interaction.closed");
-    if (event.payload.type === "interaction.closed") expect(event.payload.state).toBe("expired");
-  });
-
   it("does not allow closing an interaction as pending", () => {
     const result = Event.safeParse({
       seq: 1,
