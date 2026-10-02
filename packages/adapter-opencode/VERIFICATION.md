@@ -2,7 +2,7 @@
 
 Offline verification on this branch uses Vitest, the public adapter contract, core facts and projected client views. Session tests start a boundary double for the installed CLI as a real child process with a real authenticated HTTP/SSE server. They synchronize on received frames and HTTP responses, without sleeps or elapsed-time assertions. No provider prompt or recorder was run.
 
-`bun run check` passed after merging the final foundations packages from main: 411 tests passed, five live tests skipped. The OpenCode package contributes 54 passing tests and one skipped health-only live test. Every production and test module is under 400 lines.
+The review follow-up merged `origin/main` before changes. The nine fixture expectation files remain unchanged. The package now has 76 passing tests and one skipped health-only live test. `bun run check` passed format, lint, the 1,500-line size limit, all workspace typechecks and 433 tests; five live tests were skipped. Session regressions use the exported adapter factory, real authenticated HTTP/SSE and child processes; the shutdown deadline is driven through an injected scheduler.
 
 ## Fixture timelines
 
@@ -53,27 +53,91 @@ Core's settled-root/working-child precedence makes the background-subagent threa
 - Ambiguous model names are rejected before HTTP input is built.
 - Unsupported or unrecognized CLI versions are rejected before sessions start.
 
+## Review regressions
+
+Each blocking finding was reproduced before its production fix. The first translator run failed on early authentication errors, resumed busy/retry grace, historical retry clocks, missing recognized metadata, and unbounded completed-part reconciliation. The first session run failed on foreign buffered disclosure, foreign traffic starving recovery, surviving-shell queue bypass, and local cancellation waiting for stalled abort. The failing assertions observed facts or projected views, raw frame delivery, accepted HTTP commands, and queued-promise settlement.
+
+- Early authentication failure before busy ends one failed run and clears pending wake, including a missing user announcement when the sent native message ID is known.
+- Child busy and retry both invalidate an earlier idle grace deadline.
+- Receipt wall/monotonic clocks keep a retry five seconds away after restoring year-old history.
+- Recognized session metadata retains future native fields as raw evidence.
+- Completed-part eviction preserves live parts and recent delta routing; older deltas stay raw.
+- Step-finish input, output, cached tokens and cost reach projected usage.
+- Later deltas preserve the input frame and previously returned raw evidence.
+- Reusing a provider buffer cannot rewrite nested tool input in emitted facts.
+- Foreign buffered recovery data never reaches another thread context, including project-tagged events whose directory is global.
+- Foreign and owned continuous traffic cannot extend recovery past two snapshot passes.
+- A surviving shell after abort holds queued delivery until its terminal tool update; stop addresses the child owner.
+- A provider roundtrip proves a busy child still holds delivery after the root idles.
+- Stalled abort cannot delay local queued-work cancellation; an injected deadline completes release.
+- A streamed UTF-8 history value arrives before the response completes.
+- Paged history imports all transcript parts, then a second recovery keeps the latest completed turn settled.
+- GET history requests never create pending-input wake.
+- Snapshot receipt watermarks prevent stale buffered idle from replacing newer busy REST status.
+- Injected receipt clocks also work through the live I/O shell.
+- An early grace callback rearms instead of stranding queued delivery.
+- Injected task results settle the background job even before their user-message announcement.
+
+## Performance
+
+Measured offline on darwin arm64, Node v26.8.1. Benchmarks are reproducible scripts in `benchmarks/`; they contain no gating latency or memory assertions. Emitted facts are discarded for translator retention measurements, and GC runs before heap samples. Reported translator numbers are medians of three runs after a warmup. Each message has a unique 2,000-character completed text part. The delta sample translates 50,000 one-character reasoning deltas and checks delivery settlement on every iteration.
+
+| Completed messages | Ingest    | Retained translator heap | Delta + settlement |
+| ------------------ | --------- | ------------------------ | ------------------ |
+| 20,000             | 226.27 ms | 0.50 MiB                 | 2.58 µs/frame      |
+| 40,000             | 403.15 ms | 0.22 MiB                 | 2.58 µs/frame      |
+
+The review measured 50.52/100.97 MiB at those sizes before this fix. The new caches retain compact metadata only, bounded by live work and fixed reconciliation windows. Delta processing never concatenates cached history; settlement uses indexes updated for the changed session and tool.
+
+The recovery benchmark drives the public adapter against the boundary CLI double. Times include provider-kit's 500 ms reconnect backoff. Initial import is necessarily linear in history; subsequent reconnect uses one recent page in both cases.
+
+| History | Initial recovery | Messages/pages | Later reconnect | Messages/pages |
+| ------- | ---------------- | -------------- | --------------- | -------------- |
+| 20,000  | 1603.77 ms       | 20,000 / 157   | 522.03 ms       | 128 / 1        |
+| 40,000  | 3056.57 ms       | 40,000 / 313   | 525.16 ms       | 128 / 1        |
+
 ## Mutation checks
 
-Each mutation below was applied to production code alone, made an existing behavior test fail, then was reverted. The twelve checks ran sequentially. A first probe removing only `detail.childAgent` survived because core reconstructs that hint from `agent.linked`; the final M6 removes the task-kind mapping and fails the foreground-child behavior test.
+All 22 review production mutations failed named behavior tests in the whole adapter suite and were reverted before the next mutation. The four review survivors are caught: 10 by the busy-child roundtrip barrier, 16 by projected usage, 18 by canonical spawn linkage, and 22 by provider-buffer reuse. The former full-part cache clone path was removed: caches now retain compact descriptors and never mutate content. The corresponding immutable-evidence fault is exercised by removing the raw boundary clone. Spawn linking now has one authority, `agent.linked.spawnedBy`, so corrupting that key can no longer be hidden by a redundant detail hint.
 
-| Mutation                                         | Failing behavior                                                              |
-| ------------------------------------------------ | ----------------------------------------------------------------------------- |
-| M1: rate-limit retries become upstream           | holds a rate_limit retry until a busy signal                                  |
-| M2: network retries become upstream              | holds a network retry until a busy signal                                     |
-| M3: aborted completed tools succeed              | keeps an interrupted shell live through duplicate idles until terminal output |
-| M4: plan_exit becomes an ordinary question       | turns plan_exit into a review and treats rejection as a completed turn        |
-| M5: question rejection loses dismissal           | resolves rejected questions as dismissed and declines the backing tool        |
-| M6: task tool becomes an untyped custom tool     | links an announced child to its later task without creating a second agent    |
-| M7: reasoning text deltas use the message field  | routes reasoning text deltas to reasoning and preserves the input frame       |
-| M8: background grace expires immediately         | releases a background job after the result-delivery grace period              |
-| M9: live tools are cancelled at the first idle   | keeps an interrupted shell live through duplicate idles until terminal output |
-| M10: session ignores busy children when queueing | queues a second input until the child and root are both idle                  |
-| M11: HTTP requests lose project addressing       | shares one authenticated server and addresses each project directory          |
-| M12: recovery replays a delta already in REST    | does not append a buffered delta that the REST snapshot already contains      |
+| Review # | Production fault                     | Failing behavior                                                                   |
+| -------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
+| 1        | rate_limit becomes upstream          | holds a rate_limit retry until a busy signal                                       |
+| 2        | network becomes upstream             | holds a network retry until a busy signal                                          |
+| 3        | aborted tools succeed                | keeps an interrupted shell live through duplicate idles until terminal output      |
+| 4        | plan_exit becomes ordinary question  | turns plan_exit into a review and treats rejection as a completed turn             |
+| 5        | dismissed flag is removed            | resolves rejected questions as dismissed and declines the backing tool             |
+| 6        | task becomes custom                  | renders task with typed details and retains its native input                       |
+| 7        | reasoning deltas use text            | routes reasoning text deltas to reasoning and preserves the input frame            |
+| 8        | grace expires immediately            | releases a background job after the result-delivery grace period                   |
+| 9        | survivor detection removed           | interrupt.jsonl preserves its status timeline and final tree                       |
+| 10       | busy children ignored by delivery    | does not send a queued prompt past a busy child after a provider roundtrip         |
+| 11       | directory lost                       | shares one authenticated server and addresses each project directory               |
+| 12       | buffered deltas reapplied            | does not append a buffered delta that the REST snapshot already contains           |
+| 13       | HTTP authorization corrupted         | authenticated server rejects corrupted authorization before session creation       |
+| 14       | cascade omitted                      | aborts known descendants and stops a background child independently                |
+| 15       | dismiss via reply                    | routes ordered answers, dismissals, plan decisions and approval replies            |
+| 16       | usage input always zero              | reports native usage and leaves returned raw evidence unchanged after later deltas |
+| 17       | native tool raw removed              | holds queued input through background-result delivery and the resumed parent turn  |
+| 18       | spawnedBy corrupted                  | links an announced child to its later task without creating a second agent         |
+| 19       | supported version rejected           | supported 1.18.33 is accepted during session opening                               |
+| 20       | attachments ignore cwd               | resolves relative file attachments in the session workspace                        |
+| 21       | close resolves queued work           | cancels local queued work even when the abort endpoint never replies               |
+| 22       | raw evidence defensive clone removed | keeps raw nested tool input independent of later provider buffer reuse             |
+
+Two additional production faults also failed their public behavior tests and were reverted:
+
+| #   | Production fault                     | Failing behavior                                                            |
+| --- | ------------------------------------ | --------------------------------------------------------------------------- |
+| 23  | ignore snapshot receipt watermark    | older buffered idle cannot overwrite a newer busy REST snapshot             |
+| 24  | do not rearm an early grace callback | queued delivery remains held before, and proceeds at, the injected deadline |
+
+After the watermark and pure resolution refactors, the buffered-delta and question-dismissal mutations were rerun and still failed.
 
 ## Boundaries
 
 The optional real-CLI test was not enabled in this run. It starts only the server and reads health after SSE connection, with no session creation or model input. The fixture recordings remain untouched.
 
-The adapter drives v1 routes. `session.next.*` remains raw until a separate v2 translation contract is specified. Detached shells have no native task lifecycle, so capabilities report partial background visibility. Long recovery reads may defer queued input until the stream reaches a quiet point; provider I/O is kept outside the translator.
+The adapter drives v1 routes. `session.next.*` remains raw until a separate v2 translation contract is specified. Detached shells have no native task lifecycle, so capabilities report partial background visibility. Recovery uses at most two snapshot passes and cannot wait indefinitely for global traffic to stop. Buffered deltas are never appended to snapshot content; continuously streaming content converges at the provider's later full part updates. Provider I/O stays outside the translator.
+
+A core-owner request remains for immediate transport liveness override: add `transport.lost` / `transport.restored` facts so recoverable SSE loss reports `unresponsive` immediately and throughout resync. The current contract supports silence-based detection only. This adapter emits loss/restoration lifecycle evidence, expires stale interactions and blocks queued input during recovery. It does not fake clocks or misreport recoverable outages as process exits. See [the request on PR #17](https://github.com/arpan404/ace/pull/17#issuecomment-5954715415).
