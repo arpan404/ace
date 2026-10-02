@@ -47,6 +47,20 @@
         "@ace/provider-kit": "workspace:*",
       },
     },
+    "packages/history-import": {
+      "name": "@ace/history-import",
+      "dependencies": {
+        "@ace/native-session": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
+    "packages/native-session": {
+      "name": "@ace/native-session",
+      "dependencies": {
+        "zod": "^4.6.5",
+      },
+    },
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
@@ -79,6 +93,10 @@
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
 
     "@ace/engine-api": ["@ace/engine-api@workspace:packages/engine-api"],
+
+    "@ace/history-import": ["@ace/history-import@workspace:packages/history-import"],
+
+    "@ace/native-session": ["@ace/native-session@workspace:packages/native-session"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
