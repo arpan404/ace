@@ -1,6 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { decode, nul, pathSchema } from "./decode.ts";
+import { decode, nul, pathAncestors, pathSchema } from "./decode.ts";
 import { parseIndex, parseTree, type IndexEntry } from "./parse-index.ts";
 import type { Repository } from "./repository.ts";
 import { textOutput } from "./cli.ts";
@@ -12,10 +12,17 @@ export async function nestedPaths(
   repository: Repository,
   root: string,
   tracked: IndexEntry[],
+  env: Record<string, string> = {},
 ): Promise<string[]> {
   const paths = new Set(tracked.filter((e) => e.mode === "160000").map((e) => e.path));
   const untracked = nul(
-    (await repository.cli.call(root, ["ls-files", "--others", "--exclude-standard", "-z"])).stdout,
+    (
+      await repository.cli.call(
+        root,
+        ["ls-files", "--others", "--modified", "--exclude-standard", "-z"],
+        { env },
+      )
+    ).stdout,
   );
   for (const record of untracked) {
     const path = decode(
@@ -23,15 +30,30 @@ export async function nestedPaths(
       record.endsWith("/") ? record.slice(0, -1) : record,
       "untracked path",
     );
-    if (record.endsWith("/")) paths.add(path);
+    paths.add(path);
+    const directory = record.endsWith("/")
+      ? path
+      : path.slice(0, Math.max(0, path.lastIndexOf("/")));
+    if (directory) for (const ancestor of pathAncestors(directory)) paths.add(ancestor);
   }
+  return repositoryPaths(root, paths);
+}
+
+export async function repositoryPaths(root: string, paths: Iterable<string>): Promise<string[]> {
   const nested: string[] = [];
   for (const path of paths) {
     try {
       await stat(join(root, path, ".git"));
       nested.push(path);
     } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      if (
+        !(
+          error instanceof Error &&
+          "code" in error &&
+          (error.code === "ENOENT" || error.code === "ENOTDIR")
+        )
+      )
+        throw error;
     }
   }
   return nested.toSorted();
@@ -88,8 +110,11 @@ export async function ignoredPaths(
   const tracked = parseIndex(
     (await repository.cli.call(root, ["ls-files", "--stage", "-z"])).stdout,
   );
-  for (const path of await nestedPaths(repository, root, tracked))
+  for (const path of await nestedPaths(repository, root, tracked)) {
+    // Administrative data is excluded from snapshots and must never be replaced.
+    ignored.push(`${path}/.git`);
     for (const child of await ignoredPaths(repository, join(root, path)))
       ignored.push(`${path}/${child}`);
+  }
   return ignored;
 }

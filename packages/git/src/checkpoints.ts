@@ -45,7 +45,7 @@ export async function snapshot(repository: Repository, root: string): Promise<st
     const tracked = parseIndex((await cli.call(root, ["ls-files", "--stage", "-z"])).stdout);
     const seed = tracked.map((entry) => `${entry.mode} ${entry.sha} 0\t${entry.path}\0`).join("");
     await cli.call(root, ["update-index", "-z", "--index-info"], { write: true, env, input: seed });
-    const nested = await nestedPaths(repository, root, tracked);
+    const nested = await nestedPaths(repository, root, tracked, env);
     const gitlinks = tracked.filter((entry) => entry.mode === "160000");
     if (gitlinks.length)
       await cli.call(root, ["update-index", "--force-remove", "-z", "--stdin"], {
