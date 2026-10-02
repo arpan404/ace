@@ -128,3 +128,27 @@ These 18 mutations were applied individually, failed the named public behavior t
 This round rechecks F15, N15 and M5/M13/M14/M21. The partial-input byte test catches both accumulating opaque fields in interpretation and assembling them into raw on every change. Removing terminal collection or assembly also fails the preservation assertions, so the scaling assertion cannot pass by dropping input. Benchmark CPU/wall numbers are informational; the byte assertion is deterministic.
 
 Two public core/client-replay tests cover clearing an actual spawning item and invalidating a pending old spawning item. Both fail when canonical unlinking is disabled and pass when restored. The subsequent main payload-contract merge exposed five type errors; narrowing locally produced raw data to the inline variant and guarding public union assertions resolves them without casts or runtime behavior changes.
+
+## Third static verifier follow-up
+
+No test, mutation or benchmark in this round was executed. Every case below is **not executed (tests run at merge)**. The tests assert public translator facts and canonical core results, including follow-up refreshes rather than stopping at the first completion.
+
+| Mutation case                                                   | Behavior test designed to kill it                                                                  | Status                            |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------- |
+| E1a Recompute completed MCP arguments from reduced input        | MCP completion keeps all arguments after output-only and duplicate terminal refreshes              | not executed (tests run at merge) |
+| E1b Omit collected detail on synthetic end                      | synthetic cancelled/end_turn preserves the full MCP input and arguments                            | not executed (tests run at merge) |
+| E1c Drop cached arguments on reopening                          | a reopened MCP tool keeps collected arguments through live metadata and renewed completion         | not executed (tests run at merge) |
+| E1d Suppress meaningful late MCP identity refresh               | late MCP metadata changes publish typed tool identity without losing collected arguments           | not executed (tests run at merge) |
+| E2 Omit terminal assembly on deny                               | permission denial assembles every streamed input field in the declined snapshot                    | not executed (tests run at merge) |
+| E3a Replace live prefix with full terminal history              | late metadata event bytes are independent of completed input history size                          | not executed (tests run at merge) |
+| E3b Republish full canonical input on passive terminal metadata | late metadata event bytes are independent of completed input history size                          | not executed (tests run at merge) |
+| E3c Resend stored cumulative output on metadata                 | shell metadata refreshes do not republish cumulative output and later output emits only its suffix | not executed (tests run at merge) |
+| E3d Append the full cumulative string rather than its suffix    | shell metadata refreshes do not republish cumulative output and later output emits only its suffix | not executed (tests run at merge) |
+| E3e Rewrite terminal input on late Cursor extension             | late Cursor extension requests preserve assembled terminal input without resending it              | not executed (tests run at merge) |
+| Output prefix Compare only the retained tail                    | a long shell prefix correction is retained as raw instead of silently accepted as an append        | not executed (tests run at merge) |
+| Uncertainty Skip same-status native cancellation as passive     | native cancellation still settles a synthetically cancelled uncertain shell with the same status   | not executed (tests run at merge) |
+| I15 Drop native background flag during output filtering         | a restored background tree stays working while its child has an active run                         | not executed (tests run at merge) |
+| I15 Provider queue clear releases unknown shell                 | restored shell uncertainty holds waiting after restart and after provider queue clearing           | not executed (tests run at merge) |
+| I15 Clear disconnected state on process start                   | restored child connection loss stays unresponsive until native child traffic reconnects it         | not executed (tests run at merge) |
+
+The carried-forward M5/M13/M14/M21/N15/F15 and New1–New12 mappings in the verifier report remain applicable, with the same unexecuted merge-time status. New12 now maps to the existing public core test “accepts legacy draft output strings as append-only deltas without resending existing bytes” in `packages/core/src/legacy-output.test.ts`; suppressing core legacy suffix emission would break its first/second delta assertions. ACP now emits explicit suffix deltas and no longer exercises that compatibility path. No core test or production file was changed this round. Persistence file decoding and engine queue-source migration are not covered by trusted-state restoration tests.

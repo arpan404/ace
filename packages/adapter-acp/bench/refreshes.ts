@@ -6,7 +6,7 @@ import { createAcpTranslator, createTranslatorIdentity } from "../src/index.ts";
 import { SessionRouting } from "../src/session-routing.ts";
 import type { Data } from "../src/data.ts";
 const threadId = ThreadId.parse("benchmark");
-function measureTools(count: number, updateAt: (index: number) => Data) {
+function measureTools(count: number, updateAt: (index: number) => Data, measureFrom = 0) {
   const translator = createAcpTranslator({
     threadId,
     rootKey: "root",
@@ -16,10 +16,15 @@ function measureTools(count: number, updateAt: (index: number) => Data) {
   let ids = 0;
   let bytes = 0;
   let rawFrames = 0;
+  let factBytes = 0;
   const ctx = { now: 0, ids: { next: () => `id-${++ids}` } };
-  const start = performance.now();
-  const cpuStart = process.cpuUsage();
+  let start = performance.now();
+  let cpuStart = process.cpuUsage();
   for (let n = 0; n < count; n++) {
+    if (n === measureFrom) {
+      start = performance.now();
+      cpuStart = process.cpuUsage();
+    }
     ctx.now = n;
     const update = updateAt(n);
     const facts = translator.translate(
@@ -33,15 +38,21 @@ function measureTools(count: number, updateAt: (index: number) => Data) {
       n,
     );
     for (const fact of facts) {
-      for (const event of apply(state, fact, ctx))
-        bytes += Buffer.byteLength(JSON.stringify(event));
+      if (n >= measureFrom) factBytes += Buffer.byteLength(JSON.stringify(fact));
+      for (const event of apply(state, fact, ctx)) {
+        if (n >= measureFrom) bytes += Buffer.byteLength(JSON.stringify(event));
+        if (
+          (event.type === "item.created" || event.type === "item.updated") &&
+          event.item.type === "tool_call"
+        )
+          rawFrames = Math.max(rawFrames, event.item.call.raw.length);
+      }
     }
-    for (const item of Object.values(state.items))
-      if (item.type === "tool_call") rawFrames = Math.max(rawFrames, item.call.raw.length);
   }
   const cpu = process.cpuUsage(cpuStart);
   return {
-    count,
+    count: count - measureFrom,
+    translatedFactBytes: factBytes,
     cpuMilliseconds: Math.round((cpu.user + cpu.system) / 10) / 100,
     emittedBytes: bytes,
     maximumRawFrames: rawFrames,
@@ -85,6 +96,50 @@ function partialInputs(count: number) {
   );
   return { ...measured, count };
 }
+function completedMetadata(fields: number) {
+  return {
+    fields,
+    ...measureTools(
+      fields + 102,
+      (n) =>
+        n === 0
+          ? initialCall
+          : n <= fields
+            ? {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tool",
+                rawInput: { [`field${n}`]: "x".repeat(64) },
+              }
+            : {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tool",
+                status: "completed",
+                future: "latest",
+                rawOutput: { content: "late" },
+              },
+      fields + 2,
+    ),
+  };
+}
+function shellMetadata(outputBytes: number) {
+  return {
+    outputBytes,
+    ...measureTools(
+      102,
+      (n) =>
+        n === 0
+          ? { ...initialCall, kind: "execute", rawInput: { command: "synthetic shell" } }
+          : n === 1
+            ? {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tool",
+                rawOutput: { stdout: "x".repeat(outputBytes) },
+              }
+            : { sessionUpdate: "tool_call_update", toolCallId: "tool", future: "latest" },
+      2,
+    ),
+  };
+}
 function routingUpdates(history: number) {
   const routing = new SessionRouting(threadId, "root");
   for (let n = 0; n < history; n++) {
@@ -124,6 +179,8 @@ function routingUpdates(history: number) {
 toolRefreshes(250);
 partialInputs(50);
 routingUpdates(100);
+completedMetadata(50);
+shellMetadata(4096);
 process.stdout.write(
-  `${JSON.stringify({ runtime: process.version, tools: [500, 1000, 2000].map(toolRefreshes), partialInputs: [100, 200, 400].map(partialInputs), routing: [500, 1000, 2000].map(routingUpdates) }, null, 2)}\n`,
+  `${JSON.stringify({ runtime: process.version, tools: [500, 1000, 2000].map(toolRefreshes), partialInputs: [100, 200, 400].map(partialInputs), completedMetadata: [100, 200, 400].map(completedMetadata), shellMetadata: [8192, 16384, 32768].map(shellMetadata), routing: [500, 1000, 2000].map(routingUpdates) }, null, 2)}\n`,
 );

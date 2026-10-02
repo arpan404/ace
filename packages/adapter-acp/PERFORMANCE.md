@@ -35,3 +35,16 @@ The verifier's accumulated-input workload emitted 447,785/1,670,685/6,456,485 by
 Routing uses constant-time live-child and key indexes. This pure routing measurement excludes history setup. Cascade traversal visits the selected subtree once through parent adjacency. Completed intermediates remain indexed so a live grandchild stays reachable. Assistant diagnostic retention remains an 8 KiB prefix; canonical deltas retain the full transcript.
 
 After merging main through `19a7e14`, a confirmation run emitted the identical byte totals in both workloads. Partial-input CPU times were 19.09/16.46/38.96 ms for 100/200/400 additions; wall times were 239.65/225.24/622.77 ms under concurrent host load. The deterministic scaling result is unchanged.
+
+## Static verifier follow-up
+
+The benchmark now includes 100 constant-size metadata refreshes after 100/200/400 collected input fields and after 8/16/32 KiB shell output. Setup and final assembly are excluded from these refresh measurements. It reports translated-fact bytes as well as canonical-event bytes, so repeated cumulative output in facts cannot hide behind a bounded core summary. Raw-frame maxima are collected from emitted events instead of scanning transcript history per update.
+
+| New workload                                                 | Expected deterministic scaling                                                 | Measurement status |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------ | ------------------ |
+| 100 post-terminal metadata updates, 100/200/400 prior fields | Refresh bytes independent of prior field count; full final input preserved     | needs run at merge |
+| 100 shell metadata updates, 8/16/32 KiB prior output         | Refresh bytes independent of prior output length; new output emits suffix only | needs run at merge |
+
+`terminal-updates.test.ts` checks the same public fact/event byte ratios with a 1.25× bound, plus final input and output preservation. These tests are written but not executed. No new numbers are claimed under the owner’s execution ban. Historical numbers above are not final-head evidence.
+
+The live raw prefix is separate from terminal assembly. Passive completed-tool updates emit their complete incoming frame as a notice and leave canonical collected input intact. Shell metadata carries only fixed interpreted output fields; cumulative strings are examined only on incoming output frames. A wire frame containing a cumulative string necessarily costs its incoming length. Actual post-terminal semantic changes still use full-item core events and can cost the current canonical item size. A sparse canonical tool-patch contract would need a core/protocol owner change; ordinary extension/status duplicates/output refreshes avoid that cost here.
