@@ -41,3 +41,27 @@ The suite caught all 21 review mutations and 10 additional behavior-changing pro
 The EOF probe closes the fake server's actual stdout descriptor while leaving stdin open. With the stdout-close handler removed, the public send behavior test times out; with the handler restored it rejects input and reports an unexpected process exit. Probe timeouts are hang watchdogs, not performance assertions.
 
 The unmodified repository check covers formatting, lint, the 1,500-line source limit, types and Vitest. Live initialize probes stay opt-in and were skipped.
+
+## Independent verifier follow-up
+
+The verifier found that the original bounded-raw assertion could find original input in an earlier event even when later snapshots discarded it. Both that test and a new canonical-snapshot test now assert original input in every refresh. The exact **N15** mutation (`tool.raw = [payload]`) fails both tests and the delayed-input test.
+
+All 13 probes below were applied individually to production code, ran the relevant public API behavior suites, failed the named behavior, and restored the exact original bytes in a `finally` block. The unmodified full check then passed. This round rechecked the four original survivors, N15, and eight new meaningful mutations.
+
+| Probe | Broken behavior                                | Detecting behavior test                                                                  |
+| ----- | ---------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| N15   | Discard original input on refresh              | emits a bounded raw change for each tool refresh while retaining its initial input       |
+| V1    | Reuse a former parent tool                     | reparents a child linked to a former parent's tool without rejecting or moving that tool |
+| V2    | Historical tool refresh undoes reparenting     | reparents a child linked to a former parent's tool without rejecting or moving that tool |
+| V3    | Freeze placeholder input snapshot              | preserves delayed actual native input and name in the completed tool snapshot            |
+| V4    | Allow a new uncertain-shell prompt             | rejects another prompt while a cancelled shell has no terminal execution evidence        |
+| V5    | Release prequeued input after uncertain shell  | rejects input queued before a prompt reports uncertain shell completion                  |
+| V6    | Forget uncertain native task identity on reset | reconciles an uncertain native shell after process restart without creating another tool |
+| V7    | Lose actual background task precedence         | a live background shell takes precedence over a disconnected child                       |
+| V8    | Do not settle former-parent background tasks   | finishes the original background task when its child completes under a repaired parent   |
+| M5    | Expire child grace after 1 ms                  | exposes the child cancellation grace to the engine deadline scheduler                    |
+| M13   | Skip protocol validation                       | rejects ACP v2 before creating a native session                                          |
+| M14   | Ignore process start                           | restarts work after an unexpected exit without retaining the old active turn             |
+| M21   | Discard malformed text                         | keeps unknown and malformed frames as raw without rejecting later traffic                |
+
+The five verifier issues were also reproduced together before their fixes: linked-tool reassociation rejected canonical facts, delayed input disappeared, a second prompt escaped shell uncertainty, resumed terminal evidence left the original task unknown, and a disconnected child overrode a live background shell. Each failed a public API behavior assertion, then passed after its fix. A further reassociation probe reproduced an original-parent background task remaining running after child completion; it now passes too.
