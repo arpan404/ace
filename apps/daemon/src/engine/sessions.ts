@@ -88,7 +88,8 @@ export class Sessions {
     } finally {
       await actor.flush();
       lifetime?.abort();
-      if (actor.generation === generation) {
+      const ownsGeneration = actor.generation === generation;
+      if (ownsGeneration) {
         actor.generation++;
         this.dependencies.expireDelivery(actor);
         actor.idleDue = false;
@@ -99,7 +100,7 @@ export class Sessions {
         );
       }
       actor.schedule();
-      if (!actor.session && !actor.poisoned) this.dependencies.released(actor.id);
+      if (ownsGeneration && !actor.session && !actor.poisoned) this.dependencies.released(actor.id);
     }
   }
 }

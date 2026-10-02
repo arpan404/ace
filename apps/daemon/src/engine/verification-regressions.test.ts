@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { Command } from "@ace/protocol";
 import { Engine, Store } from "@ace/daemon";
-import { harness, scriptFrames, start, end } from "./test-support.ts";
+import { harness, scriptFrames, start, end, until } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -303,4 +303,65 @@ test("commands owned by orchestration are declined without provider work or thre
   ).toBe(true);
   await h.engine.flush();
   expect(h.adapter.commands.filter((c) => c.type === "send")).toHaveLength(1);
+});
+
+test("retiring an idle session cannot release capacity owned by a still-opening replacement", async () => {
+  const frames = scriptFrames();
+  const h = track(
+    await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+      idleMs: 500,
+      steer: true,
+      limits: { maxActiveThreads: 1 },
+    }),
+  );
+  const closing = Promise.withResolvers<void>();
+  const closeRelease = Promise.withResolvers<void>();
+  const opening = Promise.withResolvers<void>();
+  const openRelease = Promise.withResolvers<void>();
+  const retired = Promise.withResolvers<void>();
+  h.registry.register(
+    {
+      ...h.adapter,
+      async openSession(context) {
+        if (context.resume) {
+          opening.resolve();
+          await openRelease.promise;
+        }
+        const session = await h.adapter.openSession(context);
+        return {
+          ...session,
+          async close(reason) {
+            closing.resolve();
+            await closeRelease.promise;
+            await session.close(reason);
+            retired.resolve();
+          },
+        };
+      },
+    },
+    discovery,
+  );
+  const id = await h.create();
+  const client = await h.connect("capacity-device");
+  try {
+    h.clock.advance(1500);
+    await closing.promise;
+    h.command({ type: "thread.send", threadId: id, input, delivery: "steer" });
+    await opening.promise;
+    closeRelease.resolve();
+    await retired.promise;
+    // Receipt processing over the socket happens after retirement's queued folds drain.
+    const command = Command.parse({
+      id: "capacity-after-retirement",
+      deviceId: "capacity-device",
+      payload: { type: "thread.create", workspaceId: h.workspace, provider: "codex", input },
+    });
+    client.send({ type: "command", command });
+    const result = await until(client, (message) => message.type === "commandResult");
+    expect(result).toMatchObject({ ok: false, error: "engine_capacity_exceeded" });
+  } finally {
+    closeRelease.resolve();
+    openRelease.resolve();
+    await h.engine.flush();
+  }
 });
