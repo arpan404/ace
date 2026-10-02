@@ -254,7 +254,9 @@ export class BrowserSession {
           });
           break;
         case "key":
-          await cdp.send("Input.dispatchKeyEvent", keyEvent(input));
+          if (input.event === "char")
+            await cdp.send("Input.insertText", { text: input.text ?? input.key });
+          else await cdp.send("Input.dispatchKeyEvent", keyEvent(input));
           break;
         case "touch":
           await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });

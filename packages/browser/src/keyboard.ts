@@ -44,13 +44,6 @@ const punctuation = new Map<string, number>([
 
 /** Pure translation of validated wire keys to CDP's platform-independent VK codes. */
 export function keyEvent(input: KeyInput) {
-  if (input.event === "char")
-    return {
-      type: input.event,
-      key: input.key,
-      text: input.text ?? input.key,
-      modifiers: input.modifiers,
-    };
   let windowsVirtualKeyCode = named.get(input.key);
   let location = 0;
   if (windowsVirtualKeyCode !== undefined) {
