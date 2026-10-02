@@ -11,3 +11,5 @@ A broad local run exposed the existing daemon lifecycle test's five-second timeo
 A main-only run with TMPDIR inside this repository also exposed Git fixture assumptions: a scratch directory inside a checkout is a repository, and CommonJS stand-ins inherit the checkout's ESM scope. Final full validation uses the normal OS temp directory, which provides the intended non-repository fixture environment. All source edits remain in this worktree.
 
 CI is disabled by the repository owner. No CI run, rerun, check watch or CI wait was requested in this follow-up. Local `bun run check` is the gate.
+
+After model catalog main `19a7e14` landed, an isolated serial full run passed 981 tests (105 Conductor) and skipped four; five existing main tests timed out. All five were then reproduced on both that exact main revision and branch `8db7af5`, under identical bounded 96-worker CPU pressure, with one test worker and Node compile caching enabled. Three failed at their unchanged 5,000 ms timeout and both nested Git cases failed at their unchanged 30,000 ms timeout. The comparison is recorded in `load-comparison.json`. No assertion, timeout budget or affected module was changed.
