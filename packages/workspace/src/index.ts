@@ -2,7 +2,16 @@ import { GitIgnore } from "./ignore.ts";
 import { list } from "./list.ts";
 import { read } from "./read.ts";
 import { SafeRoot } from "./safety.ts";
-import { failure, type ListOptions, type ReadOptions, type WorkspaceOptions } from "./types.ts";
+import { search } from "./search.ts";
+import { watch } from "./watch.ts";
+import {
+  failure,
+  type ListOptions,
+  type ReadOptions,
+  type SearchOptions,
+  type WatchOptions,
+  type WorkspaceOptions,
+} from "./types.ts";
 export { WorkspaceError } from "./types.ts";
 export type {
   WorkspaceErrorCode,
@@ -20,8 +29,8 @@ export type {
   WorkspaceOptions,
 } from "./types.ts";
 
-/** A root-bound service for browsing and reading workspace files. */
-export async function createWorkspace(root: string, _options: WorkspaceOptions = {}) {
+/** A root-bound service. Watch subscriptions own their own disposal lifetime. */
+export async function createWorkspace(root: string, options: WorkspaceOptions = {}) {
   const safe = await SafeRoot.create(root);
   const ignore = await GitIgnore.create(safe);
   return {
@@ -36,6 +45,25 @@ export async function createWorkspace(root: string, _options: WorkspaceOptions =
     async read(request: ReadOptions) {
       try {
         return await read(safe, request);
+      } catch (error) {
+        throw failure(error);
+      }
+    },
+    async search(request: SearchOptions) {
+      try {
+        return await search(
+          safe,
+          ignore,
+          options.ripgrep === undefined ? "rg" : options.ripgrep,
+          request,
+        );
+      } catch (error) {
+        throw failure(error);
+      }
+    },
+    async watch(request: WatchOptions) {
+      try {
+        return await watch(safe, ignore, request, options.watchMode === "polling");
       } catch (error) {
         throw failure(error);
       }

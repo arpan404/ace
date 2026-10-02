@@ -83,6 +83,9 @@ describe("workspace paths and files", () => {
     await mkdir(root);
     await rename(backup, moved);
     await expect(service.read({ path: "moved/a" })).rejects.toMatchObject({ code: "PATH_CHANGED" });
+    await expect(service.search({ query: "original", limit: 5 })).rejects.toMatchObject({
+      code: "PATH_CHANGED",
+    });
   });
   it("returns typed missing-file and wrong-kind errors", async () => {
     const { service, file } = await fixture();
