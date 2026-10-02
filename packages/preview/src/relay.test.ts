@@ -255,3 +255,113 @@ test("a blocked relay transport closes under a flood of control responses", asyn
     host.close();
   }
 });
+
+test("native EOF waits for all DATA and peers may respond before READY admission settles", async () => {
+  const { EventEmitter } = await import("node:events");
+  const { openPreviewProxy: openNativeProxy } = await import("./transport.ts");
+  const upstream = await serve((req, res) => {
+    let received = 0;
+    req.on("data", (chunk: Buffer) => {
+      received += chunk.length;
+    });
+    req.on("end", () => res.end(`received ${received}`));
+  });
+  cleanup.push(upstream.close);
+  const channels = channelPair();
+  let admitted: (() => void) | undefined,
+    release: (() => void) | undefined,
+    completed: (() => void) | undefined;
+  const firstData = new Promise<void>((done) => {
+    admitted = done;
+  });
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  const response = new Promise<void>((done) => {
+    completed = done;
+  });
+  const host = attachPreviewRelay({
+    allowPort: async (p) => p === upstream.port,
+    channel: {
+      ...channels.b,
+      async send(frame) {
+        await channels.b.send(frame);
+        if (frame[1] === 2) await firstData; // READY arrived; its writer still has backpressure.
+      },
+    },
+  });
+  cleanup.push(host.close);
+  const events = new EventEmitter();
+  let emitted = false,
+    body = "";
+  const kindsSent: number[] = [];
+  // A native bridge can deliver EOF in the same batch as its last byte event.
+  // The remote edge is still a real TCP/HTTP server; only unavailable native I/O is substituted.
+  const proxy = await openNativeProxy({
+    port: upstream.port,
+    channel: {
+      ...channels.a,
+      async send(frame) {
+        kindsSent.push(frame[1] ?? 0);
+        await channels.a.send(frame);
+        if (frame[1] === 3) {
+          admitted?.();
+          await gate;
+        }
+      },
+    },
+    runtime: {
+      async listen({ openSocket }) {
+        openSocket({
+          readableLength: 0,
+          writableLength: 0,
+          on: events.on.bind(events),
+          once: events.once.bind(events),
+          pause() {},
+          connect() {},
+          resume() {
+            if (emitted) return;
+            emitted = true;
+            events.emit(
+              "data",
+              Buffer.concat([
+                Buffer.from(
+                  `POST / HTTP/1.1\r\nHost: localhost:${upstream.port}\r\nContent-Length: 65536\r\nConnection: close\r\n\r\n`,
+                ),
+                Buffer.alloc(65_536, 1),
+              ]),
+            );
+            events.emit("end");
+          },
+          write(bytes, callback) {
+            body += Buffer.from(bytes).toString();
+            callback();
+          },
+          end() {
+            completed?.();
+          },
+          destroy() {
+            events.emit("close");
+            completed?.();
+          },
+        });
+        return {
+          url: "http://native.localhost:1234",
+          close: async () => {
+            events.emit("close");
+          },
+        };
+      },
+    },
+  });
+  cleanup.push(proxy.close);
+  try {
+    await firstData;
+    expect(kindsSent).not.toContain(5); // END cannot overtake the remaining DATA frames.
+    release?.();
+    await response;
+    expect(body).toContain("received 65536");
+  } finally {
+    release?.();
+  }
+});

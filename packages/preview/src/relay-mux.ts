@@ -163,6 +163,8 @@ export function createMux(options: MuxOptions) {
         return;
       }
       socket.once("connect", () => {
+        // The peer can receive READY and send DATA before send() settles.
+        stream.ready = true;
         void send(kinds.ready, id).then(() => {
           if (alive(stream)) ready(stream);
         });
