@@ -11,12 +11,14 @@ import {
   type ThreadView,
   WorkspaceId,
 } from "@ace/protocol";
-import { applyEvent, createThreadView, updateThread } from "@ace/projection";
+import { applyDelivery, applyEvent, createThreadView, updateThread } from "@ace/projection";
 import { migrate } from "./migrations.ts";
+import { PayloadStore } from "./payload-store.ts";
 
 type Listener = (events: Event[]) => void;
 export class Store {
   private readonly db: DatabaseSync;
+  private readonly payloads: PayloadStore;
   private statements = new Map<string, StatementSync>();
   private closed = false;
   private transactionEvents: Event[] | undefined;
@@ -28,11 +30,13 @@ export class Store {
   constructor(path: string, onError: (error: unknown) => void = console.error) {
     this.onError = onError;
     this.db = new DatabaseSync(path);
+    this.payloads = new PayloadStore(this.db);
     try {
       this.db.exec(
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
+      this.payloads.initialize();
     } catch (error) {
       this.db.close();
       throw error;
@@ -62,7 +66,7 @@ export class Store {
     };
   }
   headSeq(): number {
-    return Number(this.statement("SELECT COALESCE(MAX(seq), 0) AS seq FROM events").get()?.seq);
+    return Number(this.statement("SELECT seq FROM host_sequence WHERE id = 1").get()?.seq);
   }
   private transaction<T>(run: () => T): T {
     if (this.transactionEvents) {
@@ -108,7 +112,13 @@ export class Store {
       let batch: Event[] | undefined;
       while ((batch = this.publications.shift())) {
         for (const { view } of this.caches.values())
-          for (const event of batch) applyEvent(view, event);
+          applyDelivery(view, {
+            type: "events",
+            subscriptionId: "cache",
+            afterSeq: view.seq,
+            throughSeq: batch.at(-1)?.seq ?? view.seq,
+            events: batch.filter((event) => event.threadId === view.thread.id),
+          });
         const listeners = [...this.listeners];
         for (const listener of listeners) {
           try {
@@ -195,6 +205,8 @@ export class Store {
           thread.rootAgentId ?? null,
           thread.id,
         );
+        event.payload = this.payloads.cap(event.payload, threadId);
+        this.payloads.persist(event);
         this.statement("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)").run(
           seq,
           event.id,
@@ -203,6 +215,7 @@ export class Store {
           event.payload.type,
           JSON.stringify(event.payload),
         );
+        this.statement("UPDATE host_sequence SET seq = ? WHERE id = 1").run(seq);
         events.push(event);
       }
       this.transactionEvents?.push(...events);
@@ -269,6 +282,36 @@ export class Store {
     view.seq = this.headSeq();
     this.caches.set(id, { view, refs: 1 });
     return view;
+  }
+  snapshotThread(id: ThreadId): ThreadView {
+    const full = this.acquireThread(id);
+    try {
+      const view: ThreadView = structuredClone({ ...full, items: {}, itemOrder: [] });
+      const page = this.payloads.page(id, this.headSeq() + 1, 200, 1024 * 1024);
+      view.items = Object.fromEntries(page.items.map((item) => [item.id, item]));
+      view.itemOrder = page.items.map((item) => item.id);
+      view.itemsBefore = page.itemsBefore;
+      return view;
+    } finally {
+      this.releaseThread(id);
+    }
+  }
+  readItems(threadId: ThreadId, before: number, limit: number) {
+    if (!this.getThread(threadId)) throw new Error("Unknown thread");
+    return this.payloads.page(threadId, before, limit);
+  }
+  outputThread(streamId: string) {
+    return this.payloads.streamThread(streamId);
+  }
+  readOutput(streamId: string, offset: number, limit: number) {
+    return this.payloads.readOutput(streamId, offset, limit);
+  }
+  deleteThread(id: ThreadId): void {
+    this.transaction(() => {
+      this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
+      this.statement("DELETE FROM threads WHERE id = ?").run(id);
+    });
+    this.caches.delete(id);
   }
   releaseThread(id: ThreadId): void {
     const cached = this.caches.get(id);

@@ -161,7 +161,7 @@ describe("daemon lifecycle", () => {
     );
     await expect(attempt).rejects.toThrow("newer than this daemon");
     const restored = new DatabaseSync(join(home, "events.sqlite"));
-    restored.prepare("UPDATE schema_version SET version = 1").run();
+    restored.prepare("UPDATE schema_version SET version = 2").run();
     restored.close();
     const again = await startDaemon(config);
     cleanups.push(() => again.close());
