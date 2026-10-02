@@ -1,5 +1,10 @@
-import { spawn } from "node:child_process";
+import {
+  spawnRawSupervised,
+  type SpawnOptions,
+  type RawSupervisedProcess,
+} from "@ace/provider-kit/process";
 import { z } from "zod";
+import { parseGhResponse } from "./gh-response.ts";
 
 export interface GhResponse {
   status: number;
@@ -14,6 +19,7 @@ export interface GhOptions {
   binary: string;
   timeoutMs?: number;
   maxBytes?: number;
+  spawn?: (options: SpawnOptions) => RawSupervisedProcess;
 }
 export function createGhClient(options: GhOptions): GhClient {
   const maxBytes = z
@@ -28,11 +34,15 @@ export function createGhClient(options: GhOptions): GhClient {
     .min(1)
     .max(120_000)
     .parse(options.timeoutMs ?? 30_000);
+  const spawn = options.spawn ?? spawnRawSupervised;
   return {
     get(endpoint, etag, signal) {
+      const canonical = new URL(endpoint, "https://api.github.com/");
       if (
         !/^repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_/?=&.-]+$/.test(endpoint) ||
-        endpoint.length > 1024
+        endpoint.length > 1024 ||
+        canonical.origin !== "https://api.github.com" ||
+        canonical.pathname.slice(1) + canonical.search !== endpoint
       )
         throw new Error("Invalid GitHub endpoint");
       if (etag !== undefined && (etag.length > 512 || /[\r\n]/.test(etag)))
@@ -54,69 +64,67 @@ export function createGhClient(options: GhOptions): GhClient {
           reject(new Error("gh request aborted"));
           return;
         }
-        const child = spawn(options.binary, args, { stdio: ["ignore", "pipe", "pipe"] });
+        const child = spawn({ command: options.binary, args, env: {}, name: "automation-gh" });
+        child.stdin.end();
         const chunks: Buffer[] = [];
         let bytes = 0;
-        let problem: Error | undefined;
-        const fail = (error: Error) => {
-          problem ??= error;
-          child.kill("SIGKILL");
-        };
-        const abort = () => fail(new Error("gh request aborted"));
-        signal?.addEventListener("abort", abort, { once: true });
-        const timer = setTimeout(() => fail(new Error("gh request timed out")), timeoutMs);
-        const collect = (chunk: Buffer) => {
-          bytes += chunk.length;
-          if (bytes > maxBytes) fail(new Error("gh response exceeds byte limit"));
-          else chunks.push(chunk);
-        };
-        child.stdout.on("data", collect);
-        // Drain stderr without retaining credentials or unbounded diagnostic output.
-        child.stderr.on("data", (chunk: Buffer) => {
-          bytes += chunk.length;
-          if (bytes > maxBytes) fail(new Error("gh response exceeds byte limit"));
-        });
-        child.on("error", (error) => {
-          problem ??= error;
-        });
-        child.on("close", (code) => {
+        let finished = false;
+        const cleanup = () => {
           clearTimeout(timer);
           signal?.removeEventListener("abort", abort);
-          if (problem) {
-            reject(problem);
-            return;
-          }
+        };
+        const fail = (error: Error) => {
+          if (finished) return;
+          finished = true;
+          cleanup();
+          // Reject independently of process exit: descendants may retain inherited pipes.
+          reject(error);
           try {
-            const output = Buffer.concat(chunks).toString("utf8");
-            const boundary = /\r?\n\r?\n/.exec(output);
-            if (!boundary || boundary.index === undefined)
-              throw new Error("Missing gh response headers");
-            const header = output.slice(0, boundary.index),
-              body = output.slice(boundary.index + boundary[0].length);
-            const status = Number(/^HTTP\/\S+ (\d{3})/m.exec(header)?.[1]);
-            if (status !== 304 && (code !== 0 || status !== 200))
-              throw new Error(`gh GET failed with status ${status}`);
-            const responseEtag = /^etag:\s*(.+)$/im.exec(header)?.[1]?.trim();
-            const link = /^link:\s*(.+)$/im.exec(header)?.[1];
-            const url = link?.split(",").find((part) => /rel="next"/.test(part));
-            const nextUrl = url ? /<([^>]+)>/.exec(url)?.[1] : undefined;
-            let next: string | undefined;
-            if (nextUrl) {
-              const parsed = new URL(nextUrl);
-              if (parsed.origin !== "https://api.github.com")
-                throw new Error("Untrusted pagination URL");
-              next = parsed.pathname.slice(1) + parsed.search;
-            }
-            resolve({
-              status,
-              etag: responseEtag,
-              next,
-              data: status === 304 ? undefined : JSON.parse(body),
-            });
-          } catch (error) {
-            reject(error);
+            void child.stop({ graceMs: 0 }).catch(() => {});
+          } catch {
+            // The request has rejected even if the injected supervisor cannot stop.
+          } finally {
+            child.stdout.destroy();
+            child.stderr.destroy();
+            child.stdin.destroy();
           }
+        };
+        const abort = () => fail(new Error("gh request aborted"));
+        const timer = setTimeout(() => fail(new Error("gh request timed out")), timeoutMs);
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) {
+          abort();
+          return;
+        }
+        const account = (chunk: Buffer): boolean => {
+          if (finished) return false;
+          bytes += chunk.length;
+          if (bytes > maxBytes) {
+            fail(new Error("gh response exceeds byte limit"));
+            return false;
+          }
+          return true;
+        };
+        child.stdout.on("data", (chunk: Buffer) => {
+          if (account(chunk)) chunks.push(chunk);
         });
+        child.stderr.on("data", account);
+        child.stdout.on("error", fail);
+        child.stderr.on("error", fail);
+        void child.exited.then(
+          (exit) => {
+            if (finished) return;
+            finished = true;
+            cleanup();
+            try {
+              if (exit.reason === "spawn-error") throw new Error("gh failed to start");
+              resolve(parseGhResponse(chunks, exit.code));
+            } catch (error) {
+              reject(error);
+            }
+          },
+          (error: unknown) => fail(error instanceof Error ? error : new Error("gh process failed")),
+        );
       });
     },
   };

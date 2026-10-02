@@ -37,6 +37,7 @@
       "name": "@ace/automations",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
       },
     },
