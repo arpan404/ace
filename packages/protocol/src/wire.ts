@@ -6,6 +6,12 @@ import {
 } from "./command-library.ts";
 import { z } from "zod";
 import {
+  ModelsListRequest,
+  ModelsRefreshRequest,
+  ModelsResolveRequest,
+  ModelsResult,
+} from "./models.ts";
+import {
   PresenceUpdate,
   NotificationRegister,
   NotificationSettings,
@@ -70,6 +76,9 @@ export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
   CommandsList,
   CommandsResolve,
+  ModelsListRequest,
+  ModelsRefreshRequest,
+  ModelsResolveRequest,
   PresenceUpdate,
   NotificationRegister,
   NotificationSettings,
@@ -119,6 +128,7 @@ export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
   CommandsListResult,
   CommandsResolveResult,
+  ModelsResult,
   NotificationMessage,
   z.object({
     type: z.literal("welcome"),
