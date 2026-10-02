@@ -58,6 +58,7 @@ test("natural process exits remove the launch and shutdown rejects new starts", 
     args: ["-e", "process.exit(3)"],
   });
   const handle = await manager.start(launch);
+  expect(manager.list()).toEqual([{ name: "short", url: undefined }]);
   expect((await handle.process?.exited)?.code).toBe(3);
   expect(manager.list()).toEqual([]);
   await manager.close();

@@ -1,12 +1,13 @@
 import { Agent, request, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
+import { connect as connectSocket } from "node:net";
+import { loopbackConnection } from "./loopback.ts";
 import { requestHeaders, responseHeaders } from "./headers.ts";
 
 export type Target = { port: number; origin: string; connect?: () => Duplex };
-function forwardingAgent(connect: (() => Duplex) | undefined): Agent | false {
-  if (!connect) return false;
+function forwardingAgent(target: Target): Agent {
   const agent = new Agent({ keepAlive: false, maxSockets: 1 });
-  agent.createConnection = connect;
+  agent.createConnection = target.connect ?? (() => connectSocket(loopbackConnection(target.port)));
   return agent;
 }
 export type Track = (cancel: () => void, bufferedBytes: () => number) => () => void;
@@ -16,9 +17,9 @@ export function forwardHttp(
   target: Target,
   track: Track,
 ): void {
-  const agent = forwardingAgent(target.connect);
+  const agent = forwardingAgent(target);
   const upstream = request({
-    hostname: "127.0.0.1",
+    hostname: "localhost",
     port: target.port,
     path: req.url,
     method: req.method,
@@ -26,7 +27,7 @@ export function forwardHttp(
     agent,
   });
   upstream.once("close", () => {
-    if (agent) agent.destroy();
+    agent.destroy();
   });
   let responseBody: IncomingMessage | undefined;
   const release = track(
@@ -75,9 +76,9 @@ export function forwardUpgrade(
   const headers = requestHeaders(req.headers, target.port);
   headers.connection = "Upgrade";
   headers.upgrade = "websocket";
-  const agent = forwardingAgent(target.connect);
+  const agent = forwardingAgent(target);
   const upstream = request({
-    hostname: "127.0.0.1",
+    hostname: "localhost",
     port: target.port,
     method: "GET",
     path: req.url,
@@ -85,7 +86,7 @@ export function forwardUpgrade(
     agent,
   });
   upstream.once("close", () => {
-    if (agent) agent.destroy();
+    agent.destroy();
   });
   let peer: Duplex | undefined;
   const cancel = () => {

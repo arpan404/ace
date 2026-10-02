@@ -48,6 +48,7 @@ export async function http(
 export async function serve(
   handler: (req: IncomingMessage, res: ServerResponse) => void,
   port = 0,
+  host = "127.0.0.1",
 ) {
   const server = createServer(handler);
   const sockets = new Set<Socket>();
@@ -55,7 +56,7 @@ export async function serve(
     sockets.add(s);
     s.on("close", () => sockets.delete(s));
   });
-  await listen(server, port);
+  await listen(server, port, host);
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("No HTTP port");
   return {
@@ -70,10 +71,10 @@ export async function serve(
     },
   };
 }
-export async function listen(server: Server, port: number) {
+export async function listen(server: Server, port: number, host = "127.0.0.1") {
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(port, "127.0.0.1", () => {
+    server.listen(port, host, () => {
       server.removeListener("error", reject);
       resolve();
     });

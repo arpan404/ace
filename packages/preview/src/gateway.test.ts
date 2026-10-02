@@ -202,3 +202,13 @@ test("uploads stream back to the browser before the request body is complete", a
   await end;
   expect(tail).toBe("last");
 });
+
+test("IPv6-only localhost servers work without allowing arbitrary DNS destinations", async () => {
+  const upstream = await serve((_req, res) => res.end("IPv6 preview"), 0, "::1");
+  cleanup.push(upstream.close);
+  const g = await gateway();
+  cleanup.push(g.close);
+  const origin = g.register({ port: upstream.port });
+  const { cookie } = await g.login(upstream.port);
+  expect((await http(origin, { cookie })).body).toBe("IPv6 preview");
+});

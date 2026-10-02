@@ -76,7 +76,7 @@ export function responseHeaders(
   if (input.location) out.location = rewriteLocation(input.location, port, origin);
   if (input["set-cookie"])
     out["set-cookie"] = input["set-cookie"]
-      .filter((c) => !reserved.has(c.split("=")[0] ?? ""))
+      .filter((c) => !reserved.has((c.split("=")[0] ?? "").trim()))
       .map((c) => c.replace(/;\s*domain=[^;]*/gi, ""));
   return out;
 }

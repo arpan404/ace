@@ -318,7 +318,6 @@ test("native EOF waits for all DATA and peers may respond before READY admission
           on: events.on.bind(events),
           once: events.once.bind(events),
           pause() {},
-          connect() {},
           resume() {
             if (emitted) return;
             emitted = true;
@@ -364,4 +363,18 @@ test("native EOF waits for all DATA and peers may respond before READY admission
   } finally {
     release?.();
   }
+});
+
+test("relay streams can reach an IPv6-only localhost server", async () => {
+  const upstream = await serve((_req, res) => res.end("IPv6 relay"), 0, "::1");
+  cleanup.push(upstream.close);
+  const channels = channelPair();
+  const host = attachPreviewRelay({
+    channel: channels.b,
+    allowPort: async (port) => port === upstream.port,
+  });
+  cleanup.push(host.close);
+  const proxy = await openPreviewProxy({ channel: channels.a, port: upstream.port });
+  cleanup.push(proxy.close);
+  expect((await http(proxy.url)).body).toBe("IPv6 relay");
 });

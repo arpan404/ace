@@ -21,7 +21,7 @@ const link = await gateway.mintLink({ port: 3000, deviceToken });
 // Open link on the paired device. It sets a cookie and redirects to origin + '/'.
 ```
 
-`register` is a trusted daemon control action. It never opens anonymous access. The only upstream is `127.0.0.1:<port>`, over HTTP. Discovery does not register anything automatically. Unknown Host, foreign Origin, unsigned requests and unauthenticated upgrades fail closed. Gateway cookies never reach the dev app; app cookies become host-only. Redirects to the upstream's loopback port point back to the preview origin.
+`register` is a trusted daemon control action. It never opens anonymous access. Upstreams use HTTP on `127.0.0.1:<port>` or `[::1]:<port>`. Resolution is pinned to those two addresses, with automatic family selection; DNS cannot redirect an upstream. Discovery does not register anything automatically. Unknown Host, foreign Origin, unsigned requests and unauthenticated upgrades fail closed. Gateway cookies never reach the dev app; app cookies become host-only. Redirects to the upstream's loopback port point back to the preview origin.
 
 Configure wildcard DNS to resolve preview hosts to the daemon's LAN or Tailscale address. A bare IP address and a default MagicDNS name do not provide hostname cookie isolation. TLS is needed for remote service workers and Secure cookies. An omitted `tls` explicitly chooses HTTP for development. Avoid hosting preview names under the ace application's cookie domain. Cookies are not isolated by port number.
 
@@ -66,7 +66,7 @@ const proxy = await openPreviewProxy({ channel: clientPreviewChannel, port: 3000
 // Dispose proxy.close() and host.close() with their paired channel.
 ```
 
-Each proxy owns an exclusive ordered preview subchannel. The adapter implements `send(Uint8Array)`, `subscribe(onFrame, onClose)` and `close()`. Sends must resolve under bounded transport admission, preserve invocation order, and fail on disconnect. Fatal protocol errors close both peers. Do not feed arbitrary daemon/relay frames into the preview decoder. The host's `allowPort` must check the paired identity's preview permission and the currently approved forwarded-port set. No provider credentials enter the channel.
+Each proxy owns an exclusive ordered preview subchannel. The adapter implements `send(Uint8Array)`, `subscribe(onFrame, onClose)` and `close()`. Incoming frames transfer buffer ownership to preview; adapters must not mutate or reuse their buffers. Outgoing frames remain immutable. Sends must resolve under bounded transport admission, preserve invocation order, and fail on disconnect. Fatal protocol errors close both peers. Do not feed arbitrary daemon/relay frames into the preview decoder. The host's `allowPort` must check the paired identity's preview permission and the currently approved forwarded-port set. No provider credentials enter the channel.
 
 TCP streams use 16 KiB frames, 256 KiB credit per direction and a default 256-stream cap. A reconnect discards old streams. New HTTP requests and websocket reconnects use a new proxy/channel, without replaying old writes. HTTP forwarding on loopback rewrites Host, Origin and Location as the gateway does. Its internal TCP bridge authenticates a 32-byte capability before opening a relay stream, so guessing the internal listener port does not bypass the HTTP checks.
 

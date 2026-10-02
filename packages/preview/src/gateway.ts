@@ -199,11 +199,14 @@ export async function createPreviewGateway(options: GatewayOptions) {
       const existing = byPort.get(port);
       if (existing) return existing.origin;
       if (byPort.size >= maxRegistrations) throw new Error("Too many previews");
-      const host = `p${port}-${randomBytes(8).toString("hex")}.${wildcardHost}:${authorityPort}`;
+      const previewUrl = new URL(
+        `${protocol}://p${port}-${randomBytes(8).toString("hex")}.${wildcardHost}:${authorityPort}`,
+      );
+      const host = previewUrl.host;
       const entry: Registration = {
         port,
         host,
-        origin: `${protocol}://${host}`,
+        origin: previewUrl.origin,
         active: new Map(),
       };
       byPort.set(port, entry);

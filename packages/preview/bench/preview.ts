@@ -24,7 +24,7 @@ function report(name: string, units: number, start: number, peak: number, baseli
     }),
   );
 }
-async function download(url: string): Promise<number> {
+async function download(url: string, expectedBytes: number, cookie = ""): Promise<number> {
   const address = new URL(url);
   const response = await new Promise<import("node:http").IncomingMessage>((resolve, reject) => {
     const req = request(
@@ -32,7 +32,7 @@ async function download(url: string): Promise<number> {
         hostname: "127.0.0.1",
         port: address.port,
         path: "/",
-        headers: { host: address.host },
+        headers: { host: address.host, cookie },
         agent: false,
       },
       resolve,
@@ -40,11 +40,16 @@ async function download(url: string): Promise<number> {
     req.once("error", reject);
     req.end();
   });
+  if (response.statusCode !== 200)
+    throw new Error(`Benchmark received HTTP ${response.statusCode}`);
+  let received = 0;
   let peak = process.memoryUsage().rss;
   for await (const chunk of response) {
-    void chunk;
+    if (!Buffer.isBuffer(chunk)) throw new Error("Expected byte stream");
+    received += chunk.length;
     peak = Math.max(peak, process.memoryUsage().rss);
   }
+  if (received !== expectedBytes) throw new Error("Benchmark download was incomplete");
   return peak;
 }
 async function main() {
@@ -125,24 +130,7 @@ async function main() {
     baseline = process.memoryUsage().rss;
     start = performance.now();
     let peak = baseline;
-    const address = new URL(largeOrigin);
-    const response = await new Promise<import("node:http").IncomingMessage>((resolve, reject) => {
-      const req = request(
-        {
-          hostname: "127.0.0.1",
-          port: streaming.port,
-          headers: { host: address.host, cookie: session },
-          agent: false,
-        },
-        resolve,
-      );
-      req.on("error", reject);
-      req.end();
-    });
-    for await (const chunk of response) {
-      void chunk;
-      peak = Math.max(peak, process.memoryUsage().rss);
-    }
+    peak = await download(largeOrigin, size, session);
     report("gateway streamed bytes/s, 50 MiB", size, start, peak, baseline);
   } finally {
     await streaming.close();
@@ -157,7 +145,7 @@ async function main() {
   try {
     baseline = process.memoryUsage().rss;
     start = performance.now();
-    const peak = await download(client.url);
+    const peak = await download(client.url, size);
     report("relay streamed bytes/s, 50 MiB", size, start, peak, baseline);
   } finally {
     await client.close();

@@ -15,7 +15,6 @@ export type PreviewSocket = {
   resume(): unknown;
   destroy(): unknown;
   end(): unknown;
-  connect(port: number, host: string): unknown;
   write(bytes: Uint8Array, callback: (error?: Error | null) => void): unknown;
   on(event: "data", listener: (bytes: Uint8Array) => void): unknown;
   on(event: "end" | "close" | "error", listener: () => void): unknown;
@@ -36,7 +35,7 @@ type MuxOptions = {
   channel: PreviewChannel;
   maxStreams: number;
   allowPort?: (port: number) => Promise<boolean>;
-  socketFactory?: () => PreviewSocket;
+  socketFactory?: (port: number) => { socket: PreviewSocket; connect: () => void };
   onClosed?: () => void;
 };
 
@@ -149,8 +148,9 @@ export function createMux(options: MuxOptions) {
   };
   const accept = async (id: number, port: number) => {
     // Reserve capacity before awaiting authorization. A rejected open is reset, never dialed.
-    const socket = options.socketFactory?.();
-    if (!socket) throw new Error("Missing host socket factory");
+    const connection = options.socketFactory?.(port);
+    if (!connection) throw new Error("Missing host socket factory");
+    const { socket } = connection;
     if (closed) {
       socket.destroy();
       return;
@@ -169,7 +169,7 @@ export function createMux(options: MuxOptions) {
           if (alive(stream)) ready(stream);
         });
       });
-      socket.connect(port, "127.0.0.1");
+      connection.connect();
     } catch {
       await send(kinds.reset, id);
       remove(stream);

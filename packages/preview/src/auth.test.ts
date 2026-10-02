@@ -41,6 +41,7 @@ test("two forwarded ports keep same-named cookies and gateway sessions isolated"
       res.setHeader("set-cookie", [
         "app=one; Domain=localhost; Path=/",
         "ace_preview_session=spoof; Path=/",
+        "ace_preview_session = spoof; Path=/",
       ]);
     res.end(req.headers.cookie ?? "");
   });
