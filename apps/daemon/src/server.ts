@@ -22,7 +22,6 @@ import {
   DeviceId,
   type ServerMessage,
   type Notification,
-  type ThreadId,
 } from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
