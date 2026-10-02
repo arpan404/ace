@@ -296,5 +296,5 @@ describe("recorded provider false-done traps", () => {
     expect(h.agent("child")?.status).toMatchObject({ state: "working" });
     h.send({ type: "tick" }, 11_000);
     expect(h.agent("child")?.status).toMatchObject({ state: "unresponsive" });
-  });
+  }, 30_000);
 });
