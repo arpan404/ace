@@ -1,3 +1,4 @@
+import { DatabaseSync } from "node:sqlite";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -25,7 +26,7 @@ function launch(home: string) {
     env: { ...process.env, ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent", ACE_DEV: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const exited = once(child, "exit");
+  const exited = once(child, "close");
   let output = "";
   let errors = "";
   child.stderr.on("data", (chunk) => {
@@ -142,5 +143,28 @@ describe("daemon lifecycle", () => {
     cleanups.push(() => second.close());
     const client = await connect(second.url, secondHome);
     expect(await client.next()).toMatchObject({ type: "welcome", headSeq: 0 });
+  });
+  it("rejects a newer database schema and releases its startup lock", async () => {
+    const home = tempHome();
+    const config = readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" });
+    const first = await startDaemon(config);
+    await first.close();
+    const database = new DatabaseSync(join(home, "events.sqlite"));
+    database.prepare("UPDATE schema_version SET version = 999").run();
+    database.close();
+    const attempt = startDaemon(config);
+    void attempt.then(
+      (daemon) => {
+        cleanups.push(() => daemon.close());
+      },
+      () => {},
+    );
+    await expect(attempt).rejects.toThrow("newer than this daemon");
+    const restored = new DatabaseSync(join(home, "events.sqlite"));
+    restored.prepare("UPDATE schema_version SET version = 1").run();
+    restored.close();
+    const again = await startDaemon(config);
+    cleanups.push(() => again.close());
+    expect(again.store.headSeq()).toBe(0);
   });
 });

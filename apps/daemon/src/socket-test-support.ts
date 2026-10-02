@@ -12,21 +12,29 @@ export const token = "a".repeat(64);
 export class Client {
   readonly socket: WebSocket;
   private messages: ServerMessage[] = [];
-  private waiters: ((message: ServerMessage) => void)[] = [];
+  private waiters: { resolve(message: ServerMessage): void; reject(error: Error): void }[] = [];
+  private closed = false;
   constructor(url: string) {
     this.socket = new WebSocket(url);
     this.socket.on("message", (data) => {
       const message = ServerMessage.parse(JSON.parse(data.toString()));
       const waiter = this.waiters.shift();
-      if (waiter) waiter(message);
+      if (waiter) waiter.resolve(message);
       else this.messages.push(message);
+    });
+    this.socket.on("close", () => {
+      this.closed = true;
+      for (const waiter of this.waiters.splice(0))
+        waiter.reject(new Error("Socket closed before next message"));
     });
   }
   next(): Promise<ServerMessage> {
     const message = this.messages.shift();
     return message
       ? Promise.resolve(message)
-      : new Promise((resolve) => this.waiters.push(resolve));
+      : this.closed
+        ? Promise.reject(new Error("Socket closed before next message"))
+        : new Promise((resolve, reject) => this.waiters.push({ resolve, reject }));
   }
   send(message: ClientMessage): void {
     this.socket.send(JSON.stringify(message));
@@ -48,16 +56,21 @@ export async function fixture(
   const handler: CommandHandler = options.handler ?? stubHandler({ development: true });
   const server = await startServer({ port: 0, token, hostId: "host", store, handler, ...options });
   const clients: Client[] = [];
+  const open = async () => {
+    const client = new Client(server.url);
+    clients.push(client);
+    await once(client.socket, "open");
+    return client;
+  };
   return {
     home,
     store,
     thread,
     workspace,
     server,
+    open,
     async connect(auth = token) {
-      const client = new Client(server.url);
-      clients.push(client);
-      await once(client.socket, "open");
+      const client = await open();
       client.send({
         type: "hello",
         protocolVersion: 1,

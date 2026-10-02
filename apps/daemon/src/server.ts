@@ -1,6 +1,6 @@
 import { WebSocket, WebSocketServer } from "ws";
 import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
-import type { CommandHandler } from "./commands.ts";
+import { commandContext, type CommandHandler } from "./commands.ts";
 import { validToken } from "./local-files.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
@@ -16,6 +16,7 @@ export interface ServerOptions {
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
+  onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
 export async function startServer(
   options: ServerOptions,
@@ -56,7 +57,10 @@ export async function startServer(
       options.log?.(error);
       socket.terminate();
     });
-    socket.on("close", cleanup);
+    socket.on("close", () => {
+      cleanup();
+      options.onDisconnect?.(device);
+    });
     socket.on("message", (data, binary) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       lastActivity = Date.now();
@@ -65,7 +69,11 @@ export async function startServer(
         if (binary) throw new Error("Text required");
         message = ClientMessage.parse(JSON.parse(data.toString()));
       } catch {
-        fail("invalid_message", "Message does not match the protocol", !device);
+        fail(
+          device ? "invalid_message" : "unauthorized",
+          "Message does not match the protocol",
+          !device,
+        );
         return;
       }
       if (!device) {
@@ -84,7 +92,7 @@ export async function startServer(
       }
       switch (message.type) {
         case "hello":
-          fail("already_authenticated", "Hello is only valid once");
+          fail("unauthorized", "Hello is only valid once", true);
           break;
         case "ping":
           send({ type: "pong" });
@@ -122,7 +130,7 @@ export async function startServer(
           }
           try {
             const result = options.store.recordCommand(message.command.id, device, () =>
-              options.handler.handle(message.command, options.store),
+              options.handler.handle(message.command, commandContext(options.store)),
             );
             send({ type: "commandResult", ...result });
           } catch (error) {

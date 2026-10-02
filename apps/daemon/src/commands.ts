@@ -2,11 +2,20 @@ import { randomUUID } from "node:crypto";
 import { Thread, type Command, type CommandResult, type WorkspaceId } from "@ace/protocol";
 import type { Store } from "./store.ts";
 
+export type CommandContext = Pick<Store, "appendEvents" | "getThread" | "readEvents">;
+export function commandContext(store: Store): CommandContext {
+  return {
+    appendEvents: store.appendEvents.bind(store),
+    getThread: store.getThread.bind(store),
+    readEvents: store.readEvents.bind(store),
+  };
+}
+
 /** The engine appends facts through this store inside the receipt transaction.
  * No network or provider process work may run inside this synchronous port.
  * Future providers should commit an intent here and execute it after commit. */
 export interface CommandHandler {
-  handle(command: Command, store: Store): CommandResult;
+  handle(command: Command, store: CommandContext): CommandResult;
 }
 export function stubHandler(options: { development?: boolean } = {}): CommandHandler {
   return {
@@ -32,7 +41,7 @@ export function stubHandler(options: { development?: boolean } = {}): CommandHan
   };
 }
 export function createDevThread(
-  store: Store,
+  store: Pick<CommandContext, "appendEvents">,
   workspaceId: WorkspaceId,
   title = "Development thread",
   provider: Thread["provider"] = "codex",

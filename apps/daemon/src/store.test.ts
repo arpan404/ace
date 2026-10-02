@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Command, Thread, WorkspaceId, type Event } from "@ace/protocol";
+import { Agent, Command, Thread, WorkspaceId, type Event } from "@ace/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
@@ -10,10 +10,10 @@ const cleanup: (() => void)[] = [];
 afterEach(() => {
   for (const close of cleanup.splice(0).toReversed()) close();
 });
-function setup() {
+function setup(onError: (error: unknown) => void = console.error) {
   const home = mkdtempSync(join(tmpdir(), "ace-store-"));
   cleanup.push(() => rmSync(home, { recursive: true, force: true }));
-  let store = new Store(join(home, "events.sqlite"));
+  let store = new Store(join(home, "events.sqlite"), onError);
   cleanup.push(() => store.close());
   const workspace = store.createWorkspace("/repo", "Repo", 1);
   const thread = createDevThread(store, workspace);
@@ -25,7 +25,7 @@ function setup() {
     dbPath: join(home, "events.sqlite"),
     reopen() {
       store.close();
-      store = new Store(join(home, "events.sqlite"));
+      store = new Store(join(home, "events.sqlite"), onError);
     },
   };
 }
@@ -182,5 +182,55 @@ describe("store", () => {
     expect(seen).toEqual([]);
     store.appendEvents(thread.id, [{ type: "thread.updated", title: "Next" }]);
     expect(seen.map((e) => e.seq)).toEqual([2]);
+  });
+  it("keeps publishing committed events to healthy subscribers after another subscriber throws", () => {
+    const { store, thread } = setup(() => {
+      throw new Error("Reporter failed too");
+    });
+    const delivered: Event[] = [];
+    store.subscribe(() => {
+      throw new Error("Subscriber failed");
+    });
+    store.subscribe((events) => delivered.push(...events));
+    const events = store.appendEvents(thread.id, [
+      { type: "thread.updated", title: "Committed despite observer" },
+    ]);
+    expect(delivered).toEqual(events);
+    expect(store.readEvents({ afterSeq: 1, limit: 10 })).toEqual(events);
+    expect(store.getThread(thread.id)?.title).toBe("Committed despite observer");
+  });
+  it("keeps a view live until the final owner releases it, then rebuilds a fresh view", () => {
+    const { store, thread } = setup();
+    const view = store.acquireThread(thread.id);
+    store.acquireThread(thread.id);
+    store.releaseThread(thread.id);
+    store.appendEvents(thread.id, [{ type: "thread.updated", title: "Still owned" }]);
+    expect(view.thread.title).toBe("Still owned");
+    store.releaseThread(thread.id);
+    store.appendEvents(thread.id, [{ type: "thread.updated", title: "After release" }]);
+    expect(view.thread.title).toBe("Still owned");
+    const fresh = store.acquireThread(thread.id);
+    expect(fresh.thread.title).toBe("After release");
+    expect(fresh.seq).toBe(3);
+    store.releaseThread(thread.id);
+  });
+  it("persists the root agent identity from its creation event across reopen", () => {
+    const state = setup();
+    const root = Agent.parse({
+      id: "root",
+      threadId: state.thread.id,
+      parentId: null,
+      origin: "root",
+      native: { provider: "codex" },
+      fidelity: "full",
+      cwd: "/repo",
+      status: { state: "starting" },
+      createdAt: 1,
+    });
+    state.store.appendEvents(state.thread.id, [{ type: "agent.created", agent: root }]);
+    expect(state.store.getThread(state.thread.id)?.rootAgentId).toBe(root.id);
+    state.reopen();
+    expect(state.store.getThread(state.thread.id)?.rootAgentId).toBe(root.id);
+    expect(state.store.acquireThread(state.thread.id).thread.rootAgentId).toBe(root.id);
   });
 });

@@ -5,7 +5,12 @@ import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
 export { Store } from "./store.ts";
-export { createDevThread, stubHandler, type CommandHandler } from "./commands.ts";
+export {
+  createDevThread,
+  stubHandler,
+  type CommandHandler,
+  type CommandContext,
+} from "./commands.ts";
 export { readConfig } from "./config.ts";
 export async function startDaemon(
   config: Config = readConfig(),

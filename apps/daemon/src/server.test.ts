@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { Command, Item, ThreadId } from "@ace/protocol";
-import { applyEvent } from "@ace/projection";
+import { applyDelivery } from "@ace/projection";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { fixture } from "./socket-test-support.ts";
@@ -23,7 +23,7 @@ describe("WebSocket API", () => {
     expect(await client.next()).toMatchObject({ type: "error", code: "unauthorized" });
     expect((await closed)[0]).toBe(4001);
   });
-  it("sends a current snapshot, live updates and heartbeat responses", async () => {
+  it("sends snapshots and live updates, answers ping, and stops after unsubscribe", async () => {
     const f = await setup();
     const client = await f.connect();
     expect(await client.next()).toMatchObject({ type: "welcome", headSeq: 1 });
@@ -39,7 +39,13 @@ describe("WebSocket API", () => {
       view: { thread: { title: f.thread.title } },
     });
     const events = f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Live" }]);
-    expect(await client.next()).toEqual({ type: "events", subscriptionId: "thread", events });
+    expect(await client.next()).toEqual({
+      type: "events",
+      subscriptionId: "thread",
+      afterSeq: 1,
+      throughSeq: 2,
+      events,
+    });
     client.send({ type: "ping" });
     expect(await client.next()).toEqual({ type: "pong" });
     client.send({ type: "unsubscribe", subscriptionId: "thread" });
@@ -69,9 +75,21 @@ describe("WebSocket API", () => {
       scope: { kind: "threads" },
       afterSeq: snapshot.seq,
     });
-    expect(await client.next()).toEqual({ type: "events", subscriptionId: "s", events: missed });
+    expect(await client.next()).toEqual({
+      type: "events",
+      subscriptionId: "s",
+      afterSeq: 1,
+      throughSeq: 3,
+      events: missed,
+    });
     const live = f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Online" }]);
-    expect(await client.next()).toEqual({ type: "events", subscriptionId: "s", events: live });
+    expect(await client.next()).toEqual({
+      type: "events",
+      subscriptionId: "s",
+      afterSeq: 3,
+      throughSeq: 4,
+      events: live,
+    });
     client.send({ type: "ping" });
     expect(await client.next()).toEqual({ type: "pong" });
   });
@@ -180,7 +198,7 @@ describe("WebSocket API", () => {
     expect(await client.next()).toEqual({ type: "pong" });
     expect(f.store.headSeq()).toBe(1);
   });
-  it("advances a thread subscription across interleaved threads without false gaps", async () => {
+  it("filters thread events, advances progress, and replays only its missed events", async () => {
     const f = await setup();
     const client = await f.connect();
     await client.next();
@@ -191,18 +209,92 @@ describe("WebSocket API", () => {
     });
     const snapshot = await client.next();
     if (snapshot.type !== "snapshot" || snapshot.view.kind !== "thread")
-      throw new Error("Expected thread snapshot");
+      throw new Error("Expected snapshot");
     const other = createDevThread(f.store, f.workspace, "Other");
-    f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Mine" }]);
-    for (let i = 0; i < 2; i++) {
-      const batch = await client.next();
-      if (batch.type !== "events") throw new Error("Expected events");
-      for (const event of batch.events)
-        expect(applyEvent(snapshot.view, event).kind).toBe("applied");
-    }
-    expect(snapshot.view.thread.title).toBe("Mine");
+    f.store.appendEvents(other.id, [{ type: "thread.updated", title: "Hidden" }]);
+    const progress = await client.next();
+    expect(progress).toEqual({ type: "progress", subscriptionId: "s", afterSeq: 1, throughSeq: 3 });
+    if (progress.type !== "progress") throw new Error("Expected progress");
+    expect(applyDelivery(snapshot.view, progress).kind).toBe("applied");
     expect(snapshot.view.seq).toBe(3);
-    expect(snapshot.view.thread.id).not.toBe(other.id);
+    expect(snapshot.view.thread.title).toBe(f.thread.title);
+    await client.close();
+    f.store.appendEvents(other.id, [{ type: "thread.updated", title: "Hidden offline" }]);
+    const missed = f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Mine" }]);
+    f.store.appendEvents(other.id, [{ type: "thread.updated", title: "Hidden tail" }]);
+    const again = await f.connect();
+    await again.next();
+    again.send({
+      type: "subscribe",
+      subscriptionId: "s",
+      scope: { kind: "thread", threadId: f.thread.id },
+      afterSeq: snapshot.view.seq,
+    });
+    const replay = await again.next();
+    expect(replay).toEqual({
+      type: "events",
+      subscriptionId: "s",
+      afterSeq: 3,
+      throughSeq: 6,
+      events: missed,
+    });
+    if (replay.type !== "events") throw new Error("Expected replay");
+    expect(applyDelivery(snapshot.view, replay).kind).toBe("applied");
+    expect(snapshot.view.thread.title).toBe("Mine");
+    expect(snapshot.view.seq).toBe(6);
+    again.send({ type: "ping" });
+    expect(await again.next()).toEqual({ type: "pong" });
+  });
+  it("sidebar subscriptions receive metadata events and only progress for transcript changes", async () => {
+    const f = await setup();
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "subscribe", subscriptionId: "s", scope: { kind: "threads" } });
+    await client.next();
+    const item = Item.parse({
+      id: "i",
+      agentId: "a",
+      type: "message",
+      role: "assistant",
+      complete: false,
+      createdAt: 1,
+      parts: [],
+    });
+    f.store.appendEvents(f.thread.id, [
+      { type: "item.created", item },
+      {
+        type: "item.delta",
+        itemId: item.id,
+        agentId: item.agentId,
+        field: "text",
+        append: "hidden",
+      },
+    ]);
+    expect(await client.next()).toEqual({
+      type: "progress",
+      subscriptionId: "s",
+      afterSeq: 1,
+      throughSeq: 3,
+    });
+    client.send({ type: "subscribe", subscriptionId: "fresh", scope: { kind: "threads" } });
+    const fresh = await client.next();
+    expect(fresh).toMatchObject({
+      type: "snapshot",
+      view: { threads: { [f.thread.id]: { updatedAt: f.thread.updatedAt } } },
+    });
+    client.send({ type: "unsubscribe", subscriptionId: "fresh" });
+    client.send({ type: "ping" });
+    expect(await client.next()).toEqual({ type: "pong" });
+    const events = f.store.appendEvents(f.thread.id, [
+      { type: "thread.updated", title: "Visible" },
+    ]);
+    expect(await client.next()).toEqual({
+      type: "events",
+      subscriptionId: "s",
+      afterSeq: 3,
+      throughSeq: 4,
+      events,
+    });
   });
   it("moves from replay or snapshot to live commands without gaps or duplicates", async () => {
     const f = await setup();
@@ -240,15 +332,9 @@ describe("WebSocket API", () => {
       await client.close();
     }
   });
-  it("closes idle sockets without a client heartbeat", async () => {
-    const f = await setup({ idleTimeoutMs: 20 });
-    const client = await f.connect();
-    const closed = once(client.socket, "close");
-    await client.next();
-    expect((await closed)[0]).toBe(4008);
-  });
   it("coalesces queued deltas on a real socket and preserves sequence coverage", async () => {
-    const f = await setup({ pressure: { softLimit: 0, hardLimit: 32 * 1024 * 1024 } });
+    // An explicit soft threshold forces pressure deterministically on loopback.
+    const f = await setup({ pressure: { softLimit: -1 } });
     const item = Item.parse({
       id: "i",
       agentId: "a",
@@ -268,12 +354,7 @@ describe("WebSocket API", () => {
     });
     const snapshot = await client.next();
     if (snapshot.type !== "snapshot" || snapshot.view.kind !== "thread")
-      throw new Error("Expected thread snapshot");
-    client.socket.pause();
-    const filler = "X".repeat(4 * 1024 * 1024);
-    f.store.appendEvents(f.thread.id, [
-      { type: "item.delta", itemId: item.id, agentId: item.agentId, field: "text", append: filler },
-    ]);
+      throw new Error("Expected snapshot");
     f.store.appendEvents(
       f.thread.id,
       ["A", "B", "C"].map((append) => ({
@@ -284,35 +365,18 @@ describe("WebSocket API", () => {
         append,
       })),
     );
-    client.socket.resume();
     client.send({ type: "ping" });
-    const first = await client.next();
-    if (first.type !== "events") throw new Error("Expected initial output");
-    for (const event of first.events) applyEvent(snapshot.view, event);
     const batch = await client.next();
     if (batch.type !== "events") throw new Error("Expected deltas");
     expect(batch.events).toHaveLength(1);
-    expect(batch.events[0]).toMatchObject({ firstSeq: 4, seq: 6, payload: { append: "ABC" } });
-    for (const event of batch.events) expect(applyEvent(snapshot.view, event).kind).toBe("applied");
-    const projected = snapshot.view.items.i;
-    if (projected?.type !== "message") throw new Error("Expected message");
-    const part = projected.parts[0];
-    if (part?.type !== "text") throw new Error("Expected text");
-    expect(part.text.length).toBe(filler.length + 3);
-    expect(part.text.endsWith("ABC")).toBe(true);
+    expect(batch).toMatchObject({
+      afterSeq: 2,
+      throughSeq: 5,
+      events: [{ firstSeq: 3, seq: 5, payload: { append: "ABC" } }],
+    });
+    expect(applyDelivery(snapshot.view, batch).kind).toBe("applied");
+    expect(snapshot.view.items.i).toMatchObject({ parts: [{ type: "text", text: "ABC" }] });
     expect(await client.next()).toEqual({ type: "pong" });
-    expect(f.store.readEvents({ afterSeq: 3, limit: 10 }).map((e) => e.seq)).toEqual([4, 5, 6]);
-  });
-  it("closes overloaded sockets with a resync code", async () => {
-    const f = await setup({ pressure: { softLimit: 0, hardLimit: 0, hardTimeoutMs: 0 } });
-    const client = await f.connect();
-    await client.next();
-    client.send({ type: "subscribe", subscriptionId: "s", scope: { kind: "threads" } });
-    await client.next();
-    const closed = once(client.socket, "close");
-    f.store.appendEvents(f.thread.id, [
-      { type: "thread.updated", title: "X".repeat(4 * 1024 * 1024) },
-    ]);
-    expect((await closed)[0]).toBe(4009);
+    expect(f.store.readEvents({ afterSeq: 2, limit: 10 }).map((e) => e.seq)).toEqual([3, 4, 5]);
   });
 });

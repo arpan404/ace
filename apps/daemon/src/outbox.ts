@@ -39,6 +39,8 @@ export function coalesceEvents(events: DeliveryEvent[]): DeliveryEvent[] {
 }
 interface EventBatch {
   subscriptionId: string;
+  afterSeq: number;
+  throughSeq: number;
   events: DeliveryEvent[];
 }
 export class Outbox {
@@ -55,11 +57,14 @@ export class Outbox {
     if (this.socket.readyState !== WebSocket.OPEN) return;
     if (message.type === "events" && this.socket.bufferedAmount > this.options.softLimit) {
       const last = this.pending.at(-1);
-      if (last?.subscriptionId === message.subscriptionId)
+      if (last?.subscriptionId === message.subscriptionId && last.throughSeq === message.afterSeq) {
         last.events = coalesceEvents([...last.events, ...message.events]);
-      else
+        last.throughSeq = message.throughSeq;
+      } else
         this.pending.push({
           subscriptionId: message.subscriptionId,
+          afterSeq: message.afterSeq,
+          throughSeq: message.throughSeq,
           events: coalesceEvents(message.events),
         });
       this.bytes += Buffer.byteLength(JSON.stringify(message));

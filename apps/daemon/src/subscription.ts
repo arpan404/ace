@@ -1,28 +1,66 @@
 import type { Event, ServerMessage, SubscriptionScope, ThreadId } from "@ace/protocol";
-import { createThreadListView } from "@ace/projection";
+import { createThreadListView, isSidebarEvent } from "@ace/projection";
 import type { Store } from "./store.ts";
 
-/** All subscriptions carry the host-wide cursor. Thread folds ignore other threads.
- * Listener first, fixed replay head second, then queued live events beyond that head.
- * This also covers reentrant appends during snapshot/replay delivery. */
+export type SubscriptionStore = Pick<
+  Store,
+  "subscribe" | "headSeq" | "acquireThread" | "releaseThread" | "listThreads" | "readEvents"
+>;
+
+/** Delivery covers (afterSeq, throughSeq], including events filtered out by scope. */
 export function subscribe(
-  store: Store,
+  store: SubscriptionStore,
   id: string,
   scope: SubscriptionScope,
   afterSeq: number | undefined,
   replayLimit: number,
   send: (message: ServerMessage) => void,
+  progressIntervalMs = 250,
 ): () => void {
   let cursor = afterSeq ?? 0;
   let initializing = true;
   let queued: Event[] = [];
   let acquired: ThreadId | undefined;
   let stopped = false;
-  const deliver = (events: Event[]) => {
-    const missed = events.filter((event) => event.seq > cursor);
-    if (!missed.length) return;
-    cursor = missed.at(-1)?.seq ?? cursor;
-    send({ type: "events", subscriptionId: id, events: missed });
+  let progressHead = cursor;
+  let progressTimer: ReturnType<typeof setTimeout> | undefined;
+  const matches = (event: Event) =>
+    scope.kind === "thread" ? event.threadId === scope.threadId : isSidebarEvent(event);
+  const cancelProgress = () => {
+    if (progressTimer) clearTimeout(progressTimer);
+    progressTimer = undefined;
+  };
+  const flushProgress = () => {
+    progressTimer = undefined;
+    if (stopped || progressHead <= cursor) return;
+    const previous = cursor;
+    cursor = progressHead;
+    send({ type: "progress", subscriptionId: id, afterSeq: previous, throughSeq: cursor });
+  };
+  const deliver = (events: Event[], head = events.at(-1)?.seq ?? cursor, replay = false) => {
+    if (head <= cursor) return;
+    const selected = events.filter(
+      (event) => event.seq > cursor && event.seq <= head && matches(event),
+    );
+    progressHead = Math.max(progressHead, head);
+    if (selected.length) {
+      cancelProgress();
+      const previous = cursor;
+      cursor = head;
+      send({
+        type: "events",
+        subscriptionId: id,
+        afterSeq: previous,
+        throughSeq: head,
+        events: selected,
+      });
+    } else if (replay) {
+      cancelProgress();
+      flushProgress();
+    } else if (!progressTimer) {
+      progressTimer = setTimeout(flushProgress, progressIntervalMs);
+      progressTimer.unref();
+    }
   };
   const remove = store.subscribe((events) => {
     if (initializing) queued.push(...events);
@@ -31,26 +69,29 @@ export function subscribe(
   const stop = () => {
     if (stopped) return;
     stopped = true;
+    cancelProgress();
     remove();
     if (acquired) store.releaseThread(acquired);
   };
   try {
-    const head = store.headSeq();
-    if (afterSeq !== undefined && afterSeq > head) throw new Error("Cursor ahead of log");
-    // Acquire even on replay so a subscribed thread has one owned cache.
     const view =
       scope.kind === "thread"
         ? store.acquireThread(scope.threadId)
-        : createThreadListView(store.listThreads(), head);
+        : createThreadListView(store.listThreads());
     if (scope.kind === "thread") acquired = scope.threadId;
+    const snapshotView = structuredClone(view);
+    const head = store.headSeq();
+    snapshotView.seq = head;
+    if (afterSeq !== undefined && afterSeq > head) throw new Error("Cursor ahead of log");
     if (afterSeq === undefined || head - afterSeq > replayLimit) {
       cursor = head;
-      send({ type: "snapshot", subscriptionId: id, seq: head, view });
+      progressHead = head;
+      send({ type: "snapshot", subscriptionId: id, seq: head, view: snapshotView });
     } else {
       const events = store
         .readEvents({ afterSeq, limit: replayLimit })
         .filter((event) => event.seq <= head);
-      deliver(events);
+      deliver(events, head, true);
     }
     initializing = false;
     const pending = queued;
