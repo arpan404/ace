@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSupervised } from "@ace/provider-kit/process";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { Recording, type Frame } from "./recording.ts";
 import { createRecordedPeer } from "./stdio.ts";
 
@@ -67,6 +67,48 @@ it("keeps recorder JSONL channels, raw payloads and process exit notes unchanged
     expect(frames.every((frame) => typeof frame.t === "number" && frame.t >= 0)).toBe(true);
   } finally {
     await proc.stop({ graceMs: 0 });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("recorder approvals can wait beyond the default RPC deadline", async () => {
+  const root = await mkdtemp(join(tmpdir(), "provider-kit-recorder-wait-"));
+  const rec = new Recording(join(root, "frames.jsonl"), {
+    format: "ace-recording/v1",
+    provider: "synthetic",
+    cliVersion: "1",
+    scenario: "approval",
+    startedAt: "2026-10-02",
+    platform: "test",
+    workspace: "synthetic",
+  });
+  const proc = spawnSupervised({
+    command: process.execPath,
+    args: [
+      "-e",
+      `const send=m=>console.log(JSON.stringify(m));let waiting;require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.method==='wait'){waiting=m.id;send({method:'waiting'});}else if(m.method==='release')send({id:waiting,result:'approved'});});`,
+    ],
+    env: {},
+    name: "synthetic-approval",
+  });
+  const rpc = createRecordedPeer(proc, rec);
+  const ready = new Promise<void>((resolve) => {
+    rpc.onNotification = () => resolve();
+  });
+  try {
+    vi.useFakeTimers();
+    const pending = rpc.request("wait").then(
+      (result) => ({ result }),
+      (error: unknown) => ({ error: String(error) }),
+    );
+    await ready;
+    await vi.advanceTimersByTimeAsync(60_000);
+    rpc.notify("release");
+    expect(await pending).toEqual({ result: "approved" });
+  } finally {
+    vi.useRealTimers();
+    await proc.stop({ graceMs: 0 });
+    await rec.close();
     await rm(root, { recursive: true, force: true });
   }
 });

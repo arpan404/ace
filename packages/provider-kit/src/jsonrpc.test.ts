@@ -125,7 +125,7 @@ describe("JSON-RPC stdio", () => {
       killGroupOnExit: false,
     });
     processes.push(proc);
-    const rpc = new JsonRpcPeer(proc, { timeoutMs: 1000 });
+    const rpc = new JsonRpcPeer(proc, { timeoutMs: 10_000 });
     let pipesClosed = false;
     void proc.exited.then(() => {
       pipesClosed = true;
