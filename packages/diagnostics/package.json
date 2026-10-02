@@ -1,5 +1,5 @@
 {
-  "name": "@ace/daemon",
+  "name": "@ace/diagnostics",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -7,17 +7,16 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
-    "dev": "node src/cli.ts"
+    "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@ace/diagnostics": "workspace:*",
-    "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "@ace/redaction": "workspace:*",
-    "ws": "^8.18.3"
+    "tar-stream": "^3.1.7",
+    "zod": "^4.1.11"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.1"
+    "@types/tar-stream": "^3.1.4"
   }
 }

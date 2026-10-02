@@ -1,3 +1,4 @@
+import { DiagnosticsHealth } from "./diagnostics.ts";
 import { z } from "zod";
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
@@ -67,6 +68,7 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 export const CommandResult = z.object({
   commandId: CommandId,
   ok: z.boolean(),
+  health: DiagnosticsHealth.optional(),
   error: z.string().optional(),
 });
 export type CommandResult = z.infer<typeof CommandResult>;

@@ -1,6 +1,14 @@
+import { homedir } from "node:os";
+import { createRedactor } from "@ace/redaction";
+import {
+  createFileSink,
+  createLogger,
+  createHealthMonitor,
+  type HealthOptions,
+} from "@ace/diagnostics";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
-import { type Config, logger, readConfig } from "./config.ts";
+import { type Config, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
@@ -15,15 +23,43 @@ export { readConfig } from "./config.ts";
 export async function startDaemon(
   config: Config = readConfig(),
   handler: CommandHandler = stubHandler(),
+  workload: HealthOptions["workload"] = () => ({ activeSessions: null, queues: {} }),
 ): Promise<{ url: string; tokenPath: string; store: Store; close(): Promise<void> }> {
   const unlock = acquireLock(config.dataDir);
-  const log = logger(config.logLevel);
+  const context = { home: homedir(), env: process.env };
+  let log: ReturnType<typeof createLogger> | undefined;
+  let health: ReturnType<typeof createHealthMonitor> | undefined;
   let store: Store | undefined;
   try {
+    const sink = await createFileSink({
+      directory: join(config.dataDir, "logs"),
+      fileBytes: 1024 * 1024,
+      totalBytes: 8 * 1024 * 1024,
+      context,
+    }).catch(() => ({
+      async write() {
+        throw new Error("File logging unavailable");
+      },
+      async close() {},
+    }));
+    log = createLogger({
+      sink,
+      now: Date.now,
+      redact: createRedactor(context),
+      level: config.logLevel,
+    });
+    const ownedLog = log;
+    health = createHealthMonitor({
+      database: join(config.dataDir, "events.sqlite"),
+      now: Date.now,
+      workload,
+      logs: ownedLog.stats,
+    });
+    const ownedHealth = health;
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
     store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
-      log("error", "Event subscriber failed", error),
+      ownedLog.child("store").log("error", "Event subscriber failed", error),
     );
     const ownedStore = store;
     const server = await startServer({
@@ -32,8 +68,10 @@ export async function startDaemon(
       hostId,
       store,
       handler,
-      log: (error) => log("error", "WebSocket failure", error),
+      health: ownedHealth.collect,
+      log: (error) => ownedLog.child("websocket").log("error", "WebSocket failure", error),
     });
+    ownedLog.log("info", "Daemon listening", { url: server.url });
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
@@ -47,7 +85,12 @@ export async function startDaemon(
             try {
               ownedStore.close();
             } finally {
-              unlock();
+              ownedHealth.close();
+              try {
+                await ownedLog.close();
+              } finally {
+                unlock();
+              }
             }
           }
         })();
@@ -58,7 +101,12 @@ export async function startDaemon(
     try {
       store?.close();
     } finally {
-      unlock();
+      health?.close();
+      try {
+        await log?.close();
+      } finally {
+        unlock();
+      }
     }
     throw error;
   }

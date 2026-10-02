@@ -1,5 +1,11 @@
 import { WebSocket, WebSocketServer } from "ws";
-import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
+import {
+  ClientMessage,
+  HostId,
+  type DeviceId,
+  type ServerMessage,
+  type DiagnosticsHealth,
+} from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
 import { validToken } from "./local-files.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
@@ -16,6 +22,7 @@ export interface ServerOptions {
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
+  health?: () => Promise<DiagnosticsHealth>;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
 export async function startServer(
@@ -32,6 +39,7 @@ export async function startServer(
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket) => {
     let device: DeviceId | undefined;
+    let healthPending = false;
     let lastActivity = Date.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
@@ -126,6 +134,44 @@ export async function startServer(
         case "command": {
           if (message.command.deviceId !== device) {
             fail("device_mismatch", "Command device must match hello");
+            break;
+          }
+          if (message.command.payload.type === "diagnostics.health") {
+            if (!options.health) {
+              send({
+                type: "commandResult",
+                commandId: message.command.id,
+                ok: false,
+                error: "diagnostics_unavailable",
+              });
+              break;
+            }
+            if (healthPending) {
+              send({
+                type: "commandResult",
+                commandId: message.command.id,
+                ok: false,
+                error: "diagnostics_busy",
+              });
+              break;
+            }
+            healthPending = true;
+            void options
+              .health()
+              .then(
+                (health) =>
+                  send({ type: "commandResult", commandId: message.command.id, ok: true, health }),
+                () =>
+                  send({
+                    type: "commandResult",
+                    commandId: message.command.id,
+                    ok: false,
+                    error: "diagnostics_failed",
+                  }),
+              )
+              .finally(() => {
+                healthPending = false;
+              });
             break;
           }
           try {
