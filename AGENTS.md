@@ -28,6 +28,15 @@ When these conflict, choose in that order.
 - Decode provider data leniently: unknown event types and fields are kept as raw data, never dropped and never fatal.
 - Before adding logic, check for an existing module that owns it. Duplicate logic across packages is a bug.
 
+## Design for modularity and testability
+
+- **Pure core, thin I/O shell.** Decision logic (state machines, translators, status rules, parsers) lives in pure functions or modules with no I/O, so it can be tested directly. I/O (processes, sockets, SQLite, filesystem, timers) lives in thin shells around it.
+- **Inject what you can't control.** Clocks, id generators, randomness, process spawners, filesystem roots and network endpoints are passed in, never reached for globally (`Date.now()`, `Math.random()` and module-level singletons are banned in logic code). Tests substitute them at the boundary.
+- **One responsibility per module, one public surface per package.** Each package exposes its API through `package.json` `exports`. Never import another package's internals (`@ace/x/src/...`). Circular imports are a lint error.
+- **Explicit types at boundaries.** Data from outside the process (provider frames, wire messages, files, env) is parsed with a schema before use. No `any`, no unchecked `as` casts on external data, no non-null assertions to silence the compiler.
+- **Small, composable units over options-heavy functions.** If a function needs a boolean flag that changes what it does, split it in two.
+- **Performance is designed in.** Hot paths (deltas, frame translation, event fan-out) do work proportional to the change, not to history. Anything slower needs a benchmark and a reason.
+
 ## Tests
 
 Test behaviour, not structure. Every test must fail if the behaviour it names breaks, and keep passing through a refactor that preserves behaviour.
