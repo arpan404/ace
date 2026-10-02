@@ -1,6 +1,6 @@
 # Model catalog benchmark
 
-Measured 2026-10-02 with `bun run --filter @ace/models bench`, Node 24,
+Measured 2026-10-02 with `bun run --filter @ace/models bench`, Node 26.8.1,
 a 512-model instance, and 100,000 iterations per operation after 1,000 warmup
 iterations. This is non-gating and shares the machine with other workers.
 
