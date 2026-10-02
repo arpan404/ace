@@ -67,6 +67,7 @@ try {
     }),
   );
   subscription.release();
+  await client.itemsPage({ threadId: h.thread.id, limit: 1 });
   for (const history of [1000, 10000]) {
     const payloads = Array.from({ length: history - h.daemon.store.headSeq() }, (_, i) => ({
       type: "thread.updated" as const,

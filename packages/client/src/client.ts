@@ -207,7 +207,7 @@ export class Client {
           result.offset !== payload.offset
         )
           throw new ClientError("protocol");
-        const bytes = decodeBase64(result.bytes);
+        const bytes = decodeBase64(result.bytes, payload.limit);
         if (
           bytes.length > payload.limit ||
           result.nextOffset !== payload.offset + bytes.length ||

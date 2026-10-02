@@ -1,9 +1,16 @@
 import { applyDelta } from "@ace/projection";
 import { Item, type DeliveryEvent, type ItemsPage } from "@ace/protocol";
 import { ClientError, type Limits } from "./types.ts";
-/** Bounded change journal reconciles pages read before live delivery. */
+interface Change {
+  seq: number;
+  payload: Extract<DeliveryEvent["payload"], { type: "item.updated" | "item.delta" }>;
+  size: number;
+}
+/** Bounded ring: eviction is O(1), independent of accumulated Map tombstones. */
 export class PageJournal {
-  private events = new Map<number, { event: DeliveryEvent; size: number }>();
+  private changes: (Change | undefined)[] = [];
+  private head = 0;
+  private count = 0;
   private bytes = 0;
   private floor = 0;
   private limits: Limits;
@@ -11,33 +18,52 @@ export class PageJournal {
     this.limits = limits;
   }
   reset(seq: number): void {
-    this.events.clear();
+    this.changes = [];
+    this.head = 0;
+    this.count = 0;
     this.bytes = 0;
     this.floor = seq;
   }
   record(event: DeliveryEvent): void {
-    if (event.payload.type !== "item.updated" && event.payload.type !== "item.delta") return;
+    const payload = event.payload;
+    if (payload.type !== "item.updated" && payload.type !== "item.delta") return;
     const size =
-      event.payload.type === "item.delta"
-        ? event.payload.append.length * 2 + 128
-        : JSON.stringify(event.payload).length * 2;
-    this.events.set(event.seq, { event, size });
-    this.bytes += size;
-    while (this.events.size > this.limits.entities || this.bytes > this.limits.frameBytes) {
-      const first = this.events.entries().next().value;
-      if (!first) break;
-      this.events.delete(first[0]);
-      this.bytes -= first[1].size;
-      this.floor = first[0];
+      payload.type === "item.delta"
+        ? payload.append.length * 2 + 128
+        : JSON.stringify(payload).length * 2;
+    while (
+      this.count &&
+      (this.count === this.limits.entities || this.bytes + size > this.limits.frameBytes)
+    ) {
+      const first = this.changes[this.head];
+      if (first) {
+        this.bytes -= first.size;
+        this.floor = first.seq;
+      }
+      this.changes[this.head] = undefined;
+      this.head = (this.head + 1) % this.limits.entities;
+      this.count--;
     }
+    if (size > this.limits.frameBytes) {
+      this.floor = event.seq;
+      return;
+    }
+    this.changes[(this.head + this.count) % this.limits.entities] = {
+      seq: event.seq,
+      payload,
+      size,
+    };
+    this.count++;
+    this.bytes += size;
   }
   reconcile(page: ItemsPage, cursor: number): Item[] {
     if (page.seq < this.floor && page.seq < cursor)
       throw new ClientError("stale", "History page needs a fresh read");
     const items = new Map(page.items.map((item) => [item.id, Item.parse(item)]));
-    for (const { event } of this.events.values()) {
-      if (event.seq <= page.seq) continue;
-      const p = event.payload;
+    for (let i = 0; i < this.count; i++) {
+      const change = this.changes[(this.head + i) % this.limits.entities];
+      if (!change || change.seq <= page.seq) continue;
+      const p = change.payload;
       if (p.type === "item.updated" && items.has(p.item.id))
         items.set(p.item.id, Item.parse(p.item));
       if (p.type === "item.delta") {

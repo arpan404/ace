@@ -50,5 +50,11 @@ test("a multi-megabyte shell output can be subscribed without killing the client
     Boolean,
   );
   expect(client.state).toBe("ready");
-  expect(store.item(id)?.type).toBe("tool_call");
+  expect(store.item(id)).toMatchObject({
+    call: { detail: { output: { bytes: 2 * 1024 * 1024, truncated: true } } },
+  });
+  const chunk = await client.outputRead({ streamId: `output:${id}`, offset: 0, limit: 256 * 1024 });
+  expect(chunk.bytes).toHaveLength(256 * 1024);
+  expect(chunk.bytes[0]).toBe(120);
+  expect(chunk.eof).toBe(false);
 });
