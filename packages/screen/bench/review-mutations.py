@@ -15,6 +15,8 @@ mutations = [
     (32, "indicator remains visible during termination", "packages/screen/src/policy.ts", 'return { ...state, lifecycle: "stopping", controller: "none" };', 'return { ...state, lifecycle: "stopping", controller: "none", indicator: false };', 'packages/screen/src/shutdown.test.ts', 'indicator remains on'),
     (33, "capture closes independently of publication", "packages/screen/src/manager.ts", '    await session.helper.close();\n    session.state = terminated(session.state);', '    if (session.recording) await this.stopRecording(session.state.sessionId);\n    await session.helper.close();\n    session.state = terminated(session.state);', 'packages/screen/src/shutdown.test.ts', 'stalled recording publisher'),
     (34, "helper deadlines fail outstanding work", "packages/screen/src/helper.ts", '() => this.fail(new Error("Helper command timed out"))', '() => {}', 'packages/screen/src/helper.test.ts', 'injected command deadline'),
+    (36, "startup indicator is visible before capture dispatch", "packages/screen/src/manager.ts", '      session.state = { ...session.state, indicator: true };\n      this.emit(session);', '', 'packages/screen/src/shutdown.test.ts', 'startup cancellation'),
+    (37, "startup cleanup publishes final indicator state", "packages/screen/src/manager.ts", '      await helper?.close();\n      if (session) this.sessions.delete(session.state.sessionId);', '      if (session) this.sessions.delete(session.state.sessionId);\n      await helper?.close();', 'packages/screen/src/shutdown.test.ts', 'startup cancellation'),
 ]
 if os.environ.get('ACE_SCREEN_MUTATE_NATIVE') == '1':
     mutations = [

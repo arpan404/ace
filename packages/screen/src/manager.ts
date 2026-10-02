@@ -151,6 +151,8 @@ export class ScreenManager {
         throw new Error("Screen Recording permission denied");
       this.authorize(target);
       if (epoch !== this.policy.epoch) throw new Error("Screen policy changed during start");
+      session.state = { ...session.state, indicator: true };
+      this.emit(session);
       await helper.request({
         op: "start",
         sessionId: id,
@@ -167,9 +169,9 @@ export class ScreenManager {
     } catch (error) {
       if (session) {
         this.fail(session, error instanceof Error ? error : new Error("Start failed"));
-        this.sessions.delete(session.state.sessionId);
       }
       await helper?.close();
+      if (session) this.sessions.delete(session.state.sessionId);
       throw error;
     } finally {
       this.reservations--;

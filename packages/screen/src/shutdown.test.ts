@@ -91,3 +91,18 @@ it("disabling and revoking approval terminate the owned processes and remove all
   expect(test.screen.states()).toEqual([]);
   expect(children.map((child) => child.signal.aborted)).toEqual([true, true, true]);
 });
+it("startup cancellation publishes an indicator until termination and then clears it", async () => {
+  const test = await manager();
+  cleanups.push(test.close);
+  const indicators: boolean[] = [];
+  let disabled = Promise.resolve();
+  test.screen.watch((state) => {
+    indicators.push(state.indicator);
+    if (state.lifecycle === "starting" && state.indicator) disabled = test.screen.enable(false);
+  });
+  await expect(ready(test.screen)).rejects.toThrow();
+  await disabled;
+  expect(indicators).toContain(true);
+  expect(indicators.at(-1)).toBe(false);
+  expect(test.screen.states()).toEqual([]);
+});

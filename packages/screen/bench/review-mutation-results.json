@@ -43,5 +43,15 @@
     "reviewMutation": 34,
     "behavior": "helper deadlines fail outstanding work",
     "killed": true
+  },
+  {
+    "reviewMutation": 36,
+    "behavior": "startup indicator is visible before capture dispatch",
+    "killed": true
+  },
+  {
+    "reviewMutation": 37,
+    "behavior": "startup cleanup publishes final indicator state",
+    "killed": true
   }
 ]
