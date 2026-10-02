@@ -57,15 +57,18 @@ export function isLiveTool(item: Item): item is ToolItem {
 /** Unstarted silent children are visible diagnostics, not evidence of live work.
  * Explicit work or a live descendant keeps such an agent relevant to completion.
  */
-function completionRelevance(state: ThreadState, statusOf: (key: Key) => AgentStatus) {
-  const waitingOwners = new Set([
+function completionRelevance(
+  state: ThreadState,
+  statusOf: (key: Key) => AgentStatus,
+  waitingOwners: Set<string> = new Set([
     ...liveToolKeys(state).map((key) => lookup(state.items, key)!.agentId),
     ...pendingInteractionKeys(state).map((key) => lookup(state.interactions, key)!.agentId),
     ...runningTaskKeys(state)
       .map((key) => lookup(state.tasks, key)!)
       .filter((task) => !task.ambient)
       .map((task) => task.agentId),
-  ]);
+  ]),
+) {
   const cached = new Map<Key, boolean>();
   const visiting = new Set<Key>();
   function relevant(key: Key): boolean {
@@ -96,7 +99,7 @@ function completionRelevance(state: ThreadState, statusOf: (key: Key) => AgentSt
   return relevant;
 }
 
-function statusResolver(state: ThreadState, now: number) {
+function statusInputs(state: ThreadState) {
   const lastTransportSignalAt = transportSignalAt(state);
   const byId = state.indexes.agentKeysById;
   const interactionsByAgent = byAgent(
@@ -113,10 +116,44 @@ function statusResolver(state: ThreadState, now: number) {
       .filter(isLiveTool),
   );
   const children = state.indexes.childrenByParent;
+  const lastSubtreeSignal = subtreeSignalReader(state);
+  const waitingOwners = new Set([
+    ...interactionsByAgent.keys(),
+    ...tasksByAgent.keys(),
+    ...toolsByAgent.keys(),
+  ]);
+  return {
+    lastTransportSignalAt,
+    byId,
+    interactionsByAgent,
+    tasksByAgent,
+    toolsByAgent,
+    children,
+    lastSubtreeSignal,
+    waitingOwners,
+  };
+}
+
+/** Share time-independent indexes across candidate deadlines. */
+export function statusReader(state: ThreadState) {
+  const inputs = statusInputs(state);
+  return (now: number) => statusResolver(state, now, inputs);
+}
+
+function statusResolver(state: ThreadState, now: number, inputs = statusInputs(state)) {
+  const {
+    lastTransportSignalAt,
+    byId,
+    interactionsByAgent,
+    tasksByAgent,
+    toolsByAgent,
+    children,
+    lastSubtreeSignal,
+    waitingOwners,
+  } = inputs;
   const resolved = new Map<Key, AgentStatus>();
   const visiting = new Set<Key>();
-  const lastSubtreeSignal = subtreeSignalReader(state);
-  const holdsCompletion = completionRelevance(state, resolve);
+  const holdsCompletion = completionRelevance(state, resolve, waitingOwners);
 
   function resolve(key: Key): AgentStatus {
     const cached = resolved.get(key);

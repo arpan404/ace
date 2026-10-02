@@ -1,5 +1,5 @@
 import type { ThreadState } from "./state.ts";
-import { deriveAgentStatus, isSettled } from "./status.ts";
+import { statusReader, isSettled } from "./status.ts";
 import { subtreeSignalReader, transportSignalAt } from "./liveness.ts";
 
 /** Earliest injected instant at which a tick can change an agent status. */
@@ -7,6 +7,8 @@ export function nextDeadline(state: ThreadState): number | undefined {
   if (state.processExit) return undefined;
   let next: number | undefined;
   const subtreeSignal = subtreeSignalReader(state);
+  const readStatus = statusReader(state);
+  const readers = new Map<number, ReturnType<typeof readStatus>>();
   const latestTransportSignal = transportSignalAt(state);
   for (const [key, record] of Object.entries(state.agents)) {
     if (
@@ -37,11 +39,12 @@ export function nextDeadline(state: ThreadState): number | undefined {
     }
     for (const candidate of candidates) {
       if (!Number.isSafeInteger(candidate)) continue;
-      if (
-        JSON.stringify(deriveAgentStatus(state, key, candidate)) ===
-        JSON.stringify(record.agent.status)
-      )
-        continue;
+      let resolve = readers.get(candidate);
+      if (!resolve) {
+        resolve = readStatus(candidate);
+        readers.set(candidate, resolve);
+      }
+      if (JSON.stringify(resolve(key)) === JSON.stringify(record.agent.status)) continue;
       next = next === undefined ? candidate : Math.min(next, candidate);
     }
   }
