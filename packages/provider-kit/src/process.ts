@@ -26,12 +26,20 @@ export type SpawnOptions = {
   name: string;
   /** Natural exit kills descendants by default, including agent-started dev servers. */
   killGroupOnExit?: boolean;
+  /** Kill the owned group if stdout/stderr produces an oversized unterminated line. */
+  maxLineBytes?: number;
 };
 
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
 export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
   if (process.platform === "win32") {
     throw new Error("Process-group supervision requires POSIX; Windows needs a Job Object owner");
+  }
+  if (
+    options.maxLineBytes !== undefined &&
+    (!Number.isSafeInteger(options.maxLineBytes) || options.maxLineBytes < 1)
+  ) {
+    throw new RangeError("Invalid maxLineBytes");
   }
   const child = spawn(options.command, [...(options.args ?? [])], {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
@@ -40,6 +48,24 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const controller = new AbortController();
+  // Observe bytes before readline can accumulate a line without a delimiter.
+  if (options.maxLineBytes !== undefined) {
+    const limit = options.maxLineBytes;
+    for (const pipe of [child.stdout, child.stderr]) {
+      let pending = 0;
+      pipe.on("data", (chunk: Buffer) => {
+        for (const byte of chunk) {
+          pending = byte === 10 || byte === 13 ? 0 : pending + 1;
+          if (pending > limit) {
+            child.stdout.destroy();
+            child.stderr.destroy();
+            child.kill("SIGKILL");
+            return;
+          }
+        }
+      });
+    }
+  }
   const stdout = createInterface({ input: child.stdout, crlfDelay: Infinity });
   const stderr = createInterface({ input: child.stderr, crlfDelay: Infinity });
   const pid = child.pid;
