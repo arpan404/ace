@@ -1,20 +1,43 @@
 # ACP mutation verification
 
-Each mutation changed production code, ran the adapter suite, failed a behavioral test, and was restored before the next mutation. The unmodified suite passed before and after the run. No provider CLI received input.
+Each behavior-changing mutation below modified production code, ran the complete offline adapter suite, failed at least one named public API behavior test, and was restored before the next run. No provider CLI received a prompt. The four review survivors are **M5, M13, M14 and M21**; all now fail tests. M5 changes only the child cancellation deadline to 1 ms, leaving the parent's wake deadline intact.
 
-| Mutation | Broken behavior                                                  | Test that failed                                                                         |
-| -------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| M1       | Treat a nonzero shell exit as success                            | infers failed tools from completed raw output {"exitCode":2}                             |
-| M2       | Ignore error payloads on completed tools                         | infers failed tools from completed raw output {"error":"oops"}                           |
-| M3       | Stop recognizing split Cursor error text                         | classifies only final Cursor error segments including split prefixes                     |
-| M4       | Lose spawn linkage on terminal updates without repeated metadata | recognizes background spawn completion before child registration and waits for the child |
-| M5       | Schedule child cancellation grace at the wrong deadline          | exposes the child cancellation grace to the engine deadline scheduler                    |
-| M6       | Accept a rejected plan in the wire response                      | queues reprompts until the current turn settles and forwards extension responses         |
-| M7       | Send targeted child cancellation to the root                     | routes targeted cancellation by the translator's child key                               |
-| M8       | Claim a full Antigravity child transcript                        | models Antigravity subagent calls as placeholder children and ends them with their tool  |
-| M9       | Turn Antigravity questions into approvals                        | turns Antigravity interaction permissions into single choice questions                   |
-| M10      | Discard the plan rejection before Cursor completion              | keeps a rejected plan declined when Cursor later reports completion without output       |
+| Mutation | Broken behavior                                     | Detecting behavior test                                                                  |
+| -------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| M1       | Nonzero exit succeeds                               | releases an uncertain shell only when a later terminal update confirms its completion    |
+| M2       | Ignore output error                                 | infers failed tools from completed raw output {"error":"oops"}                           |
+| M3       | Ignore Cursor text error                            | classifies only final Cursor error segments including split prefixes                     |
+| M4       | Lose terminal child-tool linkage                    | recognizes background spawn completion before child registration and waits for the child |
+| M5       | Child grace expires after 1 ms, root wake unchanged | exposes the child cancellation grace to the engine deadline scheduler                    |
+| M6       | Rejected plan encoded accepted                      | queues reprompts until the current turn settles and forwards extension responses         |
+| M7       | Targeted cancel goes to root                        | routes targeted cancellation by the translator's child key                               |
+| M8       | Placeholder claims full fidelity                    | models Antigravity subagent calls as placeholder children and ends them with their tool  |
+| M9       | Question becomes approval                           | turns Antigravity interaction permissions into single choice questions                   |
+| M10      | Rejected plan runs                                  | keeps a rejected plan declined when Cursor later reports completion without output       |
+| M11      | Drop unknown raw                                    | keeps unknown and malformed frames as raw without rejecting later traffic                |
+| M12      | Ignore live-child queue gate                        | holds queued prompts while a child remains live and sends cascade cancellation           |
+| M13      | Skip protocol validation                            | rejects ACP v2 before creating a native session                                          |
+| M14      | Ignore process start                                | restarts work after an unexpected exit without retaining the old active turn             |
+| M15      | Ignore process exit                                 | replays interrupt.jsonl with correct status checkpoints                                  |
+| M16      | Enable old-version controls                         | enables Cursor controls only for a discovered version with recorded support              |
+| M17      | Drop image data                                     | preserves native image and file input as canonical content                               |
+| M18      | Accept invalid question                             | encodes Antigravity answers as permission option IDs                                     |
+| M19      | Null draft state ends child                         | accepts draft child associations and only ends work for a concrete idle snapshot         |
+| M20      | Resolve discarded queued jobs                       | rejects active and queued input when its owned process lifetime ends                     |
+| M21      | Drop malformed raw only (stdio-text)                | keeps unknown and malformed frames as raw without rejecting later traffic                |
+| R1       | Remove generation namespace                         | resume creates new items and runs while preserving earlier history                       |
+| R2       | Retain deliberate-stop flag on restart              | does not carry deliberate stop across a reopened process                                 |
+| R3       | Keep child interrupted on live text                 | reopens a synthetically interrupted child when late live text proves it is running       |
+| R4       | Keep stale child parent                             | uses repaired native parentage for cascade cancellation                                  |
+| R5a      | Accept extra question IDs                           | rejects extra Antigravity question IDs before any answer is transmitted                  |
+| R6       | Ignore stdout EOF                                   | rejects active work and stops the process when stdout ends while it is alive             |
+| R7       | Disable cancellation grace watchdog                 | rejects queued input at cancellation grace when a child never confirms termination       |
+| R8       | Retain unbounded raw history                        | emits a bounded raw change for each tool refresh while retaining its initial input       |
+| R9       | Drop explicit child disconnect                      | publishes unresponsive rather than working for a disconnected child                      |
+| R10      | Discard original child envelope                     | retains complete child envelopes including unknown params and outer fields               |
 
-M10 survived the first run because the plan test asserted decline only after a later completion update. The test now also checks the published tool status immediately after the rejection response. M10 failed on the repeat run. All ten mutations failed behavioral tests in the final run.
+The suite caught all 21 review mutations and 10 additional behavior-changing probes. An exploratory encoder mutation selecting the first answer was equivalent after extra question IDs were rejected: Antigravity permission requests contain exactly one valid question. It was excluded from the meaningful count; R5a separately removes the extra-ID rejection and fails the public session test. The production encoder still selects by the pending question ID.
 
-The full repository check covers formatting, lint, file size, types and Vitest. Live initialize probes stay opt-in and were skipped.
+The EOF probe closes the fake server's actual stdout descriptor while leaving stdin open. With the stdout-close handler removed, the public send behavior test times out; with the handler restored it rejects input and reports an unexpected process exit. Probe timeouts are hang watchdogs, not performance assertions.
+
+The unmodified repository check covers formatting, lint, the 1,500-line source limit, types and Vitest. Live initialize probes stay opt-in and were skipped.
