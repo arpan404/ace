@@ -79,9 +79,8 @@ export async function watch(
       `Workspace recursive watch unavailable; falling back to polling every 100 ms: ${reason}`,
     );
     interval = setInterval(() => {
-      if (!tail) schedule();
+      if (!tail && !initializing && !disposed) void reconcile();
     }, 100);
-    interval.unref();
   }
   try {
     const root = await safe.resolve("");

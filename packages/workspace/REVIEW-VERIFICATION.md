@@ -2,11 +2,11 @@
 
 The public API suite uses real temporary directories, Git repositories, installed ripgrep, native `fs.watch` notifications, and a child process continuously swapping a directory with an outside symlink. Tests await operations, IPC and change batches; no sleep or performance threshold gates the suite. Provider CLIs and the recorder are never invoked.
 
-`bun run check` passed after restoring all mutations: 280 tests, including 31 workspace tests. The workspace suite also exercises forced polling, regex/BOM/newline parity, limits, worker startup, cancellation and disposal. The package README records a non-gating 1,000-file benchmark.
+`bun run check` passed after rebasing onto main and restoring all mutations: 389 tests, including 32 workspace tests. Four pre-existing opt-in live provider probes remain skipped. The workspace suite also exercises forced polling, regex/BOM/newline parity, limits, worker startup, cancellation and disposal. The package README records a non-gating 1,000-file benchmark.
 
 ## Mutations
 
-Each mutation below was applied individually to production code. Its targeted Vitest run exited 1 with the named public behavior failing, then the original source was restored in a `finally` block. All twelve were rerun successfully against the final implementation before integration with main.
+Each mutation below was applied individually to production code. Its targeted Vitest run exited 1 with the named public behavior failing, then the original source was restored in a `finally` block. All twelve were rerun successfully against the final implementation after integration with main.
 
 | Mutation                                       | Behavior that failed                                                                |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------- |

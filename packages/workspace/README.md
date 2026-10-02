@@ -60,7 +60,7 @@ The native backend uses recursive `fs.watch` and a 100 ms coalescing window. It 
 
 Snapshots use the same bounded traversal as listing. Scans are serialized and repeat notifications request at most one pending follow-up. A failed scan warns and retains the previous snapshot instead of inventing deletions. `flush()` requests an immediate full reconciliation and awaits delivery, useful before refreshing a listing. `dispose()` cancels owned Git processes, closes the native watcher, clears timers, and waits for in-flight work; it is idempotent and no callback follows completion.
 
-Unsupported recursive watching and watcher-limit errors fall back to polling with a clear warning via `onWarning`, or `console.warn` by default. Polling checks every 100 ms and uses the same reconciliation window. `{ watchMode: "polling" }` forces this backend. Native notifications inspect only affected paths and subtrees. Missing filenames, explicit flushes and ignore-rule changes trigger a full scan. A child index makes directory deletion proportional to the deleted subtree.
+Unsupported recursive watching and watcher-limit errors fall back to polling with a clear warning via `onWarning`, or `console.warn` by default. Polling checks every 100 ms and delivers the same coalesced change batches. Both backends keep their subscription alive until disposal. `{ watchMode: "polling" }` forces this backend. Native notifications inspect only affected paths and subtrees. Missing filenames, explicit flushes and ignore-rule changes trigger a full scan. A child index makes directory deletion proportional to the deleted subtree.
 
 ## Verification and sources
 

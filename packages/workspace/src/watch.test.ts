@@ -1,7 +1,7 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { batches, fixture } from "./test-support.ts";
+import { describe, expect, it, vi } from "vitest";
+import { batches, exec, fixture } from "./test-support.ts";
 
 describe("workspace watching", () => {
   it("batches native create, change and delete notifications while hiding ignored and git paths", async () => {
@@ -83,8 +83,10 @@ describe("workspace watching", () => {
     try {
       expect(watcher.mode).toBe("polling");
       expect(warnings.join(" ")).toContain("falling back to polling");
+      const observed = events.next("new/deep", "created");
       await file("new/deep", "created");
       await file("original", "changed content");
+      await observed;
       await watcher.flush();
       expect(events.history.flat()).toEqual(
         expect.arrayContaining([
@@ -99,26 +101,56 @@ describe("workspace watching", () => {
       await watcher.dispose();
     }
   });
+  it("keeps a standalone polling subscription alive until it delivers and is disposed", async () => {
+    const { root } = await fixture();
+    const module = new URL("./index.ts", import.meta.url).href;
+    const { stdout } = await exec(process.execPath, [
+      "--input-type=module",
+      "-e",
+      `
+      import { createWorkspace } from ${JSON.stringify(module)};
+      import { writeFile } from 'node:fs/promises';
+      import { join } from 'node:path';
+      const root = process.argv[1];
+      const service = await createWorkspace(root, { watchMode: 'polling' });
+      let acknowledge;
+      const delivered = new Promise(resolve => { acknowledge = resolve; });
+      const subscription = await service.watch({ onWarning() {}, onChange(batch) {
+        if (batch.some(change => change.path === 'new' && change.kind === 'created')) acknowledge(batch);
+      } });
+      await writeFile(join(root, 'new'), 'created');
+      console.log(JSON.stringify(await delivered));
+      await subscription.dispose();
+    `,
+      root,
+    ]);
+    expect(JSON.parse(stdout)).toContainEqual({ path: "new", kind: "created" });
+  });
   it("coalesces multiple writes and reconciles ignore-rule changes", async () => {
     const { service, file } = await fixture({ watchMode: "polling" }, true);
     await file("a.txt", "initial");
     const events = batches();
-    const watcher = await service.watch({ onChange: events.onChange, onWarning() {} });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     try {
-      await file("a.txt", "first");
-      await file("a.txt", "second");
-      await watcher.flush();
-      expect(events.history.flat().filter((change) => change.path === "a.txt")).toEqual([
-        { path: "a.txt", kind: "changed" },
-      ]);
-      await file(".gitignore", "a.txt\n");
-      await watcher.flush();
-      expect(events.history.flat()).toContainEqual({ path: "a.txt", kind: "deleted" });
-      await file(".gitignore", "");
-      await watcher.flush();
-      expect(events.history.flat()).toContainEqual({ path: "a.txt", kind: "created" });
+      const watcher = await service.watch({ onChange: events.onChange, onWarning() {} });
+      try {
+        await file("a.txt", "first");
+        await file("a.txt", "second");
+        await watcher.flush();
+        expect(events.history.flat().filter((change) => change.path === "a.txt")).toEqual([
+          { path: "a.txt", kind: "changed" },
+        ]);
+        await file(".gitignore", "a.txt\n");
+        await watcher.flush();
+        expect(events.history.flat()).toContainEqual({ path: "a.txt", kind: "deleted" });
+        await file(".gitignore", "");
+        await watcher.flush();
+        expect(events.history.flat()).toContainEqual({ path: "a.txt", kind: "created" });
+      } finally {
+        await watcher.dispose();
+      }
     } finally {
-      await watcher.dispose();
+      vi.useRealTimers();
     }
   });
 });
