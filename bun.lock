@@ -32,6 +32,14 @@
     "packages/git": {
       "name": "@ace/git",
     },
+    "packages/orchestrator": {
+      "name": "@ace/orchestrator",
+      "dependencies": {
+        "@ace/git": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.1.12",
+      },
+    },
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
@@ -61,6 +69,8 @@
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
 
     "@ace/git": ["@ace/git@workspace:packages/git"],
+
+    "@ace/orchestrator": ["@ace/orchestrator@workspace:packages/orchestrator"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 
