@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { createInterface } from "node:readline";
-import { interruptOnce, probe, spawnOwned } from "../process.ts";
+import type { Interface } from "node:readline";
+import { probe, spawnSupervised } from "@ace/provider-kit/process";
+import { readSse } from "@ace/provider-kit/sse";
+import { interruptOnce } from "../interrupt.ts";
 import type { Recording } from "../recording.ts";
 import type { Driver, RunContext } from "./types.ts";
 
@@ -36,47 +38,11 @@ function createClient(base: string, auth: string, directory: string, rec: Record
   };
 }
 
-/** Read an SSE stream, calling `onEvent` with each parsed `data:` payload. */
-async function readSse(
-  url: string,
-  auth: string,
-  signal: AbortSignal,
-  onEvent: (data: unknown) => void,
-): Promise<void> {
-  const res = await fetch(url, { headers: { authorization: auth }, signal });
-  if (!res.body) throw new Error("SSE response has no body");
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    for await (const chunk of res.body) {
-      buffer += decoder.decode(chunk, { stream: true });
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary !== -1) {
-        const block = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        const data = block
-          .split("\n")
-          .filter((line) => line.startsWith("data:"))
-          .map((line) => line.slice(5).trimStart())
-          .join("\n");
-        if (data) onEvent(JSON.parse(data));
-        boundary = buffer.indexOf("\n\n");
-      }
-    }
-  } catch (error) {
-    if (!signal.aborted) throw error;
-  }
-}
-
 /** Keep draining stdout (so the server never blocks) and resolve with its listen URL. */
-function waitForListenUrl(
-  stdout: NodeJS.ReadableStream,
-  rec: Recording,
-  timeoutMs: number,
-): Promise<string> {
+function waitForListenUrl(stdout: Interface, rec: Recording, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("opencode serve did not listen")), timeoutMs);
-    const lines = createInterface({ input: stdout });
+    const lines = stdout;
     lines.on("line", (line) => {
       rec.frame("recv", "stdout", line, false);
       const match = /listening on (http:\/\/\S+)/.exec(line);
@@ -99,7 +65,10 @@ export const opencode: Driver = {
     const { rec, scenario, workspace } = ctx;
     const password = randomBytes(18).toString("base64url");
     const auth = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
-    const proc = spawnOwned("opencode", ["serve", "--hostname", "127.0.0.1", "--port", "0"], {
+    const proc = spawnSupervised({
+      command: "opencode",
+      args: ["serve", "--hostname", "127.0.0.1", "--port", "0"],
+      name: "recorder-opencode",
       cwd: workspace,
       env: {
         ...process.env,
@@ -111,14 +80,12 @@ export const opencode: Driver = {
         ...(scenario.planMode ? { OPENCODE_EXPERIMENTAL_PLAN_MODE: "1" } : {}),
       },
     });
-    createInterface({ input: proc.child.stderr }).on("line", (line) =>
-      rec.frame("stderr", "stdio", line, false),
-    );
+    proc.stderr.on("line", (line) => rec.frame("stderr", "stdio", line, false));
     const sse = new AbortController();
     const sessions: string[] = [];
 
     try {
-      const base = await waitForListenUrl(proc.child.stdout, rec, 30_000);
+      const base = await waitForListenUrl(proc.stdout, rec, 30_000);
       const http = createClient(base, auth, workspace, rec);
 
       let rootId = "";
@@ -196,11 +163,22 @@ export const opencode: Driver = {
         }
       };
 
-      void readSse(new URL("/global/event", base).toString(), auth, sse.signal, (data) => {
-        const event = (data ?? {}) as Params;
-        const type = ((event["payload"] ?? {}) as Params)["type"];
-        rec.frame("recv", "sse", data, type !== "server.heartbeat" && type !== "server.connected");
-        handle(event).catch((error: unknown) => rec.note("handler-error", String(error)));
+      void readSse(new URL("/global/event", base), {
+        signal: sse.signal,
+        headers: { authorization: auth },
+        reconnect: false,
+        onEvent: ({ data: text }) => {
+          const data: unknown = JSON.parse(text);
+          const event = (data ?? {}) as Params;
+          const type = ((event["payload"] ?? {}) as Params)["type"];
+          rec.frame(
+            "recv",
+            "sse",
+            data,
+            type !== "server.heartbeat" && type !== "server.connected",
+          );
+          handle(event).catch((error: unknown) => rec.note("handler-error", String(error)));
+        },
       }).catch((error: unknown) => rec.note("sse-error", String(error)));
 
       const session = (await http("POST", "/session", { title: "ace-recorder" })) as { id: string };
