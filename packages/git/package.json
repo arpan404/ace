@@ -14,5 +14,8 @@
   },
   "dependencies": {
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/provider-kit": "workspace:*"
   }
 }

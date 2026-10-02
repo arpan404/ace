@@ -20,6 +20,7 @@
     "ace": "node apps/daemon/src/cli.ts"
   },
   "devDependencies": {
+    "@ace/provider-kit": "workspace:*",
     "@types/node": "^26.6.4",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",

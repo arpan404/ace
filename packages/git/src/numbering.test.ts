@@ -89,7 +89,7 @@ test("independent worktree allocations atomically advance the shared thread coun
   expect(
     (await new GitService().listCheckpoints({ repo, threadId: "shared" })).map((c) => c.id),
   ).toEqual(checkpoints.toSorted((a, b) => a.sequence - b.sequence).map((c) => c.id));
-}, 30_000);
+});
 
 test("SHA-256 repositories retain full hashes through status, checkpoints, diffs and restore", async () => {
   const repo = await scratch();

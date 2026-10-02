@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
-import type { Writable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 export { installShutdownHandlers } from "./process-owner.ts";
 
@@ -8,6 +8,14 @@ export type ProcessExit = {
   code: number | null;
   signal: NodeJS.Signals | null;
   reason: "exit" | "signal" | "stopped" | "spawn-error" | "output-limit";
+};
+export type RawSupervisedProcess = {
+  stdin: Writable;
+  stdout: Readable;
+  stderr: Readable;
+  exited: Promise<ProcessExit>;
+  signal: AbortSignal;
+  stop(options?: { graceMs?: number }): Promise<ProcessExit>;
 };
 export type SupervisedProcess = {
   stdin: Writable;
@@ -31,7 +39,7 @@ export type SpawnOptions = {
 };
 
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
-export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
+export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess {
   if (
     options.maxOutputBytes !== undefined &&
     (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 1)
@@ -67,8 +75,6 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
     child.stdout.on("data", capOutput);
     child.stderr.on("data", capOutput);
   }
-  const stdout = createInterface({ input: child.stdout, crlfDelay: Infinity });
-  const stderr = createInterface({ input: child.stderr, crlfDelay: Infinity });
   const pid = child.pid;
 
   let stopped = false;
@@ -115,10 +121,10 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
       });
     });
   });
-  const handle: SupervisedProcess = {
+  const handle: RawSupervisedProcess = {
     stdin: child.stdin,
-    stdout,
-    stderr,
+    stdout: child.stdout,
+    stderr: child.stderr,
     exited,
     signal: controller.signal,
     stop({ graceMs = 5_000 } = {}) {
@@ -140,6 +146,16 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
   };
   if (pid !== undefined) registerGroup(pid, (graceMs) => handle.stop({ graceMs }));
   return handle;
+}
+
+/** Line-oriented facade over the same process-group owner. */
+export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
+  const raw = spawnRawSupervised(options);
+  return {
+    ...raw,
+    stdout: createInterface({ input: raw.stdout, crlfDelay: Infinity }),
+    stderr: createInterface({ input: raw.stderr, crlfDelay: Infinity }),
+  };
 }
 
 /** Bounded, read-only CLI probe. Raw output is returned only to the caller. */
