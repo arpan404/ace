@@ -14,12 +14,13 @@ ace never asks for or stores your provider credentials. Each agent CLI uses the 
 
 ## Repository layout
 
-| Path                | Purpose                                                              |
-| ------------------- | -------------------------------------------------------------------- |
-| `packages/protocol` | Canonical protocol: Zod schemas and types, no runtime logic          |
-| `tools/recorder`    | Records raw provider sessions as fixtures for adapter contract tests |
-| `docs/adr`          | Architecture decision records                                        |
-| `docs/research`     | Primary-source research behind the decisions                         |
+| Path                    | Purpose                                                              |
+| ----------------------- | -------------------------------------------------------------------- |
+| `packages/protocol`     | Canonical protocol: Zod schemas and types, no runtime logic          |
+| `packages/provider-kit` | Supervised provider processes, JSON-RPC, SSE and local CLI discovery |
+| `tools/recorder`        | Records raw provider sessions as fixtures for adapter contract tests |
+| `docs/adr`              | Architecture decision records                                        |
+| `docs/research`         | Primary-source research behind the decisions                         |
 
 ## Development
 

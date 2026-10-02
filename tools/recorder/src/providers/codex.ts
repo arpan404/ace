@@ -1,5 +1,7 @@
-import { JsonRpcPeer, type ServerRequest } from "../jsonrpc.ts";
-import { interruptOnce, probe, spawnOwned } from "../process.ts";
+import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
+import { probe, spawnSupervised } from "@ace/provider-kit/process";
+import { createRecordedPeer } from "../stdio.ts";
+import { interruptOnce } from "../interrupt.ts";
 import type { Driver, RunContext } from "./types.ts";
 
 type Params = Record<string, unknown>;
@@ -37,8 +39,14 @@ export const codex: Driver = {
   },
   async run(ctx: RunContext) {
     const { rec, scenario, workspace } = ctx;
-    const proc = spawnOwned("codex", ["app-server"], { cwd: workspace });
-    const rpc = new JsonRpcPeer(proc.child, rec);
+    const proc = spawnSupervised({
+      command: "codex",
+      args: ["app-server"],
+      cwd: workspace,
+      env: {},
+      name: "recorder-codex",
+    });
+    const rpc = createRecordedPeer(proc, rec);
 
     let rootThreadId = "";
     let rootTurnId = "";
