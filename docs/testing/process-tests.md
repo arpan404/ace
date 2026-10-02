@@ -177,3 +177,5 @@ establish runtime success; that needs run at merge.
 [Vitest worker limits](https://vitest.dev/config/maxworkers) and
 [project group order](https://vitest.dev/config/sequence#sequence-grouporder)
 make the concurrency cap independent of the host's advertised CPU count.
+
+PR #7 adds the terminal PTY, shell, scrollback review, lifetime lease, frozen-daemon, memory and foreign-group safety suites to the shared process-test manifest. These keep output/process barriers and behavior assertions, with the shared 120-second hang guards. Runtime validation needs run at merge.
