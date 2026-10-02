@@ -5,6 +5,7 @@
     "": {
       "name": "@ace/monorepo",
       "devDependencies": {
+        "@ace/provider-kit": "workspace:*",
         "@types/node": "^26.6.4",
         "oxfmt": "^0.71.0",
         "oxlint": "^1.86.0",
@@ -84,6 +85,9 @@
       "dependencies": {
         "zod": "^4.6.5",
       },
+      "devDependencies": {
+        "@ace/provider-kit": "workspace:*",
+      },
     },
     "packages/mcp-server": {
       "name": "@ace/mcp-server",
@@ -122,6 +126,9 @@
         "@ace/git": "workspace:*",
         "@ace/protocol": "workspace:*",
         "zod": "^4.1.12",
+      },
+      "devDependencies": {
+        "@ace/provider-kit": "workspace:*",
       },
     },
     "packages/projection": {

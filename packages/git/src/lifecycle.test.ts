@@ -1,3 +1,4 @@
+import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -28,7 +29,7 @@ test("same-worktree operations wait for the earlier operation across service ins
     process.stdout.write(JSON.stringify(checkpoints.map(checkpoint => [checkpoint.label, checkpoint.sequence])));
   `;
   const output = await execute(process.execPath, ["--input-type=module", "--eval", script], {
-    timeout: 30_000,
+    timeout: PROCESS_TEST_TIMEOUT,
   });
   expect(JSON.parse(output.stdout)).toEqual([
     ["first", 1],
@@ -39,7 +40,7 @@ test("same-worktree operations wait for the earlier operation across service ins
       (checkpoint) => checkpoint.label,
     ),
   ).toEqual(["first", "second"]);
-}, 30_000);
+});
 
 test("temporary index directories are removed after success and after Git failure", async () => {
   const repo = await repository();
