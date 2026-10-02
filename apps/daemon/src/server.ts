@@ -1,5 +1,12 @@
 import { WebSocket, WebSocketServer } from "ws";
-import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
+import {
+  ClientMessage,
+  HostId,
+  type DeviceId,
+  type ServerMessage,
+  type ContextRequest,
+  type ContextResult,
+} from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
 import { validToken } from "./local-files.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
@@ -16,6 +23,7 @@ export interface ServerOptions {
   idleTimeoutMs?: number;
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
+  context?: { handle(device: string, request: ContextRequest): Promise<ContextResult> };
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
 export async function startServer(
@@ -32,6 +40,7 @@ export async function startServer(
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket) => {
     let device: DeviceId | undefined;
+    let contextBusy = false;
     let lastActivity = Date.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
@@ -91,6 +100,42 @@ export async function startServer(
         return;
       }
       switch (message.type) {
+        case "context.request": {
+          if (!options.context || contextBusy) {
+            send({
+              type: "context.result",
+              requestId: message.requestId,
+              result: {
+                kind: "error",
+                code: options.context ? "busy" : "unsupported",
+                message: options.context
+                  ? "Wait for the previous context result"
+                  : "Context service unavailable",
+              },
+            });
+            break;
+          }
+          contextBusy = true;
+          void options.context
+            .handle(device, message)
+            .then(send)
+            .catch((error: unknown) => {
+              options.log?.(error);
+              send({
+                type: "context.result",
+                requestId: message.requestId,
+                result: {
+                  kind: "error",
+                  code: "invalid_request",
+                  message: "Context operation failed",
+                },
+              });
+            })
+            .finally(() => {
+              contextBusy = false;
+            });
+          break;
+        }
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;

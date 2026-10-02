@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { ContextService } from "@ace/context";
+import { ThreadId } from "@ace/protocol";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
@@ -15,10 +18,17 @@ export { readConfig } from "./config.ts";
 export async function startDaemon(
   config: Config = readConfig(),
   handler: CommandHandler = stubHandler(),
-): Promise<{ url: string; tokenPath: string; store: Store; close(): Promise<void> }> {
+): Promise<{
+  url: string;
+  tokenPath: string;
+  store: Store;
+  context: ContextService;
+  close(): Promise<void>;
+}> {
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
   let store: Store | undefined;
+  let context: ContextService | undefined;
   try {
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
@@ -26,7 +36,19 @@ export async function startDaemon(
       log("error", "Event subscriber failed", error),
     );
     const ownedStore = store;
+    context = await ContextService.open({
+      root: join(config.dataDir, "context"),
+      now: Date.now,
+      id: randomUUID,
+      authorize: (_device, thread) => ownedStore.getThread(ThreadId.parse(thread)) !== undefined,
+      workspace: (thread) => {
+        const entity = ownedStore.getThread(ThreadId.parse(thread));
+        return entity ? ownedStore.getWorkspacePath(entity.workspaceId) : undefined;
+      },
+    });
+    const ownedContext = context;
     const server = await startServer({
+      context,
       port: config.port,
       token,
       hostId,
@@ -34,17 +56,34 @@ export async function startDaemon(
       handler,
       log: (error) => log("error", "WebSocket failure", error),
     });
+    let maintaining = false;
+    const maintain = () => {
+      if (maintaining) return;
+      maintaining = true;
+      void ownedContext.uploads
+        .collect()
+        .catch((error: unknown) => log("error", "Attachment maintenance failed", error))
+        .finally(() => {
+          maintaining = false;
+        });
+    };
+    maintain();
+    const maintenance = setInterval(maintain, 60_000);
+    maintenance.unref();
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
       tokenPath,
       store,
+      context: ownedContext,
       close() {
         closing ??= (async () => {
           try {
+            clearInterval(maintenance);
             await server.close();
           } finally {
             try {
+              await ownedContext.close();
               ownedStore.close();
             } finally {
               unlock();
@@ -56,6 +95,7 @@ export async function startDaemon(
     };
   } catch (error) {
     try {
+      await context?.close();
       store?.close();
     } finally {
       unlock();
