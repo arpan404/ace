@@ -1,3 +1,4 @@
+import type { InlineRawPayload } from "./data.ts";
 import type { TranslatorIdentity } from "./identity.ts";
 import { nativeAgentKey } from "./keys.ts";
 import type { Fact } from "@ace/core";
@@ -21,7 +22,15 @@ export interface AgentState {
 }
 export interface ToolState {
   nativeId: string;
-  inputRaw?: RawPayload;
+  inputRaw?: InlineRawPayload;
+  initialRaw?: InlineRawPayload;
+  originalInput?: Data;
+  inputParts?: Map<string, unknown>;
+  completedInput?: Data;
+  finalized?: boolean;
+  uncertainShell?: boolean;
+  observedOutput?: string;
+  streamedOutput?: string;
   key: string;
   owner: AgentState;
   data: Data;
@@ -115,9 +124,11 @@ export class TranslationState {
     return retained;
   }
   retainUncertainShell(tool: ToolState): void {
+    tool.uncertainShell = true;
     this.uncertainShells.set(JSON.stringify([tool.owner.nativeId, tool.nativeId]), tool);
   }
   settleShell(tool: ToolState): void {
+    delete tool.uncertainShell;
     this.uncertainShells.delete(JSON.stringify([tool.owner.nativeId, tool.nativeId]));
   }
   registerTool(owner: AgentState, id: string, tool: ToolState): void {

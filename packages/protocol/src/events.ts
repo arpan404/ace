@@ -50,8 +50,8 @@ export const EventPayload = z.discriminatedUnion("type", [
     name: z.string().optional(),
     role: z.string().optional(),
     model: z.string().optional(),
-    /** Linked late: some providers announce the child before the spawning call. */
-    spawnedBy: ItemId.optional(),
+    /** Linked late, or cleared when authoritative parentage invalidates the spawning owner. */
+    spawnedBy: ItemId.nullable().optional(),
     background: z.boolean().optional(),
     endedAt: Timestamp.optional(),
   }),

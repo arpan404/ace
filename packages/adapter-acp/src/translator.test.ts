@@ -253,7 +253,7 @@ it("keeps unknown and malformed frames as raw without rejecting later traffic", 
   end(h);
   expect(h.state.status.state).toBe("done");
   const retained = Object.values(h.state.items).flatMap((i) =>
-    i.type === "notice" ? i.raw.map((r) => ("data" in r ? r.data : undefined)) : [],
+    i.type === "notice" ? i.raw.flatMap((r) => ("data" in r ? [r.data] : [])) : [],
   );
   for (const value of [
     null,
@@ -265,7 +265,7 @@ it("keeps unknown and malformed frames as raw without rejecting later traffic", 
   h.replay({ seq: 999, t: 1000, dir: "recv", channel: "stdio-text", data: "{broken JSON" });
   expect(
     Object.values(h.state.items).flatMap((i) =>
-      i.type === "notice" ? i.raw.map((r) => ("data" in r ? r.data : undefined)) : [],
+      i.type === "notice" ? i.raw.flatMap((r) => ("data" in r ? [r.data] : [])) : [],
     ),
   ).toContain("{broken JSON");
 });

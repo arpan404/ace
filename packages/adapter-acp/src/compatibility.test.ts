@@ -81,18 +81,27 @@ it("keeps Antigravity shells live after turn end and closes them from a later up
   });
   end(h);
   expect(h.state.status.state).toBe("waiting");
-  h.update({
+  const events = h.update({
     sessionUpdate: "tool_call_update",
     toolCallId: "shell",
     status: "completed",
     rawOutput: { exitCode: 0, combinedOutput: "done" },
   });
   expect(h.state.status.state).toBe("done");
-  expect(required(h.tools()[0]).call.detail).toMatchObject({
+  const tool = required(h.tools()[0]);
+  expect(tool.call.detail).toMatchObject({
     command: "sleep 10",
     cwd: "/work",
-    output: { tail: "done", bytes: 4, truncated: false },
+    output: { bytes: 4, tail: "done", truncated: false },
   });
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: "item.delta",
+      itemId: tool.id,
+      field: "output",
+      append: "done",
+    }),
+  );
 });
 it("exposes the child cancellation grace to the engine deadline scheduler", () => {
   const h = harness();
