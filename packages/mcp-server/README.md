@@ -17,6 +17,12 @@ that signal before effects and pass it through all I/O. Failures return fixed
 messages. Large data should live in owned artifact/output storage, with a
 reference returned from the tool.
 
+Annotate mirrored input parameters with Zod metadata such as
+`z.string().meta({ "x-mcp-header": "Scope" })`. The current HTTP transport
+validates `Mcp-Param-Scope` against the argument before execution and supports
+the specification's Base64 encoding. `ToolRegistry.inputSchema(name, principal)`
+provides the authorized prepared schema for the SDK's validation hook.
+
 `Toolkit.register(registry)` is the extension point for browser, preview,
 terminal, notification, orchestration and forge owners. Browser and preview
 use `registerAutomationTool` with a typed `AutomationAdapter`. Missing

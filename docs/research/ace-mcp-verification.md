@@ -23,12 +23,35 @@ HTTP. Discovery tests use temporary configs and a synthetic OpenCode HTTP API.
 - Each provider helper emits its documented configuration, with secrets outside Codex argv.
 - Discovery returns redacted metadata without changing config bytes.
 - Codex API paging is bounded, Claude SDK status reads cancel, and OpenCode GET /mcp uses the directory.
-- A browser adapter receives typed input, caller attribution and cancellation.
+- A browser adapter receives typed input, caller attribution and cancellation; unauthorized calls have no effects.
 - Notification notice and intent persist atomically, survive restart and acknowledge once.
 - Failed event persistence rolls back the notice and the pending intent.
 - Spawn accepts an intent without claiming an agent started or finished.
 - Agent pages preserve late parent links and canonical waiting/human status.
 - Older SQLite databases backfill the agent index and retain live incremental updates.
+- Repeated agent creation replaces the indexed agent both during append and database upgrade.
+- FIFO configs are rejected without a writer, and cancellation settles without blocking filesystem workers.
+- Missing or mismatched mirrored custom headers return HTTP 400 / JSON-RPC `-32020` before effects.
+- Mirrored parameters support plain ASCII, Unicode, whitespace, newlines and literal Base64 sentinels.
+- Claude project opt-outs disable config and API entries without modifying files.
+- Tool registration, active-tool and HTTP admission reject excess work and preserve later availability.
+- Foreign-thread read ports cannot expose thread or agent data.
+
+## Review regression evidence
+
+Before changing production code, ran:
+
+```sh
+bun run test apps/daemon/src/mcp-upgrade.test.ts packages/mcp-server/src/discovery-fifo.test.ts packages/mcp-server/src/http-boundaries.test.ts
+```
+
+Both database tests failed with `Cannot redefine property: root`. Both real-FIFO
+tests failed at Vitest's deadlock timeout; neither test asserts a wall-clock
+budget or uses a synchronization sleep. The custom-header test observed HTTP
+200 instead of 400. After the fixes, all five passed. The full feature suite
+now passes 50 tests. The raw Host test uses Node HTTP with a valid tool call,
+asserts HTTP 403 and no effects, and then verifies an allowed call succeeds.
+The independent-call barrier test now uses an injected scheduler.
 
 ## Mutation checks
 
@@ -49,9 +72,28 @@ failed under Vitest, then the original code was restored. No mutation remains.
 | Enqueue intent outside the event transaction    | Rolls back intent and notice when persistence fails               |
 | Omit Claude HTTP bearer headers                 | Produces the exact Agent SDK shape                                |
 | Release capacity as soon as timeout returns     | Retains capacity while a backend ignores cancellation             |
+| Skip budget before output parsing               | Rejects cyclic/deep results before schema cloning                 |
 
-All thirteen mutations were killed. The final baseline passes `bun run check` on
-Node 24.21.0 and Node 26.8.1. Live-provider suites remain opt-in and skipped.
+All thirteen initial-delivery mutations were killed. The review follow-up
+applied and killed these eleven additional production mutations individually:
+
+| Mutation                                         | Behavior that failed                                             |
+| ------------------------------------------------ | ---------------------------------------------------------------- |
+| Remove Host guard (review survivor)              | Raw hostile Host is rejected before effects                      |
+| Remove tool registration limit (review survivor) | Excess tool registration fails; admitted tool still works        |
+| Remove HTTP admission limit (review survivor)    | Excess HTTP work returns 503 without effects; recovery succeeds  |
+| Remove agent thread guard (review survivor)      | Foreign-thread agents are not exposed                            |
+| Remove thread guard (review survivor)            | Foreign-thread metadata is not exposed                           |
+| Make seeded agent property nonconfigurable       | Repeated creation append and legacy database upgrade succeed     |
+| Remove nonblocking config open                   | Real FIFO rejection and cancellation settle without a writer     |
+| Return low-level Server instead of McpServer     | Custom-header mismatch fails before effects                      |
+| Ignore Claude project opt-outs                   | Disabled config/API entries remain disabled without file changes |
+| Remove active-tool admission limit               | Excess execution is rejected before effects; recovery succeeds   |
+| Omit prepared input-schema lookup                | Custom-header validation rejects missing/mismatched values       |
+
+No mutation remains. The final baseline passes `bun run check` on Node
+24.21.0: 407 passed, four opt-in live-provider tests skipped. Format, lint,
+workspace typechecks and the 1,500-line size check pass.
 
 ## Non-gating performance
 
@@ -60,20 +102,26 @@ without a performance assertion or a wall-clock test budget.
 
 | Benchmark                                 | Operations/s | Microseconds/op | Peak RSS MiB |
 | ----------------------------------------- | -----------: | --------------: | -----------: |
-| Credential digest lookup                  |    1,816,337 |            0.55 |        156.3 |
-| Validated dispatch                        |      158,483 |            6.31 |        228.0 |
-| Real current-spec HTTP round trip         |          299 |        3,343.33 |        289.6 |
-| Persisted agent status and index          |       28,842 |           34.67 |        132.0 |
-| Indexed page of 50 agents                 |       15,500 |           64.52 |        183.6 |
-| Atomic notice/intent plus acknowledgement |       15,896 |           62.91 |        185.6 |
+| Credential digest lookup                  |    1,112,490 |            0.90 |        172.8 |
+| Validated dispatch                        |      226,231 |            4.42 |        245.0 |
+| Prepared input-schema lookup              |   68,388,717 |            0.01 |        245.0 |
+| Real current-spec HTTP round trip         |        1,856 |          538.74 |        382.5 |
+| Real current-spec HTTP with custom header |        2,124 |          470.88 |        428.5 |
+| Persisted agent status and index          |       14,910 |           67.07 |        155.1 |
+| Indexed page of 50 agents                 |       13,747 |           72.74 |        190.4 |
+| Atomic notice/intent plus acknowledgement |       13,833 |           72.29 |        192.3 |
 
-Measured with Node 26.8.1. RSS is the process high-water mark, including Node,
-SDK initialization, GC heap capacity and preceding benchmark stages. It is
-not a per-operation retained allocation. Scripts live in `packages/mcp-server/bench`
-and `apps/daemon/bench`. The final dispatch measurements include the budget check
-before schema cloning and serialization. Tool schema conversion happens at registration; transport
-instances have no replay buffer. SQLite agent indexing performs work only for
-agent changes and reads through the thread/id index.
+Measured with Node 24.21.0 on macOS arm64. HTTP paths receive 200 warmup calls
+each before measurement. Run-to-run scheduling and JIT/GC effects mean these
+figures do not establish that custom-header calls are faster. RSS is the
+process high-water mark, including Node, SDK initialization, GC heap capacity
+and preceding benchmark stages; it is not per-operation retained allocation.
+Scripts live in `packages/mcp-server/bench` and `apps/daemon/bench`.
+Dispatch includes budgets before schema cloning and serialization. Schemas
+are converted at registration and fetched by tool name in O(1); the SDK
+validates only the requested tool's schema. There is no history scan, toolkit
+registration loop, replay buffer or added per-request cache. SQLite indexing
+updates only changed agents and reads through the thread/id index.
 
 ## Integration boundaries
 

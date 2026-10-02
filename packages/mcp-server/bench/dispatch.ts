@@ -36,6 +36,21 @@ for (let i = 0; i < 1000; i++) await registry.call("ace_echo", { n: i }, lease.p
 start = performance.now();
 for (let i = 0; i < 20_000; i++) await registry.call("ace_echo", { n: i }, lease.principal, signal);
 report("validated dispatch", 20_000, start);
+registry.register({
+  name: "ace_header_echo",
+  description: "Benchmark mirrored parameter validation",
+  input: z.strictObject({ n: z.int().meta({ "x-mcp-header": "Count" }) }),
+  output: z.strictObject({ n: z.int() }),
+  capability: null,
+  timeoutMs: 1000,
+  async run(input) {
+    return input;
+  },
+});
+start = performance.now();
+for (let i = 0; i < 200_000; i++)
+  if (!registry.inputSchema("ace_header_echo", lease.principal)) throw new Error("Missing schema");
+report("prepared schema lookup", 200_000, start);
 const server = await startMcpServer({ registry, credentials });
 const client = new Client(
   { name: "bench", version: "1" },
@@ -48,9 +63,17 @@ try {
     }),
   );
   await client.listTools();
+  for (let i = 0; i < 200; i++) {
+    await client.callTool({ name: "ace_echo", arguments: { n: i } });
+    await client.callTool({ name: "ace_header_echo", arguments: { n: i } });
+  }
   start = performance.now();
   for (let i = 0; i < 1000; i++) await client.callTool({ name: "ace_echo", arguments: { n: i } });
   report("current HTTP round trip", 1000, start);
+  start = performance.now();
+  for (let i = 0; i < 1000; i++)
+    await client.callTool({ name: "ace_header_echo", arguments: { n: i } });
+  report("current HTTP custom-header round trip", 1000, start);
 } finally {
   await client.close();
   await server.close();

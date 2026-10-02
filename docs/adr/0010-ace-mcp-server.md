@@ -35,6 +35,11 @@ it cannot satisfy the current revision. The split SDK supports Node >=20 and
 Zod 4 and ships compiled JavaScript, so ace's Node 24 erasable-source rule holds.
 Accept these MIT dependencies. We delegate protocol framing, discovery,
 legacy negotiation and cancellation to the SDK instead of maintaining a fork.
+Return an SDK `McpServer` with its schema lookup bound to the registry's prepared
+input schemas. The SDK then validates advertised `x-mcp-header` parameters
+before dispatch, including Base64 decoding, and rejects missing or mismatched
+headers with HTTP 400 and JSON-RPC `-32020`. Looking up one schema does not
+register or scan the entire toolkit on each request.
 
 ## Contracts and wire additions
 
@@ -62,6 +67,7 @@ ACP HTTP server definitions for Cursor and Antigravity. Each includes short
 developer instructions. Provider research records the exact accepted shapes.
 Discovery reads bounded config files or injected read-only API ports, returns
 server names and redacted transport metadata, and never writes user configs.
+Claude's project `disabledMcpServers` opt-outs apply across discovered scopes.
 
 ## Security and lifecycle
 
@@ -86,6 +92,9 @@ of live authority. Index session cancellation through its lease; no history
 scan occurs on tool calls. Compile JSON schemas at registration. Limit results
 and discovery inputs, and stream HTTP through the Node SDK bridge. MCP control
 messages are bounded JSON; large browser/terminal artifacts use references.
+Open discovery configs nonblocking, inspect the opened descriptor, and read
+only regular files. This prevents a FIFO from retaining a filesystem worker
+while waiting for a writer, without introducing a stat/open race.
 There is no replay buffer or permanent MCP transport session map. A non-gating
 benchmark measures credential lookup and dispatch throughput and peak RSS.
 
