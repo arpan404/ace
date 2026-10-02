@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { DatabaseSync } from "node:sqlite";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { spawnSupervised } from "@ace/provider-kit/process";
+import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { expect, it } from "vitest";
 import {
   createFileSink,
@@ -99,10 +99,10 @@ it("cancellation stops a SQLite child after it has entered native work and prese
         {
           ...options,
           spawn: (init) => {
-            const process = spawnSupervised(init);
+            const process = spawnRawSupervised(init);
             exited = process.exited;
-            process.stdout.on("line", (line) => {
-              if (line === "native-started") entered.resolve();
+            process.stdout.on("data", (bytes: Buffer) => {
+              if (bytes.toString().includes("native-started")) entered.resolve();
             });
             return process;
           },

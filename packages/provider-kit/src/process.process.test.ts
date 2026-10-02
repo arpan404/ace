@@ -7,7 +7,12 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
 import { PROCESS_TEST_TIMEOUT } from "./testing/cli.ts";
-import { probeOutput, spawnSupervised, type SupervisedProcess } from "./process.ts";
+import {
+  probeOutput,
+  spawnSupervised,
+  spawnRawSupervised,
+  type SupervisedProcess,
+} from "./process.ts";
 
 const owned: SupervisedProcess[] = [];
 const noop = () => {};
@@ -357,7 +362,7 @@ it("newline-free probe output is stopped by its byte budget before a line can ac
       maxBytes: 100,
       schedule: () => () => {},
       spawn(options) {
-        const proc = spawnSupervised(options);
+        const proc = spawnRawSupervised(options);
         exited = proc.exited;
         return proc;
       },

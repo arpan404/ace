@@ -178,35 +178,32 @@ export async function probeOutput(
     env?: NodeJS.ProcessEnv;
     maxBytes?: number;
     signal?: AbortSignal;
-    spawn?: typeof spawnSupervised;
+    spawn?: typeof spawnRawSupervised;
     schedule?: (callback: () => void, milliseconds: number) => () => void;
   } = {},
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   const maxBytes = byteLimit(options.maxBytes ?? 1_048_576, "maxBytes");
   if (options.signal?.aborted) throw new Error("Probe aborted");
-  const proc = (options.spawn ?? spawnSupervised)({
+  const proc = (options.spawn ?? spawnRawSupervised)({
     command,
     args,
     env: options.env ?? {},
     name: "cli-probe",
     maxOutputBytes: maxBytes,
   });
-  let stdout = "";
-  let stderr = "";
-  let bytes = 0;
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
   let failure: Error | undefined;
-  const collect = (target: "stdout" | "stderr", line: string) => {
-    bytes += Buffer.byteLength(line) + 1;
-    if (bytes > (options.maxBytes ?? 1_048_576)) {
-      failure ??= new Error("Probe output exceeded limit");
+  const collect = (target: Buffer[], chunk: unknown) => {
+    if (!Buffer.isBuffer(chunk)) {
+      failure ??= new Error("Invalid probe output chunk");
       void proc.stop({ graceMs: 0 });
       return;
     }
-    if (target === "stdout") stdout += `${line}\n`;
-    else stderr += `${line}\n`;
+    target.push(chunk);
   };
-  proc.stdout.on("line", (line) => collect("stdout", line));
-  proc.stderr.on("line", (line) => collect("stderr", line));
+  proc.stdout.on("data", (chunk: unknown) => collect(stdout, chunk));
+  proc.stderr.on("data", (chunk: unknown) => collect(stderr, chunk));
   const abort = () => {
     failure ??= new Error("Probe aborted");
     void proc.stop({ graceMs: 0 });
@@ -229,7 +226,11 @@ export async function probeOutput(
     if (proc.signal.reason instanceof OutputLimitError) throw proc.signal.reason;
     if (exit.reason === "output-limit") throw new OutputLimitError("Probe output exceeded limit");
     if (exit.reason === "spawn-error") throw new Error("Probe failed to start");
-    return { stdout: stdout.trim(), stderr: stderr.trim(), code: exit.code };
+    return {
+      stdout: Buffer.concat(stdout).toString().trim(),
+      stderr: Buffer.concat(stderr).toString().trim(),
+      code: exit.code,
+    };
   } finally {
     cancel();
     options.signal?.removeEventListener("abort", abort);
