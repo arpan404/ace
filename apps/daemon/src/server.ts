@@ -2,7 +2,7 @@ import { createServer as httpServer } from "node:http";
 import { createServer as httpsServer } from "node:https";
 import type { Server } from "node:http";
 import { accessHttp } from "./access-http.ts";
-import { allows, type Device } from "./devices.ts";
+import { allows, secret, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost, type RemoteListener } from "./network.ts";
 import { WebSocket, WebSocketServer } from "ws";
@@ -11,6 +11,25 @@ import { commandContext, type CommandHandler } from "./commands.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 import { subscribe } from "./subscription.ts";
+
+const bind = (listener: Server, host: string, port: number) =>
+  new Promise<number>((resolve, reject) => {
+    listener.once("error", reject);
+    listener.listen(port, host, () => {
+      listener.removeListener("error", reject);
+      const address = listener.address();
+      if (!address || typeof address === "string") {
+        reject(new Error("Missing listener address"));
+        return;
+      }
+      resolve(address.port);
+    });
+  });
+const closeListener = (listener: Server) =>
+  new Promise<void>((resolve) => {
+    listener.close(() => resolve());
+    listener.closeAllConnections();
+  });
 
 export interface ServerOptions {
   port: number;
@@ -35,17 +54,20 @@ export async function startServer(options: ServerOptions): Promise<{
 }> {
   const hostId = HostId.parse(options.hostId);
   if (!/^[0-9a-f]{64}$/.test(options.token)) throw new Error("Invalid server token");
-  const auth = new RemoteAuth(options.store.devices, options.token, options.now);
+  const auth = new RemoteAuth(options.store.devices, options.token, {
+    now: options.now ?? Date.now,
+    secret,
+  });
   let remoteOrigin: string | undefined;
   const pairing = () =>
     options.remote && remoteOrigin
       ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
       : undefined;
-  const local = httpServer(accessHttp(auth, true, pairing));
+  const local = httpServer(accessHttp(auth, auth.localBearer.bind(auth), pairing));
   const remote = options.remote
     ? httpsServer(
         { ...options.remote.identity, minVersion: "TLSv1.2" },
-        accessHttp(auth, false, pairing),
+        accessHttp(auth, auth.deviceBearer.bind(auth), pairing),
       )
     : undefined;
   for (const listener of [local, remote])
@@ -66,10 +88,10 @@ export async function startServer(options: ServerOptions): Promise<{
     });
   attach(local, true);
   if (remote) attach(remote, false);
-  const authenticated = new Map<WebSocket, Device>();
+  const authenticated = new Map<WebSocket, Device & { revocable: boolean }>();
   const stopRevocation = auth.onRevoke((id) => {
     for (const [socket, device] of authenticated)
-      if (device.id === id) {
+      if (device.revocable && device.id === id) {
         cleanups.get(socket)?.();
         socket.close(4003, "Device revoked");
         socket.terminate();
@@ -79,7 +101,7 @@ export async function startServer(options: ServerOptions): Promise<{
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
     let device: DeviceId | undefined;
-    let lastActivity = Date.now();
+    let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
     const send = (message: ServerMessage) => outbox.send(message);
@@ -97,7 +119,7 @@ export async function startServer(options: ServerOptions): Promise<{
     };
     cleanups.set(socket, cleanup);
     ticks.set(socket, () => {
-      if (Date.now() - lastActivity > (options.idleTimeoutMs ?? 60_000))
+      if (auth.now() - lastActivity > (options.idleTimeoutMs ?? 60_000))
         socket.close(4008, "Idle timeout");
       outbox.tick();
     });
@@ -111,7 +133,7 @@ export async function startServer(options: ServerOptions): Promise<{
     });
     socket.on("message", (data, binary) => {
       if (socket.readyState !== WebSocket.OPEN) return;
-      lastActivity = Date.now();
+      lastActivity = auth.now();
       let message: ClientMessage;
       try {
         if (binary) throw new Error("Text required");
@@ -132,7 +154,7 @@ export async function startServer(options: ServerOptions): Promise<{
         const actor =
           message.ticket !== undefined
             ? auth.consume(message.ticket)
-            : message.token !== undefined && auth.local(message.token, isLocal)
+            : message.token !== undefined && isLocal && auth.local(message.token)
               ? {
                   id: message.deviceId,
                   name: "Host",
@@ -147,7 +169,11 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         }
         device = actor.id;
-        authenticated.set(socket, { ...actor, scopes: [...actor.scopes] });
+        authenticated.set(socket, {
+          ...actor,
+          scopes: [...actor.scopes],
+          revocable: message.ticket !== undefined,
+        });
         send({
           type: "welcome",
           hostId,
@@ -168,7 +194,7 @@ export async function startServer(options: ServerOptions): Promise<{
           subscriptions.delete(message.subscriptionId);
           break;
         case "subscribe": {
-          if (!allows(authenticated.get(socket)!, "read")) {
+          if (!allows(authenticated.get(socket), "read")) {
             fail("forbidden", "Read scope required");
             break;
           }
@@ -194,7 +220,7 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         }
         case "command": {
-          if (!allows(authenticated.get(socket)!, "operate")) {
+          if (!allows(authenticated.get(socket), "operate")) {
             fail("forbidden", "Operate scope required");
             break;
           }
@@ -223,24 +249,6 @@ export async function startServer(options: ServerOptions): Promise<{
     Math.max(10, Math.min(1000, (options.idleTimeoutMs ?? 60_000) / 2)),
   );
   timer.unref();
-  const bind = (listener: Server, host: string, port: number) =>
-    new Promise<number>((resolve, reject) => {
-      listener.once("error", reject);
-      listener.listen(port, host, () => {
-        listener.removeListener("error", reject);
-        const address = listener.address();
-        if (!address || typeof address === "string") {
-          reject(new Error("Missing listener address"));
-          return;
-        }
-        resolve(address.port);
-      });
-    });
-  const closeListener = (listener: Server) =>
-    new Promise<void>((resolve) => {
-      listener.close(() => resolve());
-      listener.closeAllConnections();
-    });
   let port: number;
   try {
     port = await bind(local, "127.0.0.1", options.port);

@@ -55,8 +55,8 @@ export async function startDaemon(
     let closing: Promise<void> | undefined;
     return {
       url: server.url,
-      ...(server.remoteUrl
-        ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint! }
+      ...(server.remoteUrl && server.fingerprint
+        ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
         : {}),
       tokenPath,
       store,

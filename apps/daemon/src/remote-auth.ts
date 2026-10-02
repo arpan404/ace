@@ -1,5 +1,5 @@
 import { DeviceId } from "@ace/protocol";
-import { allows, hash, secret, type Device, type Devices, type Scope } from "./devices.ts";
+import { allows, hash, type Device, type Devices, type Scope } from "./devices.ts";
 import { validToken } from "./local-files.ts";
 
 export class AccessError extends Error {
@@ -17,16 +17,22 @@ export class RemoteAuth {
   private localToken: string;
   readonly now: () => number;
   private revoked = new Set<(id: string) => void>();
-  constructor(devices: Devices, localToken: string, now = Date.now) {
+  private readonly secret: () => string;
+  constructor(
+    devices: Devices,
+    localToken: string,
+    runtime: { now: () => number; secret: () => string },
+  ) {
     this.devices = devices;
     this.localToken = localToken;
-    this.now = now;
+    this.now = runtime.now;
+    this.secret = runtime.secret;
   }
-  local(token: string, local: boolean): boolean {
-    return local && validToken(token, this.localToken);
+  local(token: string): boolean {
+    return validToken(token, this.localToken);
   }
-  bearer(token: string, local: boolean): Device | undefined {
-    if (this.local(token, local))
+  localBearer(token: string): Device | undefined {
+    if (this.local(token))
       return {
         id: DeviceId.parse("local"),
         name: "Host",
@@ -35,19 +41,24 @@ export class RemoteAuth {
         lastSeenAt: this.now(),
         revokedAt: null,
       };
+    return this.deviceBearer(token);
+  }
+  deviceBearer(token: string): Device | undefined {
     return this.devices.authenticate(token, this.now());
   }
   pairing(granted: Scope[]): { code: string; expiresAt: number } {
     this.prune(this.codes);
     if (this.codes.size >= 100) throw new AccessError(429, "Too many pending pairings");
-    const code = secret();
+    const code = this.secret();
     const expiresAt = this.now() + 300_000;
     this.codes.set(hash(code), { expiresAt, scopes: granted });
     return { code, expiresAt };
   }
-  redeem(code: string, name: string, address: string): { device: Device; token: string } {
+  pairingAttempt(address: string): void {
     this.limit(address);
     this.limit("*");
+  }
+  redeem(code: string, name: string): { device: Device; token: string } {
     const key = hash(code);
     const pairing = this.codes.get(key);
     this.codes.delete(key);
@@ -58,7 +69,7 @@ export class RemoteAuth {
   ticket(device: Device): { ticket: string; expiresAt: number } {
     this.prune(this.tickets);
     if (this.tickets.size >= 10_000) throw new AccessError(429, "Too many pending tickets");
-    const ticket = secret();
+    const ticket = this.secret();
     const expiresAt = this.now() + 60_000;
     this.tickets.set(hash(ticket), { expiresAt, deviceId: device.id });
     return { ticket, expiresAt };

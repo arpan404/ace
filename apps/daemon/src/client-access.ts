@@ -1,3 +1,4 @@
+import { DeviceCredential } from "@ace/protocol";
 import { Agent, request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
 import { connect, type ConnectionOptions } from "node:tls";
@@ -15,11 +16,14 @@ export function pinnedAgent(fingerprint: string): Agent {
     const finish = (error?: Error) => {
       if (complete) return;
       complete = true;
+      clearTimeout(deadline);
       if (error) {
         socket.destroy();
         callback?.(error, socket);
       } else callback?.(null, socket);
     };
+    const deadline = setTimeout(() => finish(new Error("TLS handshake timed out")), 10_000);
+    deadline.unref();
     socket.once("error", finish);
     socket.once("secureConnect", () => {
       try {
@@ -53,7 +57,7 @@ export async function accessRequest(
     throw new Error("Remote requests require pinned HTTPS");
   if (tls && !options.fingerprint)
     throw new Error("Remote requests require a public-key fingerprint");
-  const agent = tls ? pinnedAgent(options.fingerprint!) : undefined;
+  const agent = tls && options.fingerprint ? pinnedAgent(options.fingerprint) : undefined;
   const data = options.body === undefined ? undefined : JSON.stringify(options.body);
   try {
     return await new Promise<unknown>((resolve, reject) => {
@@ -100,16 +104,18 @@ export async function accessRequest(
     agent?.destroy();
   }
 }
-export function redeemPairing(url: string, name: string): Promise<unknown> {
+export async function redeemPairing(url: string, name: string): Promise<DeviceCredential> {
   const pairing = new URL(url);
   if (pairing.protocol !== "https:" || pairing.search)
     throw new Error("Pairing requires an HTTPS URL with credentials in its fragment");
   const fragment = new URLSearchParams(pairing.hash.slice(1));
-  return accessRequest(pairing.origin, "/v1/pair", {
-    method: "POST",
-    fingerprint: fragment.get("fingerprint") ?? "",
-    body: { code: fragment.get("code"), name },
-  });
+  return DeviceCredential.parse(
+    await accessRequest(pairing.origin, "/v1/pair", {
+      method: "POST",
+      fingerprint: fragment.get("fingerprint") ?? "",
+      body: { code: fragment.get("code"), name },
+    }),
+  );
 }
 export function ticketSocket(origin: string, fingerprint: string): WebSocket {
   const url = new URL(origin);

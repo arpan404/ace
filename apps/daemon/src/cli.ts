@@ -1,15 +1,39 @@
 #!/usr/bin/env node
+import { z } from "zod";
+import { PairingResponse } from "@ace/protocol";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import qrcode from "qrcode-generator";
+import createQr from "qrcode-generator";
 import { readConfig } from "./config.ts";
 import { startDaemon } from "./index.ts";
 import { createDevThread, stubHandler } from "./commands.ts";
 import { accessRequest } from "./client-access.ts";
 import { doctor } from "./doctor.ts";
 
+const HostConnection = z.object({
+  origin: z.url().refine((value) => {
+    const url = new URL(value);
+    return (
+      url.protocol === "http:" &&
+      url.hostname === "127.0.0.1" &&
+      url.pathname === "/" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
+  }),
+  token: z.string().regex(/^[0-9a-f]{64}$/),
+});
+function hostConnection(dataDir: string): { origin: string; token: string } {
+  return HostConnection.parse({
+    origin: readFileSync(join(dataDir, "daemon-endpoint"), "utf8"),
+    token: readFileSync(join(dataDir, "daemon-token"), "utf8"),
+  });
+}
+
 function terminalQr(value: string): string {
-  const qr = qrcode(0, "M");
+  const qr = createQr(0, "M");
   qr.addData(value);
   qr.make();
   const size = qr.getModuleCount();
@@ -64,28 +88,38 @@ async function main(args: string[]): Promise<void> {
     process.stdout.write(JSON.stringify(await doctor(), null, 2) + "\n");
     return;
   }
-  const origin = readFileSync(join(config.dataDir, "daemon-endpoint"), "utf8");
-  const token = readFileSync(join(config.dataDir, "daemon-token"), "utf8");
   if (command === "status") {
-    process.stdout.write(
-      JSON.stringify(await accessRequest(origin, "/v1/status", { token }), null, 2) + "\n",
-    );
+    if (args.length !== 1) throw new Error("Usage: ace status");
+    let status: unknown;
+    try {
+      const { origin, token } = hostConnection(config.dataDir);
+      status = await accessRequest(origin, "/v1/status", { token });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "ENOENT" || error.code === "ECONNREFUSED")
+      )
+        status = { running: false };
+      else throw error;
+    }
+    process.stdout.write(JSON.stringify(status, null, 2) + "\n");
     return;
   }
+  if (command !== "pair" && command !== "devices")
+    throw new Error(
+      "Usage: ace start|status|pair [scopes]|devices list|devices revoke <id>|doctor",
+    );
+  const { origin, token } = hostConnection(config.dataDir);
   if (command === "pair") {
     if (args.length > 2) throw new Error("Usage: ace pair [read,operate,admin]");
-    const result = await accessRequest(origin, "/v1/pairings", {
-      method: "POST",
-      token,
-      body: args[1] ? { scopes: args[1].split(",") } : {},
-    });
-    if (
-      !result ||
-      typeof result !== "object" ||
-      !("url" in result) ||
-      typeof result.url !== "string"
-    )
-      throw new Error("Invalid pairing response");
+    const result = PairingResponse.parse(
+      await accessRequest(origin, "/v1/pairings", {
+        method: "POST",
+        token,
+        body: args[1] ? { scopes: args[1].split(",") } : {},
+      }),
+    );
     process.stdout.write(
       `${result.url}\nValid for 5 minutes, single use.\n${terminalQr(result.url)}`,
     );

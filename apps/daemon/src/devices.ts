@@ -1,21 +1,13 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { DeviceId } from "@ace/protocol";
+import { DeviceId, Device, type DeviceScope } from "@ace/protocol";
 
-export const scopes = ["read", "operate", "admin"] as const;
-export type Scope = (typeof scopes)[number];
-export interface Device {
-  id: DeviceId;
-  name: string;
-  scopes: Scope[];
-  createdAt: number;
-  lastSeenAt: number;
-  revokedAt: number | null;
-}
+export type { Device } from "@ace/protocol";
+export type Scope = DeviceScope;
 export const secret = () => randomBytes(32).toString("hex");
 export const hash = (value: string) => createHash("sha256").update(value).digest("hex");
-export const allows = (device: Pick<Device, "scopes">, scope: Scope) =>
-  device.scopes.includes("admin") || device.scopes.includes(scope);
+export const allows = (device: Pick<Device, "scopes"> | undefined, scope: Scope) =>
+  device !== undefined && (device.scopes.includes("admin") || device.scopes.includes(scope));
 
 /** Shares the event store's SQLite connection; credentials never leave this module. */
 export class Devices {
@@ -23,31 +15,35 @@ export class Devices {
   constructor(db: DatabaseSync) {
     this.db = db;
   }
-  create(name: string, scopes: Scope[], at: number): { device: Device; token: string } {
+  create(name: string, granted: Scope[], at: number): { device: Device; token: string } {
     const token = secret();
     const id = DeviceId.parse(randomUUID());
     this.db
       .prepare("INSERT INTO devices VALUES (?, ?, ?, ?, ?, ?, NULL)")
-      .run(id, name, hash(token), JSON.stringify(scopes), at, at);
-    return { device: this.get(id)!, token };
+      .run(id, name, hash(token), JSON.stringify(granted), at, at);
+    return {
+      device: Device.parse({
+        id,
+        name,
+        scopes: granted,
+        createdAt: at,
+        lastSeenAt: at,
+        revokedAt: null,
+      }),
+      token,
+    };
   }
   get(id: string): Device | undefined {
     const row = this.db.prepare("SELECT * FROM devices WHERE id = ?").get(id);
     if (!row) return undefined;
-    const granted: unknown = JSON.parse(String(row.scopes));
-    if (
-      !Array.isArray(granted) ||
-      !granted.every((value): value is Scope => scopes.includes(value))
-    )
-      throw new Error("Invalid stored device scopes");
-    return {
-      id: DeviceId.parse(row.id),
-      name: String(row.name),
-      scopes: granted,
-      createdAt: Number(row.created_at),
-      lastSeenAt: Number(row.last_seen_at),
-      revokedAt: row.revoked_at === null ? null : Number(row.revoked_at),
-    };
+    return Device.parse({
+      id: row.id,
+      name: row.name,
+      scopes: JSON.parse(String(row.scopes)),
+      createdAt: row.created_at,
+      lastSeenAt: row.last_seen_at,
+      revokedAt: row.revoked_at,
+    });
   }
   authenticate(token: string, at: number): Device | undefined {
     const row = this.db
@@ -66,7 +62,11 @@ export class Devices {
     return this.db
       .prepare("SELECT id FROM devices ORDER BY created_at, id")
       .all()
-      .map((row) => this.get(String(row.id))!);
+      .map((row) => {
+        const device = this.get(String(row.id));
+        if (!device) throw new Error("Device disappeared during listing");
+        return device;
+      });
   }
   revoke(id: string, at: number): boolean {
     return (

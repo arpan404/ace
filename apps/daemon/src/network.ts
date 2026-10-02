@@ -1,9 +1,15 @@
+import { z } from "zod";
 import { execFile } from "node:child_process";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { promisify } from "node:util";
 import { loadIdentity, type TlsIdentity } from "./tls-identity.ts";
 import type { Config } from "./config.ts";
+
+const TailscaleStatus = z.object({
+  BackendState: z.literal("Running"),
+  TailscaleIPs: z.array(z.string().refine((value) => isIP(value) !== 0)),
+});
 
 export interface RemoteListener {
   host: string;
@@ -34,25 +40,14 @@ export async function remoteListener(config: Config): Promise<RemoteListener | u
         timeout: 5000,
         maxBuffer: 1024 * 1024,
       });
-      const status: unknown = JSON.parse(result.stdout);
-      if (
-        !status ||
-        typeof status !== "object" ||
-        !("TailscaleIPs" in status) ||
-        !("BackendState" in status) ||
-        status.BackendState !== "Running" ||
-        !Array.isArray(status.TailscaleIPs)
-      )
-        throw new Error("Tailscale is not running");
-      const address: unknown = status.TailscaleIPs.find(
-        (value: unknown) => typeof value === "string" && isIP(value) === 4,
-      );
-      if (typeof address !== "string") throw new Error("No Tailscale IPv4 address");
+      const status = TailscaleStatus.parse(JSON.parse(result.stdout));
+      const address = status.TailscaleIPs.find((value) => isIP(value) === 4);
+      if (!address) throw new Error("No Tailscale IPv4 address");
       host = address;
       advertisedHost = address;
     } catch (error) {
       throw new Error(
-        "Cannot detect Tailscale address. Start Tailscale or use ACE_LISTEN=lan with ACE_ADVERTISE_HOST=localhost, then tailscale serve --https=443 https+insecure://localhost:4243. Pair using the direct TLS listener and its public-key pin.",
+        "Cannot detect Tailscale address. Start Tailscale, or start ace with ACE_LISTEN=lan and ACE_REMOTE_PORT=4243, then run tailscale serve --tcp=443 tcp://localhost:4243. Replace the pairing URL authority with the Serve hostname:443 and keep its fragment to preserve the ace public-key pin.",
         { cause: error },
       );
     }

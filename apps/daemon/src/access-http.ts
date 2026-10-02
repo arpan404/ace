@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { scopes, type Scope } from "./devices.ts";
+import { PairingRequest, PairingRedemption, type Device } from "@ace/protocol";
 import { AccessError, RemoteAuth } from "./remote-auth.ts";
 
-async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
+async function body(request: IncomingMessage): Promise<unknown> {
   let bytes = 0;
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
@@ -12,22 +12,14 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown>> 
     chunks.push(buffer);
   }
   try {
-    const data: unknown = JSON.parse(Buffer.concat(chunks).toString());
-    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error();
-    return data as Record<string, unknown>;
+    return JSON.parse(Buffer.concat(chunks).toString());
   } catch {
     throw new AccessError(400, "JSON object required");
   }
 }
-function text(data: Record<string, unknown>, key: string): string {
-  const value = data[key];
-  if (typeof value !== "string" || value.length < 1 || value.length > 256)
-    throw new AccessError(400, `Invalid ${key}`);
-  return value;
-}
 export function accessHttp(
   auth: RemoteAuth,
-  local: boolean,
+  authenticate: (token: string) => Device | undefined,
   pairing: () => { origin: string; fingerprint: string } | undefined,
 ) {
   return (request: IncomingMessage, response: ServerResponse) => {
@@ -38,19 +30,16 @@ export function accessHttp(
       const path = request.url ?? "";
       // Match exact paths. Credentials and fragments never belong in HTTP URLs.
       const token = request.headers.authorization?.match(/^Bearer ([0-9a-f]{64})$/)?.[1] ?? "";
-      const actor = () => auth.bearer(token, local);
+      const actor = () => authenticate(token);
       let result: unknown;
       if (path === "/v1/pair" && request.method === "POST") {
-        const data = await body(request);
-        result = auth.redeem(
-          text(data, "code"),
-          text(data, "name"),
-          request.socket.remoteAddress ?? "unknown",
-        );
+        auth.pairingAttempt(request.socket.remoteAddress ?? "unknown");
+        const data = PairingRedemption.safeParse(await body(request));
+        if (!data.success) throw new AccessError(400, "Invalid pairing redemption");
+        result = auth.redeem(data.data.code, data.data.name);
       } else if (path === "/v1/tickets" && request.method === "POST") {
-        const device = actor();
-        if (!device || auth.local(token, local))
-          throw new AccessError(401, "Device token required");
+        const device = auth.deviceBearer(token);
+        if (!device) throw new AccessError(401, "Device token required");
         result = auth.ticket(device);
       } else {
         auth.requireAdmin(actor());
@@ -63,15 +52,10 @@ export function accessHttp(
               409,
               "Remote access is off. Restart with ACE_LISTEN=lan or ACE_LISTEN=tailscale.",
             );
-          const data = await body(request);
-          const granted = data.scopes ?? ["read", "operate"];
-          if (
-            !Array.isArray(granted) ||
-            !granted.length ||
-            !granted.every((scope): scope is Scope => scopes.includes(scope))
-          )
-            throw new AccessError(400, "Invalid scopes");
-          const { code, expiresAt } = auth.pairing([...new Set(granted)]);
+          const data = PairingRequest.safeParse(await body(request));
+          if (!data.success) throw new AccessError(400, "Invalid scopes");
+          auth.requireAdmin(actor());
+          const { code, expiresAt } = auth.pairing([...new Set(data.data.scopes)]);
           const url = new URL("/pair", connection.origin);
           url.hash = new URLSearchParams({ fingerprint: connection.fingerprint, code }).toString();
           result = { url: url.toString(), expiresAt };

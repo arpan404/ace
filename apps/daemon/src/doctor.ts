@@ -9,23 +9,14 @@ export async function doctor(): Promise<unknown> {
   } catch {
     openssl = "missing; install OpenSSL for remote TLS";
   }
-  // Provider-kit is optional until PR #3 merges. Do not duplicate CLI discovery here.
-  const packageName = "@ace/provider-kit";
+  const { discoverProviders } = await import("@ace/provider-kit/discovery");
+  const { installShutdownHandlers } = await import("@ace/provider-kit/process");
+  const dispose = installShutdownHandlers({ graceMs: 1000 });
   let providers: unknown;
   try {
-    const kit: unknown = await import(packageName);
-    if (
-      kit &&
-      typeof kit === "object" &&
-      "discoverProviders" in kit &&
-      typeof kit.discoverProviders === "function"
-    ) {
-      providers = await kit.discoverProviders();
-    } else providers = "Provider-kit loaded; discovery API integration pending";
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND")
-      providers = "Provider discovery unavailable until provider-kit merges";
-    else throw error;
+    providers = await discoverProviders();
+  } finally {
+    dispose();
   }
   return {
     node: process.version,
