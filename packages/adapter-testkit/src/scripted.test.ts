@@ -1,3 +1,4 @@
+import { getEventListeners } from "node:events";
 import { ThreadId, type ContentPart } from "@ace/protocol";
 import type { Frame, SessionContext } from "@ace/engine-api";
 import { describe, expect, it } from "vitest";
@@ -132,5 +133,117 @@ describe("scripted sessions", () => {
     expect(h.frames).toEqual([frame(1)]);
     expect(h.adapter.commands.map(({ type }) => type)).toEqual(["send", "resolve"]);
     await session.close("idle");
+  });
+  it("tears down shutdown with a pending send while preserving the script mismatch", async () => {
+    const h = setup([{ on: "send", frames: [frame(0)] }]);
+    const session = await h.adapter.openSession(h.ctx);
+    await expect(session.close("shutdown")).rejects.toThrow("expected send, got close");
+    expect(h.exits).toEqual([{ deliberate: true }]);
+    expect(getEventListeners(h.ctx.signal, "abort")).toEqual([]);
+    await expect(session.send([], "queue")).rejects.toThrow("closed");
+    h.controller.abort();
+    expect(h.frames).toEqual([]);
+    expect(h.exits).toHaveLength(1);
+  });
+  it("removes the abort listener even when the closing frame callback throws", async () => {
+    const h = setup([{ on: "close", frames: [frame(0)] }]);
+    const session = await h.adapter.openSession({
+      ...h.ctx,
+      onFrame() {
+        throw new Error("close callback failed");
+      },
+    });
+    await expect(session.close("shutdown")).rejects.toThrow("close callback failed");
+    expect(h.exits).toEqual([{ deliberate: true }]);
+    expect(getEventListeners(h.ctx.signal, "abort")).toEqual([]);
+    await expect(session.send([], "queue")).rejects.toThrow("closed");
+  });
+  it.each([0, 1])(
+    "rolls back an open rejected by frame %i without retaining a lifetime",
+    async (throwAt) => {
+      const h = setup([{ on: "open", frames: [frame(0), frame(1)] }]);
+      await expect(
+        h.adapter.openSession({
+          ...h.ctx,
+          onFrame(value) {
+            h.frames.push(value);
+            if (value.seq === throwAt) throw new Error("opening callback failed");
+          },
+        }),
+      ).rejects.toThrow("opening callback failed");
+      expect(h.adapter.sessions).toEqual([]);
+      expect(getEventListeners(h.ctx.signal, "abort")).toEqual([]);
+      h.controller.abort();
+      expect(h.exits).toEqual([]);
+      expect(h.frames.map(({ seq }) => seq)).toEqual(throwAt === 0 ? [0] : [0, 1]);
+      const retry = await h.adapter.openSession({ ...h.ctx, signal: new AbortController().signal });
+      expect(h.frames.slice(-2)).toEqual([frame(0), frame(1)]);
+      expect(h.adapter.sessions).toEqual([retry]);
+      await retry.close("shutdown");
+    },
+  );
+  it.each(["open", "send"] as const)(
+    "stops %s frames immediately after a callback abort",
+    async (on) => {
+      const h = setup([{ on, frames: [frame(0), frame(1)] }]);
+      const session = await h.adapter.openSession({
+        ...h.ctx,
+        onFrame(value) {
+          h.frames.push(value);
+          if (value.seq === 0) h.controller.abort();
+        },
+      });
+      if (on === "send") await session.send([], "queue");
+      expect(h.frames).toEqual([frame(0)]);
+      expect(h.exits).toEqual([{ deliberate: true, message: "aborted" }]);
+      expect(getEventListeners(h.ctx.signal, "abort")).toEqual([]);
+      await expect(session.send([], "queue")).rejects.toThrow("closed");
+    },
+  );
+  it("finishes send frames before a reentrant interrupt emits its frames", async () => {
+    const h = setup([
+      { on: "send", frames: [frame(0), frame(1)] },
+      { on: "interrupt", frames: [frame(2)] },
+    ]);
+    let nested: Promise<void> | undefined;
+    const session = await h.adapter.openSession({
+      ...h.ctx,
+      onFrame(value) {
+        h.frames.push(value);
+        if (value.seq === 0) nested = session.interrupt({ cascade: true });
+      },
+    });
+    await session.send([], "queue");
+    if (!nested) throw new Error("send did not trigger the nested interrupt");
+    await nested;
+    expect(h.frames.map(({ seq }) => seq)).toEqual([0, 1, 2]);
+    expect(h.adapter.commands.map(({ type }) => type)).toEqual(["send", "interrupt"]);
+    await session.close("shutdown");
+  });
+  it("finishes shutdown before a command queued by the same frame callback can emit", async () => {
+    const h = setup([
+      { on: "send", frames: [frame(0), frame(1)] },
+      { on: "close", frames: [frame(2)] },
+      { on: "send", frames: [frame(3)] },
+    ]);
+    let closing: Promise<void> | undefined;
+    let later: Promise<unknown> | undefined;
+    const session = await h.adapter.openSession({
+      ...h.ctx,
+      onFrame(value) {
+        h.frames.push(value);
+        if (value.seq === 0) {
+          closing = session.close("shutdown");
+          later = session.send([], "queue").catch((error: unknown) => error);
+        }
+      },
+    });
+    await session.send([], "queue");
+    if (!closing || !later) throw new Error("send did not queue shutdown and later command");
+    await closing;
+    expect(await later).toEqual(expect.objectContaining({ message: "scripted session is closed" }));
+    expect(h.frames.map(({ seq }) => seq)).toEqual([0, 1, 2]);
+    expect(h.exits).toEqual([{ deliberate: true }]);
+    expect(getEventListeners(h.ctx.signal, "abort")).toEqual([]);
   });
 });
