@@ -116,10 +116,12 @@ test("failed refresh retains stale rows and cooldown prevents repeated probes", 
 test("provider timeout leaves other instance models immediately available", async () => {
   const started = deferred<void>();
   const { catalog, clock } = await setup(
-    async (config) => {
+    async (config, signal) => {
       if (config.id === "hang") {
         started.resolve();
-        return new Promise(() => {});
+        return new Promise((_resolve, reject) =>
+          signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
+        );
       }
       return normalizeCodex(codexPayload(), config);
     },
@@ -225,7 +227,9 @@ test("shutdown aborts discovery and closes only after pending flights settle", a
   const { catalog } = await setup(async (_, signal) => {
     signal.addEventListener("abort", () => aborted.resolve());
     started.resolve();
-    return new Promise(() => {});
+    return new Promise((_resolve, reject) =>
+      signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
+    );
   });
   const flight = catalog.refresh();
   await started.promise;
@@ -247,7 +251,7 @@ test("removing an instance cancels its refresh and deletes its persisted choices
   await catalog.refresh();
   const flight = catalog.refresh();
   await started.promise;
-  catalog.removeInstance("codex");
+  await catalog.removeInstance("codex");
   late.resolve(models("removed"));
   await flight;
   await catalog.close();
@@ -275,7 +279,7 @@ test("instance admission is bounded and a removed account frees capacity", async
     configs,
   );
   expect(() => catalog.registerInstance(instance("claude", "overflow"))).toThrow("limit");
-  catalog.removeInstance("account-0");
+  await catalog.removeInstance("account-0");
   catalog.registerInstance(instance("claude", "replacement"));
   await catalog.refresh({ instance: "replacement" });
   expect(catalog.list({ instance: "replacement" }).models[0]?.provider).toBe("claude");

@@ -7,6 +7,7 @@ import {
   type ModelResolution,
   type ModelRoleSpec,
 } from "@ace/protocol";
+import { PendingDeletions } from "./deletions.ts";
 import { CachedEntry } from "./cache-schema.ts";
 import { resolveModel } from "./resolve.ts";
 import {
@@ -24,7 +25,6 @@ type State = {
   entry?: CacheEntry;
   error?: ModelInstanceStatus["error"];
   retryAt: number;
-  deletion?: Promise<void>;
   flight?: Promise<ModelInstanceStatus>;
   abort?: AbortController;
 };
@@ -48,13 +48,15 @@ export class ModelCatalog implements ModelCatalogApi {
   readonly #providers = new Map<string, Set<string>>();
   readonly #persisted = new Map<string, CacheEntry>();
   readonly #queue: (() => void)[] = [];
-  readonly #io = new Set<Promise<void>>();
+  readonly #deletions: PendingDeletions;
+  readonly #discoveries = new Set<Promise<void>>();
   readonly #flights = new Set<Promise<ModelInstanceStatus>>();
   #closing: Promise<void> | undefined;
   #active = 0;
   #closed = false;
   constructor(options: CatalogOptions) {
     this.#options = options;
+    this.#deletions = new PendingDeletions(options.storage);
     for (const duration of [
       options.ttlMs ?? 900_000,
       options.timeoutMs ?? 15_000,
@@ -82,20 +84,19 @@ export class ModelCatalog implements ModelCatalogApi {
     const entry = old?.entry ?? this.#persisted.get(config.id);
     const compatible =
       entry?.revision === config.loginRevision && entry.provider === config.provider;
-    const deletion = entry && !compatible ? this.#removeStored(config.id) : undefined;
+    if (entry && !compatible) void this.#deletions.remove(config.id);
     old?.abort?.abort();
     if (old) this.#providers.get(old.config.provider)?.delete(config.id);
     if (!old && !this.#persisted.has(config.id) && this.#states.size + this.#persisted.size >= 64) {
       const evicted = this.#persisted.keys().next().value;
       if (evicted !== undefined) {
-        this.#removeStored(evicted);
+        void this.#deletions.remove(evicted);
         this.#persisted.delete(evicted);
       }
     }
     this.#states.set(config.id, {
       config,
       ...(compatible ? { entry } : {}),
-      ...(deletion ? { deletion } : {}),
       retryAt: 0,
     });
     const ids = this.#providers.get(config.provider) ?? new Set<string>();
@@ -109,22 +110,14 @@ export class ModelCatalog implements ModelCatalogApi {
     this.registerInstance({ ...state.config, loginRevision: revision });
     return this.refresh({ instance });
   }
-  removeInstance(instance: string): void {
+  removeInstance(instance: string): Promise<void> {
+    instance = ModelInstance.shape.id.parse(instance);
+    const pending = this.#deletions.remove(instance);
     const state = this.#states.get(instance);
-    this.#removeStored(instance);
     state?.abort?.abort();
     if (state) this.#providers.get(state.config.provider)?.delete(instance);
     this.#states.delete(instance);
     this.#persisted.delete(instance);
-  }
-  #removeStored(instance: string): Promise<void> {
-    if (this.#io.size >= 128) throw new Error("Persistence queue full");
-    const pending = Promise.resolve(this.#options.storage.remove(instance));
-    this.#io.add(pending);
-    void pending.then(
-      () => this.#io.delete(pending),
-      () => this.#io.delete(pending),
-    );
     return pending;
   }
   #select(filter: ModelFilter): State[] {
@@ -204,7 +197,7 @@ export class ModelCatalog implements ModelCatalogApi {
   }
   #refresh(state: State): Promise<ModelInstanceStatus> {
     if (state.flight) return state.flight;
-    if (this.#flights.size >= 64) {
+    if (this.#flights.size >= 64 || this.#discoveries.size >= 64) {
       state.error = "discovery_failed";
       state.retryAt = this.#options.now() + (this.#options.retryMs ?? 30_000);
       return Promise.resolve(this.#status(state));
@@ -219,6 +212,7 @@ export class ModelCatalog implements ModelCatalogApi {
         let timedOut = false;
         try {
           if (abort.signal.aborted || this.#closed) return;
+          if (this.#discoveries.size >= 64) throw new Error("Discovery cleanup limit reached");
           const failure = new Promise<never>((_, reject) => {
             const onAbort = () => reject(new Error("aborted"));
             abort.signal.addEventListener("abort", onAbort, { once: true });
@@ -233,10 +227,14 @@ export class ModelCatalog implements ModelCatalogApi {
             stopDeadline();
             cleanupAbort?.();
           };
-          const models = await Promise.race([
-            this.#options.discover(state.config, abort.signal),
-            failure,
-          ]);
+          const discovery = this.#options.discover(state.config, abort.signal);
+          const cleanup = discovery.then(
+            () => {},
+            () => {},
+          );
+          this.#discoveries.add(cleanup);
+          void cleanup.then(() => this.#discoveries.delete(cleanup));
+          const models = await Promise.race([discovery, failure]);
           if (this.#states.get(state.config.id) !== state || this.#closed) return;
           const entry = CachedEntry.parse({
             provider: state.config.provider,
@@ -246,7 +244,7 @@ export class ModelCatalog implements ModelCatalogApi {
             models,
           });
           try {
-            await state.deletion;
+            if (this.#deletions.has(state.config.id)) await this.#deletions.remove(state.config.id);
             if (this.#states.get(state.config.id) !== state || this.#closed) return;
             await this.#options.storage.replace(entry);
           } catch {
@@ -288,14 +286,21 @@ export class ModelCatalog implements ModelCatalogApi {
     if (next) next();
     else this.#active--;
   }
-  async close(): Promise<void> {
-    this.#closing ??= (async () => {
+  close(): Promise<void> {
+    if (this.#closing) return this.#closing;
+    const closing = (async () => {
       this.#closed = true;
       for (const state of this.#states.values()) state.abort?.abort();
       await Promise.all(this.#flights);
-      await Promise.allSettled(this.#io);
+      await Promise.all(this.#discoveries);
+      await this.#deletions.flush();
       await this.#options.storage.close();
     })();
-    return this.#closing;
+    this.#closing = closing;
+    // A failed durable deletion must remain retryable with the storage still open.
+    void closing.catch(() => {
+      if (this.#closing === closing) this.#closing = undefined;
+    });
+    return closing;
   }
 }

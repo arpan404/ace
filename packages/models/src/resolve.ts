@@ -6,7 +6,9 @@ export function resolveModel(
   stale: (instance: string) => boolean,
 ): ModelResolution {
   const spec = ModelRoleSpec.parse(input);
-  const ranks = new Map(spec.preferenceOrder.map((id, index) => [id, index]));
+  const ranks = new Map<string, number>();
+  for (const [index, id] of spec.preferenceOrder.entries())
+    if (!ranks.has(id)) ranks.set(id, index);
   let first: CatalogModel | undefined;
   let defaultModel: CatalogModel | undefined;
   let preferred: CatalogModel | undefined;
@@ -70,6 +72,10 @@ export function resolveModel(
     ...(tier ? { tier } : {}),
     ...(effort ? { effort } : {}),
     stale: stale(chosen.instance),
-    reason: `${spec.role}: ${basis}; ${chosen.id}${tier ? `, tier ${tier.id}` : ""}${effort ? `, effort ${effort}` : ""}`,
+    reason:
+      `${spec.role}: ${basis}; ${chosen.id}${tier ? `, tier ${tier.id}` : ""}${effort ? `, effort ${effort}` : ""}`.slice(
+        0,
+        1024,
+      ),
   };
 }

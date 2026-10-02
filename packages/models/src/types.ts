@@ -24,6 +24,7 @@ export const ModelInstance = z.object({
 });
 export type ModelInstance = z.infer<typeof ModelInstance>;
 export type InstanceInput = z.input<typeof ModelInstance>;
+/** Must settle after abort, once all owned I/O resources have been released. */
 export type DiscoverModels = (
   instance: ModelInstance,
   signal: AbortSignal,

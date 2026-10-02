@@ -81,6 +81,7 @@ if (mode === 'opencode') {
 } else if (mode === 'flood') {
   process.stdout.write('x'.repeat(5 * 1024 * 1024));
 } else {
+  if (mode === 'hang') console.log('ready');
   createInterface({input: process.stdin}).on('line', line => {
     const request = JSON.parse(line);
     if (mode === 'hang') return;
@@ -107,7 +108,10 @@ if (mode === 'opencode') {
       if (request.params.mcpServers.length || !request.params.cwd) process.exit(8);
       result = payload;
     }
-    console.log(JSON.stringify({jsonrpc:'2.0',id:request.id,result}));
+    const reply = () => console.log(JSON.stringify({jsonrpc:'2.0',id:request.id,result}));
+    if (request.method === 'model/list' && process.env.FAKE_STDERR === '1')
+      process.stderr.write('x'.repeat(5 * 1024 * 1024), reply);
+    else reply();
   });
 }
 `,

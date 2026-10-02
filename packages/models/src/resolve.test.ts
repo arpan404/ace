@@ -29,7 +29,7 @@ test("strongest role picks its highest available preference and native fast tier
   expect(result.reason).toContain("highest available policy preference");
 });
 test("default role preserves the provider default effort and tier", () => {
-  expect(resolveModel({ role: "planner" }, rows, () => true)).toMatchObject({
+  expect(resolveModel({ role: "planner" }, rows.toReversed(), () => true)).toMatchObject({
     ok: true,
     model: { id: "normal" },
     tier: { id: "priority" },
@@ -38,7 +38,11 @@ test("default role preserves the provider default effort and tier", () => {
   });
 });
 test("strength without a policy order states the default fallback", () => {
-  const result = resolveModel({ role: "coder", selection: "strongest" }, rows, () => false);
+  const result = resolveModel(
+    { role: "coder", selection: "strongest" },
+    rows.toReversed(),
+    () => false,
+  );
   expect(result).toMatchObject({ ok: true, model: { id: "normal" } });
   expect(result.reason).toContain("strength order unavailable");
 });
@@ -53,21 +57,23 @@ test("unavailable explicit model and unsupported parameters never silently fall 
     expect(resolveModel({ role: "coder", ...spec }, rows, () => false).ok).toBe(false);
   }
 });
-test("automatic policies skip hidden and deprecated choices even if preferred", () => {
-  const unavailable = rows.map((model) =>
-    model.id === "stronger" ? { ...model, hidden: true, deprecated: true } : model,
-  );
-  expect(
-    resolveModel(
-      { role: "coder", selection: "strongest", preferenceOrder: ["stronger", "normal"] },
-      unavailable,
-      () => false,
-    ),
-  ).toMatchObject({ ok: true, model: { id: "normal" } });
-  expect(
-    resolveModel({ role: "coder", model: "stronger" }, unavailable, () => false),
-  ).toMatchObject({ ok: true, model: { id: "stronger" } });
-});
+for (const flag of ["hidden", "deprecated"] as const) {
+  test(`automatic policies skip ${flag} choices even if preferred`, () => {
+    const unavailable = rows.map((model) =>
+      model.id === "stronger" ? { ...model, [flag]: true } : model,
+    );
+    expect(
+      resolveModel(
+        { role: "coder", selection: "strongest", preferenceOrder: ["stronger", "normal"] },
+        unavailable,
+        () => false,
+      ),
+    ).toMatchObject({ ok: true, model: { id: "normal" } });
+    expect(
+      resolveModel({ role: "coder", model: "stronger" }, unavailable, () => false),
+    ).toMatchObject({ ok: true, model: { id: "stronger" } });
+  });
+}
 test("image requirement excludes models with unknown image support", () => {
   const unknown = rows.map((model) => Object.assign({}, model, { inputModalities: [] }));
   expect(resolveModel({ role: "vision", imageInput: true }, unknown, () => false).ok).toBe(false);
