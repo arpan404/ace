@@ -202,18 +202,28 @@ export async function deleteCheckpoints(
   root: string,
   threadId: string,
 ): Promise<{ deleted: number }> {
-  const refs = await checkpointRefs(repository.cli, root, threadId);
   const current = await repository.numbers.refresh(root, threadId);
+  // Capture the counter before enumerating refs so a later allocation cannot
+  // become the generation we delete while its checkpoint escapes enumeration.
+  const refs = await checkpointRefs(repository.cli, root, threadId);
+  const objectFormat = current.sha
+    ? undefined
+    : decode(
+        z.enum(["sha1", "sha256"]),
+        textOutput(await repository.cli.call(root, ["rev-parse", "--show-object-format"])),
+        "object format",
+      );
   const input = [
     "start",
     ...refs.map((ref) => `delete ${ref.id} ${ref.sha}`),
-    ...(current.sha ? [`delete ${counterRef(threadId)} ${current.sha}`] : []),
+    current.sha
+      ? `delete ${counterRef(threadId)} ${current.sha}`
+      : `verify ${counterRef(threadId)} ${"0".repeat(objectFormat === "sha256" ? 64 : 40)}`,
     "prepare",
     "commit",
     "",
   ].join("\n");
-  if (refs.length || current.sha)
-    await repository.cli.call(root, ["update-ref", "--stdin"], { write: true, input });
+  await repository.cli.call(root, ["update-ref", "--stdin"], { write: true, input });
   repository.numbers.forget(root, threadId);
   return { deleted: refs.length };
 }
