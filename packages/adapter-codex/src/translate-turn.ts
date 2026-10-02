@@ -13,8 +13,6 @@ export function completeTurn(
   const { agents, tasks } = ctx;
   const turn = obj(p["turn"]);
   const turnId = str(turn["id"]);
-  if (agent.ended.has(turnId)) return;
-  agent.ended.add(turnId);
   agent.hadTurn = true;
   const current = !agent.turn || agent.turn === turnId;
   const outcome =
@@ -55,6 +53,8 @@ export function completeTurn(
       agent.open.delete(itemId);
     }
   }
+  if (agent.ended.has(turnId)) return;
+  agent.ended.add(turnId);
   if (current)
     for (const child of agent.children) {
       const childAgent = agents.get(child);

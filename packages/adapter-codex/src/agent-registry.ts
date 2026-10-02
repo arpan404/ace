@@ -109,7 +109,7 @@ export function createAgentRegistry(config: {
               now,
             ),
           );
-        replay("turn/started", { threadId: id, turn: t });
+        if (!agent.ended.has(turnId)) replay("turn/started", { threadId: id, turn: t });
         for (const value of list(t["items"])) {
           const item = obj(value);
           const incomplete = item["status"] === "inProgress";
