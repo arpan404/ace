@@ -74,6 +74,7 @@ export function compileSchedule(input: unknown): Recurrence {
   const calendar = zonedCalendar(schedule.timezone);
   const anchor = calendar.local(schedule.startAt);
   const anchorStamp = civilStamp(anchor);
+  const anchorHour = civilStamp({ ...anchor, minute: 0 });
   const rule = schedule.kind === "rrule" ? parseRule(schedule.expression) : undefined;
   let minutes: number[], hours: number[], matchesDay: (day: Civil) => boolean;
   if (rule) {
@@ -140,7 +141,7 @@ export function compileSchedule(input: unknown): Recurrence {
             continue;
           if (
             rule?.frequency === "HOURLY" &&
-            Math.floor((candidate - anchorStamp) / (60 * MINUTE)) % rule.interval !== 0
+            ((date + hour * 60 * MINUTE - anchorHour) / (60 * MINUTE)) % rule.interval !== 0
           )
             continue;
           if (
