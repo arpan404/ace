@@ -120,6 +120,7 @@ it("daemon review follows a thread's isolated worktree and refreshes when its fi
       stubHandler(),
       [],
       {},
+      [],
       { threadWorktree: (id) => (id === threadId ? worktree : undefined) },
     );
     const workspaceId = daemon.store.createWorkspace(root, "Review workspace");
