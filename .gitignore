@@ -9,3 +9,8 @@ coverage/
 
 # Raw recorder output before review/redaction. Reviewed fixtures live in fixtures/.
 .recordings/
+
+# Reproducible release outputs and downloads
+tools/release/dist/
+tools/release/verification/*.log
+tools/release/.scratch/

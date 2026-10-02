@@ -1,0 +1,47 @@
+[
+  {
+    "mutation": "login disabled",
+    "test": "LaunchAgent starts",
+    "killed": true
+  },
+  {
+    "mutation": "restart throttle removed",
+    "test": "LaunchAgent starts",
+    "killed": true
+  },
+  {
+    "mutation": "crash restart disabled",
+    "test": "user systemd unit",
+    "killed": true
+  },
+  {
+    "mutation": "signature verification bypassed",
+    "test": "a bad signature",
+    "killed": true
+  },
+  {
+    "mutation": "checksum verification bypassed",
+    "test": "a bad checksum",
+    "killed": true
+  },
+  {
+    "mutation": "active-tree barrier bypassed",
+    "test": "active trees block",
+    "killed": true
+  },
+  {
+    "mutation": "rollback points at candidate",
+    "test": "failed candidate health",
+    "killed": true
+  },
+  {
+    "mutation": "migration dry-run omitted",
+    "test": "a failed migration",
+    "killed": true
+  },
+  {
+    "mutation": "command admission left open",
+    "test": "maintenance closes websocket",
+    "killed": true
+  }
+]

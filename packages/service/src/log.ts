@@ -16,6 +16,10 @@ export class BoundedLog extends Writable {
     if (!this.file) {
       this.file = await open(this.path, "a", 0o600);
       this.bytes = (await this.file.stat()).size;
+      if (this.bytes > this.cap) {
+        await this.file.truncate(this.cap);
+        this.bytes = this.cap;
+      }
     }
   }
   private async append(chunk: Buffer) {

@@ -25,6 +25,8 @@ export function localService(dataDir: string) {
 export async function serviceCommand(dataDir: string, args: string[]) {
   const action = z.enum(["install", "uninstall", "start", "stop", "status"]).parse(args[0]);
   if (args.length !== 1) throw new Error("Usage: ace service install|uninstall|start|stop|status");
+  if (action === "install" && !existsSync(join(dataDir, "bin/ace")))
+    throw new Error("Install a daemon artifact before registering its service");
   if (action !== "uninstall") return localService(dataDir).perform(action);
   return withInstallLock(dataDir, async () => {
     if (existsSync(join(dataDir, "update.json")))
