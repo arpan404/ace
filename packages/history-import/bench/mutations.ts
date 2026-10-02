@@ -109,6 +109,23 @@ const cases = [
     test: "warm cached scans perform no actual",
     change: "Reread cached files without reporting reads",
   },
+  {
+    file: "scan.ts",
+    before: "result.skipped++;",
+    after: 'await (await import("node:fs/promises")).readFile(path); result.skipped++;',
+    testFile: "observed-reads.test.ts",
+    test: "warm cached scans perform no actual",
+    change: "Reread cached files through readFile without reporting reads",
+  },
+  {
+    file: "scan.ts",
+    before: "result.skipped++;",
+    after:
+      'for await (const _bytes of (await import("node:fs")).createReadStream(path)) {} result.skipped++;',
+    testFile: "observed-reads.test.ts",
+    test: "warm cached scans perform no actual",
+    change: "Reread cached files through streams without reporting reads",
+  },
 ];
 const reportSchema = z.object({
   numFailedTests: z.number().positive(),
@@ -177,7 +194,7 @@ try {
   }
   await writeFile(
     join(packageRoot, "MUTATIONS.md"),
-    "# Mutation verification\n\nRun `node packages/history-import/bench/mutations.ts` from the repo root. Merge-time execution: fourteen deliberate production changes, including all five review survivors, each failed the named public behavior test. All source bytes were restored after each run. Syntax/import failures do not count; the reporter must contain a failed assertion for the selected behavior.\n\n| Production mutation | Behavior test | Result |\n| --- | --- | --- |\n" +
+    "# Mutation verification\n\nMerge-time execution only. All source bytes were restored after each run. Syntax/import failures do not count; the reporter must contain a failed assertion for the selected behavior.\n\n| Production mutation | Behavior test | Result |\n| --- | --- | --- |\n" +
       results.join("\n") +
       "\n",
   );
