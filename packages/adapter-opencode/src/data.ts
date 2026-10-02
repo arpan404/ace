@@ -16,7 +16,13 @@ export function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 export function raw(type: string, data: unknown, name?: string): RawPayload[] {
-  return [{ type, data, ...(name === undefined ? {} : { name }) }];
+  let evidence: unknown;
+  try {
+    evidence = structuredClone(data);
+  } catch {
+    evidence = { unserializable: true };
+  }
+  return [{ type, data: evidence, ...(name === undefined ? {} : { name }) }];
 }
 export function retryReason(message: string): "rate_limit" | "network" | "upstream" {
   return /429|rate.?limit|too many requests|quota/i.test(message)

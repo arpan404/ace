@@ -18,6 +18,8 @@ export class OpenCodeTranslator implements Translator {
       return this.frame(frame, now);
     } catch {
       return this.state.notice(frame.data, "malformed frame");
+    } finally {
+      this.state.refresh();
     }
   }
   private frame(frame: Frame, now: number): Fact[] {
@@ -40,8 +42,14 @@ export class OpenCodeTranslator implements Translator {
           state: "expired",
         }));
         this.state.pending.clear();
-        return facts;
+        return [...facts, ...this.state.metadata("transport.lost", "stream", frame.data)];
       }
+      if (data.type === "resynced")
+        return this.state.metadata("transport.restored", "stream", frame.data);
+      return [];
+    }
+    if (frame.channel === "clock") {
+      if (typeof data.wallTime === "number") this.state.clockOffset = now - data.wallTime;
       return [];
     }
     if (frame.channel === "http") return this.http(frame, data);
@@ -52,6 +60,7 @@ export class OpenCodeTranslator implements Translator {
         const s = this.state.session(id);
         const turn = string(data.messageID, `failed-send:${frame.seq}`);
         s.sent = false;
+        s.awaiting = false;
         return [
           { type: "turn.started", agent: this.state.key(id), nativeTurnId: turn, trigger: "user" },
           {
@@ -68,7 +77,8 @@ export class OpenCodeTranslator implements Translator {
     if (frame.channel !== "sse") return this.state.notice(frame.data, frame.channel);
     const payload = object(data.payload ?? data);
     const type = string(payload.type);
-    if (type === "sync") return [{ type: "signal" }]; // Durable twin; never apply it twice.
+    if (type === "sync")
+      return [{ type: "signal" }, ...this.state.metadata(type, "stream", frame.data)]; // Durable twin; never apply it twice.
     const eventId = string(payload.id);
     if (eventId && this.state.seenEvents.has(eventId)) return [{ type: "signal" }];
     if (eventId) {
@@ -87,9 +97,17 @@ export class OpenCodeTranslator implements Translator {
     const agent = this.state.key(id);
     const s = this.state.session(id);
     if (type === "session.created" || type === "session.updated")
-      return [...facts, ...this.state.seen(object(p.info))];
+      return [
+        ...facts,
+        ...this.state.seen(object(p.info)),
+        ...this.state.metadata(type, string(object(p.info).id), frame.data),
+      ];
     if (type === "session.status") {
+      this.state.graceDirty = true;
       const status = object(p.status);
+      facts.push(...this.state.metadata(type, id, frame.data));
+      if (status.type === "busy" || status.type === "retry")
+        for (const bg of this.state.backgrounds.values()) if (bg.child === id) delete bg.idleAt;
       if (status.type === "retry") {
         s.status = "retry";
         s.retrying = true;
@@ -115,9 +133,10 @@ export class OpenCodeTranslator implements Translator {
       }
       if (status.type !== "idle") return [...facts, ...this.state.notice(frame.data, type)];
       s.status = "idle";
+      this.state.settleParts(id);
       facts.push({ type: "retry.cleared", agent });
       for (const bg of this.state.backgrounds.values()) if (bg.child === id) bg.idleAt = now;
-      if (!s.active && s.user && s.turn !== s.user && this.state.answered.has(s.user)) {
+      if (!s.active && s.user && s.turn !== s.user && (s.error || s.abort || s.answered)) {
         const aborted = s.abort;
         const error = s.error;
         facts.push(...this.state.start(id, s));
@@ -127,7 +146,7 @@ export class OpenCodeTranslator implements Translator {
       if (!s.active) return facts;
       // A native idle does not prove that a running tool stopped, especially on abort.
       for (const partId of this.state.liveTools.get(id) ?? []) {
-        const part = this.state.parts.get(partId);
+        const part = this.state.getPart(partId);
         if (!part) continue;
         const state = object(part.data.state);
         if (
@@ -151,6 +170,8 @@ export class OpenCodeTranslator implements Translator {
         });
       }
       s.active = false;
+      s.awaiting = false;
+      s.sent = false;
       facts.push({
         type: "turn.ended",
         agent,
@@ -180,11 +201,18 @@ export class OpenCodeTranslator implements Translator {
       const info = object(p.info);
       const msg = string(info.id);
       const previous = this.state.messages.get(msg);
-      this.state.messages.set(msg, info);
-      if (this.state.clockOffset === undefined && typeof object(info.time).created === "number")
-        this.state.clockOffset = now - number(object(info.time).created);
-      if (info.role === "user" && !previous) {
+      this.state.messages.set(msg, { role: info.role, parentID: info.parentID });
+      facts.push(...this.state.metadata(type, msg, frame.data));
+      const created = number(object(info.time).created);
+      const historicalOlder =
+        p.historical === true &&
+        s.user !== undefined &&
+        (created && s.userOrder ? created < s.userOrder : msg <= s.user);
+      if (info.role === "user" && !previous && !historicalOlder) {
         s.user = msg;
+        s.userOrder = created;
+        s.answered = false;
+        s.awaiting = true;
         s.abort = false;
         delete s.error;
         s.trigger = this.state.own.has(msg) || s.sent ? "user" : "unknown";
@@ -197,13 +225,13 @@ export class OpenCodeTranslator implements Translator {
           facts.push({ type: "wake.expected", agent, until: Number.MAX_SAFE_INTEGER });
       }
       if (info.role === "assistant") {
-        if (typeof info.parentID === "string" && typeof object(info.time).completed === "number")
-          this.state.answered.add(info.parentID);
+        if (info.parentID === s.user && typeof object(info.time).completed === "number")
+          s.answered = true;
         if (!s.user && typeof info.parentID === "string") {
           s.user = info.parentID;
           if (s.status !== "idle") facts.push(...this.state.start(id, s));
         }
-        if (info.error) {
+        if (info.error && (p.historical !== true || info.parentID === s.user)) {
           const error = object(info.error);
           if (error.name === "MessageAbortedError") s.abort = true;
           else
@@ -218,7 +246,7 @@ export class OpenCodeTranslator implements Translator {
     if (type === "message.part.updated")
       return [...facts, ...translatePart(this.state, object(p.part))];
     if (type === "message.part.delta") {
-      const part = this.state.parts.get(string(p.partID));
+      const part = this.state.getPart(string(p.partID));
       if (!part) return [...facts, ...this.state.notice(frame.data, type)];
       const field =
         part.data.type === "reasoning"
@@ -229,7 +257,7 @@ export class OpenCodeTranslator implements Translator {
               ? "output"
               : undefined;
       if (!field) return [...facts, ...this.state.notice(frame.data, type)];
-      if (field !== "output") part.data.text = string(part.data.text) + string(p.delta);
+
       return [
         ...facts,
         {
@@ -255,7 +283,7 @@ export class OpenCodeTranslator implements Translator {
       if (!interaction) return [...facts, ...this.state.notice(frame.data, type)];
       if (this.state.pending.has(interaction)) return facts;
       const call = string(object(p.tool).callID);
-      const part = this.state.parts.get(call);
+      const part = this.state.getPart(call);
       const pending: Pending = {
         agent,
         ...(call ? { item: call } : {}),
@@ -287,6 +315,7 @@ export class OpenCodeTranslator implements Translator {
       this.state.pending.delete(interaction);
       return [
         ...facts,
+        ...this.state.metadata(type, interaction, frame.data),
         {
           type: "interaction.closed",
           interaction,
@@ -296,7 +325,7 @@ export class OpenCodeTranslator implements Translator {
       ];
     }
     if (type === "server.connected" || type === "server.heartbeat" || type === "session.idle")
-      return facts;
+      return [...facts, ...this.state.metadata(type, id || "stream", frame.data)];
     return [...facts, ...this.state.notice(frame.data, type || "unknown")];
   }
   private http(frame: Frame, data: Data): Fact[] {
@@ -314,7 +343,7 @@ export class OpenCodeTranslator implements Translator {
       return [];
     }
     const match = /^\/session\/([^/]+)\/(prompt_async|message|abort)$/.exec(path);
-    if (match && frame.dir === "send") {
+    if (match && frame.dir === "send" && data.method === "POST") {
       const id = string(match[1]);
       const s = this.state.session(id);
       if (match[2] === "abort") {
@@ -322,6 +351,7 @@ export class OpenCodeTranslator implements Translator {
         return [];
       }
       s.sent = true;
+      s.awaiting = true;
       if (typeof body.messageID === "string") this.state.own.add(body.messageID);
       return [{ type: "wake.expected", agent: this.state.key(id), until: Number.MAX_SAFE_INTEGER }];
     }
@@ -329,13 +359,26 @@ export class OpenCodeTranslator implements Translator {
       return this.state.notice(frame.data, "HTTP error");
     return this.state.notice(frame.data, `HTTP ${string(data.method)} ${path}`);
   }
+  isSettled(): boolean {
+    return this.state.settled();
+  }
+  nextGraceDeadline(): number | undefined {
+    return this.state.graceDeadline;
+  }
   tick(now: number): Fact[] {
     const facts: Fact[] = [];
     for (const [task, bg] of this.state.backgrounds)
-      if (bg.child && bg.idleAt !== undefined && now >= bg.idleAt + 3_000) {
+      if (
+        bg.child &&
+        bg.idleAt !== undefined &&
+        this.state.session(bg.child).status === "idle" &&
+        now >= bg.idleAt + 3_000
+      ) {
         facts.push({ type: "background.ended", task, status: "completed" });
         this.state.backgrounds.delete(task);
+        this.state.graceDirty = true;
       }
+    this.state.refresh();
     return facts;
   }
 }

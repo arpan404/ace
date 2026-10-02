@@ -1,6 +1,7 @@
 import type { AgentError, Fact, Key } from "@ace/core";
 import type { RunTrigger, ThreadId } from "@ace/protocol";
-import { raw, string, type Data } from "./data.ts";
+import { object, raw, string, type Data } from "./data.ts";
+import { RecentMap, RecentSet } from "./cache.ts";
 import type { Pending } from "./interactions.ts";
 type Session = {
   active: boolean;
@@ -13,6 +14,9 @@ type Session = {
   abort: boolean;
   error?: AgentError;
   sent: boolean;
+  awaiting: boolean;
+  userOrder?: number;
+  answered: boolean;
   planPath?: string;
   planMarkdown?: string;
 };
@@ -24,11 +28,16 @@ export class TranslationState {
   clockOffset?: number;
   sessions = new Map<string, Session>();
   parts = new Map<string, Part>();
-  messages = new Map<string, Data>();
-  messageParts = new Map<string, Set<string>>();
-  answered = new Set<string>();
+  recentParts = new RecentMap<Part>(256);
+  messages = new RecentMap<Data>(1024);
   liveTools = new Map<string, Set<string>>();
-  own = new Set<string>();
+  liveToolCount = 0;
+  private dirty = new Set<string>();
+  private unsettled = new Set<string>();
+  graceDirty = false;
+  graceDeadline: number | undefined;
+  own = new RecentSet();
+  delivered = new RecentSet();
   pending = new Map<string, Pending>();
   backgrounds = new Map<string, Background>();
   seenEvents = new Set<string>();
@@ -43,6 +52,7 @@ export class TranslationState {
     return id === this.rootNative ? this.rootKey : id;
   }
   session(id: string): Session {
+    this.dirty.add(id);
     let state = this.sessions.get(id);
     if (!state) {
       state = {
@@ -53,6 +63,8 @@ export class TranslationState {
         trigger: "unknown",
         abort: false,
         sent: false,
+        awaiting: false,
+        answered: false,
       };
       this.sessions.set(id, state);
     }
@@ -81,12 +93,84 @@ export class TranslationState {
   start(id: string, s: Session): Fact[] {
     if (!s.user || (s.active && s.turn === s.user)) return [];
     s.active = true;
+    s.awaiting = false;
     s.hasParts = false;
     s.turn = s.user;
     s.abort = false;
     delete s.error;
     return [
       { type: "turn.started", agent: this.key(id), nativeTurnId: s.turn, trigger: s.trigger },
+    ];
+  }
+  getPart(id: string): Part | undefined {
+    return this.parts.get(id) ?? this.recentParts.get(id);
+  }
+  rememberPart(id: string, item: string, data: Data, live: boolean): void {
+    // Only routing/settlement metadata belongs here; core owns accumulated content.
+    const native = object(data.state);
+    const meta = object(native.metadata);
+    const part = {
+      agent: string(data.sessionID),
+      item,
+      data: {
+        type: data.type,
+        tool: data.tool,
+        state: {
+          status: native.status,
+          title: native.title,
+          metadata: { background: meta.background, sessionId: meta.sessionId },
+        },
+      },
+    };
+    for (const key of new Set([id, item])) {
+      this.parts.delete(key);
+      this.recentParts.delete(key);
+      if (live) this.parts.set(key, part);
+      else this.recentParts.set(key, part);
+    }
+  }
+  settleParts(id: string): void {
+    for (const [key, part] of this.parts) {
+      if (part.agent === id && part.data.type !== "tool") {
+        this.parts.delete(key);
+        this.recentParts.set(key, part);
+      }
+    }
+  }
+  refresh(): void {
+    for (const id of this.dirty) {
+      const s = this.sessions.get(id);
+      if (s && (s.active || s.awaiting || s.sent || s.status !== "idle")) this.unsettled.add(id);
+      else this.unsettled.delete(id);
+    }
+    this.dirty.clear();
+    if (this.graceDirty) {
+      this.graceDeadline = undefined;
+      for (const bg of this.backgrounds.values())
+        if (bg.idleAt !== undefined)
+          this.graceDeadline = Math.min(this.graceDeadline ?? Infinity, bg.idleAt + 3000);
+      this.graceDirty = false;
+    }
+  }
+  settled(): boolean {
+    return (
+      !this.pending.size && !this.backgrounds.size && !this.liveToolCount && !this.unsettled.size
+    );
+  }
+  metadata(name: string, key: string, data: unknown): Fact[] {
+    return [
+      {
+        type: "item.upsert",
+        agent: this.rootKey,
+        item: `native:${name}:${key}`,
+        draft: {
+          type: "notice",
+          complete: true,
+          level: "info",
+          text: `OpenCode ${name}`,
+          raw: raw(name, data),
+        },
+      },
     ];
   }
   notice(data: unknown, name: string): Fact[] {

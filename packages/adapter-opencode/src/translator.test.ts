@@ -241,7 +241,11 @@ describe("OpenCode translation", () => {
       data: { part: { id: "p1", sessionID: "ses_root", type: "text", text: "hello" } },
     });
     expect(Object.values(h.view.items).filter((i) => i.type === "message")).toHaveLength(1);
-    expect(Object.values(h.view.items).find((i) => i.type === "notice")).toMatchObject({
+    expect(
+      Object.values(h.view.items).find(
+        (i) => i.type === "notice" && i.text === "OpenCode future.event",
+      ),
+    ).toMatchObject({
       raw: [{ data: { payload: { properties: p } } }],
     });
     const translator = new OpenCodeTranslator({
@@ -373,6 +377,7 @@ describe("OpenCode translation", () => {
   });
   it("converts native retry deadlines into the injected replay clock", () => {
     const h = setup();
+    h.feed({ seq: 99, t: 10, dir: "note", channel: "clock", data: { wallTime: 10_000 } });
     h.event(
       "message.updated",
       { sessionID: "ses_root", info: { id: "msg_clock", role: "user", time: { created: 10_000 } } },

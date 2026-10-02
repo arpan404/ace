@@ -9,14 +9,16 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
   const partId = string(p.id);
   if (!partId) return state.notice(p, "part without id");
   const item = p.type === "tool" ? string(p.callID, partId) : partId;
-  const previous = state.parts.get(partId);
-  const part = { agent: id, data: structuredClone(p), item };
-  state.parts.set(partId, part);
-  const messageID = string(p.messageID);
-  const messageParts = state.messageParts.get(messageID) ?? new Set<string>();
-  messageParts.add(partId);
-  state.messageParts.set(messageID, messageParts);
-  if (p.type === "tool") state.parts.set(item, part);
+  const previous = state.getPart(partId);
+  const nativeStatus = string(object(p.state).status);
+  state.rememberPart(
+    partId,
+    item,
+    p,
+    p.type === "tool"
+      ? ["pending", "running"].includes(nativeStatus)
+      : (p.type === "text" || p.type === "reasoning") && typeof object(p.time).end !== "number",
+  );
   const facts: Fact[] = [];
   const message = state.messages.get(string(p.messageID));
   if (p.type === "text" || p.type === "reasoning") {
@@ -30,8 +32,10 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
       user && !state.own.has(string(p.messageID)) && p.synthetic === true
         ? /^<task id="([^"]+)" state="(completed|error)">/.exec(text)
         : null;
+    if (task) state.delivered.add(string(task[1]));
     if (task && state.backgrounds.has(string(task[1]))) {
       s.trigger = "subagent_result";
+      s.awaiting = true;
       facts.push(
         { type: "wake.expected", agent, until: Number.MAX_SAFE_INTEGER },
         {
@@ -41,6 +45,7 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
         },
       );
       state.backgrounds.delete(string(task[1]));
+      state.graceDirty = true;
     }
     facts.push({
       type: "item.upsert",
@@ -76,9 +81,12 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
     s.hasParts = true;
     const nativeState = object(p.state);
     const live = state.liveTools.get(id) ?? new Set<string>();
+    const previousSize = live.size;
     if (["pending", "running"].includes(string(nativeState.status))) live.add(partId);
     else live.delete(partId);
-    state.liveTools.set(id, live);
+    state.liveToolCount += live.size - previousSize;
+    if (live.size) state.liveTools.set(id, live);
+    else state.liveTools.delete(id);
     const meta = object(nativeState.metadata);
     const input = object(nativeState.input);
     const name = string(p.tool);
@@ -107,6 +115,7 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
 
     const child = string(meta.sessionId);
     const d = detail(name, input, meta, state.mcp);
+    if (d.kind === "agent.spawn") delete d.childAgent;
     let status = toolStatus(nativeState, s.abort && (!message || message.parentID === s.turn));
     if (
       [...state.pending.values()].some((v) => v.item === item) &&
@@ -145,9 +154,11 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
       });
       if (
         meta.background === true &&
+        !state.delivered.has(child) &&
         !state.backgrounds.has(child) &&
         object(object(previous?.data.state).metadata).background !== true
       ) {
+        state.graceDirty = true;
         state.backgrounds.set(child, { agent: id, child, item });
         facts.push({
           type: "background.started",
@@ -173,6 +184,7 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
         status: status === "cancelled" ? "stopped" : status === "failed" ? "failed" : "completed",
       });
       state.backgrounds.delete(survivor);
+      state.graceDirty = true;
     }
   } else if (p.type === "step-finish") {
     const tokens = object(p.tokens);
