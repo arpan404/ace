@@ -9,6 +9,19 @@ export interface ItemIdentity {
   runId?: RunId;
 }
 
+/** Partial details inherit their kind from the call or existing item. */
+export function itemDetailKind(
+  previous: Item | undefined,
+  patch: ItemDraft,
+): ToolDetail["kind"] | undefined {
+  if (patch.type !== "tool_call") return undefined;
+  return (
+    patch.call?.detail?.kind ??
+    patch.call?.kind ??
+    (previous?.type === "tool_call" ? previous.call.detail.kind : undefined)
+  );
+}
+
 /** Pure candidate construction lets validation finish before identity allocation. */
 export function itemInput(
   previous: Item | undefined,
@@ -20,10 +33,12 @@ export function itemInput(
   if (patch.type === "tool_call") {
     const priorCall = previous?.type === "tool_call" ? previous.call : undefined;
     const detail = patch.call?.detail;
-    const kind = patch.call?.kind ?? detail?.kind ?? priorCall?.kind ?? "custom";
+    const kind = patch.call?.kind ?? itemDetailKind(previous, patch) ?? "custom";
+    const detailChanges: Record<string, unknown> = { ...detailPatch };
+    if (detailChanges.output === undefined) delete detailChanges.output;
     const mergedDetail: Record<string, unknown> = {
       ...(priorCall?.detail.kind === (detail?.kind ?? kind) ? priorCall.detail : { kind }),
-      ...detailPatch,
+      ...detailChanges,
     };
     if (mergedDetail.kind === "shell" && typeof mergedDetail.output === "string")
       mergedDetail.output = summarizeOutput(base.id, mergedDetail.output);

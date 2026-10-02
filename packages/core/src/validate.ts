@@ -17,7 +17,7 @@ import {
 } from "@ace/protocol";
 import type { Fact, ItemDraft, ToolDetailDraft } from "./facts.ts";
 import { get } from "./emit.ts";
-import { itemInput } from "./item-input.ts";
+import { itemDetailKind, itemInput } from "./item-input.ts";
 import type { ThreadState } from "./state.ts";
 import { isFactData, preservesFields, validData } from "./fact-data.ts";
 
@@ -145,7 +145,9 @@ function itemError(state: ThreadState, fact: Fields, now: number): string | unde
   if (detail?.kind === "agent.message" && !optionalString(detail.targetAgent))
     return "target agent key must be a string";
   if (
-    detail?.kind === "shell" &&
+    itemDetailKind(previous, draft) === "shell" &&
+    detail &&
+    "output" in detail &&
     typeof detail.output === "string" &&
     previous?.type === "tool_call" &&
     previous.call.detail.kind === "shell"

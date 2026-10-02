@@ -4,7 +4,7 @@ import type { Fact, ItemDraft, Key, ToolDetailDraft } from "./facts.ts";
 import type { ApplyContext, ThreadState } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
 import { ensureAgent, linkAgent } from "./tree.ts";
-import { itemInput } from "./item-input.ts";
+import { itemDetailKind, itemInput } from "./item-input.ts";
 import { refreshItemIndex } from "./indexes.ts";
 
 function canonicalDetail(
@@ -64,7 +64,12 @@ export function upsertItem(
   );
   const item = Item.parse(input);
   const legacy =
-    detail?.kind === "shell" && typeof detail.output === "string" ? detail.output : undefined;
+    itemDetailKind(previous, patch) === "shell" &&
+    detail &&
+    "output" in detail &&
+    typeof detail.output === "string"
+      ? detail.output
+      : undefined;
   const previousOutput =
     previous?.type === "tool_call" && previous.call.detail.kind === "shell"
       ? previous.call.detail.output
