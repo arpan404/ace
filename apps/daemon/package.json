@@ -20,6 +20,7 @@
   "dependencies": {
     "@ace/mcp-server": "workspace:*",
     "@ace/notify": "workspace:*",
+    "@ace/preview": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",

@@ -1,3 +1,5 @@
+import type { DaemonPreview, DaemonPreviewOptions } from "./preview.ts";
+export type { DaemonPreview, DaemonPreviewOptions } from "./preview.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
@@ -26,9 +28,11 @@ export async function startDaemon(
   handler: CommandHandler = stubHandler(),
   toolkits: readonly Toolkit[] = [],
   notificationChannels?: Omit<NotificationChannels, "websocket">,
+  previewOptions?: DaemonPreviewOptions,
 ): Promise<{
   url: string;
   tokenPath: string;
+  preview?: DaemonPreview;
   store: Store;
   notifications: NotificationWorker;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
@@ -97,6 +101,7 @@ export async function startDaemon(
       store,
       handler,
       notifications: notifications.service,
+      ...(previewOptions ? { preview: previewOptions } : {}),
       log: (error) => log("error", "WebSocket failure", error),
     });
     notifications.setSender(server.notify);
@@ -111,6 +116,7 @@ export async function startDaemon(
         ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
         : {}),
       tokenPath,
+      ...(server.preview ? { preview: server.preview } : {}),
       store,
       notifications: notifications.service,
       mcp,
