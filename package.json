@@ -4,7 +4,8 @@
   "license": "Apache-2.0",
   "workspaces": [
     "packages/*",
-    "tools/*"
+    "tools/*",
+    "apps/*"
   ],
   "type": "module",
   "scripts": {
@@ -13,8 +14,9 @@
     "lint": "oxlint --deny-warnings",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "vitest run",
-    "check": "bun run fmt:check && bun run lint && bun run typecheck && bun run test",
-    "record": "bun run --filter @ace/recorder record"
+    "check": "bun run fmt:check && bun run lint && bun run check:size && bun run typecheck && bun run test",
+    "record": "bun run --filter @ace/recorder record",
+    "check:size": "node scripts/check-file-size.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

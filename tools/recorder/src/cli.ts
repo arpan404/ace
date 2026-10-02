@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { installShutdownHandlers } from "@ace/provider-kit/process";
 import { claude } from "./providers/claude.ts";
 import { codex } from "./providers/codex.ts";
 import { cursor } from "./providers/cursor.ts";
@@ -123,4 +124,9 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+const removeShutdownHandlers = installShutdownHandlers({ graceMs: 5_000 });
+try {
+  await main();
+} finally {
+  removeShutdownHandlers();
+}
