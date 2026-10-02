@@ -21,6 +21,8 @@ export function accessHttp(
   auth: RemoteAuth,
   authenticate: (token: string) => Device | undefined,
   pairing: () => { origin: string; fingerprint: string } | undefined,
+  sourceAddress: (request: IncomingMessage) => string = (request) =>
+    request.socket.remoteAddress ?? "unknown",
 ) {
   return (request: IncomingMessage, response: ServerResponse) => {
     void (async () => {
@@ -33,7 +35,7 @@ export function accessHttp(
       const actor = () => authenticate(token);
       let result: unknown;
       if (path === "/v1/pair" && request.method === "POST") {
-        auth.pairingAttempt(request.socket.remoteAddress ?? "unknown");
+        auth.pairingAttempt(sourceAddress(request));
         const data = PairingRedemption.safeParse(await body(request));
         if (!data.success) throw new AccessError(400, "Invalid pairing redemption");
         result = auth.redeem(data.data.code, data.data.name);

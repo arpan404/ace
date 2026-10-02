@@ -1,8 +1,11 @@
+import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
+import { z } from "zod";
+import { defaultTicketLimits, type TicketLimits } from "./ticket-pool.ts";
 import { createServer as httpServer } from "node:http";
 import { createServer as httpsServer } from "node:https";
-import type { Server } from "node:http";
+import type { Server, IncomingMessage } from "node:http";
 import { accessHttp } from "./access-http.ts";
-import { allows, secret, type Device } from "./devices.ts";
+import { allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost, type RemoteListener } from "./network.ts";
 import { WebSocket, WebSocketServer } from "ws";
@@ -35,6 +38,9 @@ export interface ServerOptions {
   port: number;
   remote?: RemoteListener;
   now?: () => number;
+  entropy?: EntropySource;
+  pairingAddress?: (request: IncomingMessage) => string;
+  ticketLimits?: Partial<TicketLimits>;
   token: string;
   hostId: string;
   store: Store;
@@ -54,20 +60,33 @@ export async function startServer(options: ServerOptions): Promise<{
 }> {
   const hostId = HostId.parse(options.hostId);
   if (!/^[0-9a-f]{64}$/.test(options.token)) throw new Error("Invalid server token");
-  const auth = new RemoteAuth(options.store.devices, options.token, {
-    now: options.now ?? Date.now,
-    secret,
-  });
+  const auth = new RemoteAuth(
+    options.store.devices,
+    options.token,
+    {
+      now: options.now ?? Date.now,
+      secret: () => generateSecret(options.entropy ?? systemCredentials.randomBytes),
+    },
+    z
+      .object({
+        global: z.number().int().positive(),
+        perDevice: z.number().int().positive(),
+        perMinute: z.number().int().positive(),
+      })
+      .parse({ ...defaultTicketLimits, ...options.ticketLimits }),
+  );
   let remoteOrigin: string | undefined;
   const pairing = () =>
     options.remote && remoteOrigin
       ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
       : undefined;
-  const local = httpServer(accessHttp(auth, auth.localBearer.bind(auth), pairing));
+  const local = httpServer(
+    accessHttp(auth, auth.localBearer.bind(auth), pairing, options.pairingAddress),
+  );
   const remote = options.remote
     ? httpsServer(
         { ...options.remote.identity, minVersion: "TLSv1.2" },
-        accessHttp(auth, auth.deviceBearer.bind(auth), pairing),
+        accessHttp(auth, auth.deviceBearer.bind(auth), pairing, options.pairingAddress),
       )
     : undefined;
   for (const listener of [local, remote])

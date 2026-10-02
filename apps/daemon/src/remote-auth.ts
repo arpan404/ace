@@ -1,3 +1,4 @@
+import { TicketPool, defaultTicketLimits, type TicketLimits } from "./ticket-pool.ts";
 import { DeviceId } from "@ace/protocol";
 import { allows, hash, type Device, type Devices, type Scope } from "./devices.ts";
 import { validToken } from "./local-files.ts";
@@ -11,7 +12,7 @@ export class AccessError extends Error {
 }
 export class RemoteAuth {
   private codes = new Map<string, { expiresAt: number; scopes: Scope[] }>();
-  private tickets = new Map<string, { expiresAt: number; deviceId: string }>();
+  private tickets: TicketPool;
   private attempts = new Map<string, { count: number; resetsAt: number }>();
   private devices: Devices;
   private localToken: string;
@@ -22,11 +23,13 @@ export class RemoteAuth {
     devices: Devices,
     localToken: string,
     runtime: { now: () => number; secret: () => string },
+    limits: TicketLimits = defaultTicketLimits,
   ) {
     this.devices = devices;
     this.localToken = localToken;
     this.now = runtime.now;
     this.secret = runtime.secret;
+    this.tickets = new TicketPool(limits);
   }
   local(token: string): boolean {
     return validToken(token, this.localToken);
@@ -67,19 +70,16 @@ export class RemoteAuth {
     return this.devices.create(name, pairing.scopes, this.now());
   }
   ticket(device: Device): { ticket: string; expiresAt: number } {
-    this.prune(this.tickets);
-    if (this.tickets.size >= 10_000) throw new AccessError(429, "Too many pending tickets");
     const ticket = this.secret();
-    const expiresAt = this.now() + 60_000;
-    this.tickets.set(hash(ticket), { expiresAt, deviceId: device.id });
+    const allocation = this.tickets.issue(hash(ticket), device.id, this.now());
+    if ("error" in allocation) throw new AccessError(429, allocation.error);
+    const { expiresAt } = allocation;
     return { ticket, expiresAt };
   }
   consume(ticket: string): Device | undefined {
-    const key = hash(ticket);
-    const entry = this.tickets.get(key);
-    this.tickets.delete(key);
-    if (!entry || entry.expiresAt <= this.now()) return undefined;
-    const device = this.devices.get(entry.deviceId);
+    const deviceId = this.tickets.consume(hash(ticket), this.now());
+    if (!deviceId) return undefined;
+    const device = this.devices.get(deviceId);
     if (!device || device.revokedAt !== null) return undefined;
     this.devices.touch(device.id, this.now());
     return device;
@@ -89,6 +89,7 @@ export class RemoteAuth {
   }
   revoke(id: string): boolean {
     if (!this.devices.revoke(id, this.now())) return false;
+    this.tickets.revoke(id);
     for (const listener of this.revoked) listener(id);
     return true;
   }

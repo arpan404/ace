@@ -13,9 +13,10 @@ export const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
-export async function setup() {
+export async function setup(serverOptions: Parameters<typeof fixture>[0] = {}) {
   let time = 1000;
   const f = await fixture({
+    ...serverOptions,
     now: () => time,
     remote: { host: "127.0.0.1", advertisedHost: "127.0.0.1", port: 0, identity },
   });

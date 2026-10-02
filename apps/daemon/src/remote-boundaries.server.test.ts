@@ -87,3 +87,33 @@ it("rejects hello containing two credentials even when one is valid", async () =
   });
   expect(await client.next()).toMatchObject({ type: "error", code: "unauthorized" });
 });
+
+it("rejects oversized redemption bodies without consuming their pairing code", async () => {
+  const f = await setup();
+  const pairing = await f.pairing();
+  const code = new URLSearchParams(new URL(pairing.url).hash.slice(1)).get("code");
+  await expect(
+    f.remoteRequest("/v1/pair", {
+      method: "POST",
+      body: { code, name: "Phone", padding: "x".repeat(100 * 1024) },
+    }),
+  ).rejects.toThrow("HTTP 413");
+  expect(await redeemPairing(pairing.url, "Phone")).toMatchObject({ device: { name: "Phone" } });
+});
+
+it("enforces a global pairing budget across distinct source addresses and resets the window", async () => {
+  // Source addresses are an injected network fact, avoiding privileged OS interface aliases.
+  let request = 0;
+  const f = await setup({ pairingAddress: () => `source-${Math.floor(request++ / 5)}` });
+  for (let attempt = 0; attempt < 100; attempt++)
+    await expect(
+      f.remoteRequest("/v1/pair", { method: "POST", body: { code: "wrong", name: "Phone" } }),
+    ).rejects.toThrow("HTTP 401");
+  await expect(
+    f.remoteRequest("/v1/pair", { method: "POST", body: { code: "wrong", name: "Phone" } }),
+  ).rejects.toThrow("HTTP 429");
+  f.advance(60_000);
+  await expect(
+    f.remoteRequest("/v1/pair", { method: "POST", body: { code: "wrong", name: "Phone" } }),
+  ).rejects.toThrow("HTTP 401");
+});
