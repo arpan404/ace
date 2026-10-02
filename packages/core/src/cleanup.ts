@@ -93,6 +93,7 @@ export function exitProcess(
     });
   }
   for (const record of Object.values(state.agents)) {
+    delete record.disconnectedAt;
     delete record.retry;
     delete record.wakeUntil;
     if (!record.activeRun) {
