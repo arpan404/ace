@@ -10,6 +10,13 @@ export * from "./thread.ts";
 export * from "./terminal.ts";
 export * from "./tools.ts";
 export * from "./wire.ts";
+export * from "./models.ts";
+export * from "./orchestration.ts";
+export * from "./orchestration-execution.ts";
+export * from "./orchestration-state.ts";
+
+export * from "./orchestration-comparison.ts";
+export * from "./orchestration-spawn.ts";
 
 export * from "./notifications.ts";
 export * from "./mcp.ts";
