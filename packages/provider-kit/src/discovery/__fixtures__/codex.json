@@ -1,0 +1,31 @@
+{
+  "capturedAt": "2026-10-02T12:34:00.822Z",
+  "command": "codex",
+  "resolvedPath": "<HOME><PATH>",
+  "version": {
+    "code": 0,
+    "signal": null,
+    "reason": "exit",
+    "stdout": "codex-cli 0.159.1",
+    "stderr": "",
+    "lines": [
+      {
+        "stream": "stdout",
+        "text": "codex-cli 0.159.1"
+      }
+    ]
+  },
+  "auth": {
+    "code": 0,
+    "signal": null,
+    "reason": "exit",
+    "stdout": "",
+    "stderr": "Logged in using ChatGPT",
+    "lines": [
+      {
+        "stream": "stderr",
+        "text": "Logged in using ChatGPT"
+      }
+    ]
+  }
+}

@@ -22,7 +22,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Read required Node major
         id: node
@@ -63,6 +63,9 @@ jobs:
 
       - name: Lint
         run: bun run lint
+
+      - name: File size limit
+        run: bun run check:size
 
       - name: Typecheck
         run: bun run typecheck
