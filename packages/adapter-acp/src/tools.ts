@@ -123,14 +123,44 @@ export function todos(value: unknown): TodoEntry[] {
   });
 }
 
-/** Partial native input refreshes enrich placeholders without discarding earlier input fields. */
+/** Carry interpreted fields between partial refreshes; opaque history belongs to the raw collector. */
 export function mergeToolData(data: Data, update: Data): void {
   for (const field of ["kind", "title", "name", "rawInput", "rawOutput", "content", "_meta"]) {
     if (!Object.hasOwn(update, field)) continue;
     const value = update[field];
-    data[field] =
-      field === "rawInput" && value !== null && typeof value === "object" && !Array.isArray(value)
-        ? { ...object(data[field]), ...object(value) }
-        : value;
+    if (field === "name" && typeof value !== "string") continue;
+    if (field === "rawInput") {
+      if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
+      const previous = object(data[field]);
+      const retained: Data = {};
+      for (const key of inputFields)
+        if (Object.hasOwn(previous, key)) retained[key] = previous[key];
+      // Interpret known fields plus this change, not accumulated opaque input history.
+      data[field] = { ...retained, ...object(value) };
+    } else data[field] = value;
   }
 }
+const inputFields = [
+  "_toolName",
+  "command",
+  "CommandLine",
+  "commandLine",
+  "Cwd",
+  "path",
+  "TargetFile",
+  "file_path",
+  "pattern",
+  "query",
+  "SearchDirectory",
+  "Query",
+  "url",
+  "Url",
+  "providerIdentifier",
+  "toolName",
+  "args",
+  "description",
+  "prompt",
+  "subagentType",
+  "plan",
+  "todos",
+];

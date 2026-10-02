@@ -1,6 +1,6 @@
 import type { TranslatorIdentity } from "./identity.ts";
 import { promptStop } from "./settlement.ts";
-import { retainToolRaw } from "./tool-raw.ts";
+import { retainToolRaw, completeToolRaw } from "./tool-raw.ts";
 import { decodeContent } from "./content.ts";
 import type { Fact } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
@@ -213,10 +213,16 @@ class AcpTranslator implements Translator {
           "session/update",
           string(object(tool.data["rawInput"])["_toolName"] ?? tool.data["name"]),
         ),
+        update,
       );
       if (["pending", "running", "awaiting_approval"].includes(tool.status)) s.liveTools.add(tool);
       else s.liveTools.delete(tool);
+      const assembledInput = ["completed", "failed", "cancelled"].includes(string(update["status"]))
+        ? completeToolRaw(tool)
+        : undefined;
       const detail = toolDetail(tool.data, s.quirks);
+      if (assembledInput && detail.kind === "mcp")
+        detail.arguments = assembledInput["args"] ?? assembledInput;
       facts.push({
         type: "item.upsert",
         agent: agent.key,
@@ -322,7 +328,7 @@ class AcpTranslator implements Translator {
     }
     if (kind === "plan" && agent.planTool) {
       const tool = agent.planTool;
-      retainToolRaw(tool, raw(frame, "session/update"));
+      retainToolRaw(tool, raw(frame, "session/update"), update);
       facts.push({
         type: "item.upsert",
         agent: agent.key,

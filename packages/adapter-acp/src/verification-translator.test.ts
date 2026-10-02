@@ -1,6 +1,7 @@
 import { it, expect } from "vitest";
 import { harness, required, spawn, end } from "./test-helper.ts";
 import { nativeAgentKey } from "./index.ts";
+import { EventPayload } from "@ace/protocol";
 it("reparents a child linked to a former parent's tool without rejecting or moving that tool", () => {
   const h = harness();
   h.ready();
@@ -14,10 +15,23 @@ it("reparents a child linked to a former parent's tool without rejecting or movi
   spawn(h, "leaf", "root-session", "spawn-tool");
   spawn(h, "branch");
   const original = required(h.tools()[0]);
-  h.update({ sessionUpdate: "subagent_update", sessionId: "leaf", state: null }, "branch");
+  const repaired = h.update(
+    { sessionUpdate: "subagent_update", sessionId: "leaf", state: null },
+    "branch",
+  );
   const leaf = required(h.state.agents[nativeAgentKey("fixture-thread", "leaf")]).agent;
   const branch = required(h.state.agents[nativeAgentKey("fixture-thread", "branch")]).agent;
   expect(leaf.parentId).toBe(branch.id);
+  expect(leaf.spawnedBy).toBeNull();
+  const cleared = required(
+    repaired.find((event) => event.type === "agent.updated" && event.spawnedBy === null),
+  );
+  expect(EventPayload.parse(JSON.parse(JSON.stringify(cleared)))).toMatchObject({
+    type: "agent.updated",
+    agentId: leaf.id,
+    parentId: branch.id,
+    spawnedBy: null,
+  });
   expect(required(h.tools()[0]).agentId).toBe(original.agentId);
   h.update({ sessionUpdate: "tool_call_update", toolCallId: "spawn-tool", status: "completed" });
   expect(required(h.state.agents[nativeAgentKey("fixture-thread", "leaf")]).agent.parentId).toBe(
@@ -40,6 +54,9 @@ it("preserves delayed actual native input and name in the completed tool snapsho
     rawInput: { path: "/actual", futureInput: "essential-custom", _toolName: "readNative" },
   });
   h.update({ sessionUpdate: "tool_call_update", toolCallId: "read", rawInput: { offset: 5 } });
+  expect(JSON.stringify(required(h.tools()[0]).call.raw)).toContain(
+    '"futureInput":"essential-custom"',
+  );
   h.update({ sessionUpdate: "tool_call_update", toolCallId: "read", status: "in_progress" });
   h.update({
     sessionUpdate: "tool_call_update",
@@ -185,5 +202,52 @@ it("finishes the original background task when its child completes under a repai
     state: "completed",
   });
   expect(Object.values(h.state.tasks).map((task) => task.status)).toEqual(["completed"]);
+  expect(h.state.status.state).toBe("done");
+});
+
+it("a settled shell ID creates a new tool after restarting the same native session", () => {
+  const h = harness();
+  h.ready();
+  h.update({
+    sessionUpdate: "tool_call",
+    toolCallId: "s",
+    kind: "execute",
+    status: "in_progress",
+    rawInput: { command: "first-command" },
+  });
+  end(h, "cancelled");
+  h.update({
+    sessionUpdate: "tool_call_update",
+    toolCallId: "s",
+    status: "completed",
+    rawOutput: { exitCode: 0 },
+  });
+  const original = required(h.tools()[0]);
+  h.frame("note", { event: "process-exit", detail: { deliberate: false } });
+  h.frame("note", { event: "process-start" });
+  h.frame("send", { id: 3, method: "session/load", params: { sessionId: "root-session" } });
+  h.frame("recv", { id: 3, result: { sessionId: "root-session" } });
+  h.frame("send", {
+    id: 4,
+    method: "session/prompt",
+    params: { sessionId: "root-session", prompt: [] },
+  });
+  h.update({
+    sessionUpdate: "tool_call",
+    toolCallId: "s",
+    kind: "execute",
+    status: "in_progress",
+    rawInput: { command: "second-command" },
+  });
+  expect(h.tools()).toHaveLength(2);
+  expect(required(h.tools()[0])).toMatchObject({
+    id: original.id,
+    call: { status: "succeeded", detail: { command: "first-command" } },
+  });
+  expect(required(h.tools()[1]).id).not.toBe(original.id);
+  expect(h.state.status.state).toBe("working");
+  h.update({ sessionUpdate: "tool_call_update", toolCallId: "s", status: "completed" });
+  h.frame("recv", { id: 4, result: { stopReason: "end_turn" } });
+  expect(h.tools().map((tool) => tool.call.status)).toEqual(["succeeded", "succeeded"]);
   expect(h.state.status.state).toBe("done");
 });

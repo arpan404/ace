@@ -22,6 +22,9 @@ export interface AgentState {
 export interface ToolState {
   nativeId: string;
   inputRaw?: RawPayload;
+  initialRaw?: RawPayload;
+  originalInput?: Data;
+  inputParts?: Map<string, unknown>;
   key: string;
   owner: AgentState;
   data: Data;

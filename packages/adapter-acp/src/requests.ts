@@ -25,7 +25,7 @@ export function openRequest(
   const owner = tool?.owner ?? s.agent(string(params["sessionId"]), facts);
   if (!request) {
     if (method.startsWith("cursor/") && tool) {
-      retainToolRaw(tool, raw(frame, method));
+      retainToolRaw(tool, raw(frame, method), {});
       facts.push({
         type: "item.upsert",
         agent: owner.key,
@@ -99,7 +99,7 @@ export function answerRequest(
     tool.status = tool.declined ? "declined" : "running";
     if (tool.declined) s.liveTools.delete(tool);
     else s.liveTools.add(tool);
-    retainToolRaw(tool, raw(frame, pending.method));
+    retainToolRaw(tool, raw(frame, pending.method), {});
     facts.push({
       type: "item.upsert",
       agent: pending.owner.key,
