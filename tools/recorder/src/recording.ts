@@ -1,24 +1,8 @@
 import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { dirname } from "node:path";
 
-/**
- * Direction of a recorded frame, from ace's point of view.
- * - `send`: ace → provider
- * - `recv`: provider → ace
- * - `stderr`: provider stderr text
- * - `note`: recorder annotation (process exit, interrupt sent, timeouts)
- */
-export type FrameDirection = "send" | "recv" | "stderr" | "note";
-
-export type Frame = {
-  seq: number;
-  /** Milliseconds since the recording started. */
-  t: number;
-  dir: FrameDirection;
-  /** Transport-specific channel, e.g. `stdio`, `sse`, `http`, `sdk`. */
-  channel: string;
-  data: unknown;
-};
+import type { Frame, FrameDirection } from "@ace/engine-api";
+export type { Frame, FrameDirection } from "@ace/engine-api";
 
 export type RecordingHeader = {
   format: "ace-recording/v1";
