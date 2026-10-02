@@ -223,20 +223,26 @@ it("rejects symlink parents on resumed upload and every mutation", async () => {
     }),
   ).toMatchObject({ code: "PATH_ESCAPE" });
   const operations: FileOperation[] = [
-    { op: "write", path: "dir/a", expected: null, text: "bad" },
-    { op: "create", path: "dir/a", expected: null, text: "bad" },
-    { op: "mkdir", path: "dir/a", expected: null },
+    { op: "write", path: "dir/other", expected: null, text: "bad" },
+    { op: "create", path: "dir/other", expected: null, text: "bad" },
+    { op: "mkdir", path: "dir/other", expected: null },
     {
       op: "rename",
-      path: "dir/a",
+      path: "dir/other",
       expected: null,
       destination: "other",
       destinationExpected: null,
     },
-    { op: "move", path: "dir/a", expected: null, destination: "other", destinationExpected: null },
-    { op: "delete", path: "dir/a", expected: null },
-    { op: "restore", path: "dir/a", expected: null, trashId: "none" },
-    { op: "upload.begin", path: "dir/a", expected: null, size: 1 },
+    {
+      op: "move",
+      path: "dir/other",
+      expected: null,
+      destination: "other",
+      destinationExpected: null,
+    },
+    { op: "delete", path: "dir/other", expected: null },
+    { op: "restore", path: "dir/other", expected: null, trashId: "none" },
+    { op: "upload.begin", path: "dir/other", expected: null, size: 1 },
   ];
   for (const operation of operations)
     expect(await client.request(operation)).toMatchObject({ code: "PATH_ESCAPE" });

@@ -260,6 +260,9 @@ it("discovers and restores trash after the deleting client loses its response", 
   expect(listing.value.entries[0]?.path).toBe("lost");
   const entry = listing.value.entries.at(0);
   if (!entry) throw new Error("No recovery entry");
+  expect(
+    await reconnected.request({ op: "restore", path: "lost", expected: null, trashId: entry.id }),
+  ).toMatchObject({ code: "FORBIDDEN" });
   const writer = await f.connect();
   expect(
     await writer.request({ op: "restore", path: "lost", expected: null, trashId: entry.id }),

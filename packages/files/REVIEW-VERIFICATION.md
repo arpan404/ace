@@ -4,7 +4,7 @@ Tests use real files, real WebSockets and pinned remote WSS. The 200 MiB downloa
 
 ## Verification policy
 
-The repo owner now permits only static checks before merge. Current-head behavior tests, mutation checks, benchmarks and runtime probes need run at merge. Earlier executions predated this policy and do not verify the current head. No further runtime checks were executed after the rule arrived. Delivery static checks passed: `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size`. The final merge includes main through `50c725f`, including Conductor and process-test reliability.
+The repo owner now permits only static checks before merge. Current-head behavior tests, mutation checks, benchmarks and runtime probes need run at merge. Earlier executions predated this policy and do not verify the current head. No further runtime checks were executed after the rule arrived. Delivery static checks passed: `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size`. The final merge includes main through `4c2d6fb`, including reviewed workspace, diagnostics and shared audit fixes.
 
 ## Mutation cases
 
@@ -69,3 +69,5 @@ These are informational measurements, not gating speed thresholds. Shared-machin
 ## Review regression evidence
 
 All review items have corresponding code changes and authored public behavior assertions. The point-by-point map is in [REVIEW-FIXES.md](./REVIEW-FIXES.md). This is static evidence, not an observed failing/passing run or a confirmed mutation kill. No test, mutation, benchmark, flakiness run, probe or GitHub CI was executed for these fixes. New `bench:artifacts` and daemon `bench:files` report throughput/ops and peak RSS when executed at merge. Their numbers, native interoperability and current-head memory bounds need run at merge.
+
+The final main merge retains the workspace owner's descriptor-based reads, streaming search and runtime injection. Its native descriptor bridge is built by the normal install lifecycle at merge. Installation here used `--ignore-scripts`; native build and interoperability need run at merge. The daemon now reuses diagnostics `writeSupportBundle` for `artifact.support`, with redaction, no thread transcripts/provider probes, bounded input/staging, and reserved export space. The support-bundle socket/redaction regression is not executed (tests run at merge).

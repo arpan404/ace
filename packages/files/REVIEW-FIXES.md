@@ -1,6 +1,6 @@
 # PR #44 review fixes
 
-The review titled "PR #44 review" was read with `gh pr view 44 --comments`. All blocking and non-blocking findings are addressed below. No separate comment titled "Integration rehearsal: findings for this PR" was present. Main is merged through `50c725f`, without rebasing.
+The review titled "PR #44 review" was read with `gh pr view 44 --comments`. All blocking and non-blocking findings are addressed below. No separate comment titled "Integration rehearsal: findings for this PR" was present. Main is merged through `4c2d6fb`, without rebasing.
 
 The owner's latest rule prohibits running tests, mutation checks, benchmarks, probes and CI. These are code changes and authored regression assertions, reviewed statically. Reproduction failures, passing results, mutation kills, native interoperability, memory bounds and current-head benchmark measurements all **need run at merge**. No current-head execution claim is made.
 
@@ -18,7 +18,7 @@ The owner's latest rule prohibits running tests, mutation checks, benchmarks, pr
 
 - Cleanup now compares stored device/inode with the temp before unlinking and rechecks after parent verification. The replacement-inode case asserts unrelated content survives.
 - Normal daemon startup supplies the durable file-event sink. An indexed query visits affected live threads, batching 64 events per transaction. Canonical `workspace.files_changed` events advance projection sequence without changing agent status. The production daemon integration test checks matching-workspace events and excludes another workspace.
-- Normal startup registers `daemon-support`. Read-authorized output/raw export requests produce immutable registry files through bounded byte reads and SQLite incremental blob I/O. The integration test checks exact support/output/raw bytes, read-only credentials and foreign-workspace denial. Recording/screenshot producers use the trusted registration API when those owners land.
+- Normal startup registers `daemon-support`. Read-authorized support/output/raw export requests produce immutable registry files through bounded byte reads and SQLite incremental blob I/O. The integration test checks exact support/output/raw bytes and support-bundle redaction, read-only credentials and foreign-workspace denial. Recording/screenshot producers use the trusted registration API when those owners land.
 - Normal startup with `ACE_RELAY_URL` owns host registration, persisted keys, paired-device authentication, file dispatch and revocation checks. The production relay test exercises this path, read-only denial, revoked devices and rejected local admin credentials. Generic command/browser dispatch remains with its owner.
 - Workspace process creation, worker creation and regex deadline scheduling are injected through `WorkspaceOptions.runtime`. Real injected child processes/workers control public search results/errors in `runtime.test.ts`.
 
@@ -40,3 +40,5 @@ No-replace and blob workers each admit one request with no waiting queue. Raw ex
 New non-gating `bench:artifacts` measures blob-export throughput, exclusive-rename ops/s and peak RSS; daemon `bench:files` measures workspace-change/thread-event throughput and peak RSS. These measurements need run at merge. Earlier transfer numbers remain clearly labeled historical in `REVIEW-VERIFICATION.md` and the PR description.
 
 Permitted static checks passed: formatting, lint, typecheck and the 1,500-line check. The final delivery repeats these checks after all additions are staged so the size check includes newly authored modules.
+
+The final main merge retains the workspace owner's descriptor-based reads, streaming search and runtime injection. Its native descriptor bridge is built by the normal install lifecycle at merge. Installation here used `--ignore-scripts`; native build and interoperability need run at merge. The daemon now reuses diagnostics `writeSupportBundle` for `artifact.support`, with redaction, no thread transcripts/provider probes, bounded input/staging, and reserved export space. The support-bundle socket/redaction regression is not executed (tests run at merge).

@@ -110,7 +110,8 @@ export async function fixture(options: Partial<FilesOptions> = {}) {
         dataDir: join(home, "data"),
         now: Date.now,
         id: randomUUID,
-        authorize: () => true,
+        artifactRoots: [root],
+        authorize: (device, scope) => device !== "readonly" || scope === "files.read",
         ...options,
       });
     },
