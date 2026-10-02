@@ -7,10 +7,26 @@ const threadState = z.enum(ThreadStatus.options.map((option) => option.shape.sta
 const agentState = z.enum(AgentStatus.options.map((option) => option.shape.state.value));
 const itemType = z.enum(Item.options.map((option) => option.shape.type.value));
 const waitingOn = ThreadStatus.options[2].shape.on;
+const agentStates = z
+  .custom<Record<string, unknown>>(
+    (value) => typeof value === "object" && value !== null && !Array.isArray(value),
+    "expected an agent-state dictionary",
+  )
+  .transform((value, ctx) => {
+    const states: Record<string, z.infer<typeof agentState>> = Object.create(null);
+    for (const key of Object.getOwnPropertyNames(value)) {
+      const parsed = agentState.safeParse(value[key]);
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues)
+          ctx.addIssue({ ...issue, path: [key, ...issue.path] });
+      } else states[key] = parsed.data;
+    }
+    return states;
+  });
 const statusFields = {
   thread: threadState,
   on: waitingOn.optional(),
-  agentStates: z.record(z.string(), agentState).optional(),
+  agentStates: agentStates.optional(),
 };
 function validOn(value: { thread: string; on?: string | undefined }): boolean {
   return value.on === undefined || value.thread === "waiting";
@@ -70,9 +86,10 @@ function assertStatus(
 
 export function assertExpectations(result: ReplayResult, input: Expectations): void {
   const expected = Expectations.parse(input);
+  const byTime = new Map(result.timeline.map((entry) => [entry.t, entry]));
   for (const point of expected.checkpoints) {
     const where = `at t=${point.t}`;
-    const actual = result.timeline.find((entry) => entry.t === point.t);
+    const actual = byTime.get(point.t);
     if (!actual)
       throw new Error(`${where} was not replayed; pass checkpoint times to replayFixture`);
     assertStatus(where, actual, point);
