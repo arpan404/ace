@@ -2,6 +2,7 @@ import { readFile, rename, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, test } from "vitest";
+import { z } from "zod";
 import { GitService } from "./index.ts";
 import { execute, git, put, repository, scalar, scratch, userState } from "./test-repo.ts";
 
@@ -212,7 +213,9 @@ describe("checkpoints", () => {
     const output = await execute(process.execPath, ["--input-type=module", "--eval", script], {
       timeout: 30_000,
     });
-    const checkpoint = JSON.parse(output.stdout) as { tree: string; sha: string };
+    const checkpoint = z
+      .object({ tree: z.string(), sha: z.string() })
+      .parse(JSON.parse(output.stdout));
     expect(checkpoint.tree).toBe(expectedTree);
     expect(
       (await git(repo, "ls-tree", "-r", "--name-only", "-z", checkpoint.sha))

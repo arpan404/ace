@@ -6,6 +6,60 @@ import { git, put, repository, scratch } from "./test-repo.ts";
 
 const service = new GitService();
 
+test.each(["*.bin diff\n", "*.bin diff=forced\n"])(
+  "binary content is excluded despite forced text attributes %s",
+  async (attributes) => {
+    const repo = await repository({
+      ".gitattributes": attributes,
+      "file.bin": Buffer.from("before\0SECRET_BINARY_BEFORE\n"),
+    });
+    await git(repo, "config", "diff.forced.binary", "false");
+    await put(repo, "file.bin", Buffer.from("after\0SECRET_BINARY_AFTER\n"));
+    await put(repo, "text.txt", "visible text\n");
+    const result = await service.diff({
+      worktree: repo,
+      from: { kind: "commit", ref: "HEAD" },
+      to: { kind: "working-tree" },
+    });
+    expect(result.entries.find((entry) => entry.path === "file.bin")).toMatchObject({
+      binary: true,
+      additions: 0,
+      deletions: 0,
+    });
+    expect(result.patch).not.toContain("SECRET_BINARY");
+    expect(result.patch).not.toContain("\0");
+    expect(result.patch).toContain("+visible text");
+  },
+);
+
+test("display-only diff config cannot change or break the service result", async () => {
+  const path = "file\n雪.txt";
+  const before = Array.from({ length: 30 }, (_, i) => (i === 3 ? "" : String(i))).join("\n") + "\n";
+  const repo = await repository({ [path]: before });
+  await put(
+    repo,
+    path,
+    before.replace("2\n", "changed two\n").replace("25\n", "changed twenty five\n"),
+  );
+  const options = {
+    worktree: repo,
+    from: { kind: "commit" as const, ref: "HEAD" },
+    to: { kind: "working-tree" as const },
+  };
+  const expected = await service.diff(options);
+  await git(repo, "config", "diff.orderFile", join(repo, "missing-order-file"));
+  await git(repo, "config", "diff.relative", "true");
+  await git(repo, "config", "diff.noprefix", "true");
+  await git(repo, "config", "diff.suppressBlankEmpty", "true");
+  await git(repo, "config", "diff.context", "100");
+  await git(repo, "config", "diff.interHunkContext", "100");
+  await git(repo, "config", "diff.srcPrefix", "source/");
+  await git(repo, "config", "diff.dstPrefix", "destination/");
+  await git(repo, "config", "diff.algorithm", "patience");
+  await git(repo, "config", "core.quotePath", "false");
+  expect(await service.diff(options)).toEqual(expected);
+});
+
 test("live diffs detect renames, binary files, additions and deletions with exact unusual paths", async () => {
   const oldPath = "old name\n雪.txt";
   const newPath = "new name\n☃.txt";
@@ -166,8 +220,34 @@ test("unknown commits and non-checkpoint refs fail with typed errors", async () 
   await git(repo, "update-ref", "refs/ace/checkpoints/fake/1", "HEAD");
   await expect(
     service.restoreCheckpoint({ worktree: repo, checkpoint: "refs/ace/checkpoints/fake/1" }),
-  ).rejects.toMatchObject({ code: "checkpoint_not_found" });
+  ).rejects.toMatchObject({ code: "malformed_output" });
   await expect(
     service.createCheckpoint({ worktree: repo, threadId: "../bad", label: "invalid" }),
   ).rejects.toMatchObject({ code: "invalid_argument" });
+});
+
+test("binary detection scans beyond the first block and excludes file-directory replacements", async () => {
+  const content = Buffer.concat([Buffer.alloc(20_000, 65), Buffer.from("\0SECRET_LATE_BINARY\n")]);
+  const repo = await repository({
+    ".gitattributes": "* diff\n",
+    replace: content,
+    "large.bin": content,
+  });
+  await rm(join(repo, "replace"));
+  await put(repo, "replace/text.txt", "visible replacement\n");
+  await put(repo, "large.bin", Buffer.concat([content, Buffer.from("changed\n")]));
+  const result = await service.diff({
+    worktree: repo,
+    from: { kind: "commit", ref: "HEAD" },
+    to: { kind: "working-tree" },
+  });
+  expect(
+    result.entries
+      .filter((e) => e.binary)
+      .map((e) => e.path)
+      .toSorted(),
+  ).toEqual(["large.bin", "replace"]);
+  expect(result.patch).not.toContain("SECRET_LATE_BINARY");
+  expect(result.patch).not.toContain("\0");
+  expect(result.patch).toContain("+visible replacement");
 });

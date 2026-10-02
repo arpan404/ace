@@ -6,6 +6,30 @@ import { git, put, repository, scalar, scratch } from "./test-repo.ts";
 
 const service = new GitService();
 
+test.each(["--assume-unchanged", "--skip-worktree"])(
+  "removal protects edits hidden by %s without changing the index",
+  async (flag) => {
+    const repo = await repository();
+    const path = join(dirname(repo), "hidden-edit");
+    await service.createWorktree({ repo, path, baseRef: "HEAD", branch: "hidden" });
+    await git(path, "update-index", flag, "tracked.txt");
+    await put(path, "tracked.txt", "hidden contents\n");
+    const indexPath = await scalar(
+      path,
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "index",
+    );
+    const index = await readFile(indexPath);
+    await expect(service.removeWorktree({ repo, path })).rejects.toMatchObject({
+      code: "dirty_worktree",
+    });
+    expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe("hidden contents\n");
+    expect(await readFile(indexPath)).toEqual(index);
+  },
+);
+
 test("worktree creation branches from the requested commit and refuses implicit branch reuse", async () => {
   const repo = await repository();
   const initial = await scalar(repo, "rev-parse", "HEAD");
@@ -97,9 +121,9 @@ test("pruning removes stale registrations without touching remaining worktrees",
   const path = join(dirname(repo), "stale\n雪");
   await service.createWorktree({ repo, path, baseRef: "HEAD", branch: "stale" });
   await rm(path, { recursive: true });
-  expect(
-    (await service.listWorktrees(repo)).find((tree) => tree.path === path)?.prunable,
-  ).not.toBeNull();
+  const stale = (await service.listWorktrees(repo)).find((tree) => tree.path === path);
+  expect(stale).toBeDefined();
+  expect(stale && stale.prunable).toEqual(expect.any(String));
   await service.pruneWorktrees(repo);
   expect((await service.listWorktrees(repo)).map((tree) => tree.path)).toEqual([repo]);
   expect(await readFile(join(repo, "tracked.txt"), "utf8")).toBe("original\n");

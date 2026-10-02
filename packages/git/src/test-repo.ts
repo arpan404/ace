@@ -1,9 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
+
+// Contain failed real processes without imposing a performance budget on Git tests.
+vi.setConfig({ testTimeout: 30_000 });
 
 export const execute = promisify(execFile);
 const directories: string[] = [];
@@ -18,6 +21,25 @@ export async function scratch(): Promise<string> {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "ace-git-test-")));
   directories.push(directory);
   return directory;
+}
+
+export async function proxyGit(intercept: string): Promise<string> {
+  const directory = await scratch();
+  const binary = join(directory, "git-proxy.cjs");
+  await writeFile(
+    binary,
+    `#!${process.execPath}
+    const { spawn, spawnSync } = require('node:child_process');
+    const fs = require('node:fs');
+    const args = process.argv.slice(2);
+    ${intercept}
+    const child = spawn('git', args, { stdio: 'inherit', shell: false });
+    child.on('error', () => process.exit(70));
+    child.on('close', code => process.exit(code ?? 71));
+  `,
+  );
+  await chmod(binary, 0o755);
+  return binary;
 }
 
 export async function git(repo: string, ...args: string[]): Promise<Buffer> {
