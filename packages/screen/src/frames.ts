@@ -1,5 +1,12 @@
-import { ScreenFrameHeader } from "@ace/protocol";
-export type Frame = { header: ScreenFrameHeader; payload: Buffer; packet: Buffer };
+import { ScreenFrameHeader, type ScreenLegacyFrameHeader } from "@ace/protocol";
+export type Frame = {
+  header: ScreenLegacyFrameHeader & {
+    scale?: number;
+    dirtyRects?: { x: number; y: number; w: number; h: number }[];
+  };
+  payload: Buffer;
+  packet: Buffer;
+};
 export function framePacket(header: ScreenFrameHeader, payload: Buffer): Buffer {
   const json = Buffer.from(JSON.stringify(ScreenFrameHeader.parse(header)));
   if (payload.length !== header.bytes || json.length > 4096) throw new Error("Invalid frame size");
@@ -14,7 +21,7 @@ export class FrameDecoder {
   private buffer: Buffer = Buffer.alloc(4);
   private offset = 0;
   private phase: "length" | "header" | "payload" = "length";
-  private header: ScreenFrameHeader | undefined;
+  private header: Frame["header"] | undefined;
   private packet: Buffer | undefined;
   private readonly emit: (frame: Frame) => void;
   constructor(emit: (frame: Frame) => void) {
@@ -35,9 +42,24 @@ export class FrameDecoder {
         this.buffer = Buffer.allocUnsafe(length);
         this.phase = "header";
       } else if (this.phase === "header") {
-        this.header = ScreenFrameHeader.parse(JSON.parse(this.buffer.toString("utf8")));
+        const wire = ScreenFrameHeader.parse(JSON.parse(this.buffer.toString("utf8")));
+        this.header =
+          wire.version === 1
+            ? wire
+            : {
+                version: 1,
+                sessionId: wire.sessionId,
+                sequence: wire.seq,
+                timestamp: wire.ts,
+                width: wire.width,
+                height: wire.height,
+                codec: wire.codec,
+                bytes: wire.bytes,
+                scale: wire.scale,
+                ...(wire.dirtyRects ? { dirtyRects: wire.dirtyRects } : {}),
+              };
         const prefix = this.buffer;
-        this.packet = Buffer.allocUnsafe(4 + prefix.length + this.header.bytes);
+        this.packet = Buffer.allocUnsafe(4 + prefix.length + wire.bytes);
         this.packet.writeUInt32BE(prefix.length);
         prefix.copy(this.packet, 4);
         this.buffer = this.packet.subarray(4 + prefix.length);

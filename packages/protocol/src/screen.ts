@@ -1,4 +1,14 @@
 import { z } from "zod";
+import {
+  ScreenCapabilities,
+  ScreenError,
+  ScreenInput,
+  ScreenRect,
+  ScreenUITreeOptions,
+  ScreenUIFindOptions,
+  ScreenUIActOptions,
+} from "./screen-v2.ts";
+export * from "./screen-v2.ts";
 
 export const ScreenId = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
 export const ScreenBundle = z.string().min(1).max(256);
@@ -49,7 +59,7 @@ export const ScreenAction = z.discriminatedUnion("kind", [
   }),
 ]);
 export type ScreenAction = z.infer<typeof ScreenAction>;
-export const ScreenFrameHeader = z.object({
+export const ScreenLegacyFrameHeader = z.object({
   version: z.literal(1),
   sessionId: ScreenId,
   sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
@@ -63,7 +73,25 @@ export const ScreenFrameHeader = z.object({
     .positive()
     .max(8 * 1024 * 1024),
 });
+export const ScreenV2FrameHeader = z.object({
+  version: z.literal(2),
+  sessionId: ScreenId,
+  seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  ts: z.number().finite().nonnegative(),
+  width: z.number().int().positive().max(3840),
+  height: z.number().int().positive().max(2160),
+  scale: z.number().finite().positive().max(8),
+  codec: z.literal("jpeg"),
+  dirtyRects: z.array(ScreenRect).max(64).optional(),
+  bytes: z
+    .number()
+    .int()
+    .positive()
+    .max(8 * 1024 * 1024),
+});
+export const ScreenFrameHeader = z.union([ScreenLegacyFrameHeader, ScreenV2FrameHeader]);
 export type ScreenFrameHeader = z.infer<typeof ScreenFrameHeader>;
+export type ScreenLegacyFrameHeader = z.infer<typeof ScreenLegacyFrameHeader>;
 export const ScreenState = z.object({
   sessionId: ScreenId,
   lifecycle: z.enum(["starting", "live", "stopping", "stopped", "failed"]),
@@ -72,6 +100,7 @@ export const ScreenState = z.object({
   target: ScreenTarget,
   permissions: ScreenPermissions,
   error: z.string().max(1024).optional(),
+  capabilities: ScreenCapabilities.optional(),
 });
 export type ScreenState = z.infer<typeof ScreenState>;
 const ScreenBounds = z.object({
@@ -125,6 +154,11 @@ export const ScreenOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("unsubscribe"), sessionId: ScreenId }),
   z.object({ op: z.literal("record.start"), sessionId: ScreenId }),
   z.object({ op: z.literal("record.stop"), sessionId: ScreenId }),
+  z.object({ op: z.literal("capabilities") }),
+  ScreenUITreeOptions.extend({ op: z.literal("ui.tree"), sessionId: ScreenId }),
+  ScreenUIFindOptions.extend({ op: z.literal("ui.find"), sessionId: ScreenId }),
+  ScreenUIActOptions.extend({ op: z.literal("ui.act"), sessionId: ScreenId }),
+  z.object({ op: z.literal("input"), sessionId: ScreenId, input: ScreenInput }),
   z.object({ op: z.literal("simulators") }),
   z.object({ op: z.literal("simulator.boot"), udid: z.string().uuid() }),
 ]);
@@ -144,8 +178,30 @@ export const ScreenServerMessage = z.discriminatedUnion("type", [
     error: z.string().optional(),
   }),
 ]);
-const HelperEnvelope = z.object({ version: z.literal(1), id: ScreenId });
+const HelperEnvelope = z.object({ version: z.union([z.literal(1), z.literal(2)]), id: ScreenId });
 export const ScreenHelperRequest = z.discriminatedUnion("op", [
+  HelperEnvelope.extend({ op: z.literal("hello") }),
+  HelperEnvelope.extend({ op: z.literal("metrics") }),
+  HelperEnvelope.extend({ op: z.literal("capture"), enabled: z.boolean() }),
+  HelperEnvelope.extend({ op: z.literal("input"), input: ScreenInput }),
+  HelperEnvelope.extend({
+    ...ScreenUITreeOptions.shape,
+    op: z.literal("ui.tree"),
+    target: ScreenTarget,
+    allowlist: z.array(ScreenBundle).max(64),
+  }),
+  HelperEnvelope.extend({
+    ...ScreenUIFindOptions.shape,
+    op: z.literal("ui.find"),
+    target: ScreenTarget,
+    allowlist: z.array(ScreenBundle).max(64),
+  }),
+  HelperEnvelope.extend({
+    ...ScreenUIActOptions.shape,
+    op: z.literal("ui.act"),
+    target: ScreenTarget,
+    allowlist: z.array(ScreenBundle).max(64),
+  }),
   HelperEnvelope.extend({ op: z.literal("permissions") }),
   HelperEnvelope.extend({ op: z.literal("targets") }),
   HelperEnvelope.extend({ op: z.literal("stop") }),
@@ -156,16 +212,17 @@ export const ScreenHelperRequest = z.discriminatedUnion("op", [
     target: ScreenTarget,
     allowlist: z.array(ScreenBundle).max(64),
     fps: z.number().int().min(1).max(30),
+    capture: z.boolean().optional(),
   }),
 ]);
 export type ScreenHelperRequest = z.infer<typeof ScreenHelperRequest>;
 export const ScreenHelperReply = z
   .object({
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     id: ScreenId,
     ok: z.boolean(),
     data: z.unknown().optional(),
-    error: z.string().max(1024).optional(),
+    error: z.union([z.string().max(1024), ScreenError]).optional(),
   })
   .passthrough();
 export type ScreenPermissions = z.infer<typeof ScreenPermissions>;
