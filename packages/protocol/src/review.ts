@@ -37,13 +37,27 @@ export const ReviewSource = z.object({
   to: ReviewRevision,
 });
 export type ReviewSource = z.infer<typeof ReviewSource>;
+/** Host-only execution identity; clients cannot choose a filesystem root. */
+export const ReviewExecutionSource = ReviewSource.extend({ worktree: z.string().min(1).max(4096) });
+export type ReviewExecutionSource = z.infer<typeof ReviewExecutionSource>;
+export const ReviewExecutionTarget = z.object({
+  threadId: ThreadId,
+  workspaceId: WorkspaceId,
+  worktree: z.string().min(1).max(4096),
+});
+export type ReviewExecutionTarget = z.infer<typeof ReviewExecutionTarget>;
 export const ReviewPosition = z
   .object({ file: ReviewPath, side: z.enum(["old", "new"]), start: line, end: line })
   .refine((p) => p.end >= p.start && p.end - p.start < 100, "Invalid line range");
 export type ReviewPosition = z.infer<typeof ReviewPosition>;
 const context = z.array(z.string().max(8192)).max(3);
 export const ReviewFingerprint = z
-  .object({ before: context, lines: z.array(z.string().max(8192)).min(1).max(100), after: context })
+  .object({
+    before: context,
+    lines: z.array(z.string().max(8192)).min(1).max(100),
+    after: context,
+    noFinalNewline: z.literal(true).optional(),
+  })
   .refine(
     (f) => [...f.before, ...f.lines, ...f.after].reduce((n, s) => n + s.length, 0) <= 8192,
     "Fingerprint too large",
@@ -90,6 +104,7 @@ export const ReviewFixIntent = z.object({
   requestId: id,
   sessionId: id,
   threadId: ThreadId,
+  source: ReviewExecutionSource,
   comments: z
     .array(
       z.object({
@@ -109,6 +124,7 @@ export const ReviewReviewerIntent = z.object({
   requestId: id,
   sessionId: id,
   threadId: ThreadId,
+  source: ReviewExecutionSource,
   diff: z.string().max(65_536),
 });
 export type ReviewReviewerIntent = z.infer<typeof ReviewReviewerIntent>;

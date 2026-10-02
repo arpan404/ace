@@ -1,9 +1,7 @@
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { join } from "node:path";
 import { rm, symlink, writeFile, readFile } from "node:fs/promises";
 import { repository } from "./test-support.ts";
-
-vi.setConfig({ testTimeout: 30_000 });
 
 it("comments and suggestions handle quoted Unicode filenames with spaces", async () => {
   const repo = await repository();

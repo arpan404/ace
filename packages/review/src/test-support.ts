@@ -1,14 +1,14 @@
-import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { Command, ReviewSession, ReviewComment } from "@ace/protocol";
+import { Command, ReviewSession, ReviewComment, ReviewExecutionTarget } from "@ace/protocol";
 import type { ReviewExecutor } from "./index.ts";
 import { ReviewService } from "./index.ts";
 const exec = promisify(execFile);
 export async function repository(executor?: ReviewExecutor) {
-  const directory = await mkdtemp(join(tmpdir(), "ace-review-"));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "ace-review-")));
   const root = join(directory, "repo");
   await mkdir(root);
   const git = async (...args: string[]) =>
@@ -34,7 +34,13 @@ export async function repository(executor?: ReviewExecutor) {
   let service = new ReviewService(options);
   const command = (payload: unknown, id = `command-${++counter}`) =>
     Command.parse({ id, deviceId: "device", payload });
-  const send = (payload: unknown, id?: string) => service.handle(command(payload, id), root);
+  const target = ReviewExecutionTarget.parse({
+    threadId: "thread",
+    workspaceId: "workspace",
+    worktree: root,
+  });
+  const send = (payload: unknown, id?: string) =>
+    service.handle(command(payload, id), root, target);
   const opened = await send({
     type: "review.open",
     source: {
@@ -61,15 +67,16 @@ export async function repository(executor?: ReviewExecutor) {
     send,
     command,
     session,
+    target,
     comment,
     read: () => readFile(join(root, "file.ts"), "utf8"),
     write: (text: string) => writeFile(join(root, "file.ts"), text),
-    reopen() {
-      service.close();
+    async reopen() {
+      await service.close();
       service = new ReviewService(options);
     },
     async close() {
-      service.close();
+      await service.close();
       await rm(directory, { recursive: true, force: true });
     },
   };

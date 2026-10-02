@@ -38,11 +38,27 @@ export function createDaemonReview(
         return worker.handle(command, root);
       }
       if (
-        (command.payload.type === "review.sendToAgent" ||
-          command.payload.type === "review.askReviewer") &&
-        !store.getThread(command.payload.threadId)
-      )
-        return Promise.resolve({ commandId: command.id, ok: false, error: "thread_not_found" });
+        command.payload.type === "review.sendToAgent" ||
+        command.payload.type === "review.askReviewer"
+      ) {
+        const thread = store.getThread(command.payload.threadId);
+        if (!thread)
+          return Promise.resolve({ commandId: command.id, ok: false, error: "thread_not_found" });
+        const root = options.threadWorktree
+          ? options.threadWorktree(thread.id)
+          : store.getWorkspacePath(thread.workspaceId);
+        if (!root)
+          return Promise.resolve({
+            commandId: command.id,
+            ok: false,
+            error: "review_target_unavailable",
+          });
+        return worker.handle(command, undefined, {
+          threadId: thread.id,
+          workspaceId: thread.workspaceId,
+          worktree: root,
+        });
+      }
       return worker.handle(command);
     },
     recover: (command: Command) => worker.recover(command),
@@ -68,5 +84,12 @@ export async function dispatchReviewCommand(
     : port.recover
       ? await port.recover(command)
       : previous;
+  if (result.error === "review_busy" || result.error === "review_closed") {
+    // No worker effect was admitted on a new request. A retry must keep an
+    // existing pending effect's reservation intact until its durable result arrives.
+    if (reserved) store.releaseReviewCommand(command.id, command.deviceId);
+    return result;
+  }
+  if (result.error === "review_recovery_required") return result;
   return store.completeReviewCommand(command.id, command.deviceId, result);
 }

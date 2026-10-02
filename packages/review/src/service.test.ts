@@ -1,8 +1,7 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it } from "vitest";
 import { repository } from "./test-support.ts";
 import { parseReviewerOutput, buildFixIntent } from "./index.ts";
 import { ThreadId } from "@ace/protocol";
-vi.setConfig({ testTimeout: 30_000 });
 const repos: Awaited<ReturnType<typeof repository>>[] = [];
 const setup = async (executor?: Parameters<typeof repository>[0]) => {
   const repo = await repository(executor);
@@ -79,7 +78,7 @@ it("comments replies resolution and approvals survive reopening SQLite", async (
     resolved: true,
   });
   await repo.send({ type: "review.status", sessionId: repo.session.id, status: "approved" });
-  repo.reopen();
+  await repo.reopen();
   const list = await repo.send({ type: "review.list", sessionId: repo.session.id });
   expect(list.review?.comments?.[0]?.text).toBe("Fix the value");
   expect(list.review?.comments?.[0]?.resolved).toBe(true);
@@ -166,6 +165,7 @@ it("selected comments reach the executor as a structured bounded intent", async 
       requestId: "fix-once",
       sessionId: repo.session.id,
       threadId: "thread",
+      source: { ...repo.session.source, worktree: repo.root },
       comments: [
         {
           id: comment.id,
@@ -177,7 +177,7 @@ it("selected comments reach the executor as a structured bounded intent", async 
       ],
     },
   ]);
-  repo.reopen();
+  await repo.reopen();
   await repo.send(
     {
       type: "review.sendToAgent",
@@ -200,7 +200,10 @@ it("fix payloads cap excerpts and reject excessive aggregate size and unavailabl
     },
   };
   expect(
-    buildFixIntent("fix", repo.session.id, ThreadId.parse("thread"), [huge]).comments[0]?.excerpt,
+    buildFixIntent("fix", repo.session.id, ThreadId.parse("thread"), [huge], {
+      ...repo.session.source,
+      worktree: repo.root,
+    }).comments[0]?.excerpt,
   ).toHaveLength(2048);
   expect(() =>
     buildFixIntent(
@@ -212,12 +215,17 @@ it("fix payloads cap excerpts and reject excessive aggregate size and unavailabl
         id: `finding-${n}`,
         suggestion: "x".repeat(8192),
       })),
+      { ...repo.session.source, worktree: repo.root },
     ),
   ).toThrow("review_fix_too_large");
   expect(() =>
-    buildFixIntent("fix", repo.session.id, ThreadId.parse("thread"), [
-      { ...comment, resolved: true },
-    ]),
+    buildFixIntent(
+      "fix",
+      repo.session.id,
+      ThreadId.parse("thread"),
+      [{ ...comment, resolved: true }],
+      { ...repo.session.source, worktree: repo.root },
+    ),
   ).toThrow("review_comment_unavailable");
 });
 it("reviewer output rejects malformed comments and unsafe paths", () => {
@@ -281,7 +289,7 @@ it("reviewer findings are anchored and imported atomically", async () => {
 it("list cursors do not repeat comments and cross-session replies are rejected", async () => {
   const repo = await setup();
   const first = await repo.comment();
-  await repo.comment();
+  const second = await repo.comment();
   const page = (await repo.send({ type: "review.list", sessionId: repo.session.id, limit: 1 }))
     .review;
   const next = await repo.send({
@@ -290,7 +298,16 @@ it("list cursors do not repeat comments and cross-session replies are rejected",
     limit: 1,
     cursor: page?.nextCursor,
   });
-  expect(next.review?.comments?.[0]?.id).not.toBe(first.id);
+  expect(page?.comments?.map((c) => c.id)).toEqual([first.id]);
+  expect(next.review?.comments?.map((c) => c.id)).toEqual([second.id]);
+  const exhausted = await repo.send({
+    type: "review.list",
+    sessionId: repo.session.id,
+    limit: 1,
+    cursor: next.review?.nextCursor,
+  });
+  expect(exhausted.review?.comments).toEqual([]);
+  expect(exhausted.review?.nextCursor).toBe("");
   const opened = await repo.send({ type: "review.open", source: repo.session.source });
   expect(
     (

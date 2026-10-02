@@ -318,6 +318,11 @@ export class Store {
       return result;
     });
   }
+  releaseReviewCommand(commandId: CommandId, deviceId: DeviceId): void {
+    this.statement(
+      "DELETE FROM command_receipts WHERE command_id = ? AND device_id = ? AND json_extract(result, '$.error') = 'review_pending'",
+    ).run(commandId, deviceId);
+  }
   completeReviewCommand(
     commandId: CommandId,
     deviceId: DeviceId,

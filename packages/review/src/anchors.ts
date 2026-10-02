@@ -37,7 +37,12 @@ export function anchorComments(
       position,
       revision: position.side === "old" ? from : to,
       state: "active",
-      fingerprint: fingerprint(lines, position.start - start, position.end - position.start + 1),
+      fingerprint: fingerprint(
+        lines,
+        position.start - start,
+        position.end - position.start + 1,
+        position.side === "old" ? hunk.oldNoFinalNewline : hunk.newNoFinalNewline,
+      ),
     });
   });
 }
@@ -61,11 +66,18 @@ function findHunk(
   const lines = side === "old" ? hunk.oldLines : hunk.newLines;
   return end < first + lines.length ? hunk : undefined;
 }
-function fingerprint(lines: string[], offset: number, count: number): ReviewFingerprint {
+function fingerprint(
+  lines: string[],
+  offset: number,
+  count: number,
+  unterminatedLine?: number,
+): ReviewFingerprint {
+  const last = Math.min(lines.length, offset + count + 3) - 1;
   return ReviewFingerprint.parse({
     before: lines.slice(Math.max(0, offset - 3), offset),
     lines: lines.slice(offset, offset + count),
     after: lines.slice(offset + count, offset + count + 3),
+    ...(unterminatedLine === last ? { noFinalNewline: true } : {}),
   });
 }
 const normalize = (line: string) => line.trim().replace(/\s+/g, " ");
@@ -75,12 +87,17 @@ interface Index {
   lines: Map<number, string>;
   postings: Map<string, number[]>;
   addedLines: Set<number>;
+  unterminatedLine?: number;
 }
 function indexFile(file: PatchFile): Index {
   const lines = new Map<number, string>();
   const postings = new Map<string, number[]>();
   const changes = file.hunks.flatMap((h) => h.changes);
   const addedLines = new Set<number>();
+  let unterminatedLine: number | undefined;
+  for (const hunk of file.hunks)
+    if (hunk.newNoFinalNewline !== undefined)
+      unterminatedLine = hunk.newStart + hunk.newNoFinalNewline;
   for (const change of changes)
     for (let offset = 0; offset < change.newCount; offset++)
       addedLines.add(change.newStart + offset);
@@ -94,7 +111,14 @@ function indexFile(file: PatchFile): Index {
       if (list.length < 65) list.push(number);
       postings.set(key, list);
     }
-  return { file, lines, postings, changes, addedLines };
+  return {
+    file,
+    lines,
+    postings,
+    changes,
+    addedLines,
+    ...(unterminatedLine === undefined ? {} : { unterminatedLine }),
+  };
 }
 function mapLine(changes: Change[], line: number): { line?: number; replacement: boolean } {
   let lo = 0;
@@ -235,7 +259,17 @@ function mappedFingerprint(
     if (text === undefined) break;
     after.push(text);
   }
-  return ReviewFingerprint.parse({ before, lines, after });
+  const last = end + after.length;
+  const previousEof = mapLine(index.changes, anchor.position.end + f.after.length).line;
+  const noFinalNewline =
+    index.unterminatedLine === last ||
+    (f.noFinalNewline && previousEof === last && !index.lines.has(last));
+  return ReviewFingerprint.parse({
+    before,
+    lines,
+    after,
+    ...(noFinalNewline ? { noFinalNewline: true } : {}),
+  });
 }
 
 /** Transition is the old revision → new revision of the anchor's own side. */
@@ -265,7 +299,12 @@ export function reanchorComments(
     const position = { ...anchor.position, file: index.file.path, start, end };
     const available = findHunk(index.file.hunks, start, end, "new");
     const f = available
-      ? fingerprint(available.newLines, start - available.newStart, end - start + 1)
+      ? fingerprint(
+          available.newLines,
+          start - available.newStart,
+          end - start + 1,
+          available.newNoFinalNewline,
+        )
       : mappedFingerprint(index, anchor, start, end);
     if (!f) return { ...anchor, state: "outdated" };
     return ReviewAnchor.parse({
@@ -273,11 +312,7 @@ export function reanchorComments(
       position,
       revision,
       fingerprint: f,
-      state: changed
-        ? "addressed-pending-review"
-        : anchor.state === "outdated"
-          ? "active"
-          : anchor.state,
+      state: changed || anchor.state === "outdated" ? "addressed-pending-review" : anchor.state,
     });
   });
 }

@@ -1,8 +1,6 @@
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { repository } from "./test-support.ts";
 import { ReviewWorker } from "./index.ts";
-
-vi.setConfig({ testTimeout: 30_000 });
 
 it("the worker persists commands and returns the same receipt after restart", async () => {
   const repo = await repository();
@@ -24,7 +22,7 @@ it("the worker persists commands and returns the same receipt after restart", as
     await repo.close();
   }
 });
-it("the worker bridges reviewer and fix execution without running provider CLIs", async () => {
+it("the worker imports reviewer findings and delivers selected structured fixes", async () => {
   const repo = await repository();
   const intents: unknown[] = [];
   const worker = new ReviewWorker(repo.directory + "/worker.sqlite", {
@@ -50,6 +48,8 @@ it("the worker bridges reviewer and fix execution without running provider CLIs"
       (
         await worker.handle(
           repo.command({ type: "review.askReviewer", sessionId, threadId: "thread" }),
+          undefined,
+          repo.target,
         )
       ).ok,
     ).toBe(true);
@@ -62,6 +62,8 @@ it("the worker bridges reviewer and fix execution without running provider CLIs"
         threadId: "thread",
         commentIds: listed.review?.comments?.map((c) => c.id),
       }),
+      undefined,
+      repo.target,
     );
     expect(fixed.review?.session?.status).toBe("changes-requested");
     expect(intents).toMatchObject([
@@ -80,9 +82,11 @@ it("retries of interrupted execution require recovery instead of repeating the e
     entered = resolve;
   });
   const worker = new ReviewWorker(repo.directory + "/worker.sqlite", {
-    async fix() {
+    async fix(_intent, signal) {
       entered?.();
-      await new Promise(() => {});
+      await new Promise<void>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("Canceled")), { once: true });
+      });
     },
     async review() {
       return { comments: [] };
@@ -112,12 +116,12 @@ it("retries of interrupted execution require recovery instead of repeating the e
       },
       "interrupted-fix",
     );
-    const pending = worker.handle(command).catch(() => undefined);
+    const pending = worker.handle(command, undefined, repo.target).catch(() => undefined);
     await barrier;
     await worker.close();
     await pending;
     restarted = new ReviewWorker(repo.directory + "/worker.sqlite");
-    expect(await restarted.handle(command)).toMatchObject({
+    expect(await restarted.handle(command, undefined, repo.target)).toMatchObject({
       ok: false,
       error: "review_recovery_required",
     });
@@ -182,6 +186,8 @@ it("reviews remain readable while a reviewer is waiting and excess work gets bac
     const sessionId = opened.review?.session?.id;
     const reviewing = worker.handle(
       repo.command({ type: "review.askReviewer", sessionId, threadId: "thread" }),
+      undefined,
+      repo.target,
     );
     await entered;
     expect(

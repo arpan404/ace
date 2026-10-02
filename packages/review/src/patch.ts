@@ -16,6 +16,8 @@ export interface Hunk {
   oldLines: string[];
   newLines: string[];
   changes: Change[];
+  oldNoFinalNewline?: number;
+  newNoFinalNewline?: number;
 }
 export interface PatchFile {
   path: string;
@@ -66,11 +68,21 @@ export function readPatch(diff: DiffResult): PatchFile[] {
   let hunk: Hunk | undefined;
   let oldRemaining = 0;
   let newRemaining = 0;
+  let previousKind: string | undefined;
   for (const line of diff.patch.split("\n")) {
+    if (line === "\\ No newline at end of file") {
+      if (!hunk || !previousKind) throw new Error("review_invalid_patch");
+      if (previousKind === " " || previousKind === "-")
+        hunk.oldNoFinalNewline = hunk.oldLines.length - 1;
+      if (previousKind === " " || previousKind === "+")
+        hunk.newNoFinalNewline = hunk.newLines.length - 1;
+      previousKind = undefined;
+      continue;
+    }
     if (oldRemaining || newRemaining) {
       if (!hunk) throw new Error("review_invalid_patch");
-      if (line.startsWith("\\")) continue;
       const kind = line[0];
+      previousKind = kind;
       if (kind === "-" || kind === "+") {
         let change = hunk.changes.at(-1);
         const oldLine = hunk.oldStart + hunk.oldLines.length;
@@ -99,6 +111,7 @@ export function readPatch(diff: DiffResult): PatchFile[] {
       continue;
     }
     if (line.startsWith("--- ")) {
+      previousKind = undefined;
       oldHeader = line.slice(4).replace(/\t$/, "");
       file = undefined;
     } else if (line.startsWith("+++ ")) {
@@ -110,6 +123,7 @@ export function readPatch(diff: DiffResult): PatchFile[] {
       file = byPath.get(entry.path);
       if (!file) throw new Error("review_invalid_patch");
     } else if (line.startsWith("@@ ")) {
+      previousKind = undefined;
       const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
       if (!match || !file) throw new Error("review_invalid_patch");
       oldRemaining = count.parse(Number(match[2] ?? 1));

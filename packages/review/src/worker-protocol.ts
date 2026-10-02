@@ -5,15 +5,18 @@ import {
   ReviewFixIntent,
   ReviewReviewerIntent,
   ReviewerOutput,
+  ReviewExecutionTarget,
 } from "@ace/protocol";
 const key = z.number().int().positive();
 export const WorkerInput = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("close") }),
   z.object({ type: z.literal("receipt"), key, command: Command }),
   z.object({
     type: z.literal("command"),
     key,
     command: Command,
     worktree: z.string().min(1).max(4096).optional(),
+    target: ReviewExecutionTarget.optional(),
   }),
   z.object({
     type: z.literal("execution"),
@@ -23,6 +26,7 @@ export const WorkerInput = z.discriminatedUnion("type", [
   }),
 ]);
 export const WorkerOutput = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("closed") }),
   z.object({ type: z.literal("result"), key, result: CommandResult }),
   z.object({
     type: z.literal("execute"),

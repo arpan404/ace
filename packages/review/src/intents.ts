@@ -3,6 +3,7 @@ import {
   ReviewerOutput,
   type ReviewComment,
   type ReviewReviewerIntent,
+  type ReviewExecutionSource,
   type ThreadId,
 } from "@ace/protocol";
 
@@ -16,6 +17,7 @@ export function buildFixIntent(
   sessionId: string,
   threadId: ThreadId,
   comments: ReviewComment[],
+  source: ReviewExecutionSource,
 ): ReviewFixIntent {
   if (new Set(comments.map((c) => c.id)).size !== comments.length)
     throw new Error("review_duplicate_selection");
@@ -28,6 +30,7 @@ export function buildFixIntent(
     requestId,
     sessionId,
     threadId,
+    source,
     comments: comments.map((c) => ({
       id: c.id,
       position: c.anchor.position,
