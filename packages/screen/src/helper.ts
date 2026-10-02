@@ -8,6 +8,7 @@ import {
   type SupervisedProcess,
 } from "@ace/provider-kit/process";
 import { ScreenHelperReply, ScreenHelperRequest } from "@ace/protocol";
+import { nodeScheduler } from "./runtime.ts";
 import { FrameDecoder, type Frame } from "./frames.ts";
 
 export type HelperOptions = {
@@ -19,6 +20,7 @@ export type HelperOptions = {
   onFrame: (frame: Frame) => void;
   onFailure: (error: Error) => void;
   timeoutMs?: number;
+  scheduler?: { schedule: (callback: () => void, milliseconds: number) => () => void };
 };
 type WithoutEnvelope<T> = T extends unknown ? Omit<T, "version" | "id"> : never;
 export class Helper {
@@ -27,7 +29,7 @@ export class Helper {
     {
       resolve: (data: unknown) => void;
       reject: (error: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
+      cancel: () => void;
     }
   >();
   private readonly recent: unknown[] = [];
@@ -53,7 +55,7 @@ export class Helper {
         const pending = this.pending.get(reply.id);
         if (!pending) return;
         this.pending.delete(reply.id);
-        clearTimeout(pending.timer);
+        pending.cancel();
         if (reply.ok) pending.resolve(reply.data);
         else pending.reject(new Error(reply.error ?? "Helper rejected command"));
       } catch (error) {
@@ -96,6 +98,8 @@ export class Helper {
         args: [...(options.args ?? []), "--socket", path],
         env: options.env ?? {},
         name: "screen-helper",
+        maxLineBytes: 64 * 1024,
+        onOutputLimit: (error) => helper?.fail(error),
       });
       helper = new Helper(
         proc,
@@ -123,11 +127,11 @@ export class Helper {
     });
     if (this.pending.has(request.id)) return Promise.reject(new Error("Duplicate request id"));
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(
+      const cancel = (this.options.scheduler ?? nodeScheduler).schedule(
         () => this.fail(new Error("Helper command timed out")),
         this.options.timeoutMs ?? 10_000,
       );
-      this.pending.set(request.id, { resolve, reject, timer });
+      this.pending.set(request.id, { resolve, reject, cancel });
       this.proc.stdin.write(`${JSON.stringify(request)}\n`, (error) => {
         if (error) this.fail(error);
       });
@@ -137,7 +141,7 @@ export class Helper {
     if (this.closed) return;
     this.closed = true;
     for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
+      pending.cancel();
       pending.reject(error);
     }
     this.pending.clear();
@@ -159,7 +163,7 @@ export class Helper {
     if (!this.closed) {
       this.closed = true;
       for (const pending of this.pending.values()) {
-        clearTimeout(pending.timer);
+        pending.cancel();
         pending.reject(new Error("Helper stopped"));
       }
       this.pending.clear();

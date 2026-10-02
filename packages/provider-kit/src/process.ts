@@ -1,3 +1,4 @@
+import { boundedLineInput } from "./line-limit.ts";
 import { spawn } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import type { Writable } from "node:stream";
@@ -26,6 +27,9 @@ export type SpawnOptions = {
   name: string;
   /** Natural exit kills descendants by default, including agent-started dev servers. */
   killGroupOnExit?: boolean;
+  /** Opt-in raw byte boundary, applied independently to stdout and stderr before readline. */
+  maxLineBytes?: number;
+  onOutputLimit?: (error: Error) => void;
 };
 
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
@@ -33,6 +37,11 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
   if (process.platform === "win32") {
     throw new Error("Process-group supervision requires POSIX; Windows needs a Job Object owner");
   }
+  if (
+    options.maxLineBytes !== undefined &&
+    (!Number.isSafeInteger(options.maxLineBytes) || options.maxLineBytes < 1)
+  )
+    throw new RangeError("Invalid line byte limit");
   const child = spawn(options.command, [...(options.args ?? [])], {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     env: { ...process.env, ...options.env },
@@ -40,8 +49,15 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const controller = new AbortController();
-  const stdout = createInterface({ input: child.stdout, crlfDelay: Infinity });
-  const stderr = createInterface({ input: child.stderr, crlfDelay: Infinity });
+  const limited = (input: typeof child.stdout) =>
+    options.maxLineBytes === undefined
+      ? input
+      : boundedLineInput(input, options.maxLineBytes, (error) => {
+          options.onOutputLimit?.(error);
+          void handle.stop({ graceMs: 0 });
+        });
+  const stdout = createInterface({ input: limited(child.stdout), crlfDelay: Infinity });
+  const stderr = createInterface({ input: limited(child.stderr), crlfDelay: Infinity });
   const pid = child.pid;
 
   let stopped = false;
