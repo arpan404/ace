@@ -312,3 +312,8 @@ A generic adapter should therefore treat ACP as a transport for transcript plus 
 - https://github.com/agentclientprotocol/agent-client-protocol (tag `schema-v1.24.1`): `schema/v1/{schema,schema.unstable,meta,meta.unstable}.json`, `schema/v2/{schema,meta}.json`, `docs/protocol/v1/{extensibility,prompt-turn,cancellation}.mdx`, `docs/rfds/{subagents,tool-call-name}.mdx`, `docs/rfds/v2/overview.mdx`
 - https://agentclientprotocol.com/protocol/schema
 - npm `@agentclientprotocol/sdk` latest = 1.6.0 (registry.npmjs.org, 2026-10-02)
+
+## ace MCP injection
+
+The ACP HTTP `mcpServers` shape and read-only discovery contract is recorded in
+[ace MCP injection contracts](ace-mcp-injection.md#cursor-and-antigravity-via-acp).
