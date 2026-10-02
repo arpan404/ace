@@ -1,3 +1,4 @@
+import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { WebSocket } from "ws";
 import type { DeliveryEvent, ServerMessage } from "@ace/protocol";
 
@@ -52,7 +53,9 @@ export class Outbox {
   private aboveHardSince: number | undefined;
   private options: PressureOptions;
   private socket: WebSocket;
-  constructor(socket: WebSocket, options: PressureOptions) {
+  private now: () => number;
+  constructor(socket: WebSocket, options: PressureOptions, now = systemDeliveryRuntime.now) {
+    this.now = now;
     this.socket = socket;
     this.options = options;
   }
@@ -76,6 +79,7 @@ export class Outbox {
       return;
     }
     // Admit the whole snapshot before handing any of its bytes to the transport.
+    // This caps transport bytes; bounding status allocation needs snapshot paging.
     if (message.type === "snapshot") {
       const serialized = JSON.stringify(message);
       if (
@@ -110,7 +114,7 @@ export class Outbox {
     this.bytes = 0;
     for (const batch of pending) this.write({ type: "events", ...batch });
   }
-  tick(now = Date.now()): void {
+  tick(now = this.now()): void {
     if (this.socket.bufferedAmount > this.options.hardLimit) {
       this.aboveHardSince ??= now;
       if (now - this.aboveHardSince >= this.options.hardTimeoutMs) this.resync();

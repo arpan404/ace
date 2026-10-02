@@ -1,6 +1,6 @@
 import type { ModelCatalogApi } from "@ace/models";
 import { handleModelRequest } from "./models.ts";
-import { randomUUID } from "node:crypto";
+import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
 import type { NotificationWorker } from "@ace/notify";
 import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
 import { z } from "zod";
@@ -51,6 +51,7 @@ export interface ServerOptions {
   port: number;
   remote?: RemoteListener;
   now?: () => number;
+  runtime?: Partial<DeliveryRuntime>;
   entropy?: EntropySource;
   pairingAddress?: (request: IncomingMessage) => string;
   ticketLimits?: Partial<TicketLimits>;
@@ -79,13 +80,18 @@ export async function startServer(options: ServerOptions): Promise<{
   fingerprint?: string;
   close(): Promise<void>;
 }> {
+  const runtime = {
+    ...systemDeliveryRuntime,
+    ...options.runtime,
+    now: options.now ?? options.runtime?.now ?? systemDeliveryRuntime.now,
+  };
   const hostId = HostId.parse(options.hostId);
   if (!/^[0-9a-f]{64}$/.test(options.token)) throw new Error("Invalid server token");
   const auth = new RemoteAuth(
     options.store.devices,
     options.token,
     {
-      now: options.now ?? Date.now,
+      now: runtime.now,
       secret: () => generateSecret(options.entropy ?? systemCredentials.randomBytes),
     },
     z
@@ -163,13 +169,13 @@ export async function startServer(options: ServerOptions): Promise<{
       socket.terminate();
       return;
     }
-    const sessionId = randomUUID();
+    const sessionId = z.string().min(1).max(200).parse(runtime.id());
     let device: DeviceId | undefined;
     let hasPresence = false;
     let cleaned = false;
     let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
-    const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure });
+    const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure }, runtime.now);
     const send = (message: ServerMessage) => outbox.send(message);
     const fail = (code: string, message: string, close = false) => {
       send({ type: "error", code, message });
@@ -374,6 +380,8 @@ export async function startServer(options: ServerOptions): Promise<{
               message.afterSeq,
               options.replayLimit ?? 5000,
               send,
+              250,
+              runtime.delay,
             );
             subscriptions.set(message.subscriptionId, stop);
           } catch {
@@ -455,13 +463,12 @@ export async function startServer(options: ServerOptions): Promise<{
     };
     input.listen(socket, receive, (error) => options.log?.(error));
   });
-  const timer = setInterval(
+  const stopTimer = runtime.every(
     () => {
       for (const tick of ticks.values()) tick();
     },
     Math.max(10, Math.min(1000, (options.idleTimeoutMs ?? 60_000) / 2)),
   );
-  timer.unref();
   let port: number;
   try {
     port = await bind(local, "127.0.0.1", options.port);
@@ -470,7 +477,7 @@ export async function startServer(options: ServerOptions): Promise<{
       remoteOrigin = `https://${urlHost(options.remote.advertisedHost)}:${remotePort}`;
     }
   } catch (error) {
-    clearInterval(timer);
+    stopTimer();
     stopRevocation();
     await closeListener(local);
     if (remote) await closeListener(remote);
@@ -499,7 +506,7 @@ export async function startServer(options: ServerOptions): Promise<{
     },
     close() {
       closing ??= new Promise<void>((resolve, reject) => {
-        clearInterval(timer);
+        stopTimer();
         stopRevocation();
         for (const cleanup of cleanups.values()) cleanup();
         for (const socket of wss.clients) {

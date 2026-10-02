@@ -1,5 +1,6 @@
 import type { Event, ServerMessage, SubscriptionScope, ThreadId } from "@ace/protocol";
 import { createThreadListView, isSidebarEvent } from "@ace/projection";
+import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
 import type { Store } from "./store.ts";
 
 export type SubscriptionStore = Pick<
@@ -23,6 +24,7 @@ export function subscribe(
   replayLimit: number,
   send: (message: ServerMessage) => void,
   progressIntervalMs = 250,
+  schedule: DeliveryRuntime["delay"] = systemDeliveryRuntime.delay,
 ): () => void {
   let cursor = afterSeq ?? 0;
   let initializing = true;
@@ -30,11 +32,11 @@ export function subscribe(
   let acquired: ThreadId | undefined;
   let stopped = false;
   let progressHead = cursor;
-  let progressTimer: ReturnType<typeof setTimeout> | undefined;
+  let progressTimer: (() => void) | undefined;
   const matches = (event: Event) =>
     scope.kind === "thread" ? event.threadId === scope.threadId : isSidebarEvent(event);
   const cancelProgress = () => {
-    if (progressTimer) clearTimeout(progressTimer);
+    progressTimer?.();
     progressTimer = undefined;
   };
   const flushProgress = () => {
@@ -65,8 +67,7 @@ export function subscribe(
       cancelProgress();
       flushProgress();
     } else if (!progressTimer) {
-      progressTimer = setTimeout(flushProgress, progressIntervalMs);
-      progressTimer.unref();
+      progressTimer = schedule(flushProgress, progressIntervalMs);
     }
   };
   const remove = store.subscribe((events) => {
