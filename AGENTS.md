@@ -28,6 +28,27 @@ When these conflict, choose in that order.
 - Decode provider data leniently: unknown event types and fields are kept as raw data, never dropped and never fatal.
 - Before adding logic, check for an existing module that owns it. Duplicate logic across packages is a bug.
 
+## Tests
+
+Test behaviour, not structure. Every test must fail if the behaviour it names breaks, and keep passing through a refactor that preserves behaviour.
+
+- Test through the public API: given inputs or facts, assert outputs, emitted events, stored rows, socket messages or process effects.
+- Name tests after the behaviour they guard ("thread stays waiting while a background shell is still running"), not after functions.
+- Prefer real edges: temp SQLite, real child processes, real local HTTP/WebSocket servers. Mock only what you can't control (time, randomness, provider CLIs), and only at the boundary.
+- For each test ask: if the logic it covers broke, would it fail? If not, fix it or delete it.
+
+Don't write tests that:
+
+- check that a file, function, export or method exists;
+- assert on internal state shapes or private helpers when a public result can be asserted;
+- assert that an internal collaborator was called N times or with given arguments, when the observable result can be checked;
+- re-implement the code under test to compute the expected value;
+- only restate types, schemas or constants;
+- snapshot large structures without a behavioural reason;
+- would still pass if the implementation were a stub returning plausible values.
+
+Reviews reject PRs containing such tests.
+
 ## Commands
 
 - `bun install`

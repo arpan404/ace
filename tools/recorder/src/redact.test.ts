@@ -9,11 +9,28 @@ const redact = createRedactor({
 });
 
 describe("createRedactor", () => {
-  it("replaces workspace before home so nested paths stay meaningful", () => {
-    expect(redact('{"cwd":"/private/var/folders/x/ace-rec-codex-abc/src"}')).toBe(
+  it.each([
+    { workspace: "/private/var/folders/x/ace-rec-codex-abc", home: "/Users/jane" },
+    { workspace: "/tmp/ace-rec-codex-abc", home: "/home/jane" },
+    { workspace: "/home/jane/ace-rec-codex-abc", home: "/home/jane" },
+  ])("redacts workspace and home paths while keeping suffixes: $workspace", (paths) => {
+    const scrub = createRedactor({ ...paths, username: "jane", host: "test-host.local" });
+    expect(scrub(JSON.stringify({ cwd: `${paths.workspace}/src` }))).toBe(
       '{"cwd":"<WORKSPACE>/src"}',
     );
-    expect(redact('{"codexHome":"/Users/jane/.codex"}')).toBe('{"codexHome":"<HOME>/.codex"}');
+    expect(scrub(JSON.stringify({ codexHome: `${paths.home}/.codex` }))).toBe(
+      '{"codexHome":"<HOME>/.codex"}',
+    );
+  });
+
+  it("redacts provider directory names with slash-encoded workspace paths", () => {
+    expect(redact('"-private-var-folders-x-ace-rec-codex-abc/session.jsonl"')).toBe(
+      '"-<WORKSPACE>/session.jsonl"',
+    );
+  });
+
+  it("redacts both full and short host names", () => {
+    expect(redact('"Janes-MacBook-Pro.local Janes-MacBook-Pro"')).toBe('"<HOST> <HOST>"');
   });
 
   it("removes host names, emails, identifiers and tokens", () => {
@@ -31,5 +48,15 @@ describe("createRedactor", () => {
 
   it("keeps the recorder's own synthetic identity", () => {
     expect(redact('"recorder@ace.invalid"')).toBe('"recorder@ace.invalid"');
+  });
+
+  it("redacts personal emails while preserving provider system emails", () => {
+    expect(redact('"jane@example.com noreply@anthropic.com"')).toBe(
+      '"<EMAIL> noreply@anthropic.com"',
+    );
+  });
+
+  it("redacts usernames as whole words without changing unrelated text", () => {
+    expect(redact('"jane jane-doe janeway"')).toBe('"<USER> <USER>-doe janeway"');
   });
 });
