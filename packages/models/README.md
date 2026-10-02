@@ -67,7 +67,7 @@ Catalogs report choices, not verified subscription entitlement.
 The daemon opens this SQLite cache and exposes `models.list`, `models.refresh`
 and `models.resolve` over its authenticated socket. Configure local instances
 with `ACE_MODEL_INSTANCES`, a JSON array of the instance objects above. Embedders
-may pass instances as the third argument to `startDaemon`; its returned `models`
+may pass instances as the fourth argument to `startDaemon`, after MCP toolkits; its returned `models`
 object supports local registration and login-change notifications. The account
 manager workstream must call these hooks. No credentials or launch configuration
 are accepted from wire clients. Catalog queries do not append thread events. Remote list/resolve require read

@@ -26,3 +26,6 @@ No GitHub CI is used.
 After integrating remote access from `origin/main`, the full gate passed again
 with 444 tests passing and four existing tests skipped, including paired-device
 scope checks for the catalog queries.
+
+After integrating the MCP server from `origin/main`, the final gate passed with
+496 tests passing and four existing tests skipped.
