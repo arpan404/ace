@@ -4,7 +4,7 @@ import { CommandCatalog, type CommandService, type ProviderInstance } from "./ca
 import { CommandFiles } from "./files.ts";
 import { discoveryRoots } from "./roots.ts";
 const context = z.object({
-  workspace: z.string().min(1),
+  workspace: z.string().min(1).max(4096),
   provider: ProviderKind,
   instance: z.string().min(1).max(128),
 });
@@ -28,6 +28,7 @@ export class CommandLibrary implements CommandService {
   private serial: Promise<unknown> = Promise.resolve();
   private pending = 0;
   private closed = false;
+  private readonly updates = new Map<string, Set<{ cancelled: boolean }>>();
   constructor(options: {
     context(thread: string): unknown;
     instances: readonly ProviderInstance[];
@@ -35,14 +36,14 @@ export class CommandLibrary implements CommandService {
     now: () => number;
   }) {
     this.contexts = options.context;
-    this.aceHome = options.aceHome;
+    this.aceHome = z.string().min(1).max(4096).parse(options.aceHome);
     this.now = options.now;
     this.instances = z
       .array(
         z.object({
           id: z.string().min(1).max(128),
           provider: ProviderKind,
-          home: z.string().min(1),
+          home: z.string().min(1).max(4096),
         }),
       )
       .max(32)
@@ -118,14 +119,26 @@ export class CommandLibrary implements CommandService {
     });
   }
   updateRuntime(thread: string, frame: unknown): Promise<boolean> {
+    if (this.closed || this.pending >= 16)
+      return Promise.reject(new Error("Command service admission limit"));
+    const token = { cancelled: false };
+    let tokens = this.updates.get(thread);
+    if (!tokens) this.updates.set(thread, (tokens = new Set()));
+    tokens.add(token);
     return this.enqueue(async () => {
+      if (token.cancelled) return false;
       const { entry, target } = await this.get(thread);
+      if (token.cancelled) return false;
       const accepted = entry.catalog.updateRuntime(target, frame);
       if (accepted) entry.runtime.add(thread);
       return accepted;
+    }).finally(() => {
+      tokens.delete(token);
+      if (!tokens.size) this.updates.delete(thread);
     });
   }
   clearRuntime(thread: string): void {
+    for (const token of this.updates.get(thread) ?? []) token.cancelled = true;
     for (const entry of this.entries.values()) {
       entry.catalog.clearRuntime(thread);
       entry.runtime.delete(thread);
