@@ -2,6 +2,12 @@ import { z } from "zod";
 
 export const AccountProvider = z.enum(["codex", "claude", "opencode", "cursor"]);
 export const AccountId = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/);
+export const AccountAssignment = z.object({
+  instanceId: AccountId.optional(),
+  role: z.string().min(1).max(64),
+  estimatedLoad: z.number().finite().min(0).max(100),
+});
+export type AccountAssignment = z.infer<typeof AccountAssignment>;
 export const AccountDirectory = z
   .string()
   .max(4096)

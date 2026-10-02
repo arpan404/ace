@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { ThreadId } from "@ace/protocol";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import type { ProviderAdapter, SessionContext } from "@ace/engine-api";
+import { quotaPayload } from "./test-support.ts";
 import { AccountService, openRegistry } from "./index.ts";
 import { cleanup, homes, idle, rollout } from "./test-support.ts";
 afterEach(cleanup);
@@ -47,12 +48,17 @@ test("adapter sessions preserve live native IDs, assigned environments and isola
       });
       proc.stdout.on("line", (line) => {
         nativeSessionId = request.nativeSessionId;
+        const payload = quotaPayload({
+          auth: "logged_in",
+          rateLimits: { primary: { usedPercent: 100 } },
+        });
         ctx.onFrame({
           seq: 1,
           t: 0,
           dir: "recv",
           channel: "stdio",
-          data: { auth: "logged_in", rateLimits: { primary: { usedPercent: 100 } } },
+          data: payload.data,
+          payload,
         });
         report(line);
       });

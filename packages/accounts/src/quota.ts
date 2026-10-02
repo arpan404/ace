@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ProviderPayloadSchema } from "@ace/provider-kit/payload";
 import { AccountQuota, type QuotaWindow } from "@ace/protocol/accounts";
 import { object, number, decodeWindows } from "./quota-decode.ts";
 import { parseLimitReset } from "./reset-time.ts";
@@ -25,6 +26,7 @@ export function availability(
 }
 export type QuotaFact = {
   provider: "codex" | "claude" | "opencode" | "cursor";
+  /** ProviderPayload from encoded bytes. Uncertified input is blocked without traversal. */
   payload: unknown;
   observedAt: number;
   timeZone: string;
@@ -34,9 +36,17 @@ export function ingestQuota(
   state: AccountQuota,
   fact: QuotaFact,
 ): { state: AccountQuota; raw: unknown } {
+  const payload = ProviderPayloadSchema.safeParse(fact.payload).data;
+  // Never enumerate an object whose encoded byte budget was not verified at admission.
+  if (!payload)
+    return {
+      state: { ...state, blockers: { ...state.blockers, overflow: true } },
+      raw: fact.payload,
+    };
+  const raw = payload.data;
   if (!Number.isFinite(fact.observedAt) || fact.observedAt < state.observedAt)
-    return { state, raw: fact.payload };
-  const frame = object(fact.payload);
+    return { state, raw };
+  const frame = object(raw);
   const body = object(frame["params"] ?? frame);
   const decoded = decodeWindows(fact.provider, body);
   const blockers = { ...state.blockers };
@@ -72,7 +82,7 @@ export function ingestQuota(
   if (output !== undefined) usage.outputTokens = output;
   if (cost !== undefined) usage.costUsd = cost;
   if (!auth && !decoded.count && !decoded.overflow && !Object.keys(usage).length && !limited)
-    return { state, raw: fact.payload };
+    return { state, raw };
   const windows: Record<string, QuotaWindow> =
     decoded.authoritative && decoded.complete && decoded.count ? {} : { ...state.windows };
   if (decoded.complete && decoded.count) {
@@ -98,6 +108,6 @@ export function ingestQuota(
       blockers,
       usage: { ...state.usage, ...usage },
     },
-    raw: fact.payload,
+    raw,
   };
 }

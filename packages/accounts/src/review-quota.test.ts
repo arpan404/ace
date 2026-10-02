@@ -1,3 +1,4 @@
+import { quotaPayload } from "./test-support.ts";
 import { afterEach, expect, test } from "vitest";
 import { mkdir, symlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -8,7 +9,12 @@ const now = 1000;
 import type { AccountQuota } from "@ace/protocol/accounts";
 const logged: AccountQuota = { ...initialQuota(), auth: "logged_in" as const };
 const fold = (payload: unknown, state = logged, provider: "claude" | "codex" = "claude") =>
-  ingestQuota(state, { provider, payload, observedAt: now, timeZone: "UTC" });
+  ingestQuota(state, {
+    provider,
+    payload: quotaPayload(payload),
+    observedAt: now,
+    timeZone: "UTC",
+  });
 test("unknown Claude statuses cannot clear an existing rejection", () => {
   const rejected = fold({ rate_limit_info: { status: "rejected" } }).state;
   expect(
@@ -52,15 +58,15 @@ test("inherited names cannot exceed the retained window cap or reject registry i
     );
     registry.ingest("c", {
       provider: "claude",
-      payload: { auth: "logged_in", rate_limits },
+      payload: quotaPayload({ auth: "logged_in", rate_limits }),
       observedAt: now,
       timeZone: "UTC",
     });
     registry.ingest("c", {
       provider: "claude",
-      payload: {
+      payload: quotaPayload({
         rate_limit_info: { status: "allowed", rateLimitType: "toString", utilization: 0 },
-      },
+      }),
       observedAt: now,
       timeZone: "UTC",
     });
@@ -84,18 +90,39 @@ test("provider names cannot overwrite synthetic overflow exhaustion", () => {
     ),
   ).toBe("exhausted");
 });
-test("quota folding stops decoding at overflow and retains raw by reference", () => {
-  const rate_limits: Record<string, unknown> = {};
-  for (let i = 0; i < 33; i++) rate_limits[`w${i}`] = { utilization: 0 };
-  Object.defineProperty(rate_limits, "unbounded-tail", {
-    enumerable: true,
-    get() {
-      throw new Error("decoded beyond cap");
+test("incremental updates to an existing window preserve overflow until a complete snapshot", () => {
+  const rate_limits = Object.fromEntries(
+    Array.from({ length: 40 }, (_, i) => [`w${i}`, { utilization: 0 }]),
+  );
+  const exhausted = fold({ rate_limits }).state;
+  const incremental = fold(
+    {
+      rate_limit_info: {
+        status: "allowed",
+        rateLimitType: "w0",
+        utilization: 0,
+      },
     },
+    exhausted,
+  ).state;
+  expect(availability(incremental, now)).toBe("exhausted");
+  expect(
+    availability(fold({ rate_limits: { w0: { utilization: 0 } } }, incremental).state, now),
+  ).toBe("available");
+});
+test("bounded quota folding retains admitted raw identity while overflow blocks scheduling", () => {
+  const rate_limits = Object.fromEntries(
+    Array.from({ length: 40 }, (_, i) => [`w${i}`, { utilization: 0 }]),
+  );
+  const payload = quotaPayload({ rate_limits });
+  const result = ingestQuota(logged, {
+    provider: "claude",
+    payload,
+    observedAt: now,
+    timeZone: "UTC",
   });
-  const payload = { rate_limits };
-  const result = fold(payload);
-  expect(result.raw).toBe(payload);
+  expect(result.raw).toBe(payload.data);
+  expect(Object.keys(result.state.windows)).toHaveLength(32);
   expect(availability(result.state, now)).toBe("exhausted");
 });
 test.each([false, true])(
@@ -142,19 +169,12 @@ test("a usage limit error wins over quota windows carried in the same frame", ()
   );
   expect(availability(result.state, now)).toBe("exhausted");
 });
-test("malformed windows consume the ingress budget before any tail value is read", () => {
+test("malformed windows consume the ingress budget before a tail window can restore availability", () => {
   const rate_limits: Record<string, unknown> = {};
   for (let i = 0; i < 32; i++) rate_limits[`bad${i}`] = { utilization: "invalid" };
-  let decodedTail = false;
-  Object.defineProperty(rate_limits, "tail", {
-    enumerable: true,
-    get() {
-      decodedTail = true;
-      return { utilization: 0 };
-    },
-  });
+  rate_limits["tail"] = { utilization: 0 };
   const result = fold({ rate_limits });
-  expect(decodedTail).toBe(false);
+  expect(result.state.windows["tail"]).toBeUndefined();
   expect(availability(result.state, now)).toBe("exhausted");
 });
 test("reopening an old registry upgrades exhaustion without losing account state", async () => {
@@ -183,7 +203,7 @@ test("reopening an old registry upgrades exhaustion without losing account state
     expect(registry.summaries(now)[0]?.quota.usage.inputTokens).toBe(12);
     const next = registry.ingest("a", {
       provider: "codex",
-      payload: { rateLimitsByLimitId: { codex: { primary: { usedPercent: 10 } } } },
+      payload: quotaPayload({ rateLimitsByLimitId: { codex: { primary: { usedPercent: 10 } } } }),
       observedAt: now + 1,
       timeZone: "UTC",
     });
@@ -219,11 +239,11 @@ test("unknown facts preserve a textual blocker and its last meaningful observati
   const payload = { future: true };
   const result = ingestQuota(state, {
     provider: "claude",
-    payload,
+    payload: quotaPayload(payload),
     observedAt: now + 1,
     timeZone: "UTC",
   });
   expect(result.state).toBe(state);
-  expect(result.raw).toBe(payload);
+  expect(result.raw).toEqual(payload);
   expect(availability(result.state, now + 1)).toBe("exhausted");
 });

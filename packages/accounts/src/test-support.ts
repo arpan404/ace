@@ -3,6 +3,14 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { createInstance, type MigrationSafety } from "./index.ts";
+import { ProviderPayload } from "@ace/provider-kit/payload";
+
+/** Encode trusted test fixtures through the same byte admission boundary as native transports. */
+export function quotaPayload(value: unknown): ProviderPayload {
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) throw new Error("Fixture is not JSON");
+  return new ProviderPayload(encoded);
+}
 
 export const ids = [
   "11111111-1111-4111-8111-111111111111",

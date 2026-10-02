@@ -7,5 +7,5 @@ export { pickInstance, speedHint, type Candidate, type RolePolicy } from "./sche
 export { migrateSession, type MigrationSafety, type MigrationRequest } from "./migration.ts";
 
 export type { MigrationObserver, MigrationProgress } from "./migration-files.ts";
-export { AccountService } from "./service.ts";
+export { AccountService, type AccountAdapterFactory } from "./service.ts";
 export { runAccountsCommand } from "./commands-cli.ts";

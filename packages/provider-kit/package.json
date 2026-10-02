@@ -4,6 +4,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
+    "./payload": "./src/payload.ts",
     "./process": "./src/process.ts",
     "./jsonrpc": "./src/jsonrpc.ts",
     "./sse": "./src/sse.ts",
@@ -13,6 +14,9 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "doctor": "node src/doctor.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
   },
   "engines": {
     "node": ">=24"

@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { createInstance, initialQuota, ingestQuota, pickInstance } from "../src/index.ts";
 import type { AccountQuota } from "@ace/protocol/accounts";
+import { ProviderPayload, maxProviderPayloadBytes } from "@ace/provider-kit/payload";
 const candidates = Array.from({ length: 256 }, (_, index) => ({
   instance: createInstance({
     id: `account-${index}`,
@@ -15,12 +16,13 @@ const candidates = Array.from({ length: 256 }, (_, index) => ({
   },
 }));
 let state: AccountQuota = { ...initialQuota(), auth: "logged_in" };
-const payload = {
+const wire = JSON.stringify({
   method: "account/rateLimits/updated",
   params: {
     rateLimits: { limitId: "codex", primary: { usedPercent: 30, resetsAt: 1_800_000_000 } },
   },
-};
+});
+const payload = new ProviderPayload(wire);
 function measure(name: string, count: number, fn: (index: number) => void) {
   for (let index = 0; index < 10000; index++) fn(index);
   const start = performance.now();
@@ -31,6 +33,11 @@ function measure(name: string, count: number, fn: (index: number) => void) {
   );
 }
 let observedAt = 1_000_000;
+let admitted: unknown;
+measure("bounded payload admission", 100000, () => {
+  admitted = new ProviderPayload(wire).data;
+});
+if (admitted === undefined) throw new Error("Missing admission result");
 measure("quota fold", 200000, () => {
   state = ingestQuota(state, {
     provider: "codex",
@@ -58,8 +65,17 @@ const bounded = ingestQuota(state, {
   timeZone: "UTC",
 });
 process.stdout.write(
-  `100,000-window ingress: ${(performance.now() - largeStart).toFixed(2)} ms, RSS delta ${((process.memoryUsage().rss - rssBefore) / 1048576).toFixed(1)} MiB, retained ${Object.keys(bounded.state.windows).length} windows, overflow ${bounded.state.blockers.overflow === true}\n`,
+  `100,000-window uncertified rejection: ${(performance.now() - largeStart).toFixed(2)} ms, RSS delta ${((process.memoryUsage().rss - rssBefore) / 1048576).toFixed(1)} MiB, retained ${Object.keys(bounded.state.windows).length} windows, overflow ${bounded.state.blockers.overflow === true}\n`,
 );
+const oversize = " ".repeat(maxProviderPayloadBytes + 1);
+measure("oversize wire refusal", 100000, () => {
+  try {
+    const unexpected = new ProviderPayload(oversize);
+    throw new Error(`Oversize accepted: ${typeof unexpected.data}`);
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+  }
+});
 // Measure the adapter-facing hot path independently from quota snapshots.
 const { mkdtemp, rm } = await import("node:fs/promises");
 const { tmpdir } = await import("node:os");
@@ -107,12 +123,16 @@ try {
   );
   const emit = dispatch;
   if (!emit) throw new Error("Missing adapter sink");
+  const delta = new ProviderPayload(
+    '{"method":"item/agentMessage/delta","params":{"delta":"small change"}}',
+  );
   const frame = {
     seq: 1,
     t: 0,
     dir: "recv" as const,
     channel: "stdio",
-    data: { method: "item/agentMessage/delta", params: { delta: "small change" } },
+    data: delta.data,
+    payload: delta,
   };
   measure("adapter delta forwarding", 1000000, () => emit(frame));
   measure("persisted quota update", 10000, () =>

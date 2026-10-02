@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { openRegistry } from "./registry.ts";
 import { createInstance, discoverHomes, loginStatus } from "./instances.ts";
@@ -36,7 +37,7 @@ export async function runAccountsCommand(args: readonly string[]) {
       const status = await loginStatus(account.instance);
       registry.ingest(account.instance.id, {
         provider: account.instance.provider,
-        payload: { auth: status.auth },
+        payload: new ProviderPayload(JSON.stringify({ auth: status.auth })),
         observedAt: Date.now(),
         timeZone: "UTC",
       });

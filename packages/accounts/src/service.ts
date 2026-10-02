@@ -1,10 +1,26 @@
-import { AccountsRequest, AccountsResponse, AccountProvider } from "@ace/protocol/accounts";
+import {
+  AccountsRequest,
+  AccountsResponse,
+  AccountProvider,
+  AccountAssignment,
+} from "@ace/protocol/accounts";
 import type { ProviderAdapter, ProviderSession, SessionContext } from "@ace/engine-api";
 import type { AccountRegistry } from "./registry.ts";
 import { object } from "./quota-decode.ts";
 import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
 import { migrateSession, type MigrationSafety } from "./migration.ts";
+import { accountFrame } from "./frames.ts";
+export type AccountAdapterFactory = Pick<
+  ProviderAdapter,
+  "provider" | "capabilities" | "createTranslator"
+> & {
+  /** Called after assignment, so native adapters using constructor env also select this account. */
+  create(
+    env: NodeJS.ProcessEnv,
+    context: SessionContext,
+  ): Pick<ProviderAdapter, "openSession"> | Promise<Pick<ProviderAdapter, "openSession">>;
+};
 const quotaKeys = [
   "rateLimits",
   "rateLimitsByLimitId",
@@ -39,6 +55,29 @@ export class AccountService {
     this.timeZone = options.timeZone;
     this.env = options.env;
     this.safety = options.safety ?? { acquire: async () => undefined };
+  }
+  /** Register this adapter with the engine instead of the unbound native adapter. */
+  bindAdapter(
+    factory: AccountAdapterFactory,
+    assignmentFor: (context: SessionContext) => AccountAssignment = (context) => ({
+      ...(context.instanceId === undefined ? {} : { instanceId: context.instanceId }),
+      role: "worker",
+      estimatedLoad: 1,
+    }),
+  ): ProviderAdapter {
+    AccountProvider.parse(factory.provider);
+    const adapter: ProviderAdapter = {
+      provider: factory.provider,
+      capabilities: (cli) => factory.capabilities(cli),
+      createTranslator: (init) => factory.createTranslator(init),
+      openSession: async (context) =>
+        (await factory.create(context.env ?? {}, context)).openSession(context),
+    };
+    return {
+      ...adapter,
+      openSession: async (context) =>
+        (await this.openSession(adapter, context, assignmentFor(context))).session,
+    };
   }
   async handle(input: unknown): Promise<AccountsResponse> {
     const request = AccountsRequest.parse(input);
@@ -82,8 +121,11 @@ export class AccountService {
   async openSession(
     adapter: ProviderAdapter,
     context: SessionContext,
-    assignment: { instanceId?: string; role: string; estimatedLoad: number },
+    selection: AccountAssignment,
   ): Promise<{ instanceId: string; session: ProviderSession }> {
+    const assignment = AccountAssignment.parse(selection);
+    if (context.resume && !assignment.instanceId)
+      throw new Error("Resuming requires a pinned provider instance");
     const provider = AccountProvider.parse(adapter.provider);
     const chosen = assignment.instanceId
       ? this.registry.get(assignment.instanceId)?.instance
@@ -100,38 +142,84 @@ export class AccountService {
       throw new Error("No matching provider instance");
     if (this.migrating.has(chosen.id)) throw new Error("Instance is migrating");
     this.writers.set(chosen.id, (this.writers.get(chosen.id) ?? 0) + 1);
+    const lifetime = new AbortController();
+    const abort = () => lifetime.abort(context.signal.reason);
+    context.signal.addEventListener("abort", abort, { once: true });
+    if (context.signal.aborted) abort();
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
+      context.signal.removeEventListener("abort", abort);
+      lifetime.abort();
       const count = (this.writers.get(chosen.id) ?? 1) - 1;
       if (count) this.writers.set(chosen.id, count);
       else this.writers.delete(chosen.id);
     };
+    let opened: ProviderSession | undefined;
+    let frameFailed = false;
+    let stopping: Promise<void> | undefined;
+    const stopInvalidFrame = () => {
+      if (!opened || stopping) return;
+      stopping = opened.close("shutdown").then(
+        () => {
+          release();
+          context.onExit({
+            deliberate: false,
+            message: "Provider frame has no valid bounded payload",
+          });
+        },
+        () => {
+          // A failed close cannot prove termination, so retain the writer reservation.
+          context.onExit({
+            deliberate: false,
+            message: "Invalid provider frame; provider shutdown failed",
+          });
+        },
+      );
+    };
     try {
       const session = await adapter.openSession({
         ...context,
+        instanceId: chosen.id,
+        signal: lifetime.signal,
         env: instanceEnv(chosen, { ...this.env, ...context.env }),
-        onFrame: (frame) => {
+        onFrame: (input) => {
+          if (released || frameFailed) return;
+          const frame = accountFrame(input);
+          if (!frame) {
+            frameFailed = true;
+            lifetime.abort(new Error("Invalid provider frame"));
+            stopInvalidFrame();
+            return;
+          }
           const envelope = object(frame.data);
           const body = object(envelope["params"] ?? envelope);
           if (quotaKeys.some((key) => Object.hasOwn(body, key)))
             this.registry.ingest(chosen.id, {
               provider: chosen.provider,
-              payload: frame.data,
+              payload: frame.payload,
               observedAt: this.now(),
               timeZone: this.timeZone,
             });
           context.onFrame(frame);
         },
         onExit: (exit) => {
+          if (frameFailed || released) return;
           release();
           context.onExit(exit);
         },
       });
+      opened = session;
+      if (frameFailed) {
+        stopInvalidFrame();
+        await stopping;
+        throw new Error("Provider frame has no valid bounded payload");
+      }
       return {
         instanceId: chosen.id,
         session: {
+          instanceId: chosen.id,
           get nativeSessionId() {
             return session.nativeSessionId;
           },
@@ -146,7 +234,7 @@ export class AccountService {
         },
       };
     } catch (error) {
-      release();
+      if (!frameFailed) release();
       throw error;
     }
   }

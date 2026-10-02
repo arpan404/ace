@@ -1,3 +1,4 @@
+import { quotaPayload } from "./test-support.ts";
 import { afterEach, expect, test } from "vitest";
 import {
   initialQuota,
@@ -27,10 +28,10 @@ function codex(
     provider: "codex",
     observedAt: at,
     timeZone: "America/Chicago",
-    payload: {
+    payload: quotaPayload({
       method: "account/rateLimits/updated",
       params: { rateLimits: { primary: { usedPercent: percent, resetsAt, unknown: "preserved" } } },
-    },
+    }),
   }).state;
 }
 test("Codex moves through available, near-limit and exhausted until the exact reset", () => {
@@ -46,14 +47,14 @@ test("a later reset on a second window keeps the account exhausted", () => {
     provider: "codex",
     observedAt: now,
     timeZone: "UTC",
-    payload: {
+    payload: quotaPayload({
       rateLimitsByLimitId: {
         codex: {
           primary: { usedPercent: 100, resetsAt: now / 1000 + 1 },
           secondary: { usedPercent: 100, resetsAt: now / 1000 + 100 },
         },
       },
-    },
+    }),
   });
   expect(availability(result.state, now + 2000)).toBe("exhausted");
   expect(availability(result.state, now + 100000)).toBe("available");
@@ -63,7 +64,7 @@ test("Claude event fractions and usage snapshot percentages produce the same war
     provider: "claude",
     observedAt: now,
     timeZone: "UTC",
-    payload: {
+    payload: quotaPayload({
       type: "rate_limit_event",
       rate_limit_info: {
         status: "allowed_warning",
@@ -71,17 +72,17 @@ test("Claude event fractions and usage snapshot percentages produce the same war
         resetsAt: now / 1000 + 3600,
         rateLimitType: "five_hour",
       },
-    },
+    }),
   });
   expect(availability(event.state, now)).toBe("near_limit");
   const snapshot = ingestQuota(login, {
     provider: "claude",
     observedAt: now,
     timeZone: "UTC",
-    payload: {
+    payload: quotaPayload({
       rate_limits: { five_hour: { utilization: 85, resets_at: "2026-10-02T16:00:00Z" } },
       session: { total_cost_usd: 2 },
-    },
+    }),
   });
   expect(availability(snapshot.state, now)).toBe("near_limit");
   expect(availability(snapshot.state, now + 3600000)).toBe("available");
@@ -91,7 +92,7 @@ test("a rejection without utilization blocks even without a known reset", () => 
     provider: "claude",
     observedAt: now,
     timeZone: "UTC",
-    payload: { rate_limit_info: { status: "rejected" } },
+    payload: quotaPayload({ rate_limit_info: { status: "rejected" } }),
   }).state;
   expect(availability(state, now + 86400000)).toBe("exhausted");
 });
@@ -100,7 +101,7 @@ test("logged-out accounts stay unavailable even when quota has reset", () => {
     provider: "codex",
     observedAt: now + 1,
     timeZone: "UTC",
-    payload: { auth: "logged_out" },
+    payload: quotaPayload({ auth: "logged_out" }),
   }).state;
   expect(availability(state, now + 86400000)).toBe("logged_out");
 });
@@ -118,9 +119,9 @@ test("unknown and malformed facts return raw unchanged and do not reset quota", 
     provider: "codex",
     observedAt: now + 1,
     timeZone: "UTC",
-    payload,
+    payload: quotaPayload(payload),
   });
-  expect(result.raw).toBe(payload);
+  expect(result.raw).toEqual(payload);
   expect(result.state).toBe(state);
 });
 test("limit error clock text resolves in the user's timezone, including midnight", () => {
@@ -137,7 +138,7 @@ test("limit error clock text resolves in the user's timezone, including midnight
     provider: "codex",
     observedAt: now,
     timeZone: "America/Chicago",
-    payload: { message: "Usage limit reached. Try again at 11:31 AM" },
+    payload: quotaPayload({ message: "Usage limit reached. Try again at 11:31 AM" }),
   }).state;
   expect(availability(state, Date.parse("2026-10-02T16:30:00Z"))).toBe("exhausted");
   expect(availability(state, Date.parse("2026-10-02T16:31:00Z"))).toBe("available");
@@ -227,16 +228,16 @@ test("quota and login state survive reopening SQLite and remain isolated by inst
     provider: "codex",
     observedAt: now,
     timeZone: "UTC",
-    payload: {
+    payload: quotaPayload({
       auth: "logged_in",
       rateLimits: { primary: { usedPercent: 100, resetsAt: now / 1000 + 100 } },
-    },
+    }),
   });
   registry.ingest("b", {
     provider: "codex",
     observedAt: now,
     timeZone: "UTC",
-    payload: { auth: "logged_in" },
+    payload: quotaPayload({ auth: "logged_in" }),
   });
   registry.close();
   registry = await openRegistry(path);
@@ -259,7 +260,7 @@ test("recorded provider rate-limit payloads retain all windows and their measure
   const at = Date.parse("2026-10-02T01:00:00Z");
   const c = ingestQuota(login, {
     provider: "claude",
-    payload: claude,
+    payload: quotaPayload(claude),
     observedAt: at,
     timeZone: "UTC",
   }).state;
@@ -267,7 +268,7 @@ test("recorded provider rate-limit payloads retain all windows and their measure
   expect(c.windows["seven_day"]?.usedPercent).toBe(69);
   const x = ingestQuota(login, {
     provider: "codex",
-    payload: codexPayload,
+    payload: quotaPayload(codexPayload),
     observedAt: at,
     timeZone: "UTC",
   }).state;
@@ -291,7 +292,7 @@ test("fresh quota facts recover a resetless textual limit, and usage counters ar
     provider: "codex",
     observedAt: now,
     timeZone: "UTC",
-    payload: { message: "Usage limit reached" },
+    payload: quotaPayload({ message: "Usage limit reached" }),
   }).state;
   expect(availability(limited, now)).toBe("exhausted");
   expect(availability(codex(limited, 10, now + 1), now + 1)).toBe("available");
@@ -299,13 +300,16 @@ test("fresh quota facts recover a resetless textual limit, and usage counters ar
     provider: "claude",
     observedAt: now,
     timeZone: "UTC",
-    payload: { session: { total_cost_usd: 2 }, usage: { input_tokens: 10, output_tokens: 5 } },
+    payload: quotaPayload({
+      session: { total_cost_usd: 2 },
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }),
   }).state;
   const b = ingestQuota(a, {
     provider: "claude",
     observedAt: now + 1,
     timeZone: "UTC",
-    payload: { total_cost_usd: 3, usage: { input_tokens: 15, output_tokens: 6 } },
+    payload: quotaPayload({ total_cost_usd: 3, usage: { input_tokens: 15, output_tokens: 6 } }),
   }).state;
   expect(b.usage).toEqual({ costUsd: 3, inputTokens: 15, outputTokens: 6 });
 });
@@ -321,7 +325,7 @@ test("window overflow stays bounded and blocks scheduling until an authoritative
     provider: "codex",
     observedAt: now,
     timeZone: "UTC",
-    payload: { rateLimitsByLimitId: windows },
+    payload: quotaPayload({ rateLimitsByLimitId: windows }),
   }).state;
   expect(Object.keys(state.windows).length).toBeLessThanOrEqual(32);
   expect(availability(state, now + 86400000)).toBe("exhausted");
@@ -329,9 +333,9 @@ test("window overflow stays bounded and blocks scheduling until an authoritative
     provider: "codex",
     observedAt: now + 1,
     timeZone: "UTC",
-    payload: {
+    payload: quotaPayload({
       rateLimitsByLimitId: { codex: { primary: { usedPercent: 10, resetsAt: now / 1000 + 3600 } } },
-    },
+    }),
   }).state;
   expect(availability(recovered, now + 1)).toBe("available");
 });

@@ -147,6 +147,9 @@
     },
     "packages/provider-kit": {
       "name": "@ace/provider-kit",
+      "dependencies": {
+        "zod": "^4.6.5",
+      },
     },
     "packages/secure-channel": {
       "name": "@ace/secure-channel",

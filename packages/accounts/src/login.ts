@@ -1,4 +1,5 @@
 import { spawnInteractive } from "@ace/provider-kit/process";
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import { mkdir } from "node:fs/promises";
 import { loginStatus, instanceEnv, loginArgs } from "./instances.ts";
 import type { ProviderInstance } from "@ace/protocol/accounts";
@@ -49,7 +50,7 @@ export async function addAccount(
   const after = await loginStatus(instance, options.discovery);
   registry.ingest(instance.id, {
     provider: instance.provider,
-    payload: { auth: after.auth },
+    payload: new ProviderPayload(JSON.stringify({ auth: after.auth })),
     observedAt: options.now(),
     timeZone: "UTC",
   });
