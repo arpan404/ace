@@ -111,6 +111,13 @@ function statusResolver(state: ThreadState, now: number) {
       .map((key) => lookup(state.items, key)!)
       .filter(isLiveTool),
   );
+  const waitsByAgent = byAgent(
+    liveToolKeys(state).flatMap((key) => {
+      const targets = lookup(state.itemLinks, key)?.waitingFor;
+      const item = lookup(state.items, key);
+      return targets !== undefined && item ? [{ agentId: item.agentId, targets }] : [];
+    }),
+  );
   const children = state.indexes.childrenByParent;
   const resolved = new Map<Key, AgentStatus>();
   const visiting = new Set<Key>();
@@ -180,6 +187,20 @@ function statusResolver(state: ThreadState, now: number) {
     ];
 
     if (record.activeRun) {
+      const waits = waitsByAgent.get(agent.id) ?? [];
+      if (waits.length > 0)
+        return {
+          state: "blocked",
+          on: "subagents",
+          refs: liveChildren
+            .filter((child) =>
+              waits.some((wait) => wait.targets.length === 0 || wait.targets.includes(child)),
+            )
+            .flatMap((child) => {
+              const childAgent = lookup(state.agents, child)?.agent;
+              return childAgent ? [childAgent.id] : [];
+            }),
+        };
       const tools = toolsByAgent.get(agent.id) ?? [];
       const foreground = tools.flatMap((item) => {
         if (item.call.detail.kind !== "agent.spawn" || !item.call.detail.childAgentId) return [];
@@ -233,14 +254,8 @@ function statusResolver(state: ThreadState, now: number) {
     if (!record.lastRun) {
       if (key === state.rootKey && !state.hasRun && agent.fidelity !== "placeholder")
         return { state: "starting" };
-      const spawn =
-        record.spawnedByKey === undefined ? undefined : lookup(state.items, record.spawnedByKey);
-      if (
-        (spawn?.type === "tool_call" && !isLiveTool(spawn)) ||
-        now - lastSubtreeSignal(key) > state.config.silenceMs
-      ) {
+      if (now - lastSubtreeSignal(key) > state.config.silenceMs)
         return { state: "unresponsive", lastSignalAt: lastSubtreeSignal(key) };
-      }
       return { state: "starting" };
     }
     if (backgroundRefs.length > 0) {
@@ -278,7 +293,21 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
       return byId.get(interaction.agentId)?.state !== "working";
     });
   if (pending.length > 0) return { state: "needs_you", interactions: pending.length };
+  const recordById = new Map(records.map((record) => [record.agent.id, record]));
+  const background = new Map<string, boolean>();
+  function inBackground(record: AgentRecord, visiting = new Set<string>()): boolean {
+    const id = record.agent.id;
+    const cached = background.get(id);
+    if (cached !== undefined) return cached;
+    if (visiting.has(id)) return false;
+    visiting.add(id);
+    const parent = record.agent.parentId ? recordById.get(record.agent.parentId) : undefined;
+    const result = record.agent.background || (parent ? inBackground(parent, visiting) : false);
+    background.set(id, result);
+    return result;
+  }
   const working = records.filter((record) => {
+    if (inBackground(record)) return false;
     const status = record.agent.status;
     return (
       (status.state === "starting" &&

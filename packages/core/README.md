@@ -90,6 +90,20 @@ Tool details use native `childAgent` and `targetAgent` keys. Core assigns their
 canonical ids, call ids, owners, creation times and background-task links. A
 provider timestamp can still be supplied as `call.startedAt`.
 
+`item.reconciled` accepts the same draft as `item.upsert`, with snapshot semantics:
+a completed item cannot reopen from an incomplete snapshot, the first exact raw
+tool input survives subsequent snapshots, and a shell aggregate replaces output
+without duplicating an existing prefix or erasing later appended chunks. Core's
+canonical history owns this decision; bounded adapter replay hints cannot prove
+that an old tool is unfinished. A completed shell cannot acquire a new live
+background task from a late output frame.
+
+`subagents.waiting` references an existing tool and native target keys. An empty
+target list means all live children. While that tool is live, its active owner
+is blocked on subagents after human-input and retry precedence. Tool completion
+ends the wait without changing the tool kind. Invalid targets and foreign item
+owners are rejected at the fact boundary.
+
 `item.delta` appends text to message parts, reasoning or notices, and output to
 shell tool details. The protocol has no generic output field for other tool
 kinds; those results belong in a typed detail or raw data via upsert. A delta
@@ -115,17 +129,19 @@ The ordered rules in the milestone brief apply with these fixture refinements:
   after the root's latest success. Earlier child failures remain visible on
   those agents and do not defeat a later successful recovery.
 - Never-started children and placeholders become unresponsive after subtree
-  silence or when their spawning tool finishes. A configured root before the
+  silence. A successful spawn still receives the full silence grace before its
+  first turn. A configured root before the
   first run leaves the thread new, unless higher-priority waiting work exists.
   A never-started unresponsive child stays visible but does not block completion
   or make the thread unresponsive by itself. Its live tasks, pending interactions,
   retries and descendants still hold completion. A child with an active or past
   run remains relevant when unresponsive: silence does not prove that work ended.
 
-The explicit thread precedence counts every starting or working child, including
-background children. Thus a finished root can wait on a background task while
-the thread remains `working`. Some fixture prose calls that thread `waiting`;
-both keep it live, and the milestone's explicit precedence is used here.
+Thread working precedence counts foreground work. A finished root with an active
+background child is `waiting/background_task`; the child keeps its own working
+status. Descendants of background agents inherit that role for aggregation.
+A root continuing its own turn still keeps the thread working, and pending
+human interactions retain attention precedence across the whole tree.
 `unknown` tasks permit completion, as the current protocol and milestone require,
 despite older Cursor fixture prose that counted them as running. Cursor adapters
 must use a side channel or qualify completion when background shells are hidden.

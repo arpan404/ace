@@ -91,6 +91,8 @@ export function startBackground(
   ctx: ApplyContext,
   events: EventPayload[],
 ): void {
+  if (fact.kind === "shell" && fact.item !== undefined && get(state.items, fact.item)?.complete)
+    return;
   const previous = get(state.tasks, fact.task);
   if (previous?.status === "running") return;
   if (previous) put(state.taskHistory, previous.id, structuredClone(previous));

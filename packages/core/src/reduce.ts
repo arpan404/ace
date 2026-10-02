@@ -1,9 +1,10 @@
 import type { EventPayload } from "@ace/protocol";
 import type { Fact } from "./facts.ts";
 import type { ApplyContext, ThreadState } from "./state.ts";
-import { emit, get } from "./emit.ts";
+import { emit, get, put } from "./emit.ts";
 import { ensureAgent, ensureInitialRoot, linkAgent, reconcileLinks, seeAgent } from "./tree.ts";
 import { recomputeStatuses } from "./status.ts";
+import { reconcileItem } from "./reconciled-item.ts";
 import { appendItem, upsertItem } from "./items.ts";
 import { startTurn, endTurn } from "./runs.ts";
 import { openInteraction, closeInteraction, startBackground, endBackground } from "./entities.ts";
@@ -74,8 +75,10 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
       else record.detail = fact.detail;
       break;
     }
-    case "item.upsert": {
-      const item = upsertItem(state, fact.agent, fact.item, fact.draft, ctx, events);
+    case "item.upsert":
+    case "item.reconciled": {
+      const update = fact.type === "item.reconciled" ? reconcileItem : upsertItem;
+      const item = update(state, fact.agent, fact.item, fact.draft, ctx, events);
       const record = get(state.agents, fact.agent);
       if (!record?.activeRun || item.runId !== record.activeRun) break;
       if (item.type === "tool_call") {
@@ -90,6 +93,12 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
       }
       break;
     }
+    case "subagents.waiting":
+      put(state.itemLinks, fact.item, {
+        ...get(state.itemLinks, fact.item),
+        waitingFor: [...fact.targets],
+      });
+      break;
     case "interaction.opened":
       openInteraction(state, fact, ctx, events);
       break;
