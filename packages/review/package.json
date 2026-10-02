@@ -8,7 +8,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "benchmark": "node bench/reanchor.ts"
+    "benchmark": "node bench/reanchor.ts",
+    "benchmark:sessions": "node bench/sessions.ts"
   },
   "dependencies": {
     "@ace/git": "workspace:*",

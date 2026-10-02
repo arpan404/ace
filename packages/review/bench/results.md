@@ -12,3 +12,9 @@ Node 26.8.1 on the shared development machine. Five warm-up batches followed by 
 Peak RSS is the process high-water mark, so the second workload includes the first workload's allocations. CPU includes user and system time. Wall measurements on this machine varied from 15 to 540 µs/comment across runs as contention changed; these are measurements of the final recorded run, not a latency promise. Both workloads build one transition index and use binary searches for line and hunk mapping, with bounded fuzzy candidates.
 
 At merge, reproduce with `bun run --filter @ace/review benchmark`.
+
+## Repeated standalone sessions
+
+`bun run --filter @ace/review benchmark:sessions` opens 1,000 working-tree reviews with one long-lived GitService and SQLite store. It records sessions/s, µs/session, peak RSS, and RSS/cached-counter samples every 50 sessions. The default counter cache must retain at most 128 namespaces; eviction reloads counters from durable refs. History and receipts remain on disk.
+
+This new workload has not been executed. Throughput, peak RSS and steady-memory evidence need run at merge. No historical number above measures this workload or the revised shutdown/EOF paths.
