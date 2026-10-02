@@ -59,4 +59,4 @@ The machine was running other workstreams, so throughput varies with load. Earli
 
 ## Local gate
 
-`VITEST_MAX_WORKERS=1 bun run check` passes format, lint, source size, all package typechecks and the full test suite. The worker cap avoids oversubscribing this shared machine. This feature changes no test assertions or harness deadlines to obtain a pass. The latest imported main commit includes its own remote CLI harness deadline adjustment. The final suite has 441 passing tests and four skipped tests. Existing opt-in live-provider tests remain skipped, and GitHub CI was neither run nor awaited.
+`VITEST_MAX_WORKERS=1 bun run check` passes format, lint, source size, all package typechecks and the full test suite. The worker cap avoids oversubscribing this shared machine. This feature changes no test assertions or harness deadlines to obtain a pass. Imported main includes its own remote CLI harness deadline adjustment. The final suite, including remote access and MCP, has 493 passing tests and four skipped tests. Existing opt-in live-provider tests remain skipped, and GitHub CI was neither run nor awaited.
