@@ -89,3 +89,22 @@ Eight separately applied production mutations each failed a behaviour assertion 
 | Drop changed-comment collection upserts    | Edited feedback appears in current pending candidates     |
 
 Under load above 230, unchanged pre-round head `2749697` also hit the default five-second fake-process timeout in the same worktree; the original bytes were restored afterward. Forge fake-process tests now use a 60-second completion safeguard, independent of the production child deadline. No unrelated package deadlines or assertions were changed. Tests use completion handshakes, not sleep synchronization. CI is disabled by the repository owner; no CI run, rerun or wait was requested this round.
+
+## Final merged-worktree checks under load
+
+After merging main through `19a7e14`, formatting, lint, size (387 files), and every package typecheck passed. The complete repository test run had 929 passes, four opt-in skips and ten completion timeouts across seven unchanged files. All 58 forge tests passed separately after that merge (11 files, 144.59 seconds under load). A second full `bun run check` attempt also encountered unchanged baseline timeouts; the local repository gate is therefore not green. No CI operation was requested.
+
+The baseline was an archive of `origin/main` inside this worktree, with its own offline-installed dependencies. Its source files and all core/git/notification/daemon production sources are unchanged by this PR. The archive was removed after verification. Default completion deadlines were left intact:
+
+| Branch timeout                                   | Main reproduction                                                                      |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Notification disk spool (5 seconds)              | Same test timed out twice on main                                                      |
+| Core silent-child deltas (5 seconds)             | Same test timed out on main                                                            |
+| Git dirty submodule checkpoint (30 seconds)      | Same test timed out on main; also passed another main retry, demonstrating variability |
+| Daemon foreground lifecycle CLI (15 seconds)     | Same test timed out on main                                                            |
+| Two Tailscale CLI cases (5 seconds)              | Both timed out on main                                                                 |
+| Daemon restart after SIGTERM / crash (5 seconds) | Both timed out on main                                                                 |
+| Global pairing budget (5 seconds)                | Same test timed out on main and branch retries                                         |
+| Revoked-device ticket-cap case (5 seconds)       | Passed on both main and branch retries; no source or assertion change                  |
+
+Load ranged above 220–360 during these runs. Every repository failure in the completed first run was a completion timeout, not a behaviour assertion. This evidence establishes unrelated baseline/load failures rather than a forge regression; it does not claim a green repository gate. Logs were retained in `/tmp/ace-forge-final-check.log`, `/tmp/ace-forge-main-{load,remote,lifecycle,retry,boundaries-full}.log`, and `/tmp/ace-forge-after-merge.log`. No unrelated code or test deadline was changed.
