@@ -3,16 +3,16 @@ import { open, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { checkIntegrity, sqliteSizes, recentThreadEvents, createHealthMonitor } from "./index.ts";
-import { temporary, measuredHealth } from "./test-support.ts";
+import { temporary, measuredHealth, controlledSqlite, controlledWorker } from "./test-support.ts";
 it("read-only integrity checking accepts a real database and does not alter it", async () => {
   const path = join(await temporary(), "events.sqlite");
   const db = new DatabaseSync(path);
   db.exec("CREATE TABLE example (value TEXT); INSERT INTO example VALUES ('safe')");
   db.close();
   const before = await readFile(path);
-  expect(await checkIntegrity(path, AbortSignal.timeout(5000))).toBe("ok");
+  expect(await checkIntegrity(path, new AbortController().signal, controlledSqlite)).toBe("ok");
   expect(await readFile(path)).toEqual(before);
-  expect((await sqliteSizes(path, AbortSignal.timeout(5000))).pageBytes).toBe(
+  expect((await sqliteSizes(path, new AbortController().signal, controlledSqlite)).pageBytes).toBe(
     (await stat(path)).size,
   );
 });
@@ -25,15 +25,21 @@ it("a deliberately corrupted SQLite file reports corruption rather than creating
   await handle.write(Buffer.alloc(100, 0xff), 0, 100, 0);
   await handle.close();
   const before = await readFile(path);
-  expect(await checkIntegrity(path, AbortSignal.timeout(5000))).toBe("corrupt");
+  expect(await checkIntegrity(path, new AbortController().signal, controlledSqlite)).toBe(
+    "corrupt",
+  );
   expect(await readFile(path)).toEqual(before);
 });
 it("a missing database is reported without creating it and an aborted check stops", async () => {
   const path = join(await temporary(), "missing.sqlite");
-  expect(await checkIntegrity(path, AbortSignal.timeout(5000))).toBe("missing");
+  expect(await checkIntegrity(path, new AbortController().signal, controlledSqlite)).toBe(
+    "missing",
+  );
   await expect(stat(path)).rejects.toThrow();
   await writeFile(path, "invalid");
-  await expect(checkIntegrity(path, AbortSignal.abort())).rejects.toThrow("aborted");
+  await expect(checkIntegrity(path, AbortSignal.abort(), controlledSqlite)).rejects.toThrow(
+    "aborted",
+  );
 });
 it("health includes real SQLite/WAL sizes, process metrics, workload and drop counts", async () => {
   const path = join(await temporary(), "events.sqlite");
@@ -80,7 +86,7 @@ it("thread export reads recent events with bounded oversized payloads", async ()
   db.exec("COMMIT");
   db.close();
   const lines: string[] = [];
-  for await (const line of recentThreadEvents(path)) lines.push(line);
+  for await (const line of recentThreadEvents(path, controlledWorker)) lines.push(line);
   expect(lines).toHaveLength(2000);
   expect(JSON.parse(lines[0] ?? "null").seq).toBe(2);
   expect(lines.at(-1)).toContain("OVERSIZED EVENT OMITTED");

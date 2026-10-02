@@ -40,9 +40,15 @@ export async function checkIntegrity(
     return "unavailable";
   }
 }
-export async function sqliteSizes(path: string, signal: AbortSignal) {
+export async function sqliteSizes(
+  path: string,
+  signal: AbortSignal,
+  runtime: SqliteRuntime = systemSqlite,
+) {
   const [pages, wal] = await Promise.allSettled([
-    sqliteProbe(path, "pages", signal).then((value) => z.number().int().nonnegative().parse(value)),
+    sqliteProbe(path, "pages", signal, runtime).then((value) =>
+      z.number().int().nonnegative().parse(value),
+    ),
     stat(`${path}-wal`).then(
       (value) => value.size,
       (error: unknown) => {

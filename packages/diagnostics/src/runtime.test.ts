@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { DatabaseSync } from "node:sqlite";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { probeOutput, spawnSupervised } from "@ace/provider-kit/process";
+import { spawnSupervised } from "@ace/provider-kit/process";
 import { expect, it } from "vitest";
 import {
   createFileSink,
@@ -13,7 +13,8 @@ import {
   checkIntegrity,
   recentThreadEvents,
 } from "./index.ts";
-import { temporary, deferred } from "./test-support.ts";
+import { temporary, deferred, controlledProbe } from "./test-support.ts";
+import { controlledWorker } from "./test-support.ts";
 it("an injected worker deadline terminates a real stalled log worker", async () => {
   let deadline = noop;
   let stopped: Promise<unknown> = Promise.resolve();
@@ -88,7 +89,7 @@ it("cancellation stops a SQLite child after it has entered native work and prese
   const checking = checkIntegrity(path, controller.signal, {
     deadlineMs: 5000,
     probe: async (_command, _args, options) =>
-      probeOutput(
+      controlledProbe(
         process.execPath,
         [
           "--input-type=module",
@@ -108,8 +109,13 @@ it("cancellation stops a SQLite child after it has entered native work and prese
         },
       ),
   });
+  await Promise.race([
+    entered.promise,
+    checking.then(() => {
+      throw new Error("SQLite exited before entering native work");
+    }),
+  ]);
   const rejected = expect(checking).rejects.toThrow("aborted");
-  await entered.promise;
   controller.abort();
   await rejected;
   expect(await exited).toMatchObject({ reason: "stopped" });
@@ -122,7 +128,7 @@ it("oversized event type columns are omitted before thread transfer", async () =
   db.prepare("INSERT INTO events VALUES(1,0,?,'{}')").run("é".repeat(100000));
   db.close();
   const lines: string[] = [];
-  for await (const line of recentThreadEvents(path)) lines.push(line);
+  for await (const line of recentThreadEvents(path, controlledWorker)) lines.push(line);
   expect(lines).toHaveLength(1);
   expect(lines[0]).toContain("OVERSIZED TYPE OMITTED");
   expect(Buffer.byteLength(lines[0] ?? "")).toBeLessThan(200);

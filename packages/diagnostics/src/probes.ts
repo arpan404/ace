@@ -25,14 +25,22 @@ export function portAvailable(port: number, signal: AbortSignal): Promise<boolea
     server.listen(port, "127.0.0.1", () => server.close(() => finish(true)));
   });
 }
-export function createSystemProbes(options: {
-  dataDir: string;
-  port: number;
-  env: NodeJS.ProcessEnv;
-  timeoutMs?: number;
-  /** Module origin in the daemon installation, independent of the invoking cwd. */
-  moduleOrigin?: URL;
-}): DoctorProbes {
+export interface SystemProbeRuntime {
+  probe: typeof probeOutput;
+  statfs: (directory: string) => Promise<{ bavail: number; bsize: number }>;
+}
+const systemProbes: SystemProbeRuntime = { probe: probeOutput, statfs };
+export function createSystemProbes(
+  options: {
+    dataDir: string;
+    port: number;
+    env: NodeJS.ProcessEnv;
+    timeoutMs?: number;
+    /** Module origin in the daemon installation, independent of the invoking cwd. */
+    moduleOrigin?: URL;
+  },
+  runtime: SystemProbeRuntime = systemProbes,
+): DoctorProbes {
   const timeoutMs = options.timeoutMs ?? 4000;
   let discovery: ReturnType<typeof discoverProviders> | undefined;
   return {
@@ -45,7 +53,11 @@ export function createSystemProbes(options: {
     git: async (signal) => {
       const git = await findExecutable("git", options.env);
       if (!git) return undefined;
-      const result = await probeOutput(git, ["--version"], { timeoutMs, env: options.env, signal });
+      const result = await runtime.probe(git, ["--version"], {
+        timeoutMs,
+        env: options.env,
+        signal,
+      });
       return result.code === 0 && /^git version [\w.+-]+$/.test(result.stdout)
         ? result.stdout
         : undefined;
@@ -54,7 +66,7 @@ export function createSystemProbes(options: {
       const source = `const {createRequire}=await import("node:module");const require=createRequire(${JSON.stringify((options.moduleOrigin ?? import.meta.url).toString())});const pty=require("node-pty");if(typeof pty.spawn!=="function")process.exit(1)`;
       return (
         (
-          await probeOutput(process.execPath, ["--input-type=module", "-e", source], {
+          await runtime.probe(process.execPath, ["--input-type=module", "-e", source], {
             timeoutMs,
             env: options.env,
             signal,
@@ -83,7 +95,7 @@ export function createSystemProbes(options: {
       let directory = options.dataDir;
       for (;;) {
         try {
-          const fs = await statfs(directory);
+          const fs = await runtime.statfs(directory);
           let writable = true;
           try {
             await access(

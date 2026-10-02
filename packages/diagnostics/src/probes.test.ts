@@ -4,7 +4,7 @@ import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { portAvailable, createSystemProbes, createDoctorChecks, runDoctor } from "./index.ts";
-import { temporary } from "./test-support.ts";
+import { temporary, systemProbeRuntime } from "./test-support.ts";
 it("port probing distinguishes an occupied loopback port and releases its own listener", async () => {
   const server = createServer();
   server.listen(0, "127.0.0.1");
@@ -27,11 +27,14 @@ it("system discovery uses only version and login-status commands on fake provide
     '#!/bin/sh\ncase "$*" in\n"--version") echo "1.2.3";;\n"login status") echo "Logged in using ChatGPT";;\n*) exit 99;;\nesac\n';
   await writeFile(join(bin, "codex"), script);
   await chmod(join(bin, "codex"), 0o700);
-  const probes = createSystemProbes({
-    dataDir,
-    port: 0,
-    env: { PATH: bin, ACE_CHROMIUM: join(bin, "codex") },
-  });
+  const probes = createSystemProbes(
+    {
+      dataDir,
+      port: 0,
+      env: { PATH: bin, ACE_CHROMIUM: join(bin, "codex") },
+    },
+    systemProbeRuntime,
+  );
   const report = await runDoctor(createDoctorChecks(probes), { now: () => 0 });
   expect(report.checks.find((check) => check.id === "provider.codex")?.status).toBe("ok");
   expect(report.checks.find((check) => check.id === "git")?.status).toBe("fail");
@@ -61,7 +64,10 @@ it("first-run creation needs write/search permission on the ancestor without req
   const root = await temporary();
   await chmod(root, 0o300);
   try {
-    const probes = createSystemProbes({ dataDir: join(root, "new"), port: 0, env: {} });
+    const probes = createSystemProbes(
+      { dataDir: join(root, "new"), port: 0, env: {} },
+      systemProbeRuntime,
+    );
     const check = (
       await runDoctor(
         createDoctorChecks(probes).filter((item) => item.id === "disk"),

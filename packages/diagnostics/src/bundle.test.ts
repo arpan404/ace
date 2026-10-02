@@ -1,31 +1,10 @@
-import { createReadStream, createWriteStream } from "node:fs";
+import { createWriteStream } from "node:fs";
 import { mkdir, readdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { pipeline } from "node:stream/promises";
-import { createGunzip } from "node:zlib";
-import tar from "tar-stream";
 import { expect, it } from "vitest";
 import { createRedactor } from "@ace/redaction";
 import { writeSupportBundle } from "./index.ts";
-import { temporary } from "./test-support.ts";
-async function unpack(path: string) {
-  const entries = new Map<string, string>();
-  const extract = tar.extract();
-  extract.on("entry", (header, stream, next) => {
-    let text = "";
-    stream.on("data", (chunk: unknown) => {
-      if (!Buffer.isBuffer(chunk)) throw new Error("Expected bytes");
-      text += chunk.toString();
-    });
-    stream.on("end", () => {
-      entries.set(header.name, text);
-      next();
-    });
-    stream.on("error", (error) => extract.destroy(error));
-  });
-  await pipeline(createReadStream(path), createGunzip(), extract);
-  return entries;
-}
+import { temporary, unpack } from "./test-support.ts";
 const report = {
   at: 0,
   checks: [{ id: "node", status: "ok" as const, message: "Node", fix: "Install" }],
@@ -281,4 +260,46 @@ it("internal chunk limits preserve Unicode environment-secret redaction", async 
   expect(text).toContain("safe<ENV>\n");
   expect(text).not.toContain("opaque");
   expect(text).not.toContain("�");
+});
+
+it("raw log archives redact quoted payload wrappers, key collisions and deep records", async () => {
+  const root = await temporary(),
+    logs = join(root, "logs"),
+    path = join(root, "support.tar.gz");
+  await mkdir(logs);
+  const payload = { refreshToken: ["OPAQUE_WRAPPED_REFRESH"], values: [1, "visible"] };
+  const wrapped = JSON.stringify({ payload: JSON.stringify(JSON.stringify(payload)) });
+  const colliding = JSON.stringify({
+    "/private/home": 1,
+    "<HOME>": 2,
+    refreshToken: ["OPAQUE_COLLISION_TOKEN"],
+  });
+  const deep =
+    "[".repeat(10000) +
+    JSON.stringify({ password: { value: "OPAQUE_DEEP_PASSWORD" } }) +
+    "]".repeat(10000);
+  await writeFile(join(logs, "ace.jsonl"), [wrapped, colliding, deep].join("\n") + "\n");
+  await writeSupportBundle({
+    logsDirectory: logs,
+    temporaryRoot: root,
+    output: createWriteStream(path),
+    report,
+    versions: {},
+    settings: {},
+    redact: createRedactor({ home: "/private/home" }),
+  });
+  const entries = await unpack(path);
+  const log = entries.get("logs/ace.jsonl");
+  expect(log).toBeDefined();
+  for (const secret of ["OPAQUE_WRAPPED_REFRESH", "OPAQUE_COLLISION_TOKEN", "OPAQUE_DEEP_PASSWORD"])
+    expect([...entries.values()].join("\n")).not.toContain(secret);
+  const lines = (log ?? "").trim().split("\n");
+  expect(lines).toHaveLength(3);
+  for (const line of lines) expect(() => JSON.parse(line)).not.toThrow();
+  expect(JSON.parse(JSON.parse(JSON.parse(lines[0] ?? "null").payload))).toEqual({
+    refreshToken: "<SECRET>",
+    values: [1, "visible"],
+  });
+  expect(lines[1]).toContain("<HOME>");
+  expect(lines[2]).toContain("<OMITTED>");
 });

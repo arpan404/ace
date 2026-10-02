@@ -21,7 +21,7 @@ export {
   type Check,
   type CheckResult,
 } from "./doctor.ts";
-export { createSystemProbes, portAvailable } from "./probes.ts";
+export { createSystemProbes, portAvailable, type SystemProbeRuntime } from "./probes.ts";
 export { checkIntegrity, sqliteSizes } from "./sqlite.ts";
 export { writeSupportBundle, type BundleOptions } from "./bundle.ts";
 export { recentThreadEvents } from "./threads.ts";
