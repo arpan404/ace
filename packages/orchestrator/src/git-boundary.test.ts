@@ -1,27 +1,21 @@
-import { execFile } from "node:child_process";
-import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { GitService } from "@ace/git";
 import { expect, it } from "vitest";
 
-const exec = promisify(execFile);
+import { findExecutable } from "@ace/provider-kit/discovery";
+import { gitFixture } from "./git-test-support.ts";
 const raw = `:100644 100644 ${"a".repeat(40)} ${"b".repeat(40)} M\0`;
 async function boundary(metadata: string, mode = "diff") {
-  const dir = await mkdtemp(join(tmpdir(), "ace-orch-boundary-"));
-  const worktree = join(dir, "repo");
-  await exec("git", ["init", "-b", "main", worktree]);
-  const cli = async (...args: string[]) => exec("git", ["-C", worktree, ...args]);
-  await cli("config", "user.name", "Boundary test");
-  await cli("config", "user.email", "test@example.invalid");
+  const { root: dir, dir: worktree, cli } = await gitFixture("ace-orch-boundary-", "repo");
   await writeFile(join(worktree, "file"), "base\n");
   await cli("add", ".");
   await cli("commit", "-m", "base");
   const payload = join(dir, "metadata");
   await writeFile(payload, metadata);
   const binary = join(dir, "git-wrapper");
-  const actualGit = (await exec("which", ["git"])).stdout.trim();
+  const actualGit = await findExecutable("git");
+  if (!actualGit) throw new Error("Git is required for subprocess tests");
   await writeFile(
     binary,
     `#!/usr/bin/env node
@@ -53,25 +47,21 @@ it.each([
   ["infinite count", `${raw}file\0Infinity\t0\tfile\0`],
   ["missing path", raw],
   ["incomplete numstat", `${raw}file\0`],
-])(
-  "Git diff rejects %s at the subprocess boundary",
-  async (_name, metadata) => {
-    const p = await boundary(metadata);
-    try {
-      const git = new GitService({ gitBinary: p.binary });
-      await expect(
-        git.diff({
-          worktree: p.worktree,
-          from: { kind: "commit", ref: "HEAD" },
-          to: { kind: "commit", ref: "HEAD" },
-        }),
-      ).rejects.toMatchObject({ code: "malformed_output" });
-    } finally {
-      await rm(p.dir, { recursive: true, force: true });
-    }
-  },
-  60_000,
-);
+])("Git diff rejects %s at the subprocess boundary", async (_name, metadata) => {
+  const p = await boundary(metadata);
+  try {
+    const git = new GitService({ gitBinary: p.binary });
+    await expect(
+      git.diff({
+        worktree: p.worktree,
+        from: { kind: "commit", ref: "HEAD" },
+        to: { kind: "commit", ref: "HEAD" },
+      }),
+    ).rejects.toMatchObject({ code: "malformed_output" });
+  } finally {
+    await rm(p.dir, { recursive: true, force: true });
+  }
+});
 
 it("Git checkpoint listing rejects a malformed tree instead of exposing typed metadata", async () => {
   const metadata = JSON.stringify({
@@ -98,7 +88,7 @@ it("Git checkpoint listing rejects a malformed tree instead of exposing typed me
   } finally {
     await rm(p.dir, { recursive: true, force: true });
   }
-}, 60_000);
+});
 
 it("Git checkpoints use the service clock in persisted metadata and commit dates", async () => {
   const p = await boundary("");
@@ -125,7 +115,7 @@ it("Git checkpoints use the service clock in persisted metadata and commit dates
   } finally {
     await rm(p.dir, { recursive: true, force: true });
   }
-}, 60_000);
+});
 
 it("Git checkpoints honor the injected temporary root rather than escaping to the host root", async () => {
   const p = await boundary("");
@@ -145,4 +135,4 @@ it("Git checkpoints honor the injected temporary root rather than escaping to th
   } finally {
     await rm(p.dir, { recursive: true, force: true });
   }
-}, 60_000);
+});
