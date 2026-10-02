@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createWorkspace } from "./index.ts";
 import { exec, fixture } from "./test-support.ts";
 
-describe("workspace search", () => {
+describe("workspace search", { timeout: 30_000 }, () => {
   // This contract launches many real processes; the watchdog is not a performance assertion.
   it("ripgrep and Node return identical literal, regex, case and glob results", async () => {
     await exec("rg", ["--version"]); // A real ripgrep is required for this contract test.
@@ -118,7 +118,7 @@ describe("workspace search", () => {
     expect(result.truncated).toBe(true);
   });
   it.each([null, "rg"])(
-    "caps scanned bytes and skips oversized files with backend %s",
+    "caps scanned bytes and searches larger files with backend %s",
     async (ripgrep) => {
       const { service, file } = await fixture({ ripgrep });
       await file("a.txt", "hit\n");
@@ -128,7 +128,12 @@ describe("workspace search", () => {
       expect(result).toMatchObject({ bytesScanned: 4, truncated: true });
       expect(result.matches.map((match) => match.path)).toEqual(["a.txt"]);
       const large = await service.search({ query: "hit", limit: 10 });
-      expect(large.matches.map((match) => match.path)).toEqual(["a.txt", "b.txt"]);
+      expect(large.matches.slice(0, 3)).toEqual([
+        { path: "a.txt", line: 1, column: 1, preview: "hit" },
+        { path: "b.txt", line: 1, column: 1, preview: "hit" },
+        { path: "huge.txt", line: 1, column: 1, preview: "hit" },
+      ]);
+      expect(large.matches).toHaveLength(10);
       expect(large.truncated).toBe(true);
     },
   );

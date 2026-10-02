@@ -32,9 +32,10 @@ export type {
 
 /** A root-bound service. Watch subscriptions own their own disposal lifetime. */
 export async function createWorkspace(root: string, options: WorkspaceOptions = {}) {
-  const safe = await SafeRoot.create(root);
-  const runtime = workspaceRuntime(options.runtime);
-  const ignore = await GitIgnore.create(safe, runtime.spawn);
+  const runtime = { ...workspaceRuntime(), ...options.runtime };
+  if (options.filesystem) runtime.filesystem = options.filesystem;
+  const safe = await SafeRoot.create(root, runtime);
+  const ignore = await GitIgnore.create(safe);
   return {
     root: safe.root,
     async list(request: ListOptions) {
@@ -58,7 +59,6 @@ export async function createWorkspace(root: string, options: WorkspaceOptions = 
           ignore,
           options.ripgrep === undefined ? "rg" : options.ripgrep,
           request,
-          runtime,
         );
       } catch (error) {
         throw failure(error);
@@ -75,9 +75,10 @@ export async function createWorkspace(root: string, options: WorkspaceOptions = 
 }
 export type Workspace = Awaited<ReturnType<typeof createWorkspace>>;
 
-// Shared filesystem boundary for services that stream or mutate workspace files.
+export { filesystem, workspaceRuntime } from "./runtime.ts";
+export type { WorkspaceFileSystem, WorkspaceRuntime, WorkspaceClock } from "./runtime.ts";
+
+// Shared root-bound filesystem owner for transfer and mutation services.
 export { SafeRoot, transferTemporary as isWorkspaceTransferTemporary } from "./safety.ts";
 export { GitIgnore } from "./ignore.ts";
 export { tree as walkWorkspace } from "./tree.ts";
-
-export type { WorkspaceRuntime, WorkspaceProcessSpawner } from "./runtime.ts";

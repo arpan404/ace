@@ -126,6 +126,11 @@ Other tests in the requested directories use pure logic, schema parsing,
 filesystem/SQLite fixtures or injected process boundaries without starting a
 real process or listening server. Future real-I/O suites should join the manifest.
 
+PR #40 also registers `input-capacity`, `notification-shutdown`, `outbox-work`,
+`presence-pressure` and `delivery-runtime` daemon tests in the process project.
+They use real sockets and, for presence pressure, the real notification worker.
+Their behavior and work-budget assertions need run at merge.
+
 ## Validation record
 
 The owner now requires tests to run only at merge. No tests, benchmarks,

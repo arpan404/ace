@@ -1,5 +1,7 @@
-import type { WorkspaceProcessSpawner } from "./runtime.ts";
-import { spawn } from "node:child_process";
+import { inputPipe, type InputPipe } from "./input-pipe.ts";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { workspaceRuntime, type WorkspaceRuntime } from "./runtime.ts";
 import { aborted, errorCode, WorkspaceError } from "./types.ts";
 
 /** Own the process, drain both streams, and always reap it before returning. */
@@ -7,21 +9,40 @@ export async function command(
   binary: string,
   args: string[],
   options: {
-    spawn?: WorkspaceProcessSpawner;
     cwd?: string;
     input?: Buffer;
     signal?: AbortSignal;
     outputCap?: number;
     onLine?: (line: string) => boolean;
+    onChunk?: (chunk: string) => boolean;
+    inputs?: AsyncIterable<Buffer>[];
   } = {},
+  runtime: WorkspaceRuntime = workspaceRuntime(),
 ): Promise<{ code: number | null; stdout: Buffer; stderr: string }> {
   aborted(options.signal);
   return new Promise((resolve, reject) => {
-    const child = (options.spawn ?? spawn)(binary, args, {
-      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-      env: { ...process.env, RIPGREP_CONFIG_PATH: "", GIT_OPTIONAL_LOCKS: "0" },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const pipes: InputPipe[] = [];
+    let child;
+    try {
+      for (let index = 0; index < (options.inputs?.length ?? 0); index++) pipes.push(inputPipe());
+      child = runtime.spawn(binary, args, {
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        env: { ...process.env, RIPGREP_CONFIG_PATH: "", GIT_OPTIONAL_LOCKS: "0" },
+        stdio: ["pipe", "pipe", "pipe", ...pipes.map((pipe) => pipe.fd)],
+      });
+      for (const pipe of pipes) pipe.releaseReader();
+    } catch (error) {
+      void Promise.all(pipes.map((pipe) => pipe.dispose())).then(() => reject(error));
+      return;
+    }
+    const { stdin, stdout, stderr: errors } = child;
+    if (!stdin || !stdout || !errors) {
+      child.kill("SIGKILL");
+      void Promise.all(pipes.map((pipe) => pipe.dispose())).then(() =>
+        reject(new Error("Search process requires piped streams")),
+      );
+      return;
+    }
     const chunks: Buffer[] = [];
     let bytes = 0;
     let stderr = "";
@@ -42,21 +63,30 @@ export async function command(
     child.on("error", (error) => {
       problem = error;
     });
-    child.stdin.on("error", (error) => {
+    stdin.on("error", (error) => {
       if (!stopped && errorCode(error) !== "EPIPE") {
         problem = error;
         stop();
       }
     });
-    child.stderr.on("data", (chunk: Buffer) => {
+    errors.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(0, 8192);
     });
-    child.stdout.on("data", (chunk: Buffer) => {
+    stdout.on("data", (chunk: Buffer) => {
       if (stopped) return;
       bytes += chunk.length;
       if (bytes > (options.outputCap ?? 4 * 1024 * 1024)) {
         problem = new WorkspaceError("LIMIT_EXCEEDED", "Command output exceeded its byte budget");
         stop();
+        return;
+      }
+      if (options.onChunk) {
+        try {
+          if (!options.onChunk(decoder.decode(chunk, { stream: true }))) stop();
+        } catch (error) {
+          problem = error;
+          stop();
+        }
         return;
       }
       if (!options.onLine) {
@@ -80,7 +110,9 @@ export async function command(
         }
       }
     });
-    child.on("close", (code) => {
+    child.on("close", async (code) => {
+      await Promise.all(writers);
+      await Promise.all(pipes.map((pipe) => pipe.dispose()));
       options.signal?.removeEventListener("abort", cancel);
       if (problem) {
         reject(problem);
@@ -88,12 +120,27 @@ export async function command(
       }
       try {
         pending += decoder.decode();
+        if (!stopped && options.onChunk) options.onChunk(pending);
         if (!stopped && pending && options.onLine) options.onLine(pending);
         resolve({ code: stopped ? 0 : code, stdout: Buffer.concat(chunks), stderr });
       } catch (error) {
         reject(error);
       }
     });
-    child.stdin.end(options.input);
+    const writers = (options.inputs ?? []).map((input, index) => {
+      const pipe = pipes[index];
+      if (!pipe) {
+        problem = new Error("Missing search input pipe");
+        stop();
+        return Promise.resolve();
+      }
+      return pipeline(Readable.from(input), pipe.stream).catch((error: unknown) => {
+        if (!stopped && errorCode(error) !== "EPIPE") {
+          problem = error;
+          stop();
+        }
+      });
+    });
+    stdin.end(options.input);
   });
 }

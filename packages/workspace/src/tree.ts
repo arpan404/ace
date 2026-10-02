@@ -16,26 +16,31 @@ export async function* tree(
     exclude?: (path: string) => boolean;
   },
 ): AsyncGenerator<Entry> {
-  const excluded = options.exclude ?? internal;
   let visited = 0;
+  const excluded = options.exclude ?? internal;
   async function* descend(dir: string, depth: number): AsyncGenerator<Entry> {
     aborted(options.signal);
     const actualDir = relative(safe.root, await safe.resolve(dir))
       .split(sep)
       .join("/");
     if (excluded(actualDir)) return;
-    const names = await safe.names(dir);
-    for (let start = 0; start < names.length; start += 256) {
+    const entries = await safe.entries(dir);
+    for (let start = 0; start < entries.length; start += 256) {
       aborted(options.signal);
-      const paths = names
+      const paths = entries
         .slice(start, start + 256)
-        .map((name) => (dir ? `${dir}/${name}` : name))
+        .map((entry) => (dir ? `${dir}/${entry.name}` : entry.name))
         .filter((path) => !excluded(path) && validRelativePath(path));
       const actualPath = (path: string) =>
         actualDir
           ? `${actualDir}/${path.slice(dir ? dir.length + 1 : 0)}`
           : path.slice(dir ? dir.length + 1 : 0);
       const ignored = await ignore.ignored(paths.map(actualPath), options.signal);
+      const metadata = new Map(
+        entries
+          .slice(start, start + 256)
+          .map((entry) => [dir ? `${dir}/${entry.name}` : entry.name, entry]),
+      );
       for (const path of paths) {
         aborted(options.signal);
         if (++visited > TREE_CAP)
@@ -43,8 +48,13 @@ export async function* tree(
         const hidden = ignored.has(actualPath(path));
         if (hidden && !options.includeIgnored) continue;
         try {
-          const { info, type } = await safe.metadata(path);
-          yield { path, type, size: info.size, mtime: info.mtimeMs, ignored: hidden };
+          const discovered = metadata.get(path);
+          if (!discovered) continue;
+          const resolved = discovered.type === "symlink" ? await safe.metadata(path) : undefined;
+          const type = resolved?.type ?? discovered.type;
+          const size = resolved?.info.size ?? discovered.info.size;
+          const mtime = resolved?.info.mtimeMs ?? discovered.info.mtime;
+          yield { path, type, size, mtime, ignored: hidden };
           if (type === "directory" && depth > 1) yield* descend(path, depth - 1);
         } catch (error) {
           if (!transient(error)) throw error;

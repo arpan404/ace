@@ -4,6 +4,15 @@ import { fingerprint as relayFingerprint } from "@ace/secure-channel";
 import { FilesService } from "@ace/files";
 import { randomUUID } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
+import { createRedactor } from "@ace/redaction";
+import {
+  logFields,
+  createFileSink,
+  createLogger,
+  createHealthMonitor,
+  type HealthOptions,
+} from "@ace/diagnostics";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
@@ -15,7 +24,7 @@ import { startDaemonMcp } from "./mcp.ts";
 import { loadNotificationChannels } from "./notification-config.ts";
 import { createDaemonNotifications, type DaemonNotifications } from "./notifications.ts";
 import { type CommandHandler, stubHandler } from "./commands.ts";
-import { type Config, logger, readConfig } from "./config.ts";
+import { type Config, readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
@@ -35,6 +44,7 @@ export async function startDaemon(
   toolkits: readonly Toolkit[] = [],
   notificationChannels?: Omit<NotificationChannels, "websocket">,
   modelInstances: readonly InstanceInput[] = [],
+  workload: HealthOptions["workload"] = () => ({ activeSessions: null, queues: {} }),
 ): Promise<{
   url: string;
   tokenPath: string;
@@ -50,7 +60,9 @@ export async function startDaemon(
   close(): Promise<void>;
 }> {
   const unlock = acquireLock(config.dataDir);
-  const log = logger(config.logLevel);
+  const context = { home: homedir(), env: process.env };
+  let log: ReturnType<typeof createLogger> | undefined;
+  let health: ReturnType<typeof createHealthMonitor> | undefined;
   let store: Store | undefined;
   let files: FilesService | undefined;
   let artifacts: ReturnType<typeof daemonArtifacts> | undefined;
@@ -93,7 +105,12 @@ export async function startDaemon(
               try {
                 if (endpointPath) unlinkSync(endpointPath);
               } finally {
-                unlock();
+                health?.close();
+                try {
+                  await log?.close();
+                } finally {
+                  unlock();
+                }
               }
             }
           }
@@ -102,10 +119,44 @@ export async function startDaemon(
     }
   };
   try {
+    const sink = await createFileSink({
+      directory: join(config.dataDir, "logs"),
+      fileBytes: 1024 * 1024,
+      totalBytes: 8 * 1024 * 1024,
+      context,
+    }).catch(() => ({
+      async write() {
+        throw new Error("File logging unavailable");
+      },
+      async close() {},
+    }));
+    log = createLogger({
+      sink,
+      now: Date.now,
+      redact: createRedactor(context),
+      level: config.logLevel,
+    });
+    const ownedLog = log;
+    health = createHealthMonitor({
+      database: join(config.dataDir, "events.sqlite"),
+      now: Date.now,
+      workload: () => {
+        const engine = workload();
+        return {
+          ...engine,
+          queues: {
+            ...engine.queues,
+            "daemon.socketInput": server?.diagnosticsQueues().socketInput ?? 0,
+            "daemon.healthRequests": server?.diagnosticsQueues().healthRequests ?? 0,
+          },
+        };
+      },
+      logs: ownedLog.stats,
+    });
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
     store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
-      log("error", "Event subscriber failed", error),
+      ownedLog.log("error", "Event subscriber failed", error),
     );
     if (config.relayUrl && !config.workspaceRoot)
       throw new Error("Relay files require ACE_WORKSPACE_ROOT");
@@ -147,7 +198,7 @@ export async function startDaemon(
       maintenance = setInterval(() => {
         void ownedFiles
           .sweep()
-          .catch((error: unknown) => log("error", "File retention failed", error));
+          .catch((error: unknown) => ownedLog.log("error", "File retention failed", error));
       }, 60_000);
       maintenance.unref();
     }
@@ -160,7 +211,7 @@ export async function startDaemon(
     notifications = createDaemonNotifications(
       config.dataDir,
       store,
-      () => log("error", "Notification service failure"),
+      () => ownedLog.log("error", "Notification service failure"),
       configured.channels,
     );
     const remote = await remoteListener(config);
@@ -178,8 +229,10 @@ export async function startDaemon(
       ...(files ? { files } : {}),
       models,
       notifications: notifications.service,
-      log: (error) => log("error", "WebSocket failure", error),
+      health: health.collect,
+      log: (error) => ownedLog.log("error", "WebSocket failure", error),
     });
+    ownedLog.log("info", "Daemon listening", logFields([["url", server.url]]));
     notifications.setSender(server.notify);
     await notifications.start();
     const path = join(config.dataDir, "daemon-endpoint");

@@ -17,7 +17,7 @@ it("uses the injected real process boundary for ripgrep selection and search", a
           if (binary !== "injected-ripgrep") return spawn(binary, args, options);
           const source = args.includes("--version")
             ? 'console.log("ripgrep injected")'
-            : 'process.stdin.resume(); process.stdin.on("end", () => console.log(JSON.stringify({type:"match",data:{lines:{text:"needle\\n"},line_number:1,submatches:[{match:{text:"needle"},start:0,end:6}]}})))';
+            : 'const text = require("node:fs").readFileSync(3, "utf8"); console.log(JSON.stringify({type:"match",data:{path:{text:"/dev/fd/3"},lines:{text},line_number:1,submatches:[{match:{text:"needle"},start:0,end:6}]}}))';
           return spawn(process.execPath, ["-e", source], options);
         },
       },
@@ -36,7 +36,7 @@ it("uses the injected real worker boundary and reports its rejected search", asy
     const workspace = await createWorkspace(root, {
       ripgrep: null,
       runtime: {
-        createWorker() {
+        worker() {
           return new Worker(
             'const { parentPort } = require("node:worker_threads"); parentPort.on("message", () => parentPort.postMessage({error:"injected worker rejection"}));',
             { eval: true },

@@ -1,6 +1,6 @@
 import { generateSecret, type CredentialRuntime } from "./credential-runtime.ts";
 import { createHash } from "node:crypto";
-import type { DatabaseSync, StatementSync } from "node:sqlite";
+import type { DatabaseSync, StatementSync, SQLOutputValue } from "node:sqlite";
 import { DeviceId, Device, type DeviceScope } from "@ace/protocol";
 
 export type { Device } from "@ace/protocol";
@@ -9,15 +9,38 @@ export const hash = (value: string) => createHash("sha256").update(value).digest
 export const allows = (device: Pick<Device, "scopes"> | undefined, scope: Scope) =>
   device !== undefined && (device.scopes.includes("admin") || device.scopes.includes(scope));
 
+function decode(row: Record<string, SQLOutputValue>): Device {
+  return Device.parse({
+    id: row.id,
+    name: row.name,
+    scopes: JSON.parse(String(row.scopes)),
+    createdAt: row.created_at,
+    lastSeenAt: row.last_seen_at,
+    revokedAt: row.revoked_at,
+  });
+}
+
 /** Shares the event store's SQLite connection; credentials never leave this module. */
 export class Devices {
-  private db: DatabaseSync;
   private runtime: CredentialRuntime;
-  private readonly getDevice: StatementSync;
+  private insert: StatementSync;
+  private byId: StatementSync;
+  private byToken: StatementSync;
+  private updateSeen: StatementSync;
+  private listing: StatementSync;
+  private revocation: StatementSync;
   constructor(db: DatabaseSync, runtime: CredentialRuntime) {
-    this.db = db;
     this.runtime = runtime;
-    this.getDevice = db.prepare("SELECT * FROM devices WHERE id = ?");
+    this.insert = db.prepare("INSERT INTO devices VALUES (?, ?, ?, ?, ?, ?, NULL)");
+    this.byId = db.prepare("SELECT * FROM devices WHERE id = ?");
+    this.byToken = db.prepare("SELECT * FROM devices WHERE token_hash = ? AND revoked_at IS NULL");
+    this.updateSeen = db.prepare(
+      "UPDATE devices SET last_seen_at = ? WHERE id = ? AND revoked_at IS NULL",
+    );
+    this.listing = db.prepare("SELECT * FROM devices ORDER BY created_at, id");
+    this.revocation = db.prepare(
+      "UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+    );
   }
   create(name: string, granted: Scope[], at: number): { device: Device; token: string } {
     const token = generateSecret(this.runtime.randomBytes);
@@ -30,60 +53,37 @@ export class Devices {
       lastSeenAt: at,
       revokedAt: null,
     });
-    this.db
-      .prepare("INSERT INTO devices VALUES (?, ?, ?, ?, ?, ?, NULL)")
-      .run(
-        device.id,
-        device.name,
-        hash(token),
-        JSON.stringify(device.scopes),
-        device.createdAt,
-        device.lastSeenAt,
-      );
+    this.insert.run(
+      device.id,
+      device.name,
+      hash(token),
+      JSON.stringify(device.scopes),
+      device.createdAt,
+      device.lastSeenAt,
+    );
     return { device, token };
   }
   get(id: string): Device | undefined {
-    const row = this.getDevice.get(id);
-    if (!row) return undefined;
-    return Device.parse({
-      id: row.id,
-      name: row.name,
-      scopes: JSON.parse(String(row.scopes)),
-      createdAt: row.created_at,
-      lastSeenAt: row.last_seen_at,
-      revokedAt: row.revoked_at,
-    });
+    const row = this.byId.get(id);
+    return row ? decode(row) : undefined;
   }
   authenticate(token: string, at: number): Device | undefined {
-    const row = this.db
-      .prepare("SELECT id FROM devices WHERE token_hash = ? AND revoked_at IS NULL")
-      .get(hash(token));
+    const row = this.byToken.get(hash(token));
     if (!row) return undefined;
-    this.touch(String(row.id), at);
-    return this.get(String(row.id));
+    const device = decode(row);
+    this.touch(device.id, at);
+    device.lastSeenAt = at;
+    return device;
   }
   touch(id: string, at: number): void {
     Device.shape.lastSeenAt.parse(at);
-    this.db
-      .prepare("UPDATE devices SET last_seen_at = ? WHERE id = ? AND revoked_at IS NULL")
-      .run(at, id);
+    this.updateSeen.run(at, id);
   }
   list(): Device[] {
-    return this.db
-      .prepare("SELECT id FROM devices ORDER BY created_at, id")
-      .all()
-      .map((row) => {
-        const device = this.get(String(row.id));
-        if (!device) throw new Error("Device disappeared during listing");
-        return device;
-      });
+    return this.listing.all().map(decode);
   }
   revoke(id: string, at: number): boolean {
     Device.shape.revokedAt.parse(at);
-    return (
-      this.db
-        .prepare("UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
-        .run(at, id).changes !== 0
-    );
+    return this.revocation.run(at, id).changes !== 0;
   }
 }
