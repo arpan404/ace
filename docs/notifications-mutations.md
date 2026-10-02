@@ -29,3 +29,7 @@ Each of these nine edits was applied alone on 2026-10-02, caused an assertion fa
 | Never rotate token              | packages/notify/src/apns.test.ts > sends APNs alert and deep link over HTTP2 with a verifiable ES256 provider token                  |
 | Restore closed socket ownership | apps/daemon/src/notification-race.test.ts > disconnect during hello leaves no closed socket in notification delivery ownership       |
 | Restore capacity deadlock       | packages/notify/src/review.test.ts > startup beyond pending capacity catches up before delivering and never sends stale completion   |
+
+## Verifier follow-up after merging main
+
+The owner-status survivor N10 from `/tmp/ace-orch/verify-23.md` is caught by `review.test.ts`, "a child question becomes the needs-you link only after its owner stops working". The test starts with the root approval eligible and the working child's question ineligible, then ends the child's turn while the root approval remains pending. Both devices must receive the actual child question id with no approval actions. Disabling the owner-index update query caused an assertion failure, receiving zero replacement notifications instead of two. The mutation was reverted and the same test passed.

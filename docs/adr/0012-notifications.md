@@ -27,7 +27,7 @@ Add schemas in `protocol/notifications.ts` and additive union members in `wire.t
 
 Actions use the existing authenticated `command` envelope with `interaction.resolve`. They require a fresh connection, device identity matching authentication, normal command receipts and the engine's first-answer-wins check. A notification grants no extra authority. Clients must fetch current interaction details before presenting sensitive approvals. Revocation removes addresses, presence and queued delivery and aborts in-flight requests where possible; already accepted vendor pushes cannot be recalled.
 
-The daemon gets an optional notification port for registration, presence, preferences and a websocket delivery callback. Its standard startup creates the local notification service. Remote device authentication/revocation will plug into the port from `feat/remote-access` when merged. The relay and FCM implementation are separate workstreams; this package exports a mobile transport interface and has no provider credentials.
+The daemon gets an optional notification port for registration, presence, preferences and a websocket delivery callback. Its standard startup creates the local notification service. Remote-access tickets now bind device identity and scopes through the daemon's shared `allows` predicate. Notification delivery, registration, preferences and presence require read scope; thread snooze and approval commands require operate scope. Revocation removes socket recipients and revokes notification state. Each delivery also checks persisted remote authority, including after restart. The relay and FCM implementation are separate workstreams; this package exports a mobile transport interface and has no provider credentials.
 
 ## Web Push and mobile delivery
 

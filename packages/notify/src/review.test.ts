@@ -114,7 +114,7 @@ it("closing the approval on a retry relinks delivery to the remaining approval",
     { action: "deny", optionId: "no-second" },
   ]);
 });
-it("a working child's nonblocking question does not hide the actionable root approval", async () => {
+it("a child question becomes the needs-you link only after its owner stops working", async () => {
   const f = fixture();
   f.start();
   f.fact({
@@ -127,7 +127,7 @@ it("a working child's nonblocking question does not hide the actionable root app
     cwd: "/repo",
   });
   f.start("user", "child");
-  f.fact({
+  const childEvents = f.fact({
     type: "interaction.opened",
     agent: "child",
     interaction: "child-question",
@@ -140,6 +140,22 @@ it("a working child's nonblocking question does not hide the actionable root app
   expect(f.deliveries[0]?.notification.actions).toEqual([
     { action: "approve", optionId: "yes-root" },
     { action: "deny", optionId: "no-root" },
+  ]);
+  const child = childEvents.find((event) => event.payload.type === "interaction.opened");
+  if (child?.payload.type !== "interaction.opened") throw new Error("Missing child question");
+  f.end("completed", "child");
+  await f.flush();
+  expect(f.deliveries.slice(2).map((d) => d.notification)).toEqual([
+    expect.objectContaining({
+      status: "needs_you",
+      interactionId: child.payload.interaction.id,
+      actions: [],
+    }),
+    expect.objectContaining({
+      status: "needs_you",
+      interactionId: child.payload.interaction.id,
+      actions: [],
+    }),
   ]);
 });
 it("resumed work clears completion while retaining a later background completion", async () => {

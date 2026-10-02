@@ -11,7 +11,7 @@ Backend notifications for canonical thread status, approvals/questions and backg
 - `createWebPushTransport` accepts a P-256 PEM private key, VAPID contact subject and an explicit HTTPS origin allowlist. `encryptWebPush` exposes the RFC 8291 record encoder for conformance testing. VAPID and ECDH keys are separate.
 - `createApnsTransport` accepts `{ teamId, keyId, topic, privateKey, endpoint? }`. `privateKey` is the content of the `.p8` file. The endpoint defaults to production; sandbox is supported. Call `close` when the owner shuts down. The third argument injects an HTTP/2 connection for tests.
 
-The standard daemon exposes `daemon.notifications.revoke(deviceId)` for the device authority. It accepts optional transport overrides as `startDaemon(config, handler, channels)`. Injected transports remain owned by their caller. Local authentication still uses the existing host token. Remote per-device identity must be bound by the remote-access implementation before these sockets are exposed remotely.
+The standard daemon exposes `daemon.notifications.revoke(deviceId)` for the device authority. It accepts optional transport overrides as `startDaemon(config, handler, toolkits, channels)`. Injected transports remain owned by their caller. Local authentication still uses the existing host token. Remote tickets bind paired device identity and scopes. Read scope permits notification delivery, registration, preferences and presence; operate scope is required for thread snooze and approval commands. Remote revocation removes socket recipients and revokes notification addresses, and each delivery rechecks the persisted device authority.
 
 ## Configuration
 

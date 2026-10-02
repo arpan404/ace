@@ -24,3 +24,7 @@ Non-gating runs on 2026-10-02, Node v26.8.1, darwin/arm64, shared machine. Rates
 | Worker admission with two distinct unused 8-MiB identifiers |  21,162 |  47.25 |        260.6 |
 
 The 1,001-thread case accepted 1,001 deliveries and reached cursor 2002. The 10,001-thread case retained the latest 10,000 alerts and reached cursor 20002. Input is generated incrementally rather than retained as a history array. The giant-metadata case reached cursor 1000; the largest observed worker frame was 235 bytes. Its peak RSS after forcing allocation of the source strings was 251.6 MiB, versus 260.6 MiB after 1,000 admissions. Machine load and GC timing affect these numbers; no timing or RSS threshold gates CI.
+
+## Remote-access merge integration
+
+`bun run --filter @ace/daemon bench:notifications` measures a committed two-transition event burst through the real notification worker, persisted paired-device authorization lookup and delivery callback. Node v26.8.1, darwin/arm64, shared machine: 1,360 deliveries/s, 735.17 µs/op, cumulative peak RSS 175.2 MiB, 1,000 accepted notifications. Input is generated incrementally; the coalescing window is zero for this benchmark. The persisted authority check uses the remote-access `Devices.get` and `allows` APIs, with one indexed device lookup per delivery.

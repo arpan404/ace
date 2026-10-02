@@ -2,21 +2,33 @@
   "name": "@ace/daemon",
   "private": true,
   "license": "Apache-2.0",
+  "bin": {
+    "ace": "./src/cli.ts"
+  },
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./client-access": "./src/client-access.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "dev": "node src/cli.ts"
+    "dev": "node src/cli.ts",
+    "bench:mcp": "node bench/mcp.ts",
+    "bench:remote": "node --expose-gc src/remote.bench.ts",
+    "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {
+    "@ace/mcp-server": "workspace:*",
     "@ace/notify": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
-    "ws": "^8.18.3"
+    "@ace/provider-kit": "workspace:*",
+    "qrcode-generator": "2.0.4",
+    "ws": "^8.18.3",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "jsqr": "1.4.0"
   }
 }

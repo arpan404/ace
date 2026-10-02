@@ -6,6 +6,7 @@ import {
   type NotificationChannels,
 } from "@ace/notify";
 import type { DeviceId, Notification } from "@ace/protocol";
+import { allows } from "./devices.ts";
 import type { Store } from "./store.ts";
 
 const offline = () => false;
@@ -21,14 +22,24 @@ export function createDaemonNotifications(
   store: Store,
   onError: (error: unknown) => void,
   channels: Omit<NotificationChannels, "websocket"> = {},
+  windowMs = 5000,
 ): DaemonNotifications {
   let send: (device: DeviceId, notification: Notification) => boolean = offline;
+  const delivery = createNotificationRouter({
+    ...channels,
+    websocket: (device, notification) => send(device, notification),
+  });
   const service = new NotificationWorker({
     path: join(dataDir, "notifications.sqlite"),
-    transport: createNotificationRouter({
-      ...channels,
-      websocket: (device, notification) => send(device, notification),
-    }),
+    windowMs,
+    transport: {
+      async send(device, notification, signal) {
+        const paired = store.devices.get(device.id);
+        if (paired?.revokedAt !== undefined && paired.revokedAt !== null) return "gone";
+        if (paired && !allows(paired, "read")) return "failed";
+        return delivery.send(device, notification, signal);
+      },
+    },
   });
   const attached = attachNotifications(service, store, onError);
   let timer: NodeJS.Timeout | undefined;
