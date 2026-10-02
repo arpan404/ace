@@ -1,6 +1,6 @@
 /** Audited child processes, workers, listening sockets and bulk SQLite integration. */
 export const processTestSuites = [
-  "apps/daemon/src/{auth.server,client-limits,device-creation.server,items-window,lifecycle,mcp,notification-race,notifications.remote,notifications.server,ownership.server,payloads,pressure,remote-boundaries.server,remote-cli,remote-payloads,remote.server,server,subscription,text-storage,ticket-allocation.server}.test.ts",
+  "apps/daemon/src/{auth.server,client-limits,device-creation.server,delivery-runtime,input-capacity,items-window,lifecycle,mcp,notification-race,notification-shutdown,notifications.remote,notifications.server,ownership.server,outbox-work,payloads,presence-pressure,pressure,remote-boundaries.server,remote-cli,remote-payloads,remote.server,server,subscription,text-storage,ticket-allocation.server}.test.ts",
   "apps/relay/src/{abuse,availability,relay,throttling,validation}.test.ts",
   "packages/provider-kit/src/{process,jsonrpc,sse,sse-recovery,live}.test.ts",
   "packages/provider-kit/src/discovery/discovery.test.ts",

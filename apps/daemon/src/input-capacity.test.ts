@@ -77,9 +77,21 @@ it.each(["socket", "global"] as const)(
           ),
         ]),
       ).toBe(4009);
-      if (limit === "global") expect(await first.next()).toEqual({ type: "pong" });
+      if (limit === "global") {
+        for (let i = 0; i < 7; i++) {
+          expect(await first.next()).toEqual({ type: "pong" });
+          expect(await second.next()).toEqual({ type: "pong" });
+        }
+        // Reuse a surviving socket too, exercising the per-socket frame accounting.
+        first.send({ type: "ping" });
+        first.send({ type: "ping" });
+        expect(await first.next()).toEqual({ type: "pong" });
+        expect(await first.next()).toEqual({ type: "pong" });
+      }
       const recovered = await open();
-      recovered.send({ type: "ping" });
+      // More than the stale-accounting remainder (188,416 bytes): a tiny ping
+      // would still fit if completed handlers never returned their bytes.
+      recovered.socket.send(" ".repeat(900 * 1024));
       expect(await recovered.next()).toEqual({ type: "pong" });
       expect(errors).toEqual([]);
     } finally {
