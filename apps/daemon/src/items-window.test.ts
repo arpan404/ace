@@ -138,6 +138,52 @@ it("keeps snapshots within the item byte budget and permits paging a single over
   expect(page.items[0]?.id).toBe("huge");
   expect(page.itemsBefore).not.toBeNull();
 });
+it("pages several oversized messages one at a time over the socket without skipping history", async () => {
+  const f = await setup();
+  const text = "x".repeat(2 * 1024 * 1024);
+  const items = Array.from({ length: 4 }, (_, i) => message(`huge-${i}`, text));
+  const events = f.store.appendEvents(
+    f.thread.id,
+    items.map((item) => ({ type: "item.created", item })),
+  );
+  const snapshot = f.store.snapshotThread(f.thread.id);
+  expect(snapshot.itemOrder).toEqual([]);
+  let before = snapshot.itemsBefore;
+  const c = await f.connect();
+  await c.next();
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    const event = events[i];
+    if (!item || !event || before === null) throw new Error("History ended too early");
+    c.send({ type: "items.page", requestId: `p-${i}`, threadId: f.thread.id, before, limit: 200 });
+    const page = await c.next();
+    if (page.type !== "items.page") throw new Error("Expected page");
+    expect(page.items).toEqual([item]);
+    expect(page.itemsBefore).toBe(i ? event.seq : null);
+    before = page.itemsBefore;
+  }
+  expect(before).toBeNull();
+});
+it("bounds aggregate history pages using appended UTF-8 text and JSON escaping", async () => {
+  const f = await setup();
+  const text = "é\0".repeat(96 * 1024);
+  const items = Array.from({ length: 3 }, (_, i) => message(`appended-${i}`, ""));
+  for (const item of items)
+    f.store.appendEvents(f.thread.id, [
+      { type: "item.created", item },
+      { type: "item.delta", itemId: item.id, agentId: item.agentId, field: "text", append: text },
+    ]);
+  let before: number | null = f.store.headSeq() + 1;
+  for (const item of items.toReversed()) {
+    if (before === null) throw new Error("History ended too early");
+    const page = f.store.readItems(f.thread.id, before, 200);
+    expect(page.items).toEqual([message(item.id, text)]);
+    expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(1024 * 1024);
+    if (page.itemsBefore !== null) expect(page.itemsBefore).toBeLessThan(before);
+    before = page.itemsBefore;
+  }
+  expect(before).toBeNull();
+});
 it("ignores unloaded updates and deltas, follows tracked details and preserves newer values when paging", async () => {
   const f = await setup();
   f.store.appendEvents(

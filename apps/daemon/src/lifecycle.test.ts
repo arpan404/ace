@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import { request as httpRequest } from "node:http";
+import { connect as connectTcp } from "node:net";
 import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -147,4 +149,83 @@ describe("daemon lifecycle", () => {
     cleanups.push(() => again.close());
     expect(again.store.headSeq()).toBe(0);
   });
+});
+
+it("keeps the daemon alive when an excess upgrade includes an oversized frame", async () => {
+  const home = tempHome();
+  const daemon = launch(home);
+  const url = await daemon.ready;
+  const clients = await Promise.all(
+    Array.from({ length: 256 }, async () => {
+      const client = new Client(url);
+      cleanups.push(() => client.close());
+      await once(client.socket, "open");
+      return client;
+    }),
+  );
+  const socket = connectTcp({ host: "127.0.0.1", port: Number(new URL(url).port) });
+  cleanups.push(() => {
+    socket.destroy();
+  });
+  await once(socket, "connect");
+  let response = "";
+  socket.on("data", (chunk) => {
+    response += chunk.toString();
+  });
+  socket.on("error", () => {});
+  const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  // Put the invalid frame in the upgrade head, before admission can finish.
+  const frame = Buffer.alloc(14 + 1024 * 1024 + 1);
+  frame[0] = 0x81;
+  frame[1] = 0xff;
+  frame.writeBigUInt64BE(BigInt(1024 * 1024 + 1), 2);
+  socket.write(
+    Buffer.concat([
+      Buffer.from(
+        "GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+      ),
+      frame,
+    ]),
+  );
+  await closed;
+  const client = clients[0];
+  if (!client) throw new Error("Missing admitted client");
+  client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("probe"),
+    token: readFileSync(join(home, "daemon-token"), "utf8"),
+  });
+  expect(
+    await Promise.race([
+      client.next(),
+      daemon.exited.then(() => {
+        throw new Error("Daemon exited after excess upgrade");
+      }),
+    ]),
+  ).toMatchObject({ type: "welcome" });
+  expect(response).not.toContain("101 Switching Protocols");
+  const status = await new Promise<number>((resolve, reject) => {
+    const request = httpRequest(url.replace("ws:", "http:"), {
+      headers: {
+        Upgrade: "websocket",
+        Connection: "Upgrade",
+        "Sec-WebSocket-Version": "13",
+        "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+      },
+    });
+    request.on("response", (reply) => {
+      reply.resume();
+      resolve(reply.statusCode ?? 0);
+    });
+    request.on("upgrade", (_response, upgraded) => {
+      upgraded.destroy();
+      resolve(101);
+    });
+    request.on("error", reject);
+    request.end();
+  });
+  expect(status).toBe(503);
+  daemon.child.kill("SIGTERM");
+  expect((await daemon.exited)[0]).toBe(0);
 });
