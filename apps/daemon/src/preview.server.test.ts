@@ -51,7 +51,7 @@ test("only a paired device can mint a preview link through the daemon API", asyn
   const path = `/v1/previews/${port}/link`;
   await expect(f.request(path, { method: "POST", token })).rejects.toThrow("HTTP 403");
   await expect(f.remoteRequest(path, { method: "POST" })).rejects.toThrow("HTTP 401");
-  const paired = await f.pair(["read"]);
+  const paired = await f.pair(["read", "operate"]);
   const { url } = Link.parse(await f.remoteRequest(path, { method: "POST", token: paired.token }));
   const login = await call(url);
   expect(login.statusCode).toBe(303);
