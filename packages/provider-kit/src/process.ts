@@ -7,7 +7,7 @@ export { installShutdownHandlers } from "./process-owner.ts";
 export type ProcessExit = {
   code: number | null;
   signal: NodeJS.Signals | null;
-  reason: "exit" | "signal" | "stopped" | "spawn-error";
+  reason: "exit" | "signal" | "stopped" | "spawn-error" | "output-limit";
 };
 export type SupervisedProcess = {
   stdin: Writable;
@@ -26,6 +26,8 @@ export type SpawnOptions = {
   name: string;
   /** Natural exit kills descendants by default, including agent-started dev servers. */
   killGroupOnExit?: boolean;
+  /** Stop before readline can accumulate unbounded metadata from a probe. */
+  maxOutputBytes?: number;
 };
 
 export type SupervisedStream = Omit<SupervisedProcess, "stdout" | "stderr"> & {
@@ -34,6 +36,11 @@ export type SupervisedStream = Omit<SupervisedProcess, "stdout" | "stderr"> & {
 };
 /** Own raw byte streams with the same process-group lifecycle as line streams. */
 export function spawnSupervisedStream(options: SpawnOptions): SupervisedStream {
+  if (
+    options.maxOutputBytes !== undefined &&
+    (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 1)
+  )
+    throw new RangeError("Invalid maxOutputBytes");
   if (process.platform === "win32") {
     throw new Error("Process-group supervision requires POSIX; Windows needs a Job Object owner");
   }
@@ -44,8 +51,29 @@ export function spawnSupervisedStream(options: SpawnOptions): SupervisedStream {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const controller = new AbortController();
+  let outputBytes = 0;
+  let outputLimited = false;
+  const capOutput = (chunk: Buffer) => {
+    outputBytes += chunk.length;
+    if (
+      options.maxOutputBytes !== undefined &&
+      outputBytes > options.maxOutputBytes &&
+      child.pid !== undefined
+    ) {
+      outputLimited = true;
+      controller.abort();
+      killGroup(child.pid, "SIGKILL");
+      child.stdout.destroy();
+      child.stderr.destroy();
+    }
+  };
+  if (options.maxOutputBytes !== undefined) {
+    child.stdout.on("data", capOutput);
+    child.stderr.on("data", capOutput);
+  }
   const stdout = child.stdout;
   const stderr = child.stderr;
+
   const pid = child.pid;
 
   let stopped = false;
@@ -80,7 +108,15 @@ export function spawnSupervisedStream(options: SpawnOptions): SupervisedStream {
       resolve({
         code,
         signal,
-        reason: failed ? "spawn-error" : stopped ? "stopped" : signal ? "signal" : "exit",
+        reason: outputLimited
+          ? "output-limit"
+          : failed
+            ? "spawn-error"
+            : stopped
+              ? "stopped"
+              : signal
+                ? "signal"
+                : "exit",
       });
     });
   });

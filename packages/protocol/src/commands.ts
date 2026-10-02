@@ -13,7 +13,16 @@ import { InteractionResolution } from "./interactions.ts";
 import { ContentPart } from "./items.ts";
 import { ProviderKind } from "./provider.ts";
 
+import {
+  OrchestrationCreateCommand,
+  OrchestrationCancelCommand,
+  OrchestrationPickCommand,
+} from "./orchestration-execution.ts";
+
 export const CommandPayload = z.discriminatedUnion("type", [
+  OrchestrationCreateCommand,
+  OrchestrationCancelCommand,
+  OrchestrationPickCommand,
   z.object({
     type: z.literal("thread.create"),
     workspaceId: WorkspaceId,
