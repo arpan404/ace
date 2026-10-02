@@ -1,14 +1,15 @@
 import { DatabaseSync } from "node:sqlite";
-import { spawn } from "node:child_process";
+import { request as httpRequest } from "node:http";
+import { connect as connectTcp } from "node:net";
 import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { DeviceId } from "@ace/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { startDaemon } from "./index.ts";
 import { readConfig } from "./config.ts";
+import { launchDaemon } from "./process-test-support.ts";
 import { Client } from "./socket-test-support.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -21,40 +22,18 @@ function tempHome(): string {
   return home;
 }
 function launch(home: string) {
-  const child = spawn(process.execPath, ["src/cli.ts"], {
-    cwd: fileURLToPath(new URL("../", import.meta.url)),
-    env: { ...process.env, ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent", ACE_DEV: "1" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const exited = once(child, "close");
-  let output = "";
-  let errors = "";
-  child.stderr.on("data", (chunk) => {
-    errors += String(chunk);
-  });
-  const ready = new Promise<string>((resolve) => {
-    child.stdout.on("data", (chunk) => {
-      output += String(chunk);
-      const match = /ace daemon: (ws:\/\/127\.0\.0\.1:\d+)\n/.exec(output);
-      if (match?.[1]) resolve(match[1]);
-    });
-  });
-  cleanups.push(async () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    await exited;
-  });
+  const launched = launchDaemon(
+    { ...process.env, ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent", ACE_DEV: "1" },
+    /ace daemon: ws:\/\/127\.0\.0\.1:\d+\n/,
+    cleanups,
+  );
   return {
-    child,
-    exited,
-    get errors() {
-      return errors;
-    },
-    ready: Promise.race([
-      ready,
-      exited.then(() => {
-        throw new Error(`Daemon exited before ready: ${errors}`);
-      }),
-    ]),
+    ...launched,
+    ready: launched.ready.then((output) => {
+      const url = /ace daemon: (ws:\/\/127\.0\.0\.1:\d+)\n/.exec(output)?.[1];
+      if (!url) throw new Error("Missing daemon URL");
+      return url;
+    }),
   };
 }
 async function connect(url: string, home: string): Promise<Client> {
@@ -170,4 +149,83 @@ describe("daemon lifecycle", () => {
     cleanups.push(() => again.close());
     expect(again.store.headSeq()).toBe(0);
   });
+});
+
+it("keeps the daemon alive when an excess upgrade includes an oversized frame", async () => {
+  const home = tempHome();
+  const daemon = launch(home);
+  const url = await daemon.ready;
+  const clients = await Promise.all(
+    Array.from({ length: 256 }, async () => {
+      const client = new Client(url);
+      cleanups.push(() => client.close());
+      await once(client.socket, "open");
+      return client;
+    }),
+  );
+  const socket = connectTcp({ host: "127.0.0.1", port: Number(new URL(url).port) });
+  cleanups.push(() => {
+    socket.destroy();
+  });
+  await once(socket, "connect");
+  let response = "";
+  socket.on("data", (chunk) => {
+    response += chunk.toString();
+  });
+  socket.on("error", () => {});
+  const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  // Put the invalid frame in the upgrade head, before admission can finish.
+  const frame = Buffer.alloc(14 + 1024 * 1024 + 1);
+  frame[0] = 0x81;
+  frame[1] = 0xff;
+  frame.writeBigUInt64BE(BigInt(1024 * 1024 + 1), 2);
+  socket.write(
+    Buffer.concat([
+      Buffer.from(
+        "GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+      ),
+      frame,
+    ]),
+  );
+  await closed;
+  const client = clients[0];
+  if (!client) throw new Error("Missing admitted client");
+  client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("probe"),
+    token: readFileSync(join(home, "daemon-token"), "utf8"),
+  });
+  expect(
+    await Promise.race([
+      client.next(),
+      daemon.exited.then(() => {
+        throw new Error("Daemon exited after excess upgrade");
+      }),
+    ]),
+  ).toMatchObject({ type: "welcome" });
+  expect(response).not.toContain("101 Switching Protocols");
+  const status = await new Promise<number>((resolve, reject) => {
+    const request = httpRequest(url.replace("ws:", "http:"), {
+      headers: {
+        Upgrade: "websocket",
+        Connection: "Upgrade",
+        "Sec-WebSocket-Version": "13",
+        "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+      },
+    });
+    request.on("response", (reply) => {
+      reply.resume();
+      resolve(reply.statusCode ?? 0);
+    });
+    request.on("upgrade", (_response, upgraded) => {
+      upgraded.destroy();
+      resolve(101);
+    });
+    request.on("error", reject);
+    request.end();
+  });
+  expect(status).toBe(503);
+  daemon.child.kill("SIGTERM");
+  expect((await daemon.exited)[0]).toBe(0);
 });

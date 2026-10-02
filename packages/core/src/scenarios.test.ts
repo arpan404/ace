@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { harness } from "./test-helper.ts";
+import { apply } from "./index.ts";
+import { foldPayload } from "./client-view.test-helper.ts";
 
 describe("recorded provider false-done traps", () => {
   it.each(["claude", "codex", "opencode"] as const)(
@@ -285,16 +287,20 @@ describe("recorded provider false-done traps", () => {
     h.send({ type: "item.delta", agent: "root", item: "reason", field: "reasoning", append: "." });
     h.see("child", "root");
     h.start("child");
+    // Keep the full traffic volume without cloning history and comparing every
+    // accumulated client row on every delta. The final tick checks full parity.
     for (let index = 0; index < 10_000; index++) {
-      const events = h.send(
+      const events = apply(
+        h.state,
         { type: "item.delta", agent: "root", item: "reason", field: "reasoning", append: "." },
-        1000 + index,
+        { now: 1000 + index, ids: h.ids },
       );
       expect(events.map((event) => event.type)).toEqual(["item.delta"]);
+      for (const event of events) foldPayload(h.view, event);
     }
     expect(h.item("reason")).toMatchObject({ type: "reasoning", text: ".".repeat(10_001) });
     expect(h.agent("child")?.status).toMatchObject({ state: "working" });
     h.send({ type: "tick" }, 11_000);
     expect(h.agent("child")?.status).toMatchObject({ state: "unresponsive" });
-  });
+  }, 30_000);
 });

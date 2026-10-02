@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { DiagnosticsHealthCommand } from "./diagnostics.ts";
+import { ConductorCommandPayload } from "./conductor.ts";
 import {
   AgentId,
   BackgroundTaskId,
@@ -19,6 +21,8 @@ import {
 } from "./orchestration-execution.ts";
 
 export const CommandPayload = z.discriminatedUnion("type", [
+  DiagnosticsHealthCommand,
+  ...ConductorCommandPayload.options,
   OrchestrationCreateCommand,
   OrchestrationCancelCommand,
   OrchestrationPickCommand,

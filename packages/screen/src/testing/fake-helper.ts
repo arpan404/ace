@@ -50,6 +50,7 @@ function frame() {
 }
 let held: string | undefined;
 let heldUI: string | undefined;
+let inspectedInput = false;
 const v2 = process.env.FAKE_V2 === "1";
 let capturing = !v2;
 let actions = 0;
@@ -179,7 +180,7 @@ lines.on("line", (line) => {
           windowId: 1,
           bundleId: "dev.ace.test",
           title: v2
-            ? `capture:${capturing};actions:${actions};held:${Boolean(heldUI)};pid:${process.pid}`
+            ? `capture:${capturing};actions:${actions};held:${Boolean(heldUI)};heldInput:${Boolean(held)};pid:${process.pid}`
             : "Test",
         },
       ],
@@ -198,6 +199,15 @@ lines.on("line", (line) => {
     data = { action: request.action };
   }
   const reply = JSON.stringify({ version: request.version, id: request.id, ok: true, data });
+  if (
+    process.env.HOLD_PERMISSION === "1" &&
+    request.op === "permissions" &&
+    permissionQueries > 1
+  ) {
+    held = reply;
+    inspectedInput = false;
+    return;
+  }
   if (process.env.REVERSE_REPLIES === "1" && request.op === "permissions") {
     held = reply;
     return;
@@ -210,6 +220,10 @@ lines.on("line", (line) => {
   if (request.op === "stop" && heldUI) {
     console.log(heldUI);
     heldUI = undefined;
+  }
+  if (held && process.env.HOLD_PERMISSION === "1" && !inspectedInput && request.op === "targets") {
+    inspectedInput = true;
+    return;
   }
   if (held) {
     console.log(held);

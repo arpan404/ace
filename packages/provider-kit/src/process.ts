@@ -1,7 +1,7 @@
 import { boundedLineInput } from "./line-limit.ts";
 import { spawn } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
-import type { Writable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 export { installShutdownHandlers } from "./process-owner.ts";
 
@@ -9,6 +9,14 @@ export type ProcessExit = {
   code: number | null;
   signal: NodeJS.Signals | null;
   reason: "exit" | "signal" | "stopped" | "spawn-error" | "output-limit";
+};
+export type RawSupervisedProcess = {
+  stdin: Writable;
+  stdout: Readable;
+  stderr: Readable;
+  exited: Promise<ProcessExit>;
+  signal: AbortSignal;
+  stop(options?: { graceMs?: number }): Promise<ProcessExit>;
 };
 export type SupervisedProcess = {
   stdin: Writable;
@@ -35,7 +43,7 @@ export type SpawnOptions = {
 };
 
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
-export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
+export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess {
   if (
     options.maxOutputBytes !== undefined &&
     (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 1)
@@ -76,15 +84,7 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
     child.stdout.on("data", capOutput);
     child.stderr.on("data", capOutput);
   }
-  const limited = (input: typeof child.stdout) =>
-    options.maxLineBytes === undefined
-      ? input
-      : boundedLineInput(input, options.maxLineBytes, (error) => {
-          options.onOutputLimit?.(error);
-          void handle.stop({ graceMs: 0 });
-        });
-  const stdout = createInterface({ input: limited(child.stdout), crlfDelay: Infinity });
-  const stderr = createInterface({ input: limited(child.stderr), crlfDelay: Infinity });
+
   const pid = child.pid;
 
   let stopped = false;
@@ -131,10 +131,17 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
       });
     });
   });
-  const handle: SupervisedProcess = {
+  const limited = (input: typeof child.stdout) =>
+    options.maxLineBytes === undefined
+      ? input
+      : boundedLineInput(input, options.maxLineBytes, (error) => {
+          options.onOutputLimit?.(error);
+          void handle.stop({ graceMs: 0 });
+        });
+  const handle: RawSupervisedProcess = {
     stdin: child.stdin,
-    stdout,
-    stderr,
+    stdout: limited(child.stdout),
+    stderr: limited(child.stderr),
     exited,
     signal: controller.signal,
     stop({ graceMs = 5_000 } = {}) {
@@ -158,6 +165,16 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
   return handle;
 }
 
+/** Line-oriented facade over the same process-group owner. */
+export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
+  const raw = spawnRawSupervised(options);
+  return {
+    ...raw,
+    stdout: createInterface({ input: raw.stdout, crlfDelay: Infinity }),
+    stderr: createInterface({ input: raw.stderr, crlfDelay: Infinity }),
+  };
+}
+
 /** Bounded, read-only CLI probe. Raw output is returned only to the caller. */
 export async function probeOutput(
   command: string,
@@ -166,9 +183,19 @@ export async function probeOutput(
     timeoutMs?: number;
     env?: NodeJS.ProcessEnv;
     maxBytes?: number;
+    signal?: AbortSignal;
+    spawn?: typeof spawnSupervised;
+    schedule?: (callback: () => void, milliseconds: number) => () => void;
   } = {},
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
-  const proc = spawnSupervised({ command, args, env: options.env ?? {}, name: "cli-probe" });
+  if (options.signal?.aborted) throw new Error("Probe aborted");
+  const proc = (options.spawn ?? spawnSupervised)({
+    command,
+    args,
+    env: options.env ?? {},
+    name: "cli-probe",
+    maxOutputBytes: options.maxBytes ?? 1_048_576,
+  });
   let stdout = "";
   let stderr = "";
   let bytes = 0;
@@ -185,17 +212,30 @@ export async function probeOutput(
   };
   proc.stdout.on("line", (line) => collect("stdout", line));
   proc.stderr.on("line", (line) => collect("stderr", line));
-  const timer = setTimeout(() => {
+  const abort = () => {
+    failure ??= new Error("Probe aborted");
+    void proc.stop({ graceMs: 0 });
+  };
+  options.signal?.addEventListener("abort", abort, { once: true });
+  const schedule =
+    options.schedule ??
+    ((callback: () => void, ms: number) => {
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    });
+  const cancel = schedule(() => {
     failure ??= new Error("Probe timed out");
     void proc.stop({ graceMs: 0 });
   }, options.timeoutMs ?? 30_000);
   try {
     const exit = await proc.exited;
     if (failure) throw failure;
+    if (exit.reason === "output-limit") throw new Error("Probe output exceeded limit");
     if (exit.reason === "spawn-error") throw new Error("Probe failed to start");
     return { stdout: stdout.trim(), stderr: stderr.trim(), code: exit.code };
   } finally {
-    clearTimeout(timer);
+    cancel();
+    options.signal?.removeEventListener("abort", abort);
   }
 }
 export async function probe(command: string, args: readonly string[]): Promise<string> {

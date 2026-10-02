@@ -1,11 +1,10 @@
-import { spawn, execFile } from "node:child_process";
-import { once } from "node:events";
+import { execFile } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, expect, it } from "vitest";
+import { DoctorReport } from "@ace/diagnostics";
 import { DeviceCredential, PairingResponse } from "@ace/protocol";
 import { nodeBinary } from "@ace/provider-kit/testing";
 import { accessRequest, redeemPairing } from "./client-access.ts";
@@ -13,8 +12,8 @@ import { lanAddress, refusesTcp } from "./network-test-support.ts";
 import { scanTerminalQr } from "./qr-test-support.ts";
 import { readConfig } from "./config.ts";
 import { startDaemon } from "./index.ts";
+import { copyTlsFixture, daemonCli, launchDaemon } from "./process-test-support.ts";
 
-const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url));
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
@@ -22,6 +21,7 @@ afterEach(async () => {
 function home(): string {
   const directory = mkdtempSync(join(tmpdir(), "ace-cli-"));
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+  copyTlsFixture(directory);
   return directory;
 }
 const envFor = (directory: string) => ({
@@ -33,42 +33,22 @@ const envFor = (directory: string) => ({
   ACE_LOG_LEVEL: "silent",
 });
 const cli = (directory: string, args: string[], env: NodeJS.ProcessEnv = envFor(directory)) =>
-  promisify(execFile)(process.execPath, [cliPath, ...args], { env });
+  promisify(execFile)(process.execPath, [daemonCli(), ...args], { env });
 it("starts in the foreground and exposes status, a redeemable QR URL, device listing and revocation through the CLI", async () => {
   const directory = home();
-  const child = spawn(process.execPath, [cliPath, "start"], {
-    env: envFor(directory),
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const exited = once(child, "close");
-  let output = "";
-  let errors = "";
-  child.stderr.on("data", (data) => {
-    errors += String(data);
-  });
-  const ready = new Promise<void>((resolve) => {
-    child.stdout.on("data", (data) => {
-      output += String(data);
-      if (output.includes("Public-key SHA-256:")) resolve();
-    });
-  });
-  cleanups.push(async () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    await exited;
-  });
-  await Promise.race([
-    ready,
-    exited.then(() => {
-      throw new Error(errors);
-    }),
-  ]);
+  const { child, exited, ready } = launchDaemon(envFor(directory), /Public-key SHA-256:/, cleanups);
+  const output = await ready;
   expect(output).toContain("ace daemon: ws://127.0.0.1:");
-  const status = JSON.parse((await cli(directory, ["status"])).stdout);
+  const [statusOutput, pairingOutput] = await Promise.all([
+    cli(directory, ["status"]),
+    cli(directory, ["pair", "read"]),
+  ]);
+  const status = JSON.parse(statusOutput.stdout);
   expect(status).toMatchObject({
     running: true,
     remote: { origin: expect.stringMatching(/^https:/) },
   });
-  const pairing = (await cli(directory, ["pair", "read"])).stdout;
+  const pairing = pairingOutput.stdout;
   const url = pairing.split("\n")[0];
   if (!url) throw new Error("Missing pairing URL");
   expect(pairing).toContain("Valid for 5 minutes, single use");
@@ -88,7 +68,7 @@ it("starts in the foreground and exposes status, a redeemable QR URL, device lis
   child.kill("SIGTERM");
   expect((await exited)[0]).toBe(0);
   expect(JSON.parse((await cli(directory, ["status"])).stdout)).toEqual({ running: false });
-}, 60_000);
+});
 it("doctor reuses provider-kit discovery with controlled CLI binaries and never sends prompts", async () => {
   const directory = home();
   const calls = join(directory, "calls");
@@ -97,14 +77,27 @@ it("doctor reuses provider-kit discovery with controlled CLI binaries and never 
     "codex",
     `const { appendFileSync } = require('node:fs');\nconst args = process.argv.slice(2).join(' ');\nappendFileSync(${JSON.stringify(calls)}, args + '\\n');\nif (args === '--version') console.log('codex-cli 1.2.3');\nelse if (args === 'login status') console.log('Logged in using ChatGPT');\nelse process.exit(9);`,
   );
-  const { stdout } = await cli(directory, ["doctor"], { ...envFor(directory), PATH: directory });
-  const result = JSON.parse(stdout);
-  expect(result.providers.codex).toMatchObject({
-    installed: true,
-    version: "1.2.3",
-    auth: "logged_in",
+  let stdout = "";
+  try {
+    stdout = (await cli(directory, ["doctor", "--json"], { ...envFor(directory), PATH: directory }))
+      .stdout;
+  } catch (error) {
+    if (error && typeof error === "object" && "stdout" in error && typeof error.stdout === "string")
+      stdout = error.stdout;
+    else throw error;
+  }
+  const result = DoctorReport.parse(JSON.parse(stdout));
+  expect(result.checks.find((check) => check.id === "provider.codex")).toMatchObject({
+    status: "ok",
+    message: expect.stringContaining("1.2.3, logged_in"),
   });
-  expect(result.providers.claude).toMatchObject({ installed: false });
+  expect(result.checks.find((check) => check.id === "provider.claude")).toMatchObject({
+    status: "warn",
+    message: expect.stringContaining("not installed"),
+  });
+  expect(result.checks.find((check) => check.id === "remote.openssl")).toMatchObject({
+    status: "fail",
+  });
   expect(readFileSync(calls, "utf8").trim().split("\n").toSorted()).toEqual([
     "--version",
     "login status",
@@ -124,32 +117,8 @@ it("binds the address discovered from a real Tailscale status process", async ()
     ACE_LISTEN: "tailscale",
     PATH: `${directory}:${process.env.PATH}`,
   };
-  const child = spawn(process.execPath, [cliPath, "start"], {
-    env: environment,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const exited = once(child, "close");
-  let output = "";
-  let errors = "";
-  child.stderr.on("data", (data) => {
-    errors += String(data);
-  });
-  const ready = new Promise<void>((resolve) => {
-    child.stdout.on("data", (data) => {
-      output += String(data);
-      if (output.includes("Public-key SHA-256:")) resolve();
-    });
-  });
-  cleanups.push(async () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    await exited;
-  });
-  await Promise.race([
-    ready,
-    exited.then(() => {
-      throw new Error(errors);
-    }),
-  ]);
+  const { child, exited, ready } = launchDaemon(environment, /Public-key SHA-256:/, cleanups);
+  const output = await ready;
   expect(readFileSync(calls, "utf8")).toBe("status --json");
   expect(output).toMatch(/Remote: wss:\/\/127\.0\.0\.1:\d+/);
   const token = readFileSync(join(directory, "daemon-token"), "utf8");
