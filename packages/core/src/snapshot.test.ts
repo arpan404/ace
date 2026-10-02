@@ -135,7 +135,9 @@ describe("snapshot and payload integrity", () => {
     h.background();
     h.question();
     h.send({ type: "item.delta", agent: "root", item: "shell", field: "output", append: "Output" });
-    expect(h.item("shell")).toMatchObject({ call: { detail: { output: "Output" } } });
+    expect(h.item("shell")).toMatchObject({
+      call: { detail: { output: { bytes: 6, tail: "Output", truncated: false } } },
+    });
     h.end();
     expect(h.interaction("question")?.state).toBe("cancelled");
     expect(h.agent("root")?.status).toMatchObject({ state: "blocked", on: "background_task" });

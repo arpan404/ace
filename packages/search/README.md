@@ -34,11 +34,11 @@ Search requires the same `read` scope as subscriptions. Host/admin and read devi
 
 ## Package API and ownership
 
-`SearchIndex` takes a caller-owned `DatabaseSync`. `append(events)` consumes validated canonical events in sequence order and stages text; call it inside the event append transaction. Metadata changes can use `observeThread(thread, seq)` in that same transaction. `flush()` publishes up to 128 dirty documents. It accepts a batch limit from 1 to 256. The daemon calls it every 100 ms. FIFO order uses the sequence when a document first became dirty, so continuing streams do not starve other documents.
+`SearchIndex` takes a caller-owned `DatabaseSync` and optional `{ trigrams, readOutput }`. The output reader accepts thread id, stream id, byte offset and a limit of at most 64 KiB, returning bounded bytes or undefined. The daemon supplies its scoped output store; missing storage falls back to the summary tail. Creation, completion updates and rebuild read capped head/tail ranges; deltas do no stream reads. `append(events)` consumes validated canonical events in sequence order and stages text; call it inside the event append transaction. Metadata changes can use `observeThread(thread, seq)` in that same transaction. `flush()` publishes up to 128 dirty documents. It accepts a batch limit from 1 to 256. The daemon calls it every 100 ms. FIFO order uses the sequence when a document first became dirty, so continuing streams do not starve other documents.
 
-`backfillBatch(source)` reads at most 256 events. `backfill(source, { signal, onProgress, yield })` yields between batches and resumes from SQLite's committed checkpoint. The source supplies `headSeq()` and bounded `readEvents()`. Its optional `getThread()` supplies current authoritative metadata during replay, so older events cannot make a working thread appear done. The daemon provides this port through its existing public store API.
+`backfillBatch(source)` reads at most 256 events. `backfill(source, { signal, onProgress, yield })` yields between batches and resumes from SQLite's committed checkpoint. The source supplies `headSeq()` and bounded, host-wide `readEvents()` in sequence order. A page covers deleted sequence gaps; a short page covers through the current head. Do not supply a filtered source. Its optional `getThread()` supplies current authoritative metadata during replay, so older events cannot make a working thread appear done. The daemon provides this port through its existing public store API.
 
-`rebuild(source, options)` clears derived documents and postings, invalidates existing cursors and runs the same resumable backfill. Current thread metadata remains available during replay. `deleteThread(id)` removes all of that thread's derived rows and postings, using bounded batches within one transaction. A future retention owner must coordinate this with deleting the source history.
+`rebuild(source, options)` clears derived documents and postings, invalidates existing cursors and runs the same resumable backfill. Current thread metadata remains available during replay. `deleteThread(id)` removes all of that thread's derived rows and postings, using bounded batches within one transaction. The daemon coordinates this with source-history deletion in its transaction. Progress uses a durable pending counter rather than scanning dirty rows.
 
 `query(input)` is a synchronous standalone reader useful for tests and benchmarks. The daemon uses `SearchQueries(databasePath).query(input)`, an asynchronous reader with a separate WAL snapshot per request and at most 16 outstanding requests. Excess admission and reader failures return `search_failed`. Close the reader and abort backfill before closing the owning database. The worker reader requires a file-backed database.
 
@@ -47,7 +47,9 @@ Rendered fields retain at most 8,192 UTF-16 units of head and 8,192 of tail, plu
 ## Verification and benchmarks
 
 ```sh
-bun run test packages/search/src apps/daemon/src/search.server.test.ts apps/daemon/src/search.remote.test.ts
+bun run test packages/search/src apps/daemon/src/search
+python3 packages/search/bench/mutations.py
+node packages/search/bench/outputs.ts
 bun run --filter @ace/search bench
 ```
 

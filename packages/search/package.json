@@ -11,6 +11,7 @@
     "bench": "node bench/search.ts"
   },
   "dependencies": {
+    "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "zod": "^4.6.5"
   }

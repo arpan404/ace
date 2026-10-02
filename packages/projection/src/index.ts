@@ -1,3 +1,13 @@
+import { applyDelta } from "./delta.ts";
+export {
+  acceptsDelta,
+  applyDelta,
+  outputDeltas,
+  outputStreamId,
+  summarizeOutput,
+  utf8Slice,
+} from "./delta.ts";
+export { applyItemsPage, trackItem } from "./window.ts";
 import type {
   DeliveryEvent,
   Event,
@@ -23,6 +33,7 @@ export function createThreadView(thread: Thread, seq = 0): ThreadView {
     runs: {},
     items: {},
     itemOrder: [],
+    itemsBefore: null,
     interactions: {},
     backgroundTasks: {},
     usage: {},
@@ -72,6 +83,21 @@ function reparentAgent(
     put(view.agentChildren, nextParent, children);
   }
 }
+/** Rebuild the derived parent index after loading materialized agents. */
+export function rebuildAgentChildren(view: ThreadView): void {
+  view.agentChildren = {};
+  const parents = new Map<string, Set<string>>();
+  for (const agent of Object.values(view.agents)) {
+    if (!agent.parentId) continue;
+    let children = parents.get(agent.parentId);
+    if (!children) {
+      children = new Set();
+      parents.set(agent.parentId, children);
+    }
+    children.add(agent.id);
+  }
+  for (const [parent, children] of parents) put(view.agentChildren, parent, [...children]);
+}
 function advance(view: { seq: number }, event: DeliveryEvent): ApplyResult {
   if (event.seq <= view.seq) return { kind: "ignored" };
   const first = event.firstSeq ?? event.seq;
@@ -108,12 +134,15 @@ function foldThreadList(view: ThreadListView, event: DeliveryEvent): void {
 }
 
 export function applyEvent(view: ThreadView, event: DeliveryEvent): ApplyResult {
+  if (event.threadId !== view.thread.id)
+    return { kind: "gap", expected: view.seq + 1, received: event.firstSeq ?? event.seq };
   const result = advance(view, event);
-  if (result.kind !== "applied" || event.threadId !== view.thread.id) return result;
+  if (result.kind !== "applied") return result;
   foldEvent(view, event);
   return result;
 }
 function foldEvent(view: ThreadView, event: DeliveryEvent): void {
+  if (event.threadId !== view.thread.id) throw new Error("Event outside thread scope");
   const p = event.payload;
   updateThread(view.thread, event);
   switch (p.type) {
@@ -157,6 +186,12 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
     }
     case "item.created":
     case "item.updated": {
+      if (
+        p.type === "item.updated" &&
+        view.itemsBefore !== null &&
+        !Object.hasOwn(view.items, p.item.id)
+      )
+        break;
       if (!Object.hasOwn(view.items, p.item.id)) view.itemOrder.push(p.item.id);
       put(view.items, p.item.id, structuredCopy(p.item));
       break;
@@ -167,17 +202,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       break;
     case "item.delta": {
       const item = get(view.items, p.itemId);
-      if (item?.type === "message" && p.field === "text") {
-        const part = item.parts.at(-1);
-        if (part?.type === "text") part.text += p.append;
-        else item.parts.push({ type: "text", text: p.append });
-      } else if (item?.type === "reasoning" && p.field === "reasoning") item.text += p.append;
-      else if (
-        item?.type === "tool_call" &&
-        item.call.detail.kind === "shell" &&
-        p.field === "output"
-      )
-        item.call.detail.output = (item.call.detail.output ?? "") + p.append;
+      if (item) applyDelta(item, p.field, p.append);
       break;
     }
     case "interaction.opened":

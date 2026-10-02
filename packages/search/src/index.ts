@@ -11,6 +11,8 @@ import {
 import { migrateSearch } from "./schema.ts";
 import { SearchWriter } from "./writer.ts";
 import { querySearch } from "./query.ts";
+import type { OutputReader } from "./output.ts";
+export type { OutputReader } from "./output.ts";
 export { FIELD_CAP, GAP } from "./text.ts";
 
 const ItemKey = z.object({ item: z.string() });
@@ -24,11 +26,11 @@ export interface SearchSource {
 export class SearchIndex {
   private readonly writer: SearchWriter;
   readonly db: DatabaseSync;
-  constructor(db: DatabaseSync, options: { trigrams?: boolean } = {}) {
+  constructor(db: DatabaseSync, options: { trigrams?: boolean; readOutput?: OutputReader } = {}) {
     this.db = db;
     const trigrams = options.trigrams ?? true;
     migrateSearch(db, trigrams);
-    this.writer = new SearchWriter(db, trigrams);
+    this.writer = new SearchWriter(db, trigrams, options.readOutput);
   }
   private atomic<T>(run: () => T): T {
     this.db.exec("SAVEPOINT search_batch");
@@ -43,29 +45,31 @@ export class SearchIndex {
   }
   status(headSeq: number): SearchStatus {
     const meta = this.writer.sql.get("SELECT * FROM search_meta WHERE id=1").get();
-    const pending = this.writer.sql
-      .get("SELECT count(*) AS n FROM search_stage WHERE dirty=1")
-      .get();
     return SearchStatus.parse({
       indexedSeq: meta?.seq,
       headSeq,
-      pending: pending?.n,
+      pending: meta?.pending,
       indexWrites: meta?.writes,
       generation: meta?.generation,
-      ready: meta?.seq === headSeq && pending?.n === 0,
+      ready: meta?.seq === headSeq && meta?.pending === 0,
     });
   }
   /** If history is pending, the append-only source log remains the durable queue. */
   append(events: readonly Event[]): void {
+    let seq = Number(this.writer.sql.get("SELECT seq FROM search_meta WHERE id=1").get()?.seq);
+    const contiguous: Event[] = [];
+    for (const event of events) {
+      if (event.seq <= seq) continue;
+      if (event.seq !== seq + 1) break;
+      contiguous.push(event);
+      seq = event.seq;
+    }
+    this.consume(contiguous, seq);
+  }
+  private consume(events: readonly Event[], throughSeq: number): void {
     this.atomic(() => {
-      let seq = Number(this.writer.sql.get("SELECT seq FROM search_meta WHERE id=1").get()?.seq);
-      for (const event of events) {
-        if (event.seq <= seq) continue;
-        if (event.seq !== seq + 1) break;
-        this.writer.stage(event);
-        seq = event.seq;
-      }
-      this.writer.sql.run("UPDATE search_meta SET seq=? WHERE id=1", seq);
+      for (const event of events) this.writer.stage(event);
+      this.writer.sql.run("UPDATE search_meta SET seq=? WHERE id=1", throughSeq);
       this.writer.flush("dirty=1 AND complete=1", 256);
     });
   }
@@ -113,7 +117,10 @@ export class SearchIndex {
         if (current) this.observeThread(current, head);
       }
     }
-    this.append(events);
+    // The durable source covers missing sequences left by thread retention. Live
+    // append cannot make this guarantee and waits for replay across such gaps.
+    const throughSeq = events.length < 256 ? source.headSeq() : (events.at(-1)?.seq ?? seq);
+    this.consume(events, throughSeq);
     this.flush();
     return this.status(source.headSeq());
   }

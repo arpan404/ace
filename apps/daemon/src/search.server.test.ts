@@ -96,13 +96,13 @@ test("an item deletion removes search hits and the subscribed transcript togethe
     parts: [{ type: "text", text: "deleteme" }],
   });
   f.store.appendEvents(f.thread.id, [{ type: "item.created", item }]);
-  const view = f.store.acquireThread(f.thread.id);
+  const view = f.store.snapshotThread(f.thread.id);
   expect(view.items[item.id]).toBeDefined();
   f.store.appendEvents(f.thread.id, [{ type: "item.deleted", itemId: item.id }]);
-  expect(view.items[item.id]).toBeUndefined();
-  expect(view.itemOrder).not.toContain(item.id);
+  const deleted = f.store.snapshotThread(f.thread.id);
+  expect(deleted.items[item.id]).toBeUndefined();
+  expect(deleted.itemOrder).not.toContain(item.id);
   expect(f.store.search.query({ text: "deleteme" }).hits).toEqual([]);
-  f.store.releaseThread(f.thread.id);
 });
 
 test("daemon timer coalesces independent stream appends and flushes without waiting for completion", async () => {

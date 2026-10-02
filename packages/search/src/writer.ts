@@ -1,21 +1,27 @@
 import type { DatabaseSync, StatementSync, SQLInputValue } from "node:sqlite";
 import { z } from "zod";
 import type { Event, Thread } from "@ace/protocol";
+import { SearchKind } from "@ace/protocol";
+import { acceptsDelta } from "@ace/projection";
 import { appendWindow, capText, itemText, windowText } from "./text.ts";
+import { outputText, type OutputReader } from "./output.ts";
 
 const Stage = z.object({
   id: z.number(),
   thread: z.string(),
   item: z.string(),
   agent: z.string().nullable(),
-  kind: z.string(),
+  kind: SearchKind,
+  tool_kind: z.string().nullable(),
   at: z.number(),
   title: z.string(),
   head: z.string(),
   tail: z.string(),
   size: z.number(),
 });
-const Document = Stage.omit({ head: true, tail: true, size: true }).extend({ body: z.string() });
+const Document = Stage.omit({ head: true, tail: true, size: true, tool_kind: true }).extend({
+  body: z.string(),
+});
 export class Statements {
   private readonly cache = new Map<string, StatementSync>();
   readonly db: DatabaseSync;
@@ -41,7 +47,9 @@ export class Statements {
 export class SearchWriter {
   readonly sql: Statements;
   readonly trigrams: boolean;
-  constructor(db: DatabaseSync, trigrams: boolean) {
+  private readonly readOutput: OutputReader | undefined;
+  constructor(db: DatabaseSync, trigrams: boolean, readOutput?: OutputReader) {
+    this.readOutput = readOutput;
     this.trigrams = trigrams;
     this.sql = new Statements(db);
   }
@@ -62,6 +70,7 @@ export class SearchWriter {
         0,
         true,
         event.seq,
+        null,
       );
     } else if (p.type === "thread.updated") {
       const changes = this.sql
@@ -86,7 +95,12 @@ export class SearchWriter {
         );
       }
     } else if (p.type === "item.created" || p.type === "item.updated") {
-      const { title, window } = itemText(p.item);
+      const detail = p.item.type === "tool_call" ? p.item.call.detail : undefined;
+      const output =
+        detail?.kind === "shell" && detail.output
+          ? outputText(this.readOutput, event.threadId, detail.output)
+          : undefined;
+      const { title, window } = itemText(p.item, output);
       this.put(
         event.threadId,
         p.item.id,
@@ -99,6 +113,7 @@ export class SearchWriter {
         window.size,
         p.item.complete,
         event.seq,
+        detail?.kind ?? null,
       );
     } else if (p.type === "item.delta") {
       const value = this.sql
@@ -106,12 +121,7 @@ export class SearchWriter {
         .get(event.threadId, p.itemId);
       if (!value) return;
       const row = Stage.parse(value);
-      if (
-        (row.kind === "message" && p.field !== "text") ||
-        (row.kind === "reasoning" && p.field !== "reasoning") ||
-        (row.kind === "tool_call" && p.field !== "output") ||
-        !["message", "reasoning", "tool_call"].includes(row.kind)
-      )
+      if (row.kind === "thread" || !acceptsDelta(row.kind, p.field, row.tool_kind ?? undefined))
         return;
       const window = appendWindow(row, p.append);
       this.sql.run(
@@ -151,10 +161,11 @@ export class SearchWriter {
     size: number,
     complete: boolean,
     seq: number,
+    toolKind: string | null,
   ): void {
     this.sql.run(
-      `INSERT INTO search_stage(thread,item,agent,kind,at,title,head,tail,size,dirty,complete,dirty_since) VALUES (?,?,?,?,?,?,?,?,?,1,?,?)
-      ON CONFLICT(thread,item) DO UPDATE SET agent=excluded.agent,kind=excluded.kind,at=excluded.at,title=excluded.title,head=excluded.head,tail=excluded.tail,size=excluded.size,dirty_since=CASE WHEN search_stage.dirty=0 THEN excluded.dirty_since ELSE search_stage.dirty_since END,dirty=1,complete=excluded.complete`,
+      `INSERT INTO search_stage(thread,item,agent,kind,at,title,head,tail,size,dirty,complete,dirty_since,tool_kind) VALUES (?,?,?,?,?,?,?,?,?,1,?,?,?)
+      ON CONFLICT(thread,item) DO UPDATE SET agent=excluded.agent,kind=excluded.kind,at=excluded.at,title=excluded.title,head=excluded.head,tail=excluded.tail,size=excluded.size,tool_kind=excluded.tool_kind,dirty_since=CASE WHEN search_stage.dirty=0 THEN excluded.dirty_since ELSE search_stage.dirty_since END,dirty=1,complete=excluded.complete`,
       thread,
       item,
       agent,
@@ -166,6 +177,7 @@ export class SearchWriter {
       size,
       Number(complete),
       seq,
+      toolKind,
     );
   }
   private removePostings(row: z.infer<typeof Document>): void {

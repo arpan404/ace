@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { Event, Thread, Item, type EventPayload, type SearchQuery } from "@ace/protocol";
+import { AgentId, Event, Thread, Item, type EventPayload, type SearchQuery } from "@ace/protocol";
 import { SearchIndex, type SearchSource } from "./index.ts";
+import { summarizeOutput } from "@ace/projection";
+
+const outputFixtures = new WeakMap<Item, string>();
 
 export const thread = Thread.parse({
   id: randomUUID(),
@@ -12,7 +15,7 @@ export const thread = Thread.parse({
   createdAt: 10,
   updatedAt: 10,
 });
-export const agent = randomUUID();
+export const agent = AgentId.parse(randomUUID());
 export function message(text: string, complete = true): Item {
   return Item.parse({
     id: randomUUID(),
@@ -32,7 +35,17 @@ export class Log implements SearchSource {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec("CREATE TABLE IF NOT EXISTS log(seq INTEGER PRIMARY KEY, event TEXT NOT NULL)");
-    this.index = new SearchIndex(this.db);
+    this.db.exec("CREATE TABLE IF NOT EXISTS outputs(id TEXT PRIMARY KEY, bytes BLOB NOT NULL)");
+    this.index = new SearchIndex(this.db, {
+      readOutput: (_threadId, streamId, offset, limit) => {
+        const bytes = this.db
+          .prepare("SELECT substr(bytes,?,?) AS bytes FROM outputs WHERE id=?")
+          .get(offset + 1, limit, streamId)?.bytes;
+        if (bytes === undefined) return undefined;
+        if (!(bytes instanceof Uint8Array)) throw new Error("Invalid fixture bytes");
+        return bytes;
+      },
+    });
   }
   headSeq(): number {
     return Number(this.db.prepare("SELECT coalesce(max(seq),0) n FROM log").get()?.n);
@@ -57,6 +70,21 @@ export class Log implements SearchSource {
     this.db.exec("BEGIN");
     try {
       let seq = this.headSeq();
+      for (const payload of payloads) {
+        if (payload.type === "item.created" || payload.type === "item.updated") {
+          const output = outputFixtures.get(payload.item);
+          if (
+            output !== undefined &&
+            payload.item.type === "tool_call" &&
+            payload.item.call.detail.kind === "shell"
+          )
+            this.db
+              .prepare(
+                "INSERT INTO outputs VALUES (?,?) ON CONFLICT(id) DO UPDATE SET bytes=excluded.bytes",
+              )
+              .run(payload.item.call.detail.output?.streamId ?? "", Buffer.from(output));
+        }
+      }
       const events = payloads.map((payload) =>
         Event.parse({ seq: ++seq, id: randomUUID(), threadId, at: 30, payload }),
       );
@@ -79,7 +107,7 @@ export class Log implements SearchSource {
 
 export function shell(output: string, complete = true): Item {
   const id = randomUUID();
-  return Item.parse({
+  const item = Item.parse({
     id,
     agentId: agent,
     createdAt: 20,
@@ -92,8 +120,10 @@ export function shell(output: string, complete = true): Item {
       title: "Build output",
       status: complete ? "succeeded" : "running",
       startedAt: 20,
-      detail: { kind: "shell", command: "build", output },
+      detail: { kind: "shell", command: "build", output: summarizeOutput(id, output) },
       raw: [],
     },
   });
+  outputFixtures.set(item, output);
+  return item;
 }

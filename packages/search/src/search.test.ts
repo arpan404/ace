@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { Event, Item, Thread } from "@ace/protocol";
 import { FIELD_CAP } from "./index.ts";
+import { summarizeOutput } from "@ace/projection";
 import { Log, message, thread, agent, shell } from "./test-support.ts";
 
 let directory: string;
@@ -123,7 +124,7 @@ test("tool commands, paths, changes and outputs are searchable but raw payloads 
         kind: "shell",
         command: "run snake_case fooBar",
         cwd: "/src/widget.ts",
-        output: "uniqueoutput",
+        output: summarizeOutput(id, "uniqueoutput"),
       },
       raw: [{ type: "secret", data: "credentialneedle" }],
     },

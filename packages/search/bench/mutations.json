@@ -53,5 +53,15 @@
     "mutation": "starve dirty documents by row id",
     "test": "continuously dirty",
     "killed": true
+  },
+  {
+    "mutation": "replace stored output heads with summary tails",
+    "test": "huge completed and streamed",
+    "killed": true
+  },
+  {
+    "mutation": "fail to decrement durable pending count",
+    "test": "backfill yields in bounded",
+    "killed": true
   }
 ]

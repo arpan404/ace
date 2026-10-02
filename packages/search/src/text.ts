@@ -33,7 +33,7 @@ export function capText(text: string): string {
   return windowText(appendWindow({ head: "", tail: "", size: 0 }, text));
 }
 /** Bounded traversal of typed fields; raw/native data is never passed here. */
-export function itemText(item: Item): { title: string; window: TextWindow } {
+export function itemText(item: Item, output?: string): { title: string; window: TextWindow } {
   let window: TextWindow = { head: "", tail: "", size: 0 };
   let remaining = 256;
   const add = (value: unknown, depth = 0): void => {
@@ -72,8 +72,12 @@ export function itemText(item: Item): { title: string; window: TextWindow } {
       add(item.text);
       break;
     case "tool_call":
-      add(item.call.detail);
       add(item.call.error);
+      if (item.call.detail.kind === "shell") {
+        const { output: summary, ...detail } = item.call.detail;
+        add(detail);
+        add(output ?? summary?.tail ?? "");
+      } else add(item.call.detail);
       break;
     case "compaction":
       break;
