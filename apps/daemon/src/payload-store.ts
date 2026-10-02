@@ -79,10 +79,13 @@ export class PayloadStore {
             this.db.prepare("SELECT size FROM output_streams WHERE id = ?").get(streamId)?.size,
           );
           const bytes = Buffer.from(output).subarray(size);
-          if (bytes.length) {
+          // Bound new legacy chunks; range reads also support older unsplit BLOBs.
+          for (let offset = 0; offset < bytes.length; offset += 64 * 1024) {
             this.db
               .prepare("INSERT INTO output_chunks VALUES (?, ?, ?)")
-              .run(streamId, size, bytes);
+              .run(streamId, size + offset, bytes.subarray(offset, offset + 64 * 1024));
+          }
+          if (bytes.length) {
             this.db
               .prepare("UPDATE output_streams SET size = size + ? WHERE id = ?")
               .run(bytes.length, streamId);
@@ -198,6 +201,7 @@ export class PayloadStore {
     const stream = this.db.prepare("SELECT size FROM output_streams WHERE id = ?").get(streamId);
     if (!stream) throw new Error("Unknown output stream");
     const size = Number(stream.size);
+    if (offset >= size) return { bytes: "", nextOffset: offset, eof: true };
     const end = Math.min(size, offset + limit);
     // Seek the predecessor using the primary key, then read only the intersecting range.
     const predecessor = this.db
@@ -208,16 +212,13 @@ export class PayloadStore {
     const start = predecessor ? Number(predecessor.offset) : offset;
     const chunks = this.db
       .prepare(
-        "SELECT offset, bytes FROM output_chunks WHERE stream_id = ? AND offset >= ? AND offset < ? ORDER BY offset",
+        "SELECT offset, substr(bytes, max(0, ? - offset) + 1, ? - max(offset, ?)) AS bytes FROM output_chunks WHERE stream_id = ? AND offset >= ? AND offset < ? ORDER BY offset",
       )
-      .all(streamId, start, end);
+      .all(offset, end, offset, streamId, start, end);
     const bytes = Buffer.concat(
       chunks.map((row) => {
         if (!(row.bytes instanceof Uint8Array)) throw new Error("Invalid output chunk");
-        return Buffer.from(row.bytes).subarray(
-          Math.max(0, offset - Number(row.offset)),
-          end - Number(row.offset),
-        );
+        return Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength);
       }),
     );
     return {
