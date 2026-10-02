@@ -10,6 +10,7 @@ export * from "./thread.ts";
 export * from "./tools.ts";
 export * from "./wire.ts";
 export * from "./settings.ts";
+export * from "./conductor.ts";
 export * from "./automations.ts";
 export * from "./models.ts";
 export * from "./orchestration.ts";

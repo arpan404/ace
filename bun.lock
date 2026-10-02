@@ -65,6 +65,13 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/conductor": {
+      "name": "@ace/conductor",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
@@ -78,6 +85,13 @@
         "@ace/core": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+      },
+    },
+    "packages/forge": {
+      "name": "@ace/forge",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
       },
     },
     "packages/git": {
@@ -176,11 +190,15 @@
 
     "@ace/automations": ["@ace/automations@workspace:packages/automations"],
 
+    "@ace/conductor": ["@ace/conductor@workspace:packages/conductor"],
+
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
 
     "@ace/engine-api": ["@ace/engine-api@workspace:packages/engine-api"],
+
+    "@ace/forge": ["@ace/forge@workspace:packages/forge"],
 
     "@ace/git": ["@ace/git@workspace:packages/git"],
 
