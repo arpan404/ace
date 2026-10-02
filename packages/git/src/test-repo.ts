@@ -1,12 +1,10 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, vi } from "vitest";
-
-// Contain failed real processes without imposing a performance budget on Git tests.
-vi.setConfig({ testTimeout: 120_000 });
+import { afterEach, inject } from "vitest";
+import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 
 export const execute = promisify(execFile);
 const directories: string[] = [];
@@ -50,7 +48,7 @@ export async function git(repo: string, ...args: string[]): Promise<Buffer> {
     cwd: repo,
     encoding: "buffer",
     maxBuffer: 32 * 1024 * 1024,
-    timeout: 30_000,
+    timeout: PROCESS_TEST_TIMEOUT,
     env: { ...env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", GIT_OPTIONAL_LOCKS: "0" },
   });
   return output.stdout;
@@ -68,12 +66,10 @@ export async function repository(
 ): Promise<string> {
   const directory = await scratch();
   const repo = join(directory, "repo with spaces\nand 雪");
-  await mkdir(repo);
-  await git(repo, "init", "-b", "main");
-  await git(repo, "config", "user.name", "Test");
-  await git(repo, "config", "user.email", "test@example.invalid");
-  await git(repo, "config", "commit.gpgsign", "false");
-  for (const [path, content] of Object.entries(files)) await put(repo, path, content);
+  // Copy only an empty initialized repository. Every test still creates its own
+  // real initial commit and owns every subsequent index/ref/worktree mutation.
+  await cp(inject("gitTemplate"), repo, { recursive: true });
+  await Promise.all(Object.entries(files).map(([path, content]) => put(repo, path, content)));
   await git(repo, "add", "--all");
   await git(repo, "commit", "--allow-empty", "-m", "Initial");
   return repo;
@@ -86,11 +82,18 @@ export async function put(repo: string, path: string, content: string | Buffer):
 }
 
 export async function userState(repo: string) {
+  const [index, head, branchRefs, stashRef, stashLog] = await Promise.all([
+    readFile(join(repo, ".git", "index")),
+    readFile(join(repo, ".git", "HEAD")),
+    git(repo, "show-ref", "--heads"),
+    readFile(join(repo, ".git", "refs", "stash")),
+    readFile(join(repo, ".git", "logs", "refs", "stash")),
+  ]);
   return {
-    index: await readFile(join(repo, ".git", "index")),
-    head: await readFile(join(repo, ".git", "HEAD")),
-    branchRefs: await git(repo, "show-ref", "--heads"),
-    stashRef: await readFile(join(repo, ".git", "refs", "stash")),
-    stashLog: await readFile(join(repo, ".git", "logs", "refs", "stash")),
+    index,
+    head,
+    branchRefs,
+    stashRef,
+    stashLog,
   };
 }
